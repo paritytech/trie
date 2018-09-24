@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use hashdb::{HashDB, Hasher};
+use hash_db::{HashDB, Hasher};
 use super::{Result, DBValue, TrieMut, TrieDBMut};
 use node_codec::NodeCodec;
 
@@ -87,8 +87,8 @@ where
 
 #[cfg(test)]
 mod test {
-	use memorydb::MemoryDB;
-	use hashdb::Hasher;
+	use memory_db::MemoryDB;
+	use hash_db::Hasher;
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefTrieDB, RefSecTrieDBMut, Trie, TrieMut};
 	use DBValue;

@@ -14,14 +14,14 @@
 
 #![feature(test)]
 
-extern crate hashdb;
-extern crate memorydb;
+extern crate hash_db;
+extern crate memory_db;
 extern crate keccak_hasher;
 extern crate test;
 
-use memorydb::MemoryDB;
+use memory_db::MemoryDB;
 use keccak_hasher::KeccakHasher;
-use hashdb::{HashDB, Hasher};
+use hash_db::{HashDB, Hasher};
 use test::{Bencher, black_box};
 
 #[bench]

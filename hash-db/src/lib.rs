@@ -69,16 +69,16 @@ pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 #[cfg(feature = "std")]
 pub trait AsHashDB<H: Hasher, T> {
 	/// Perform upcast to HashDB for anything that derives from HashDB.
-	fn as_hashdb(&self) -> &HashDB<H, T>;
+	fn as_hash_db(&self) -> &HashDB<H, T>;
 	/// Perform mutable upcast to HashDB for anything that derives from HashDB.
-	fn as_hashdb_mut(&mut self) -> &mut HashDB<H, T>;
+	fn as_hash_db_mut(&mut self) -> &mut HashDB<H, T>;
 }
 
 // NOTE: There used to be a `impl<T> AsHashDB for T` but that does not work with generics. See https://stackoverflow.com/questions/48432842/implementing-a-trait-for-reference-and-non-reference-types-causes-conflicting-im
 // This means we need concrete impls of AsHashDB in several places, which somewhat defeats the point of the trait.
 #[cfg(feature = "std")]
 impl<'a, H: Hasher, T> AsHashDB<H, T> for &'a mut HashDB<H, T> {
-	fn as_hashdb(&self) -> &HashDB<H, T> { &**self }
-	fn as_hashdb_mut(&mut self) -> &mut HashDB<H, T> { &mut **self }
+	fn as_hash_db(&self) -> &HashDB<H, T> { &**self }
+	fn as_hash_db_mut(&mut self) -> &mut HashDB<H, T> { &mut **self }
 }
 

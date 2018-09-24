@@ -14,13 +14,13 @@
 
 //! Key-value datastore with a modified Merkle tree.
 
-extern crate hashdb;
+extern crate hash_db;
 extern crate keccak_hasher;
 
-use hashdb::Hasher;
+use hash_db::Hasher;
 use keccak_hasher::KeccakHasher;
 
-type H256 = <KeccakHasher as hashdb::Hasher>::Out;
+type H256 = <KeccakHasher as hash_db::Hasher>::Out;
 
 /// Alphabet to use when creating words for insertion into tries.
 pub enum Alphabet {

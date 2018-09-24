@@ -14,7 +14,7 @@
 
 //! Trie interface and implementation.
 extern crate elastic_array;
-extern crate hashdb;
+extern crate hash_db;
 extern crate rand;
 #[macro_use]
 extern crate log;
@@ -26,7 +26,7 @@ extern crate trie_standardmap as standardmap;
 #[cfg(test)]
 extern crate trie_root;
 #[cfg(test)]
-extern crate memorydb;
+extern crate memory_db;
 #[cfg(test)]
 extern crate keccak_hasher;
 #[cfg(test)]
@@ -49,7 +49,7 @@ mod nibblevec;
 mod nibbleslice;
 mod node_codec;
 
-pub use hashdb::{HashDB, Hasher};
+pub use hash_db::{HashDB, Hasher};
 pub use self::triedb::{TrieDB, TrieDBIterator};
 pub use self::triedbmut::{TrieDBMut, ChildReference};
 pub use self::sectriedbmut::SecTrieDBMut;

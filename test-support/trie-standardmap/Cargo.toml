@@ -7,4 +7,4 @@ license = "GPL-3.0"
 
 [dependencies]
 keccak-hasher = { path = "../keccak-hasher" }
-hashdb = { path = "../../hashdb" }
+hash-db = { path = "../../hash-db" }

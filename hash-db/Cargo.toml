@@ -1,9 +1,9 @@
 [package]
-name = "hashdb"
+name = "hash-db"
 version = "0.3.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "trait for hash-keyed databases."
-license = "GPL-3.0"
+license = "Apache-2"
 
 [dependencies]
 

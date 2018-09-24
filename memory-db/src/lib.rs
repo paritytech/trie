@@ -13,12 +13,12 @@
 // limitations under the License.
 
 //! Reference-counted memory-based `HashDB` implementation.
-extern crate hashdb;
+extern crate hash_db;
 extern crate heapsize;
 #[cfg(test)] extern crate keccak_hasher;
 #[cfg(test)] extern crate tiny_keccak;
 
-use hashdb::{HashDB, Hasher as KeyHasher, AsHashDB};
+use hash_db::{HashDB, Hasher as KeyHasher, AsHashDB};
 use heapsize::HeapSizeOf;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -38,13 +38,13 @@ type FastMap<H, T> = HashMap<<H as KeyHasher>::Out, T, hash::BuildHasherDefault<
 ///
 /// # Example
 /// ```rust
-/// extern crate hashdb;
+/// extern crate hash_db;
 /// extern crate keccak_hasher;
-/// extern crate memorydb;
+/// extern crate memory_db;
 ///
-/// use hashdb::*;
+/// use hash_db::*;
 /// use keccak_hasher::KeccakHasher;
-/// use memorydb::*;
+/// use memory_db::*;
 /// fn main() {
 ///   let mut m = MemoryDB::<KeccakHasher, Vec<u8>>::default();
 ///   let d = "Hello world!".as_bytes();
@@ -137,13 +137,13 @@ impl<'a, H: KeyHasher, T> MemoryDB<H, T> where T: From<&'a [u8]> {
 	///
 	/// # Examples
 	/// ```rust
-	/// extern crate hashdb;
+	/// extern crate hash_db;
 	/// extern crate keccak_hasher;
-	/// extern crate memorydb;
+	/// extern crate memory_db;
 	///
-	/// use hashdb::*;
+	/// use hash_db::*;
 	/// use keccak_hasher::KeccakHasher;
-	/// use memorydb::*;
+	/// use memory_db::*;
 	///
 	/// fn main() {
 	///   let mut m = MemoryDB::<KeccakHasher, Vec<u8>>::default();
@@ -310,8 +310,8 @@ where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + for<'a> From<&'a[u8]> + Send + Sync,
 {
-	fn as_hashdb(&self) -> &HashDB<H, T> { self }
-	fn as_hashdb_mut(&mut self) -> &mut HashDB<H, T> { self }
+	fn as_hash_db(&self) -> &HashDB<H, T> { self }
+	fn as_hash_db_mut(&mut self) -> &mut HashDB<H, T> { self }
 }
 
 #[cfg(test)]

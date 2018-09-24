@@ -16,7 +16,7 @@
 //!
 //! This module should be used to generate trie root hash.
 
-extern crate hashdb;
+extern crate hash_db;
 #[cfg(test)]
 extern crate keccak_hasher;
 
@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 use std::cmp;
 use std::fmt::Debug; // TODO: remove when done here along with all the `Debug` bounds
 
-pub use hashdb::Hasher;
+pub use hash_db::Hasher;
 
 /// TODO: DOCUMENT!!!!
 pub trait TrieStream {
@@ -49,11 +49,12 @@ fn shared_prefix_len<T: Eq>(first: &[T], second: &[T]) -> usize {
 /// Generates a trie root hash for a vector of key-value tuples
 ///
 /// ```rust
+/// #[macro_use] extern crate hex_literal;
 /// extern crate trie_root;
-/// extern crate trie_db;
+/// extern crate reference_trie;
 /// extern crate keccak_hasher;
 /// use trie_root::trie_root;
-/// use trie_db::ReferenceTrieStream;
+/// use reference_trie::ReferenceTrieStream;
 /// use keccak_hasher::KeccakHasher;
 ///
 /// fn main() {
@@ -63,8 +64,8 @@ fn shared_prefix_len<T: Eq>(first: &[T], second: &[T]) -> usize {
 /// 		("dogglesworth", "cat"),
 /// 	];
 ///
-/// 	let root = "8aad789dff2f538bca5d8ea56e8abe10f4c7ba3a5dea95fea4cd6e7c3a1168d3";
-/// 	assert_eq!(trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v), root.into());
+/// 	let root = hex!["0807d5393ae7f349481063ebb5dbaf6bda58db282a385ca97f37dccba717cb79"];
+/// 	assert_eq!(trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v), root);
 /// }
 /// ```
 pub fn trie_root<H, S, I, A, B>(input: I) -> H::Out where
@@ -139,12 +140,13 @@ pub fn unhashed_trie<H, S, I, A, B>(input: I) -> Vec<u8> where
 /// Generates a key-hashed (secure) trie root hash for a vector of key-value tuples.
 ///
 /// ```rust
+/// #[macro_use] extern crate hex_literal;
 /// extern crate trie_root;
 /// extern crate keccak_hasher;
-/// extern crate trie_db;
+/// extern crate reference_trie;
 /// use trie_root::sec_trie_root;
 /// use keccak_hasher::KeccakHasher;
-/// use trie_db::ReferenceTrieStream;
+/// use reference_trie::ReferenceTrieStream;
 ///
 /// fn main() {
 /// 	let v = vec![
@@ -153,8 +155,8 @@ pub fn unhashed_trie<H, S, I, A, B>(input: I) -> Vec<u8> where
 /// 		("dogglesworth", "cat"),
 /// 	];
 ///
-/// 	let root = "d4cd937e4a4368d7931a9cf51686b7e10abb3dce38a39000fd7902a092b64585";
-/// 	assert_eq!(sec_trie_root::<KeccakHasher, RlpTrieStream, _, _, _>(v), root.into());
+/// 	let root = hex!["d6e02b2bd48aa04fd2ad87cfac1144a29ca7f7dc60f4526c7b7040763abe3d43"];
+/// 	assert_eq!(sec_trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v), root);
 /// }
 /// ```
 pub fn sec_trie_root<H, S, I, A, B>(input: I) -> H::Out where

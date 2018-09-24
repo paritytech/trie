@@ -14,11 +14,11 @@
 
 //! Hasher implementation for the Keccak-256 hash
 
-extern crate hashdb;
+extern crate hash_db;
 extern crate tiny_keccak;
 extern crate plain_hasher;
 
-use hashdb::Hasher;
+use hash_db::Hasher;
 use tiny_keccak::Keccak;
 use plain_hasher::PlainHasher;
 

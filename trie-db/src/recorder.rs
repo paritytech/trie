@@ -74,8 +74,8 @@ impl<HO: Copy> Recorder<HO> {
 
 #[cfg(test)]
 mod tests {
-	use memorydb::MemoryDB;
-	use hashdb::Hasher;
+	use memory_db::MemoryDB;
+	use hash_db::Hasher;
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefTrieDB, RefTrieDBMut, Trie, TrieMut, Recorder, Record};
 

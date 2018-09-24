@@ -4,9 +4,9 @@ version = "0.1.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Keccak-256 implementation of the Hasher trait"
 repository = "https://github.com/paritytech/parity/"
-license = "GPL-3.0"
+license = "Apache-2"
 
 [dependencies]
 tiny-keccak = "1.4.2"
-hashdb = { path = "../../hashdb" }
+hash-db = { path = "../../hash-db" }
 plain-hasher = { path = "../plain-hasher" }

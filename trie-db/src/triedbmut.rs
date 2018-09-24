@@ -20,7 +20,7 @@ use super::node::Node as EncodedNode;
 use node_codec::NodeCodec;
 use super::{DBValue, node::NodeKey};
 
-use hashdb::{HashDB, Hasher};
+use hash_db::{HashDB, Hasher};
 use nibbleslice::NibbleSlice;
 
 use std::collections::{HashSet, VecDeque};
@@ -258,15 +258,15 @@ impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
 /// ```
 /// extern crate trie_db;
 /// extern crate reference_trie;
-/// extern crate hashdb;
+/// extern crate hash_db;
 /// extern crate keccak_hasher;
-/// extern crate memorydb;
+/// extern crate memory_db;
 ///
-/// use hashdb::Hasher;
+/// use hash_db::Hasher;
 /// use reference_trie::{RefTrieDBMut, TrieMut};
 /// use trie_db::DBValue;
 /// use keccak_hasher::KeccakHasher;
-/// use memorydb::*;
+/// use memory_db::*;
 ///
 /// fn main() {
 ///   let mut memdb = MemoryDB::default();
@@ -966,8 +966,8 @@ mod tests {
 	use env_logger;
 	use standardmap::*;
 	use DBValue;
-	use memorydb::MemoryDB;
-	use hashdb::{Hasher, HashDB};
+	use memory_db::MemoryDB;
+	use hash_db::{Hasher, HashDB};
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefTrieDBMut, TrieMut, NodeCodec,
 		ReferenceNodeCodec, ref_trie_root};

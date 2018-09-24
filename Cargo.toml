@@ -1,7 +1,7 @@
 [workspace]
 members = [
-	"hashdb",
-	"memorydb",
+	"hash-db",
+	"memory-db",
 	"test-support/plain-hasher",
 	"test-support/keccak-hasher",
 	"test-support/trie-standardmap",

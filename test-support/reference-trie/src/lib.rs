@@ -14,7 +14,7 @@
 
 //! Reference implementation of a streamer.
 
-extern crate hashdb;
+extern crate hash_db;
 extern crate trie_db;
 extern crate parity_codec as codec;
 extern crate trie_root;

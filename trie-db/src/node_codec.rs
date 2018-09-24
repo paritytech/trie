@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Generic trait for trie node encoding/decoding. Takes a `hashdb::Hasher`
+//! Generic trait for trie node encoding/decoding. Takes a `hash_db::Hasher`
 //! to parametrize the hashes used in the codec.
 
-use hashdb::Hasher;
+use hash_db::Hasher;
 use node::Node;
 use ChildReference;
 

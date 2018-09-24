@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::fmt;
-use hashdb::*;
+use hash_db::*;
 use nibbleslice::NibbleSlice;
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
@@ -33,15 +33,15 @@ use std::borrow::Cow;
 /// ```
 /// extern crate trie_db;
 /// extern crate reference_trie;
-/// extern crate hashdb;
+/// extern crate hash_db;
 /// extern crate keccak_hasher;
-/// extern crate memorydb;
+/// extern crate memory_db;
 ///
-/// use hashdb::Hasher;
+/// use hash_db::Hasher;
 /// use reference_trie::{RefTrieDBMut, RefTrieDB, Trie, TrieMut};
 /// use trie_db::DBValue;
 /// use keccak_hasher::KeccakHasher;
-/// use memorydb::*;
+/// use memory_db::*;
 ///
 /// fn main() {
 ///   let mut memdb = MemoryDB::default();
@@ -440,7 +440,7 @@ impl<'a, H: Hasher, C: NodeCodec<H>> Iterator for TrieDBIterator<'a, H, C> {
 
 #[cfg(test)]
 mod tests {
-	use memorydb::MemoryDB;
+	use memory_db::MemoryDB;
 	use keccak_hasher::KeccakHasher;
 	use DBValue;
 	use reference_trie::{RefTrieDB, RefTrieDBMut, RefLookup, Trie, TrieMut, NibbleSlice};

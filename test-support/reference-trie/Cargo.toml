@@ -4,10 +4,10 @@ version = "0.1.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Simple reference trie format"
 repository = "https://github.com/paritytech/trie/"
-license = "GPL-3.0"
+license = "Apache-2"
 
 [dependencies]
-hashdb = { path = "../../hashdb" }
+hash-db = { path = "../../hash-db" }
 plain-hasher = { path = "../plain-hasher" }
 keccak-hasher = { path = "../keccak-hasher" }
 trie-db = { path = "../../trie-db" }

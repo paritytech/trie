@@ -4,13 +4,13 @@ version = "0.4.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "In-memory patricia trie operations"
 repository = "https://github.com/paritytech/parity-common"
-license = "GPL-3.0"
+license = "Apache-2"
 
 [dependencies]
-hashdb = { path = "../hashdb", default-features = false }
+hash-db = { path = "../hash-db", default-features = false }
 
 [dev-dependencies]
-tiny-keccak = "1.4"
+hex-literal = "0.1"
 keccak-hasher = { path = "../test-support/keccak-hasher" }
 trie-standardmap = { path = "../test-support/trie-standardmap" }
-trie-db = { path = "../trie-db" }
+reference-trie = { path = "../test-support/reference-trie" }
