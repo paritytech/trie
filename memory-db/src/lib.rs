@@ -83,8 +83,6 @@ pub struct MemoryDB<H: KeyHasher, T> {
 	null_node_data: T,
 }
 
-
-
 impl<'a, H, T> Default for MemoryDB<H, T>
 where
 	H: KeyHasher,
@@ -130,6 +128,15 @@ impl<'a, H: KeyHasher, T> MemoryDB<H, T> where T: From<&'a [u8]> {
 			data: FastMap::<H,_>::default(),
 			hashed_null_node: H::hash(null_key),
 			null_node_data,
+		}
+	}
+
+	/// Create a new `MemoryDB` from a given null key/data
+	pub fn new(data: &'a [u8]) -> Self {
+		MemoryDB {
+			data: FastMap::<H, _>::default(),
+			hashed_null_node: H::hash(data),
+			null_node_data: data.into(),
 		}
 	}
 

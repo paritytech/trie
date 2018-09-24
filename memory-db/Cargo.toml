@@ -12,3 +12,8 @@ hash-db = { path = "../hash-db" }
 
 [dev-dependencies]
 keccak-hasher = { path = "../test-support/keccak-hasher" }
+criterion = "0.1.2"
+
+[[bench]]
+name = "bench"
+harness = false

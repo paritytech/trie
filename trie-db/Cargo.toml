@@ -19,3 +19,8 @@ trie-root = { path = "../trie-root" }
 trie-standardmap = { path = "../test-support/trie-standardmap" }
 keccak-hasher = { path = "../test-support/keccak-hasher" }
 reference-trie = { path = "../test-support/reference-trie" }
+criterion = "0.1.2"
+
+[[bench]]
+name = "bench"
+harness = false

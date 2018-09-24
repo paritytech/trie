@@ -7,8 +7,15 @@ license = "Apache-2"
 homepage = "https://github.com/paritytech/trie"
 categories = [ "no-std" ]
 
+[[bench]]
+name = "bench"
+harness = false
+
 [dependencies]
 crunchy = "0.1.6"
+
+[dev-dependencies]
+criterion = "0.1.2"
 
 [features]
 default = ["std"]
