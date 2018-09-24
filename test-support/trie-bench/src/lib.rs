@@ -103,65 +103,6 @@ fn random_value(seed: &mut <KeccakHasher as Hasher>::Out) -> Vec<u8> {
 }
 
 pub fn standard_benchmark<H: 'static +  Hasher, N: NodeCodec<H>, S: TrieStream>(b: &mut Criterion, name: &str) {
-	let st = StandardMap {
-		alphabet: Alphabet::All,
-		min_key: 32,
-		journal_key: 0,
-		value_mode: ValueMode::Mirror,
-		count: 1000,
-	};
-	benchmark::<H, N, S>(b, &format!("{}.32_mir_1k", name), st.make());
-
-	let st = StandardMap {
-		alphabet: Alphabet::All,
-		min_key: 32,
-		journal_key: 0,
-		value_mode: ValueMode::Random,
-		count: 1000,
-	};
-	benchmark::<H, N, S>(b, &format!("{}.32_ran_1k", name), st.make());
-
-	let mut d: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
-	let mut seed = <KeccakHasher as Hasher>::Out::default();
-	for _ in 0..1000 {
-		let k = random_bytes(6, 0, &mut seed);
-		let v = random_value(&mut seed);
-		d.push((k, v))
-	}
-
-	benchmark::<H, N, S>(b, &format!("{}.six_high_1k", name), d);
-
-	let alphabet = b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_";
-	let mut d: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
-	let mut seed = <KeccakHasher as Hasher>::Out::default();
-	for _ in 0..1000 {
-		let k = random_word(alphabet, 6, 0, &mut seed);
-		let v = random_value(&mut seed);
-		d.push((k, v))
-	}
-	benchmark::<H, N, S>(b, &format!("{}.six_mid_1k", name), d);
-
-	let alphabet = b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_";
-	let mut d: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
-	let mut seed = <KeccakHasher as Hasher>::Out::default();
-	for _ in 0..1000 {
-		let k = random_word(alphabet, 1, 5, &mut seed);
-		let v = random_value(&mut seed);
-		d.push((k, v))
-	}
-
-	benchmark::<H, N, S>(b, &format!("{}.random_mid_1k", name), d);
-
-	let alphabet = b"abcdef";
-	let mut d: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
-	let mut seed = <KeccakHasher as Hasher>::Out::default();
-	for _ in 0..1000 {
-		let k = random_word(alphabet, 6, 0, &mut seed);
-		let v = random_value(&mut seed);
-		d.push((k, v))
-	}
-
-	benchmark::<H, N, S>(b, &format!("{}.six_low_1k", name), d);
 
 	// Typical ethereum transaction payload passing through `verify_block_integrity()` close to block #6317032;
 	// 140 iteams, avg length 157bytes, total 22033bytes payload (expected root: 0xc1382bbef81d10a41d325e2873894b61162fb1e6167cafc663589283194acfda)
@@ -313,4 +254,64 @@ pub fn standard_benchmark<H: 'static +  Hasher, N: NodeCodec<H>, S: TrieStream>(
 		.map(|(i, v)| (Compact(i as u32).encode(), v) )
 		.collect::<Vec<_>>();
 	benchmark::<H, N, S>(b, &format!("{}.typical_txs", name), d);
+
+	let st = StandardMap {
+		alphabet: Alphabet::All,
+		min_key: 32,
+		journal_key: 0,
+		value_mode: ValueMode::Mirror,
+		count: 1000,
+	};
+	benchmark::<H, N, S>(b, &format!("{}.32_mir_1k", name), st.make());
+
+	let st = StandardMap {
+		alphabet: Alphabet::All,
+		min_key: 32,
+		journal_key: 0,
+		value_mode: ValueMode::Random,
+		count: 1000,
+	};
+	benchmark::<H, N, S>(b, &format!("{}.32_ran_1k", name), st.make());
+
+	let mut d: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+	let mut seed = <KeccakHasher as Hasher>::Out::default();
+	for _ in 0..1000 {
+		let k = random_bytes(6, 0, &mut seed);
+		let v = random_value(&mut seed);
+		d.push((k, v))
+	}
+
+	benchmark::<H, N, S>(b, &format!("{}.six_high_1k", name), d);
+
+	let alphabet = b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_";
+	let mut d: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+	let mut seed = <KeccakHasher as Hasher>::Out::default();
+	for _ in 0..1000 {
+		let k = random_word(alphabet, 6, 0, &mut seed);
+		let v = random_value(&mut seed);
+		d.push((k, v))
+	}
+	benchmark::<H, N, S>(b, &format!("{}.six_mid_1k", name), d);
+
+	let alphabet = b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_";
+	let mut d: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+	let mut seed = <KeccakHasher as Hasher>::Out::default();
+	for _ in 0..1000 {
+		let k = random_word(alphabet, 1, 5, &mut seed);
+		let v = random_value(&mut seed);
+		d.push((k, v))
+	}
+
+	benchmark::<H, N, S>(b, &format!("{}.random_mid_1k", name), d);
+
+	let alphabet = b"abcdef";
+	let mut d: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+	let mut seed = <KeccakHasher as Hasher>::Out::default();
+	for _ in 0..1000 {
+		let k = random_word(alphabet, 6, 0, &mut seed);
+		let v = random_value(&mut seed);
+		d.push((k, v))
+	}
+
+	benchmark::<H, N, S>(b, &format!("{}.six_low_1k", name), d);
 }
