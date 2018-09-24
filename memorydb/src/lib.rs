@@ -1,30 +1,25 @@
-// Copyright 2015-2018 Parity Technologies (UK) Ltd.
-// This file is part of Parity.
-
-// Parity is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-
-// Parity is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-
-// You should have received a copy of the GNU General Public License
-// along with Parity.  If not, see <http://www.gnu.org/licenses/>.
+// Copyright 2017, 2018 Parity Technologies
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 //! Reference-counted memory-based `HashDB` implementation.
 extern crate hashdb;
 extern crate heapsize;
-extern crate rlp;
 #[cfg(test)] extern crate keccak_hasher;
 #[cfg(test)] extern crate tiny_keccak;
-#[cfg(test)] extern crate ethereum_types;
 
 use hashdb::{HashDB, Hasher as KeyHasher, AsHashDB};
 use heapsize::HeapSizeOf;
-use rlp::NULL_RLP;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::hash;
@@ -51,7 +46,7 @@ type FastMap<H, T> = HashMap<<H as KeyHasher>::Out, T, hash::BuildHasherDefault<
 /// use keccak_hasher::KeccakHasher;
 /// use memorydb::*;
 /// fn main() {
-///   let mut m = MemoryDB::<KeccakHasher, Vec<u8>>::new();
+///   let mut m = MemoryDB::<KeccakHasher, Vec<u8>>::default();
 ///   let d = "Hello world!".as_bytes();
 ///
 ///   let k = m.insert(d);
@@ -88,32 +83,21 @@ pub struct MemoryDB<H: KeyHasher, T> {
 	null_node_data: T,
 }
 
+
+
 impl<'a, H, T> Default for MemoryDB<H, T>
 where
 	H: KeyHasher,
-	H::Out: HeapSizeOf,
 	T: From<&'a [u8]>
 {
-	fn default() -> Self { Self::new() }
-}
-
-impl<'a, H, T> MemoryDB<H, T>
-where
-	H: KeyHasher,
-	H::Out: HeapSizeOf,
-	T: From<&'a [u8]>,
-{
-	/// Create a new instance of the memory DB.
-	// TODO: REMOVE or at least rename to from_empty_rlp
-	pub fn new() -> Self {
-		MemoryDB::from_null_node(&NULL_RLP, NULL_RLP.as_ref().into())
+	fn default() -> Self {
+		Self::from_null_node(&[0u8][..], [0u8][..].into())
 	}
 }
 
 impl<H, T> MemoryDB<H, T>
 where
 	H: KeyHasher,
-	H::Out: HeapSizeOf,
 	T: Default,
 {
 	/// Remove an element and delete it from storage if reference count reaches zero.
@@ -138,19 +122,15 @@ where
 	}
 }
 
-impl<H: KeyHasher, T> MemoryDB<H, T> {
+impl<'a, H: KeyHasher, T> MemoryDB<H, T> where T: From<&'a [u8]> {
 
 	/// Create a new `MemoryDB` from a given null key/data
-	pub fn from_null_node(null_key: &[u8], null_node_data: T) -> Self {
+	pub fn from_null_node(null_key: &'a [u8], null_node_data: T) -> Self {
 		MemoryDB {
 			data: FastMap::<H,_>::default(),
 			hashed_null_node: H::hash(null_key),
 			null_node_data,
 		}
-	}
-
-	pub fn new_codec() -> Self where for<'a> T: From<&'a [u8]> {
-		Self::from_null_node(&[0u8][..], [0u8][..].into())
 	}
 
 	/// Clear all data from the database.
@@ -166,7 +146,7 @@ impl<H: KeyHasher, T> MemoryDB<H, T> {
 	/// use memorydb::*;
 	///
 	/// fn main() {
-	///   let mut m = MemoryDB::<KeccakHasher, Vec<u8>>::new();
+	///   let mut m = MemoryDB::<KeccakHasher, Vec<u8>>::default();
 	///   let hello_bytes = "Hello world!".as_bytes();
 	///   let hash = m.insert(hello_bytes);
 	///   assert!(m.contains(&hash));
@@ -222,12 +202,12 @@ impl<H: KeyHasher, T> MemoryDB<H, T> {
 impl<H, T> MemoryDB<H, T>
 where
 	H: KeyHasher,
-	H::Out: HeapSizeOf,
 	T: HeapSizeOf,
 {
 	/// Returns the size of allocated heap memory
 	pub fn mem_used(&self) -> usize {
-		self.data.heap_size_of_children()
+		0//self.data.heap_size_of_children()
+		// TODO Reenable above when HeapSizeOf supports arrays.
 	}
 }
 
@@ -288,7 +268,7 @@ where
 	}
 
 	fn insert(&mut self, value: &[u8]) -> H::Out {
-		if value == &NULL_RLP {
+		if T::from(value) == self.null_node_data {
 			return self.hashed_null_node.clone();
 		}
 		let key = H::hash(value);
@@ -337,18 +317,14 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use tiny_keccak::Keccak;
-	use ethereum_types::H256;
 	use keccak_hasher::KeccakHasher;
 
 	#[test]
 	fn memorydb_remove_and_purge() {
 		let hello_bytes = b"Hello world!";
-		let mut hello_key = [0;32];
-		Keccak::keccak256(hello_bytes, &mut hello_key);
-		let hello_key = H256(hello_key);
+		let hello_key = KeccakHasher::hash(hello_bytes);
 
-		let mut m = MemoryDB::<KeccakHasher, Vec<u8>>::new();
+		let mut m = MemoryDB::<KeccakHasher, Vec<u8>>::default();
 		m.remove(&hello_key);
 		assert_eq!(m.raw(&hello_key).unwrap().1, -1);
 		m.purge();
@@ -358,7 +334,7 @@ mod tests {
 		m.purge();
 		assert_eq!(m.raw(&hello_key), None);
 
-		let mut m = MemoryDB::<KeccakHasher, Vec<u8>>::new();
+		let mut m = MemoryDB::<KeccakHasher, Vec<u8>>::default();
 		assert!(m.remove_and_purge(&hello_key).is_none());
 		assert_eq!(m.raw(&hello_key).unwrap().1, -1);
 		m.insert(hello_bytes);
@@ -371,8 +347,8 @@ mod tests {
 
 	#[test]
 	fn consolidate() {
-		let mut main = MemoryDB::<KeccakHasher, Vec<u8>>::new();
-		let mut other = MemoryDB::<KeccakHasher, Vec<u8>>::new();
+		let mut main = MemoryDB::<KeccakHasher, Vec<u8>>::default();
+		let mut other = MemoryDB::<KeccakHasher, Vec<u8>>::default();
 		let remove_key = other.insert(b"doggo");
 		main.remove(&remove_key);
 
@@ -396,7 +372,7 @@ mod tests {
 	#[test]
 	fn default_works() {
 		let mut db = MemoryDB::<KeccakHasher, Vec<u8>>::default();
-		let hashed_null_node = KeccakHasher::hash(&NULL_RLP);
-		assert_eq!(db.insert(&NULL_RLP), hashed_null_node);
+		let hashed_null_node = KeccakHasher::hash(&[0u8][..]);
+		assert_eq!(db.insert(&[0u8][..]), hashed_null_node);
 	}
 }

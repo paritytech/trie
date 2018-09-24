@@ -1,0 +1,17 @@
+[package]
+name = "reference-trie"
+version = "0.1.0"
+authors = ["Parity Technologies <admin@parity.io>"]
+description = "Simple reference trie format"
+repository = "https://github.com/paritytech/trie/"
+license = "GPL-3.0"
+
+[dependencies]
+hashdb = { path = "../../hashdb" }
+plain-hasher = { path = "../plain-hasher" }
+keccak-hasher = { path = "../keccak-hasher" }
+trie-db = { path = "../../trie-db" }
+trie-root = { path = "../../trie-root" }
+hex-prefix-encoding = { path = "../../hex-prefix-encoding" }
+parity-codec = { version = "~2.0.1" }
+parity-codec-derive = { version = "~2.0.1" }

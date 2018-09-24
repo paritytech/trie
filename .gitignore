@@ -20,4 +20,5 @@
 *.swp
 *.swo
 
-**/.criterion
+core/trie/.criterion/
+**/.criterion/

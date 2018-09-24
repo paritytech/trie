@@ -8,12 +8,8 @@ license = "GPL-3.0"
 
 [dependencies]
 heapsize = "0.4"
-hashdb = { version = "0.3", path = "../hashdb" }
-plain_hasher = { version = "0.2", path = "../plain_hasher", default-features = false }
-rlp = { version = "0.3", path = "../rlp", default-features = false }
+hashdb = { path = "../hashdb" }
 
 [dev-dependencies]
+keccak-hasher = { path = "../test-support/keccak-hasher" }
 tiny-keccak = "1.4.2"
-ethereum-types = "0.4"
-keccak-hasher = { version = "0.1", path = "../test-support/keccak-hasher" }
-keccak-hash = { version = "0.1", path = "../keccak-hash" }

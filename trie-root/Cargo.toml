@@ -1,0 +1,16 @@
+[package]
+name = "trie-root"
+version = "0.4.0"
+authors = ["Parity Technologies <admin@parity.io>"]
+description = "In-memory patricia trie operations"
+repository = "https://github.com/paritytech/parity-common"
+license = "GPL-3.0"
+
+[dependencies]
+hashdb = { path = "../hashdb", default-features = false }
+
+[dev-dependencies]
+tiny-keccak = "1.4"
+keccak-hasher = { path = "../test-support/keccak-hasher" }
+trie-standardmap = { path = "../test-support/trie-standardmap" }
+trie-db = { path = "../trie-db" }

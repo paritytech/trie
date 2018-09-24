@@ -7,7 +7,6 @@ repository = "https://github.com/paritytech/parity/"
 license = "GPL-3.0"
 
 [dependencies]
-ethereum-types = "0.4"
 tiny-keccak = "1.4.2"
-hashdb = { version = "0.3.0", path = "../../hashdb" }
-plain_hasher = {  path = "../../plain_hasher" }
+hashdb = { path = "../../hashdb" }
+plain-hasher = { path = "../plain-hasher" }
