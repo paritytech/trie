@@ -48,7 +48,7 @@ pub trait TrieStream {
 	/// Start a new Branch node, possibly with a value; takes a list indicating
 	/// which slots in the Branch node has further child nodes.
 	fn begin_branch(&mut self, maybe_value: Option<&[u8]>, has_children: impl Iterator<Item = bool>);
-	// TODO: document
+	// Append an empty child node. Optional.
 	fn append_empty_child(&mut self) {}
 	/// Wrap up a Branch node portion of a `TrieStream` and append the value
 	/// stored on the Branch (if any).

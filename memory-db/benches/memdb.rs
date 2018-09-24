@@ -27,7 +27,7 @@ use test::{Bencher, black_box};
 #[bench]
 fn instantiation(b: &mut Bencher) {
     b.iter(|| {
-        MemoryDB::<KeccakHasher, Vec<u8>>::new();
+        MemoryDB::<KeccakHasher, Vec<u8>>::default();
     })
 }
 
@@ -53,7 +53,7 @@ fn compare_to_null_in_const(b: &mut Bencher) {
 
 #[bench]
 fn contains_with_non_null_key(b: &mut Bencher) {
-    let mut m = MemoryDB::<KeccakHasher, Vec<u8>>::new();
+    let mut m = MemoryDB::<KeccakHasher, Vec<u8>>::default();
     let key = KeccakHasher::hash(b"abc");
     m.insert(b"abcefghijklmnopqrstuvxyz");
     b.iter(|| {
