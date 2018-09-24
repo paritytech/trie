@@ -98,8 +98,7 @@ where
 
 	// decode a node from encoded bytes without getting its children.
 	fn from_encoded<C, H>(data: &[u8], db: &HashDB<H, DBValue>, storage: &mut NodeStorage<H::Out>) -> Self
-	where C: NodeCodec<H>,
-		  H: Hasher<Out = O>,
+	where C: NodeCodec<H>, H: Hasher<Out = O>,
 	{
 		match C::decode(data).expect("encoded bytes read from db; qed") {
 			EncodedNode::Empty => Node::Empty,
