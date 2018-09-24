@@ -51,7 +51,7 @@ type FastMap<H, T> = HashMap<<H as KeyHasher>::Out, T, hash::BuildHasherDefault<
 ///
 ///   let k = m.insert(d);
 ///   assert!(m.contains(&k));
-///   assert_eq!(m.get(&k).unwrap(), &d);
+///   assert_eq!(m.get(&k).unwrap(), d);
 ///
 ///   m.insert(d);
 ///   assert!(m.contains(&k));
@@ -70,7 +70,7 @@ type FastMap<H, T> = HashMap<<H as KeyHasher>::Out, T, hash::BuildHasherDefault<
 
 ///   m.insert(d);
 ///   assert!(m.contains(&k));
-///   assert_eq!(m.get(&k).unwrap(), &d);
+///   assert_eq!(m.get(&k).unwrap(), d);
 ///
 ///   m.remove(&k);
 ///   assert!(!m.contains(&k));
@@ -221,7 +221,7 @@ where
 impl<H, T> HashDB<H, T> for MemoryDB<H, T>
 where
 	H: KeyHasher,
-	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Send + Sync,
+	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 {
 	fn keys(&self) -> HashMap<H::Out, i32> {
 		self.data.iter()
@@ -233,13 +233,13 @@ where
 			.collect()
 	}
 
-	fn get(&self, key: &H::Out) -> Option<&T> {
+	fn get(&self, key: &H::Out) -> Option<T> {
 		if key == &self.hashed_null_node {
-			return Some(&self.null_node_data);
+			return Some(self.null_node_data.clone());
 		}
 
 		match self.data.get(key) {
-			Some(&(ref d, rc)) if rc > 0 => Some(d),
+			Some(&(ref d, rc)) if rc > 0 => Some(d.clone()),
 			_ => None
 		}
 	}
@@ -315,7 +315,7 @@ where
 impl<H, T> AsHashDB<H, T> for MemoryDB<H, T>
 where
 	H: KeyHasher,
-	T: Default + PartialEq<T> + for<'a> From<&'a[u8]> + Send + Sync,
+	T: Default + PartialEq<T> + for<'a> From<&'a[u8]> + Clone + Send + Sync,
 {
 	fn as_hash_db(&self) -> &HashDB<H, T> { self }
 	fn as_hash_db_mut(&mut self) -> &mut HashDB<H, T> { self }

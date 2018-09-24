@@ -38,7 +38,7 @@ impl<T> DebugIfStd for T {}
 /// Trait describing an object that can hash a slice of bytes. Used to abstract
 /// other types over the hashing algorithm. Defines a single `hash` method and an
 /// `Out` associated type with the necessary bounds.
-pub trait Hasher: Sync + Send {
+pub trait Hasher: Sync + Send + 'static {
 	/// The output type of the `Hasher`
 	type Out: AsRef<[u8]> + AsMut<[u8]> + Default + DebugIfStd + PartialEq + Eq + hash::Hash + Send + Sync + Clone + Copy;
 	/// What to use to build `HashMap`s with this `Hasher`
@@ -58,7 +58,7 @@ pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
-	fn get(&self, key: &H::Out) -> Option<&T>;
+	fn get(&self, key: &H::Out) -> Option<T>;
 
 	/// Check for the existance of a hash-key.
 	fn contains(&self, key: &H::Out) -> bool;
