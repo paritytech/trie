@@ -16,7 +16,7 @@
 
 extern crate ethereum_types;
 extern crate keccak_hasher;
-extern crate patricia_trie_ethereum;
+extern crate reference_trie;
 extern crate test;
 extern crate tiny_keccak;
 extern crate trie_standardmap;
@@ -29,7 +29,7 @@ use test::Bencher;
 use tiny_keccak::keccak256;
 use trie_standardmap::{Alphabet, ValueMode, StandardMap};
 use trie_root::trie_root;
-use patricia_trie_ethereum::RlpTrieStream;
+use reference_trie::ReferenceTrieStream;
 use rlp::encode as rlp_encode;
 
 fn random_word(alphabet: &[u8], min_count: usize, diff_count: usize, seed: &mut H256) -> Vec<u8> {
@@ -69,7 +69,7 @@ fn triehash_insertions_32_mir_1k(b: &mut Bencher) {
 	};
 	let d = st.make();
 	b.iter(&mut ||{
-		let _ = trie_root::<KeccakHasher, RlpTrieStream, _, _, _>(d.clone()).clone();
+		let _ = trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(d.clone()).clone();
 	});
 }
 
@@ -84,7 +84,7 @@ fn triehash_insertions_32_ran_1k(b: &mut Bencher) {
 	};
 	let d = st.make();
 	b.iter(&mut ||{
-		let _ = trie_root::<KeccakHasher, RlpTrieStream, _, _, _>(d.clone()).clone();
+		let _ = trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(d.clone()).clone();
 	});
 }
 
@@ -99,7 +99,7 @@ fn triehash_insertions_six_high(b: &mut Bencher) {
 	}
 
 	b.iter(&||{
-		let _ = trie_root::<KeccakHasher, RlpTrieStream, _, _, _>(d.clone());
+		let _ = trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(d.clone());
 	})
 }
 
@@ -114,7 +114,7 @@ fn triehash_insertions_six_mid(b: &mut Bencher) {
 		d.push((k, v))
 	}
 	b.iter(||{
-		let _ = trie_root::<KeccakHasher, RlpTrieStream, _, _, _>(d.clone());
+		let _ = trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(d.clone());
 	})
 }
 
@@ -130,7 +130,7 @@ fn triehash_insertions_random_mid(b: &mut Bencher) {
 	}
 
 	b.iter(||{
-		let _ = trie_root::<KeccakHasher, RlpTrieStream, _, _, _>(d.clone());
+		let _ = trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(d.clone());
 	})
 }
 
@@ -146,7 +146,7 @@ fn triehash_insertions_six_low(b: &mut Bencher) {
 	}
 
 	b.iter(||{
-		let _ = trie_root::<KeccakHasher, RlpTrieStream, _, _, _>(d.clone());
+		let _ = trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(d.clone());
 	})
 }
 
@@ -305,7 +305,7 @@ fn typical_tx_payload(b: &mut Bencher) {
 		let input = input.into_iter()
 			.enumerate()
 			.map(|(i, v)| (rlp_encode(&i), v) );
-		trie_root::<KeccakHasher, RlpTrieStream, _, _, _>(input)
+		trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(input).into()
 	}
 
 	b.iter(|| {
