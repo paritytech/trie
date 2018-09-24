@@ -16,11 +16,11 @@
 
 extern crate hash_db;
 extern crate tiny_keccak;
-extern crate plain_hasher;
+extern crate hash256_std_hasher;
 
 use hash_db::Hasher;
 use tiny_keccak::Keccak;
-use plain_hasher::PlainHasher;
+use hash256_std_hasher::Hash256StdHasher;
 
 /// Concrete `Hasher` impl for the Keccak-256 hash
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -28,7 +28,7 @@ pub struct KeccakHasher;
 impl Hasher for KeccakHasher {
 	type Out = [u8; 32];
 
-	type StdHasher = PlainHasher;
+	type StdHasher = Hash256StdHasher;
 
 	const LENGTH: usize = 32;
 
@@ -45,7 +45,7 @@ mod tests {
 	use std::collections::HashMap;
 
 	#[test]
-	fn plain_hasher_works() {
+	fn hash256_std_hasher_works() {
 		let hello_bytes = b"Hello world!";
 		let hello_key = KeccakHasher::hash(hello_bytes);
 
@@ -53,7 +53,7 @@ mod tests {
 		h.insert(hello_key, hello_bytes.to_vec());
 		h.remove(&hello_key);
 
-		let mut h: HashMap<<KeccakHasher as Hasher>::Out, Vec<u8>, std::hash::BuildHasherDefault<PlainHasher>> = Default::default();
+		let mut h: HashMap<<KeccakHasher as Hasher>::Out, Vec<u8>, std::hash::BuildHasherDefault<Hash256StdHasher>> = Default::default();
 		h.insert(hello_key, hello_bytes.to_vec());
 		h.remove(&hello_key);
 	}

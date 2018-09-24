@@ -1,21 +1,21 @@
 [package]
 name = "trie-db"
-version = "0.3.0"
+version = "0.9.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Merkle-Patricia Trie generic over key hasher and node encoding"
 repository = "https://github.com/paritytech/parity-common"
 license = "Apache-2"
 
 [dependencies]
-elastic-array = "0.10"
-log = "0.3"
-rand = "0.4"
-hash-db = { version = "0.3", path = "../hash-db" }
+log = { version = "0.3" }
+rand = { version = "0.4" }
+elastic-array = { version = "0.10" }
+hash-db = { path = "../hash-db" }
 
 [dev-dependencies]
 env_logger = "0.5"
-memory-db = { path = "../memory-db", default-features = false }
-trie-root = { path = "../trie-root", default-features = false }
-trie-standardmap = { path = "../test-support/trie-standardmap", default-features = false }
+memory-db = { path = "../memory-db" }
+trie-root = { path = "../trie-root" }
+trie-standardmap = { path = "../test-support/trie-standardmap" }
 keccak-hasher = { path = "../test-support/keccak-hasher" }
 reference-trie = { path = "../test-support/reference-trie" }

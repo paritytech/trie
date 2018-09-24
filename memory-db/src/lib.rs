@@ -13,10 +13,10 @@
 // limitations under the License.
 
 //! Reference-counted memory-based `HashDB` implementation.
+
 extern crate hash_db;
 extern crate heapsize;
 #[cfg(test)] extern crate keccak_hasher;
-#[cfg(test)] extern crate tiny_keccak;
 
 use hash_db::{HashDB, Hasher as KeyHasher, AsHashDB};
 use heapsize::HeapSizeOf;

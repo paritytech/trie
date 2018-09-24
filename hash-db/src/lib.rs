@@ -18,10 +18,9 @@
 
 #[cfg(feature = "std")]
 extern crate core;
-
-#[cfg(feature = "std")]
 #[cfg(feature = "std")]
 use std::collections::HashMap;
+#[cfg(feature = "std")]
 use core::{fmt::Debug, hash::Hash};
 
 /// Trait describing an object that can hash a slice of bytes. Used to abstract

@@ -22,13 +22,13 @@ extern crate core;
 
 use core::hash;
 /// Hasher that just takes 8 bytes of the provided value.
-/// May only be used for keys which are at least 32 bytes.
+/// May only be used for keys which are 32 bytes.
 #[derive(Default)]
-pub struct PlainHasher {
+pub struct Hash256StdHasher {
 	prefix: u64,
 }
 
-impl hash::Hasher for PlainHasher {
+impl hash::Hasher for Hash256StdHasher {
 	#[inline]
 	fn finish(&self) -> u64 {
 		self.prefix
@@ -39,6 +39,7 @@ impl hash::Hasher for PlainHasher {
 	fn write(&mut self, bytes: &[u8]) {
 		// we get a length written first as 8 bytes (possibly 4 on 32-bit platforms?). this
 		// keeps it safe.
+		debug_assert!(bytes.len() == 4 || bytes.len() == 8 || bytes.len() == 32);
 		if bytes.len() < 32 { return }
 
 		let mut bytes_ptr = bytes.as_ptr();
@@ -59,13 +60,13 @@ impl hash::Hasher for PlainHasher {
 #[cfg(test)]
 mod tests {
 	use core::hash::Hasher;
-	use super::PlainHasher;
+	use super::Hash256StdHasher;
 
 	#[test]
 	fn it_works() {
 		let mut bytes = [32u8; 32];
 		bytes[0] = 15;
-		let mut hasher = PlainHasher::default();
+		let mut hasher = Hash256StdHasher::default();
 		hasher.write(&bytes);
 		assert_eq!(hasher.prefix, 47);
 	}

@@ -2,7 +2,7 @@
 members = [
 	"hash-db",
 	"memory-db",
-	"test-support/plain-hasher",
+	"hash256-std-hasher",
 	"test-support/keccak-hasher",
 	"test-support/trie-standardmap",
 	"trie-db",

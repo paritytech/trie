@@ -8,7 +8,7 @@ license = "Apache-2"
 
 [dependencies]
 hash-db = { path = "../../hash-db" }
-plain-hasher = { path = "../plain-hasher" }
+hash256-std-hasher = { path = "../../hash256-std-hasher" }
 keccak-hasher = { path = "../keccak-hasher" }
 trie-db = { path = "../../trie-db" }
 trie-root = { path = "../../trie-root" }
