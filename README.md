@@ -9,7 +9,7 @@ The implementation comes in two formats:
 
 - Trie DB (`trie-db` crate) which can be combined with a backend database to provide
    a persistent trie structure whose contents can be modified and whose root hash
-   recalculated efficiently.
+   is recalculated efficiently.
 - Trie Hash (`trie-hash` crate) which provides a closed-form function that accepts a
    sorted enumeration of keys and values (exactly the format provided by
    `BTreeMap<(&[u8], &[u8])>`) and provides a root calculated entirely in-memory and
@@ -27,7 +27,7 @@ In addition to these, several support crates are provided:
 - `memory-db` crate, contains `MemoryDB`, an implementation of a `HashDB` using only
    in in-memory map.
 - `hash256-std-hasher` crate, an implementation of a `std::hash::Hasher` for 32-byte
-   keys that have already been hashed. Useful for `MemoryDB`.
+   keys that have already been hashed. Useful to build the backing `HashMap` for `MemoryDB`.
 
 There are also three crates used only for testing:
 
@@ -41,4 +41,4 @@ There are also three crates used only for testing:
 In the spirit of all things Rust, this aims to be reliable, secure, and high performance.
 
 Used in the [Substrate](https://parity.io/substrate) project. If you use this crate and
-would your project listed here, please contact us.
+would like your project listed here, please contact us.
