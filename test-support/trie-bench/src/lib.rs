@@ -108,18 +108,18 @@ pub fn standard_benchmark<H: 'static +  Hasher, N: NodeCodec<H>, S: TrieStream>(
 		min_key: 32,
 		journal_key: 0,
 		value_mode: ValueMode::Mirror,
-		count: 65535,
+		count: 1000,
 	};
-	benchmark::<H, N, S>(b, &format!("{}.32_mir_64k", name), st.make());
+	benchmark::<H, N, S>(b, &format!("{}.32_mir_1k", name), st.make());
 
 	let st = StandardMap {
 		alphabet: Alphabet::All,
 		min_key: 32,
 		journal_key: 0,
 		value_mode: ValueMode::Random,
-		count: 65535,
+		count: 1000,
 	};
-	benchmark::<H, N, S>(b, &format!("{}.32_ran_64k", name), st.make());
+	benchmark::<H, N, S>(b, &format!("{}.32_ran_1k", name), st.make());
 
 	let mut d: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
 	let mut seed = <KeccakHasher as Hasher>::Out::default();
