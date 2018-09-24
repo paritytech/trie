@@ -9,3 +9,7 @@ categories = [ "no-std" ]
 
 [dependencies]
 crunchy = "0.1.6"
+
+[features]
+default = ["std"]
+std = []

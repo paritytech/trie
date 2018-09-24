@@ -5,17 +5,10 @@ authors = ["Parity Technologies <admin@parity.io>"]
 description = "In-memory implementation of hash-db, useful for tests"
 repository = "https://github.com/paritytech/parity-common"
 license = "Apache-2"
-categories = [ "no-std" ]
 
 [dependencies]
 heapsize = "0.4"
-hash-db = { path = "../hash-db", default-features = false }
+hash-db = { path = "../hash-db" }
 
 [dev-dependencies]
 keccak-hasher = { path = "../test-support/keccak-hasher" }
-
-[features]
-default = ["std"]
-std = [
-	"hash-db/std"
-]

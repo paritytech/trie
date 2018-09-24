@@ -15,22 +15,34 @@
 //! Database of byte-slices keyed to their hash.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(feature = "std"), feature(core_intrinsics))]
 
 #[cfg(feature = "std")]
-extern crate core;
+use std::fmt::Debug;
 #[cfg(feature = "std")]
 use std::collections::HashMap;
 #[cfg(feature = "std")]
-use core::{fmt::Debug, hash::Hash};
+use std::hash;
+#[cfg(feature = "std")]
+pub trait DebugIfStd: Debug {}
+#[cfg(feature = "std")]
+impl<T: Debug> DebugIfStd for T {}
+
+#[cfg(not(feature = "std"))]
+use core::hash;
+#[cfg(not(feature = "std"))]
+pub trait DebugIfStd {}
+#[cfg(not(feature = "std"))]
+impl<T> DebugIfStd for T {}
 
 /// Trait describing an object that can hash a slice of bytes. Used to abstract
 /// other types over the hashing algorithm. Defines a single `hash` method and an
 /// `Out` associated type with the necessary bounds.
 pub trait Hasher: Sync + Send {
 	/// The output type of the `Hasher`
-	type Out: AsRef<[u8]> + AsMut<[u8]> + Default + Debug + PartialEq + Eq + Hash + Send + Sync + Clone + Copy;
+	type Out: AsRef<[u8]> + AsMut<[u8]> + Default + DebugIfStd + PartialEq + Eq + hash::Hash + Send + Sync + Clone + Copy;
 	/// What to use to build `HashMap`s with this `Hasher`
-	type StdHasher: Sync + Send + Default + core::hash::Hasher;
+	type StdHasher: Sync + Send + Default + hash::Hasher;
 	/// The length in bytes of the `Hasher` output
 	const LENGTH: usize;
 

@@ -16,15 +16,28 @@
 //!
 //! This module should be used to generate trie root hash.
 
+#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(feature = "std"), feature(core_intrinsics))]
+#![cfg_attr(not(feature = "std"), feature(alloc))]
+
 extern crate hash_db;
+
+#[cfg(feature = "std")]
+use std::collections::BTreeMap;
+#[cfg(feature = "std")]
+use std::cmp;
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::{collections::btree_map::BTreeMap, vec::Vec};
+#[cfg(not(feature = "std"))]
+use core::cmp;
+
 #[cfg(test)]
 extern crate keccak_hasher;
 
-use std::collections::BTreeMap;
-use std::cmp;
-use std::fmt::Debug; // TODO: remove when done here along with all the `Debug` bounds
-
-pub use hash_db::Hasher;
+pub use hash_db::{Hasher, DebugIfStd};
 
 /// TODO: DOCUMENT!!!!
 pub trait TrieStream {
@@ -70,12 +83,11 @@ fn shared_prefix_len<T: Eq>(first: &[T], second: &[T]) -> usize {
 /// ```
 pub fn trie_root<H, S, I, A, B>(input: I) -> H::Out where
 	I: IntoIterator<Item = (A, B)>,
-	A: AsRef<[u8]> + Ord + Debug,
-	B: AsRef<[u8]> + Debug,
+	A: AsRef<[u8]> + Ord + DebugIfStd,
+	B: AsRef<[u8]> + DebugIfStd,
 	H: Hasher,
 	S: TrieStream,
 {
-
 	// first put elements into btree to sort them and to remove duplicates
 	let input = input
 		.into_iter()
@@ -104,9 +116,9 @@ pub fn trie_root<H, S, I, A, B>(input: I) -> H::Out where
 
 //#[cfg(test)]	// consider feature="std"
 pub fn unhashed_trie<H, S, I, A, B>(input: I) -> Vec<u8> where
-	I: IntoIterator<Item = (A, B)> + Debug,
-	A: AsRef<[u8]> + Ord + Debug,
-	B: AsRef<[u8]> + Debug,
+	I: IntoIterator<Item = (A, B)> + DebugIfStd,
+	A: AsRef<[u8]> + Ord + DebugIfStd,
+	B: AsRef<[u8]> + DebugIfStd,
 	H: Hasher,
 	S: TrieStream,
 {
@@ -161,8 +173,8 @@ pub fn unhashed_trie<H, S, I, A, B>(input: I) -> Vec<u8> where
 /// ```
 pub fn sec_trie_root<H, S, I, A, B>(input: I) -> H::Out where
 	I: IntoIterator<Item = (A, B)>,
-	A: AsRef<[u8]> + Debug,
-	B: AsRef<[u8]> + Debug,
+	A: AsRef<[u8]> + DebugIfStd,
+	B: AsRef<[u8]> + DebugIfStd,
 	H: Hasher,
 	H::Out: Ord,
 	S: TrieStream,
@@ -174,8 +186,8 @@ pub fn sec_trie_root<H, S, I, A, B>(input: I) -> H::Out where
 /// and encodes it into the provided `Stream`.
 // pub fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S)
 fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S) where
-	A: AsRef<[u8]> + Debug,
-	B: AsRef<[u8]> + Debug,
+	A: AsRef<[u8]> + DebugIfStd,
+	B: AsRef<[u8]> + DebugIfStd,
 	H: Hasher,
 	S: TrieStream,
 {
@@ -258,8 +270,8 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S) where
 }
 
 fn build_trie_trampoline<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S) where
-	A: AsRef<[u8]> + Debug,
-	B: AsRef<[u8]> + Debug,
+	A: AsRef<[u8]> + DebugIfStd,
+	B: AsRef<[u8]> + DebugIfStd,
 	H: Hasher,
 	S: TrieStream,
 {
