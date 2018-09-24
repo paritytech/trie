@@ -5,6 +5,7 @@ members = [
 	"hash256-std-hasher",
 	"test-support/keccak-hasher",
 	"test-support/trie-standardmap",
+	"test-support/trie-bench",
 	"trie-db",
 	"trie-root"
 ]
