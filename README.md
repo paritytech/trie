@@ -37,8 +37,41 @@ There are also three crates used only for testing:
    Trie Hash.
 - `trie-standardmap` crate, a key/value generation tool for creating large test datasets
    to specific qualities.
+- `trie-bench` crate, a comprehensive standard benchmarking tool for trie format
+   implementations. Works using the `criterion` project so benchmarking can be done with
+   the stable rustc branch.
 
 In the spirit of all things Rust, this aims to be reliable, secure, and high performance.
 
 Used in the [Substrate](https://parity.io/substrate) project. If you use this crate and
 would your project listed here, please contact us.
+
+## Buidling &c.
+
+Building is done through cargo, as you'd expect.
+
+### Building
+
+```
+cargo build --all
+```
+
+### Testing
+
+```
+cargo test --all
+```
+
+### Benchmarking
+
+```
+cargo benchmark --all
+```
+
+### Building in `no_std`
+
+This currently requires the nightly compiler:
+
+```
+cargo +nightly build --no-default-features
+```
