@@ -55,7 +55,7 @@ pub struct StandardMap {
 	/// Mode of value generation.
 	pub value_mode: ValueMode,
 	/// Number of keys.
-	pub count: u8,
+	pub count: usize,
 }
 
 impl StandardMap {
@@ -111,7 +111,7 @@ impl StandardMap {
 			let v = match self.value_mode {
 				ValueMode::Mirror => k.clone(),
 				ValueMode::Random => Self::random_value(seed),
-				ValueMode::Index => vec![index],
+				ValueMode::Index => vec![index as u8],
 			};
 			d.push((k, v))
 		}
