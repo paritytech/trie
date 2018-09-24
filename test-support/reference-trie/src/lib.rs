@@ -17,7 +17,6 @@
 extern crate hashdb;
 extern crate trie_db;
 extern crate parity_codec as codec;
-extern crate hex_prefix_encoding;
 extern crate trie_root;
 extern crate keccak_hasher;
 

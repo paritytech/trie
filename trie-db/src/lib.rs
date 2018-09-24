@@ -20,8 +20,6 @@ extern crate rand;
 extern crate log;
 
 #[cfg(test)]
-extern crate hex_prefix_encoding;
-#[cfg(test)]
 extern crate env_logger;
 #[cfg(test)]
 extern crate trie_standardmap as standardmap;

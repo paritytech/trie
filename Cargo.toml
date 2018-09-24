@@ -1,7 +1,6 @@
 [workspace]
 members = [
 	"hashdb",
-	"hex-prefix-encoding",
 	"memorydb",
 	"test-support/plain-hasher",
 	"test-support/keccak-hasher",

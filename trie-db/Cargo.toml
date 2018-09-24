@@ -14,11 +14,8 @@ hashdb = { version = "0.3", path = "../hashdb" }
 
 [dev-dependencies]
 env_logger = "0.5"
-parity-codec = { version = "~2.0.1" }
-parity-codec-derive = { version = "~2.0.1" }
 memorydb = { path = "../memorydb", default-features = false }
 trie-root = { path = "../trie-root", default-features = false }
 trie-standardmap = { path = "../test-support/trie-standardmap", default-features = false }
 keccak-hasher = { path = "../test-support/keccak-hasher" }
-hex-prefix-encoding = { path = "../hex-prefix-encoding" }
 reference-trie = { path = "../test-support/reference-trie" }
