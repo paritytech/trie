@@ -365,8 +365,8 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieIterator<H, C> for TrieDBIterator<'a, H
 	fn seek(&mut self, key: &[u8]) -> Result<(), H::Out, C::Error> {
 		self.trail.clear();
 		self.key_nibbles.clear();
-//		let root_rlp = self.db.root()?;
-		self.seek(&From::from(self.db.root().as_ref()), NibbleSlice::new(key.as_ref()))
+		let root_rlp = self.db.root_data()?;
+		self.seek(&root_rlp, NibbleSlice::new(key.as_ref()))
 	}
 }
 
@@ -477,6 +477,36 @@ mod tests {
 		}
 
 		assert_eq!(pairs, iter_pairs);
+	}
+
+	#[test]
+	fn iterator_seek_works() {
+		let pairs = vec![
+			(hex!("0103000000000000000464").to_vec(), hex!("fffffffffe").to_vec()),
+			(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
+		];
+
+		let mut memdb = MemoryDB::default();
+		let mut root = Default::default();
+		{
+			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+			for (x, y) in &pairs {
+				t.insert(x, y).unwrap();
+			}
+		}
+
+		let t = RefTrieDB::new(&memdb, &root).unwrap();
+
+		let mut iter = t.iter().unwrap();
+		assert_eq!(iter.next().unwrap().unwrap(), (hex!("0103000000000000000464").to_vec(), DBValue::from_slice(&hex!("fffffffffe")[..])));
+		iter.seek(b"\0").unwrap();
+		assert_eq!(pairs, iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>());
+		let mut iter = t.iter().unwrap();
+		iter.seek(b"0").unwrap();
+		assert_eq!(pairs, iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>());
+		let mut iter = t.iter().unwrap();
+		iter.seek(b"0103000000000000000464").unwrap();
+		assert_eq!(&pairs[1..], &iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>()[..]);
 	}
 
 	#[test]
