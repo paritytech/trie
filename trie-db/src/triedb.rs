@@ -93,18 +93,16 @@ where
 	/// This could be a simple identity operation in the case that the node is sufficiently small, but
 	/// may require a database lookup. If `is_root_data` then this is root-data and
 	/// is known to be literal. 
-	fn get_raw_or_lookup(&'db self, node: &[u8]) -> Result<Cow<'db, DBValue>, H::Out, C::Error> {
-		let r = match C::try_decode_hash(node) {
-			Some(key) => {
+	fn get_raw_or_lookup(&'db self, node: &[u8], is_root_node: bool) -> Result<Cow<'db, DBValue>, H::Out, C::Error> {
+		match (is_root_node, C::try_decode_hash(node)) {
+			(false, Some(key)) => {
 				self.db
 					.get(&key)
 					.map(|v| Cow::Owned(v))
 					.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(key)))
 			}
-			None => Ok(Cow::Owned(DBValue::from_slice(node)))
-		};
-		println!("get_raw_or_lookup: {:#x?} = {:#x?}", node, r);
-		r
+			_ => Ok(Cow::Owned(DBValue::from_slice(node)))
+		}
 	}
 }
 
@@ -140,6 +138,7 @@ where
 	trie: &'db TrieDB<'db, H, C>,
 	key: &'a[u8],
 	index: Option<u8>,
+	is_root: bool,
 }
 
 impl<'db, 'a, H, C> fmt::Debug for TrieAwareDebugNode<'db, 'a, H, C>
@@ -148,7 +147,7 @@ where
 	C: NodeCodec<H>
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		if let Ok(node) = self.trie.get_raw_or_lookup(self.key) {
+		if let Ok(node) = self.trie.get_raw_or_lookup(self.key, self.is_root) {
 			match C::decode(&node) {
 				Ok(Node::Leaf(slice, value)) =>
 					match (f.debug_struct("Node::Leaf"), self.index) {
@@ -164,13 +163,13 @@ where
 						(ref mut d, _) => d,
 					}
 						.field("slice", &slice)
-						.field("item", &TrieAwareDebugNode{trie: self.trie, key: item, index: None })
+						.field("item", &TrieAwareDebugNode{trie: self.trie, key: item, index: None, is_root: false })
 						.finish(),
 				Ok(Node::Branch(ref nodes, ref value)) => {
 					let nodes: Vec<TrieAwareDebugNode<H, C>> = nodes.into_iter()
 						.enumerate()
 						.filter_map(|(i, n)| n.map(|n| (i, n)))
-						.map(|(i, n)| TrieAwareDebugNode { trie: self.trie, index: Some(i as u8), key: n })
+						.map(|(i, n)| TrieAwareDebugNode { trie: self.trie, index: Some(i as u8), key: n, is_root: false })
 						.collect();
 					match (f.debug_struct("Node::Branch"), self.index) {
 						(ref mut d, Some(ref i)) => d.field("index", i),
@@ -204,19 +203,20 @@ where
 	C: NodeCodec<H>
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//		let root_rlp = &self.root()[..];//_data().expect("Trie root not found!");
+		let root_rlp = self.root_data().unwrap();
 		f.debug_struct("TrieDB")
 			.field("hash_count", &self.hash_count)
 			.field("root", &TrieAwareDebugNode {
 				trie: self,
-				key: self.root().as_ref(),
+				key: &root_rlp[..],
 				index: None,
+				is_root: true,
 			})
 			.finish()
 	}
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 enum Status {
 	Entering,
 	At,
@@ -224,7 +224,7 @@ enum Status {
 	Exiting,
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 struct Crumb {
 	node: OwnedNode,
 	status: Status,
@@ -254,8 +254,7 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 	/// Create a new iterator.
 	pub fn new(db: &'a TrieDB<H, C>) -> Result<TrieDBIterator<'a, H, C>, H::Out, C::Error> {
 		let mut r = TrieDBIterator { db, trail: Vec::with_capacity(8), key_nibbles: Vec::with_capacity(64) };
-		//db.root_data().and_then(|root| r.descend(&root))?;
-		r.descend(db.root().as_ref());
+		db.root_data().and_then(|root_data| r.descend(&root_data))?;
 		Ok(r)
 	}
 
@@ -288,7 +287,7 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 								node: node.clone().into(),
 							});
 							self.key_nibbles.extend(slice.iter());
-							let data = self.db.get_raw_or_lookup(&*item)?;
+							let data = self.db.get_raw_or_lookup(&*item, false)?;
 							(data, slice.len())
 						} else {
 							self.descend(&node_data)?;
@@ -311,7 +310,7 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 							});
 							self.key_nibbles.push(i);
 							if let Some(ref child) = nodes[i as usize] {
-								let child = self.db.get_raw_or_lookup(&*child)?;
+								let child = self.db.get_raw_or_lookup(&*child, false)?;
 								(child, 1)
 							} else {
 								return Ok(())
@@ -329,7 +328,7 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 
 	/// Descend into a payload.
 	fn descend(&mut self, d: &[u8]) -> Result<(), H::Out, C::Error> {
-		let node_data = &self.db.get_raw_or_lookup(d)?;
+		let node_data = &self.db.get_raw_or_lookup(d, self.key_nibbles.is_empty())?;
 		let node = C::decode(&node_data).expect("encoded node read from db; qed");
 		Ok(self.descend_into_node(node.into()))
 	}
@@ -365,8 +364,8 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieIterator<H, C> for TrieDBIterator<'a, H
 	fn seek(&mut self, key: &[u8]) -> Result<(), H::Out, C::Error> {
 		self.trail.clear();
 		self.key_nibbles.clear();
-		let root_rlp = self.db.root_data()?;
-		self.seek(&root_rlp, NibbleSlice::new(key.as_ref()))
+		let root_node = self.db.root_data()?;
+		self.seek(&root_node, NibbleSlice::new(key.as_ref()))
 	}
 }
 
@@ -404,7 +403,7 @@ impl<'a, H: Hasher, C: NodeCodec<H>> Iterator for TrieDBIterator<'a, H, C> {
 						return Some(Ok((self.key(), v.clone())));
 					},
 					(Status::At, &OwnedNode::Extension(_, ref d)) => {
-						IterStep::Descend::<H::Out, C::Error>(self.db.get_raw_or_lookup(&*d))
+						IterStep::Descend::<H::Out, C::Error>(self.db.get_raw_or_lookup(&*d, false))
 					},
 					(Status::At, &OwnedNode::Branch(_)) => IterStep::Continue,
 					(Status::AtChild(i), &OwnedNode::Branch(ref branch)) if branch.index(i).is_some() => {
@@ -413,7 +412,7 @@ impl<'a, H: Hasher, C: NodeCodec<H>> Iterator for TrieDBIterator<'a, H, C> {
 							i => *self.key_nibbles.last_mut()
 								.expect("pushed as 0; moves sequentially; removed afterwards; qed") = i as u8,
 						}
-						IterStep::Descend::<H::Out, C::Error>(self.db.get_raw_or_lookup(&branch.index(i).expect("this arm guarded by branch[i].is_some(); qed")))
+						IterStep::Descend::<H::Out, C::Error>(self.db.get_raw_or_lookup(&branch.index(i).expect("this arm guarded by branch[i].is_some(); qed"), false))
 					},
 					(Status::AtChild(i), &OwnedNode::Branch(_)) => {
 						if i == 0 {
@@ -466,8 +465,6 @@ mod tests {
 		}
 
 		let trie = RefTrieDB::new(&memdb, &root).unwrap();
-		println!("root data: {:#?}", trie.root_data());
-		println!("trie: {:#?}", trie);
 
 		let iter = trie.iter().unwrap();
 		let mut iter_pairs = Vec::new();
@@ -499,13 +496,10 @@ mod tests {
 
 		let mut iter = t.iter().unwrap();
 		assert_eq!(iter.next().unwrap().unwrap(), (hex!("0103000000000000000464").to_vec(), DBValue::from_slice(&hex!("fffffffffe")[..])));
-		iter.seek(b"\0").unwrap();
+		iter.seek(&hex!("00")[..]).unwrap();
 		assert_eq!(pairs, iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>());
 		let mut iter = t.iter().unwrap();
-		iter.seek(b"0").unwrap();
-		assert_eq!(pairs, iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>());
-		let mut iter = t.iter().unwrap();
-		iter.seek(b"0103000000000000000464").unwrap();
+		iter.seek(&hex!("0103000000000000000465")[..]).unwrap();
 		assert_eq!(&pairs[1..], &iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>()[..]);
 	}
 
