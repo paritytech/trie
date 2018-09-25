@@ -827,10 +827,11 @@ where
 		match self.storage.destroy(handle) {
 			Stored::New(node) => {
 				let encoded_root = node.into_encoded::<_, C, H>(|child| self.commit_child(child) );
+				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
+
 				*self.root = self.db.insert(&encoded_root[..]);
 				self.hash_count += 1;
 
-				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
 				self.root_handle = NodeHandle::Hash(*self.root);
 			}
 			Stored::Cached(node, hash) => {
@@ -968,7 +969,7 @@ mod tests {
 	use memory_db::MemoryDB;
 	use hash_db::{Hasher, HashDB};
 	use keccak_hasher::KeccakHasher;
-	use reference_trie::{RefTrieDBMut, TrieMut, NodeCodec,
+	use reference_trie::{RefTrieDBMut, RefTrieDB, Trie, TrieMut, NodeCodec,
 		ReferenceNodeCodec, ref_trie_root};
 
 	fn populate_trie<'db>(

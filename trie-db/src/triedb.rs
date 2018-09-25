@@ -83,7 +83,7 @@ where
 	pub fn db(&'db self) -> &'db HashDB<H, DBValue> { self.db }
 
 	/// Get the data of the root node.
-	fn root_data(&self) -> Result<DBValue, H::Out, C::Error> {
+	pub fn root_data(&self) -> Result<DBValue, H::Out, C::Error> {
 		self.db
 			.get(self.root)
 			.ok_or_else(|| Box::new(TrieError::InvalidStateRoot(*self.root)))
@@ -91,9 +91,10 @@ where
 
 	/// Given some node-describing data `node`, return the actual node RLP.
 	/// This could be a simple identity operation in the case that the node is sufficiently small, but
-	/// may require a database lookup.
+	/// may require a database lookup. If `is_root_data` then this is root-data and
+	/// is known to be literal. 
 	fn get_raw_or_lookup(&'db self, node: &[u8]) -> Result<Cow<'db, DBValue>, H::Out, C::Error> {
-		match C::try_decode_hash(node) {
+		let r = match C::try_decode_hash(node) {
 			Some(key) => {
 				self.db
 					.get(&key)
@@ -101,7 +102,9 @@ where
 					.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(key)))
 			}
 			None => Ok(Cow::Owned(DBValue::from_slice(node)))
-		}
+		};
+		println!("get_raw_or_lookup: {:#x?} = {:#x?}", node, r);
+		r
 	}
 }
 
@@ -201,12 +204,12 @@ where
 	C: NodeCodec<H>
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		let root_rlp = self.db.get(self.root).expect("Trie root not found!");
+//		let root_rlp = &self.root()[..];//_data().expect("Trie root not found!");
 		f.debug_struct("TrieDB")
 			.field("hash_count", &self.hash_count)
 			.field("root", &TrieAwareDebugNode {
 				trie: self,
-				key: &root_rlp,
+				key: self.root().as_ref(),
 				index: None,
 			})
 			.finish()
@@ -251,7 +254,8 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 	/// Create a new iterator.
 	pub fn new(db: &'a TrieDB<H, C>) -> Result<TrieDBIterator<'a, H, C>, H::Out, C::Error> {
 		let mut r = TrieDBIterator { db, trail: Vec::with_capacity(8), key_nibbles: Vec::with_capacity(64) };
-		db.root_data().and_then(|root| r.descend(&root))?;
+		//db.root_data().and_then(|root| r.descend(&root))?;
+		r.descend(db.root().as_ref());
 		Ok(r)
 	}
 
@@ -361,8 +365,8 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieIterator<H, C> for TrieDBIterator<'a, H
 	fn seek(&mut self, key: &[u8]) -> Result<(), H::Out, C::Error> {
 		self.trail.clear();
 		self.key_nibbles.clear();
-		let root_rlp = self.db.root_data()?;
-		self.seek(&root_rlp, NibbleSlice::new(key.as_ref()))
+//		let root_rlp = self.db.root()?;
+		self.seek(&From::from(self.db.root().as_ref()), NibbleSlice::new(key.as_ref()))
 	}
 }
 
@@ -444,6 +448,36 @@ mod tests {
 	use keccak_hasher::KeccakHasher;
 	use DBValue;
 	use reference_trie::{RefTrieDB, RefTrieDBMut, RefLookup, Trie, TrieMut, NibbleSlice};
+
+	#[test]
+	fn iterator_works() {
+		let pairs = vec![
+			(hex!("0103000000000000000464").to_vec(), hex!("fffffffffe").to_vec()),
+			(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
+		];
+
+		let mut memdb = MemoryDB::default();
+		let mut root = Default::default();
+		{
+			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+			for (x, y) in &pairs {
+				t.insert(x, y).unwrap();
+			}
+		}
+
+		let trie = RefTrieDB::new(&memdb, &root).unwrap();
+		println!("root data: {:#?}", trie.root_data());
+		println!("trie: {:#?}", trie);
+
+		let iter = trie.iter().unwrap();
+		let mut iter_pairs = Vec::new();
+		for pair in iter {
+			let (key, value) = pair.unwrap();
+			iter_pairs.push((key, value.to_vec()));
+		}
+
+		assert_eq!(pairs, iter_pairs);
+	}
 
 	#[test]
 	fn iterator() {

@@ -19,6 +19,7 @@ trie-root = { path = "../trie-root" }
 trie-standardmap = { path = "../test-support/trie-standardmap" }
 keccak-hasher = { path = "../test-support/keccak-hasher" }
 reference-trie = { path = "../test-support/reference-trie" }
+hex-literal = "0.1"
 criterion = "0.1.2"
 
 [[bench]]

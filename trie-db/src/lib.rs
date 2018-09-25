@@ -22,6 +22,9 @@ extern crate log;
 #[cfg(test)]
 extern crate env_logger;
 #[cfg(test)]
+#[macro_use]
+extern crate hex_literal;
+#[cfg(test)]
 extern crate trie_standardmap as standardmap;
 #[cfg(test)]
 extern crate trie_root;
