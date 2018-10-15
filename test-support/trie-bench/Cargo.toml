@@ -13,4 +13,4 @@ memory-db = { path = "../../memory-db" }
 trie-root = { path = "../../trie-root" }
 trie-db = { path = "../../trie-db" }
 criterion = "0.1.2"
-parity-codec = "~2.0.1"
+parity-codec = "2.1"
