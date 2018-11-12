@@ -50,6 +50,33 @@ pub trait Hasher: Sync + Send {
 	fn hash(x: &[u8]) -> Self::Out;
 }
 
+/// Trait modelling a plain datastore whose key is a fixed type.
+/// The caller should ensure that a key only corresponds to
+/// one value.
+#[cfg(feature = "std")]
+pub trait PlainDB<K, V>: Send + Sync + AsPlainDB<K, V> {
+	/// Get the keys in the database together with number of underlying references.
+	fn keys(&self) -> HashMap<K, i32>;
+
+	/// Look up a given hash into the bytes that hash to it, returning None if the
+	/// hash is not known.
+	fn get(&self, key: &K) -> Option<V>;
+
+	/// Check for the existance of a hash-key.
+	fn contains(&self, key: &K) -> bool;
+
+	/// Insert a datum item into the DB. Insertions are counted and the equivalent
+	/// number of `remove()`s must be performed before the data is considered dead.
+	/// The caller should ensure that a key only corresponds to one value.
+	fn emplace(&mut self, key: K, value: V);
+
+	/// Remove a datum previously inserted. Insertions can be "owed" such that the
+	/// same number of `insert()`s may happen without the data being eventually
+	/// being inserted into the DB. It can be "owed" more than once.
+	/// The caller should ensure that a key only corresponds to one value.
+	fn remove(&mut self, key: &K);
+}
+
 /// Trait modelling datastore keyed by a hash defined by the `Hasher`.
 #[cfg(feature = "std")]
 pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
@@ -76,13 +103,22 @@ pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 	fn remove(&mut self, key: &H::Out);
 }
 
-/// Upcast trait.
+/// Upcast trait for HashDB.
 #[cfg(feature = "std")]
 pub trait AsHashDB<H: Hasher, T> {
 	/// Perform upcast to HashDB for anything that derives from HashDB.
 	fn as_hash_db(&self) -> &HashDB<H, T>;
 	/// Perform mutable upcast to HashDB for anything that derives from HashDB.
 	fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (HashDB<H, T> + 'a);
+}
+
+/// Upcast trait for PlainDB.
+#[cfg(feature = "std")]
+pub trait AsPlainDB<K, V> {
+	/// Perform upcast to PlainDB for anything that derives from PlainDB.
+	fn as_plain_db(&self) -> &PlainDB<K, V>;
+	/// Perform mutable upcast to PlainDB for anything that derives from PlainDB.
+	fn as_plain_db_mut<'a>(&'a mut self) -> &'a mut (PlainDB<K, V> + 'a);
 }
 
 // NOTE: There used to be a `impl<T> AsHashDB for T` but that does not work with generics. See https://stackoverflow.com/questions/48432842/implementing-a-trait-for-reference-and-non-reference-types-causes-conflicting-im
@@ -93,3 +129,8 @@ impl<'a, H: Hasher, T> AsHashDB<H, T> for &'a mut HashDB<H, T> {
 	fn as_hash_db_mut<'b>(&'b mut self) -> &'b mut (HashDB<H, T> + 'b) { &mut **self }
 }
 
+#[cfg(feature = "std")]
+impl<'a, K, V> AsPlainDB<K, V> for &'a mut PlainDB<K, V> {
+	fn as_plain_db(&self) -> &PlainDB<K, V> { &**self }
+	fn as_plain_db_mut<'b>(&'b mut self) -> &'b mut (PlainDB<K, V> + 'b) { &mut **self }
+}
