@@ -203,6 +203,17 @@ impl<'a, H: KeyHasher, T> MemoryDB<H, T> where T: From<&'a [u8]> {
 			}
 		}
 	}
+
+	/// Get the keys in the database together with number of underlying references.
+	pub fn keys(&self) -> HashMap<H::Out, i32> {
+		self.data.iter()
+			.filter_map(|(k, v)| if v.1 != 0 {
+				Some((*k, v.1))
+			} else {
+				None
+			})
+			.collect()
+	}
 }
 
 impl<H, T> MemoryDB<H, T>
@@ -222,16 +233,6 @@ where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 {
-	fn keys(&self) -> HashMap<H::Out, i32> {
-		self.data.iter()
-			.filter_map(|(k, v)| if v.1 != 0 {
-				Some((*k, v.1))
-			} else {
-				None
-			})
-			.collect()
-	}
-
 	fn get(&self, key: &H::Out) -> Option<T> {
 		match self.data.get(key) {
 			Some(&(ref d, rc)) if rc > 0 => Some(d.clone()),
@@ -279,7 +280,6 @@ where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 {
-	fn keys(&self) -> HashMap<H::Out, i32> { PlainDB::keys(self) }
 	fn get(&self, key: &H::Out) -> Option<T> { PlainDB::get(self, key) }
 	fn contains(&self, key: &H::Out) -> bool { PlainDB::contains(self, key) }
 }
@@ -289,10 +289,6 @@ where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 {
-	fn keys(&self) -> HashMap<H::Out, i32> {
-		PlainDB::keys(self)
-	}
-
 	fn get(&self, key: &H::Out) -> Option<T> {
 		if key == &self.hashed_null_node {
 			return Some(self.null_node_data.clone());
@@ -342,7 +338,6 @@ where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 {
-	fn keys(&self) -> HashMap<H::Out, i32> { HashDB::keys(self) }
 	fn get(&self, key: &H::Out) -> Option<T> { HashDB::get(self, key) }
 	fn contains(&self, key: &H::Out) -> bool { HashDB::contains(self, key) }
 }

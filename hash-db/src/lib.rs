@@ -55,9 +55,6 @@ pub trait Hasher: Sync + Send {
 /// one value.
 #[cfg(feature = "std")]
 pub trait PlainDB<K, V>: Send + Sync + AsPlainDB<K, V> {
-	/// Get the keys in the database together with number of underlying references.
-	fn keys(&self) -> HashMap<K, i32>;
-
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	fn get(&self, key: &K) -> Option<V>;
@@ -80,9 +77,6 @@ pub trait PlainDB<K, V>: Send + Sync + AsPlainDB<K, V> {
 /// Trait for immutable reference of PlainDB.
 #[cfg(feature = "std")]
 pub trait PlainDBRef<K, V> {
-	/// Get the keys in the database together with number of underlying references.
-	fn keys(&self) -> HashMap<K, i32>;
-
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	fn get(&self, key: &K) -> Option<V>;
@@ -93,14 +87,12 @@ pub trait PlainDBRef<K, V> {
 
 #[cfg(feature = "std")]
 impl<'a, K, V> PlainDBRef<K, V> for &'a PlainDB<K, V> {
-	fn keys(&self) -> HashMap<K, i32> { PlainDB::keys(*self) }
 	fn get(&self, key: &K) -> Option<V> { PlainDB::get(*self, key) }
 	fn contains(&self, key: &K) -> bool { PlainDB::contains(*self, key) }
 }
 
 #[cfg(feature = "std")]
 impl<'a, K, V> PlainDBRef<K, V> for &'a mut PlainDB<K, V> {
-	fn keys(&self) -> HashMap<K, i32> { PlainDB::keys(*self) }
 	fn get(&self, key: &K) -> Option<V> { PlainDB::get(*self, key) }
 	fn contains(&self, key: &K) -> bool { PlainDB::contains(*self, key) }
 }
@@ -108,9 +100,6 @@ impl<'a, K, V> PlainDBRef<K, V> for &'a mut PlainDB<K, V> {
 /// Trait modelling datastore keyed by a hash defined by the `Hasher`.
 #[cfg(feature = "std")]
 pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
-	/// Get the keys in the database together with number of underlying references.
-	fn keys(&self) -> HashMap<H::Out, i32>;
-
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	fn get(&self, key: &H::Out) -> Option<T>;
@@ -134,9 +123,6 @@ pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 /// Trait for immutable reference of HashDB.
 #[cfg(feature = "std")]
 pub trait HashDBRef<H: Hasher, T> {
-	/// Get the keys in the database together with number of underlying references.
-	fn keys(&self) -> HashMap<H::Out, i32>;
-
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	fn get(&self, key: &H::Out) -> Option<T>;
@@ -147,14 +133,12 @@ pub trait HashDBRef<H: Hasher, T> {
 
 #[cfg(feature = "std")]
 impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a HashDB<H, T> {
-	fn keys(&self) -> HashMap<H::Out, i32> { HashDB::keys(*self) }
 	fn get(&self, key: &H::Out) -> Option<T> { HashDB::get(*self, key) }
 	fn contains(&self, key: &H::Out) -> bool { HashDB::contains(*self, key) }
 }
 
 #[cfg(feature = "std")]
 impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a mut HashDB<H, T> {
-	fn keys(&self) -> HashMap<H::Out, i32> { HashDB::keys(*self) }
 	fn get(&self, key: &H::Out) -> Option<T> { HashDB::get(*self, key) }
 	fn contains(&self, key: &H::Out) -> bool { HashDB::contains(*self, key) }
 }
