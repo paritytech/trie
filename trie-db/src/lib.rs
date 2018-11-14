@@ -52,7 +52,7 @@ mod nibblevec;
 mod nibbleslice;
 mod node_codec;
 
-pub use hash_db::{HashDB, Hasher};
+pub use hash_db::{HashDB, HashDBRef, Hasher};
 pub use self::triedb::{TrieDB, TrieDBIterator};
 pub use self::triedbmut::{TrieDBMut, ChildReference};
 pub use self::sectriedbmut::SecTrieDBMut;
@@ -291,7 +291,7 @@ where
 	/// Create new immutable instance of Trie.
 	pub fn readonly(
 		&self,
-		db: &'db HashDB<H, DBValue>,
+		db: &'db HashDBRef<H, DBValue>,
 		root: &'db H::Out
 	) -> Result<TrieKinds<'db, H, C>, H::Out, <C as NodeCodec<H>>::Error> {
 		match self.spec {

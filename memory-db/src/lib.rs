@@ -18,7 +18,7 @@ extern crate hash_db;
 extern crate heapsize;
 #[cfg(test)] extern crate keccak_hasher;
 
-use hash_db::{HashDB, PlainDB, Hasher as KeyHasher, AsHashDB, AsPlainDB};
+use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher, AsHashDB, AsPlainDB};
 use heapsize::HeapSizeOf;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -274,6 +274,16 @@ where
 	}
 }
 
+impl<H, T> PlainDBRef<H::Out, T> for MemoryDB<H, T>
+where
+	H: KeyHasher,
+	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
+{
+	fn keys(&self) -> HashMap<H::Out, i32> { PlainDB::keys(self) }
+	fn get(&self, key: &H::Out) -> Option<T> { PlainDB::get(self, key) }
+	fn contains(&self, key: &H::Out) -> bool { PlainDB::contains(self, key) }
+}
+
 impl<H, T> HashDB<H, T> for MemoryDB<H, T>
 where
 	H: KeyHasher,
@@ -325,7 +335,16 @@ where
 
 		PlainDB::remove(self, key)
 	}
+}
 
+impl<H, T> HashDBRef<H, T> for MemoryDB<H, T>
+where
+	H: KeyHasher,
+	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
+{
+	fn keys(&self) -> HashMap<H::Out, i32> { HashDB::keys(self) }
+	fn get(&self, key: &H::Out) -> Option<T> { HashDB::get(self, key) }
+	fn contains(&self, key: &H::Out) -> bool { HashDB::contains(self, key) }
 }
 
 impl<H, T> AsPlainDB<H::Out, T> for MemoryDB<H, T>

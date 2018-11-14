@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::fmt;
-use hash_db::*;
+use hash_db::{Hasher, HashDBRef};
 use nibbleslice::NibbleSlice;
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
@@ -57,7 +57,7 @@ where
 	H: Hasher + 'db,
 	C: NodeCodec<H>
 {
-	db: &'db HashDB<H, DBValue>,
+	db: &'db HashDBRef<H, DBValue>,
 	root: &'db H::Out,
 	/// The number of hashes performed so far in operations on this trie.
 	hash_count: usize,
@@ -71,7 +71,7 @@ where
 {
 	/// Create a new trie with the backing database `db` and `root`
 	/// Returns an error if `root` does not exist
-	pub fn new(db: &'db HashDB<H, DBValue>, root: &'db H::Out) -> Result<Self, H::Out, C::Error> {
+	pub fn new(db: &'db HashDBRef<H, DBValue>, root: &'db H::Out) -> Result<Self, H::Out, C::Error> {
 		if !db.contains(root) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		} else {
@@ -80,7 +80,7 @@ where
 	}
 
 	/// Get the backing database.
-	pub fn db(&'db self) -> &'db HashDB<H, DBValue> { self.db }
+	pub fn db(&'db self) -> &'db HashDBRef<H, DBValue> { self.db }
 
 	/// Get the data of the root node.
 	pub fn root_data(&self) -> Result<DBValue, H::Out, C::Error> {
@@ -92,7 +92,7 @@ where
 	/// Given some node-describing data `node`, return the actual node RLP.
 	/// This could be a simple identity operation in the case that the node is sufficiently small, but
 	/// may require a database lookup. If `is_root_data` then this is root-data and
-	/// is known to be literal. 
+	/// is known to be literal.
 	fn get_raw_or_lookup(&'db self, node: &[u8], is_root_node: bool) -> Result<Cow<'db, DBValue>, H::Out, C::Error> {
 		match (is_root_node, C::try_decode_hash(node)) {
 			(false, Some(key)) => {

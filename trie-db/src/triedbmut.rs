@@ -387,8 +387,8 @@ where
 		let mut handle = handle;
 		loop {
 			let (mid, child) = match *handle {
-				NodeHandle::Hash(ref hash) => return Lookup{
-					db: &*self.db,
+				NodeHandle::Hash(ref hash) => return Lookup {
+					db: &self.db,
 					query: DBValue::from_slice,
 					hash: hash.clone(),
 					marker: PhantomData::<C>,
