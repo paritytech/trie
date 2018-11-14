@@ -91,12 +91,14 @@ pub trait PlainDBRef<K, V> {
 	fn contains(&self, key: &K) -> bool;
 }
 
+#[cfg(feature = "std")]
 impl<'a, K, V> PlainDBRef<K, V> for &'a PlainDB<K, V> {
 	fn keys(&self) -> HashMap<K, i32> { PlainDB::keys(*self) }
 	fn get(&self, key: &K) -> Option<V> { PlainDB::get(*self, key) }
 	fn contains(&self, key: &K) -> bool { PlainDB::contains(*self, key) }
 }
 
+#[cfg(feature = "std")]
 impl<'a, K, V> PlainDBRef<K, V> for &'a mut PlainDB<K, V> {
 	fn keys(&self) -> HashMap<K, i32> { PlainDB::keys(*self) }
 	fn get(&self, key: &K) -> Option<V> { PlainDB::get(*self, key) }
@@ -143,12 +145,14 @@ pub trait HashDBRef<H: Hasher, T> {
 	fn contains(&self, key: &H::Out) -> bool;
 }
 
+#[cfg(feature = "std")]
 impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a HashDB<H, T> {
 	fn keys(&self) -> HashMap<H::Out, i32> { HashDB::keys(*self) }
 	fn get(&self, key: &H::Out) -> Option<T> { HashDB::get(*self, key) }
 	fn contains(&self, key: &H::Out) -> bool { HashDB::contains(*self, key) }
 }
 
+#[cfg(feature = "std")]
 impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a mut HashDB<H, T> {
 	fn keys(&self) -> HashMap<H::Out, i32> { HashDB::keys(*self) }
 	fn get(&self, key: &H::Out) -> Option<T> { HashDB::get(*self, key) }
