@@ -50,10 +50,7 @@ impl<H> From<StorageHandle> for NodeHandle<H> {
 }
 
 fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; 16]> {
-	Box::new([
-		None, None, None, None, None, None, None, None,
-		None, None, None, None, None, None, None, None,
-	])
+	Box::new([None; 16])
 }
 
 /// Node types in the Trie.
