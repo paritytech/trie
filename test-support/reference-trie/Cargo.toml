@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Simple reference trie format"
 repository = "https://github.com/paritytech/trie/"
-license = "Apache-2"
+license = "Apache-2.0"
 
 [dependencies]
 hash-db = { path = "../../hash-db" }
