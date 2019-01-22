@@ -6,11 +6,11 @@ authors = ["Parity Technologies <admin@parity.io>"]
 license = "Apache-2.0"
 
 [dependencies]
-keccak-hasher = { path = "../keccak-hasher" }
-trie-standardmap = { path = "../trie-standardmap" }
-hash-db = { path = "../../hash-db" }
-memory-db = { path = "../../memory-db" }
-trie-root = { path = "../../trie-root" }
-trie-db = { path = "../../trie-db" }
+keccak-hasher = { path = "../keccak-hasher", version = "0.2.0" }
+trie-standardmap = { path = "../trie-standardmap", version  = "0.9.0" }
+hash-db = { path = "../../hash-db" , version = "0.9.0"}
+memory-db = { path = "../../memory-db", version = "0.9.0" }
+trie-root = { path = "../../trie-root", version = "0.9.0" }
+trie-db = { path = "../../trie-db", version = "0.9.0" }
 criterion = "0.1.2"
 parity-codec = "2.1"

@@ -6,6 +6,6 @@ authors = ["Parity Technologies <admin@parity.io>"]
 license = "Apache-2.0"
 
 [dependencies]
-keccak-hasher = { path = "../keccak-hasher" }
-hash-db = { path = "../../hash-db" }
+keccak-hasher = { path = "../keccak-hasher", version = "0.2.0"}
+hash-db = { path = "../../hash-db" , version = "0.9.0"}
 criterion = "0.1.2"
