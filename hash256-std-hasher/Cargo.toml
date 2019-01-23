@@ -12,10 +12,10 @@ name = "bench"
 harness = false
 
 [dependencies]
-crunchy = "0.1.6"
+crunchy = "0.2.1"
 
 [dev-dependencies]
-criterion = "0.1.2"
+criterion = "0.2.8"
 
 [features]
 default = ["std"]
