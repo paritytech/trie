@@ -39,6 +39,12 @@ impl ::std::fmt::Display for TrieInsertionList {
 	}
 }
 
+impl ::std::fmt::Debug for TrieInsertionList {
+	fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+		write!(fmt, "{} items", self.0.len())
+	}
+}
+
 fn benchmark<H: 'static +  Hasher, N: NodeCodec<H>, S: TrieStream>(b: &mut Criterion, name: &str, content: Vec<(Vec<u8>, Vec<u8>)>)
 where
 	<H as Hasher>::Out: 'static
@@ -73,7 +79,7 @@ where
 		}),
 	];
 
-	b.bench_functions(name, funs, &TrieInsertionList(content));
+	b.bench_functions(name, funs, TrieInsertionList(content));
 }
 
 fn random_word(alphabet: &[u8], min_count: usize, diff_count: usize, seed: &mut <KeccakHasher as Hasher>::Out) -> Vec<u8> {
