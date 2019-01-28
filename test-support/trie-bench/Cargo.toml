@@ -1,7 +1,7 @@
 [package]
 name = "trie-bench"
 description = "Standard benchmarking suite for tries"
-version = "0.9.1"
+version = "0.10.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 license = "Apache-2.0"
 
@@ -13,4 +13,4 @@ memory-db = { path = "../../memory-db", version = "0.9.1" }
 trie-root = { path = "../../trie-root", version = "0.9.1" }
 trie-db = { path = "../../trie-db", version = "0.9.1" }
 criterion = "0.2.8"
-parity-codec = "2.2"
+parity-codec = "3.0"
