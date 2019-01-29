@@ -1,6 +1,6 @@
 [package]
 name = "trie-db"
-version = "0.9.0"
+version = "0.9.1"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Merkle-Patricia Trie generic over key hasher and node encoding"
 repository = "https://github.com/paritytech/parity-common"
@@ -9,8 +9,10 @@ license = "Apache-2"
 [dependencies]
 log = { version = "0.3" }
 rand = { version = "0.4" }
-elastic-array = { version = "0.10" }
-hash-db = { path = "../hash-db" }
+#elastic-array = { version = "0.10" }
+elastic-array = { version = "0.10", path = "../../elastic-array", default-features = false }
+hash-db = { path = "../hash-db", default-features = false }
+hashbrown = { version = "0.1" }
 
 [dev-dependencies]
 env_logger = "0.5"
@@ -18,9 +20,16 @@ memory-db = { path = "../memory-db" }
 trie-root = { path = "../trie-root" }
 trie-standardmap = { path = "../test-support/trie-standardmap" }
 keccak-hasher = { path = "../test-support/keccak-hasher" }
-reference-trie = { path = "../test-support/reference-trie" }
+reference-trie = { path = "../test-support/reference-trie", default-features = false }
 hex-literal = "0.1"
 criterion = "0.1.2"
+
+[features]
+default = ["std"]
+std = [
+  "elastic-array/std",
+  "hash-db/std",
+]
 
 [[bench]]
 name = "bench"

@@ -13,9 +13,11 @@
 // limitations under the License.
 
 //! Database of byte-slices keyed to their hash.
-
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(not(feature = "std"), feature(core_intrinsics))]
+
+#[cfg(not(feature = "std"))]
+extern crate hashbrown;
 
 #[cfg(feature = "std")]
 use std::fmt::Debug;
@@ -30,6 +32,8 @@ impl<T: Debug> DebugIfStd for T {}
 
 #[cfg(not(feature = "std"))]
 use core::hash;
+#[cfg(not(feature = "std"))]
+use hashbrown::HashMap;
 #[cfg(not(feature = "std"))]
 pub trait DebugIfStd {}
 #[cfg(not(feature = "std"))]
@@ -51,7 +55,6 @@ pub trait Hasher: Sync + Send {
 }
 
 /// Trait modelling datastore keyed by a hash defined by the `Hasher`.
-#[cfg(feature = "std")]
 pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 	/// Get the keys in the database together with number of underlying references.
 	fn keys(&self) -> HashMap<H::Out, i32>;
@@ -77,7 +80,6 @@ pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 }
 
 /// Upcast trait.
-#[cfg(feature = "std")]
 pub trait AsHashDB<H: Hasher, T> {
 	/// Perform upcast to HashDB for anything that derives from HashDB.
 	fn as_hash_db(&self) -> &HashDB<H, T>;
@@ -87,9 +89,7 @@ pub trait AsHashDB<H: Hasher, T> {
 
 // NOTE: There used to be a `impl<T> AsHashDB for T` but that does not work with generics. See https://stackoverflow.com/questions/48432842/implementing-a-trait-for-reference-and-non-reference-types-causes-conflicting-im
 // This means we need concrete impls of AsHashDB in several places, which somewhat defeats the point of the trait.
-#[cfg(feature = "std")]
 impl<'a, H: Hasher, T> AsHashDB<H, T> for &'a mut HashDB<H, T> {
 	fn as_hash_db(&self) -> &HashDB<H, T> { &**self }
 	fn as_hash_db_mut<'b>(&'b mut self) -> &'b mut (HashDB<H, T> + 'b) { &mut **self }
 }
-

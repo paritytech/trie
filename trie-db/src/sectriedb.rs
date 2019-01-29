@@ -17,6 +17,9 @@ use super::triedb::TrieDB;
 use super::{Result, DBValue, Trie, TrieItem, TrieIterator, Query};
 use node_codec::NodeCodec;
 
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
+
 /// A `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 ///
 /// Use it as a `Trie` trait object. You can use `raw()` to get the backing `TrieDB` object.

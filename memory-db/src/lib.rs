@@ -14,16 +14,39 @@
 
 //! Reference-counted memory-based `HashDB` implementation.
 
+#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(feature = "std"), feature(alloc))]
+
 extern crate hash_db;
 extern crate heapsize;
+#[cfg(not(feature = "std"))]
+extern crate hashbrown;
+#[cfg(not(feature = "std"))]
+extern crate alloc;
 #[cfg(test)] extern crate keccak_hasher;
-
 use hash_db::{HashDB, Hasher as KeyHasher, AsHashDB};
+
 use heapsize::HeapSizeOf;
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
-use std::hash;
-use std::mem;
+#[cfg(feature = "std")]
+use std::{
+	collections::hash_map::Entry,
+	collections::HashMap,
+	hash,
+	mem,
+};
+
+#[cfg(not(feature = "std"))]
+use hashbrown::{
+	HashMap,
+	hash_map::Entry,
+};
+
+
+#[cfg(not(feature = "std"))]
+use core::{
+	hash,
+	mem,
+};
 
 // Backing `HashMap` parametrized with a `Hasher` for the keys `Hasher::Out` and the `Hasher::StdHasher`
 // as hash map builder.
@@ -325,6 +348,9 @@ where
 mod tests {
 	use super::*;
 	use keccak_hasher::KeccakHasher;
+
+	#[cfg(not(feature = "std"))]
+	use alloc::vec::Vec;
 
 	#[test]
 	fn memorydb_remove_and_purge() {

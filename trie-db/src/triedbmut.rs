@@ -23,11 +23,25 @@ use super::{DBValue, node::NodeKey};
 use hash_db::{HashDB, Hasher};
 use nibbleslice::NibbleSlice;
 
-use std::collections::{HashSet, VecDeque};
-use std::marker::PhantomData;
-use std::mem;
-use std::ops::Index;
-use std::{fmt::Debug, hash::Hash};
+use ::core_::marker::PhantomData;
+use ::core_::mem;
+use ::core_::ops::Index;
+use ::core_::{fmt::Debug, hash::Hash};
+
+#[cfg(feature = "std")]
+use ::std::collections::{HashSet, VecDeque};
+
+#[cfg(not(feature = "std"))]
+use ::alloc::collections::vec_deque::VecDeque;
+
+#[cfg(not(feature = "std"))]
+use ::hashbrown::HashSet;
+
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 // For lookups into the Node storage buffer.
 // This is deliberately non-copyable.

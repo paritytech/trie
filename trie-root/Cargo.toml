@@ -1,6 +1,6 @@
 [package]
 name = "trie-root"
-version = "0.9.0"
+version = "0.9.1"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "In-memory patricia trie operations"
 repository = "https://github.com/paritytech/parity-common"
@@ -14,7 +14,7 @@ hash-db = { path = "../hash-db", default-features = false }
 hex-literal = "0.1"
 keccak-hasher = { path = "../test-support/keccak-hasher" }
 trie-standardmap = { path = "../test-support/trie-standardmap" }
-reference-trie = { path = "../test-support/reference-trie" }
+reference-trie = { path = "../test-support/reference-trie", default-features = false }
 
 [features]
 default = ["std"]

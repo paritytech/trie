@@ -12,15 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
+use ::core_::fmt;
 use hash_db::*;
 use nibbleslice::NibbleSlice;
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
 use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query};
-use std::marker::PhantomData;
-use std::borrow::Cow;
+use ::core_::marker::PhantomData;
+
+#[cfg(feature = "std")]
+use ::std::borrow::Cow;
+#[cfg(not(feature = "std"))]
+use ::alloc::{borrow::Cow, format};
+
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 /// A `Trie` implementation using a generic `HashDB` backing database, a `Hasher`
 /// implementation to generate keys and a `NodeCodec` implementation to encode/decode
