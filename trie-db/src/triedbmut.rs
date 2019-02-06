@@ -387,8 +387,8 @@ where
 		let mut handle = handle;
 		loop {
 			let (mid, child) = match *handle {
-				NodeHandle::Hash(ref hash) => return Lookup{
-					db: &*self.db,
+				NodeHandle::Hash(ref hash) => return Lookup {
+					db: &self.db,
 					query: DBValue::from_slice,
 					hash: hash.clone(),
 					marker: PhantomData::<C>,
@@ -969,7 +969,7 @@ mod tests {
 	use memory_db::MemoryDB;
 	use hash_db::{Hasher, HashDB};
 	use keccak_hasher::KeccakHasher;
-	use reference_trie::{RefTrieDBMut, RefTrieDB, Trie, TrieMut, NodeCodec,
+	use reference_trie::{RefTrieDBMut, TrieMut, NodeCodec,
 		ReferenceNodeCodec, ref_trie_root};
 
 	fn populate_trie<'db>(

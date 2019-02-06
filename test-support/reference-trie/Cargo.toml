@@ -1,22 +1,22 @@
 [package]
 name = "reference-trie"
-version = "0.2.0"
+version = "0.11.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Simple reference trie format"
 repository = "https://github.com/paritytech/trie/"
 license = "Apache-2.0"
 
 [dependencies]
-hash-db = { path = "../../hash-db" , version = "0.9.0"}
-hash256-std-hasher = { path = "../../hash256-std-hasher", version = "0.9.1" }
-keccak-hasher = { path = "../keccak-hasher", version = "0.2.1" }
-trie-db = { path = "../../trie-db", version = "0.9.1"}
-trie-root = { path = "../../trie-root", version = "0.9.1" }
+hash-db = { path = "../../hash-db" , version = "0.11.0"}
+hash256-std-hasher = { path = "../../hash256-std-hasher", version = "0.11.0" }
+keccak-hasher = { path = "../keccak-hasher", version = "0.11.0" }
+trie-db = { path = "../../trie-db", version = "0.11.0"}
+trie-root = { path = "../../trie-root", version = "0.11.0" }
 parity-codec = "3.0"
 parity-codec-derive = "3.0"
 
 [dev-dependencies]
-trie-bench = { path = "../trie-bench", version = "0.10.0" }
+trie-bench = { path = "../trie-bench", version = "0.11.0" }
 criterion = "0.2.8"
 
 [[bench]]
