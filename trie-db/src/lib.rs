@@ -51,10 +51,11 @@ mod lookup;
 mod nibblevec;
 mod nibbleslice;
 mod node_codec;
+mod iter_build;
 
 pub use hash_db::{HashDB, HashDBRef, Hasher};
 pub use self::triedb::{TrieDB, TrieDBIterator};
-pub use self::triedbmut::{TrieDBMut, ChildReference};
+pub use self::triedbmut::{TrieDBMutNoExt, TrieDBMut, ChildReference};
 pub use self::sectriedbmut::SecTrieDBMut;
 pub use self::sectriedb::SecTrieDB;
 pub use self::fatdb::{FatDB, FatDBIterator};
@@ -63,6 +64,7 @@ pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
 pub use self::nibbleslice::NibbleSlice;
 pub use node_codec::NodeCodec;
+pub use iter_build::{trie_visit, trie_visit_no_ext, ProcessEncodedNode, TrieBuilder, TrieRoot, TrieRootUnhashed};
 
 pub type DBValue = elastic_array::ElasticArray128<u8>;
 

@@ -151,15 +151,15 @@ where
 			match C::decode(&node) {
 				Ok(Node::Leaf(slice, value)) =>
 					match (f.debug_struct("Node::Leaf"), self.index) {
-						(ref mut d, Some(ref i)) => d.field("index", i),
+						(ref mut d, Some(i)) => d.field("index", &i),
 						(ref mut d, _) => d,
 					}
 						.field("slice", &slice)
 						.field("value", &value)
 						.finish(),
-				Ok(Node::Extension(ref slice, ref item)) =>
+				Ok(Node::Extension(slice, item)) =>
 					match (f.debug_struct("Node::Extension"), self.index) {
-						(ref mut d, Some(ref i)) => d.field("index", i),
+						(ref mut d, Some(i)) => d.field("index", &i),
 						(ref mut d, _) => d,
 					}
 						.field("slice", &slice)
@@ -179,11 +179,27 @@ where
 						.field("value", &value)
 						.finish()
 				},
+				Ok(Node::NibbledBranch(slice, nodes, value)) => {
+					let nodes: Vec<TrieAwareDebugNode<H, C>> = nodes.into_iter()
+						.enumerate()
+						.filter_map(|(i, n)| n.map(|n| (i, n)))
+						.map(|(i, n)| TrieAwareDebugNode { trie: self.trie, index: Some(i as u8), key: n, is_root: false })
+						.collect();
+
+					match (f.debug_struct("Node::NibbledBranch"), self.index) {
+						(ref mut d, Some(ref i)) => d.field("index", i),
+						(ref mut d, _) => d,
+					}
+						.field("slice", &slice)
+						.field("nodes", &nodes)
+						.field("value", &value)
+						.finish()
+				},
 				Ok(Node::Empty) => f.debug_struct("Node::Empty").finish(),
 
 				Err(e) => f.debug_struct("BROKEN_NODE")
 					.field("index", &self.index)
-					.field("key", &self.key)
+					.field("key", &self.key) // [128, 225, 183, 218, 100, 173, 146, 231, 107, 158, 188, 21],
 					.field("error",  &format!("ERROR decoding node branch Rlp: {}", e))
 					.finish()
 			}
@@ -236,8 +252,11 @@ impl Crumb {
 		self.status = match (&self.status, &self.node) {
 			(_, &OwnedNode::Empty) => Status::Exiting,
 			(&Status::Entering, _) => Status::At,
-			(&Status::At, &OwnedNode::Branch(_)) => Status::AtChild(0),
-			(&Status::AtChild(x), &OwnedNode::Branch(_)) if x < 15 => Status::AtChild(x + 1),
+			(&Status::At, &OwnedNode::Branch(_))
+				| (&Status::At, &OwnedNode::NibbledBranch(..)) => Status::AtChild(0),
+			(&Status::AtChild(x), &OwnedNode::Branch(_))
+				| (&Status::AtChild(x), &OwnedNode::NibbledBranch(..))
+				if x < 15 => Status::AtChild(x + 1),
 			_ => Status::Exiting,
 		}
 	}
@@ -317,7 +336,36 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 							}
 						}
 					},
-					_ => return Ok(()),
+					Node::NibbledBranch(ref slice, ref nodes, _) => {
+						if !key.starts_with(slice) {
+							self.descend(&node_data)?;
+							return Ok(())
+						}
+						if key.len() == slice.len() {
+							self.trail.push(Crumb {
+								status: Status::Entering,
+								node: node.clone().into(),
+							});
+							return Ok(())
+						} else {
+
+							let i = key.at(slice.len());
+							self.trail.push(Crumb {
+								status: Status::AtChild(i as usize),
+								node: node.clone().into(),
+							});
+							self.key_nibbles.extend(slice.iter());
+							self.key_nibbles.push(i);
+							if let Some(ref child) = nodes[i as usize] {
+								let child = self.db.get_raw_or_lookup(&*child, false)?;
+								(child, slice.len() + 1)
+							} else {
+								return Ok(())
+							}
+						}
+
+					},
+					Node::Empty => return Ok(()),
 				}
 			};
 
@@ -337,7 +385,10 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 	fn descend_into_node(&mut self, node: OwnedNode) {
 		self.trail.push(Crumb { status: Status::Entering, node });
 		match &self.trail.last().expect("just pushed item; qed").node {
-			&OwnedNode::Leaf(ref n, _) | &OwnedNode::Extension(ref n, _) => {
+			&OwnedNode::Leaf(ref n, _)
+				| &OwnedNode::Extension(ref n, _)
+				| &OwnedNode::NibbledBranch(ref n, _)
+				=> {
 				self.key_nibbles.extend((0..n.len()).map(|i| n.at(i)));
 			},
 			_ => {}
@@ -391,11 +442,16 @@ impl<'a, H: Hasher, C: NodeCodec<H>> Iterator for TrieDBIterator<'a, H, C> {
 								self.key_nibbles.truncate(l - n.len());
 							},
 							OwnedNode::Branch(_) => { self.key_nibbles.pop(); },
-							_ => {}
+							OwnedNode::NibbledBranch(ref n,_) => {
+								let l = self.key_nibbles.len();
+								self.key_nibbles.truncate(l - n.len() - 1);
+							},
+							OwnedNode::Empty => {},
 						}
 						IterStep::PopTrail
 					},
-					(Status::At, &OwnedNode::Branch(ref branch)) if branch.has_value() => {
+					(Status::At, &OwnedNode::Branch(ref branch))
+					 | (Status::At, &OwnedNode::NibbledBranch(_, ref branch)) if branch.has_value() => {
 						let value = branch.get_value().expect("already checked `has_value`");
 						return Some(Ok((self.key(), DBValue::from_slice(value))));
 					},
@@ -405,8 +461,11 @@ impl<'a, H: Hasher, C: NodeCodec<H>> Iterator for TrieDBIterator<'a, H, C> {
 					(Status::At, &OwnedNode::Extension(_, ref d)) => {
 						IterStep::Descend::<H::Out, C::Error>(self.db.get_raw_or_lookup(&*d, false))
 					},
-					(Status::At, &OwnedNode::Branch(_)) => IterStep::Continue,
-					(Status::AtChild(i), &OwnedNode::Branch(ref branch)) if branch.index(i).is_some() => {
+					(Status::At, &OwnedNode::Branch(_))
+						| (Status::At, &OwnedNode::NibbledBranch(_,_)) => IterStep::Continue,
+					(Status::AtChild(i), &OwnedNode::Branch(ref branch))
+						| (Status::AtChild(i), &OwnedNode::NibbledBranch(_, ref branch)) 
+						if branch.index(i).is_some() => {
 						match i {
 							0 => self.key_nibbles.push(0),
 							i => *self.key_nibbles.last_mut()
@@ -414,7 +473,8 @@ impl<'a, H: Hasher, C: NodeCodec<H>> Iterator for TrieDBIterator<'a, H, C> {
 						}
 						IterStep::Descend::<H::Out, C::Error>(self.db.get_raw_or_lookup(&branch.index(i).expect("this arm guarded by branch[i].is_some(); qed"), false))
 					},
-					(Status::AtChild(i), &OwnedNode::Branch(_)) => {
+					(Status::AtChild(i), &OwnedNode::Branch(_))
+						| (Status::AtChild(i), &OwnedNode::NibbledBranch(_,_)) => {
 						if i == 0 {
 							self.key_nibbles.push(0);
 						}
@@ -447,6 +507,7 @@ mod tests {
 	use keccak_hasher::KeccakHasher;
 	use DBValue;
 	use reference_trie::{RefTrieDB, RefTrieDBMut, RefLookup, Trie, TrieMut, NibbleSlice};
+	use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt};
 
 	#[test]
 	fn iterator_works() {
@@ -475,6 +536,34 @@ mod tests {
 
 		assert_eq!(pairs, iter_pairs);
 	}
+	#[test]
+	fn iterator_works_no_ext() {
+		let pairs = vec![
+			(hex!("0103000000000000000464").to_vec(), hex!("fffffffffe").to_vec()),
+			(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
+		];
+
+		let mut memdb = MemoryDB::default();
+		let mut root = Default::default();
+		{
+			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+			for (x, y) in &pairs {
+				t.insert(x, y).unwrap();
+			}
+		}
+
+		let trie = RefTrieDBNoExt::new(&memdb, &root).unwrap();
+
+		let iter = trie.iter().unwrap();
+		let mut iter_pairs = Vec::new();
+		for pair in iter {
+			let (key, value) = pair.unwrap();
+			iter_pairs.push((key, value.to_vec()));
+		}
+
+		assert_eq!(pairs, iter_pairs);
+	}
+
 
 	#[test]
 	fn iterator_seek_works() {
@@ -504,6 +593,34 @@ mod tests {
 	}
 
 	#[test]
+	fn iterator_seek_works_no_ext() {
+		let pairs = vec![
+			(hex!("0103000000000000000464").to_vec(), hex!("fffffffffe").to_vec()),
+			(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
+		];
+
+		let mut memdb = MemoryDB::default();
+		let mut root = Default::default();
+		{
+			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+			for (x, y) in &pairs {
+				t.insert(x, y).unwrap();
+			}
+		}
+
+		let t = RefTrieDBNoExt::new(&memdb, &root).unwrap();
+
+		let mut iter = t.iter().unwrap();
+		assert_eq!(iter.next().unwrap().unwrap(), (hex!("0103000000000000000464").to_vec(), DBValue::from_slice(&hex!("fffffffffe")[..])));
+		iter.seek(&hex!("00")[..]).unwrap();
+		assert_eq!(pairs, iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>());
+		let mut iter = t.iter().unwrap();
+		iter.seek(&hex!("0103000000000000000465")[..]).unwrap();
+		assert_eq!(&pairs[1..], &iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>()[..]);
+	}
+
+
+	#[test]
 	fn iterator() {
 		let d = vec![DBValue::from_slice(b"A"), DBValue::from_slice(b"AA"), DBValue::from_slice(b"AB"), DBValue::from_slice(b"B")];
 
@@ -522,19 +639,38 @@ mod tests {
 	}
 
 	#[test]
+	fn iterator_no_ext() {
+		let d = vec![DBValue::from_slice(b"A"), DBValue::from_slice(b"AA"), DBValue::from_slice(b"AB"), DBValue::from_slice(b"B")];
+
+		let mut memdb = MemoryDB::<KeccakHasher, DBValue>::default();
+		let mut root = Default::default();
+		{
+			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+			for x in &d {
+				t.insert(x, x).unwrap();
+			}
+		}
+
+		let t = RefTrieDBNoExt::new(&memdb, &root).unwrap();
+		assert_eq!(d.iter().map(|i| i.clone().into_vec()).collect::<Vec<_>>(), t.iter().unwrap().map(|x| x.unwrap().0).collect::<Vec<_>>());
+		assert_eq!(d, t.iter().unwrap().map(|x| x.unwrap().1).collect::<Vec<_>>());
+	}
+
+
+	#[test]
 	fn iterator_seek() {
 		let d = vec![ DBValue::from_slice(b"A"), DBValue::from_slice(b"AA"), DBValue::from_slice(b"AB"), DBValue::from_slice(b"B") ];
 
 		let mut memdb = MemoryDB::<KeccakHasher, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
 			for x in &d {
 				t.insert(x, x).unwrap();
 			}
 		}
 
-		let t = RefTrieDB::new(&memdb, &root).unwrap();
+		let t = RefTrieDBNoExt::new(&memdb, &root).unwrap();
 		let mut iter = t.iter().unwrap();
 		assert_eq!(iter.next().unwrap().unwrap(), (b"A".to_vec(), DBValue::from_slice(b"A")));
 		iter.seek(b"!").unwrap();
@@ -577,6 +713,23 @@ mod tests {
 		assert_eq!(t.get_with(b"B", |x: &[u8]| x.len()).unwrap(), Some(5));
 		assert_eq!(t.get_with(b"C", |x: &[u8]| x.len()).unwrap(), None);
 	}
+
+	#[test]
+	fn get_len_no_ext() {
+		let mut memdb = MemoryDB::<KeccakHasher, DBValue>::default();
+		let mut root = Default::default();
+		{
+			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+			t.insert(b"A", b"ABC").unwrap();
+			t.insert(b"B", b"ABCBA").unwrap();
+		}
+
+		let t = RefTrieDBNoExt::new(&memdb, &root).unwrap();
+		assert_eq!(t.get_with(b"A", |x: &[u8]| x.len()).unwrap(), Some(3));
+		assert_eq!(t.get_with(b"B", |x: &[u8]| x.len()).unwrap(), Some(5));
+		assert_eq!(t.get_with(b"C", |x: &[u8]| x.len()).unwrap(), None);
+	}
+
 
 	#[test]
 	fn debug_output_supports_pretty_print() {

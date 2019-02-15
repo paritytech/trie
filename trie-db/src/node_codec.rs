@@ -18,10 +18,11 @@
 use hash_db::Hasher;
 use node::Node;
 use ChildReference;
-
-use elastic_array::{ElasticArray128};
+use std::borrow::Borrow;
 
 /// Trait for trie node encoding/decoding
+/// TODO add const MAX_NODE_LEN and run all encoding over a mutable buffer, returning size. ->
+/// avoid Vec by all means.
 pub trait NodeCodec<H: Hasher>: Sized {
 	/// Codec error type
 	type Error: ::std::error::Error;
@@ -32,7 +33,7 @@ pub trait NodeCodec<H: Hasher>: Sized {
 	/// Decode bytes to a `Node`. Returns `Self::E` on failure.
 	fn decode(data: &[u8]) -> Result<Node, Self::Error>;
 
-	/// Decode bytes to the `Hasher`s output type.  Returns `None` on failure.
+	/// Decode bytes to the `Hasher`s output type. Returns `None` on failure.
 	fn try_decode_hash(data: &[u8]) -> Option<H::Out>;
 
 	/// Check if the provided bytes correspond to the codecs "empty" node.
@@ -48,6 +49,8 @@ pub trait NodeCodec<H: Hasher>: Sized {
 	fn ext_node(partial: &[u8], child_ref: ChildReference<H::Out>) -> Vec<u8>;
 
 	/// Returns an encoded branch node. Takes an iterator yielding `ChildReference<H::Out>` and an optional value
-	fn branch_node<I>(children: I, value: Option<ElasticArray128<u8>>) -> Vec<u8>
-	where I: IntoIterator<Item=Option<ChildReference<H::Out>>> + Iterator<Item=Option<ChildReference<H::Out>>>;
+	fn branch_node(children: impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, value: Option<&[u8]>) -> Vec<u8>;
+
+	/// Returns an encoded branch node with a possible partial path.
+	fn branch_node_nibbled(partial: &[u8], children: impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, value: Option<&[u8]>) -> Vec<u8>;
 }

@@ -31,6 +31,8 @@ pub enum Node<'a> {
 	Extension(NibbleSlice<'a>, &'a [u8]),
 	/// Branch node; has array of 16 child nodes (each possibly null) and an optional immediate node data.
 	Branch([Option<&'a [u8]>; 16], Option<&'a [u8]>),
+	/// Branch node with support for a nibble (to avoid extension node)
+	NibbledBranch(NibbleSlice<'a>, [Option<&'a [u8]>; 16], Option<&'a [u8]>),
 }
 
 /// A Sparse (non mutable) owned vector struct to hold branch keys and value
@@ -97,6 +99,8 @@ pub enum OwnedNode {
 	Extension(NibbleVec, DBValue),
 	/// Branch node: 16 children and an optional value.
 	Branch(Branch),
+	/// Branch node: 16 children and an optional value.
+	NibbledBranch(NibbleVec, Branch),
 }
 
 impl<'a> From<Node<'a>> for OwnedNode {
@@ -106,6 +110,7 @@ impl<'a> From<Node<'a>> for OwnedNode {
 			Node::Leaf(k, v) => OwnedNode::Leaf(k.into(), DBValue::from_slice(v)),
 			Node::Extension(k, child) => OwnedNode::Extension(k.into(), DBValue::from_slice(child)),
 			Node::Branch(c, val) => OwnedNode::Branch(Branch::new(c, val)),
+			Node::NibbledBranch(k, c, val) => OwnedNode::NibbledBranch(k.into(), Branch::new(c, val)),
 		}
 	}
 }

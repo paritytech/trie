@@ -22,6 +22,8 @@ keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.11.0" }
 reference-trie = { path = "../test-support/reference-trie", version = "0.11.0" }
 hex-literal = "0.1"
 criterion = "0.2.8"
+parity-codec = "3.0"
+parity-codec-derive = "3.0"
 
 [[bench]]
 name = "bench"
