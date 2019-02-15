@@ -81,11 +81,20 @@ impl<'a> NibbleSlice<'a> {
 
 	/// Create a composed nibble slice; one followed by the other.
 	pub fn new_composed(a: &NibbleSlice<'a>, b: &NibbleSlice<'a>) -> Self {
+		if a.len() != 0 {
 		NibbleSlice {
 			data: a.data,
 			offset: a.offset,
 			data_encode_suffix: b.data,
 			offset_encode_suffix: b.offset
+		}
+		} else {
+		NibbleSlice {
+			data: b.data,
+			offset: b.offset,
+			data_encode_suffix: &b""[..],
+			offset_encode_suffix: 0
+		}
 		}
 	}
 
@@ -152,10 +161,8 @@ impl<'a> NibbleSlice<'a> {
 		}
 		i
 	}
-
-	/// Encode while nibble slice in prefixed hex notation, noting whether it `is_leaf`.
 	#[inline]
-	pub fn encoded(&self, is_leaf: bool) -> ElasticArray36<u8> {
+	pub fn encoded_old(&self, is_leaf: bool) -> ElasticArray36<u8> {
 		let l = self.len();
 		let mut r = ElasticArray36::new();
 		let mut i = l % 2;
@@ -165,6 +172,69 @@ impl<'a> NibbleSlice<'a> {
 			i += 2;
 		}
 		r
+	}
+
+
+	/// Encode while nibble slice in prefixed hex notation, noting whether it `is_leaf`.
+	/// TODO this is probably brokenfor self.data empty (TODO check that it compose correctly(replace
+	/// first by second).
+	#[inline]
+	pub fn encoded(&self, is_leaf: bool) -> ElasticArray36<u8> {
+		let mut dest = ElasticArray36::new();
+		let l = self.len();
+		let mut i = l % 2;
+
+		dest.push(if i == 1 {
+			0x10 + if self.offset % 2 == 1 {
+				self.data[self.offset / 2] & 15u8
+			} else {
+				self.data[self.offset / 2] >> 4
+			}
+		} else {0} + if is_leaf {0x20} else {0});
+
+		let mut next : u8 = 255;
+		if self.data.len() > 0 {
+			let i1 = i == 0;
+			let i2 = self.offset % 2 == 0;
+			if i1 == i2 {
+				// aligned
+				for i in self.offset / 2 + i..self.data.len() {
+					dest.push(self.data[i])
+				}
+			} else {
+				// unaligned
+				if self.data.len() > 1 {
+					for i in self.offset / 2 + 1..self.data.len() {
+						dest.push((self.data[i - 1] << 4) | (self.data[i] >> 4));
+					}
+				}
+				next = self.data[self.data.len()-1] & 15u8;
+			}
+		}
+		if self.data_encode_suffix.len() > 0 {
+			let i1 = next > 15;
+			let i = if i1 { 0 } else { 1 };
+			let i2 = self.offset_encode_suffix % 2 == 0;
+			if i1 == i2 {
+				if !i2 {
+					let a = self.data_encode_suffix[self.offset_encode_suffix / 2];
+					dest.push((next << 4) | (self.data_encode_suffix[self.offset_encode_suffix / 2] & 15u8));
+				}
+				for i in self.offset_encode_suffix / 2 + i..self.data_encode_suffix.len() {
+					dest.push(self.data_encode_suffix[i])
+				}
+			} else {
+				if i1 {
+					dest.push((next << 4) | (self.data_encode_suffix[0] >> 4));
+				}
+				if self.data_encode_suffix.len() > 1 {
+					for i in self.offset_encode_suffix / 2 + 1..self.data_encode_suffix.len() {
+						dest.push((self.data_encode_suffix[i - 1] << 4) | (self.data_encode_suffix[i] >> 4));
+					}
+				}
+			}
+		}
+		dest
 	}
 
 	/// Encode only the leftmost `n` bytes of the nibble slice in prefixed hex notation,
@@ -180,6 +250,7 @@ impl<'a> NibbleSlice<'a> {
 		}
 		r
 	}
+
 }
 
 impl<'a> PartialEq for NibbleSlice<'a> {
@@ -266,6 +337,33 @@ mod tests {
 		assert_eq!(n.mid(1).encoded(false), ElasticArray36::from_slice(&[0x11, 0x23, 0x45]));
 		assert_eq!(n.mid(1).encoded(true), ElasticArray36::from_slice(&[0x31, 0x23, 0x45]));
 	}
+
+	#[test]
+	fn encoded2() {
+		let n = NibbleSlice::new(D);
+		assert_eq!(n.encoded(false), ElasticArray36::from_slice(&[0x00, 0x01, 0x23, 0x45]));
+		assert_eq!(n.encoded(true), ElasticArray36::from_slice(&[0x20, 0x01, 0x23, 0x45]));
+		assert_eq!(n.mid(1).encoded(false), ElasticArray36::from_slice(&[0x11, 0x23, 0x45]));
+		assert_eq!(n.mid(1).encoded(true), ElasticArray36::from_slice(&[0x31, 0x23, 0x45]));
+		assert_eq!(n.mid(2).encoded(false), ElasticArray36::from_slice(&[0x00, 0x23, 0x45]));
+		assert_eq!(n.mid(3).encoded(false), ElasticArray36::from_slice(&[0x13, 0x45]));
+		assert_eq!(n.mid(4).encoded(false), ElasticArray36::from_slice(&[0x00, 0x45]));
+		assert_eq!(n.mid(5).encoded(false), ElasticArray36::from_slice(&[0x15]));
+		assert_eq!(n.mid(6).encoded(false), ElasticArray36::from_slice(&[0x00]));
+
+		let n2 = NibbleSlice::new(&D[..1]);
+		assert_eq!(n2.encoded(false), ElasticArray36::from_slice(&[0x00, 0x01]));
+		assert_eq!(NibbleSlice::new_composed(&n.mid(4),&n2).encoded(false),
+		ElasticArray36::from_slice(&[0x00, 0x45,0x01]));
+		assert_eq!(NibbleSlice::new_composed(&n.mid(5),&n2).encoded(false),
+		ElasticArray36::from_slice(&[0x15, 0x01]));
+		assert_eq!(NibbleSlice::new_composed(&n.mid(4),&n2.mid(1)).encoded(false),
+		ElasticArray36::from_slice(&[0x14,0x51]));
+		assert_eq!(NibbleSlice::new_composed(&n.mid(5),&n2.mid(1)).encoded(false),
+		ElasticArray36::from_slice(&[0x0, 0x51]));
+	
+	}
+
 
 	#[test]
 	fn from_encoded() {
