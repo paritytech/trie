@@ -79,22 +79,29 @@ impl<'a> NibbleSlice<'a> {
 		}
 	}
 
+	fn is_composed(&self) -> bool {
+		self.data_encode_suffix.len() - self.offset_encode_suffix > 0
+	}
+
 	/// Create a composed nibble slice; one followed by the other.
+	/// Warning this does not support composing any already composed slice.
 	pub fn new_composed(a: &NibbleSlice<'a>, b: &NibbleSlice<'a>) -> Self {
+		debug_assert!(!a.is_composed());
+		debug_assert!(!b.is_composed());
 		if a.len() != 0 {
-		NibbleSlice {
-			data: a.data,
-			offset: a.offset,
-			data_encode_suffix: b.data,
-			offset_encode_suffix: b.offset
-		}
+			NibbleSlice {
+				data: a.data,
+				offset: a.offset,
+				data_encode_suffix: b.data,
+				offset_encode_suffix: b.offset
+			}
 		} else {
-		NibbleSlice {
-			data: b.data,
-			offset: b.offset,
-			data_encode_suffix: &b""[..],
-			offset_encode_suffix: 0
-		}
+			NibbleSlice {
+				data: b.data,
+				offset: b.offset,
+				data_encode_suffix: &b""[..],
+				offset_encode_suffix: 0
+			}
 		}
 	}
 
@@ -139,6 +146,7 @@ impl<'a> NibbleSlice<'a> {
 	}
 
 	/// Return object which represents a view on to this slice (further) offset by `i` nibbles.
+	/// Warning there is no check that the offset is within range.
 	pub fn mid(&self, i: usize) -> NibbleSlice<'a> {
 		NibbleSlice {
 			data: self.data,
@@ -161,85 +169,99 @@ impl<'a> NibbleSlice<'a> {
 		}
 		i
 	}
-	#[inline]
-	pub fn encoded_old(&self, is_leaf: bool) -> ElasticArray36<u8> {
-		let l = self.len();
-		let mut r = ElasticArray36::new();
-		let mut i = l % 2;
-		r.push(if i == 1 {0x10 + self.at(0)} else {0} + if is_leaf {0x20} else {0});
-		while i < l {
-			r.push(self.at(i) * 16 + self.at(i + 1));
-			i += 2;
-		}
-		r
-	}
-
 
 	/// Encode while nibble slice in prefixed hex notation, noting whether it `is_leaf`.
-	/// TODO this is probably brokenfor self.data empty (TODO check that it compose correctly(replace
-	/// first by second).
 	#[inline]
 	pub fn encoded(&self, is_leaf: bool) -> ElasticArray36<u8> {
-		let mut dest = ElasticArray36::new();
-		let l = self.len();
-		let mut i = l % 2;
+		self.encoded_leftmost(self.len(), is_leaf)
+	}
 
-		dest.push(if i == 1 {
-			0x10 + if self.offset % 2 == 1 {
+	#[inline]
+	/// Encode only the leftmost `n` bytes of the nibble slice in prefixed hex notation,
+	/// noting whether it `is_leaf`.
+	pub fn encoded_leftmost(&self, l: usize, is_leaf: bool) -> ElasticArray36<u8> {
+		let mut dest = ElasticArray36::new();
+		let l = min(l, self.len());
+		let mut nb_written_shift = 0;
+		let dest_odd = (l % 2) == 1;
+		let inner_odd = self.offset % 2 == 1;
+
+		dest.push(if dest_odd {
+			nb_written_shift = 1;
+			0x10 + if inner_odd {
 				self.data[self.offset / 2] & 15u8
 			} else {
 				self.data[self.offset / 2] >> 4
 			}
 		} else {0} + if is_leaf {0x20} else {0});
 
+		if nb_written_shift >= l {
+			return dest;
+		}
 		let mut next : u8 = 255;
-		if self.data.len() > 0 {
-			let i1 = i == 0;
-			let i2 = self.offset % 2 == 0;
-			if i1 == i2 {
-				// aligned
-				for i in self.offset / 2 + i..self.data.len() {
-					dest.push(self.data[i])
+		if dest_odd == inner_odd {
+			let upper = min(
+				self.data.len(),
+				(l + self.offset + nb_written_shift) / 2
+			);
+			// aligned
+			for i in (self.offset + nb_written_shift) / 2 .. upper {
+				dest.push(self.data[i])
+			}
+		} else {
+			let upper = min(
+				self.data.len(),
+				(l + self.offset + nb_written_shift + (inner_odd as usize)) / 2
+			);
+			let st_shift = if inner_odd {0} else {1};
+			// unaligned
+			if self.data.len() > 1 {
+				for i in ((self.offset + nb_written_shift) / 2) + 1 .. upper {
+					dest.push((self.data[i - 1] << 4) | (self.data[i] >> 4));
 				}
-			} else {
-				// unaligned
-				if self.data.len() > 1 {
-					for i in self.offset / 2 + 1..self.data.len() {
-						dest.push((self.data[i - 1] << 4) | (self.data[i] >> 4));
-					}
-				}
-				next = self.data[self.data.len()-1] & 15u8;
+			}
+			if upper != 0 {
+				next = self.data[upper - 1] & 15u8;
 			}
 		}
-		if self.data_encode_suffix.len() > 0 {
-			let i1 = next > 15;
-			let i = if i1 { 0 } else { 1 };
-			let i2 = self.offset_encode_suffix % 2 == 0;
-			if i1 == i2 {
-				if !i2 {
-					let a = self.data_encode_suffix[self.offset_encode_suffix / 2];
-					dest.push((next << 4) | (self.data_encode_suffix[self.offset_encode_suffix / 2] & 15u8));
-				}
-				for i in self.offset_encode_suffix / 2 + i..self.data_encode_suffix.len() {
-					dest.push(self.data_encode_suffix[i])
-				}
+		let nb_written = (dest.len() - 1) * 2 + nb_written_shift;
+		if nb_written == l {
+			return dest;
+		}
+		let inner_odd = self.offset_encode_suffix % 2 == 1;
+		let (aligned, start) = if next < 16 {
+			if inner_odd {
+				dest.push((next << 4) | (self.data_encode_suffix[self.offset_encode_suffix / 2] & 15));
+				(true, self.offset_encode_suffix / 2 + 1)
 			} else {
-				if i1 {
-					dest.push((next << 4) | (self.data_encode_suffix[0] >> 4));
-				}
-				if self.data_encode_suffix.len() > 1 {
-					for i in self.offset_encode_suffix / 2 + 1..self.data_encode_suffix.len() {
-						dest.push((self.data_encode_suffix[i - 1] << 4) | (self.data_encode_suffix[i] >> 4));
-					}
-				}
+				dest.push((next << 4) | (self.data_encode_suffix[self.offset_encode_suffix / 2] >> 4));
+				(false, self.offset_encode_suffix / 2)
+			}
+		} else {
+			if inner_odd {
+				(false, self.offset_encode_suffix / 2 + 1)
+			} else {
+				(true, self.offset_encode_suffix / 2)
+			}
+		};
+		let nb_written = (dest.len() - 1) * 2 + nb_written_shift;
+		if aligned {
+			let upper = (self.offset_encode_suffix + l - nb_written) / 2 + inner_odd as usize;
+			for i in start .. upper {
+				dest.push(self.data_encode_suffix[i])
+			}
+		} else {
+			let upper = (self.offset_encode_suffix + l - nb_written) / 2 + inner_odd as usize;
+			for i in start + 1 .. upper + 1 {
+				dest.push((self.data[i - 1] << 4) | (self.data[i] >> 4));
 			}
 		}
 		dest
+
 	}
 
-	/// Encode only the leftmost `n` bytes of the nibble slice in prefixed hex notation,
-	/// noting whether it `is_leaf`.
-	pub fn encoded_leftmost(&self, n: usize, is_leaf: bool) -> ElasticArray36<u8> {
+	#[cfg(test)]
+	pub fn encoded_leftmost_slow(&self, n: usize, is_leaf: bool) -> ElasticArray36<u8> {
 		let l = min(self.len(), n);
 		let mut r = ElasticArray36::new();
 		let mut i = l % 2;
@@ -361,8 +383,59 @@ mod tests {
 		ElasticArray36::from_slice(&[0x14,0x51]));
 		assert_eq!(NibbleSlice::new_composed(&n.mid(5),&n2.mid(1)).encoded(false),
 		ElasticArray36::from_slice(&[0x0, 0x51]));
-	
 	}
+
+	#[test]
+	fn encoded3() {
+		let n = NibbleSlice::new(D);
+		for i in 0..10 {
+			assert_eq!(n.encoded_leftmost(i,false), n.encoded_leftmost_slow(i,false));
+			assert_eq!(n.encoded_leftmost(i,true), n.encoded_leftmost_slow(i,true));
+		}
+		for i in 0..10 {
+			let n = n.mid(1);
+			assert_eq!(n.encoded_leftmost(i,false), n.encoded_leftmost_slow(i,false));
+			assert_eq!(n.encoded_leftmost(i,true), n.encoded_leftmost_slow(i,true));
+		}
+		for i in 0..10 {
+			let n = n.mid(5);
+			assert_eq!(n.encoded_leftmost(i,false), n.encoded_leftmost_slow(i,false));
+			assert_eq!(n.encoded_leftmost(i,true), n.encoded_leftmost_slow(i,true));
+		}
+		{
+			let n2 = NibbleSlice::new(&D[..2]);
+			let n = NibbleSlice::new_composed(&n.mid(4),&n2);
+			for i in 0..10 {
+				assert_eq!(n.encoded_leftmost(i,false), n.encoded_leftmost_slow(i,false));
+				assert_eq!(n.encoded_leftmost(i,true), n.encoded_leftmost_slow(i,true));
+			}
+		}
+		{
+			let n2 = NibbleSlice::new(&D[..2]);
+			let n = NibbleSlice::new_composed(&n.mid(5),&n2);
+			for i in 0..10 {
+				assert_eq!(n.encoded_leftmost(i,false), n.encoded_leftmost_slow(i,false));
+				assert_eq!(n.encoded_leftmost(i,true), n.encoded_leftmost_slow(i,true));
+			}
+		}
+		{
+			let n2 = NibbleSlice::new(&D[1..]).mid(1);
+			let n = NibbleSlice::new_composed(&n.mid(4),&n2);
+			for i in 0..10 {
+				assert_eq!(n.encoded_leftmost(i,false), n.encoded_leftmost_slow(i,false));
+				assert_eq!(n.encoded_leftmost(i,true), n.encoded_leftmost_slow(i,true));
+			}
+		}
+		{
+			let n2 = NibbleSlice::new(&D[1..]).mid(1);
+			let n = NibbleSlice::new_composed(&n.mid(3),&n2);
+			for i in 0..10 {
+				assert_eq!(n.encoded_leftmost(i,false), n.encoded_leftmost_slow(i,false));
+				assert_eq!(n.encoded_leftmost(i,true), n.encoded_leftmost_slow(i,true));
+			}
+		}
+	}
+
 
 
 	#[test]
