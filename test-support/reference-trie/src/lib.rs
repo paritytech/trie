@@ -318,8 +318,8 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodec {
 	}
 
 	fn branch_node(
-    children: impl Iterator<Item = impl Borrow<Option<ChildReference<<KeccakHasher as Hasher>::Out>>>>,
-    maybe_value: Option<&[u8]>) -> Vec<u8> {
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<KeccakHasher as Hasher>::Out>>>>,
+		maybe_value: Option<&[u8]>) -> Vec<u8> {
 		let mut output = vec![0, 0, 0];
 		let have_value = if let Some(value) = maybe_value {
 			value.encode_to(&mut output);
@@ -343,10 +343,10 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodec {
 	}
 
 	fn branch_node_nibbled(
-    _partial: &[u8],
-    _children: impl Iterator<Item = impl Borrow<Option<ChildReference<<KeccakHasher as Hasher>::Out>>>>,
-    _maybe_value: Option<&[u8]>) -> Vec<u8> {
-    unreachable!()
+		_partial: &[u8],
+		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<KeccakHasher as Hasher>::Out>>>>,
+		_maybe_value: Option<&[u8]>) -> Vec<u8> {
+		unreachable!()
 	}
 
 }
@@ -355,7 +355,7 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodecNoExt {
 	type Error = ReferenceError;
 
 	fn hashed_null_node() -> <KeccakHasher as Hasher>::Out {
-    ReferenceNodeCodec::hashed_null_node()
+		ReferenceNodeCodec::hashed_null_node()
 	}
 
 	fn decode(data: &[u8]) -> ::std::result::Result<Node, Self::Error> {
@@ -364,7 +364,7 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodecNoExt {
 			NodeHeader::Null => Ok(Node::Empty),
 			NodeHeader::Branch(has_value) => {
 				let bitmap = u16::decode(input).ok_or(ReferenceError::BadFormat)?;
-        let nibble_count = take(input, 1).ok_or(ReferenceError::BadFormat)?[0] as usize;
+				let nibble_count = take(input, 1).ok_or(ReferenceError::BadFormat)?[0] as usize;
 				let nibble_data = take(input, (nibble_count + 1) / 2).ok_or(ReferenceError::BadFormat)?;
 				let nibble_slice = NibbleSlice::new_offset(nibble_data, nibble_count % 2);
 				let value = if has_value {
@@ -391,50 +391,50 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodecNoExt {
 				let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 				Ok(Node::Leaf(nibble_slice, take(input, count).ok_or(ReferenceError::BadFormat)?))
 			}
-    }
-  }
+		}
+	}
 
 	fn try_decode_hash(data: &[u8]) -> Option<<KeccakHasher as Hasher>::Out> {
-    ReferenceNodeCodec::try_decode_hash(data)
+		ReferenceNodeCodec::try_decode_hash(data)
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
-    ReferenceNodeCodec::is_empty_node(data)
+		ReferenceNodeCodec::is_empty_node(data)
 	}
 
 	fn empty_node() -> Vec<u8> {
-    ReferenceNodeCodec::empty_node()
+		ReferenceNodeCodec::empty_node()
 	}
 
 	fn leaf_node(partial: &[u8], value: &[u8]) -> Vec<u8> {
-    ReferenceNodeCodec::leaf_node(partial, value)
+		ReferenceNodeCodec::leaf_node(partial, value)
 	}
 
 	fn ext_node(_partial: &[u8], _child: ChildReference<<KeccakHasher as Hasher>::Out>) -> Vec<u8> {
-    unreachable!()
+		unreachable!()
 	}
 
 	fn branch_node(
-    _children: impl Iterator<Item = impl Borrow<Option<ChildReference<<KeccakHasher as Hasher>::Out>>>>,
-    _maybe_value: Option<&[u8]>) -> Vec<u8> {
-    unreachable!()
+		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<KeccakHasher as Hasher>::Out>>>>,
+		_maybe_value: Option<&[u8]>) -> Vec<u8> {
+		unreachable!()
 	}
 
 	fn branch_node_nibbled(
-    partial: &[u8],
-    children: impl Iterator<Item = impl Borrow<Option<ChildReference<<KeccakHasher as Hasher>::Out>>>>,
-    maybe_value: Option<&[u8]>) -> Vec<u8> {
+		partial: &[u8],
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<KeccakHasher as Hasher>::Out>>>>,
+		maybe_value: Option<&[u8]>) -> Vec<u8> {
 		let mut output = Vec::with_capacity(partial.len() + 4); // TODO choose a good capacity estimation value (here it is only partial)
-    for _ in 0..3 {
-      output.push(0);
-    }
+		for _ in 0..3 {
+			output.push(0);
+		}
 
-    let nibble_count = (partial.len() - 1) * 2 + if partial[0] & 16 == 16 { 1 } else { 0 };
-    output.push(nibble_count as u8);
-    if nibble_count % 2 == 1 {
-      output.push(partial[0] & 0x0f);
-    }
-    output.extend_from_slice(&partial[1..]);
+		let nibble_count = (partial.len() - 1) * 2 + if partial[0] & 16 == 16 { 1 } else { 0 };
+		output.push(nibble_count as u8);
+		if nibble_count % 2 == 1 {
+			output.push(partial[0] & 0x0f);
+		}
+		output.extend_from_slice(&partial[1..]);
 
 		let have_value = if let Some(value) = maybe_value {
 			value.encode_to(&mut output);
@@ -606,13 +606,13 @@ pub fn compare_impl_no_ext_unordered(
 	mut memdb: impl hash_db::HashDB<KeccakHasher,DBValue>,
 	mut hashdb: impl hash_db::HashDB<KeccakHasher,DBValue>,
 ) {
-  let mut b_map = std::collections::btree_map::BTreeMap::new();
+	let mut b_map = std::collections::btree_map::BTreeMap::new();
 	let root = {
 		let mut root = Default::default();
 		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..],&data[i].1[..]).unwrap();
-      b_map.insert(data[i].0.clone(),data[i].1.clone());
+			b_map.insert(data[i].0.clone(),data[i].1.clone());
 		}
 		t.root().clone()
 	};
@@ -643,55 +643,3 @@ pub fn compare_impl_no_ext_unordered(
 
 	assert_eq!(root, root_new);
 }
-/*
-pub fn compare_impl_no_ext_unordered_rem(
-	data: Vec<(Vec<u8>,Vec<u8>)>,
-	rem: &[(usize, usize)],
-	mut memdb: impl hash_db::HashDB<KeccakHasher,DBValue>,
-	mut hashdb: impl hash_db::HashDB<KeccakHasher,DBValue>,
-) {
-  let mut b_map = std::collections::btree_map::BTreeMap::new();
-	let root = {
-		let mut root = Default::default();
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
-    let mut rem_ix = 0;
-    let mut has_rem = true;
-		for i in 0..data.len() {
-			t.insert(&data[i].0[..],&data[i].1[..]).unwrap();
-      b_map.insert(data[i].0.clone(),data[i].1.clone());
-      if has_rem && i == rem[rem_ix].1 {
-        t.remove(&data[rem[rem_ix].0].0[..]).unwrap();
-        b_map.remove(&data[rem[rem_ix].0].0[..]);
-        rem_ix += 1;
-        if rem_ix == rem.len() { has_rem = false }
-      }
-		}
-		t.root().clone()
-	};
-	let root_new = {
-		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, _, _, _, _>(b_map.into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
-	};
-
-	if root != root_new {
-		{
-			let db : &dyn hash_db::HashDB<_,_> = &memdb;
-			let t = RefTrieDBNoExt::new(&db, &root).unwrap();
-			println!("{:?}", t);
-			for a in t.iter().unwrap() {
-				println!("a:{:?}", a);
-			}
-		}
-		{
-			let db : &dyn hash_db::HashDB<_,_> = &hashdb;
-			let t = RefTrieDBNoExt::new(&db, &root_new).unwrap();
-			println!("{:?}", t);
-			for a in t.iter().unwrap() {
-				println!("a:{:?}", a);
-			}
-		}
-	}
-
-	assert_eq!(root, root_new);
-}*/

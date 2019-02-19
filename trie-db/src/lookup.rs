@@ -91,21 +91,21 @@ where
 						}
 					},
 					Node::NibbledBranch(slice, children, value) => {
-      			if !key.starts_with(&slice) {
+						if !key.starts_with(&slice) {
 							return Ok(None)
 						}
 
-            match key.len() == slice.len() {
-              true => return Ok(value.map(move |val| self.query.decode(val))),
-              false => match children[key.at(slice.len()) as usize] {
-                Some(x) => {
-                  node_data = x;
-                  key = key.mid(slice.len() + 1);
-                }
-                None => return Ok(None)
-              }
-					  }
-          },
+						match key.len() == slice.len() {
+							true => return Ok(value.map(move |val| self.query.decode(val))),
+							false => match children[key.at(slice.len()) as usize] {
+								Some(x) => {
+									node_data = x;
+									key = key.mid(slice.len() + 1);
+								}
+								None => return Ok(None)
+							}
+						}
+					},
 					Node::Empty => return Ok(None),
 				}
 
