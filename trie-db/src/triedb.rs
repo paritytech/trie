@@ -14,13 +14,14 @@
 
 use std::fmt;
 use hash_db::{Hasher, HashDBRef};
-use nibbleslice::NibbleSlice;
+use nibbleslice::{self, NibbleSlice, combine_encoded};
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
 use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query};
 use std::marker::PhantomData;
 use std::borrow::Cow;
+use elastic_array::ElasticArray36;
 
 /// A `Trie` implementation using a generic `HashDB` backing database, a `Hasher`
 /// implementation to generate keys and a `NodeCodec` implementation to encode/decode
@@ -72,7 +73,7 @@ where
 	/// Create a new trie with the backing database `db` and `root`
 	/// Returns an error if `root` does not exist
 	pub fn new(db: &'db HashDBRef<H, DBValue>, root: &'db H::Out) -> Result<Self, H::Out, C::Error> {
-		if !db.contains(root) {
+		if !db.contains(root, nibbleslice::EMPTY_ENCODED) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		} else {
 			Ok(TrieDB {db, root, hash_count: 0, codec_marker: PhantomData})
@@ -85,7 +86,7 @@ where
 	/// Get the data of the root node.
 	pub fn root_data(&self) -> Result<DBValue, H::Out, C::Error> {
 		self.db
-			.get(self.root)
+			.get(self.root, nibbleslice::EMPTY_ENCODED)
 			.ok_or_else(|| Box::new(TrieError::InvalidStateRoot(*self.root)))
 	}
 
@@ -93,11 +94,11 @@ where
 	/// This could be a simple identity operation in the case that the node is sufficiently small, but
 	/// may require a database lookup. If `is_root_data` then this is root-data and
 	/// is known to be literal.
-	fn get_raw_or_lookup(&'db self, node: &[u8], is_root_node: bool) -> Result<Cow<'db, DBValue>, H::Out, C::Error> {
-		match (is_root_node, C::try_decode_hash(node)) {
+	fn get_raw_or_lookup(&'db self, node: &[u8], partial_key: &[u8]) -> Result<Cow<'db, DBValue>, H::Out, C::Error> {
+		match (partial_key.is_empty(), C::try_decode_hash(node)) {
 			(false, Some(key)) => {
 				self.db
-					.get(&key)
+					.get(&key, partial_key)
 					.map(|v| Cow::Owned(v))
 					.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(key)))
 			}
@@ -136,9 +137,9 @@ where
 	C: NodeCodec<H> + 'db
 {
 	trie: &'db TrieDB<'db, H, C>,
-	key: &'a[u8],
+	node_key: &'a[u8],
+	partial_key: ElasticArray36<u8>,
 	index: Option<u8>,
-	is_root: bool,
 }
 
 impl<'db, 'a, H, C> fmt::Debug for TrieAwareDebugNode<'db, 'a, H, C>
@@ -147,7 +148,7 @@ where
 	C: NodeCodec<H>
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		if let Ok(node) = self.trie.get_raw_or_lookup(self.key, self.is_root) {
+		if let Ok(node) = self.trie.get_raw_or_lookup(self.node_key, &self.partial_key) {
 			match C::decode(&node) {
 				Ok(Node::Leaf(slice, value)) =>
 					match (f.debug_struct("Node::Leaf"), self.index) {
@@ -163,13 +164,23 @@ where
 						(ref mut d, _) => d,
 					}
 						.field("slice", &slice)
-						.field("item", &TrieAwareDebugNode{trie: self.trie, key: item, index: None, is_root: false })
+						.field("item", &TrieAwareDebugNode{
+							trie: self.trie,
+							node_key: item,
+							partial_key: combine_encoded(&self.partial_key, item),
+							index: None,
+						})
 						.finish(),
 				Ok(Node::Branch(ref nodes, ref value)) => {
 					let nodes: Vec<TrieAwareDebugNode<H, C>> = nodes.into_iter()
 						.enumerate()
 						.filter_map(|(i, n)| n.map(|n| (i, n)))
-						.map(|(i, n)| TrieAwareDebugNode { trie: self.trie, index: Some(i as u8), key: n, is_root: false })
+						.map(|(i, n)| TrieAwareDebugNode {
+							trie: self.trie,
+							index: Some(i as u8),
+							node_key: n,
+							partial_key: combine_encoded(&self.partial_key, n),
+						})
 						.collect();
 					match (f.debug_struct("Node::Branch"), self.index) {
 						(ref mut d, Some(ref i)) => d.field("index", i),
@@ -183,14 +194,14 @@ where
 
 				Err(e) => f.debug_struct("BROKEN_NODE")
 					.field("index", &self.index)
-					.field("key", &self.key)
+					.field("key", &self.node_key)
 					.field("error",  &format!("ERROR decoding node branch Rlp: {}", e))
 					.finish()
 			}
 		} else {
 			f.debug_struct("BROKEN_NODE")
 				.field("index", &self.index)
-				.field("key", &self.key)
+				.field("key", &self.node_key)
 				.field("error", &"Not found")
 				.finish()
 		}
@@ -208,9 +219,9 @@ where
 			.field("hash_count", &self.hash_count)
 			.field("root", &TrieAwareDebugNode {
 				trie: self,
-				key: &root_rlp[..],
+				node_key: &root_rlp[..],
+				partial_key: Default::default(),
 				index: None,
-				is_root: true,
 			})
 			.finish()
 	}
@@ -258,14 +269,16 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 		Ok(r)
 	}
 
-	fn seek<'key>(&mut self, node_data: &DBValue, mut key: NibbleSlice<'key>) -> Result<(), H::Out, C::Error> {
+	fn seek<'key>(&mut self, node_data: &DBValue, key: NibbleSlice<'key>) -> Result<(), H::Out, C::Error> {
 		let mut node_data = Cow::Borrowed(node_data);
+		let mut partial = key;
+		let mut full_key_nibbles = 0;
 		loop {
 			let (data, mid) = {
 				let node = C::decode(&node_data).expect("encoded data read from db; qed");
 				match node {
 					Node::Leaf(slice, _) => {
-						if slice >= key {
+						if slice >= partial {
 							self.trail.push(Crumb {
 								status: Status::Entering,
 								node: node.clone().into(),
@@ -281,20 +294,20 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 						return Ok(())
 					},
 					Node::Extension(ref slice, ref item) => {
-						if key.starts_with(slice) {
+						if partial.starts_with(slice) {
 							self.trail.push(Crumb {
 								status: Status::At,
 								node: node.clone().into(),
 							});
 							self.key_nibbles.extend(slice.iter());
-							let data = self.db.get_raw_or_lookup(&*item, false)?;
+							let data = self.db.get_raw_or_lookup(&*item, &key.encoded_leftmost(full_key_nibbles, false))?;
 							(data, slice.len())
 						} else {
 							self.descend(&node_data)?;
 							return Ok(())
 						}
 					},
-					Node::Branch(ref nodes, _) => match key.is_empty() {
+					Node::Branch(ref nodes, _) => match partial.is_empty() {
 						true => {
 							self.trail.push(Crumb {
 								status: Status::Entering,
@@ -303,14 +316,14 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 							return Ok(())
 						},
 						false => {
-							let i = key.at(0);
+							let i = partial.at(0);
 							self.trail.push(Crumb {
 								status: Status::AtChild(i as usize),
 								node: node.clone().into(),
 							});
 							self.key_nibbles.push(i);
 							if let Some(ref child) = nodes[i as usize] {
-								let child = self.db.get_raw_or_lookup(&*child, false)?;
+								let child = self.db.get_raw_or_lookup(&*child, &key.encoded_leftmost(full_key_nibbles, false))?;
 								(child, 1)
 							} else {
 								return Ok(())
@@ -322,13 +335,14 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 			};
 
 			node_data = data;
-			key = key.mid(mid);
+			full_key_nibbles += mid;
+			partial = partial.mid(mid);
 		}
 	}
 
 	/// Descend into a payload.
 	fn descend(&mut self, d: &[u8]) -> Result<(), H::Out, C::Error> {
-		let node_data = &self.db.get_raw_or_lookup(d, self.key_nibbles.is_empty())?;
+		let node_data = &self.db.get_raw_or_lookup(d, &self.key_nibbles)?;
 		let node = C::decode(&node_data).expect("encoded node read from db; qed");
 		Ok(self.descend_into_node(node.into()))
 	}
@@ -403,7 +417,7 @@ impl<'a, H: Hasher, C: NodeCodec<H>> Iterator for TrieDBIterator<'a, H, C> {
 						return Some(Ok((self.key(), v.clone())));
 					},
 					(Status::At, &OwnedNode::Extension(_, ref d)) => {
-						IterStep::Descend::<H::Out, C::Error>(self.db.get_raw_or_lookup(&*d, false))
+						IterStep::Descend::<H::Out, C::Error>(self.db.get_raw_or_lookup(&*d, &self.key_nibbles))
 					},
 					(Status::At, &OwnedNode::Branch(_)) => IterStep::Continue,
 					(Status::AtChild(i), &OwnedNode::Branch(ref branch)) if branch.index(i).is_some() => {
@@ -412,7 +426,9 @@ impl<'a, H: Hasher, C: NodeCodec<H>> Iterator for TrieDBIterator<'a, H, C> {
 							i => *self.key_nibbles.last_mut()
 								.expect("pushed as 0; moves sequentially; removed afterwards; qed") = i as u8,
 						}
-						IterStep::Descend::<H::Out, C::Error>(self.db.get_raw_or_lookup(&branch.index(i).expect("this arm guarded by branch[i].is_some(); qed"), false))
+						IterStep::Descend::<H::Out, C::Error>(self.db.get_raw_or_lookup(
+							&branch.index(i).expect("this arm guarded by branch[i].is_some(); qed"),
+							&self.key_nibbles))
 					},
 					(Status::AtChild(i), &OwnedNode::Branch(_)) => {
 						if i == 0 {

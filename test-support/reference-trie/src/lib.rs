@@ -161,7 +161,6 @@ impl Decode for NodeHeader {
 			BRANCH_NODE_WITH_VALUE => NodeHeader::Branch(true),
 			i @ LEAF_NODE_OFFSET ... LEAF_NODE_LAST => NodeHeader::Leaf((i - LEAF_NODE_OFFSET) as usize),
 			i @ EXTENSION_NODE_OFFSET ... EXTENSION_NODE_LAST => NodeHeader::Extension((i - EXTENSION_NODE_OFFSET) as usize),
-			_ => unreachable!(),
 		})
 	}
 }

@@ -85,7 +85,7 @@ where
 		// insert if it doesn't exist.
 		if out.is_none() {
 			let aux_hash = H::hash(hash.as_ref());
-			db.emplace(aux_hash, DBValue::from_slice(key));
+			db.emplace(aux_hash, &[], DBValue::from_slice(key));
 		}
 		Ok(out)
 	}
@@ -97,7 +97,7 @@ where
 		// remove if it already exists.
 		if out.is_some() {
 			let aux_hash = H::hash(hash.as_ref());
-			self.raw.db_mut().remove(&aux_hash);
+			self.raw.db_mut().remove(&aux_hash, &[]);
 		}
 
 		Ok(out)
@@ -135,8 +135,8 @@ mod test {
 		let mut t = RefFatDBMut::new(&mut memdb, &mut root);
 		t.insert(&key, &val).unwrap();
 		assert_eq!(t.get(&key), Ok(Some(DBValue::from_slice(&val))));
-		assert_eq!(t.db().get(&aux_hash), Some(DBValue::from_slice(&key)));
+		assert_eq!(t.db().get(&aux_hash, &[]), Some(DBValue::from_slice(&key)));
 		t.remove(&key).unwrap();
-		assert_eq!(t.db().get(&aux_hash), None);
+		assert_eq!(t.db().get(&aux_hash, &[]), None);
 	}
 }
