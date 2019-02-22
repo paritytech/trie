@@ -9,7 +9,7 @@ license = "Apache-2.0"
 keccak-hasher = { path = "../keccak-hasher", version = "0.11.0" }
 trie-standardmap = { path = "../trie-standardmap", version  = "0.11.0" }
 hash-db = { path = "../../hash-db" , version = "0.11.0"}
-memory-db = { path = "../../memory-db", version = "0.11.0" }
+memory-db = { path = "../../memory-db", version = "0.12.0" }
 trie-root = { path = "../../trie-root", version = "0.11.0" }
 trie-db = { path = "../../trie-db", version = "0.11.0" }
 criterion = "0.2.8"

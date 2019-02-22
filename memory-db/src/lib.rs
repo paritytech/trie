@@ -15,10 +15,12 @@
 //! Reference-counted memory-based `HashDB` implementation.
 
 extern crate hash_db;
+extern crate parity_util_mem as malloc_size_of;
 extern crate heapsize;
 #[cfg(test)] extern crate keccak_hasher;
 
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher, AsHashDB, AsPlainDB};
+use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use heapsize::HeapSizeOf;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -221,12 +223,27 @@ where
 	H: KeyHasher,
 	T: HeapSizeOf,
 {
+	#[deprecated(since="0.12.0", note="please use `malloc_size_of` instead")]
 	/// Returns the size of allocated heap memory
 	pub fn mem_used(&self) -> usize {
 		0//self.data.heap_size_of_children()
 		// TODO Reenable above when HeapSizeOf supports arrays.
 	}
 }
+
+impl<H, T> MallocSizeOf for MemoryDB<H, T>
+where
+	H: KeyHasher,
+	H::Out: MallocSizeOf,
+	T: MallocSizeOf,
+{
+	fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+		self.data.size_of(ops)
+			+ self.null_node_data.size_of(ops)
+			+ self.hashed_null_node.size_of(ops)
+	}
+}
+
 
 impl<H, T> PlainDB<H::Out, T> for MemoryDB<H, T>
 where
