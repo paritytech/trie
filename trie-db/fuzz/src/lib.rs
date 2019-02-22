@@ -110,6 +110,12 @@ pub fn fuzz_that_compare_impl(input: &[u8]) {
 	reference_trie::compare_impl(data, memdb, hashdb);
 }
 
+pub fn fuzz_that_unhashed_no_ext(input: &[u8]) {
+	let data = data_sorted_unique(fuzz_to_data(input));
+	reference_trie::compare_unhashed_no_ext(data);
+}
+
+
 pub fn fuzz_that_no_ext_insert(input: &[u8]) {
   let data = fuzz_to_data(input);
   //println!("data{:?}", data);

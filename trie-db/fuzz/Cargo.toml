@@ -30,6 +30,11 @@ name = "trie_root_new"
 path = "fuzz_targets/trie_root_new.rs"
 
 [[bin]]
+name = "trie_unhashed_no_ext"
+path = "fuzz_targets/trie_unhashed_no_ext.rs"
+
+
+[[bin]]
 name = "trie_root"
 path = "fuzz_targets/trie_root.rs"
 

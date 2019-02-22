@@ -510,6 +510,11 @@ mod test {
 		let memdb = MemoryDB::default();
 		reference_trie::compare_unhashed(data, memdb);
 	}
+	fn compare_unhashed_no_ext(data: Vec<(Vec<u8>,Vec<u8>)>) {
+		let memdb = MemoryDB::default();
+		reference_trie::compare_unhashed_no_ext(data, memdb);
+	}
+
 
 
 
@@ -540,11 +545,14 @@ mod test {
 	}
 	#[test]
 	fn root_extension_tierce () {
-		compare_unhashed(vec![
+		let d = vec![
 			(vec![1u8,2u8,3u8,3u8],vec![8u8;2]),
 			(vec![1u8,2u8,3u8,4u8],vec![7u8;2]),
-		]);
+		];
+		compare_unhashed(d.clone());
+		compare_unhashed_no_ext(d);
 	}
+
 	#[test]
 	fn root_extension_tierce_big () {
 		// on more content unhashed would hash

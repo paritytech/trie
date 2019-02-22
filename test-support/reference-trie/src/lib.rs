@@ -31,7 +31,6 @@ use trie_db::{
 	DBValue,
 	trie_visit,
 	trie_visit_no_ext,
-	ProcessEncodedNode,
 	TrieBuilder,
 	TrieRoot,
 };
@@ -67,7 +66,21 @@ fn ref_trie_root_unhashed<I, A, B>(input: I) -> Vec<u8> where
 	trie_root::unhashed_trie::<KeccakHasher, ReferenceTrieStream, _, _, _>(input)
 }
 
+pub fn ref_trie_root_no_ext<I, A, B>(input: I) -> <KeccakHasher as Hasher>::Out where
+	I: IntoIterator<Item = (A, B)>,
+	A: AsRef<[u8]> + Ord + fmt::Debug,
+	B: AsRef<[u8]> + fmt::Debug,
+{
+	trie_root::trie_root_no_ext::<KeccakHasher, ReferenceTrieStream, _, _, _>(input)
+}
 
+fn ref_trie_root_unhashed_no_ext<I, A, B>(input: I) -> Vec<u8> where
+	I: IntoIterator<Item = (A, B)>,
+	A: AsRef<[u8]> + Ord + fmt::Debug,
+	B: AsRef<[u8]> + fmt::Debug,
+{
+	trie_root::unhashed_trie_no_ext::<KeccakHasher, ReferenceTrieStream, _, _, _>(input)
+}
 
 const EMPTY_TRIE: u8 = 0;
 const LEAF_NODE_OFFSET: u8 = 1;
@@ -94,6 +107,17 @@ fn fuse_nibbles_node<'a>(nibbles: &'a [u8], leaf: bool) -> impl Iterator<Item = 
 		.chain(if nibbles.len() % 2 == 1 { Some(nibbles[0]) } else { None })
 		.chain(nibbles[nibbles.len() % 2..].chunks(2).map(|ch| ch[0] << 4 | ch[1]))
 }
+
+/// TODO get definitive header def for no_ext and remove this
+fn fuse_nibbles_node_no_ext<'a>(nibbles: &'a [u8]) -> impl Iterator<Item = u8> + 'a {
+	debug_assert!(nibbles.len() < LEAF_NODE_OVER.min(EXTENSION_NODE_OVER) as usize, "nibbles length too long. what kind of size of key are you trying to include in the trie!?!");
+	let first_byte = nibbles.len() as u8;
+
+	once(first_byte)
+		.chain(if nibbles.len() % 2 == 1 { Some(nibbles[0]) } else { None })
+		.chain(nibbles[nibbles.len() % 2..].chunks(2).map(|ch| ch[0] << 4 | ch[1]))
+}
+
 
 pub fn branch_node(has_value: bool, has_children: impl Iterator<Item = bool>) -> [u8; 3] {
 	let first = if has_value {
@@ -132,8 +156,11 @@ impl TrieStream for ReferenceTrieStream {
 		value.encode_to(&mut self.buffer);
 	}
 
-	fn begin_branch(&mut self, maybe_value: Option<&[u8]>, has_children: impl Iterator<Item = bool>) {
+	fn begin_branch(&mut self, maybe_key: Option<&[u8]>, maybe_value: Option<&[u8]>, has_children: impl Iterator<Item = bool>) {
 		self.buffer.extend(&branch_node(maybe_value.is_some(), has_children));
+		if let Some(partial) = maybe_key {
+			self.buffer.extend(fuse_nibbles_node_no_ext(partial));
+		}
 		if let Some(value) = maybe_value {
 			value.encode_to(&mut self.buffer);
 		}
@@ -533,6 +560,20 @@ pub fn compare_unhashed(
 
 	assert_eq!(root, root_new);
 }
+
+pub fn compare_unhashed_no_ext(
+	data: Vec<(Vec<u8>,Vec<u8>)>,
+) {
+	let root_new = {
+		let mut cb = trie_db::TrieRootUnhashed::<KeccakHasher>::default();
+		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		cb.root.unwrap_or(Default::default())
+	};
+	let root = ref_trie_root_unhashed_no_ext(data);
+
+	assert_eq!(root, root_new);
+}
+
 
 
 pub fn calc_root<I,A,B>(

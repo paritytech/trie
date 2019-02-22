@@ -43,7 +43,7 @@ pub use hash_db::Hasher;
 pub trait TrieStream {
 	fn new() -> Self;
 	fn append_empty_data(&mut self);
-	fn begin_branch(&mut self, maybe_value: Option<&[u8]>, has_children: impl Iterator<Item = bool>);
+	fn begin_branch(&mut self, maybe_key: Option<&[u8]>, maybe_value: Option<&[u8]>, has_children: impl Iterator<Item = bool>);
 	fn append_empty_child(&mut self) {}
 	fn end_branch(&mut self, _value: Option<&[u8]>) {}
 	fn append_leaf(&mut self, key: &[u8], value: &[u8]);
@@ -88,6 +88,16 @@ pub fn trie_root<H, S, I, A, B>(input: I) -> H::Out where
 	H: Hasher,
 	S: TrieStream,
 {
+	trie_root_inner::<H, S, I, A, B>(input, false)
+}
+
+fn trie_root_inner<H, S, I, A, B>(input: I, no_ext: bool) -> H::Out where
+	I: IntoIterator<Item = (A, B)>,
+	A: AsRef<[u8]> + Ord,
+	B: AsRef<[u8]>,
+	H: Hasher,
+	S: TrieStream,
+{
 	// first put elements into btree to sort them and to remove duplicates
 	let input = input
 		.into_iter()
@@ -110,12 +120,35 @@ pub fn trie_root<H, S, I, A, B>(input: I) -> H::Out where
 		.collect::<Vec<_>>();
 
 	let mut stream = S::new();
-	build_trie::<H, S, _, _>(&input, 0, &mut stream);
+	build_trie::<H, S, _, _>(&input, 0, &mut stream, no_ext);
 	H::hash(&stream.out())
 }
 
+/// variant of `trie_root` without extension 
+pub fn trie_root_no_ext<H, S, I, A, B>(input: I) -> H::Out where
+	I: IntoIterator<Item = (A, B)>,
+	A: AsRef<[u8]> + Ord,
+	B: AsRef<[u8]>,
+	H: Hasher,
+	S: TrieStream,
+{
+	trie_root_inner::<H, S, I, A, B>(input, true)
+}
+
+
+
 //#[cfg(test)]	// consider feature="std"
 pub fn unhashed_trie<H, S, I, A, B>(input: I) -> Vec<u8> where
+	I: IntoIterator<Item = (A, B)>,
+	A: AsRef<[u8]> + Ord,
+	B: AsRef<[u8]>,
+	H: Hasher,
+	S: TrieStream,
+{
+	unhashed_trie_inner::<H, S, I, A, B>(input, false)
+}
+
+fn unhashed_trie_inner<H, S, I, A, B>(input: I, no_ext: bool) -> Vec<u8> where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
@@ -145,9 +178,22 @@ pub fn unhashed_trie<H, S, I, A, B>(input: I) -> Vec<u8> where
 
 	// println!("as nibbles: {:#x?}", input);
 	let mut stream = S::new();
-	build_trie::<H, S, _, _>(&input, 0, &mut stream);
+	build_trie::<H, S, _, _>(&input, 0, &mut stream, no_ext);
 	stream.out()
 }
+
+/// TODO avoid code redundancy with unhashed_trie
+//#[cfg(test)]	// consider feature="std"
+pub fn unhashed_trie_no_ext<H, S, I, A, B>(input: I) -> Vec<u8> where
+	I: IntoIterator<Item = (A, B)>,
+	A: AsRef<[u8]> + Ord,
+	B: AsRef<[u8]>,
+	H: Hasher,
+	S: TrieStream,
+{
+	unhashed_trie_inner::<H, S, I, A, B>(input, true)
+}
+
 
 /// Generates a key-hashed (secure) trie root hash for a vector of key-value tuples.
 ///
@@ -185,7 +231,7 @@ pub fn sec_trie_root<H, S, I, A, B>(input: I) -> H::Out where
 /// Takes a slice of key/value tuples where the key is a slice of nibbles
 /// and encodes it into the provided `Stream`.
 // pub fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S)
-fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S) where
+fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ext: bool) where
 	A: AsRef<[u8]>,
 	B: AsRef<[u8]>,
 	H: Hasher,
@@ -217,13 +263,19 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S) where
 			// than what we saw on the last call (`cursor`): append the new part
 			// of the path then recursively append the remainder of all items
 			// who had this partial key.
-			if shared_nibble_count > cursor {
+			let (cursor, o_branch_slice) = if no_ext {
+				if shared_nibble_count > cursor {
+					(shared_nibble_count, Some(&key[cursor..shared_nibble_count]))
+				} else {
+					(cursor, Some(&key[0..0]))
+				}
+			} else if shared_nibble_count > cursor {
 				// println!("[build_trie] appending ext and recursing, cursor={}, stream={:?}, partial key={:?}", cursor, stream.as_raw(), &key[cursor..shared_nibble_count]);
 				stream.append_extension(&key[cursor..shared_nibble_count]);
-				build_trie_trampoline::<H, _, _, _>(input, shared_nibble_count, stream);
+				build_trie_trampoline::<H, _, _, _>(input, shared_nibble_count, stream, no_ext);
 				// println!("[build_trie] returning after recursing, cursor={}, stream={:?}, partial key={:?}", cursor, stream.as_raw(), &key[cursor..shared_nibble_count]);
 				return;
-			}
+			} else { (cursor, None) };
 
 			// We'll be adding a branch node because the path is as long as it gets.
 			// First we need to figure out what entries this branch node will have...
@@ -246,7 +298,7 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S) where
 			}
 
 			// Put out the node header:
-			stream.begin_branch(value, shared_nibble_counts.iter().map(|&n| n > 0));
+			stream.begin_branch(o_branch_slice, value, shared_nibble_counts.iter().map(|&n| n > 0));
 
 			// Fill in each slot in the branch node. We don't need to bother with empty slots since they
 			// were registered in the header.
@@ -254,7 +306,7 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S) where
 			for &count in &shared_nibble_counts {
 				if count > 0 {
 					// println!("[build_trie] branch slot {}; recursing with cursor={}, begin={}, shared nibbles={}, input={:?}", i, cursor, begin, shared_nibble_count, &input[begin..(begin + shared_nibble_count)]);
-					build_trie_trampoline::<H, S, _, _>(&input[begin..(begin + count)], cursor + 1, stream);
+					build_trie_trampoline::<H, S, _, _>(&input[begin..(begin + count)], cursor + 1, stream, no_ext);
 					begin += count;
 				} else {
 					stream.append_empty_child();
@@ -269,13 +321,13 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S) where
 	}
 }
 
-fn build_trie_trampoline<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S) where
+fn build_trie_trampoline<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ext: bool) where
 	A: AsRef<[u8]>,
 	B: AsRef<[u8]>,
 	H: Hasher,
 	S: TrieStream,
 {
 	let mut substream = S::new();
-	build_trie::<H, _, _, _>(input, cursor, &mut substream);
+	build_trie::<H, _, _, _>(input, cursor, &mut substream, no_ext);
 	stream.append_substream::<H>(substream);
 }
