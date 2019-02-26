@@ -18,14 +18,17 @@
 #![cfg_attr(not(feature = "std"), feature(alloc))]
 
 extern crate hash_db;
+#[cfg(feature = "std")]
 extern crate heapsize;
 #[cfg(not(feature = "std"))]
 extern crate hashbrown;
+//extern crate hashmap_core;
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(test)] extern crate keccak_hasher;
 
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher, AsHashDB, AsPlainDB};
+#[cfg(feature = "std")]
 use heapsize::HeapSizeOf;
 #[cfg(feature = "std")]
 use std::{
@@ -40,6 +43,13 @@ use hashbrown::{
 	HashMap,
 	hash_map::Entry,
 };
+/*
+#[cfg(not(feature = "std"))]
+use hashmap_core::{
+	HashMap,
+	map::Entry,
+};
+*/
 
 
 #[cfg(not(feature = "std"))]
@@ -239,6 +249,7 @@ impl<'a, H: KeyHasher, T> MemoryDB<H, T> where T: From<&'a [u8]> {
 	}
 }
 
+#[cfg(feature = "std")]
 impl<H, T> MemoryDB<H, T>
 where
 	H: KeyHasher,

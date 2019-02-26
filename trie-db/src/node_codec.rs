@@ -26,10 +26,13 @@ use std::error::Error;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-use elastic_array::{ElasticArray128};
+use elastic_array::ElasticArray128;
 
 #[cfg(not(feature = "std"))]
-pub trait Error: core::fmt::Debug + core::fmt::Display { }
+pub trait Error: core::fmt::Debug {}
+
+#[cfg(not(feature = "std"))]
+impl<T: core::fmt::Debug> Error for T {}
 
 /// Trait for trie node encoding/decoding
 pub trait NodeCodec<H: Hasher>: Sized {

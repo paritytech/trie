@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ::core_::fmt;
 use hash_db::{Hasher, HashDBRef};
 use nibbleslice::NibbleSlice;
 use super::node::{Node, OwnedNode};
@@ -22,9 +21,11 @@ use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query};
 use ::core_::marker::PhantomData;
 
 #[cfg(feature = "std")]
+use ::std::fmt;
+#[cfg(feature = "std")]
 use ::std::borrow::Cow;
 #[cfg(not(feature = "std"))]
-use ::alloc::{borrow::Cow, format};
+use ::alloc::borrow::Cow;
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
@@ -151,6 +152,7 @@ where
 	is_root: bool,
 }
 
+#[cfg(feature="std")]
 impl<'db, 'a, H, C> fmt::Debug for TrieAwareDebugNode<'db, 'a, H, C>
 where
 	H: Hasher,
@@ -207,6 +209,7 @@ where
 	}
 }
 
+#[cfg(feature="std")]
 impl<'db, H, C> fmt::Debug for TrieDB<'db, H, C>
 where
 	H: Hasher,

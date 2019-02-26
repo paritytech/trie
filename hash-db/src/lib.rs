@@ -50,7 +50,6 @@ pub trait Hasher: Sync + Send {
 /// Trait modelling a plain datastore whose key is a fixed type.
 /// The caller should ensure that a key only corresponds to
 /// one value.
-#[cfg(feature = "std")]
 pub trait PlainDB<K, V>: Send + Sync + AsPlainDB<K, V> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
@@ -72,7 +71,6 @@ pub trait PlainDB<K, V>: Send + Sync + AsPlainDB<K, V> {
 }
 
 /// Trait for immutable reference of PlainDB.
-#[cfg(feature = "std")]
 pub trait PlainDBRef<K, V> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
@@ -82,13 +80,11 @@ pub trait PlainDBRef<K, V> {
 	fn contains(&self, key: &K) -> bool;
 }
 
-#[cfg(feature = "std")]
 impl<'a, K, V> PlainDBRef<K, V> for &'a PlainDB<K, V> {
 	fn get(&self, key: &K) -> Option<V> { PlainDB::get(*self, key) }
 	fn contains(&self, key: &K) -> bool { PlainDB::contains(*self, key) }
 }
 
-#[cfg(feature = "std")]
 impl<'a, K, V> PlainDBRef<K, V> for &'a mut PlainDB<K, V> {
 	fn get(&self, key: &K) -> Option<V> { PlainDB::get(*self, key) }
 	fn contains(&self, key: &K) -> bool { PlainDB::contains(*self, key) }
@@ -117,7 +113,6 @@ pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 }
 
 /// Trait for immutable reference of HashDB.
-#[cfg(feature = "std")]
 pub trait HashDBRef<H: Hasher, T> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
@@ -127,20 +122,17 @@ pub trait HashDBRef<H: Hasher, T> {
 	fn contains(&self, key: &H::Out) -> bool;
 }
 
-#[cfg(feature = "std")]
 impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a HashDB<H, T> {
 	fn get(&self, key: &H::Out) -> Option<T> { HashDB::get(*self, key) }
 	fn contains(&self, key: &H::Out) -> bool { HashDB::contains(*self, key) }
 }
 
-#[cfg(feature = "std")]
 impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a mut HashDB<H, T> {
 	fn get(&self, key: &H::Out) -> Option<T> { HashDB::get(*self, key) }
 	fn contains(&self, key: &H::Out) -> bool { HashDB::contains(*self, key) }
 }
 
 /// Upcast trait for HashDB.
-#[cfg(feature = "std")]
 pub trait AsHashDB<H: Hasher, T> {
 	/// Perform upcast to HashDB for anything that derives from HashDB.
 	fn as_hash_db(&self) -> &HashDB<H, T>;
@@ -149,7 +141,6 @@ pub trait AsHashDB<H: Hasher, T> {
 }
 
 /// Upcast trait for PlainDB.
-#[cfg(feature = "std")]
 pub trait AsPlainDB<K, V> {
 	/// Perform upcast to PlainDB for anything that derives from PlainDB.
 	fn as_plain_db(&self) -> &PlainDB<K, V>;

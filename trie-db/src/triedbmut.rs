@@ -26,7 +26,7 @@ use nibbleslice::NibbleSlice;
 use ::core_::marker::PhantomData;
 use ::core_::mem;
 use ::core_::ops::Index;
-use ::core_::{fmt::Debug, hash::Hash};
+use ::core_::hash::Hash;
 
 #[cfg(feature = "std")]
 use ::std::collections::{HashSet, VecDeque};
@@ -36,6 +36,7 @@ use ::alloc::collections::vec_deque::VecDeque;
 
 #[cfg(not(feature = "std"))]
 use ::hashbrown::HashSet;
+//use ::hashmap_core::HashSet;
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
@@ -90,7 +91,7 @@ enum Node<H> {
 
 impl<O> Node<O>
 where
-	O: AsRef<[u8]> + AsMut<[u8]> + Default + Debug + PartialEq + Eq + Hash + Send + Sync + Clone + Copy
+	O: AsRef<[u8]> + AsMut<[u8]> + Default + crate::DebugIfStd + PartialEq + Eq + Hash + Send + Sync + Clone + Copy
 {
 	// load an inline node into memory or get the hash to do the lookup later.
 	fn inline_or_hash<C, H>(

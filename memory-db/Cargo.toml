@@ -7,9 +7,10 @@ repository = "https://github.com/paritytech/parity-common"
 license = "Apache-2.0"
 
 [dependencies]
-heapsize = "0.4"
+heapsize = { version = "0.4", optional = true}
 hash-db = { path = "../hash-db", default-features = false, version = "0.11.0"}
-hashbrown = "0.1"
+#hashmap_core = "0.1"
+hashbrown = { version = "0.1", features = [ "nightly" ] }
 
 [dev-dependencies]
 keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.11.0"}
@@ -18,9 +19,9 @@ criterion = "0.2.8"
 [features]
 default = ["std"]
 std = [
+  "heapsize",
   "hash-db/std",
 ]
-
 [[bench]]
 name = "bench"
 harness = false

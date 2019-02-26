@@ -41,6 +41,7 @@ extern crate memory_db;
 extern crate keccak_hasher;
 #[cfg(all(feature = "std", test))]
 extern crate reference_trie;
+
 #[cfg(not(feature = "std"))]
 extern crate hashbrown;
 
@@ -59,6 +60,20 @@ use core_::{fmt, marker::PhantomData};
 
 #[cfg(feature = "std")]
 use std::error::Error;
+
+#[cfg(feature = "std")]
+use std::fmt::Debug;
+#[cfg(feature = "std")]
+pub trait DebugIfStd: Debug {}
+#[cfg(feature = "std")]
+impl<T: Debug> DebugIfStd for T {}
+
+
+#[cfg(not(feature = "std"))]
+pub trait DebugIfStd {}
+#[cfg(not(feature = "std"))]
+impl<T> DebugIfStd for T {}
+
 
 pub mod node;
 pub mod triedb;
