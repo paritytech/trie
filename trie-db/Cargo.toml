@@ -9,7 +9,7 @@ license = "Apache-2.0"
 [dependencies]
 log = "0.4"
 rand = { version = "0.6", default-features = false }
-elastic-array = { version = "0.10.1", default-features = false }
+elastic-array = { version = "0.10.2", default-features = false }
 hash-db = { path = "../hash-db", default-features = false, version = "0.11.0"}
 hashmap_core = { version = "0.1" }
 
