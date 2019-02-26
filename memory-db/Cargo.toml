@@ -9,7 +9,7 @@ license = "Apache-2.0"
 [dependencies]
 heapsize = { version = "0.4", optional = true}
 hash-db = { path = "../hash-db", default-features = false, version = "0.11.0"}
-hashbrown = { version = "0.1" }
+hashmap_core = { version = "0.1" }
 
 [dev-dependencies]
 keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.11.0"}
@@ -20,8 +20,8 @@ default = ["std"]
 std = [
   "heapsize",
   "hash-db/std",
+  "hashmap_core/disable",
 ]
-nightly = ["hashbrown/nightly"]
 
 [[bench]]
 name = "bench"

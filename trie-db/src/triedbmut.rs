@@ -35,8 +35,7 @@ use ::std::collections::{HashSet, VecDeque};
 use ::alloc::collections::vec_deque::VecDeque;
 
 #[cfg(not(feature = "std"))]
-use ::hashbrown::HashSet;
-//use ::hashmap_core::HashSet;
+use ::hashmap_core::HashSet;
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
