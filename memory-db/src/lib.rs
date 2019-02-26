@@ -22,7 +22,6 @@ extern crate hash_db;
 extern crate heapsize;
 #[cfg(not(feature = "std"))]
 extern crate hashbrown;
-//extern crate hashmap_core;
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(test)] extern crate keccak_hasher;
@@ -43,14 +42,6 @@ use hashbrown::{
 	HashMap,
 	hash_map::Entry,
 };
-/*
-#[cfg(not(feature = "std"))]
-use hashmap_core::{
-	HashMap,
-	map::Entry,
-};
-*/
-
 
 #[cfg(not(feature = "std"))]
 use core::{

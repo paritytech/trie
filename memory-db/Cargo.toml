@@ -9,8 +9,7 @@ license = "Apache-2.0"
 [dependencies]
 heapsize = { version = "0.4", optional = true}
 hash-db = { path = "../hash-db", default-features = false, version = "0.11.0"}
-#hashmap_core = "0.1"
-hashbrown = { version = "0.1", features = [ "nightly" ] }
+hashbrown = { version = "0.1" }
 
 [dev-dependencies]
 keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.11.0"}
@@ -22,6 +21,8 @@ std = [
   "heapsize",
   "hash-db/std",
 ]
+nightly = ["hashbrown/nightly"]
+
 [[bench]]
 name = "bench"
 harness = false

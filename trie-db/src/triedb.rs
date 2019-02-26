@@ -140,6 +140,8 @@ where
 	}
 }
 
+
+#[cfg(feature="std")]
 // This is for pretty debug output only
 struct TrieAwareDebugNode<'db, 'a, H, C>
 where
