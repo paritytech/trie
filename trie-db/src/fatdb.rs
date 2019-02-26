@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use hash_db::{HashDB, Hasher};
+use hash_db::{HashDBRef, Hasher};
 use super::{Result, DBValue, TrieDB, Trie, TrieDBIterator, TrieItem, TrieIterator, Query};
 use node_codec::NodeCodec;
 
@@ -24,32 +24,32 @@ use alloc::boxed::Box;
 ///
 /// Use it as a `Trie` or `TrieMut` trait object.
 pub struct FatDB<'db, H, C>
-where 
-	H: Hasher + 'db, 
+where
+	H: Hasher + 'db,
 	C: NodeCodec<H>
 {
 	raw: TrieDB<'db, H, C>,
 }
 
 impl<'db, H, C> FatDB<'db, H, C>
-where 
-	H: Hasher, 
+where
+	H: Hasher,
 	C: NodeCodec<H>
 {
 	/// Create a new trie with the backing database `db` and empty `root`
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
-	pub fn new(db: &'db HashDB<H, DBValue>, root: &'db H::Out) -> Result<Self, H::Out, C::Error> {
+	pub fn new(db: &'db HashDBRef<H, DBValue>, root: &'db H::Out) -> Result<Self, H::Out, C::Error> {
 		Ok(FatDB { raw: TrieDB::new(db, root)? })
 	}
 
 	/// Get the backing database.
-	pub fn db(&self) -> &HashDB<H, DBValue> { self.raw.db() }
+	pub fn db(&self) -> &HashDBRef<H, DBValue> { self.raw.db() }
 }
 
 impl<'db, H, C> Trie<H, C> for FatDB<'db, H, C>
-where 
-	H: Hasher, 
+where
+	H: Hasher,
 	C: NodeCodec<H>
 {
 	fn root(&self) -> &H::Out { self.raw.root() }
@@ -71,8 +71,8 @@ where
 
 /// Itarator over inserted pairs of key values.
 pub struct FatDBIterator<'db, H, C>
-where 
-	H: Hasher + 'db, 
+where
+	H: Hasher + 'db,
 	C: NodeCodec<H> + 'db
 {
 	trie_iterator: TrieDBIterator<'db, H, C>,
@@ -80,8 +80,8 @@ where
 }
 
 impl<'db, H, C> FatDBIterator<'db, H, C>
-where 
-	H: Hasher, 
+where
+	H: Hasher,
 	C: NodeCodec<H>
 {
 	/// Creates new iterator.
@@ -94,8 +94,8 @@ where
 }
 
 impl<'db, H, C> TrieIterator<H, C> for FatDBIterator<'db, H, C>
-where 
-	H: Hasher, 
+where
+	H: Hasher,
 	C: NodeCodec<H>
 {
 	fn seek(&mut self, key: &[u8]) -> Result<(), H::Out, C::Error> {
@@ -105,8 +105,8 @@ where
 }
 
 impl<'db, H, C> Iterator for FatDBIterator<'db, H, C>
-where 
-	H: Hasher, 
+where
+	H: Hasher,
 	C: NodeCodec<H>
 {
 	type Item = TrieItem<'db, H::Out, C::Error>;

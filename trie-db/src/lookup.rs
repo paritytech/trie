@@ -14,7 +14,7 @@
 
 //! Trie lookup via HashDB.
 
-use hash_db::{HashDB, Hasher};
+use hash_db::{HashDBRef, Hasher};
 use nibbleslice::NibbleSlice;
 use node::Node;
 use node_codec::NodeCodec;
@@ -27,7 +27,7 @@ use alloc::boxed::Box;
 /// Trie lookup helper object.
 pub struct Lookup<'a, H: Hasher + 'a, C: NodeCodec<H>, Q: Query<H>> {
 	/// database to query from.
-	pub db: &'a HashDB<H, DBValue>,
+	pub db: &'a HashDBRef<H, DBValue>,
 	/// Query object to record nodes and transform data.
 	pub query: Q,
 	/// Hash to start at
@@ -37,8 +37,8 @@ pub struct Lookup<'a, H: Hasher + 'a, C: NodeCodec<H>, Q: Query<H>> {
 
 impl<'a, H, C, Q> Lookup<'a, H, C, Q>
 where
-	H: Hasher + 'a,
-	C: NodeCodec<H> + 'a,
+	H: Hasher,
+	C: NodeCodec<H>,
 	Q: Query<H>,
 {
 	/// Look up the given key. If the value is found, it will be passed to the given

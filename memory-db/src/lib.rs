@@ -24,8 +24,8 @@ extern crate hashbrown;
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(test)] extern crate keccak_hasher;
-use hash_db::{HashDB, Hasher as KeyHasher, AsHashDB};
 
+use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher, AsHashDB, AsPlainDB};
 use heapsize::HeapSizeOf;
 #[cfg(feature = "std")]
 use std::{
@@ -65,9 +65,9 @@ type FastMap<H, T> = HashMap<<H as KeyHasher>::Out, T, hash::BuildHasherDefault<
 /// extern crate keccak_hasher;
 /// extern crate memory_db;
 ///
-/// use hash_db::*;
+/// use hash_db::{Hasher, HashDB};
 /// use keccak_hasher::KeccakHasher;
-/// use memory_db::*;
+/// use memory_db::MemoryDB;
 /// fn main() {
 ///   let mut m = MemoryDB::<KeccakHasher, Vec<u8>>::default();
 ///   let d = "Hello world!".as_bytes();
@@ -144,7 +144,6 @@ where
 }
 
 impl<'a, H: KeyHasher, T> MemoryDB<H, T> where T: From<&'a [u8]> {
-
 	/// Create a new `MemoryDB` from a given null key/data
 	pub fn from_null_node(null_key: &'a [u8], null_node_data: T) -> Self {
 		MemoryDB {
@@ -171,9 +170,9 @@ impl<'a, H: KeyHasher, T> MemoryDB<H, T> where T: From<&'a [u8]> {
 	/// extern crate keccak_hasher;
 	/// extern crate memory_db;
 	///
-	/// use hash_db::*;
+	/// use hash_db::{Hasher, HashDB};
 	/// use keccak_hasher::KeccakHasher;
-	/// use memory_db::*;
+	/// use memory_db::MemoryDB;
 	///
 	/// fn main() {
 	///   let mut m = MemoryDB::<KeccakHasher, Vec<u8>>::default();
@@ -227,6 +226,17 @@ impl<'a, H: KeyHasher, T> MemoryDB<H, T> where T: From<&'a [u8]> {
 			}
 		}
 	}
+
+	/// Get the keys in the database together with number of underlying references.
+	pub fn keys(&self) -> HashMap<H::Out, i32> {
+		self.data.iter()
+			.filter_map(|(k, v)| if v.1 != 0 {
+				Some((*k, v.1))
+			} else {
+				None
+			})
+			.collect()
+	}
 }
 
 impl<H, T> MemoryDB<H, T>
@@ -241,26 +251,12 @@ where
 	}
 }
 
-impl<H, T> HashDB<H, T> for MemoryDB<H, T>
+impl<H, T> PlainDB<H::Out, T> for MemoryDB<H, T>
 where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 {
-	fn keys(&self) -> HashMap<H::Out, i32> {
-		self.data.iter()
-			.filter_map(|(k, v)| if v.1 != 0 {
-				Some((*k, v.1))
-			} else {
-				None
-			})
-			.collect()
-	}
-
 	fn get(&self, key: &H::Out) -> Option<T> {
-		if key == &self.hashed_null_node {
-			return Some(self.null_node_data.clone());
-		}
-
 		match self.data.get(key) {
 			Some(&(ref d, rc)) if rc > 0 => Some(d.clone()),
 			_ => None
@@ -268,21 +264,13 @@ where
 	}
 
 	fn contains(&self, key: &H::Out) -> bool {
-		if key == &self.hashed_null_node {
-			return true;
-		}
-
 		match self.data.get(key) {
 			Some(&(_, x)) if x > 0 => true,
 			_ => false
 		}
 	}
 
-	fn emplace(&mut self, key:H::Out, value: T) {
-		if value == self.null_node_data {
-			return;
-		}
-
+	fn emplace(&mut self, key: H::Out, value: T) {
 		match self.data.entry(key) {
 			Entry::Occupied(mut entry) => {
 				let &mut (ref mut old_value, ref mut rc) = entry.get_mut();
@@ -297,31 +285,7 @@ where
 		}
 	}
 
-	fn insert(&mut self, value: &[u8]) -> H::Out {
-		if T::from(value) == self.null_node_data {
-			return self.hashed_null_node.clone();
-		}
-		let key = H::hash(value);
-		match self.data.entry(key) {
-			Entry::Occupied(mut entry) => {
-				let &mut (ref mut old_value, ref mut rc) = entry.get_mut();
-				if *rc <= 0 {
-					*old_value = value.into();
-				}
-				*rc += 1;
-			},
-			Entry::Vacant(entry) => {
-				entry.insert((value.into(), 1));
-			},
-		}
-		key
-	}
-
 	fn remove(&mut self, key: &H::Out) {
-		if key == &self.hashed_null_node {
-			return;
-		}
-
 		match self.data.entry(*key) {
 			Entry::Occupied(mut entry) => {
 				let &mut (_, ref mut rc) = entry.get_mut();
@@ -332,7 +296,82 @@ where
 			},
 		}
 	}
+}
 
+impl<H, T> PlainDBRef<H::Out, T> for MemoryDB<H, T>
+where
+	H: KeyHasher,
+	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
+{
+	fn get(&self, key: &H::Out) -> Option<T> { PlainDB::get(self, key) }
+	fn contains(&self, key: &H::Out) -> bool { PlainDB::contains(self, key) }
+}
+
+impl<H, T> HashDB<H, T> for MemoryDB<H, T>
+where
+	H: KeyHasher,
+	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
+{
+	fn get(&self, key: &H::Out) -> Option<T> {
+		if key == &self.hashed_null_node {
+			return Some(self.null_node_data.clone());
+		}
+
+		PlainDB::get(self, key)
+	}
+
+	fn contains(&self, key: &H::Out) -> bool {
+		if key == &self.hashed_null_node {
+			return true;
+		}
+
+		PlainDB::contains(self, key)
+	}
+
+	fn emplace(&mut self, key: H::Out, value: T) {
+		if value == self.null_node_data {
+			return;
+		}
+
+		PlainDB::emplace(self, key, value)
+	}
+
+	fn insert(&mut self, value: &[u8]) -> H::Out {
+		if T::from(value) == self.null_node_data {
+			return self.hashed_null_node.clone();
+		}
+
+		let key = H::hash(value);
+		PlainDB::emplace(self, key.clone(), value.into());
+
+		key
+	}
+
+	fn remove(&mut self, key: &H::Out) {
+		if key == &self.hashed_null_node {
+			return;
+		}
+
+		PlainDB::remove(self, key)
+	}
+}
+
+impl<H, T> HashDBRef<H, T> for MemoryDB<H, T>
+where
+	H: KeyHasher,
+	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
+{
+	fn get(&self, key: &H::Out) -> Option<T> { HashDB::get(self, key) }
+	fn contains(&self, key: &H::Out) -> bool { HashDB::contains(self, key) }
+}
+
+impl<H, T> AsPlainDB<H::Out, T> for MemoryDB<H, T>
+where
+	H: KeyHasher,
+	T: Default + PartialEq<T> + for<'a> From<&'a[u8]> + Clone + Send + Sync,
+{
+	fn as_plain_db(&self) -> &PlainDB<H::Out, T> { self }
+	fn as_plain_db_mut(&mut self) -> &mut PlainDB<H::Out, T> { self }
 }
 
 impl<H, T> AsHashDB<H, T> for MemoryDB<H, T>
@@ -346,7 +385,7 @@ where
 
 #[cfg(test)]
 mod tests {
-	use super::*;
+	use super::{MemoryDB, HashDB, KeyHasher};
 	use keccak_hasher::KeccakHasher;
 
 	#[cfg(not(feature = "std"))]
