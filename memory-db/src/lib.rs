@@ -16,11 +16,13 @@
 
 extern crate hash_db;
 extern crate parity_util_mem as malloc_size_of;
+#[cfg(feature = "deprecated")]
 extern crate heapsize;
 #[cfg(test)] extern crate keccak_hasher;
 
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher, AsHashDB, AsPlainDB};
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
+#[cfg(feature = "deprecated")]
 use heapsize::HeapSizeOf;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -218,6 +220,7 @@ impl<'a, H: KeyHasher, T> MemoryDB<H, T> where T: From<&'a [u8]> {
 	}
 }
 
+#[cfg(feature = "deprecated")]
 impl<H, T> MemoryDB<H, T>
 where
 	H: KeyHasher,
