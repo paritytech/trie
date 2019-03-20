@@ -45,7 +45,7 @@ use elastic_array::ElasticArray36;
 /// use memory_db::*;
 ///
 /// fn main() {
-///   let mut memdb = MemoryDB::default();
+///   let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
 ///   let mut root = Default::default();
 ///   RefTrieDBMut::new(&mut memdb, &mut root).insert(b"foo", b"bar").unwrap();
 ///   let t = RefTrieDB::new(&memdb, &root).unwrap();
@@ -459,7 +459,7 @@ impl<'a, H: Hasher, C: NodeCodec<H>> Iterator for TrieDBIterator<'a, H, C> {
 
 #[cfg(test)]
 mod tests {
-	use memory_db::MemoryDB;
+	use memory_db::{MemoryDB, HashKey};
 	use keccak_hasher::KeccakHasher;
 	use DBValue;
 	use reference_trie::{RefTrieDB, RefTrieDBMut, RefLookup, Trie, TrieMut, NibbleSlice};
@@ -471,7 +471,7 @@ mod tests {
 			(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
 		];
 
-		let mut memdb = MemoryDB::default();
+		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
@@ -499,7 +499,7 @@ mod tests {
 			(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
 		];
 
-		let mut memdb = MemoryDB::default();
+		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
@@ -523,7 +523,7 @@ mod tests {
 	fn iterator() {
 		let d = vec![DBValue::from_slice(b"A"), DBValue::from_slice(b"AA"), DBValue::from_slice(b"AB"), DBValue::from_slice(b"B")];
 
-		let mut memdb = MemoryDB::<KeccakHasher, DBValue>::default();
+		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
@@ -541,7 +541,7 @@ mod tests {
 	fn iterator_seek() {
 		let d = vec![ DBValue::from_slice(b"A"), DBValue::from_slice(b"AA"), DBValue::from_slice(b"AB"), DBValue::from_slice(b"B") ];
 
-		let mut memdb = MemoryDB::<KeccakHasher, DBValue>::default();
+		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
@@ -580,7 +580,7 @@ mod tests {
 
 	#[test]
 	fn get_len() {
-		let mut memdb = MemoryDB::<KeccakHasher, DBValue>::default();
+		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
@@ -598,7 +598,7 @@ mod tests {
 	fn debug_output_supports_pretty_print() {
 		let d = vec![ DBValue::from_slice(b"A"), DBValue::from_slice(b"AA"), DBValue::from_slice(b"AB"), DBValue::from_slice(b"B") ];
 
-		let mut memdb = MemoryDB::<KeccakHasher, DBValue>::default();
+		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let root = {
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
@@ -666,7 +666,7 @@ mod tests {
 	fn test_lookup_with_corrupt_data_returns_decoder_error() {
 		use std::marker::PhantomData;
 
-		let mut memdb = MemoryDB::<KeccakHasher, DBValue>::default();
+		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
