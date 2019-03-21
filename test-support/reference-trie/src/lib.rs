@@ -210,7 +210,6 @@ impl Decode for NodeHeader {
 			BRANCH_NODE_WITH_VALUE => NodeHeader::Branch(true),
 			i @ LEAF_NODE_OFFSET ... LEAF_NODE_LAST => NodeHeader::Leaf((i - LEAF_NODE_OFFSET) as usize),
 			i @ EXTENSION_NODE_OFFSET ... EXTENSION_NODE_LAST => NodeHeader::Extension((i - EXTENSION_NODE_OFFSET) as usize),
-			_ => unreachable!(),
 		})
 	}
 }
@@ -549,7 +548,6 @@ pub fn compare_root(
 
 pub fn compare_unhashed(
 	data: Vec<(Vec<u8>,Vec<u8>)>,
-	mut memdb: impl hash_db::HashDB<KeccakHasher,DBValue>,
 ) {
 	let root_new = {
 		let mut cb = trie_db::TrieRootUnhashed::<KeccakHasher>::default();

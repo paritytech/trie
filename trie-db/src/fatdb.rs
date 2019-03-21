@@ -113,7 +113,7 @@ where
 			.map(|res| {
 				res.map(|(hash, value)| {
 					let aux_hash = H::hash(&hash);
-					(self.trie.db().get(&aux_hash).expect("Missing fatdb hash").into_vec(), value)
+					(self.trie.db().get(&aux_hash, &[]).expect("Missing fatdb hash").into_vec(), value)
 				})
 			})
 	}
@@ -121,14 +121,14 @@ where
 
 #[cfg(test)]
 mod test {
-	use memory_db::MemoryDB;
+	use memory_db::{MemoryDB, HashKey};
 	use DBValue;
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefFatDBMut, RefFatDB, Trie, TrieMut};
 
 	#[test]
 	fn fatdb_to_trie() {
-		let mut memdb = MemoryDB::<KeccakHasher, DBValue>::default();
+		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefFatDBMut::new(&mut memdb, &mut root);

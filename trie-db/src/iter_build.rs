@@ -133,7 +133,11 @@ where
 		// Note: fwiu, having fixed key size, all values are in leaf (no value in
 		// branch). TODO run metrics on a node to count branch with values
 		let encoded = C::leaf_node(&nkey.as_ref()[..], &v2.as_ref()[..]);
-		let hash = cb_ext.process(encoded, false);
+    // TODO redesign nibleslice encoded to allow an inputstream (avoid this alloc) + design the
+    // thing other array of slice to avoid those concatenation unsecure or costy + same for nodes
+    // in fact or TODO put Vec in the trait?
+    let encoded_key = NibbleSlice::new(&k2.as_ref()[..]).encoded_leftmost(nkey.len(), false);
+		let hash = cb_ext.process(&encoded_key[..], encoded, false);
 
 		// insert hash in branch (first level branch only at this point)
 		self.set_node(target_depth, nibble_value as usize, Some(hash));
@@ -181,9 +185,9 @@ where
 				let is_root = d == 0 && is_last && !parent_branch;
 				let h = if no_ext {
 					// enc branch
-					self.alt_no_ext(cb_ext, branch_d, is_root, nkey)
+					self.alt_no_ext(&ref_branch.as_ref()[..], cb_ext, branch_d, is_root, nkey)
 				} else {
-					self.standard_ext(cb_ext, branch_d, is_root, nkey)
+					self.standard_ext(&ref_branch.as_ref()[..], cb_ext, branch_d, is_root, nkey)
 				};
 				// put hash in parent
 				let nibble: u8 = nibble_at(&ref_branch.as_ref()[..],d);
@@ -201,9 +205,9 @@ where
 		}
 		if let Some(d) = last_branch_ix {
 			if no_ext {
-				self.alt_no_ext(cb_ext, d, true, None);
+				self.alt_no_ext(&ref_branch.as_ref()[..], cb_ext, d, true, None);
 			} else {
-				self.standard_ext(cb_ext, d, true, None);
+				self.standard_ext(&ref_branch.as_ref()[..], cb_ext, d, true, None);
 			}
 		}
 	}
@@ -211,6 +215,7 @@ where
 	#[inline(always)]
 	fn standard_ext(
 		&mut self,
+    key_branch: &[u8],
 		cb_ext: &mut impl ProcessEncodedNode<<H as Hasher>::Out>,
 		branch_d: usize,
 		is_root: bool,
@@ -220,11 +225,14 @@ where
 		let v = self.0[branch_d].2.take();
 		let encoded = C::branch_node(self.0[branch_d].0.iter(), v.as_ref().map(|v|v.as_ref()));
 		self.reset_depth(branch_d);
-		let branch_hash = cb_ext.process(encoded, is_root && nkey.is_none());
+    let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d, false); // TODO EMCH !!!!!!!!!!! debug that it may be shifted from a unit!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+		let branch_hash = cb_ext.process(&encoded_key[..], encoded, is_root && nkey.is_none());
 
 		if let Some(nkey) = nkey {
 			let encoded = C::ext_node(&nkey[..], branch_hash);
-			let h = cb_ext.process(encoded, is_root);
+      let ext_len = nkey.len();
+      let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d - ext_len, false); // TODO EMCH !!!!!!!!!!! debug that it may be shifted from a unit!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+			let h = cb_ext.process(&encoded_key[..], encoded, is_root);
 			h
 		} else {
 			branch_hash
@@ -234,6 +242,7 @@ where
 	#[inline(always)]
 	fn alt_no_ext(
 		&mut self,
+    key_branch: &[u8],
 		cb_ext: &mut impl ProcessEncodedNode<<H as Hasher>::Out>,
 		branch_d: usize,
 		is_root: bool,
@@ -243,11 +252,13 @@ where
 		let v = self.0[branch_d].2.take();
 		let encoded = C::branch_node_nibbled(
 			// warn direct use of default empty nible encoded: NibbleSlice::new_offset(&[],0).encoded(false);
-			nkey.as_ref().map(|v|&v[..]).unwrap_or(&[0]),
+			nkey.as_ref().map(|v|&v[..]).unwrap_or(&[0]), // TODO warning this default value is unclean (should refer to an encoded impl)
 			self.0[branch_d].0.iter(), v.as_ref().map(|v|v.as_ref()));
 
 		self.reset_depth(branch_d);
-		cb_ext.process(encoded, is_root)
+    let ext_len = nkey.as_ref().map(|v|v.len()).unwrap_or(0);
+    let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d - ext_len, false); // TODO EMCH !!!!!!!!!!! debug that it may be shifted from a unit!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+		cb_ext.process(&encoded_key[..], encoded, is_root)
 	}
 
 }
@@ -328,7 +339,9 @@ fn trie_visit_inner<H, C, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool)
 			let (k2, v2) = prev_val; 
 			let nkey = NibbleSlice::new_offset(&k2.as_ref()[..],prev_depth).encoded(true);
 			let encoded = C::leaf_node(&nkey.as_ref()[..], &v2.as_ref()[..]);
-			cb_ext.process(encoded, true);
+      let ext_len = nkey.len();
+			let encoded_key = NibbleSlice::new(&k2.as_ref()[..]).encoded_leftmost(ext_len, false);
+			cb_ext.process(&encoded_key[..], encoded, true);
 		} else {
 			//println!("fbvl {}", prev_depth);
 			depth_queue.flush_val(cb_ext, prev_depth, &prev_val);
@@ -337,13 +350,13 @@ fn trie_visit_inner<H, C, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool)
 			depth_queue.flush_branch(no_ext, cb_ext, ref_branches, 0, prev_depth, true);
 		}
 	} else {
-		// nothing null root corner case
-		cb_ext.process(C::empty_node(), true);
+		// nothing null root corner case TODO warning hardcoded empty nibbleslice
+		cb_ext.process(&[0], C::empty_node(), true);
 	}
 }
 
 pub trait ProcessEncodedNode<HO> {
-	fn process(&mut self, Vec<u8>, bool) -> ChildReference<HO>;
+	fn process(&mut self, encoded_prefix: &[u8], Vec<u8>, bool) -> ChildReference<HO>;
 }
 
 /// Get trie root and insert node in hash db on parsing.
@@ -362,7 +375,7 @@ impl<'a, H, HO, V, DB> TrieBuilder<'a, H, HO, V, DB> {
 }
 
 impl<'a, H: Hasher, V, DB: HashDB<H,V>> ProcessEncodedNode<<H as Hasher>::Out> for TrieBuilder<'a, H, <H as Hasher>::Out, V, DB> {
-	fn process(&mut self, enc_ext: Vec<u8>, is_root: bool) -> ChildReference<<H as Hasher>::Out> {
+	fn process(&mut self, encoded_prefix: &[u8], enc_ext: Vec<u8>, is_root: bool) -> ChildReference<<H as Hasher>::Out> {
 		let len = enc_ext.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
 			let mut h = <<H as Hasher>::Out as Default>::default();
@@ -370,7 +383,7 @@ impl<'a, H: Hasher, V, DB: HashDB<H,V>> ProcessEncodedNode<<H as Hasher>::Out> f
 
 			return ChildReference::Inline(h, len);
 		}
-		let hash = self.db.insert(&enc_ext[..]);
+		let hash = self.db.insert(encoded_prefix, &enc_ext[..]);
 		if is_root {
 			//println!("isroot touch");
 			self.root = Some(hash.clone());
@@ -392,7 +405,7 @@ impl<H, HO> Default for TrieRoot<H, HO> {
 }
 
 impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRoot<H, <H as Hasher>::Out> {
-	fn process(&mut self, enc_ext: Vec<u8>, is_root: bool) -> ChildReference<<H as Hasher>::Out> {
+	fn process(&mut self, _: &[u8], enc_ext: Vec<u8>, is_root: bool) -> ChildReference<<H as Hasher>::Out> {
 		let len = enc_ext.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
 			let mut h = <<H as Hasher>::Out as Default>::default();
@@ -429,7 +442,7 @@ impl<H> Default for TrieRootUnhashed<H> {
 }
 
 impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashed<H> {
-	fn process(&mut self, enc_ext: Vec<u8>, is_root: bool) -> ChildReference<<H as Hasher>::Out> {
+	fn process(&mut self, _: &[u8], enc_ext: Vec<u8>, is_root: bool) -> ChildReference<<H as Hasher>::Out> {
 		let len = enc_ext.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
 			let mut h = <<H as Hasher>::Out as Default>::default();
@@ -453,7 +466,7 @@ mod test {
 	use env_logger;
 	use standardmap::*;
 	use DBValue;
-	use memory_db::MemoryDB;
+	use memory_db::{MemoryDB, HashKey};
 	use hash_db::{Hasher, HashDB};
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefTrieDBMut, RefTrieDB, Trie, TrieMut,
@@ -480,18 +493,18 @@ mod test {
 	}
 
 	fn compare_impl(data: Vec<(Vec<u8>,Vec<u8>)>) {
-		let memdb = MemoryDB::default();
-		let hashdb = MemoryDB::<KeccakHasher, DBValue>::default();
+		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
+		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		reference_trie::compare_impl(data, memdb, hashdb);
 	}
 	fn compare_impl_no_ext(data: Vec<(Vec<u8>,Vec<u8>)>) {
-		let memdb = MemoryDB::default();
-		let hashdb = MemoryDB::<KeccakHasher, DBValue>::default();
+		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
+		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		reference_trie::compare_impl_no_ext(data, memdb, hashdb);
 	}
 	fn compare_impl_no_ext_unordered(data: Vec<(Vec<u8>,Vec<u8>)>) {
-		let memdb = MemoryDB::default();
-		let hashdb = MemoryDB::<KeccakHasher, DBValue>::default();
+		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
+		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		reference_trie::compare_impl_no_ext_unordered(data, memdb, hashdb);
 	}
 /*	fn compare_impl_no_ext_unordered_rem(data: Vec<(Vec<u8>,Vec<u8>)>, rem: &[(usize,usize)]) {
@@ -503,16 +516,14 @@ mod test {
 
 
 	fn compare_root(data: Vec<(Vec<u8>,Vec<u8>)>) {
-		let memdb = MemoryDB::default();
+		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
 		reference_trie::compare_root(data, memdb);
 	}
 	fn compare_unhashed(data: Vec<(Vec<u8>,Vec<u8>)>) {
-		let memdb = MemoryDB::default();
-		reference_trie::compare_unhashed(data, memdb);
+		reference_trie::compare_unhashed(data);
 	}
 	fn compare_unhashed_no_ext(data: Vec<(Vec<u8>,Vec<u8>)>) {
-		let memdb = MemoryDB::default();
-		reference_trie::compare_unhashed_no_ext(data, memdb);
+		reference_trie::compare_unhashed_no_ext(data);
 	}
 
 
