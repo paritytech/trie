@@ -1,11 +1,12 @@
 
 
-use memory_db::MemoryDB;
+use memory_db::{MemoryDB, HashKey, PrefixedKey};
 use reference_trie::{
   RefTrieDBMutNoExt,
   RefTrieDBMut,
   ref_trie_root,
   calc_root_no_ext,
+  calc_root,
 };
 use trie_db::{TrieMut, DBValue};
 use keccak_hasher::KeccakHasher;
@@ -56,7 +57,7 @@ fn fuzz_to_data(input: &[u8]) -> Vec<(Vec<u8>,Vec<u8>)> {
 
 pub fn fuzz_that_ref_trie_root(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data(input));
-	let mut memdb = MemoryDB::default();
+	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
 	let mut root = Default::default();
 	let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 	for a in 0..data.len() {
@@ -67,7 +68,7 @@ pub fn fuzz_that_ref_trie_root(input: &[u8]) {
 
 pub fn fuzz_that_ref_trie_root_fix_len(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data_fix_len(input));
-	let mut memdb = MemoryDB::default();
+	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
 	let mut root = Default::default();
 	let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 	for a in 0..data.len() {
@@ -105,8 +106,8 @@ fn data_sorted_unique(input: Vec<(Vec<u8>,Vec<u8>)>) -> Vec<(Vec<u8>,Vec<u8>)> {
 
 pub fn fuzz_that_compare_impl(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data(input));
-	let memdb = MemoryDB::default();
-	let hashdb = MemoryDB::<KeccakHasher, DBValue>::default();
+	let mut memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
+	let hashdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	reference_trie::compare_impl(data, memdb, hashdb);
 }
 
@@ -119,7 +120,7 @@ pub fn fuzz_that_unhashed_no_ext(input: &[u8]) {
 pub fn fuzz_that_no_ext_insert(input: &[u8]) {
   let data = fuzz_to_data(input);
   //println!("data{:?}", data);
-	let mut memdb = MemoryDB::default();
+	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
 	let mut root = Default::default();
 	let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
 	for a in 0..data.len() {
@@ -135,12 +136,20 @@ pub fn fuzz_that_no_ext_insert(input: &[u8]) {
 pub fn fuzz_that_no_ext_insert_remove(input: &[u8]) {
   let data = fuzz_to_data(input);
 	let mut data2 = std::collections::BTreeMap::new();
-	let mut memdb = MemoryDB::default();
+	let mut memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
   let mut torem = None;
+  let mut a = 0;
+  {
+	  let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+    t.commit();
+  }
 //  println!("data{:?}", data);
-	for a in 0..data.len() {
+  while a < data.len() {
+
+    root = {
+	  let mut t = RefTrieDBMut::from_existing(&mut memdb, &mut root).unwrap();
+    for _ in 0..3 {
     if a % 7 == 6  {
 //  println!("remrand{:?}", a);
       // a random removal some time
@@ -161,9 +170,18 @@ pub fn fuzz_that_no_ext_insert_remove(input: &[u8]) {
         }
       }
     }
+    a += 1;
+    if a == data.len() {
+      break;
+    }
+    }
+    t.commit();
+    *t.root()
+    };
 	}
+	let mut t = RefTrieDBMut::from_existing(&mut memdb, &mut root).unwrap();
   // we are testing the RefTrie code here so we do not sort or check uniqueness
   // before.
   //println!("data{:?}", data);
-	assert_eq!(*t.root(), calc_root_no_ext(data2));
+	assert_eq!(*t.root(), calc_root(data2));
 }

@@ -10,9 +10,9 @@ edition = "2018"
 cargo-fuzz = true
 
 [dependencies]
-memory-db = { path = "../../memory-db", version = "0.11.0" }
-reference-trie = { path = "../../test-support/reference-trie", version = "0.11.0" }
-keccak-hasher = { path = "../../test-support/keccak-hasher", version = "0.11.0" }
+memory-db = { path = "../../memory-db", version = "0.12.0" }
+reference-trie = { path = "../../test-support/reference-trie", version = "0.12.0" }
+keccak-hasher = { path = "../../test-support/keccak-hasher", version = "0.12.0" }
 afl = "0.4.3"
 honggfuzz = "0.5"
 

@@ -485,10 +485,10 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodecNoExt {
 
 }
 
-pub fn compare_impl(
+pub fn compare_impl<X : hash_db::HashDB<KeccakHasher,DBValue> + Eq> (
 	data: Vec<(Vec<u8>,Vec<u8>)>,
-	mut memdb: impl hash_db::HashDB<KeccakHasher,DBValue>,
-	mut hashdb: impl hash_db::HashDB<KeccakHasher,DBValue>,
+	mut memdb: X,
+	mut hashdb: X,
 ) {
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
@@ -501,6 +501,7 @@ pub fn compare_impl(
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..],&data[i].1[..]).unwrap();
 		}
+    t.commit();
 		t.root().clone()
 	};
 	if root != root_new {
@@ -523,6 +524,8 @@ pub fn compare_impl(
 	}
 
 	assert_eq!(root, root_new);
+  // compare db content for key fuzzing
+	assert!(memdb == hashdb);
 }
 
 pub fn compare_root(
