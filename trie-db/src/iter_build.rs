@@ -1,6 +1,6 @@
 // Copyright 2017, 2019 Parity Technologies
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
+// Licensed under the Apache License, Version .0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
@@ -28,23 +28,23 @@ fn biggest_depth(v1: &[u8], v2: &[u8]) -> usize {
 		if v1[a] == v2[a] {
 		} else {
 			if (v1[a] >> 4) ==	(v2[a] >> 4) {
-				return a * 2 + 1;
+				return a * NIBBLE_PER_BYTES + 1;
 			} else {
-				return a * 2;
+				return a * NIBBLE_PER_BYTES;
 			}
 		}
 	}
-	return v1.len() * 2;
+	return v1.len() * NIBBLE_PER_BYTES;
 }
 
 // warn! start at 0 // TODO change biggest_depth??
 // warn! slow don't loop on that when possible
 #[inline(always)]
 fn nibble_at(v1: &[u8], ix: usize) -> u8 {
-	if ix % 2 == 0 {
-		v1[ix/2] >> 4
+	if ix % NIBBLE_PER_BYTES == 0 {
+		v1[ix / NIBBLE_PER_BYTES] >> 4
 	} else {
-		v1[ix/2] & 15
+		v1[ix / NIBBLE_PER_BYTES] & 15
 	}
 }
 
@@ -84,6 +84,7 @@ fn new_vec_slice_buff<HO>() -> [CacheNode<HO>; NIBBLE_SIZE] {
 /// initially allocated cache
 const INITIAL_DEPTH: usize = 10;
 const NIBBLE_SIZE: usize = 16;
+const NIBBLE_PER_BYTES: usize = 2; // 2 ^ 8 / 2 ^ NIBBLE_SIZE
 impl<H,C,V> CacheAccum<H,C,V>
 where
 	H: Hasher,
@@ -129,14 +130,14 @@ where
 	) {
 		let nibble_value = nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
-		let nkey = NibbleSlice::new_offset(&k2.as_ref()[..],target_depth+1).encoded(true);
+		let nkey = NibbleSlice::new_offset(&k2.as_ref()[..],target_depth+1);
 		// Note: fwiu, having fixed key size, all values are in leaf (no value in
 		// branch). TODO run metrics on a node to count branch with values
-		let encoded = C::leaf_node(&nkey.as_ref()[..], &v2.as_ref()[..]);
+		let encoded = C::leaf_node(&nkey.encoded(true).as_ref()[..], &v2.as_ref()[..]);
     // TODO redesign nibleslice encoded to allow an inputstream (avoid this alloc) + design the
     // thing other array of slice to avoid those concatenation unsecure or costy + same for nodes
     // in fact or TODO put Vec in the trait?
-    let encoded_key = NibbleSlice::new(&k2.as_ref()[..]).encoded_leftmost(nkey.len(), false);
+    let encoded_key = NibbleSlice::new(&k2.as_ref()[..]).encoded_leftmost(k2.as_ref().len() * NIBBLE_PER_BYTES - nkey.len(), false);
 		let hash = cb_ext.process(&encoded_key[..], encoded, false);
 
 		// insert hash in branch (first level branch only at this point)
@@ -176,8 +177,7 @@ where
 				};
 
 				let nkey = if slice_size > 0 {
-					Some(NibbleSlice::new_offset(&ref_branch.as_ref()[..],offset)
-						.encoded_leftmost(slice_size, false))
+					Some((offset, slice_size))
 				} else {
 					None
 				};
@@ -219,19 +219,20 @@ where
 		cb_ext: &mut impl ProcessEncodedNode<<H as Hasher>::Out>,
 		branch_d: usize,
 		is_root: bool,
-		nkey: Option<ElasticArray36<u8>>,
+		nkey: Option<(usize, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {
+
 		// enc branch
 		let v = self.0[branch_d].2.take();
 		let encoded = C::branch_node(self.0[branch_d].0.iter(), v.as_ref().map(|v|v.as_ref()));
 		self.reset_depth(branch_d);
-    let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d, false); // TODO EMCH !!!!!!!!!!! debug that it may be shifted from a unit!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d, false);
 		let branch_hash = cb_ext.process(&encoded_key[..], encoded, is_root && nkey.is_none());
 
-		if let Some(nkey) = nkey {
-			let encoded = C::ext_node(&nkey[..], branch_hash);
-      let ext_len = nkey.len();
-      let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d - ext_len, false); // TODO EMCH !!!!!!!!!!! debug that it may be shifted from a unit!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+		if let Some(nkeyix) = nkey {
+		  let nib = NibbleSlice::new_offset(&key_branch.as_ref()[..],nkeyix.0).encoded_leftmost(nkeyix.1, false);
+			let encoded = C::ext_node(&nib[..], branch_hash);
+      let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(nkeyix.0, false);
 			let h = cb_ext.process(&encoded_key[..], encoded, is_root);
 			h
 		} else {
@@ -246,17 +247,18 @@ where
 		cb_ext: &mut impl ProcessEncodedNode<<H as Hasher>::Out>,
 		branch_d: usize,
 		is_root: bool,
-		nkey: Option<ElasticArray36<u8>>,
+		nkey: Option<(usize, usize)>,
 		) -> ChildReference<<H as Hasher>::Out> {
 		// enc branch
 		let v = self.0[branch_d].2.take();
+    let enc_nkey = nkey.as_ref()
+        .map(|nkeyix|NibbleSlice::new_offset(&key_branch.as_ref()[..],nkeyix.0).encoded_leftmost(nkeyix.1, false));
 		let encoded = C::branch_node_nibbled(
 			// warn direct use of default empty nible encoded: NibbleSlice::new_offset(&[],0).encoded(false);
-			nkey.as_ref().map(|v|&v[..]).unwrap_or(&[0]), // TODO warning this default value is unclean (should refer to an encoded impl)
+			enc_nkey.as_ref().map(|v|&v[..]).unwrap_or(&[0]),
 			self.0[branch_d].0.iter(), v.as_ref().map(|v|v.as_ref()));
-
 		self.reset_depth(branch_d);
-    let ext_len = nkey.as_ref().map(|v|v.len()).unwrap_or(0);
+    let ext_len = nkey.as_ref().map(|nkeyix|nkeyix.0).unwrap_or(0);
     let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d - ext_len, false); // TODO EMCH !!!!!!!!!!! debug that it may be shifted from a unit!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 		cb_ext.process(&encoded_key[..], encoded, is_root)
 	}
@@ -310,7 +312,7 @@ fn trie_visit_inner<H, C, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool)
 			let common_depth = biggest_depth(&prev_val.0.as_ref()[..], &k.as_ref()[..]);
 			// 0 is a reserved value : could use option
 			let depth_item = common_depth;
-			if common_depth == prev_val.0.as_ref().len() * 2 {
+			if common_depth == prev_val.0.as_ref().len() * NIBBLE_PER_BYTES {
 				//println!("stack {} ", common_depth);
 				// the new key include the previous one : branch value case
 				// just stored value at branch depth
@@ -336,11 +338,10 @@ fn trie_visit_inner<H, C, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool)
 		if prev_depth == 0
 			&& !depth_queue.touched(0) {
 			// one single element corner case
-			let (k2, v2) = prev_val; 
-			let nkey = NibbleSlice::new_offset(&k2.as_ref()[..],prev_depth).encoded(true);
-			let encoded = C::leaf_node(&nkey.as_ref()[..], &v2.as_ref()[..]);
-      let ext_len = nkey.len();
-			let encoded_key = NibbleSlice::new(&k2.as_ref()[..]).encoded_leftmost(ext_len, false);
+			let (k2, v2) = prev_val;
+			let nkey = NibbleSlice::new_offset(&k2.as_ref()[..],prev_depth);
+			let encoded = C::leaf_node(&nkey.encoded(true).as_ref()[..], &v2.as_ref()[..]);
+      let encoded_key = NibbleSlice::new(&k2.as_ref()[..]).encoded_leftmost(k2.as_ref().len() * NIBBLE_PER_BYTES - nkey.len(), false);
 			cb_ext.process(&encoded_key[..], encoded, true);
 		} else {
 			//println!("fbvl {}", prev_depth);

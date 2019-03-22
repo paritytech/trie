@@ -91,6 +91,9 @@ impl<H, KF, T> PartialEq<MemoryDB<H, KF, T>> for MemoryDB<H, KF, T>
         T: Eq + std::fmt::Debug,
 {
     fn eq(&self, other: &MemoryDB<H, KF, T>) -> bool {
+      /*for a in other.data.iter() {
+        println!("ok{:?}", a);
+      }*/
       for a in self.data.iter() {
         match other.data.get(&a.0) {
           Some(v) => {

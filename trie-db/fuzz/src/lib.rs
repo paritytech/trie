@@ -106,6 +106,7 @@ fn data_sorted_unique(input: Vec<(Vec<u8>,Vec<u8>)>) -> Vec<(Vec<u8>,Vec<u8>)> {
 
 pub fn fuzz_that_compare_impl(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data(input));
+  //println!("data:{:?}", &data);
 	let mut memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 	let hashdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	reference_trie::compare_impl(data, memdb, hashdb);
