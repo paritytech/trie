@@ -353,11 +353,11 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 						}
 					},
 					Node::NibbledBranch(ref slice, ref nodes, _) => {
-						if !key.starts_with(slice) {
+						if !partial.starts_with(slice) {
 							self.descend(&node_data)?;
 							return Ok(())
 						}
-						if key.len() == slice.len() {
+						if partial.len() == slice.len() {
 							self.trail.push(Crumb {
 								status: Status::Entering,
 								node: node.clone().into(),
@@ -365,7 +365,7 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 							return Ok(())
 						} else {
 
-							let i = key.at(slice.len());
+							let i = partial.at(slice.len());
 							self.trail.push(Crumb {
 								status: Status::AtChild(i as usize),
 								node: node.clone().into(),
@@ -690,6 +690,7 @@ mod tests {
 		}
 
 		let t = RefTrieDBNoExt::new(&memdb, &root).unwrap();
+		let mut iter = t.iter().unwrap();
 		let mut iter = t.iter().unwrap();
 		assert_eq!(iter.next().unwrap().unwrap(), (b"A".to_vec(), DBValue::from_slice(b"A")));
 		iter.seek(b"!").unwrap();
