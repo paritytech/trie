@@ -56,6 +56,32 @@ fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; 16]> {
 	])
 }
 
+struct Partial<'key> {
+	key: NibbleSlice<'key>,
+	split: usize,
+}
+
+impl<'key> Partial<'key> {
+	fn new(key: NibbleSlice) -> Partial {
+		Partial {
+			key,
+			split: 0,
+		}
+	}
+
+	fn advance(&mut self, by: usize) {
+		self.split += by;
+	}
+
+	fn mid(&self) -> NibbleSlice<'key> {
+		self.key.mid(self.split)
+	}
+
+	fn encoded_prefix(&self) -> NodeKey {
+		self.key.encoded_leftmost(self.split, false)
+	}
+}
+
 /// Node types in the Trie.
 #[derive(Debug)]
 enum Node<H> {
@@ -359,22 +385,22 @@ where
 
 	// inspect a node, choosing either to replace, restore, or delete it.
 	// if restored or replaced, returns the new node along with a flag of whether it was changed.
-	fn inspect<F>(&mut self, stored: Stored<H::Out>, key: NodeKey, inspector: F) -> Result<Option<(Stored<H::Out>, bool)>, H::Out, C::Error>
-	where F: FnOnce(&mut Self, Node<H::Out>, NodeKey) -> Result<Action<H::Out>, H::Out, C::Error> {
+	fn inspect<F>(&mut self, stored: Stored<H::Out>, key: &mut Partial, inspector: F) -> Result<Option<(Stored<H::Out>, bool)>, H::Out, C::Error>
+	where F: FnOnce(&mut Self, Node<H::Out>, &mut Partial) -> Result<Action<H::Out>, H::Out, C::Error> {
 		Ok(match stored {
 			Stored::New(node) => match inspector(self, node, key)? {
 				Action::Restore(node) => Some((Stored::New(node), false)),
 				Action::Replace(node) => Some((Stored::New(node), true)),
 				Action::Delete => None,
 			},
-			Stored::Cached(node, hash) => match inspector(self, node, key.clone())? {
+			Stored::Cached(node, hash) => match inspector(self, node, key)? {
 				Action::Restore(node) => Some((Stored::Cached(node, hash), false)),
 				Action::Replace(node) => {
-					self.death_row.insert((hash, key));
+					self.death_row.insert((hash, key.encoded_prefix()));
 					Some((Stored::New(node), true))
 				}
 				Action::Delete => {
-					self.death_row.insert((hash, key));
+					self.death_row.insert((hash, key.encoded_prefix()));
 					None
 				}
 			},
@@ -431,21 +457,22 @@ where
 	}
 
 	/// insert a key-value pair into the trie, creating new nodes if necessary.
-	fn insert_at(&mut self, handle: NodeHandle<H::Out>, partial: NibbleSlice, key: NodeKey, value: DBValue, old_val: &mut Option<DBValue>) -> Result<(StorageHandle, bool), H::Out, C::Error> {
+	fn insert_at(&mut self, handle: NodeHandle<H::Out>, key: &mut Partial, value: DBValue, old_val: &mut Option<DBValue>) -> Result<(StorageHandle, bool), H::Out, C::Error> {
 		let h = match handle {
 			NodeHandle::InMemory(h) => h,
-			NodeHandle::Hash(h) => self.cache(h, &key)?,
+			NodeHandle::Hash(h) => self.cache(h, &key.encoded_prefix())?,
 		};
 		let stored = self.storage.destroy(h);
 		let (new_stored, changed) = self.inspect(stored, key, move |trie, stored, key| {
-			trie.insert_inspector(stored, partial, key, value, old_val).map(|a| a.into_action())
+			trie.insert_inspector(stored, key, value, old_val).map(|a| a.into_action())
 		})?.expect("Insertion never deletes.");
 
 		Ok((self.storage.alloc(new_stored), changed))
 	}
 
 	/// the insertion inspector.
-	fn insert_inspector(&mut self, node: Node<H::Out>, partial: NibbleSlice, key: NodeKey, value: DBValue, old_val: &mut Option<DBValue>) -> Result<InsertAction<H::Out>, H::Out, C::Error> {
+	fn insert_inspector(&mut self, node: Node<H::Out>, key: &mut Partial, value: DBValue, old_val: &mut Option<DBValue>) -> Result<InsertAction<H::Out>, H::Out, C::Error> {
+		let partial = key.mid();
 		trace!(target: "trie", "augmented (partial: {:?}, value: {:#x?})", partial, value);
 
 		Ok(match node {
@@ -467,11 +494,10 @@ where
 					}
 				} else {
 					let idx = partial.at(0) as usize;
+					key.advance(1);
 					if let Some(child) = children[idx].take() {
-						let child_key = combine_encoded(&key, &partial.encoded_leftmost(1, false));
-						let partial = partial.mid(1);
 						// original had something there. recurse down into it.
-						let (new_child, changed) = self.insert_at(child, partial, child_key, value, old_val)?;
+						let (new_child, changed) = self.insert_at(child, key, value, old_val)?;
 						children[idx] = Some(new_child.into());
 						if !changed {
 							// the new node we composed didn't change. that means our branch is untouched too.
@@ -479,8 +505,7 @@ where
 						}
 					} else {
 						// original had nothing there. compose a leaf.
-						let partial = partial.mid(1);
-						let leaf = self.storage.alloc(Stored::New(Node::Leaf(partial.encoded(true), value)));
+						let leaf = self.storage.alloc(Stored::New(Node::Leaf(key.mid().encoded(true), value)));
 						children[idx] = Some(leaf.into());
 					}
 
@@ -518,8 +543,7 @@ where
 					};
 
 					// always replace because whatever we get out here is not the branch we started with.
-					let child_key = key;
-					let branch_action = self.insert_inspector(branch, partial, child_key, value, old_val)?.unwrap_node();
+					let branch_action = self.insert_inspector(branch, key, value, old_val)?.unwrap_node();
 					InsertAction::Replace(branch_action)
 				} else if cp == existing_key.len() {
 					trace!(target: "trie", "complete-prefix (cp={:?}): AUGMENT-AT-END", cp);
@@ -528,8 +552,8 @@ where
 					// make a stub branch and an extension.
 					let branch = Node::Branch(empty_children(), Some(stored_value));
 					// augment the new branch.
-					let child_key = combine_encoded(&key, &partial.encoded_leftmost(cp, false));
-					let branch = self.insert_inspector(branch, partial.mid(cp), child_key, value, old_val)?.unwrap_node();
+					key.advance(cp);
+					let branch = self.insert_inspector(branch, key, value, old_val)?.unwrap_node();
 
 					// always replace since we took a leaf and made an extension.
 					let branch_handle = self.storage.alloc(Stored::New(branch)).into();
@@ -543,8 +567,8 @@ where
 
 					// augment it. this will result in the Leaf -> cp == 0 routine,
 					// which creates a branch.
-					let child_key = combine_encoded(&key, &partial.encoded_leftmost(cp, false));
-					let augmented_low = self.insert_inspector(low, partial.mid(cp), child_key, value, old_val)?.unwrap_node();
+					key.advance(cp);
+					let augmented_low = self.insert_inspector(low, key, value, old_val)?.unwrap_node();
 
 					// make an extension using it. this is a replacement.
 					InsertAction::Replace(Node::Extension(
@@ -575,8 +599,7 @@ where
 					};
 
 					// continue inserting.
-					let child_key = key;
-					let branch_action = self.insert_inspector(Node::Branch(children, None), partial, child_key, value, old_val)?.unwrap_node();
+					let branch_action = self.insert_inspector(Node::Branch(children, None), key, value, old_val)?.unwrap_node();
 					InsertAction::Replace(branch_action)
 				} else if cp == existing_key.len() {
 					trace!(target: "trie", "complete-prefix (cp={:?}): AUGMENT-AT-END", cp);
@@ -584,8 +607,8 @@ where
 					// fully-shared prefix.
 
 					// insert into the child node.
-					let child_key = combine_encoded(&key, &partial.encoded_leftmost(cp, false));
-					let (new_child, changed) = self.insert_at(child_branch, partial.mid(cp), child_key, value, old_val)?;
+					key.advance(cp);
+					let (new_child, changed) = self.insert_at(child_branch, key, value, old_val)?;
 					let new_ext = Node::Extension(existing_key.encoded(false), new_child.into());
 
 					// if the child branch wasn't changed, meaning this extension remains the same.
@@ -599,8 +622,8 @@ where
 					// partially-shared.
 					let low = Node::Extension(existing_key.mid(cp).encoded(false), child_branch);
 					// augment the extension. this will take the cp == 0 path, creating a branch.
-					let child_key = combine_encoded(&key, &partial.encoded_leftmost(cp, false));
-					let augmented_low = self.insert_inspector(low, partial.mid(cp), child_key, value, old_val)?.unwrap_node();
+					key.advance(cp);
+					let augmented_low = self.insert_inspector(low, key, value, old_val)?.unwrap_node();
 
 					// always replace, since this extension is not the one we started with.
 					// this is known because the partial key is only the common prefix.
@@ -614,36 +637,38 @@ where
 	}
 
 	/// Remove a node from the trie based on key.
-	fn remove_at(&mut self, handle: NodeHandle<H::Out>, partial: NibbleSlice, key: NodeKey, old_val: &mut Option<DBValue>) -> Result<Option<(StorageHandle, bool)>, H::Out, C::Error> {
+	fn remove_at(&mut self, handle: NodeHandle<H::Out>, key: &mut Partial, old_val: &mut Option<DBValue>) -> Result<Option<(StorageHandle, bool)>, H::Out, C::Error> {
 		let stored = match handle {
 			NodeHandle::InMemory(h) => self.storage.destroy(h),
 			NodeHandle::Hash(h) => {
-				let handle = self.cache(h, &key)?;
+				let handle = self.cache(h, &key.encoded_prefix())?;
 				self.storage.destroy(handle)
 			}
 		};
 
-		let opt = self.inspect(stored, key, move |trie, node, key| trie.remove_inspector(node, partial, key, old_val))?;
+		let opt = self.inspect(stored, key, move |trie, node, key| trie.remove_inspector(node, key, old_val))?;
 
 		Ok(opt.map(|(new, changed)| (self.storage.alloc(new), changed)))
 	}
 
 	/// the removal inspector
-	fn remove_inspector(&mut self, node: Node<H::Out>, partial: NibbleSlice, key: NodeKey, old_val: &mut Option<DBValue>) -> Result<Action<H::Out>, H::Out, C::Error> {
+	fn remove_inspector(&mut self, node: Node<H::Out>, key: &mut Partial, old_val: &mut Option<DBValue>) -> Result<Action<H::Out>, H::Out, C::Error> {
+		let partial = key.mid();
 		Ok(match (node, partial.is_empty()) {
 			(Node::Empty, _) => Action::Delete,
 			(Node::Branch(c, None), true) => Action::Restore(Node::Branch(c, None)),
 			(Node::Branch(children, Some(val)), true) => {
 				*old_val = Some(val);
 				// always replace since we took the value out.
-				Action::Replace(self.fix(Node::Branch(children, None), key)?)
+				Action::Replace(self.fix(Node::Branch(children, None), key.encoded_prefix())?)
 			}
 			(Node::Branch(mut children, value), false) => {
 				let idx = partial.at(0) as usize;
 				if let Some(child) = children[idx].take() {
 					trace!(target: "trie", "removing value out of branch child, partial={:?}", partial);
-					let child_key = combine_encoded(&key, &partial.encoded_leftmost(1, false));
-					match self.remove_at(child, partial.mid(1), child_key, old_val)? {
+					let prefix = key.encoded_prefix();
+					key.advance(1);
+					match self.remove_at(child, key, old_val)? {
 						Some((new, changed)) => {
 							children[idx] = Some(new.into());
 							let branch = Node::Branch(children, value);
@@ -658,7 +683,7 @@ where
 							// the child we took was deleted.
 							// the node may need fixing.
 							trace!(target: "trie", "branch child deleted, partial={:?}", partial);
-							Action::Replace(self.fix(Node::Branch(children, value), key)?)
+							Action::Replace(self.fix(Node::Branch(children, value), prefix)?)
 						}
 					}
 				} else {
@@ -685,15 +710,16 @@ where
 				if cp == existing_len {
 					// try to remove from the child branch.
 					trace!(target: "trie", "removing from extension child, partial={:?}", partial);
-					let child_key = combine_encoded(&key, &partial.encoded_leftmost(cp, false));
-					match self.remove_at(child_branch, partial.mid(cp), child_key.clone(), old_val)? {
+					let prefix = key.encoded_prefix();
+					key.advance(cp);
+					match self.remove_at(child_branch, key, old_val)? {
 						Some((new_child, changed)) => {
 							let new_child = new_child.into();
 
 							// if the child branch was unchanged, then the extension is too.
 							// otherwise, this extension may need fixing.
 							match changed {
-								true => Action::Replace(self.fix(Node::Extension(encoded, new_child), child_key)?),
+								true => Action::Replace(self.fix(Node::Extension(encoded, new_child), prefix)?),
 								false => Action::Restore(Node::Extension(encoded, new_child)),
 							}
 						}
@@ -938,8 +964,7 @@ where
 		let root_handle = self.root_handle();
 		let (new_handle, changed) = self.insert_at(
 			root_handle,
-			NibbleSlice::new(key),
-			NodeKey::from_slice(nibbleslice::EMPTY_ENCODED),
+			&mut Partial::new(NibbleSlice::new(key)),
 			DBValue::from_slice(value),
 			&mut old_val,
 		)?;
@@ -954,10 +979,10 @@ where
 		trace!(target: "trie", "remove: key={:#x?}", key);
 
 		let root_handle = self.root_handle();
-		let key = NibbleSlice::new(key);
+		let mut key = Partial::new(NibbleSlice::new(key));
 		let mut old_val = None;
 
-		match self.remove_at(root_handle, key, NodeKey::from_slice(nibbleslice::EMPTY_ENCODED), &mut old_val)? {
+		match self.remove_at(root_handle, &mut key, &mut old_val)? {
 			Some((handle, changed)) => {
 				trace!(target: "trie", "remove: altered trie={}", changed);
 				self.root_handle = NodeHandle::InMemory(handle);
