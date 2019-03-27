@@ -74,7 +74,7 @@ impl<HO: Copy> Recorder<HO> {
 
 #[cfg(test)]
 mod tests {
-	use memory_db::MemoryDB;
+	use memory_db::{MemoryDB, HashKey};
 	use hash_db::Hasher;
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefTrieDB, RefTrieDBMut, Trie, TrieMut, Recorder, Record};
@@ -131,7 +131,7 @@ mod tests {
 
 	#[test]
 	fn trie_record() {
-		let mut db = MemoryDB::default();
+		let mut db = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
 		let mut root = Default::default();
 		{
 			let mut x = RefTrieDBMut::new(&mut db, &mut root);

@@ -18,6 +18,9 @@ use std::cmp::*;
 use std::fmt;
 use elastic_array::ElasticArray36;
 
+/// Empty slice encoded as non-leaf partial key
+pub const EMPTY_ENCODED: &[u8] = &[0];
+
 /// Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
 ///
 /// This is an immutable struct. No operations actually change it.
@@ -96,7 +99,11 @@ impl<'a> NibbleSlice<'a> {
 
 	/// Create a new nibble slice from the given HPE encoded data (e.g. output of `encoded()`).
 	pub fn from_encoded(data: &'a [u8]) -> (NibbleSlice, bool) {
-		(Self::new_offset(data, if data[0] & 16 == 16 {1} else {2}), data[0] & 32 == 32)
+		if data.is_empty() {
+			(Self::new(&[]), false)
+		} else {
+			(Self::new_offset(data, if data[0] & 16 == 16 {1} else {2}), data[0] & 32 == 32)
+		}
 	}
 
 	/// Is this an empty slice?
@@ -213,6 +220,12 @@ impl<'a> fmt::Debug for NibbleSlice<'a> {
 		}
 		Ok(())
 	}
+}
+
+/// Join two encoded nibble slices.
+pub fn combine_encoded(prefix: &[u8], extension: &[u8]) -> ElasticArray36<u8> {
+	let slice = NibbleSlice::new_composed(&NibbleSlice::from_encoded(&prefix).0, &NibbleSlice::from_encoded(extension).0);
+	slice.encoded(false)
 }
 
 #[cfg(test)]
