@@ -90,10 +90,11 @@ where
 			.ok_or_else(|| Box::new(TrieError::InvalidStateRoot(*self.root)))
 	}
 
-	/// Given some node-describing data `node`, return the actual node RLP.
+	/// Given some node-describing data `node`, and node key return the actual node RLP.
 	/// This could be a simple identity operation in the case that the node is sufficiently small, but
 	/// may require a database lookup. If `is_root_data` then this is root-data and
 	/// is known to be literal.
+	/// `partial_key` is encoded nibble slice that addresses the node.
 	fn get_raw_or_lookup(&'db self, node: &[u8], partial_key: &[u8]) -> Result<Cow<'db, DBValue>, H::Out, C::Error> {
 		match (partial_key == nibbleslice::EMPTY_ENCODED, C::try_decode_hash(node)) {
 			(false, Some(key)) => {
