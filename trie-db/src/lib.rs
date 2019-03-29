@@ -56,7 +56,7 @@ use alloc::boxed::Box;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-use core_::{fmt, marker::PhantomData};
+use core_::marker::PhantomData;
 
 #[cfg(feature = "std")]
 use std::error::Error;
@@ -64,15 +64,15 @@ use std::error::Error;
 #[cfg(feature = "std")]
 use std::fmt::Debug;
 #[cfg(feature = "std")]
-pub trait DebugIfStd: Debug {}
+pub trait MaybeDebug: Debug {}
 #[cfg(feature = "std")]
-impl<T: Debug> DebugIfStd for T {}
+impl<T: Debug> MaybeDebug for T {}
 
 
 #[cfg(not(feature = "std"))]
-pub trait DebugIfStd {}
+pub trait MaybeDebug {}
 #[cfg(not(feature = "std"))]
-impl<T> DebugIfStd for T {}
+impl<T> MaybeDebug for T {}
 
 
 pub mod node;
@@ -117,7 +117,8 @@ pub enum TrieError<T, E> {
 	DecoderError(T, E),
 }
 
-impl<T, E> fmt::Display for TrieError<T, E> where T: ::core_::fmt::Debug, E: ::core_::fmt::Debug {
+#[cfg(feature = "std")]
+impl<T, E> fmt::Display for TrieError<T, E> where T: MaybeDebug, E: MaybeDebug {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		match *self {
 			TrieError::InvalidStateRoot(ref root) => write!(f, "Invalid state root: {:?}", root),
