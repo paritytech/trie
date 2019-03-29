@@ -12,15 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
 use hash_db::{Hasher, HashDBRef};
 use nibbleslice::{self, NibbleSlice, combine_encoded};
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
 use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query};
-use std::marker::PhantomData;
-use std::borrow::Cow;
+use ::core_::marker::PhantomData;
+
+#[cfg(feature = "std")]
+use ::std::fmt;
+#[cfg(feature = "std")]
+use ::std::borrow::Cow;
+#[cfg(not(feature = "std"))]
+use ::alloc::borrow::Cow;
+
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use elastic_array::ElasticArray36;
 
 /// A `Trie` implementation using a generic `HashDB` backing database, a `Hasher`
@@ -131,6 +142,8 @@ where
 	}
 }
 
+
+#[cfg(feature="std")]
 // This is for pretty debug output only
 struct TrieAwareDebugNode<'db, 'a, H, C>
 where
@@ -143,6 +156,7 @@ where
 	index: Option<u8>,
 }
 
+#[cfg(feature="std")]
 impl<'db, 'a, H, C> fmt::Debug for TrieAwareDebugNode<'db, 'a, H, C>
 where
 	H: Hasher,
@@ -209,6 +223,7 @@ where
 	}
 }
 
+#[cfg(feature="std")]
 impl<'db, H, C> fmt::Debug for TrieDB<'db, H, C>
 where
 	H: Hasher,
