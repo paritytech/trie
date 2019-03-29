@@ -8,4 +8,5 @@ categories = [ "no-std" ]
 
 [features]
 default = ["std"]
-std = []
+std = [
+]
