@@ -80,7 +80,7 @@ where
 
 #[cfg(test)]
 mod test {
-	use memory_db::MemoryDB;
+	use memory_db::{MemoryDB, HashKey};
 	use hash_db::Hasher;
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefTrieDBMut, RefSecTrieDB, Trie, TrieMut};
@@ -88,7 +88,7 @@ mod test {
 
 	#[test]
 	fn trie_to_sectrie() {
-		let mut db = MemoryDB::default();
+		let mut db = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut db, &mut root);

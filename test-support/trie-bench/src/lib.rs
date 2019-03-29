@@ -27,7 +27,7 @@ use parity_codec::{Encode, Compact};
 use criterion::{Criterion, black_box, Fun};
 use keccak_hasher::KeccakHasher;
 use hash_db::Hasher;
-use memory_db::MemoryDB;
+use memory_db::{MemoryDB, HashKey};
 use trie_db::{NodeCodec, TrieDB, TrieDBMut, Trie, TrieMut};
 use trie_root::{TrieStream, trie_root};
 use trie_standardmap::*;
@@ -54,7 +54,7 @@ where
 			trie_root::<H, S, _, _, _>(d.0.clone())
 		})),
 		Fun::new("Fill", |b, d: &TrieInsertionList| b.iter(&mut ||{
-			let mut memdb = MemoryDB::new(&N::empty_node()[..]);
+			let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(&N::empty_node()[..]);
 			let mut root = H::Out::default();
 			let mut t = TrieDBMut::<H, N>::new(&mut memdb, &mut root);
 			for i in d.0.iter() {
@@ -62,7 +62,7 @@ where
 			}
 		})),
 		Fun::new("Iter", |b, d: &TrieInsertionList| {
-			let mut memdb = MemoryDB::new(&N::empty_node()[..]);
+			let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(&N::empty_node()[..]);
 			let mut root = H::Out::default();
 			{
 				let mut t = TrieDBMut::<H, N>::new(&mut memdb, &mut root);
