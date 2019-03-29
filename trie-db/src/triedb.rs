@@ -458,8 +458,8 @@ impl<'a, H: Hasher, C: NodeCodec<H>> Iterator for TrieDBIterator<'a, H, C> {
 								.expect("pushed as 0; moves sequentially; removed afterwards; qed") = i as u8,
 						}
 						IterStep::Descend::<H::Out, C::Error>(self.db.get_raw_or_lookup(
-								&branch.index(i).expect("this arm guarded by branch[i].is_some(); qed"),
-								&self.encoded_key()))
+							&branch.index(i).expect("this arm guarded by branch[i].is_some(); qed"),
+							&self.encoded_key()))
 					},
 					(Status::AtChild(i), &OwnedNode::Branch(_)) => {
 						if i == 0 {
