@@ -21,23 +21,23 @@ use std::fmt::Debug;
 #[cfg(feature = "std")]
 use std::hash;
 #[cfg(feature = "std")]
-pub trait DebugIfStd: Debug {}
+pub trait MaybeDebug: Debug {}
 #[cfg(feature = "std")]
-impl<T: Debug> DebugIfStd for T {}
+impl<T: Debug> MaybeDebug for T {}
 
 #[cfg(not(feature = "std"))]
 use core::hash;
 #[cfg(not(feature = "std"))]
-pub trait DebugIfStd {}
+pub trait MaybeDebug {}
 #[cfg(not(feature = "std"))]
-impl<T> DebugIfStd for T {}
+impl<T> MaybeDebug for T {}
 
 /// Trait describing an object that can hash a slice of bytes. Used to abstract
 /// other types over the hashing algorithm. Defines a single `hash` method and an
 /// `Out` associated type with the necessary bounds.
 pub trait Hasher: Sync + Send {
 	/// The output type of the `Hasher`
-	type Out: AsRef<[u8]> + AsMut<[u8]> + Default + DebugIfStd + PartialEq + Eq + hash::Hash + Send + Sync + Clone + Copy;
+	type Out: AsRef<[u8]> + AsMut<[u8]> + Default + MaybeDebug + PartialEq + Eq + hash::Hash + Send + Sync + Clone + Copy;
 	/// What to use to build `HashMap`s with this `Hasher`
 	type StdHasher: Sync + Send + Default + hash::Hasher;
 	/// The length in bytes of the `Hasher` output

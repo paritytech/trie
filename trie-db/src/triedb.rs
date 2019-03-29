@@ -291,7 +291,8 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 		let mut full_key_nibbles = 0;
 		loop {
 			let data = {
-				let node = C::decode(&node_data).expect("encoded data read from db; qed");
+				let node = C::decode(&node_data)
+					.map_err(|e|Box::new(TrieError::DecoderError(H::Out::default(), e)))?;
 				match node {
 					Node::Leaf(slice, _) => {
 						if slice >= partial {
@@ -361,7 +362,8 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 	/// Descend into a payload.
 	fn descend(&mut self, d: &[u8]) -> Result<(), H::Out, C::Error> {
 		let node_data = &self.db.get_raw_or_lookup(d, &self.encoded_key())?;
-		let node = C::decode(&node_data).expect("encoded node read from db; qed");
+		let node = C::decode(&node_data)
+			.map_err(|e|Box::new(TrieError::DecoderError(H::Out::default(), e)))?;
 		Ok(self.descend_into_node(node.into()))
 	}
 
@@ -474,7 +476,7 @@ impl<'a, H: Hasher, C: NodeCodec<H>> Iterator for TrieDBIterator<'a, H, C> {
 					self.trail.pop();
 				},
 				IterStep::Descend::<H::Out, C::Error>(Ok(d)) => {
-					let node = C::decode(&d).expect("encoded data read from db; qed");
+					let node = C::decode(&d).ok()?;
 					self.descend_into_node(node.into())
 				},
 				IterStep::Descend::<H::Out, C::Error>(Err(e)) => {
