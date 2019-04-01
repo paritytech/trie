@@ -19,7 +19,10 @@ use nibbleslice::NibbleSlice;
 use node::Node;
 use node_codec::NodeCodec;
 use super::{DBValue, Result, TrieError, Query};
-use std::marker::PhantomData;
+use ::core_::marker::PhantomData;
+
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
 
 /// Trie lookup helper object.
 pub struct Lookup<'a, H: Hasher + 'a, C: NodeCodec<H>, Q: Query<H>> {

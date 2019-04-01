@@ -14,7 +14,6 @@
 
 //! Alternative tools for working with key value iterator without recursion.
 
-use elastic_array::ElasticArray36;
 use hash_db::{Hasher, HashDB};
 use std::marker::PhantomData;
 use crate::triedbmut::{ChildReference};

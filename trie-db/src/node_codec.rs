@@ -18,14 +18,31 @@
 use hash_db::Hasher;
 use node::Node;
 use ChildReference;
+#[cfg(feature = "std")]
 use std::borrow::Borrow;
+
+#[cfg(not(feature = "std"))]
+use core::borrow::Borrow;
+
+#[cfg(feature = "std")]
+use std::error::Error;
+
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
+#[cfg(not(feature = "std"))]
+pub trait Error {}
+
+#[cfg(not(feature = "std"))]
+impl<T> Error for T {}
 
 /// Trait for trie node encoding/decoding
 /// TODO add const MAX_NODE_LEN and run all encoding over a mutable buffer, returning size. ->
 /// avoid Vec by all means.
 pub trait NodeCodec<H: Hasher>: Sized {
 	/// Codec error type
-	type Error: ::std::error::Error;
+	type Error: Error;
 
 	/// Get the hashed null node.
 	fn hashed_null_node() -> H::Out;

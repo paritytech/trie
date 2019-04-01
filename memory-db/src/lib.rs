@@ -14,15 +14,49 @@
 
 //! Reference-counted memory-based `HashDB` implementation.
 
+#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(feature = "std"), feature(alloc))]
+
 extern crate hash_db;
+#[cfg(feature = "std")]
 extern crate heapsize;
+#[cfg(not(feature = "std"))]
+extern crate hashmap_core;
+#[cfg(not(feature = "std"))]
+extern crate alloc;
 #[cfg(test)] extern crate keccak_hasher;
 
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher, AsHashDB, AsPlainDB};
+#[cfg(feature = "std")]
 use heapsize::HeapSizeOf;
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
-use std::mem;
+#[cfg(feature = "std")]
+use std::{
+	collections::hash_map::Entry,
+	collections::HashMap,
+	hash,
+	mem,
+	marker::PhantomData,
+	cmp::Eq,
+	borrow::Borrow,
+};
+
+#[cfg(not(feature = "std"))]
+use hashmap_core::{
+	HashMap,
+	map::Entry,
+};
+
+#[cfg(not(feature = "std"))]
+use core::{
+	hash,
+	mem,
+	marker::PhantomData,
+	cmp::Eq,
+	borrow::Borrow,
+};
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 /// Reference-counted memory-based `HashDB` implementation.
 ///
@@ -80,7 +114,7 @@ pub struct MemoryDB<H, KF, T>
 	data: HashMap<KF::Key, (T, i32)>,
 	hashed_null_node: H::Out,
 	null_node_data: T,
-	_kf: ::std::marker::PhantomData<KF>,
+	_kf: PhantomData<KF>,
 }
 // TODO rem just for quick check of calc_impl
 impl<H, KF, T> PartialEq<MemoryDB<H, KF, T>> for MemoryDB<H, KF, T>
@@ -122,7 +156,7 @@ impl<H, KF, T> Eq for MemoryDB<H, KF, T>
 {}
  
 pub trait KeyFunction<H: KeyHasher> {
-	type Key: Send + Sync + Clone + std::hash::Hash + std::cmp::Eq ;
+	type Key: Send + Sync + Clone + hash::Hash + Eq ;
 
 	fn key(hash: &H::Out, prefix: &[u8]) -> Self::Key;
 }
@@ -142,7 +176,7 @@ pub fn hash_key<H: KeyHasher>(key: &H::Out, _prefix: &[u8]) -> H::Out {
 }
 
 /// Key function that only uses the hash
-pub struct HashKey<H: KeyHasher>(std::marker::PhantomData<H>);
+pub struct HashKey<H: KeyHasher>(PhantomData<H>);
 
 impl<H: KeyHasher> KeyFunction<H> for HashKey<H> {
 	type Key = H::Out;
@@ -153,7 +187,7 @@ impl<H: KeyHasher> KeyFunction<H> for HashKey<H> {
 }
 
 /// Key function that concatenates prefix and hash.
-pub struct PrefixedKey<H: KeyHasher>(std::marker::PhantomData<H>);
+pub struct PrefixedKey<H: KeyHasher>(PhantomData<H>);
 
 impl<H: KeyHasher> KeyFunction<H> for PrefixedKey<H> {
 	type Key = Vec<u8>;
@@ -301,6 +335,7 @@ where
 	}
 }
 
+#[cfg(feature = "std")]
 impl<H, KF, T> MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
@@ -319,7 +354,7 @@ where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: Send + Sync + KeyFunction<H>,
-	KF::Key: std::borrow::Borrow<[u8]> + for <'a> From<&'a [u8]>,
+	KF::Key: Borrow<[u8]> + for <'a> From<&'a [u8]>,
 {
 	fn get(&self, key: &H::Out) -> Option<T> {
 		match self.data.get(key.as_ref()) {
@@ -368,7 +403,7 @@ where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: Send + Sync + KeyFunction<H>,
-	KF::Key: std::borrow::Borrow<[u8]> + for <'a> From<&'a [u8]>,
+	KF::Key: Borrow<[u8]> + for <'a> From<&'a [u8]>,
 {
 	fn get(&self, key: &H::Out) -> Option<T> { PlainDB::get(self, key) }
 	fn contains(&self, key: &H::Out) -> bool { PlainDB::contains(self, key) }
@@ -467,7 +502,7 @@ where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + for<'a> From<&'a[u8]> + Clone + Send + Sync,
 	KF: Send + Sync + KeyFunction<H>,
-	KF::Key: std::borrow::Borrow<[u8]> + for <'a> From<&'a [u8]>,
+	KF::Key: Borrow<[u8]> + for <'a> From<&'a [u8]>,
 {
 	fn as_plain_db(&self) -> &PlainDB<H::Out, T> { self }
 	fn as_plain_db_mut(&mut self) -> &mut PlainDB<H::Out, T> { self }

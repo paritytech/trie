@@ -12,15 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
 use hash_db::{Hasher, HashDBRef};
 use nibbleslice::{self, NibbleSlice, combine_encoded};
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
 use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query};
-use std::marker::PhantomData;
-use std::borrow::Cow;
+use ::core_::marker::PhantomData;
+
+#[cfg(feature = "std")]
+use ::std::fmt;
+#[cfg(feature = "std")]
+use ::std::borrow::Cow;
+#[cfg(not(feature = "std"))]
+use ::alloc::borrow::Cow;
+
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 use elastic_array::ElasticArray36;
 
 /// A `Trie` implementation using a generic `HashDB` backing database, a `Hasher`
@@ -90,12 +101,13 @@ where
 			.ok_or_else(|| Box::new(TrieError::InvalidStateRoot(*self.root)))
 	}
 
-	/// Given some node-describing data `node`, return the actual node RLP.
+	/// Given some node-describing data `node`, and node key return the actual node RLP.
 	/// This could be a simple identity operation in the case that the node is sufficiently small, but
 	/// may require a database lookup. If `is_root_data` then this is root-data and
 	/// is known to be literal.
+	/// `partial_key` is encoded nibble slice that addresses the node.
 	fn get_raw_or_lookup(&'db self, node: &[u8], partial_key: &[u8]) -> Result<Cow<'db, DBValue>, H::Out, C::Error> {
-		match (partial_key.is_empty(), C::try_decode_hash(node)) {
+		match (partial_key == nibbleslice::EMPTY_ENCODED, C::try_decode_hash(node)) {
 			(false, Some(key)) => {
 				self.db
 					.get(&key, partial_key)
@@ -130,6 +142,8 @@ where
 	}
 }
 
+
+#[cfg(feature="std")]
 // This is for pretty debug output only
 struct TrieAwareDebugNode<'db, 'a, H, C>
 where
@@ -142,6 +156,7 @@ where
 	index: Option<u8>,
 }
 
+#[cfg(feature="std")]
 impl<'db, 'a, H, C> fmt::Debug for TrieAwareDebugNode<'db, 'a, H, C>
 where
 	H: Hasher,
@@ -227,6 +242,7 @@ where
 	}
 }
 
+#[cfg(feature="std")]
 impl<'db, H, C> fmt::Debug for TrieDB<'db, H, C>
 where
 	H: Hasher,
@@ -296,8 +312,9 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 		let mut partial = key;
 		let mut full_key_nibbles = 0;
 		loop {
-			let (data, mid) = {
-				let node = C::decode(&node_data).expect("encoded data read from db; qed");
+			let data = {
+				let node = C::decode(&node_data)
+					.map_err(|e|Box::new(TrieError::DecoderError(H::Out::default(), e)))?;
 				match node {
 					Node::Leaf(slice, _) => {
 						if slice >= partial {
@@ -322,8 +339,10 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 								node: node.clone().into(),
 							});
 							self.key_nibbles.extend(slice.iter());
+							full_key_nibbles += slice.len();
+							partial = partial.mid(slice.len());
 							let data = self.db.get_raw_or_lookup(&*item, &key.encoded_leftmost(full_key_nibbles, false))?;
-							(data, slice.len())
+							data
 						} else {
 							self.descend(&node_data)?;
 							return Ok(())
@@ -344,9 +363,11 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 								node: node.clone().into(),
 							});
 							self.key_nibbles.push(i);
+							full_key_nibbles += 1;
+							partial = partial.mid(1);
 							if let Some(ref child) = nodes[i as usize] {
 								let child = self.db.get_raw_or_lookup(&*child, &key.encoded_leftmost(full_key_nibbles, false))?;
-								(child, 1)
+								child
 							} else {
 								return Ok(())
 							}
@@ -373,8 +394,10 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 							self.key_nibbles.extend(slice.iter());
 							self.key_nibbles.push(i);
 							if let Some(ref child) = nodes[i as usize] {
+                full_key_nibbles += slice.len() + 1;
+                partial = partial.mid(slice.len() + 1);
 								let child = self.db.get_raw_or_lookup(&*child, &key.encoded_leftmost(full_key_nibbles, false))?;
-								(child, slice.len() + 1)
+								child
 							} else {
 								return Ok(())
 							}
@@ -386,15 +409,14 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 			};
 
 			node_data = data;
-			full_key_nibbles += mid;
-			partial = partial.mid(mid);
 		}
 	}
 
 	/// Descend into a payload.
 	fn descend(&mut self, d: &[u8]) -> Result<(), H::Out, C::Error> {
-		let node_data = &self.db.get_raw_or_lookup(d, &self.key_nibbles)?;
-		let node = C::decode(&node_data).expect("encoded node read from db; qed");
+		let node_data = &self.db.get_raw_or_lookup(d, &self.encoded_key())?;
+		let node = C::decode(&node_data)
+			.map_err(|e|Box::new(TrieError::DecoderError(H::Out::default(), e)))?;
 		Ok(self.descend_into_node(node.into()))
 	}
 
@@ -424,6 +446,17 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 			i += 2;
 		}
 		result
+	}
+
+	/// Encoded key for storage lookup
+	fn encoded_key(&self) -> ElasticArray36<u8> {
+		let key = self.key();
+		let slice = NibbleSlice::new(&key);
+		if self.key_nibbles.len() % 2 == 1 {
+			NibbleSlice::new_composed(&slice, &NibbleSlice::new_offset(&self.key_nibbles[(self.key_nibbles.len() - 1)..], 1)).encoded(false)
+		} else {
+			slice.encoded(false)
+		}
 	}
 }
 
@@ -476,7 +509,7 @@ impl<'a, H: Hasher, C: NodeCodec<H>> Iterator for TrieDBIterator<'a, H, C> {
 						return Some(Ok((self.key(), v.clone())));
 					},
 					(Status::At, &OwnedNode::Extension(_, ref d)) => {
-						IterStep::Descend::<H::Out, C::Error>(self.db.get_raw_or_lookup(&*d, &self.key_nibbles))
+						IterStep::Descend::<H::Out, C::Error>(self.db.get_raw_or_lookup(&*d, &self.encoded_key()))
 					},
 					(Status::At, &OwnedNode::Branch(_))
 						| (Status::At, &OwnedNode::NibbledBranch(_,_)) => IterStep::Continue,
@@ -490,7 +523,7 @@ impl<'a, H: Hasher, C: NodeCodec<H>> Iterator for TrieDBIterator<'a, H, C> {
 						}
 						IterStep::Descend::<H::Out, C::Error>(self.db.get_raw_or_lookup(
 							&branch.index(i).expect("this arm guarded by branch[i].is_some(); qed"),
-							&self.key_nibbles))
+							&self.encoded_key()))
 					},
 					(Status::AtChild(i), &OwnedNode::Branch(_))
 						| (Status::AtChild(i), &OwnedNode::NibbledBranch(_,_)) => {
@@ -508,7 +541,7 @@ impl<'a, H: Hasher, C: NodeCodec<H>> Iterator for TrieDBIterator<'a, H, C> {
 					self.trail.pop();
 				},
 				IterStep::Descend::<H::Out, C::Error>(Ok(d)) => {
-					let node = C::decode(&d).expect("encoded data read from db; qed");
+					let node = C::decode(&d).ok()?;
 					self.descend_into_node(node.into())
 				},
 				IterStep::Descend::<H::Out, C::Error>(Err(e)) => {
@@ -522,7 +555,7 @@ impl<'a, H: Hasher, C: NodeCodec<H>> Iterator for TrieDBIterator<'a, H, C> {
 
 #[cfg(test)]
 mod tests {
-	use memory_db::{MemoryDB, HashKey};
+	use memory_db::{MemoryDB, PrefixedKey, HashKey};
 	use keccak_hasher::KeccakHasher;
 	use DBValue;
 	use reference_trie::{RefTrieDB, RefTrieDBMut, RefLookup, Trie, TrieMut, NibbleSlice};
@@ -535,7 +568,7 @@ mod tests {
 			(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
 		];
 
-		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
@@ -591,7 +624,7 @@ mod tests {
 			(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
 		];
 
-		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
@@ -643,7 +676,7 @@ mod tests {
 	fn iterator() {
 		let d = vec![DBValue::from_slice(b"A"), DBValue::from_slice(b"AA"), DBValue::from_slice(b"AB"), DBValue::from_slice(b"B")];
 
-		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
@@ -680,7 +713,7 @@ mod tests {
 	fn iterator_seek() {
 		let d = vec![ DBValue::from_slice(b"A"), DBValue::from_slice(b"AA"), DBValue::from_slice(b"AB"), DBValue::from_slice(b"B") ];
 
-		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
@@ -720,7 +753,7 @@ mod tests {
 
 	#[test]
 	fn get_len() {
-		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
@@ -755,7 +788,7 @@ mod tests {
 	fn debug_output_supports_pretty_print() {
 		let d = vec![ DBValue::from_slice(b"A"), DBValue::from_slice(b"AA"), DBValue::from_slice(b"AB"), DBValue::from_slice(b"B") ];
 
-		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let root = {
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
@@ -823,7 +856,7 @@ mod tests {
 	fn test_lookup_with_corrupt_data_returns_decoder_error() {
 		use std::marker::PhantomData;
 
-		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
