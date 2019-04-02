@@ -417,6 +417,7 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 		let node_data = &self.db.get_raw_or_lookup(d, &self.encoded_key())?;
 		let node = C::decode(&node_data)
 			.map_err(|e|Box::new(TrieError::DecoderError(H::Out::default(), e)))?;
+        println!("a node data end");
 		Ok(self.descend_into_node(node.into()))
 	}
 

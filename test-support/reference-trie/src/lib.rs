@@ -365,9 +365,9 @@ impl Decode for NodeHeaderNoExt {
 				NodeHeaderNoExt::Branch(true, input.read_byte()? as usize + noext_cst::BRANCH_NODE_WITH_VALUE_OVER as usize),
 
 			i @ noext_cst::BRANCH_NODE_NO_VALUE ... noext_cst::BRANCH_NODE_NO_VALUE_LAST =>
-				NodeHeaderNoExt::Branch(true, (i - noext_cst::BRANCH_NODE_NO_VALUE) as usize),
+				NodeHeaderNoExt::Branch(false, (i - noext_cst::BRANCH_NODE_NO_VALUE) as usize),
 			noext_cst::BRANCH_NODE_NO_VALUE_BIG =>
-				NodeHeaderNoExt::Branch(true, input.read_byte()? as usize + noext_cst::BRANCH_NODE_NO_VALUE_OVER as usize),
+				NodeHeaderNoExt::Branch(false, input.read_byte()? as usize + noext_cst::BRANCH_NODE_NO_VALUE_OVER as usize),
 
 		})
 	}
@@ -560,7 +560,8 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodecNoExt {
 
 	fn decode(data: &[u8]) -> ::std::result::Result<Node, Self::Error> {
 		let input = &mut &*data;
-		match NodeHeaderNoExt::decode(input).ok_or(ReferenceError::BadFormat)? {
+    let head = NodeHeaderNoExt::decode(input).ok_or(ReferenceError::BadFormat)?;
+		match head {
 			NodeHeaderNoExt::Null => Ok(Node::Empty),
 			NodeHeaderNoExt::Branch(has_value, nibble_count) => {
 				if nibble_count % 2 == 1 && input[0] & 0xf0 != 0x00 {
