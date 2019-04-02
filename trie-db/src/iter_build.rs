@@ -133,10 +133,10 @@ where
 		// Note: fwiu, having fixed key size, all values are in leaf (no value in
 		// branch). TODO run metrics on a node to count branch with values
 		let encoded = C::leaf_node(&nkey.encoded(true).as_ref()[..], &v2.as_ref()[..]);
-    // TODO redesign nibleslice encoded to allow an inputstream (avoid this alloc) + design the
-    // thing other array of slice to avoid those concatenation unsecure or costy + same for nodes
-    // in fact or TODO put Vec in the trait?
-    let encoded_key = NibbleSlice::new(&k2.as_ref()[..]).encoded_leftmost(k2.as_ref().len() * NIBBLE_PER_BYTES - nkey.len(), false);
+		// TODO redesign nibleslice encoded to allow an inputstream (avoid this alloc) + design the
+		// thing other array of slice to avoid those concatenation unsecure or costy + same for nodes
+		// in fact or TODO put Vec in the trait?
+		let encoded_key = NibbleSlice::new(&k2.as_ref()[..]).encoded_leftmost(k2.as_ref().len() * NIBBLE_PER_BYTES - nkey.len(), false);
 		let hash = cb_ext.process(&encoded_key[..], encoded, false);
 
 		// insert hash in branch (first level branch only at this point)
@@ -214,7 +214,7 @@ where
 	#[inline(always)]
 	fn standard_ext(
 		&mut self,
-    key_branch: &[u8],
+		key_branch: &[u8],
 		cb_ext: &mut impl ProcessEncodedNode<<H as Hasher>::Out>,
 		branch_d: usize,
 		is_root: bool,
@@ -225,13 +225,13 @@ where
 		let v = self.0[branch_d].2.take();
 		let encoded = C::branch_node(self.0[branch_d].0.iter(), v.as_ref().map(|v|v.as_ref()));
 		self.reset_depth(branch_d);
-    let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d, false);
+		let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d, false);
 		let branch_hash = cb_ext.process(&encoded_key[..], encoded, is_root && nkey.is_none());
 
 		if let Some(nkeyix) = nkey {
-		  let nib = NibbleSlice::new_offset(&key_branch.as_ref()[..],nkeyix.0).encoded_leftmost(nkeyix.1, false);
+			let nib = NibbleSlice::new_offset(&key_branch.as_ref()[..],nkeyix.0).encoded_leftmost(nkeyix.1, false);
 			let encoded = C::ext_node(&nib[..], branch_hash);
-      let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(nkeyix.0, false);
+			let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(nkeyix.0, false);
 			let h = cb_ext.process(&encoded_key[..], encoded, is_root);
 			h
 		} else {
@@ -242,7 +242,7 @@ where
 	#[inline(always)]
 	fn alt_no_ext(
 		&mut self,
-    key_branch: &[u8],
+		key_branch: &[u8],
 		cb_ext: &mut impl ProcessEncodedNode<<H as Hasher>::Out>,
 		branch_d: usize,
 		is_root: bool,
@@ -250,15 +250,15 @@ where
 		) -> ChildReference<<H as Hasher>::Out> {
 		// enc branch
 		let v = self.0[branch_d].2.take();
-    let enc_nkey = nkey.as_ref()
-        .map(|nkeyix|NibbleSlice::new_offset(&key_branch.as_ref()[..],nkeyix.0).encoded_leftmost(nkeyix.1, false));
+		let enc_nkey = nkey.as_ref()
+				.map(|nkeyix|NibbleSlice::new_offset(&key_branch.as_ref()[..],nkeyix.0).encoded_leftmost(nkeyix.1, false));
 		let encoded = C::branch_node_nibbled(
 			// warn direct use of default empty nible encoded: NibbleSlice::new_offset(&[],0).encoded(false);
 			enc_nkey.as_ref().map(|v|&v[..]).unwrap_or(&[0]),
 			self.0[branch_d].0.iter(), v.as_ref().map(|v|v.as_ref()));
 		self.reset_depth(branch_d);
-    let ext_len = nkey.as_ref().map(|nkeyix|nkeyix.0).unwrap_or(0);
-    let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d - ext_len, false); // TODO EMCH !!!!!!!!!!! debug that it may be shifted from a unit!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+		let ext_len = nkey.as_ref().map(|nkeyix|nkeyix.0).unwrap_or(0);
+		let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d - ext_len, false); // TODO EMCH !!!!!!!!!!! debug that it may be shifted from a unit!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 		cb_ext.process(&encoded_key[..], encoded, is_root)
 	}
 
@@ -340,7 +340,7 @@ fn trie_visit_inner<H, C, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool)
 			let (k2, v2) = prev_val;
 			let nkey = NibbleSlice::new_offset(&k2.as_ref()[..],prev_depth);
 			let encoded = C::leaf_node(&nkey.encoded(true).as_ref()[..], &v2.as_ref()[..]);
-      let encoded_key = NibbleSlice::new(&k2.as_ref()[..]).encoded_leftmost(k2.as_ref().len() * NIBBLE_PER_BYTES - nkey.len(), false);
+			let encoded_key = NibbleSlice::new(&k2.as_ref()[..]).encoded_leftmost(k2.as_ref().len() * NIBBLE_PER_BYTES - nkey.len(), false);
 			cb_ext.process(&encoded_key[..], encoded, true);
 		} else {
 			//println!("fbvl {}", prev_depth);
@@ -466,7 +466,7 @@ mod test {
 	use env_logger;
 	use standardmap::*;
 	use DBValue;
-	use memory_db::{MemoryDB, HashKey};
+	use memory_db::{MemoryDB, HashKey, PrefixedKey};
 	use hash_db::{Hasher, HashDB};
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefTrieDBMut, RefTrieDB, Trie, TrieMut,
@@ -493,6 +493,18 @@ mod test {
 	}
 
 	fn compare_impl(data: Vec<(Vec<u8>,Vec<u8>)>) {
+		compare_impl_h(data.clone());
+		compare_impl_pk(data.clone());
+		compare_impl_no_ext(data.clone());
+		compare_impl_no_ext_pk(data.clone());
+	}
+
+	fn compare_impl_pk(data: Vec<(Vec<u8>,Vec<u8>)>) {
+		let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
+		let hashdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		reference_trie::compare_impl(data, memdb, hashdb);
+	}
+	fn compare_impl_h(data: Vec<(Vec<u8>,Vec<u8>)>) {
 		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
 		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		reference_trie::compare_impl(data, memdb, hashdb);
@@ -500,6 +512,11 @@ mod test {
 	fn compare_impl_no_ext(data: Vec<(Vec<u8>,Vec<u8>)>) {
 		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
 		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+		reference_trie::compare_impl_no_ext(data, memdb, hashdb);
+	}
+	fn compare_impl_no_ext_pk(data: Vec<(Vec<u8>,Vec<u8>)>) {
+		let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
+		let hashdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		reference_trie::compare_impl_no_ext(data, memdb, hashdb);
 	}
 	fn compare_impl_no_ext_unordered(data: Vec<(Vec<u8>,Vec<u8>)>) {
@@ -586,7 +603,7 @@ mod test {
 			(vec![1u8,2u8,3u8,5u8],vec![7u8;2]),
 			(vec![1u8,2u8,3u8,5u8,3u8],vec![7u8;2]),
 		]);
- }
+	}
 	#[test]
 	fn fuzz1 () {
 		compare_impl(vec![
@@ -607,23 +624,23 @@ mod test {
 	fn fuzz3 () {
 		compare_impl(vec![
 			(vec![0],vec![196, 255]),
- /*		 (vec![48],vec![138, 255]),
+			(vec![48],vec![138, 255]),
 			(vec![67],vec![0, 0]),
-			(vec![128],vec![255, 0]), */
+			(vec![128],vec![255, 0]),
 			(vec![247],vec![0, 196]),
 			(vec![255],vec![0, 0]),
 		]);
 	}
 	#[test]
 	fn fuzz_noext1 () {
-		compare_impl_no_ext(vec![
+		compare_impl(vec![
 			(vec![0],vec![128, 0]),
 			(vec![128],vec![0, 0]),
 		]);
 	}
 	#[test]
 	fn fuzz_noext2 () {
-		compare_impl_no_ext(vec![
+		compare_impl(vec![
 			(vec![0],vec![6, 255]),
 			(vec![6],vec![255, 186]),
 			(vec![255],vec![186, 255]),
@@ -631,7 +648,7 @@ mod test {
 	}
 	#[test]
 	fn fuzz_noext2_bis () {
-		compare_impl_no_ext(vec![
+		compare_impl(vec![
 			(vec![0xaa], vec![0xa0]),
 			(vec![0xaa, 0xaa], vec![0xaa]),
 			(vec![0xaa, 0xbb], vec![0xab]),

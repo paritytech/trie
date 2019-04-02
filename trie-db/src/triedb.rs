@@ -595,7 +595,7 @@ mod tests {
 			(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
 		];
 
-		let mut memdb = MemoryDB::<_, HashKey<_>,_>::default();
+		let mut memdb = MemoryDB::<_, PrefixedKey<_>,_>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
@@ -651,7 +651,7 @@ mod tests {
 			(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
 		];
 
-		let mut memdb = MemoryDB::<_, HashKey<_>,_>::default();
+		let mut memdb = MemoryDB::<_, PrefixedKey<_>,_>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
@@ -694,7 +694,7 @@ mod tests {
 	fn iterator_no_ext() {
 		let d = vec![DBValue::from_slice(b"A"), DBValue::from_slice(b"AA"), DBValue::from_slice(b"AB"), DBValue::from_slice(b"B")];
 
-		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
@@ -769,7 +769,7 @@ mod tests {
 
 	#[test]
 	fn get_len_no_ext() {
-		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
@@ -778,7 +778,6 @@ mod tests {
 		}
 
 		let t = RefTrieDBNoExt::new(&memdb, &root).unwrap();
-    println!("{:?}", &t);
 		assert_eq!(t.get_with(b"A", |x: &[u8]| x.len()).unwrap(), Some(3));
 		assert_eq!(t.get_with(b"B", |x: &[u8]| x.len()).unwrap(), Some(5));
 		assert_eq!(t.get_with(b"C", |x: &[u8]| x.len()).unwrap(), None);

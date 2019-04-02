@@ -1646,10 +1646,10 @@ mod tests {
 		let big_value2 = b"00000000000000000000000000000002";
 		let big_value3 = b"00000000000000000000000000000004";
 
-		let mut memdb2 = MemoryDB::<_,HashKey<_>,_>::default();
+		let mut memdb2 = MemoryDB::<_,PrefixedKey<_>,_>::default();
 		let mut root2 = Default::default();
 		{
-			let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
+			let mut memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 			let mut root = Default::default();
 			let mut t1 = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
 			//t1.insert(&[0x01, 0x23], big_value).unwrap();

@@ -1,4 +1,3 @@
-
 [package]
 name = "trie-db-fuzz"
 version = "0.0.1"
@@ -10,14 +9,14 @@ edition = "2018"
 cargo-fuzz = true
 
 [dependencies]
-memory-db = { path = "../../memory-db", version = "0.12.0" }
-reference-trie = { path = "../../test-support/reference-trie", version = "0.12.0" }
-keccak-hasher = { path = "../../test-support/keccak-hasher", version = "0.12.0" }
-afl = "0.4.3"
+memory-db = { path = "../../memory-db", version = "0.12.2" }
+reference-trie = { path = "../../test-support/reference-trie", version = "0.12.2" }
+keccak-hasher = { path = "../../test-support/keccak-hasher", version = "0.12.2" }
 honggfuzz = "0.5"
 
 [dependencies.trie-db]
 path = ".."
+
 [dependencies.libfuzzer-sys]
 git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
 
@@ -49,10 +48,6 @@ path = "fuzz_targets/no_ext_insert.rs"
 [[bin]]
 name = "no_ext_insert_rem"
 path = "fuzz_targets/no_ext_insert_rem.rs"
-
-[[bin]]
-name = "afl_trie_root_new"
-path = "afl_targets/trie_root_new.rs"
 
 [[bin]]
 name = "hfuzz_trie_root_new"
