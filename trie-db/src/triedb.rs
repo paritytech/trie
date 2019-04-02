@@ -152,7 +152,7 @@ where
 {
 	trie: &'db TrieDB<'db, H, C>,
 	node_key: &'a[u8],
-	partial_key: ElasticArray36<u8>,
+	partial_key: &'a ElasticArray36<u8>,
 	index: Option<u8>,
 }
 
@@ -182,8 +182,8 @@ where
 						.field("item", &TrieAwareDebugNode{
 							trie: self.trie,
 							node_key: item,
-							partial_key: combine_encoded(&self.partial_key, item),
-							index: None,
+							partial_key: &self.partial_key,
+              index: None,
 						})
 						.finish(),
 				Ok(Node::Branch(ref nodes, ref value)) => {
@@ -194,7 +194,7 @@ where
 							trie: self.trie,
 							index: Some(i as u8),
 							node_key: n,
-							partial_key: combine_encoded(&self.partial_key, n),
+							partial_key: self.partial_key,
 						})
 						.collect();
 					match (f.debug_struct("Node::Branch"), self.index) {
@@ -213,7 +213,7 @@ where
 							trie: self.trie,
 							index: Some(i as u8),
 							node_key: n,
-							partial_key: combine_encoded(&self.partial_key, n),
+							partial_key: self.partial_key,
 						}).collect();
 					match (f.debug_struct("Node::NibbledBranch"), self.index) {
 						(ref mut d, Some(ref i)) => d.field("index", i),
@@ -255,7 +255,7 @@ where
 			.field("root", &TrieAwareDebugNode {
 				trie: self,
 				node_key: &root_rlp[..],
-				partial_key: Default::default(),
+				partial_key: &Default::default(),
 				index: None,
 			})
 			.finish()
@@ -363,9 +363,9 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 								node: node.clone().into(),
 							});
 							self.key_nibbles.push(i);
-							full_key_nibbles += 1;
-							partial = partial.mid(1);
 							if let Some(ref child) = nodes[i as usize] {
+								full_key_nibbles += 1;
+								partial = partial.mid(1);
 								let child = self.db.get_raw_or_lookup(&*child, &key.encoded_leftmost(full_key_nibbles, false))?;
 								child
 							} else {
@@ -778,6 +778,7 @@ mod tests {
 		}
 
 		let t = RefTrieDBNoExt::new(&memdb, &root).unwrap();
+    println!("{:?}", &t);
 		assert_eq!(t.get_with(b"A", |x: &[u8]| x.len()).unwrap(), Some(3));
 		assert_eq!(t.get_with(b"B", |x: &[u8]| x.len()).unwrap(), Some(5));
 		assert_eq!(t.get_with(b"C", |x: &[u8]| x.len()).unwrap(), None);

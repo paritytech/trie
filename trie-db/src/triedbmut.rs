@@ -208,9 +208,12 @@ where
 					children.iter_mut()
 						.map(Option::take)
 						.enumerate()
-						.map(|(i, maybe_child)|
-							maybe_child.map(|child| child_cb(child, &NibbleSlice::new_offset(&[i as u8], 1).encoded(false)))
-						),
+						.map(|(i, maybe_child)|{
+							let branch_ix = [i as u8];
+							// costy
+							let nibble = NibbleSlice::new_composed(&NibbleSlice::from_encoded(&partial).0, &NibbleSlice::new_offset(&branch_ix, 1));
+							maybe_child.map(|child| child_cb(child, &nibble.encoded(false)))
+						}),
 					value.as_ref().map(|v|&v[..])
 				)
 			},
@@ -570,7 +573,6 @@ where
 		};
 		let stored = self.storage.destroy(h); // cache then destroy for hash handle (handle being root in most case), direct access somehow?
 		let (new_stored, changed) = self.inspect(stored, key, move |trie, stored, key| {
-			// TODO EMCH should key and partial behave similarily : ne key in function?? : seems odd
 			trie.insert_inspector_no_ext(stored, key, value, old_val).map(|a| a.into_action())
 		})?.expect("Insertion never deletes.");
 
@@ -747,7 +749,6 @@ where
 		})
 	}
 
-	//fn insert_inspector_no_ext(&mut self, node: Node<H::Out>, partial: NibbleSlice, key: NodeKey, value: DBValue, old_val: &mut Option<DBValue>) -> Result<InsertAction<H::Out>, H::Out, C::Error> {
 	fn insert_inspector_no_ext(&mut self, node: Node<H::Out>, key: &mut Partial, value: DBValue, old_val: &mut Option<DBValue>) -> Result<InsertAction<H::Out>, H::Out, C::Error> {
 		let partial = key.mid();
 		trace!(target: "trie", "augmented (partial: {:?}, value: {:#x?})", partial, value);
@@ -807,9 +808,9 @@ where
 					// append after cp == existing_key and partial > cp
 					trace!(target: "trie", "branch: ROUTE,AUGMENT");
 					let idx = partial.at(cp) as usize;
+          key.advance(cp + 1);
 					if let Some(child) = children[idx].take() {
 						// original had something there. recurse down into it.
-            key.advance(cp + 1);
 						let (new_child, changed) = self.insert_at_no_ext(child, key, value, old_val)?;
 						children[idx] = Some(new_child.into());
 						if !changed {
@@ -818,7 +819,7 @@ where
 						}
 					} else {
 						// original had nothing there. compose a leaf.
-						let leaf = self.storage.alloc(Stored::New(Node::Leaf(partial.mid(cp + 1).encoded(true), value)));
+						let leaf = self.storage.alloc(Stored::New(Node::Leaf(key.mid().encoded(true), value)));
 						children[idx] = Some(leaf.into());
 					}
 					InsertAction::Replace(Node::NibbledBranch(
@@ -850,6 +851,8 @@ where
 					// one of us isn't empty: transmute to branch here
 					let mut children = empty_children();
 					let branch = if existing_key.is_empty() {
+            // TODO EMCH this condition seems unreachable (see previous if cp <
+            // existing_key.len())
 						// always replace since branch isn't leaf.
 						Node::NibbledBranch(existing_key.encoded(false), children, Some(stored_value))
 					} else {
@@ -861,7 +864,6 @@ where
 					};
 
 					// always replace because whatever we get out here is not the branch we started with.
-					key.advance(cp);
 					let branch_action = self.insert_inspector_no_ext(branch, key, value, old_val)?.unwrap_node();
 					InsertAction::Replace(branch_action)
 				} else {
@@ -871,7 +873,6 @@ where
 					// make a stub branch
 					let branch = Node::NibbledBranch(existing_key.encoded(false), empty_children(), Some(stored_value));
 					// augment the new branch.
-					key.advance(cp);
 					let branch = self.insert_inspector_no_ext(branch, key, value, old_val)?.unwrap_node();
 
 					InsertAction::Replace(branch)
@@ -1297,6 +1298,7 @@ where
 		match self.storage.destroy(handle) {
 			Stored::New(node) => {
 				let encoded_root = node.into_encoded::<_, C, H>(|child, k| {
+          // TODO EMCH useless combine encoded call??
 					let combined = combine_encoded(nibbleslice::EMPTY_ENCODED, k);
 					self.commit_child(child, &combined)
 				});
@@ -1477,8 +1479,6 @@ where
 		let mut key = Partial::new(NibbleSlice::new(key));
 		let mut old_val = None;
 
-    // TODO EMCH notice that here the matching key / partial is not aboslute of invertible (one
-    // grow the other decrease
 		match self.0.remove_at_no_ext(root_handle, &mut key, &mut old_val)? {
 			Some((handle, changed)) => {
 				trace!(target: "trie", "remove: altered trie={}", changed);
