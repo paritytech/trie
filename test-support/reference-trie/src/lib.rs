@@ -49,6 +49,7 @@ pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, KeccakHasher, ReferenceNodeCode
 pub type RefSecTrieDB<'a> = trie_db::SecTrieDB<'a, KeccakHasher, ReferenceNodeCodec>;
 pub type RefSecTrieDBMut<'a> = trie_db::SecTrieDBMut<'a, KeccakHasher, ReferenceNodeCodec>;
 pub type RefLookup<'a, Q> = trie_db::Lookup<'a, KeccakHasher, ReferenceNodeCodec, Q>;
+pub type RefLookupNoExt<'a, Q> = trie_db::Lookup<'a, KeccakHasher, ReferenceNodeCodecNoExt, Q>;
 
 pub fn ref_trie_root<I, A, B>(input: I) -> <KeccakHasher as Hasher>::Out where
 	I: IntoIterator<Item = (A, B)>,
@@ -71,7 +72,7 @@ pub fn ref_trie_root_no_ext<I, A, B>(input: I) -> <KeccakHasher as Hasher>::Out 
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	trie_root::trie_root_no_ext::<KeccakHasher, ReferenceTrieStream, _, _, _>(input)
+	trie_root::trie_root_no_ext::<KeccakHasher, ReferenceTrieStreamNoExt, _, _, _>(input)
 }
 
 fn ref_trie_root_unhashed_no_ext<I, A, B>(input: I) -> Vec<u8> where
@@ -79,7 +80,7 @@ fn ref_trie_root_unhashed_no_ext<I, A, B>(input: I) -> Vec<u8> where
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	trie_root::unhashed_trie_no_ext::<KeccakHasher, ReferenceTrieStream, _, _, _>(input)
+	trie_root::unhashed_trie_no_ext::<KeccakHasher, ReferenceTrieStreamNoExt, _, _, _>(input)
 }
 
 const EMPTY_TRIE: u8 = 0;
@@ -91,6 +92,22 @@ const LEAF_NODE_OVER: u8 = EXTENSION_NODE_OFFSET - LEAF_NODE_OFFSET;
 const EXTENSION_NODE_OVER: u8 = BRANCH_NODE_NO_VALUE - EXTENSION_NODE_OFFSET;
 const LEAF_NODE_LAST: u8 = EXTENSION_NODE_OFFSET - 1;
 const EXTENSION_NODE_LAST: u8 = BRANCH_NODE_NO_VALUE - 1;
+
+mod noext_cst {
+	pub const EMPTY_TRIE: u8 = 0;
+	pub const LEAF_NODE_OFFSET: u8 = 1;
+	pub const LEAF_NODE_BIG: u8 = 85;
+	pub const BRANCH_NODE_NO_VALUE: u8 = 86;
+	pub const BRANCH_NODE_NO_VALUE_BIG: u8 = 170;
+	pub const BRANCH_NODE_WITH_VALUE: u8 = 171;
+	pub const BRANCH_NODE_WITH_VALUE_BIG: u8 = 255;
+	pub const LEAF_NODE_OVER: u8 = LEAF_NODE_BIG - LEAF_NODE_OFFSET;
+	pub const BRANCH_NODE_WITH_VALUE_OVER: u8 = BRANCH_NODE_WITH_VALUE_BIG - BRANCH_NODE_WITH_VALUE;
+	pub const BRANCH_NODE_NO_VALUE_OVER: u8 = BRANCH_NODE_NO_VALUE_BIG - BRANCH_NODE_NO_VALUE;
+	pub const LEAF_NODE_LAST: u8 = LEAF_NODE_BIG - 1;
+	pub const BRANCH_NODE_WITH_VALUE_LAST: u8 = BRANCH_NODE_WITH_VALUE_BIG - 1;
+	pub const BRANCH_NODE_NO_VALUE_LAST: u8 = BRANCH_NODE_NO_VALUE_BIG - 1;
+}
 
 /// Create a leaf/extension node, encoding a number of nibbles. Note that this
 /// cannot handle a number of nibbles that is zero or greater than 125 and if
@@ -108,16 +125,36 @@ fn fuse_nibbles_node<'a>(nibbles: &'a [u8], leaf: bool) -> impl Iterator<Item = 
 		.chain(nibbles[nibbles.len() % 2..].chunks(2).map(|ch| ch[0] << 4 | ch[1]))
 }
 
-/// TODO get definitive header def for no_ext and remove this
-fn fuse_nibbles_node_no_ext<'a>(nibbles: &'a [u8]) -> impl Iterator<Item = u8> + 'a {
-	debug_assert!(nibbles.len() < LEAF_NODE_OVER.min(EXTENSION_NODE_OVER) as usize, "nibbles length too long. what kind of size of key are you trying to include in the trie!?!");
-	let first_byte = nibbles.len() as u8;
+enum NodeKindNoExt {
+	Leaf,
+	BranchNoValue,
+	BranchWithValue,
+}
 
+/// Create a leaf/extension node, encoding a number of nibbles. Note that this
+/// cannot handle a number of nibbles that is zero or greater than 84 + 255 and if
+/// you attempt to do so *IT WILL PANIC*.
+fn fuse_nibbles_node_noext<'a>(nibbles: &'a [u8], kind: NodeKindNoExt) -> impl Iterator<Item = u8> + 'a {
+	debug_assert!(nibbles.len() < 255 + 84, "nibbles length too long. what kind of size of key are you trying to include in the trie!?!");
+	// We use two ranges of possible values; one for leafs and the other for extensions.
+	// Each range encodes zero following nibbles up to some maximum. If the maximum is
+	// reached, then it is considered "big" and a second byte follows it in order to
+	// encode a further offset to the number of nibbles of up to 255. Beyond that, we
+	// cannot encode. This shouldn't be a problem though since that allows for keys of
+	// up to 380 nibbles (190 bytes) and we expect key sizes to be generally 128-bit (16
+	// bytes) or, at a push, 384-bit (48 bytes).
+
+	let (first_byte_small, big_threshold) = match kind {
+		NodeKindNoExt::Leaf => (noext_cst::LEAF_NODE_OFFSET,	noext_cst::LEAF_NODE_BIG as usize),
+		NodeKindNoExt::BranchNoValue => (noext_cst::BRANCH_NODE_NO_VALUE,	noext_cst::BRANCH_NODE_NO_VALUE_BIG as usize),
+		NodeKindNoExt::BranchWithValue => (noext_cst::BRANCH_NODE_WITH_VALUE,	noext_cst::BRANCH_NODE_WITH_VALUE_BIG as usize),
+	};
+	let first_byte = first_byte_small + nibbles.len().min(big_threshold) as u8;
 	once(first_byte)
+		.chain(if nibbles.len() >= big_threshold { Some((nibbles.len() - big_threshold) as u8) } else { None })
 		.chain(if nibbles.len() % 2 == 1 { Some(nibbles[0]) } else { None })
 		.chain(nibbles[nibbles.len() % 2..].chunks(2).map(|ch| ch[0] << 4 | ch[1]))
 }
-
 
 pub fn branch_node(has_value: bool, has_children: impl Iterator<Item = bool>) -> [u8; 3] {
 	let first = if has_value {
@@ -125,13 +162,18 @@ pub fn branch_node(has_value: bool, has_children: impl Iterator<Item = bool>) ->
 	} else {
 		BRANCH_NODE_NO_VALUE
 	};
+	let bm = branch_node_bit_mask(has_children);
+	[first, bm.0, bm.1]
+}
+
+pub fn branch_node_bit_mask(has_children: impl Iterator<Item = bool>) -> (u8, u8) {
 	let mut bitmap: u16 = 0;
 	let mut cursor: u16 = 1;
 	for v in has_children {
 		if v { bitmap |= cursor }
 		cursor <<= 1;
 	}
-	[first, (bitmap % 256 ) as u8, (bitmap / 256 ) as u8]
+	((bitmap % 256 ) as u8, (bitmap / 256 ) as u8)
 }
 
 /// Reference implementation of a `TrieStream`.
@@ -159,13 +201,14 @@ impl TrieStream for ReferenceTrieStream {
 	fn begin_branch(&mut self, maybe_key: Option<&[u8]>, maybe_value: Option<&[u8]>, has_children: impl Iterator<Item = bool>) {
 		self.buffer.extend(&branch_node(maybe_value.is_some(), has_children));
 		if let Some(partial) = maybe_key {
-			self.buffer.extend(fuse_nibbles_node_no_ext(partial));
+			// should not happen
+			self.buffer.extend(fuse_nibbles_node(partial, false));
 		}
 		if let Some(value) = maybe_value {
 			value.encode_to(&mut self.buffer);
 		}
 	}
-	
+
 	fn append_extension(&mut self, key: &[u8]) {
 		self.buffer.extend(fuse_nibbles_node(key, false));
 	}
@@ -181,12 +224,77 @@ impl TrieStream for ReferenceTrieStream {
 	fn out(self) -> Vec<u8> { self.buffer }
 }
 
+/// Reference implementation of a `TrieStream`.
+#[derive(Default, Clone)]
+pub struct ReferenceTrieStreamNoExt {
+	buffer: Vec<u8>
+}
+
+impl TrieStream for ReferenceTrieStreamNoExt {
+	fn new() -> Self {
+		ReferenceTrieStreamNoExt {
+			buffer: Vec::new()
+		}
+	}
+
+	fn append_empty_data(&mut self) {
+		self.buffer.push(noext_cst::EMPTY_TRIE);
+	}
+
+	fn append_leaf(&mut self, key: &[u8], value: &[u8]) {
+		self.buffer.extend(fuse_nibbles_node_noext(key, NodeKindNoExt::Leaf));
+		value.encode_to(&mut self.buffer);
+	}
+
+	fn begin_branch(&mut self, maybe_key: Option<&[u8]>, maybe_value: Option<&[u8]>, has_children: impl Iterator<Item = bool>) {
+		if let Some(partial) = maybe_key {
+			if maybe_value.is_some() {
+				self.buffer.extend(fuse_nibbles_node_noext(partial, NodeKindNoExt::BranchWithValue));
+			} else {
+				self.buffer.extend(fuse_nibbles_node_noext(partial, NodeKindNoExt::BranchNoValue));
+			}
+			let bm = branch_node_bit_mask(has_children);
+			self.buffer.extend([bm.0,bm.1].iter());
+		} else {
+			// should not happen
+			self.buffer.extend(&branch_node(maybe_value.is_some(), has_children));
+		}
+		if let Some(value) = maybe_value {
+			value.encode_to(&mut self.buffer);
+		}
+	}
+	
+	fn append_extension(&mut self, _key: &[u8]) {
+		// should not happen
+	}
+
+	fn append_substream<H: Hasher>(&mut self, other: Self) {
+		let data = other.out();
+		match data.len() {
+			0...31 => data.encode_to(&mut self.buffer),
+			_ => H::hash(&data).as_ref().encode_to(&mut self.buffer),
+		}
+	}
+
+	fn out(self) -> Vec<u8> { self.buffer }
+}
+
+
+
 /// A node header.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 enum NodeHeader {
 	Null,
 	Branch(bool),
 	Extension(usize),
+	Leaf(usize),
+}
+
+/// A node header no extension.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+enum NodeHeaderNoExt {
+	Null,
+	Branch(bool, usize),
 	Leaf(usize),
 }
 
@@ -202,6 +310,33 @@ impl Encode for NodeHeader {
 	}
 }
 
+impl Encode for NodeHeaderNoExt {
+	fn encode_to<T: Output>(&self, output: &mut T) {
+		match self {
+			NodeHeaderNoExt::Null => output.push_byte(noext_cst::EMPTY_TRIE),
+
+			NodeHeaderNoExt::Branch(true, nibble_count) if *nibble_count < noext_cst::BRANCH_NODE_WITH_VALUE_OVER as usize =>
+				output.push_byte(noext_cst::BRANCH_NODE_WITH_VALUE + *nibble_count as u8),
+			NodeHeaderNoExt::Branch(true, nibble_count) => {
+				output.push_byte(noext_cst::BRANCH_NODE_WITH_VALUE_BIG);
+				output.push_byte((*nibble_count - noext_cst::BRANCH_NODE_WITH_VALUE_OVER as usize) as u8);
+			},
+			NodeHeaderNoExt::Branch(false, nibble_count) if *nibble_count < noext_cst::BRANCH_NODE_NO_VALUE_OVER as usize =>
+				output.push_byte(noext_cst::BRANCH_NODE_NO_VALUE + *nibble_count as u8),
+			NodeHeaderNoExt::Branch(false, nibble_count) => {
+				output.push_byte(noext_cst::BRANCH_NODE_NO_VALUE_BIG);
+				output.push_byte((*nibble_count - noext_cst::BRANCH_NODE_NO_VALUE_OVER as usize) as u8);
+			},
+			NodeHeaderNoExt::Leaf(nibble_count) if *nibble_count < noext_cst::LEAF_NODE_OVER as usize =>
+				output.push_byte(noext_cst::LEAF_NODE_OFFSET + *nibble_count as u8),
+			NodeHeaderNoExt::Leaf(nibble_count) => {
+				output.push_byte(noext_cst::LEAF_NODE_BIG);
+				output.push_byte((*nibble_count - noext_cst::LEAF_NODE_OVER as usize) as u8);
+			}
+		}
+	}
+}
+
 impl Decode for NodeHeader {
 	fn decode<I: Input>(input: &mut I) -> Option<Self> {
 		Some(match input.read_byte()? {
@@ -210,6 +345,30 @@ impl Decode for NodeHeader {
 			BRANCH_NODE_WITH_VALUE => NodeHeader::Branch(true),
 			i @ LEAF_NODE_OFFSET ... LEAF_NODE_LAST => NodeHeader::Leaf((i - LEAF_NODE_OFFSET) as usize),
 			i @ EXTENSION_NODE_OFFSET ... EXTENSION_NODE_LAST => NodeHeader::Extension((i - EXTENSION_NODE_OFFSET) as usize),
+		})
+	}
+}
+
+impl Decode for NodeHeaderNoExt {
+	fn decode<I: Input>(input: &mut I) -> Option<Self> {
+		Some(match input.read_byte()? {
+			noext_cst::EMPTY_TRIE => NodeHeaderNoExt::Null,
+
+			i @ noext_cst::LEAF_NODE_OFFSET ... noext_cst::LEAF_NODE_LAST =>
+				NodeHeaderNoExt::Leaf((i - noext_cst::LEAF_NODE_OFFSET) as usize),
+			noext_cst::LEAF_NODE_BIG =>
+				NodeHeaderNoExt::Leaf(input.read_byte()? as usize + noext_cst::LEAF_NODE_OVER as usize),
+
+			i @ noext_cst::BRANCH_NODE_WITH_VALUE ... noext_cst::BRANCH_NODE_WITH_VALUE_LAST =>
+				NodeHeaderNoExt::Branch(true, (i - noext_cst::BRANCH_NODE_WITH_VALUE) as usize),
+			noext_cst::BRANCH_NODE_WITH_VALUE_BIG =>
+				NodeHeaderNoExt::Branch(true, input.read_byte()? as usize + noext_cst::BRANCH_NODE_WITH_VALUE_OVER as usize),
+
+			i @ noext_cst::BRANCH_NODE_NO_VALUE ... noext_cst::BRANCH_NODE_NO_VALUE_LAST =>
+				NodeHeaderNoExt::Branch(true, (i - noext_cst::BRANCH_NODE_NO_VALUE) as usize),
+			noext_cst::BRANCH_NODE_NO_VALUE_BIG =>
+				NodeHeaderNoExt::Branch(true, input.read_byte()? as usize + noext_cst::BRANCH_NODE_NO_VALUE_OVER as usize),
+
 		})
 	}
 }
@@ -254,6 +413,21 @@ fn partial_to_key(partial: &[u8], offset: u8, over: u8) -> Vec<u8> {
 	let nibble_count = (partial.len() - 1) * 2 + if partial[0] & 16 == 16 { 1 } else { 0 };
 	assert!(nibble_count < over as usize);
 	let mut output = vec![offset + nibble_count as u8];
+	if nibble_count % 2 == 1 {
+		output.push(partial[0] & 0x0f);
+	}
+	output.extend_from_slice(&partial[1..]);
+	output
+}
+
+fn partial_enc(partial: &[u8], node_kind: NodeKindNoExt) -> Vec<u8> {
+	let nibble_count = (partial.len() - 1) * 2 + if partial[0] & 16 == 16 { 1 } else { 0 };
+	let mut output = Vec::with_capacity(2 + partial.len());
+	match node_kind {
+		NodeKindNoExt::Leaf => NodeHeaderNoExt::Leaf(nibble_count).encode_to(&mut output),
+		NodeKindNoExt::BranchWithValue => NodeHeaderNoExt::Branch(true, nibble_count).encode_to(&mut output),
+		NodeKindNoExt::BranchNoValue => NodeHeaderNoExt::Branch(false, nibble_count).encode_to(&mut output),
+	};
 	if nibble_count % 2 == 1 {
 		output.push(partial[0] & 0x0f);
 	}
@@ -386,13 +560,15 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodecNoExt {
 
 	fn decode(data: &[u8]) -> ::std::result::Result<Node, Self::Error> {
 		let input = &mut &*data;
-		match NodeHeader::decode(input).ok_or(ReferenceError::BadFormat)? {
-			NodeHeader::Null => Ok(Node::Empty),
-			NodeHeader::Branch(has_value) => {
-				let bitmap = u16::decode(input).ok_or(ReferenceError::BadFormat)?;
-				let nibble_count = take(input, 1).ok_or(ReferenceError::BadFormat)?[0] as usize;
+		match NodeHeaderNoExt::decode(input).ok_or(ReferenceError::BadFormat)? {
+			NodeHeaderNoExt::Null => Ok(Node::Empty),
+			NodeHeaderNoExt::Branch(has_value, nibble_count) => {
+				if nibble_count % 2 == 1 && input[0] & 0xf0 != 0x00 {
+					return Err(ReferenceError::BadFormat);
+				}
 				let nibble_data = take(input, (nibble_count + 1) / 2).ok_or(ReferenceError::BadFormat)?;
 				let nibble_slice = NibbleSlice::new_offset(nibble_data, nibble_count % 2);
+				let bitmap = u16::decode(input).ok_or(ReferenceError::BadFormat)?;
 				let value = if has_value {
 					let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 					Some(take(input, count).ok_or(ReferenceError::BadFormat)?)
@@ -410,8 +586,10 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodecNoExt {
 				}
 				Ok(Node::NibbledBranch(nibble_slice, children, value))
 			}
-			NodeHeader::Extension(_) => unreachable!(),
-			NodeHeader::Leaf(nibble_count) => {
+			NodeHeaderNoExt::Leaf(nibble_count) => {
+				if nibble_count % 2 == 1 && input[0] & 0xf0 != 0x00 {
+					return Err(ReferenceError::BadFormat);
+				}
 				let nibble_data = take(input, (nibble_count + 1) / 2).ok_or(ReferenceError::BadFormat)?;
 				let nibble_slice = NibbleSlice::new_offset(nibble_data, nibble_count % 2);
 				let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
@@ -425,15 +603,17 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodecNoExt {
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
-		ReferenceNodeCodec::is_empty_node(data)
+		data == &[noext_cst::EMPTY_TRIE][..]
 	}
 
 	fn empty_node() -> Vec<u8> {
-		ReferenceNodeCodec::empty_node()
+		vec![EMPTY_TRIE]
 	}
 
 	fn leaf_node(partial: &[u8], value: &[u8]) -> Vec<u8> {
-		ReferenceNodeCodec::leaf_node(partial, value)
+		let mut output = partial_enc(partial, NodeKindNoExt::Leaf);
+		value.encode_to(&mut output);
+		output
 	}
 
 	fn ext_node(_partial: &[u8], _child: ChildReference<<KeccakHasher as Hasher>::Out>) -> Vec<u8> {
@@ -450,25 +630,18 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodecNoExt {
 		partial: &[u8],
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<KeccakHasher as Hasher>::Out>>>>,
 		maybe_value: Option<&[u8]>) -> Vec<u8> {
-		let mut output = Vec::with_capacity(partial.len() + 4); // TODO choose a good capacity estimation value (here it is only partial)
-		for _ in 0..3 {
-			output.push(0);
-		}
-
-		let nibble_count = (partial.len() - 1) * 2 + if partial[0] & 16 == 16 { 1 } else { 0 };
-		output.push(nibble_count as u8);
-		if nibble_count % 2 == 1 {
-			output.push(partial[0] & 0x0f);
-		}
-		output.extend_from_slice(&partial[1..]);
-
-		let have_value = if let Some(value) = maybe_value {
-			value.encode_to(&mut output);
-			true
+		let mut output = if maybe_value.is_some() {
+			partial_enc(partial, NodeKindNoExt::BranchWithValue)
 		} else {
-			false
+			partial_enc(partial, NodeKindNoExt::BranchNoValue)
 		};
-		let prefix = branch_node(have_value, children.map(|maybe_child| match maybe_child.borrow() {
+    let bm_ix = output.len();
+		output.push(0);
+		output.push(0);
+		if let Some(value) = maybe_value {
+			value.encode_to(&mut output);
+		};
+		let bm = branch_node_bit_mask(children.map(|maybe_child| match maybe_child.borrow() {
 			Some(ChildReference::Hash(h)) => {
 				h.as_ref().encode_to(&mut output);
 				true
@@ -479,7 +652,8 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodecNoExt {
 			}
 			None => false,
 		}));
-		output[0..3].copy_from_slice(&prefix[..]);
+		output[bm_ix] = bm.0;
+		output[bm_ix + 1] = bm.1;
 		output
 	}
 
@@ -501,7 +675,7 @@ pub fn compare_impl<X : hash_db::HashDB<KeccakHasher,DBValue> + Eq> (
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..],&data[i].1[..]).unwrap();
 		}
-    t.commit();
+		t.commit();
 		t.root().clone()
 	};
 	if root != root_new {
@@ -524,7 +698,7 @@ pub fn compare_impl<X : hash_db::HashDB<KeccakHasher,DBValue> + Eq> (
 	}
 
 	assert_eq!(root, root_new);
-  // compare db content for key fuzzing
+	// compare db content for key fuzzing
 	assert!(memdb == hashdb);
 }
 

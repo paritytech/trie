@@ -21,6 +21,16 @@ use elastic_array::ElasticArray36;
 /// Empty slice encoded as non-leaf partial key
 pub const EMPTY_ENCODED: &[u8] = &[0];
 
+
+/// mask for nibble encoded first byte for extension
+pub const NIBBLE_EXT_MASK: u8 = 0x00;
+
+/// mask for nibble encoded first byte for leaf
+pub const NIBBLE_ODD_MASK: u8 = 0x10;
+
+/// mask for nibble encoded first byte for leaf
+pub const NIBBLE_LEAF_MASK: u8 = 0x20;
+
 /// Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
 ///
 /// This is an immutable struct. No operations actually change it.
@@ -166,7 +176,8 @@ impl<'a> NibbleSlice<'a> {
 		let l = self.len();
 		let mut r = ElasticArray36::new();
 		let mut i = l % 2;
-		r.push(if i == 1 {0x10 + self.at(0)} else {0} + if is_leaf {0x20} else {0});
+		r.push(if i == 1 {NIBBLE_ODD_MASK + self.at(0)} else {0}
+      + if is_leaf {NIBBLE_LEAF_MASK} else {NIBBLE_EXT_MASK});
 		while i < l {
 			r.push(self.at(i) * 16 + self.at(i + 1));
 			i += 2;
@@ -180,7 +191,8 @@ impl<'a> NibbleSlice<'a> {
 		let l = min(self.len(), n);
 		let mut r = ElasticArray36::new();
 		let mut i = l % 2;
-		r.push(if i == 1 {0x10 + self.at(0)} else {0} + if is_leaf {0x20} else {0});
+		r.push(if i == 1 {NIBBLE_ODD_MASK + self.at(0)} else {0} 
+      + if is_leaf {NIBBLE_LEAF_MASK} else {NIBBLE_EXT_MASK});
 		while i < l {
 			r.push(self.at(i) * 16 + self.at(i + 1));
 			i += 2;
