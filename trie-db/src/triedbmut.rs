@@ -1027,7 +1027,9 @@ where
 					// replace val
 					if let Some(val) = value {
 						*old_val = Some(val);
-						Action::Replace(self.fix(Node::NibbledBranch(encoded, children, None), key.encoded_prefix())?)
+//            key.advance(cp + 1);
+            let f = self.fix(Node::NibbledBranch(encoded, children, None), key.encoded_prefix());
+						Action::Replace(f?)
 					} else {
 						Action::Restore(Node::NibbledBranch(encoded, children, None))
 					}
@@ -1162,11 +1164,16 @@ where
 					(UsedIndex::One(a), None) => {
 						// only one onward node. use child instead
 						let child = children[a as usize].take().expect("used_index only set if occupied; qed");
-						//let new_node = Node::Extension(new_partial, child);
 						let stored = match child {
 							NodeHandle::InMemory(h) => self.storage.destroy(h),
 							NodeHandle::Hash(h) => {
-								let handle = self.cache(h, &combine_encoded(&key, &enc_nibble))?;
+                // TODO EMCH optimize this concat (new_partial_tmp may be calc again afterward)
+								let new_partial_tmp = NibbleSlice::new_composed(
+										&NibbleSlice::from_encoded(&enc_nibble).0,
+										&NibbleSlice::new_offset(&[a], 1)
+									).encoded(false);
+
+								let handle = self.cache(h, &combine_encoded(&key, &new_partial_tmp))?;
 								self.storage.destroy(handle)
 							}
 						};
@@ -1298,12 +1305,11 @@ where
 		match self.storage.destroy(handle) {
 			Stored::New(node) => {
 				let encoded_root = node.into_encoded::<_, C, H>(|child, k| {
-          // TODO EMCH useless combine encoded call??
+          // TODO EMCH useless combine encoded call?? (as no encode but partial)
 					let combined = combine_encoded(nibbleslice::EMPTY_ENCODED, k);
 					self.commit_child(child, &combined)
 				});
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
-
 				*self.root = self.db.insert(nibbleslice::EMPTY_ENCODED, &encoded_root[..]);
 				self.hash_count += 1;
 

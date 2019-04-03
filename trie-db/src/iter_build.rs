@@ -515,6 +515,8 @@ mod test {
 		reference_trie::compare_impl_no_ext(data, memdb, hashdb);
 	}
 	fn compare_impl_no_ext_pk(data: Vec<(Vec<u8>,Vec<u8>)>) {
+//		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
+//		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 		let hashdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		reference_trie::compare_impl_no_ext(data, memdb, hashdb);
@@ -529,9 +531,10 @@ mod test {
 		let hashdb = MemoryDB::<KeccakHasher, DBValue>::default();
 		reference_trie::compare_impl_no_ext_unordered_rem(data, rem, memdb, hashdb);
 	}*/
-
-
-
+  fn compare_no_ext_insert_remove(data: Vec<(bool, Vec<u8>,Vec<u8>)>) {
+		let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
+		reference_trie::compare_no_ext_insert_remove(data, memdb);
+  }
 	fn compare_root(data: Vec<(Vec<u8>,Vec<u8>)>) {
 		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
 		reference_trie::compare_root(data, memdb);
@@ -542,9 +545,6 @@ mod test {
 	fn compare_unhashed_no_ext(data: Vec<(Vec<u8>,Vec<u8>)>) {
 		reference_trie::compare_unhashed_no_ext(data);
 	}
-
-
-
 
 	#[test]
 	fn trie_middle_node1 () {
@@ -666,17 +666,28 @@ mod test {
 			(vec![0],vec![0, 0]),
 		]);
 	}
-/*	#[test]
-	fn fuzz_noextrem1 () {
-		compare_impl_no_ext_unordered_rem(vec![
-			(vec![0],vec![0, 0]),
-			(vec![0],vec![0, 0]),
-			(vec![0],vec![0, 0]),
-			(vec![0],vec![0, 0]),
-			(vec![0],vec![0, 0]),
-			(vec![0],vec![0, 0]),
-			(vec![0],vec![0, 0]),
-		], &[(0,4)]);
-	}*/
 
+	#[test]
+	fn fuzz_noext_ins_rem_pref () {
+    let data = vec![
+      (false, vec![0], vec![251, 255]),
+      (false, vec![0,1], vec![251, 255]),
+      (false, vec![0,1,2], vec![255; 32]),
+      (true, vec![0,1], vec![0, 251]),
+    ];
+
+		compare_no_ext_insert_remove(data);
+	}
+
+/*	#[test]
+	fn fdispc () {
+  let data = vec![
+      (vec![0], vec![251;32]),
+      (vec![0,1], vec![251; 32]),
+      (vec![0,1,2], vec![251; 32]),
+  ];
+  compare_impl_no_ext_pk(data);
+  panic!("dd");
+  }
+ */  
 }

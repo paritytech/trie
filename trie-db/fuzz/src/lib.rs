@@ -7,6 +7,7 @@ use reference_trie::{
 	ref_trie_root,
 	calc_root_no_ext,
 	calc_root,
+	compare_no_ext_insert_remove,
 };
 use trie_db::{TrieMut, DBValue};
 use keccak_hasher::KeccakHasher;
@@ -54,6 +55,28 @@ fn fuzz_to_data(input: &[u8]) -> Vec<(Vec<u8>,Vec<u8>)> {
 	result
 }
 
+fn fuzz_removal(data: Vec<(Vec<u8>,Vec<u8>)>) -> Vec<(bool, Vec<u8>,Vec<u8>)> {
+	let mut res = Vec::new();
+	let mut torem = None;
+  let mut a = 0;
+	for (a, d) in data.into_iter().enumerate() {
+		if a % 7 == 6	{
+			// a random removal some time
+			res.push((true, d.0, d.1));
+		} else {
+			if a % 5 == 0	{
+				torem = Some((true, d.0.clone(), d.1.clone()));
+			}
+			res.push((false, d.0, d.1));
+			if a % 5 == 4 {
+				if let Some(v) = torem.take() {
+					res.push(v);
+				}
+			}
+		}
+	}
+	res
+}
 
 pub fn fuzz_that_ref_trie_root(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data(input));
@@ -136,56 +159,8 @@ pub fn fuzz_that_no_ext_insert(input: &[u8]) {
 
 pub fn fuzz_that_no_ext_insert_remove(input: &[u8]) {
 	let data = fuzz_to_data(input);
-	println!("data{:?}", data);
-  // TODO debug this failing:
-//data[([0], [0, 251]), ([0], [251, 255]), ([251, 255, 79, 59, 42, 34, 0, 0, 0, 255, 255, 255, 255, 255, 255], [255, 0]), ([255, 0, 0, 0, 91, 0, 0, 0, 0, 82, 0, 59, 136, 136, 0], [0, 0]), ([0], [0, 0]), ([0], [0, 0]), ([0], [0, 0]), ([0], [0, 0]), ([0], [0, 0]), ([0], [0, 0]), ([0], [0, 0])]
+	let data = fuzz_removal(data);
 
-	let mut data2 = std::collections::BTreeMap::new();
-	let mut memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
-	let mut root = Default::default();
-	let mut torem = None;
-	let mut a = 0;
-	{
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
-		t.commit();
-	}
-//	println!("data{:?}", data);
-	while a < data.len() {
-
-		root = {
-		let mut t = RefTrieDBMutNoExt::from_existing(&mut memdb, &mut root).unwrap();
-		for _ in 0..3 {
-		if a % 7 == 6	{
-//	println!("remrand{:?}", a);
-			// a random removal some time
-			t.remove(&data[a].0[..]).unwrap();
-			data2.remove(&data[a].0[..]);
-		} else {
-			if a % 5 == 0	{
-//	println!("rem{:?}", a);
-				torem = Some(data[a].0.to_vec());
-			}
-			t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
-			data2.insert(&data[a].0[..], &data[a].1[..]);
-			if a % 5 == 4 {
-				if let Some(v) = torem.take() {
-//	println!("remdoneaft {:?}", a);
-					t.remove(&v[..]).unwrap();
-					data2.remove(&v[..]);
-				}
-			}
-		}
-		a += 1;
-		if a == data.len() {
-			break;
-		}
-		}
-		t.commit();
-		*t.root()
-		};
-	}
-	let mut t = RefTrieDBMutNoExt::from_existing(&mut memdb, &mut root).unwrap();
-	// we are testing the RefTrie code here so we do not sort or check uniqueness
-	// before.
-	assert_eq!(*t.root(), calc_root_no_ext(data2));
+	let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
+	compare_no_ext_insert_remove(data, memdb);
 }

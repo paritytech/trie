@@ -560,7 +560,7 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodecNoExt {
 
 	fn decode(data: &[u8]) -> ::std::result::Result<Node, Self::Error> {
 		let input = &mut &*data;
-    let head = NodeHeaderNoExt::decode(input).ok_or(ReferenceError::BadFormat)?;
+		let head = NodeHeaderNoExt::decode(input).ok_or(ReferenceError::BadFormat)?;
 		match head {
 			NodeHeaderNoExt::Null => Ok(Node::Empty),
 			NodeHeaderNoExt::Branch(has_value, nibble_count) => {
@@ -636,7 +636,7 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodecNoExt {
 		} else {
 			partial_enc(partial, NodeKindNoExt::BranchNoValue)
 		};
-    let bm_ix = output.len();
+		let bm_ix = output.len();
 		output.push(0);
 		output.push(0);
 		if let Some(value) = maybe_value {
@@ -796,6 +796,12 @@ pub fn compare_impl_no_ext(
 		}
 		t.root().clone()
 	};
+/*  {
+		let db : &dyn hash_db::HashDB<_,_> = &memdb;
+			let t = RefTrieDBNoExt::new(&db, &root).unwrap();
+			println!("{:?}", t);
+  }*/
+		
 	if root != root_new {
 		{
 			let db : &dyn hash_db::HashDB<_,_> = &memdb;
@@ -859,4 +865,45 @@ pub fn compare_impl_no_ext_unordered(
 	}
 
 	assert_eq!(root, root_new);
+}
+
+pub fn compare_no_ext_insert_remove(
+	data: Vec<(bool, Vec<u8>,Vec<u8>)>,
+	mut memdb: impl hash_db::HashDB<KeccakHasher,DBValue>,
+) {
+	let mut data2 = std::collections::BTreeMap::new();
+	let mut root = Default::default();
+	let mut a = 0;
+	{
+		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+		t.commit();
+	}
+	while a < data.len() {
+		// new triemut every 3 element
+		root = {
+			let mut t = RefTrieDBMutNoExt::from_existing(&mut memdb, &mut root).unwrap();
+			for _ in 0..3 {
+				if data[a].0 {
+					// remove
+					t.remove(&data[a].1[..]).unwrap();
+					data2.remove(&data[a].1[..]);
+				} else {
+					// add
+					t.insert(&data[a].1[..], &data[a].2[..]).unwrap();
+					data2.insert(&data[a].1[..], &data[a].2[..]);
+				}
+
+				a += 1;
+				if a == data.len() {
+					break;
+				}
+			}
+			t.commit();
+			*t.root()
+		};
+	}
+	let mut t = RefTrieDBMutNoExt::from_existing(&mut memdb, &mut root).unwrap();
+	// we are testing the RefTrie code here so we do not sort or check uniqueness
+	// before.
+	assert_eq!(*t.root(), calc_root_no_ext(data2));
 }
