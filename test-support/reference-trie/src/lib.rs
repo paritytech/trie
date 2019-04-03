@@ -263,7 +263,7 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 			value.encode_to(&mut self.buffer);
 		}
 	}
-	
+
 	fn append_extension(&mut self, _key: &[u8]) {
 		// should not happen
 	}

@@ -24,7 +24,7 @@ criterion_main!(benches);
 
 extern crate trie_standardmap;
 extern crate trie_db;
-use std::io::Read;
+extern crate rand;
 use trie_standardmap::{Alphabet, StandardMap, ValueMode};
 use trie_db::NibbleSlice;
 
@@ -52,10 +52,10 @@ fn nibble_common_prefix(b: &mut Criterion) {
 
 fn root_old(c: &mut Criterion) {
 	let data : Vec<Vec<(Vec<u8>,Vec<u8>)>> = vec![
-		input("./testset0"), // 286 vals
-		input("./testset1"), // 571 vals
-		input("./testset2"), // 5649 vals
-		input("./testset3"), // 11376 vals
+		input(1, 5120),
+		input(41, 10240),
+		input(18, 102400),
+		input(29, 204800),
 	];
 
 	c.bench_function_over_inputs("root_old",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
@@ -73,10 +73,10 @@ fn root_old(c: &mut Criterion) {
 
 fn root_new(c: &mut Criterion) {
 	let data : Vec<Vec<(Vec<u8>,Vec<u8>)>> = vec![
-		input("./testset0"),
-		input("./testset1"),
-		input("./testset2"),
-		input("./testset3"),
+		input(1, 5120),
+		input(41, 10240),
+		input(18, 102400),
+		input(29, 204800),
 	];
 
 	c.bench_function_over_inputs("root_new",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
@@ -94,49 +94,32 @@ fn root_new(c: &mut Criterion) {
 	,data);
 }
 
-fn fuzz_to_data(fp: &std::path::Path) -> Vec<(Vec<u8>,Vec<u8>)> {
-	let mut file = std::fs::File::open(fp).unwrap();
-	let mut input = Vec::new();
-	file.read_to_end(&mut input).unwrap();
-		let mut result = Vec::new();
-		// enc = (minkeylen, maxkeylen (min max up to 32), datas)
-		// fix data len 2 bytes
-		let mut minkeylen = if let Some(v) = input.get(0) {
+fn fuzz_to_data(input: Vec<u8>) -> Vec<(Vec<u8>,Vec<u8>)> {
+	let mut result = Vec::new();
+	// enc = (minkeylen, maxkeylen (min max up to 32), datas)
+	// fix data len 2 bytes
+	let minkeylen = 1;
+	let maxkeylen = 32;
+	let mut ix = 0;
+	loop {
+		let keylen = if let Some(v) = input.get(ix) {
 			let mut v = *v & 31u8;
 			v = v + 1;
-			v
-		} else { return result; };
-		let mut maxkeylen = if let Some(v) = input.get(1) {
-			let mut v = *v & 31u8;
-			v = v + 1;
-			v
-		} else { return result; };
-
-		if maxkeylen < minkeylen {
-			let v = minkeylen;
-			minkeylen = maxkeylen;
-			maxkeylen = v;
-		}
-		let mut ix = 2;
-		loop {
-			let keylen = if let Some(v) = input.get(ix) {
-				let mut v = *v & 31u8;
-				v = v + 1;
-				v = std::cmp::max(minkeylen, v);
-				v = std::cmp::min(maxkeylen, v);
-				v as usize
-			} else { break };
-			let key = if input.len() > ix + keylen {
-				input[ix..ix+keylen].to_vec()
-			} else { break };
-			ix += keylen;
-			let val = if input.len() > ix + 2 {
-				input[ix..ix + 2].to_vec()
-			} else { break };
-			ix += 2;
-			result.push((key,val));
-		}
-		result
+			v = std::cmp::max(minkeylen, v);
+			v = std::cmp::min(maxkeylen, v);
+			v as usize
+		} else { break };
+		let key = if input.len() > ix + keylen {
+			input[ix..ix+keylen].to_vec()
+		} else { break };
+		ix += keylen;
+		let val = if input.len() > ix + 2 {
+			input[ix..ix + 2].to_vec()
+		} else { break };
+		ix += 2;
+		result.push((key,val));
+	}
+	result
 }
 
 fn data_sorted_unique(input: Vec<(Vec<u8>,Vec<u8>)>) -> Vec<(Vec<u8>,Vec<u8>)> {
@@ -147,8 +130,12 @@ fn data_sorted_unique(input: Vec<(Vec<u8>,Vec<u8>)>) -> Vec<(Vec<u8>,Vec<u8>)> {
 	m.into_iter().collect()
 }
 
-fn input(file: &str) -> Vec<(Vec<u8>,Vec<u8>)> {
-	let pb = std::path::PathBuf::from(file);
-	let data = data_sorted_unique(fuzz_to_data(&pb));
+fn input(seed: u64, len: usize) -> Vec<(Vec<u8>,Vec<u8>)> {
+	use rand::SeedableRng;
+	use rand::RngCore;
+	let mut rng = rand::rngs::SmallRng::seed_from_u64(seed);
+	let mut data = vec![0u8; len];
+	rng.fill_bytes(&mut data[..]);
+	let data = data_sorted_unique(fuzz_to_data(data));
 	data
 }
