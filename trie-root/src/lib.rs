@@ -37,7 +37,7 @@ use core::cmp;
 #[cfg(test)]
 extern crate keccak_hasher;
 
-pub use hash_db::{Hasher, DebugIfStd};
+pub use hash_db::Hasher;
 
 /// Byte-stream oriented trait for constructing closed-form tries.
 pub trait TrieStream {
@@ -94,8 +94,8 @@ fn shared_prefix_len<T: Eq>(first: &[T], second: &[T]) -> usize {
 /// ```
 pub fn trie_root<H, S, I, A, B>(input: I) -> H::Out where
 	I: IntoIterator<Item = (A, B)>,
-	A: AsRef<[u8]> + Ord + DebugIfStd,
-	B: AsRef<[u8]> + DebugIfStd,
+	A: AsRef<[u8]> + Ord,
+	B: AsRef<[u8]>,
 	H: Hasher,
 	S: TrieStream,
 {
@@ -128,9 +128,9 @@ pub fn trie_root<H, S, I, A, B>(input: I) -> H::Out where
 
 //#[cfg(test)]	// consider feature="std"
 pub fn unhashed_trie<H, S, I, A, B>(input: I) -> Vec<u8> where
-	I: IntoIterator<Item = (A, B)> + DebugIfStd,
-	A: AsRef<[u8]> + Ord + DebugIfStd,
-	B: AsRef<[u8]> + DebugIfStd,
+	I: IntoIterator<Item = (A, B)>,
+	A: AsRef<[u8]> + Ord,
+	B: AsRef<[u8]>,
 	H: Hasher,
 	S: TrieStream,
 {
@@ -184,8 +184,8 @@ pub fn unhashed_trie<H, S, I, A, B>(input: I) -> Vec<u8> where
 /// ```
 pub fn sec_trie_root<H, S, I, A, B>(input: I) -> H::Out where
 	I: IntoIterator<Item = (A, B)>,
-	A: AsRef<[u8]> + DebugIfStd,
-	B: AsRef<[u8]> + DebugIfStd,
+	A: AsRef<[u8]>,
+	B: AsRef<[u8]>,
 	H: Hasher,
 	H::Out: Ord,
 	S: TrieStream,
@@ -197,8 +197,8 @@ pub fn sec_trie_root<H, S, I, A, B>(input: I) -> H::Out where
 /// and encodes it into the provided `Stream`.
 // pub fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S)
 fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S) where
-	A: AsRef<[u8]> + DebugIfStd,
-	B: AsRef<[u8]> + DebugIfStd,
+	A: AsRef<[u8]>,
+	B: AsRef<[u8]>,
 	H: Hasher,
 	S: TrieStream,
 {
@@ -271,8 +271,8 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S) where
 }
 
 fn build_trie_trampoline<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S) where
-	A: AsRef<[u8]> + DebugIfStd,
-	B: AsRef<[u8]> + DebugIfStd,
+	A: AsRef<[u8]>,
+	B: AsRef<[u8]>,
 	H: Hasher,
 	S: TrieStream,
 {

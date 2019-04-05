@@ -14,17 +14,20 @@
 
 //! Trie lookup via HashDB.
 
-use hash_db::{HashDB, Hasher};
+use hash_db::{HashDBRef, Hasher};
 use nibbleslice::NibbleSlice;
 use node::Node;
 use node_codec::NodeCodec;
 use super::{DBValue, Result, TrieError, Query};
-use std::marker::PhantomData;
+use ::core_::marker::PhantomData;
+
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
 
 /// Trie lookup helper object.
 pub struct Lookup<'a, H: Hasher + 'a, C: NodeCodec<H>, Q: Query<H>> {
 	/// database to query from.
-	pub db: &'a HashDB<H, DBValue>,
+	pub db: &'a HashDBRef<H, DBValue>,
 	/// Query object to record nodes and transform data.
 	pub query: Q,
 	/// Hash to start at
@@ -34,18 +37,20 @@ pub struct Lookup<'a, H: Hasher + 'a, C: NodeCodec<H>, Q: Query<H>> {
 
 impl<'a, H, C, Q> Lookup<'a, H, C, Q>
 where
-	H: Hasher + 'a,
-	C: NodeCodec<H> + 'a,
+	H: Hasher,
+	C: NodeCodec<H>,
 	Q: Query<H>,
 {
 	/// Look up the given key. If the value is found, it will be passed to the given
 	/// function to decode or copy.
-	pub fn look_up(mut self, mut key: NibbleSlice) -> Result<Option<Q::Item>, H::Out, C::Error> {
+	pub fn look_up(mut self, key: NibbleSlice) -> Result<Option<Q::Item>, H::Out, C::Error> {
+		let mut partial = key;
 		let mut hash = self.hash;
+		let mut key_nibbles = 0;
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
-			let node_data = match self.db.get(&hash) {
+			let node_data = match self.db.get(&hash, &key.encoded_leftmost(key_nibbles, false)) {
 				Some(value) => value,
 				None => return Err(Box::new(match depth {
 					0 => TrieError::InvalidStateRoot(hash),
@@ -67,25 +72,27 @@ where
 				};
 				match decoded {
 					Node::Leaf(slice, value) => {
-						return Ok(match slice == key {
+						return Ok(match slice == partial {
 							true => Some(self.query.decode(value)),
 							false => None,
 						})
 					}
 					Node::Extension(slice, item) => {
-						if key.starts_with(&slice) {
+						if partial.starts_with(&slice) {
 							node_data = item;
-							key = key.mid(slice.len());
+							partial = partial.mid(slice.len());
+							key_nibbles += slice.len();
 						} else {
 							return Ok(None)
 						}
 					}
-					Node::Branch(children, value) => match key.is_empty() {
+					Node::Branch(children, value) => match partial.is_empty() {
 						true => return Ok(value.map(move |val| self.query.decode(val))),
-						false => match children[key.at(0) as usize] {
+						false => match children[partial.at(0) as usize] {
 							Some(x) => {
 								node_data = x;
-								key = key.mid(1);
+								partial = partial.mid(1);
+								key_nibbles += 1;
 							}
 							None => return Ok(None)
 						}

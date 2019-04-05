@@ -12,7 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(feature = "std"), feature(alloc))]
+
 //! Trie interface and implementation.
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
 extern crate elastic_array;
 extern crate hash_db;
 extern crate rand;
@@ -22,6 +29,9 @@ extern crate log;
 #[cfg(test)]
 extern crate env_logger;
 #[cfg(test)]
+#[macro_use]
+extern crate hex_literal;
+#[cfg(test)]
 extern crate trie_standardmap as standardmap;
 #[cfg(test)]
 extern crate trie_root;
@@ -29,11 +39,41 @@ extern crate trie_root;
 extern crate memory_db;
 #[cfg(test)]
 extern crate keccak_hasher;
-#[cfg(test)]
+#[cfg(all(feature = "std", test))]
 extern crate reference_trie;
 
-use std::{fmt, error};
-use std::marker::PhantomData;
+#[cfg(not(feature = "std"))]
+extern crate hashmap_core;
+
+#[cfg(feature = "std")]
+use std as core_;
+#[cfg(not(feature = "std"))]
+use core as core_;
+
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
+use core_::marker::PhantomData;
+
+#[cfg(feature = "std")]
+use std::error::Error;
+
+#[cfg(feature = "std")]
+use std::fmt;
+#[cfg(feature = "std")]
+pub trait MaybeDebug: fmt::Debug {}
+#[cfg(feature = "std")]
+impl<T: fmt::Debug> MaybeDebug for T {}
+
+
+#[cfg(not(feature = "std"))]
+pub trait MaybeDebug {}
+#[cfg(not(feature = "std"))]
+impl<T> MaybeDebug for T {}
+
 
 pub mod node;
 pub mod triedb;
@@ -49,7 +89,7 @@ mod nibblevec;
 mod nibbleslice;
 mod node_codec;
 
-pub use hash_db::{HashDB, Hasher};
+pub use hash_db::{HashDB, HashDBRef, Hasher};
 pub use self::triedb::{TrieDB, TrieDBIterator};
 pub use self::triedbmut::{TrieDBMut, ChildReference};
 pub use self::sectriedbmut::SecTrieDBMut;
@@ -77,7 +117,8 @@ pub enum TrieError<T, E> {
 	DecoderError(T, E),
 }
 
-impl<T, E> fmt::Display for TrieError<T, E> where T: std::fmt::Debug, E: std::fmt::Debug {
+#[cfg(feature = "std")]
+impl<T, E> fmt::Display for TrieError<T, E> where T: MaybeDebug, E: MaybeDebug {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		match *self {
 			TrieError::InvalidStateRoot(ref root) => write!(f, "Invalid state root: {:?}", root),
@@ -89,7 +130,8 @@ impl<T, E> fmt::Display for TrieError<T, E> where T: std::fmt::Debug, E: std::fm
 	}
 }
 
-impl<T, E> error::Error for TrieError<T, E> where T: std::fmt::Debug, E: std::error::Error {
+#[cfg(feature = "std")]
+impl<T, E> Error for TrieError<T, E> where T: fmt::Debug, E: Error {
 	fn description(&self) -> &str {
 		match *self {
 			TrieError::InvalidStateRoot(_) => "Invalid state root",
@@ -100,7 +142,7 @@ impl<T, E> error::Error for TrieError<T, E> where T: std::fmt::Debug, E: std::er
 }
 
 /// Trie result type. Boxed to avoid copying around extra space for the `Hasher`s `Out` on successful queries.
-pub type Result<T, H, E> = ::std::result::Result<T, Box<TrieError<H, E>>>;
+pub type Result<T, H, E> = ::core_::result::Result<T, Box<TrieError<H, E>>>;
 
 
 /// Trie-Item type used for iterators over trie data.
@@ -288,7 +330,7 @@ where
 	/// Create new immutable instance of Trie.
 	pub fn readonly(
 		&self,
-		db: &'db HashDB<H, DBValue>,
+		db: &'db HashDBRef<H, DBValue>,
 		root: &'db H::Out
 	) -> Result<TrieKinds<'db, H, C>, H::Out, <C as NodeCodec<H>>::Error> {
 		match self.spec {

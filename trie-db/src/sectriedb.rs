@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use hash_db::{HashDB, Hasher};
+use hash_db::{HashDBRef, Hasher};
 use super::triedb::TrieDB;
 use super::{Result, DBValue, Trie, TrieItem, TrieIterator, Query};
 use node_codec::NodeCodec;
+
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
 
 /// A `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 ///
@@ -38,7 +41,7 @@ where
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
 	/// Returns an error if root does not exist.
-	pub fn new(db: &'db HashDB<H, DBValue>, root: &'db H::Out) -> Result<Self, H::Out, C::Error> {
+	pub fn new(db: &'db HashDBRef<H, DBValue>, root: &'db H::Out) -> Result<Self, H::Out, C::Error> {
 		Ok(SecTrieDB { raw: TrieDB::new(db, root)? })
 	}
 
@@ -77,7 +80,7 @@ where
 
 #[cfg(test)]
 mod test {
-	use memory_db::MemoryDB;
+	use memory_db::{MemoryDB, HashKey};
 	use hash_db::Hasher;
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefTrieDBMut, RefSecTrieDB, Trie, TrieMut};
@@ -85,7 +88,7 @@ mod test {
 
 	#[test]
 	fn trie_to_sectrie() {
-		let mut db = MemoryDB::default();
+		let mut db = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut db, &mut root);

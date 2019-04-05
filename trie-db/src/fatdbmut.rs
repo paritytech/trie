@@ -85,7 +85,7 @@ where
 		// insert if it doesn't exist.
 		if out.is_none() {
 			let aux_hash = H::hash(hash.as_ref());
-			db.emplace(aux_hash, DBValue::from_slice(key));
+			db.emplace(aux_hash, &[], DBValue::from_slice(key));
 		}
 		Ok(out)
 	}
@@ -97,7 +97,7 @@ where
 		// remove if it already exists.
 		if out.is_some() {
 			let aux_hash = H::hash(hash.as_ref());
-			self.raw.db_mut().remove(&aux_hash);
+			self.raw.db_mut().remove(&aux_hash, &[]);
 		}
 
 		Ok(out)
@@ -107,14 +107,14 @@ where
 #[cfg(test)]
 mod test {
 	use DBValue;
-	use memory_db::MemoryDB;
+	use memory_db::{MemoryDB, HashKey};
 	use hash_db::Hasher;
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefFatDBMut, RefTrieDB, Trie, TrieMut};
 
 	#[test]
 	fn fatdbmut_to_trie() {
-		let mut memdb = MemoryDB::default();
+		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefFatDBMut::new(&mut memdb, &mut root);
@@ -126,7 +126,7 @@ mod test {
 
 	#[test]
 	fn fatdbmut_insert_remove_key_mapping() {
-		let mut memdb = MemoryDB::default();
+		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
 		let mut root = Default::default();
 		let key = [0x01u8, 0x23];
 		let val = [0x01u8, 0x24];
@@ -135,8 +135,8 @@ mod test {
 		let mut t = RefFatDBMut::new(&mut memdb, &mut root);
 		t.insert(&key, &val).unwrap();
 		assert_eq!(t.get(&key), Ok(Some(DBValue::from_slice(&val))));
-		assert_eq!(t.db().get(&aux_hash), Some(&DBValue::from_slice(&key)));
+		assert_eq!(t.db().get(&aux_hash, &[]), Some(DBValue::from_slice(&key)));
 		t.remove(&key).unwrap();
-		assert_eq!(t.db().get(&aux_hash), None);
+		assert_eq!(t.db().get(&aux_hash, &[]), None);
 	}
 }

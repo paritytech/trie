@@ -17,6 +17,9 @@ use nibbleslice::NibbleSlice;
 use nibblevec::NibbleVec;
 use super::DBValue;
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 /// Partial node key type.
 pub type NodeKey = ElasticArray36<u8>;
 
