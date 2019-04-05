@@ -5,6 +5,7 @@ authors = ["Parity Technologies <admin@parity.io>"]
 description = "Trait for hash-keyed databases."
 license = "Apache-2.0"
 categories = [ "no-std" ]
+repository = "https://github.com/paritytech/trie"
 
 [features]
 default = ["std"]

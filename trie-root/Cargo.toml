@@ -3,7 +3,7 @@ name = "trie-root"
 version = "0.12.2"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "In-memory patricia trie operations"
-repository = "https://github.com/paritytech/parity-common"
+repository = "https://github.com/paritytech/trie"
 license = "Apache-2.0"
 categories = [ "no-std" ]
 
