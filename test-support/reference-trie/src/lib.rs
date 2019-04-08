@@ -422,6 +422,9 @@ fn partial_to_key(partial: &[u8], offset: u8, over: u8) -> Vec<u8> {
 
 fn partial_enc(partial: &[u8], node_kind: NodeKindNoExt) -> Vec<u8> {
 	let nibble_count = (partial.len() - 1) * 2 + if partial[0] & 16 == 16 { 1 } else { 0 };
+
+	assert!(nibble_count < noext_cst::LEAF_NODE_OVER as usize + 256);
+
 	let mut output = Vec::with_capacity(2 + partial.len());
 	match node_kind {
 		NodeKindNoExt::Leaf => NodeHeaderNoExt::Leaf(nibble_count).encode_to(&mut output),
@@ -659,6 +662,7 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodecNoExt {
 	}
 
 }
+
 
 pub fn compare_impl<X : hash_db::HashDB<KeccakHasher,DBValue> + Eq> (
 	data: Vec<(Vec<u8>,Vec<u8>)>,
@@ -906,4 +910,23 @@ pub fn compare_no_ext_insert_remove(
 	// we are testing the RefTrie code here so we do not sort or check uniqueness
 	// before.
 	assert_eq!(*t.root(), calc_root_no_ext(data2));
+}
+
+// TODO define how this should be handle:
+// panic does not look really good:
+// Either redesign encoding trait for for errors
+// or bound it (currently the code overflow 255 to
+// 0 and truncate).
+#[should_panic]
+#[test]
+fn too_big_nibble_len () {
+  // + 1 for 0 added byte of nibble encode
+  let input = vec![0u8; (noext_cst::LEAF_NODE_OVER as usize + 256) / 2 + 1];
+  let enc = ReferenceNodeCodecNoExt::leaf_node(&input, &[1]);
+  let dec = ReferenceNodeCodecNoExt::decode(&enc).unwrap();
+  let o_sl = if let Node::Leaf(sl,_) = dec {
+    //assert_eq!(&input[..], &sl.encoded(false)[..]);
+    Some(sl)
+  } else { None };
+  //assert!(o_sl.is_some());
 }

@@ -182,8 +182,6 @@ fn unhashed_trie_inner<H, S, I, A, B>(input: I, no_ext: bool) -> Vec<u8> where
 	stream.out()
 }
 
-/// TODO avoid code redundancy with unhashed_trie
-//#[cfg(test)]	// consider feature="std"
 pub fn unhashed_trie_no_ext<H, S, I, A, B>(input: I) -> Vec<u8> where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,

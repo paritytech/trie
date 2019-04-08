@@ -116,43 +116,32 @@ pub struct MemoryDB<H, KF, T>
 	null_node_data: T,
 	_kf: PhantomData<KF>,
 }
-// TODO rem just for quick check of calc_impl
+
 impl<H, KF, T> PartialEq<MemoryDB<H, KF, T>> for MemoryDB<H, KF, T>
-  where 
+	where 
 	H: KeyHasher,
 	KF: KeyFunction<H>,
-  <KF as KeyFunction<H>>::Key: Eq + std::fmt::Debug,
-        T: Eq + std::fmt::Debug,
+	<KF as KeyFunction<H>>::Key: Eq + std::fmt::Debug,
+	T: Eq + std::fmt::Debug,
 {
-    fn eq(&self, other: &MemoryDB<H, KF, T>) -> bool {
-      /*for a in other.data.iter() {
-        println!("ok{:?}", a);
-      }*/
-      for a in self.data.iter() {
-        match other.data.get(&a.0) {
-          Some(v) => {
-        if v != a.1 {
-      println!("{} {}", self.data.len(), other.data.len());
-      println!("val {:?} \n{:?}", v, a.1);
-          return false;
-        } 
-          },
-          None => {
-      println!("{} {}", self.data.len(), other.data.len());
-      println!("key {:?}", a.0);
-      return false;
-          }
-        }
-      }
-      true
-    }
+	fn eq(&self, other: &MemoryDB<H, KF, T>) -> bool {
+		for a in self.data.iter() {
+			match other.data.get(&a.0) {
+				Some(v) if v != a.1 => return false,
+				None => return false,
+				_ => (),
+			}
+		}
+		true
+	}
 }
+
 impl<H, KF, T> Eq for MemoryDB<H, KF, T>
-  where 
+	where 
 	H: KeyHasher,
 	KF: KeyFunction<H>,
-  <KF as KeyFunction<H>>::Key: Eq + std::fmt::Debug,
-        T: Eq + std::fmt::Debug,
+	<KF as KeyFunction<H>>::Key: Eq + std::fmt::Debug,
+				T: Eq + std::fmt::Debug,
 {}
  
 pub trait KeyFunction<H: KeyHasher> {

@@ -678,6 +678,31 @@ mod test {
 
 		compare_no_ext_insert_remove(data);
 	}
+	#[test]
+	fn two_bytes_nibble_len () {
+		let data = vec![
+			(vec![00u8],vec![0]),
+			(vec![01u8;64],vec![0;32]),
+		];
+		compare_impl_no_ext(data.clone());
+		compare_impl_no_ext_pk(data.clone());
+	}
+	#[test]
+  #[should_panic]
+	fn too_big_nibble_len_old () {
+		compare_impl_h(vec![
+			(vec![01u8;64],vec![0;32]),
+		]);
+	}
+	#[test]
+  #[should_panic]
+	fn too_big_nibble_len_new () {
+		compare_impl_no_ext(vec![
+			(vec![01u8;64 + 255],vec![0;32]),
+		]);
+	}
+
+
 
 /*	#[test]
 	fn fdispc () {

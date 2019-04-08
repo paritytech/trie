@@ -171,8 +171,6 @@ where
 				},
 				EncodedNode::NibbledBranch(k, encoded_children, val) => {
 					let children = dec_children(&encoded_children, storage);
-					// TODO slice currently encoded as extension: makes sense to replace bit id
-					// TODO this bit info does not seem to be use anywhere -> remove decoding code??
 					Node::NibbledBranch(k.encoded(false), children, val.map(DBValue::from_slice))
 				},
 		}
@@ -850,18 +848,11 @@ where
 
 					// one of us isn't empty: transmute to branch here
 					let mut children = empty_children();
-					let branch = if existing_key.is_empty() {
-            // TODO EMCH this condition seems unreachable (see previous if cp <
-            // existing_key.len())
-						// always replace since branch isn't leaf.
-						Node::NibbledBranch(existing_key.encoded(false), children, Some(stored_value))
-					} else {
-						let idx = existing_key.at(cp) as usize;
-						let new_leaf = Node::Leaf(existing_key.mid(cp + 1).encoded(true), stored_value);
-						children[idx] = Some(self.storage.alloc(Stored::New(new_leaf)).into());
+					let idx = existing_key.at(cp) as usize;
+					let new_leaf = Node::Leaf(existing_key.mid(cp + 1).encoded(true), stored_value);
+					children[idx] = Some(self.storage.alloc(Stored::New(new_leaf)).into());
 
-						Node::NibbledBranch(partial.encoded_leftmost(cp, false), children, None)
-					};
+					let branch = Node::NibbledBranch(partial.encoded_leftmost(cp, false), children, None);
 
 					// always replace because whatever we get out here is not the branch we started with.
 					let branch_action = self.insert_inspector_no_ext(branch, key, value, old_val)?.unwrap_node();
@@ -1305,9 +1296,7 @@ where
 		match self.storage.destroy(handle) {
 			Stored::New(node) => {
 				let encoded_root = node.into_encoded::<_, C, H>(|child, k| {
-          // TODO EMCH useless combine encoded call?? (as no encode but partial)
-					let combined = combine_encoded(nibbleslice::EMPTY_ENCODED, k);
-					self.commit_child(child, &combined)
+					self.commit_child(child, k)
 				});
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
 				*self.root = self.db.insert(nibbleslice::EMPTY_ENCODED, &encoded_root[..]);
