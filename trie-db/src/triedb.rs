@@ -724,7 +724,6 @@ mod tests {
 
 		let t = RefTrieDBNoExt::new(&memdb, &root).unwrap();
 		let mut iter = t.iter().unwrap();
-		let mut iter = t.iter().unwrap();
 		assert_eq!(iter.next().unwrap().unwrap(), (b"A".to_vec(), DBValue::from_slice(b"A")));
 		iter.seek(b"!").unwrap();
 		assert_eq!(d, iter.map(|x| x.unwrap().1).collect::<Vec<_>>());

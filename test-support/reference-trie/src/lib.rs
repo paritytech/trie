@@ -67,7 +67,7 @@ impl TrieLayOut for LayoutNew {
 pub type RefTrieDB<'a> = trie_db::TrieDB<'a, keccak_hasher::KeccakHasher, ReferenceNodeCodec>;
 pub type RefTrieDBNoExt<'a> = trie_db::TrieDB<'a, keccak_hasher::KeccakHasher, ReferenceNodeCodecNoExt>;
 pub type RefTrieDBMut<'a> = trie_db::TrieDBMut<'a, LayoutOri>;
-pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMutNoExt<'a, LayoutNew>;
+pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMut<'a, LayoutNew>;
 pub type RefFatDB<'a> = trie_db::FatDB<'a, KeccakHasher, ReferenceNodeCodec>;
 pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, LayoutOri>;
 pub type RefSecTrieDB<'a> = trie_db::SecTrieDB<'a, KeccakHasher, ReferenceNodeCodec>;
