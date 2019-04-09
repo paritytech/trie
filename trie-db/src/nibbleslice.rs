@@ -18,6 +18,10 @@ use ::core_::cmp::*;
 use ::core_::fmt;
 use elastic_array::ElasticArray36;
 
+
+// TODO EMCH Nibbleslice encoder trait that notably contains output type.
+// EMPTY_ENCODED must be part of the trait
+
 /// Empty slice encoded as non-leaf partial key
 pub const EMPTY_ENCODED: &[u8] = &[0];
 

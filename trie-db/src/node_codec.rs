@@ -37,6 +37,8 @@ pub trait Error {}
 #[cfg(not(feature = "std"))]
 impl<T> Error for T {}
 
+// TODO EMCH change node codec trait to use &mut self as input in order to run on internal buffer.
+// (not for decode actually!!; code seems fine to do that and new layout trait is ok too
 /// Trait for trie node encoding/decoding
 /// TODO add const MAX_NODE_LEN and run all encoding over a mutable buffer, returning size. ->
 /// avoid Vec by all means.

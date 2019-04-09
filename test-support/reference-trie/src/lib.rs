@@ -37,17 +37,41 @@ use trie_db::{
 use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
 
-pub use trie_db::{Trie, TrieMut, NibbleSlice, NodeCodec, Recorder, Record};
+pub use trie_db::{Trie, TrieMut, NibbleSlice, NodeCodec, Recorder, Record, TrieLayOut};
 pub use trie_root::TrieStream;
+
+#[derive(Clone,Default)]
+/// trie layout similar to parity-ethereum
+pub struct LayoutOri;
+
+impl TrieLayOut for LayoutOri {
+  type H = keccak_hasher::KeccakHasher;
+  type C = ReferenceNodeCodec;
+
+  fn uses_extension(&self) -> bool { true }
+  fn new_codec(&self) -> Self::C { ReferenceNodeCodec }
+}
+
+#[derive(Clone,Default)]
+/// trie layout similar to substrate one
+pub struct LayoutNew;
+
+impl TrieLayOut for LayoutNew {
+  type H = keccak_hasher::KeccakHasher;
+  type C = ReferenceNodeCodecNoExt;
+
+  fn uses_extension(&self) -> bool { false }
+  fn new_codec(&self) -> Self::C { ReferenceNodeCodecNoExt }
+}
 
 pub type RefTrieDB<'a> = trie_db::TrieDB<'a, keccak_hasher::KeccakHasher, ReferenceNodeCodec>;
 pub type RefTrieDBNoExt<'a> = trie_db::TrieDB<'a, keccak_hasher::KeccakHasher, ReferenceNodeCodecNoExt>;
-pub type RefTrieDBMut<'a> = trie_db::TrieDBMut<'a, KeccakHasher, ReferenceNodeCodec>;
-pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMutNoExt<'a, KeccakHasher, ReferenceNodeCodecNoExt>;
+pub type RefTrieDBMut<'a> = trie_db::TrieDBMut<'a, LayoutOri>;
+pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMutNoExt<'a, LayoutNew>;
 pub type RefFatDB<'a> = trie_db::FatDB<'a, KeccakHasher, ReferenceNodeCodec>;
-pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, KeccakHasher, ReferenceNodeCodec>;
+pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, LayoutOri>;
 pub type RefSecTrieDB<'a> = trie_db::SecTrieDB<'a, KeccakHasher, ReferenceNodeCodec>;
-pub type RefSecTrieDBMut<'a> = trie_db::SecTrieDBMut<'a, KeccakHasher, ReferenceNodeCodec>;
+pub type RefSecTrieDBMut<'a> = trie_db::SecTrieDBMut<'a, LayoutOri>;
 pub type RefLookup<'a, Q> = trie_db::Lookup<'a, KeccakHasher, ReferenceNodeCodec, Q>;
 pub type RefLookupNoExt<'a, Q> = trie_db::Lookup<'a, KeccakHasher, ReferenceNodeCodecNoExt, Q>;
 
@@ -663,7 +687,7 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodecNoExt {
 
 }
 
-
+// TODO fuse with other layout
 pub fn compare_impl<X : hash_db::HashDB<KeccakHasher,DBValue> + Eq> (
 	data: Vec<(Vec<u8>,Vec<u8>)>,
 	mut memdb: X,
@@ -676,7 +700,7 @@ pub fn compare_impl<X : hash_db::HashDB<KeccakHasher,DBValue> + Eq> (
 	};
 	let root = {
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMut::new(&mut memdb, &mut root, LayoutOri);
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..],&data[i].1[..]).unwrap();
 		}
@@ -718,7 +742,7 @@ pub fn compare_root(
 	};
 	let root = {
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMut::new(&mut memdb, &mut root, LayoutOri);
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..],&data[i].1[..]).unwrap();
 		}
@@ -794,7 +818,7 @@ pub fn compare_impl_no_ext(
 	};
 	let root = {
 		let mut root = Default::default();
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root, LayoutNew);
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..],&data[i].1[..]).unwrap();
 		}
@@ -836,7 +860,7 @@ pub fn compare_impl_no_ext_unordered(
 	let mut b_map = std::collections::btree_map::BTreeMap::new();
 	let root = {
 		let mut root = Default::default();
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root, LayoutNew);
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..],&data[i].1[..]).unwrap();
 			b_map.insert(data[i].0.clone(),data[i].1.clone());
@@ -879,13 +903,13 @@ pub fn compare_no_ext_insert_remove(
 	let mut root = Default::default();
 	let mut a = 0;
 	{
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root, LayoutNew);
 		t.commit();
 	}
 	while a < data.len() {
 		// new triemut every 3 element
 		root = {
-			let mut t = RefTrieDBMutNoExt::from_existing(&mut memdb, &mut root).unwrap();
+			let mut t = RefTrieDBMutNoExt::from_existing(&mut memdb, &mut root, LayoutNew).unwrap();
 			for _ in 0..3 {
 				if data[a].0 {
 					// remove
@@ -906,7 +930,7 @@ pub fn compare_no_ext_insert_remove(
 			*t.root()
 		};
 	}
-	let mut t = RefTrieDBMutNoExt::from_existing(&mut memdb, &mut root).unwrap();
+	let mut t = RefTrieDBMutNoExt::from_existing(&mut memdb, &mut root, LayoutNew).unwrap();
 	// we are testing the RefTrie code here so we do not sort or check uniqueness
 	// before.
 	assert_eq!(*t.root(), calc_root_no_ext(data2));

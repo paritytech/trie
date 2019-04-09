@@ -58,7 +58,7 @@ use elastic_array::ElasticArray36;
 /// fn main() {
 ///   let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
 ///   let mut root = Default::default();
-///   RefTrieDBMut::new(&mut memdb, &mut root).insert(b"foo", b"bar").unwrap();
+///   RefTrieDBMut::new(&mut memdb, &mut root, Default::default()).insert(b"foo", b"bar").unwrap();
 ///   let t = RefTrieDB::new(&memdb, &root).unwrap();
 ///   assert!(t.contains(b"foo").unwrap());
 ///   assert_eq!(t.get(b"foo").unwrap().unwrap(), DBValue::from_slice(b"bar"));
@@ -571,7 +571,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+			let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 			for (x, y) in &pairs {
 				t.insert(x, y).unwrap();
 			}
@@ -598,7 +598,7 @@ mod tests {
 		let mut memdb = MemoryDB::<_, PrefixedKey<_>,_>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root, Default::default());
 			for (x, y) in &pairs {
 				t.insert(x, y).unwrap();
 			}
@@ -627,7 +627,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+			let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 			for (x, y) in &pairs {
 				t.insert(x, y).unwrap();
 			}
@@ -654,7 +654,7 @@ mod tests {
 		let mut memdb = MemoryDB::<_, PrefixedKey<_>,_>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root, Default::default());
 			for (x, y) in &pairs {
 				t.insert(x, y).unwrap();
 			}
@@ -679,7 +679,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+			let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 			for x in &d {
 				t.insert(x, x).unwrap();
 			}
@@ -697,7 +697,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root, Default::default());
 			for x in &d {
 				t.insert(x, x).unwrap();
 			}
@@ -716,7 +716,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root, Default::default());
 			for x in &d {
 				t.insert(x, x).unwrap();
 			}
@@ -756,7 +756,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+			let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 			t.insert(b"A", b"ABC").unwrap();
 			t.insert(b"B", b"ABCBA").unwrap();
 		}
@@ -772,7 +772,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root, Default::default());
 			t.insert(b"A", b"ABC").unwrap();
 			t.insert(b"B", b"ABCBA").unwrap();
 		}
@@ -791,7 +791,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let root = {
-			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+			let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 			for x in &d {
 				t.insert(x, x).unwrap();
 			}
@@ -859,7 +859,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+			let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 			t.insert(b"A", b"ABC").unwrap();
 			t.insert(b"B", b"ABCBA").unwrap();
 		}

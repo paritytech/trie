@@ -14,7 +14,7 @@
 
 //! In-memory trie representation.
 
-use super::{Result, TrieError, TrieMut};
+use super::{Result, TrieError, TrieMut, TrieLayOut, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::Node as EncodedNode;
 use node_codec::NodeCodec;
@@ -336,7 +336,7 @@ impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
 /// fn main() {
 ///   let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 ///   let mut root = Default::default();
-///   let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+///   let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 ///   assert!(t.is_empty());
 ///   assert_eq!(*t.root(), KeccakHasher::hash(&[0u8][..]));
 ///   t.insert(b"foo", b"bar").unwrap();
@@ -346,50 +346,47 @@ impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
 ///   assert!(!t.contains(b"foo").unwrap());
 /// }
 /// ```
-pub struct TrieDBMut<'a, H, C>
+pub struct TrieDBMut<'a, L>
 where
-	H: Hasher + 'a,
-	C: NodeCodec<H>
+	L: TrieLayOut,
 {
-	storage: NodeStorage<H::Out>,
-	db: &'a mut HashDB<H, DBValue>,
-	root: &'a mut H::Out,
-	root_handle: NodeHandle<H::Out>,
-	death_row: HashSet<(H::Out, NodeKey)>,
+	storage: NodeStorage<TrieHash<L>>,
+	db: &'a mut HashDB<L::H, DBValue>,
+	root: &'a mut TrieHash<L>,
+	root_handle: NodeHandle<TrieHash<L>>,
+	death_row: HashSet<(TrieHash<L>, NodeKey)>,
 	/// The number of hash operations this trie has performed.
 	/// Note that none are performed until changes are committed.
 	hash_count: usize,
-	marker: PhantomData<C>, // TODO: rpheimer: "we could have the NodeCodec trait take &self to its methods and then we don't need PhantomData. we can just store an instance of C: NodeCodec in the trie struct. If it's a ZST it won't have any additional overhead anyway"
+	layout: L,
 }
 
-pub struct TrieDBMutNoExt<'a, H, C>(TrieDBMut<'a, H, C>)
+pub struct TrieDBMutNoExt<'a, L>(TrieDBMut<'a, L>)
 where
-	H: Hasher + 'a,
-	C: NodeCodec<H>;
+	L: TrieLayOut;
 
-impl<'a, H, C> TrieDBMutNoExt<'a, H, C>
+impl<'a, L> TrieDBMutNoExt<'a, L>
 where
-	H: Hasher,
-	C: NodeCodec<H>
+	L: TrieLayOut,
 {
 	/// Create a new trie with backing database `db` and empty `root`.
-	pub fn new(db: &'a mut HashDB<H, DBValue>, root: &'a mut H::Out) -> Self {
-		TrieDBMutNoExt(TrieDBMut::new(db, root))
+	pub fn new(db: &'a mut HashDB<L::H, DBValue>, root: &'a mut <L::H as Hasher>::Out, layout: L) -> Self {
+		TrieDBMutNoExt(TrieDBMut::new(db, root, layout))
 	}
 
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
-	pub fn from_existing(db: &'a mut HashDB<H, DBValue>, root: &'a mut H::Out) -> Result<Self, H::Out, C::Error> {
-		Ok(TrieDBMutNoExt(TrieDBMut::from_existing(db, root)?))
+	pub fn from_existing(db: &'a mut HashDB<L::H, DBValue>, root: &'a mut TrieHash<L>, layout: L) -> Result<Self, TrieHash<L>, CError<L>> {
+		Ok(TrieDBMutNoExt(TrieDBMut::from_existing(db, root, layout)?))
 	}
 
 	/// Get the backing database.
-	pub fn db(&self) -> &HashDB<H, DBValue> {
+	pub fn db(&self) -> &HashDB<L::H, DBValue> {
 		self.0.db()
 	}
 
 	/// Get the backing database mutably.
-	pub fn db_mut(&mut self) -> &mut HashDB<H, DBValue> {
+	pub fn db_mut(&mut self) -> &mut HashDB<L::H, DBValue> {
 		self.0.db_mut()
 	}
 
@@ -402,30 +399,29 @@ where
 }
 
 
-impl<'a, H, C> TrieDBMut<'a, H, C>
+impl<'a, L> TrieDBMut<'a, L>
 where
-	H: Hasher,
-	C: NodeCodec<H>
+	L: TrieLayOut,
 {
 	/// Create a new trie with backing database `db` and empty `root`.
-	pub fn new(db: &'a mut HashDB<H, DBValue>, root: &'a mut H::Out) -> Self {
-		*root = C::hashed_null_node();
-		let root_handle = NodeHandle::Hash(C::hashed_null_node());
+	pub fn new(db: &'a mut HashDB<L::H, DBValue>, root: &'a mut TrieHash<L>, layout: L) -> Self {
+		*root = L::C::hashed_null_node();
+		let root_handle = NodeHandle::Hash(L::C::hashed_null_node());
 
 		TrieDBMut {
 			storage: NodeStorage::empty(),
-			db: db,
-			root: root,
-			root_handle: root_handle,
+			db,
+			root,
+			root_handle,
 			death_row: HashSet::new(),
 			hash_count: 0,
-			marker: PhantomData,
+      layout
 		}
 	}
 
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
-	pub fn from_existing(db: &'a mut HashDB<H, DBValue>, root: &'a mut H::Out) -> Result<Self, H::Out, C::Error> {
+	pub fn from_existing(db: &'a mut HashDB<L::H, DBValue>, root: &'a mut TrieHash<L>, layout: L) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, nibbleslice::EMPTY_ENCODED) {
 			return Err(Box::new(TrieError::InvalidStateRoot(*root)));
 		}
@@ -433,28 +429,28 @@ where
 		let root_handle = NodeHandle::Hash(*root);
 		Ok(TrieDBMut {
 			storage: NodeStorage::empty(),
-			db: db,
-			root: root,
-			root_handle: root_handle,
+			db,
+			root,
+			root_handle,
 			death_row: HashSet::new(),
 			hash_count: 0,
-			marker: PhantomData,
+			layout,
 		})
 	}
 	/// Get the backing database.
-	pub fn db(&self) -> &HashDB<H, DBValue> {
+	pub fn db(&self) -> &HashDB<L::H, DBValue> {
 		self.db
 	}
 
 	/// Get the backing database mutably.
-	pub fn db_mut(&mut self) -> &mut HashDB<H, DBValue> {
+	pub fn db_mut(&mut self) -> &mut HashDB<L::H, DBValue> {
 		self.db
 	}
 
 	// cache a node by hash
-	fn cache(&mut self, hash: H::Out, key: &[u8]) -> Result<StorageHandle, H::Out, C::Error> {
+	fn cache(&mut self, hash: TrieHash<L>, key: &[u8]) -> Result<StorageHandle, TrieHash<L>, CError<L>> {
 		let node_encoded = self.db.get(&hash, key).ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
-		let node = Node::from_encoded::<C, H>(
+		let node = Node::from_encoded::<L::C, L::H>(
 			&node_encoded,
 			&*self.db,
 			&mut self.storage
@@ -464,8 +460,8 @@ where
 
 	// inspect a node, choosing either to replace, restore, or delete it.
 	// if restored or replaced, returns the new node along with a flag of whether it was changed.
-	fn inspect<F>(&mut self, stored: Stored<H::Out>, key: &mut Partial, inspector: F) -> Result<Option<(Stored<H::Out>, bool)>, H::Out, C::Error>
-	where F: FnOnce(&mut Self, Node<H::Out>, &mut Partial) -> Result<Action<H::Out>, H::Out, C::Error> {
+	fn inspect<F>(&mut self, stored: Stored<TrieHash<L>>, key: &mut Partial, inspector: F) -> Result<Option<(Stored<TrieHash<L>>, bool)>, TrieHash<L>, CError<L>>
+	where F: FnOnce(&mut Self, Node<TrieHash<L>>, &mut Partial) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		Ok(match stored {
 			Stored::New(node) => match inspector(self, node, key)? {
 				Action::Restore(node) => Some((Stored::New(node), false)),
@@ -487,7 +483,7 @@ where
 	}
 
 	// walk the trie, attempting to find the key's node.
-	fn lookup<'x, 'key>(&'x self, mut partial: NibbleSlice<'key>, handle: &NodeHandle<H::Out>) -> Result<Option<DBValue>, H::Out, C::Error>
+	fn lookup<'x, 'key>(&'x self, mut partial: NibbleSlice<'key>, handle: &NodeHandle<TrieHash<L>>) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
 		where 'x: 'key
 	{
 		let mut handle = handle;
@@ -497,7 +493,7 @@ where
 					db: &self.db,
 					query: DBValue::from_slice,
 					hash: hash.clone(),
-					marker: PhantomData::<C>,
+					marker: PhantomData::<L::C>,
 				}.look_up(partial),
 				NodeHandle::InMemory(ref handle) => match self.storage[handle] {
 					Node::Empty => return Ok(None),
@@ -550,7 +546,7 @@ where
 	}
 
 	/// insert a key-value pair into the trie, creating new nodes if necessary.
-	fn insert_at(&mut self, handle: NodeHandle<H::Out>, key: &mut Partial, value: DBValue, old_val: &mut Option<DBValue>) -> Result<(StorageHandle, bool), H::Out, C::Error> {
+	fn insert_at(&mut self, handle: NodeHandle<TrieHash<L>>, key: &mut Partial, value: DBValue, old_val: &mut Option<DBValue>) -> Result<(StorageHandle, bool), TrieHash<L>, CError<L>> {
 		let h = match handle {
 			NodeHandle::InMemory(h) => h,
 			NodeHandle::Hash(h) => self.cache(h, &key.encoded_prefix())?,
@@ -564,7 +560,7 @@ where
 	}
 
 	/// insert a key-value pair into the trie, creating new nodes if necessary.
-	fn insert_at_no_ext(&mut self, handle: NodeHandle<H::Out>, key: &mut Partial, value: DBValue, old_val: &mut Option<DBValue>) -> Result<(StorageHandle, bool), H::Out, C::Error> {
+	fn insert_at_no_ext(&mut self, handle: NodeHandle<TrieHash<L>>, key: &mut Partial, value: DBValue, old_val: &mut Option<DBValue>) -> Result<(StorageHandle, bool), TrieHash<L>, CError<L>> {
 		let h = match handle {
 			NodeHandle::InMemory(h) => h,
 			NodeHandle::Hash(h) => self.cache(h, &key.encoded_prefix())?,
@@ -579,7 +575,7 @@ where
 
 
 	/// the insertion inspector.
-	fn insert_inspector(&mut self, node: Node<H::Out>, key: &mut Partial, value: DBValue, old_val: &mut Option<DBValue>) -> Result<InsertAction<H::Out>, H::Out, C::Error> {
+	fn insert_inspector(&mut self, node: Node<TrieHash<L>>, key: &mut Partial, value: DBValue, old_val: &mut Option<DBValue>) -> Result<InsertAction<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		let partial = key.mid();
 		trace!(target: "trie", "augmented (partial: {:?}, value: {:#x?})", partial, value);
 
@@ -747,7 +743,7 @@ where
 		})
 	}
 
-	fn insert_inspector_no_ext(&mut self, node: Node<H::Out>, key: &mut Partial, value: DBValue, old_val: &mut Option<DBValue>) -> Result<InsertAction<H::Out>, H::Out, C::Error> {
+	fn insert_inspector_no_ext(&mut self, node: Node<TrieHash<L>>, key: &mut Partial, value: DBValue, old_val: &mut Option<DBValue>) -> Result<InsertAction<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		let partial = key.mid();
 		trace!(target: "trie", "augmented (partial: {:?}, value: {:#x?})", partial, value);
 
@@ -806,7 +802,7 @@ where
 					// append after cp == existing_key and partial > cp
 					trace!(target: "trie", "branch: ROUTE,AUGMENT");
 					let idx = partial.at(cp) as usize;
-          key.advance(cp + 1);
+					key.advance(cp + 1);
 					if let Some(child) = children[idx].take() {
 						// original had something there. recurse down into it.
 						let (new_child, changed) = self.insert_at_no_ext(child, key, value, old_val)?;
@@ -878,7 +874,7 @@ where
 
 
 	/// Remove a node from the trie based on key.
-	fn remove_at(&mut self, handle: NodeHandle<H::Out>, key: &mut Partial, old_val: &mut Option<DBValue>) -> Result<Option<(StorageHandle, bool)>, H::Out, C::Error> {
+	fn remove_at(&mut self, handle: NodeHandle<TrieHash<L>>, key: &mut Partial, old_val: &mut Option<DBValue>) -> Result<Option<(StorageHandle, bool)>, TrieHash<L>, CError<L>> {
 		let stored = match handle {
 			NodeHandle::InMemory(h) => self.storage.destroy(h),
 			NodeHandle::Hash(h) => {
@@ -893,7 +889,7 @@ where
 	}
 
 	/// Remove a node from the trie based on key.
-	fn remove_at_no_ext(&mut self, handle: NodeHandle<H::Out>, key: &mut Partial, old_val: &mut Option<DBValue>) -> Result<Option<(StorageHandle, bool)>, H::Out, C::Error> {
+	fn remove_at_no_ext(&mut self, handle: NodeHandle<TrieHash<L>>, key: &mut Partial, old_val: &mut Option<DBValue>) -> Result<Option<(StorageHandle, bool)>, TrieHash<L>, CError<L>> {
 		let stored = match handle {
 			NodeHandle::InMemory(h) => self.storage.destroy(h),
 			NodeHandle::Hash(h) => {
@@ -909,7 +905,7 @@ where
 
 
 	/// the removal inspector
-	fn remove_inspector(&mut self, node: Node<H::Out>, key: &mut Partial, old_val: &mut Option<DBValue>) -> Result<Action<H::Out>, H::Out, C::Error> {
+	fn remove_inspector(&mut self, node: Node<TrieHash<L>>, key: &mut Partial, old_val: &mut Option<DBValue>) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		let partial = key.mid();
 		Ok(match (node, partial.is_empty()) {
 			(Node::Empty, _) => Action::Delete,
@@ -998,7 +994,7 @@ where
 	}
 
 	/// the removal inspector for no extension variant
-	fn remove_inspector_no_ext(&mut self, node: Node<H::Out>, key: &mut Partial, old_val: &mut Option<DBValue>) -> Result<Action<H::Out>, H::Out, C::Error> {
+	fn remove_inspector_no_ext(&mut self, node: Node<TrieHash<L>>, key: &mut Partial, old_val: &mut Option<DBValue>) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		let partial = key.mid();
 		Ok(match (node, partial.is_empty()) {
 			(Node::Empty, _) => Action::Delete,
@@ -1018,8 +1014,8 @@ where
 					// replace val
 					if let Some(val) = value {
 						*old_val = Some(val);
-//            key.advance(cp + 1);
-            let f = self.fix(Node::NibbledBranch(encoded, children, None), key.encoded_prefix());
+//						key.advance(cp + 1);
+						let f = self.fix(Node::NibbledBranch(encoded, children, None), key.encoded_prefix());
 						Action::Replace(f?)
 					} else {
 						Action::Restore(Node::NibbledBranch(encoded, children, None))
@@ -1035,7 +1031,7 @@ where
 					if let Some(child) = children[idx].take() {
 						trace!(target: "trie", "removing value out of branch child, partial={:?}", partial);
 						let prefix = key.encoded_prefix();
-            key.advance(cp + 1);
+						key.advance(cp + 1);
 						match self.remove_at_no_ext(child, key, old_val)? {
 							Some((new, changed)) => {
 								children[idx] = Some(new.into());
@@ -1087,7 +1083,7 @@ where
 	/// _invalid state_ means:
 	/// - Branch node where there is only a single entry;
 	/// - Extension node followed by anything other than a Branch node.
-	fn fix(&mut self, node: Node<H::Out>, key: NodeKey) -> Result<Node<H::Out>, H::Out, C::Error> {
+	fn fix(&mut self, node: Node<TrieHash<L>>, key: NodeKey) -> Result<Node<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		match node {
 			Node::Branch(mut children, value) => {
 				// if only a single value, transmute to leaf/extension and feed through fixed.
@@ -1158,7 +1154,7 @@ where
 						let stored = match child {
 							NodeHandle::InMemory(h) => self.storage.destroy(h),
 							NodeHandle::Hash(h) => {
-                // TODO EMCH optimize this concat (new_partial_tmp may be calc again afterward)
+								// TODO EMCH optimize this concat (new_partial_tmp may be calc again afterward)
 								let new_partial_tmp = NibbleSlice::new_composed(
 										&NibbleSlice::from_encoded(&enc_nibble).0,
 										&NibbleSlice::new_offset(&[a], 1)
@@ -1295,7 +1291,7 @@ where
 
 		match self.storage.destroy(handle) {
 			Stored::New(node) => {
-				let encoded_root = node.into_encoded::<_, C, H>(|child, k| {
+				let encoded_root = node.into_encoded::<_, L::C, L::H>(|child, k| {
 					self.commit_child(child, k)
 				});
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
@@ -1317,7 +1313,7 @@ where
 	/// case where we can fit the actual data in the `Hasher`s output type, we
 	/// store the data inline. This function is used as the callback to the
 	/// `into_encoded` method of `Node`.
-	fn commit_child(&mut self, handle: NodeHandle<H::Out>, prefix: &NodeKey) -> ChildReference<H::Out> {
+	fn commit_child(&mut self, handle: NodeHandle<TrieHash<L>>, prefix: &NodeKey) -> ChildReference<TrieHash<L>> {
 		match handle {
 			NodeHandle::Hash(hash) => ChildReference::Hash(hash),
 			NodeHandle::InMemory(storage_handle) => {
@@ -1329,15 +1325,15 @@ where
 								let combined = combine_encoded(&prefix, partial);
 								self.commit_child(node_handle, &combined)
 							};
-							node.into_encoded::<_, C, H>(commit_child)
+							node.into_encoded::<_, L::C, L::H>(commit_child)
 						};
-						if encoded.len() >= H::LENGTH {
+						if encoded.len() >= L::H::LENGTH {
 							let hash = self.db.insert(&prefix, &encoded[..]);
 							self.hash_count +=1;
 							ChildReference::Hash(hash)
 						} else {
-							// it's a small value, so we cram it into a `H::Out` and tag with length
-							let mut h = H::Out::default();
+							// it's a small value, so we cram it into a `TrieHash<L>` and tag with length
+							let mut h = <TrieHash<L>>::default();
 							let len = encoded.len();
 							h.as_mut()[..len].copy_from_slice(&encoded[..len]);
 							ChildReference::Inline(h, len)
@@ -1349,7 +1345,7 @@ where
 	}
 
 	// a hack to get the root node's handle
-	fn root_handle(&self) -> NodeHandle<H::Out> {
+	fn root_handle(&self) -> NodeHandle<TrieHash<L>> {
 		match self.root_handle {
 			NodeHandle::Hash(h) => NodeHandle::Hash(h),
 			NodeHandle::InMemory(StorageHandle(x)) => NodeHandle::InMemory(StorageHandle(x)),
@@ -1357,19 +1353,18 @@ where
 	}
 }
 
-impl<'a, H, C> TrieMut<H, C> for TrieDBMut<'a, H, C>
+impl<'a, L> TrieMut<L::H, L::C> for TrieDBMut<'a, L>
 where
-	H: Hasher,
-	C: NodeCodec<H>
+	L: TrieLayOut,
 {
-	fn root(&mut self) -> &H::Out {
+	fn root(&mut self) -> &TrieHash<L> {
 		self.commit();
 		self.root
 	}
 
 	fn is_empty(&self) -> bool {
 		match self.root_handle {
-			NodeHandle::Hash(h) => h == C::hashed_null_node(),
+			NodeHandle::Hash(h) => h == L::C::hashed_null_node(),
 			NodeHandle::InMemory(ref h) => match self.storage[h] {
 				Node::Empty => true,
 				_ => false,
@@ -1377,13 +1372,13 @@ where
 		}
 	}
 
-	fn get<'x, 'key>(&'x self, key: &'key [u8]) -> Result<Option<DBValue>, H::Out, C::Error>
+	fn get<'x, 'key>(&'x self, key: &'key [u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
 		where 'x: 'key
 	{
 		self.lookup(NibbleSlice::new(key), &self.root_handle)
 	}
 
-	fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<Option<DBValue>, H::Out, C::Error> {
+	fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
 		if value.is_empty() { return self.remove(key) }
 
 		let mut old_val = None;
@@ -1404,7 +1399,7 @@ where
 		Ok(old_val)
 	}
 
-	fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, H::Out, C::Error> {
+	fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
 		trace!(target: "trie", "remove: key={:#x?}", key);
 
 		let root_handle = self.root_handle();
@@ -1418,8 +1413,8 @@ where
 			}
 			None => {
 				trace!(target: "trie", "remove: obliterated trie");
-				self.root_handle = NodeHandle::Hash(C::hashed_null_node());
-				*self.root = C::hashed_null_node();
+				self.root_handle = NodeHandle::Hash(L::C::hashed_null_node());
+				*self.root = L::C::hashed_null_node();
 			}
 		}
 
@@ -1427,12 +1422,11 @@ where
 	}
 }
 
-impl<'a, H, C> TrieMut<H, C> for TrieDBMutNoExt<'a, H, C>
+impl<'a, L> TrieMut<L::H, L::C> for TrieDBMutNoExt<'a, L>
 where
-	H: Hasher,
-	C: NodeCodec<H>
+	L: TrieLayOut,
 {
-	fn root(&mut self) -> &H::Out {
+	fn root(&mut self) -> &TrieHash<L> {
 		self.0.root()
 	}
 
@@ -1440,13 +1434,13 @@ where
 		self.0.is_empty()
 	}
 
-	fn get<'x, 'key>(&'x self, key: &'key [u8]) -> Result<Option<DBValue>, H::Out, C::Error>
+	fn get<'x, 'key>(&'x self, key: &'key [u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
 		where 'x: 'key
 	{
 		self.0.get(key)
 	}
 
-	fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<Option<DBValue>, H::Out, C::Error> {
+	fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
 		if value.is_empty() { return self.remove(key) }
 
 		let mut old_val = None;
@@ -1467,7 +1461,7 @@ where
 		Ok(old_val)
 	}
 
-	fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, H::Out, C::Error> {
+	fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
 		trace!(target: "trie", "remove: key={:#x?}", key);
 
 		let root_handle = self.0.root_handle();
@@ -1481,8 +1475,8 @@ where
 			}
 			None => {
 				trace!(target: "trie", "remove: obliterated trie");
-				self.0.root_handle = NodeHandle::Hash(C::hashed_null_node());
-				*self.0.root = C::hashed_null_node();
+				self.0.root_handle = NodeHandle::Hash(L::C::hashed_null_node());
+				*self.0.root = L::C::hashed_null_node();
 			}
 		}
 
@@ -1490,10 +1484,9 @@ where
 	}
 }
 
-impl<'a, H, C> Drop for TrieDBMut<'a, H, C>
+impl<'a, L> Drop for TrieDBMut<'a, L>
 where
-	H: Hasher,
-	C: NodeCodec<H>
+	L: TrieLayOut,
 {
 	fn drop(&mut self) {
 		self.commit();
@@ -1516,7 +1509,7 @@ mod tests {
 		root: &'db mut <KeccakHasher as Hasher>::Out,
 		v: &[(Vec<u8>, Vec<u8>)]
 	) -> RefTrieDBMut<'db> {
-		let mut t = RefTrieDBMut::new(db, root);
+		let mut t = RefTrieDBMut::new(db, root, Default::default());
 		for i in 0..v.len() {
 			let key: &[u8]= &v[i].0;
 			let val: &[u8] = &v[i].1;
@@ -1537,7 +1530,7 @@ mod tests {
 		root: &'db mut <KeccakHasher as Hasher>::Out,
 		v: &[(Vec<u8>, Vec<u8>)]
 	) -> RefTrieDBMutNoExt<'db> {
-		let mut t = RefTrieDBMutNoExt::new(db, root);
+		let mut t = RefTrieDBMutNoExt::new(db, root, Default::default());
 		for i in 0..v.len() {
 			let key: &[u8]= &v[i].0;
 			let val: &[u8] = &v[i].1;
@@ -1603,7 +1596,7 @@ mod tests {
 	fn init() {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 		assert_eq!(*t.root(), ReferenceNodeCodec::hashed_null_node());
 	}
 
@@ -1611,7 +1604,7 @@ mod tests {
 	fn insert_on_empty() {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		assert_eq!(*t.root(), ref_trie_root(vec![ (vec![0x01u8, 0x23], vec![0x01u8, 0x23]) ]));
 	}
@@ -1622,12 +1615,12 @@ mod tests {
 
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t1 = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t1 = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 		t1.insert(&[0x01, 0x23], big_value).unwrap();
 		t1.insert(&[0x01, 0x34], big_value).unwrap();
 		let mut memdb2 = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root2 = Default::default();
-		let mut t2 = RefTrieDBMut::new(&mut memdb2, &mut root2);
+		let mut t2 = RefTrieDBMut::new(&mut memdb2, &mut root2, Default::default());
 
 		t2.insert(&[0x01], big_value).unwrap();
 		t2.insert(&[0x01, 0x23], big_value).unwrap();
@@ -1646,10 +1639,10 @@ mod tests {
 		{
 			let mut memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 			let mut root = Default::default();
-			let mut t1 = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+			let mut t1 = RefTrieDBMutNoExt::new(&mut memdb, &mut root, Default::default());
 			//t1.insert(&[0x01, 0x23], big_value).unwrap();
 			//t1.insert(&[0x01, 0x34], big_value).unwrap();
-			let mut t2 = RefTrieDBMutNoExt::new(&mut memdb2, &mut root2);
+			let mut t2 = RefTrieDBMutNoExt::new(&mut memdb2, &mut root2, Default::default());
 
 			t2.insert(&[0x01, 0x23], big_value3).unwrap();
 			t2.insert(&[0x01], big_value2).unwrap();
@@ -1669,7 +1662,7 @@ mod tests {
 	fn insert_replace_root() {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[0x01u8, 0x23], &[0x23u8, 0x45]).unwrap();
 		assert_eq!(*t.root(), ref_trie_root(vec![ (vec![0x01u8, 0x23], vec![0x23u8, 0x45]) ]));
@@ -1679,7 +1672,7 @@ mod tests {
 	fn insert_make_branch_root() {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[0x11u8, 0x23], &[0x11u8, 0x23]).unwrap();
 		assert_eq!(*t.root(), ref_trie_root(vec![
@@ -1692,7 +1685,7 @@ mod tests {
 	fn insert_into_branch_root() {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[0xf1u8, 0x23], &[0xf1u8, 0x23]).unwrap();
 		t.insert(&[0x81u8, 0x23], &[0x81u8, 0x23]).unwrap();
@@ -1707,7 +1700,7 @@ mod tests {
 	fn insert_value_into_branch_root() {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[], &[0x0]).unwrap();
 		assert_eq!(*t.root(), ref_trie_root(vec![
@@ -1720,7 +1713,7 @@ mod tests {
 	fn insert_split_leaf() {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[0x01u8, 0x34], &[0x01u8, 0x34]).unwrap();
 		assert_eq!(*t.root(), ref_trie_root(vec![
@@ -1733,7 +1726,7 @@ mod tests {
 	fn insert_split_extenstion() {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 		t.insert(&[0x01, 0x23, 0x45], &[0x01]).unwrap();
 		t.insert(&[0x01, 0xf3, 0x45], &[0x02]).unwrap();
 		t.insert(&[0x01, 0xf3, 0xf5], &[0x03]).unwrap();
@@ -1751,7 +1744,7 @@ mod tests {
 
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 		t.insert(&[0x01u8, 0x23], big_value0).unwrap();
 		t.insert(&[0x11u8, 0x23], big_value1).unwrap();
 		assert_eq!(*t.root(), ref_trie_root(vec![
@@ -1766,7 +1759,7 @@ mod tests {
 
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 		t.insert(&[0x01u8, 0x23], big_value).unwrap();
 		t.insert(&[0x11u8, 0x23], big_value).unwrap();
 		assert_eq!(*t.root(), ref_trie_root(vec![
@@ -1779,7 +1772,7 @@ mod tests {
 	fn test_at_empty() {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 		assert_eq!(t.get(&[0x5]).unwrap(), None);
 	}
 
@@ -1787,7 +1780,7 @@ mod tests {
 	fn test_at_one() {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0x1u8, 0x23]));
 		t.commit();
@@ -1798,7 +1791,7 @@ mod tests {
 	fn test_at_three() {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[0xf1u8, 0x23], &[0xf1u8, 0x23]).unwrap();
 		t.insert(&[0x81u8, 0x23], &[0x81u8, 0x23]).unwrap();
@@ -1856,12 +1849,12 @@ mod tests {
 		let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMut::new(&mut db, &mut root);
+			let mut t = RefTrieDBMut::new(&mut db, &mut root, Default::default());
 			t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		}
 
 		{
-			 let _ = RefTrieDBMut::from_existing(&mut db, &mut root);
+			 let _ = RefTrieDBMut::from_existing(&mut db, &mut root, Default::default());
 		}
 	}
 
@@ -1878,7 +1871,7 @@ mod tests {
 
 		let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut db, &mut root);
+		let mut t = RefTrieDBMut::new(&mut db, &mut root, Default::default());
 		for &(ref key, ref value) in &x {
 			t.insert(key, value).unwrap();
 		}
@@ -1906,7 +1899,7 @@ mod tests {
 
 		let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut db, &mut root);
+		let mut t = RefTrieDBMut::new(&mut db, &mut root, Default::default());
 		for &(ref key, ref value) in &x {
 			assert!(t.insert(key, value).unwrap().is_none());
 			assert_eq!(t.insert(key, value).unwrap(), Some(DBValue::from_slice(value)));

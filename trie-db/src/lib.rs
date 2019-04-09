@@ -218,6 +218,7 @@ pub trait Trie<H: Hasher, C: NodeCodec<H>> {
 }
 
 /// A key-value datastore implemented as a database-backed modified Merkle tree.
+/// TODO EMCH switch to use only H::Out and C::Error as trait params??
 pub trait TrieMut<H: Hasher, C: NodeCodec<H>> {
 	/// Return the root of the trie.
 	fn root(&mut self) -> &H::Out;
@@ -267,10 +268,9 @@ impl Default for TrieSpec {
 
 /// Trie factory.
 #[derive(Default, Clone)]
-pub struct TrieFactory<H: Hasher, C: NodeCodec<H>> {
+pub struct TrieFactory<L: TrieLayOut> {
 	spec: TrieSpec,
-	mark_hash: PhantomData<H>,
-	mark_codec: PhantomData<C>,
+  layout: L,
 }
 
 /// All different kinds of tries.
@@ -319,22 +319,21 @@ impl<'db, H: Hasher, C: NodeCodec<H>> Trie<H, C> for TrieKinds<'db, H, C> {
 	}
 }
 
-impl<'db, H, C> TrieFactory<H, C>
+impl<'db, L> TrieFactory<L>
 where
-	H: Hasher,
-	C: NodeCodec<H> + 'db
+	L: TrieLayOut + 'db,
 {
 	/// Creates new factory.
-	pub fn new(spec: TrieSpec) -> Self {
-		TrieFactory { spec, mark_hash: PhantomData, mark_codec: PhantomData }
+	pub fn new(spec: TrieSpec, layout: L) -> Self {
+		TrieFactory { spec, layout }
 	}
 
 	/// Create new immutable instance of Trie.
 	pub fn readonly(
 		&self,
-		db: &'db HashDBRef<H, DBValue>,
-		root: &'db H::Out
-	) -> Result<TrieKinds<'db, H, C>, H::Out, <C as NodeCodec<H>>::Error> {
+		db: &'db HashDBRef<L::H, DBValue>,
+		root: &'db TrieHash<L>
+	) -> Result<TrieKinds<'db, L::H, L::C>, TrieHash<L>, CError<L>> {
 		match self.spec {
 			TrieSpec::Generic => Ok(TrieKinds::Generic(TrieDB::new(db, root)?)),
 			TrieSpec::Secure => Ok(TrieKinds::Secure(SecTrieDB::new(db, root)?)),
@@ -343,27 +342,45 @@ where
 	}
 
 	/// Create new mutable instance of Trie.
-	pub fn create(&self, db: &'db mut HashDB<H, DBValue>, root: &'db mut H::Out) -> Box<TrieMut<H, C> + 'db> {
+	pub fn create(&self, db: &'db mut HashDB<L::H, DBValue>, root: &'db mut TrieHash<L>, layout: L) -> Box<TrieMut<L::H, L::C> + 'db> {
 		match self.spec {
-			TrieSpec::Generic => Box::new(TrieDBMut::<_, C>::new(db, root)),
-			TrieSpec::Secure => Box::new(SecTrieDBMut::<_, C>::new(db, root)),
-			TrieSpec::Fat => Box::new(FatDBMut::<_, C>::new(db, root)),
+			TrieSpec::Generic => Box::new(TrieDBMut::new(db, root, layout)),
+			TrieSpec::Secure => Box::new(SecTrieDBMut::new(db, root, layout)),
+			TrieSpec::Fat => Box::new(FatDBMut::new(db, root, layout)),
 		}
 	}
 
 	/// Create new mutable instance of trie and check for errors.
 	pub fn from_existing(
 		&self,
-		db: &'db mut HashDB<H, DBValue>,
-		root: &'db mut H::Out
-	) -> Result<Box<TrieMut<H,C> + 'db>, H::Out, <C as NodeCodec<H>>::Error> {
+		db: &'db mut HashDB<L::H, DBValue>,
+		root: &'db mut TrieHash<L>,
+		layout: L,
+	) -> Result<Box<TrieMut<L::H,L::C> + 'db>, TrieHash<L>, CError<L>> {
 		match self.spec {
-			TrieSpec::Generic => Ok(Box::new(TrieDBMut::<_, C>::from_existing(db, root)?)),
-			TrieSpec::Secure => Ok(Box::new(SecTrieDBMut::<_, C>::from_existing(db, root)?)),
-			TrieSpec::Fat => Ok(Box::new(FatDBMut::<_, C>::from_existing(db, root)?)),
+			TrieSpec::Generic => Ok(Box::new(TrieDBMut::from_existing(db, root, layout)?)),
+			TrieSpec::Secure => Ok(Box::new(SecTrieDBMut::from_existing(db, root, layout)?)),
+			TrieSpec::Fat => Ok(Box::new(FatDBMut::from_existing(db, root, layout)?)),
 		}
 	}
 
 	/// Returns true iff the trie DB is a fat DB (allows enumeration of keys).
 	pub fn is_fat(&self) -> bool { self.spec == TrieSpec::Fat }
 }
+
+
+/// trait with definition of trie layout
+pub trait TrieLayOut: Clone + Send + Sync + Default {
+  type H: Hasher;
+  type C: NodeCodec<Self::H>;
+
+  /// does the trie use extension before its branch
+  fn uses_extension(&self) -> bool;
+  fn new_codec(&self) -> Self::C;
+}
+
+/// alias to acces hasher hash output type from a `TrieLayout`
+pub type TrieHash<L: TrieLayOut> = <L::H as Hasher>::Out;
+/// alias to acces `NodeCodec` `Error` type from a `TrieLayout`
+pub type CError<L: TrieLayOut> = <L::C as NodeCodec<L::H>>::Error;
+

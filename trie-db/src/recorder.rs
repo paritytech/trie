@@ -137,7 +137,7 @@ mod tests {
 		let mut db = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
 		let mut root = Default::default();
 		{
-			let mut x = RefTrieDBMut::new(&mut db, &mut root);
+			let mut x = RefTrieDBMut::new(&mut db, &mut root, Default::default());
 
 			x.insert(b"dog", b"cat").unwrap();
 			x.insert(b"lunch", b"time").unwrap();

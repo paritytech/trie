@@ -13,52 +13,48 @@
 // limitations under the License.
 
 use hash_db::{HashDB, Hasher};
-use super::{Result, DBValue, TrieMut, TrieDBMut};
-use node_codec::NodeCodec;
+use super::{Result, DBValue, TrieMut, TrieDBMut, TrieLayOut, TrieHash, CError};
 
 /// A mutable `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 ///
 /// Use it as a `Trie` or `TrieMut` trait object. You can use `raw()` to get the backing `TrieDBMut` object.
-pub struct SecTrieDBMut<'db, H, C>
+pub struct SecTrieDBMut<'db, L>
 where
-	H: Hasher + 'db,
-	C: NodeCodec<H>
+	L: TrieLayOut
 {
-	raw: TrieDBMut<'db, H, C>
+	raw: TrieDBMut<'db, L>
 }
 
-impl<'db, H, C> SecTrieDBMut<'db, H, C>
+impl<'db, L> SecTrieDBMut<'db, L>
 where
-	H: Hasher,
-	C: NodeCodec<H>
+	L: TrieLayOut
 {
 	/// Create a new trie with the backing database `db` and empty `root`
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
-	pub fn new(db: &'db mut HashDB<H, DBValue>, root: &'db mut H::Out) -> Self {
-		SecTrieDBMut { raw: TrieDBMut::new(db, root) }
+	pub fn new(db: &'db mut HashDB<L::H, DBValue>, root: &'db mut TrieHash<L>, layout: L) -> Self {
+		SecTrieDBMut { raw: TrieDBMut::new(db, root, layout) }
 	}
 
 	/// Create a new trie with the backing database `db` and `root`.
 	///
 	/// Returns an error if root does not exist.
-	pub fn from_existing(db: &'db mut HashDB<H, DBValue>, root: &'db mut H::Out) -> Result<Self, H::Out, C::Error> {
-		Ok(SecTrieDBMut { raw: TrieDBMut::from_existing(db, root)? })
+	pub fn from_existing(db: &'db mut HashDB<L::H, DBValue>, root: &'db mut TrieHash<L>, layout: L) -> Result<Self, TrieHash<L>, CError<L>> {
+		Ok(SecTrieDBMut { raw: TrieDBMut::from_existing(db, root, layout)? })
 	}
 
 	/// Get the backing database.
-	pub fn db(&self) -> &HashDB<H, DBValue> { self.raw.db() }
+	pub fn db(&self) -> &HashDB<L::H, DBValue> { self.raw.db() }
 
 	/// Get the backing database.
-	pub fn db_mut(&mut self) -> &mut HashDB<H, DBValue> { self.raw.db_mut() }
+	pub fn db_mut(&mut self) -> &mut HashDB<L::H, DBValue> { self.raw.db_mut() }
 }
 
-impl<'db, H, C> TrieMut<H, C> for SecTrieDBMut<'db, H, C>
+impl<'db, L> TrieMut<L::H, L::C> for SecTrieDBMut<'db, L>
 where
-	H: Hasher,
-	C: NodeCodec<H>
+	L: TrieLayOut,
 {
-	fn root(&mut self) -> &H::Out {
+	fn root(&mut self) -> &TrieHash<L> {
 		self.raw.root()
 	}
 
@@ -66,22 +62,22 @@ where
 		self.raw.is_empty()
 	}
 
-	fn contains(&self, key: &[u8]) -> Result<bool, H::Out, C::Error> {
-		self.raw.contains(&H::hash(key).as_ref())
+	fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
+		self.raw.contains(&L::H::hash(key).as_ref())
 	}
 
-	fn get<'a, 'key>(&'a self, key: &'key [u8]) -> Result<Option<DBValue>, H::Out, C::Error>
+	fn get<'a, 'key>(&'a self, key: &'key [u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
 		where 'a: 'key
 	{
-		self.raw.get(&H::hash(key).as_ref())
+		self.raw.get(&L::H::hash(key).as_ref())
 	}
 
-	fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<Option<DBValue>, H::Out, C::Error> {
-		self.raw.insert(&H::hash(key).as_ref(), value)
+	fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+		self.raw.insert(&L::H::hash(key).as_ref(), value)
 	}
 
-	fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, H::Out, C::Error> {
-		self.raw.remove(&H::hash(key).as_ref())
+	 fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+		self.raw.remove(&L::H::hash(key).as_ref())
 	}
 }
 
@@ -98,7 +94,7 @@ mod test {
 		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefSecTrieDBMut::new(&mut memdb, &mut root);
+			let mut t = RefSecTrieDBMut::new(&mut memdb, &mut root, Default::default());
 			t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		}
 		let t = RefTrieDB::new(&memdb, &root).unwrap();
