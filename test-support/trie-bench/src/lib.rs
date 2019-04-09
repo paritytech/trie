@@ -72,7 +72,7 @@ where
 				}
 			}
 			b.iter(&mut ||{
-				let t = TrieDB::<L::H, L::C>::new(&memdb, &root).unwrap();
+				let t = TrieDB::<L>::new(&memdb, &root).unwrap();
 				for n in t.iter().unwrap() {
 					black_box(n).unwrap();
 				}

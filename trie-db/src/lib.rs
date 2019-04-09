@@ -275,13 +275,13 @@ pub struct TrieFactory<L: TrieLayOut> {
 
 /// All different kinds of tries.
 /// This is used to prevent a heap allocation for every created trie.
-pub enum TrieKinds<'db, H: Hasher + 'db, C: NodeCodec<H>> {
+pub enum TrieKinds<'db, L: TrieLayOut> {
 	/// A generic trie db.
-	Generic(TrieDB<'db, H, C>),
+	Generic(TrieDB<'db, L>),
 	/// A secure trie db.
-	Secure(SecTrieDB<'db, H, C>),
+	Secure(SecTrieDB<'db, L>),
 	/// A fat trie db.
-	Fat(FatDB<'db, H, C>),
+	Fat(FatDB<'db, L>),
 }
 
 // wrapper macro for making the match easier to deal with.
@@ -295,8 +295,8 @@ macro_rules! wrapper {
 	}
 }
 
-impl<'db, H: Hasher, C: NodeCodec<H>> Trie<H, C> for TrieKinds<'db, H, C> {
-	fn root(&self) -> &H::Out {
+impl<'db, L: TrieLayOut> Trie<L::H, L::C> for TrieKinds<'db, L> {
+	fn root(&self) -> &TrieHash<L> {
 		wrapper!(self, root,)
 	}
 
@@ -304,17 +304,17 @@ impl<'db, H: Hasher, C: NodeCodec<H>> Trie<H, C> for TrieKinds<'db, H, C> {
 		wrapper!(self, is_empty,)
 	}
 
-	fn contains(&self, key: &[u8]) -> Result<bool, H::Out, C::Error> {
+	fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
 		wrapper!(self, contains, key)
 	}
 
-	fn get_with<'a, 'key, Q: Query<H>>(&'a self, key: &'key [u8], query: Q) -> Result<Option<Q::Item>, H::Out, C::Error>
+	fn get_with<'a, 'key, Q: Query<L::H>>(&'a self, key: &'key [u8], query: Q) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
 		where 'a: 'key
 	{
 		wrapper!(self, get_with, key, query)
 	}
 
-	fn iter<'a>(&'a self) -> Result<Box<TrieIterator<H, C, Item = TrieItem<H::Out, C::Error>> + 'a>, H::Out, C::Error> {
+	fn iter<'a>(&'a self) -> Result<Box<TrieIterator<L::H, L::C, Item = TrieItem<TrieHash<L>, CError<L>>> + 'a>, TrieHash<L>, CError<L>> {
 		wrapper!(self, iter,)
 	}
 }
@@ -333,7 +333,7 @@ where
 		&self,
 		db: &'db HashDBRef<L::H, DBValue>,
 		root: &'db TrieHash<L>
-	) -> Result<TrieKinds<'db, L::H, L::C>, TrieHash<L>, CError<L>> {
+	) -> Result<TrieKinds<'db, L>, TrieHash<L>, CError<L>> {
 		match self.spec {
 			TrieSpec::Generic => Ok(TrieKinds::Generic(TrieDB::new(db, root)?)),
 			TrieSpec::Secure => Ok(TrieKinds::Secure(SecTrieDB::new(db, root)?)),

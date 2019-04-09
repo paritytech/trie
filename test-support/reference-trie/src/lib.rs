@@ -58,13 +58,13 @@ impl TrieLayOut for LayoutNew {
 	type C = ReferenceNodeCodecNoExt;
 }
 
-pub type RefTrieDB<'a> = trie_db::TrieDB<'a, keccak_hasher::KeccakHasher, ReferenceNodeCodec>;
-pub type RefTrieDBNoExt<'a> = trie_db::TrieDB<'a, keccak_hasher::KeccakHasher, ReferenceNodeCodecNoExt>;
+pub type RefTrieDB<'a> = trie_db::TrieDB<'a, LayoutOri>;
+pub type RefTrieDBNoExt<'a> = trie_db::TrieDB<'a, LayoutNew>;
 pub type RefTrieDBMut<'a> = trie_db::TrieDBMut<'a, LayoutOri>;
 pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMut<'a, LayoutNew>;
-pub type RefFatDB<'a> = trie_db::FatDB<'a, KeccakHasher, ReferenceNodeCodec>;
+pub type RefFatDB<'a> = trie_db::FatDB<'a, LayoutOri>;
 pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, LayoutOri>;
-pub type RefSecTrieDB<'a> = trie_db::SecTrieDB<'a, KeccakHasher, ReferenceNodeCodec>;
+pub type RefSecTrieDB<'a> = trie_db::SecTrieDB<'a, LayoutOri>;
 pub type RefSecTrieDBMut<'a> = trie_db::SecTrieDBMut<'a, LayoutOri>;
 pub type RefLookup<'a, Q> = trie_db::Lookup<'a, KeccakHasher, ReferenceNodeCodec, Q>;
 pub type RefLookupNoExt<'a, Q> = trie_db::Lookup<'a, KeccakHasher, ReferenceNodeCodecNoExt, Q>;
