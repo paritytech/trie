@@ -40,28 +40,22 @@ use keccak_hasher::KeccakHasher;
 pub use trie_db::{Trie, TrieMut, NibbleSlice, NodeCodec, Recorder, Record, TrieLayOut};
 pub use trie_root::TrieStream;
 
-#[derive(Clone,Default)]
 /// trie layout similar to parity-ethereum
 pub struct LayoutOri;
 
 impl TrieLayOut for LayoutOri {
-  type H = keccak_hasher::KeccakHasher;
-  type C = ReferenceNodeCodec;
-
-  fn uses_extension(&self) -> bool { true }
-  fn new_codec(&self) -> Self::C { ReferenceNodeCodec }
+  const USE_EXTENSION: bool = true;
+	type H = keccak_hasher::KeccakHasher;
+	type C = ReferenceNodeCodec;
 }
 
-#[derive(Clone,Default)]
 /// trie layout similar to substrate one
 pub struct LayoutNew;
 
 impl TrieLayOut for LayoutNew {
-  type H = keccak_hasher::KeccakHasher;
-  type C = ReferenceNodeCodecNoExt;
-
-  fn uses_extension(&self) -> bool { false }
-  fn new_codec(&self) -> Self::C { ReferenceNodeCodecNoExt }
+  const USE_EXTENSION: bool = false;
+	type H = keccak_hasher::KeccakHasher;
+	type C = ReferenceNodeCodecNoExt;
 }
 
 pub type RefTrieDB<'a> = trie_db::TrieDB<'a, keccak_hasher::KeccakHasher, ReferenceNodeCodec>;
@@ -700,7 +694,7 @@ pub fn compare_impl<X : hash_db::HashDB<KeccakHasher,DBValue> + Eq> (
 	};
 	let root = {
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root, LayoutOri);
+		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..],&data[i].1[..]).unwrap();
 		}
@@ -742,7 +736,7 @@ pub fn compare_root(
 	};
 	let root = {
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root, LayoutOri);
+		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..],&data[i].1[..]).unwrap();
 		}
@@ -818,17 +812,17 @@ pub fn compare_impl_no_ext(
 	};
 	let root = {
 		let mut root = Default::default();
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root, LayoutNew);
+		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..],&data[i].1[..]).unwrap();
 		}
 		t.root().clone()
 	};
-/*  {
+/*	{
 		let db : &dyn hash_db::HashDB<_,_> = &memdb;
 			let t = RefTrieDBNoExt::new(&db, &root).unwrap();
 			println!("{:?}", t);
-  }*/
+	}*/
 		
 	if root != root_new {
 		{
@@ -860,7 +854,7 @@ pub fn compare_impl_no_ext_unordered(
 	let mut b_map = std::collections::btree_map::BTreeMap::new();
 	let root = {
 		let mut root = Default::default();
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root, LayoutNew);
+		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..],&data[i].1[..]).unwrap();
 			b_map.insert(data[i].0.clone(),data[i].1.clone());
@@ -903,13 +897,13 @@ pub fn compare_no_ext_insert_remove(
 	let mut root = Default::default();
 	let mut a = 0;
 	{
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root, LayoutNew);
+		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
 		t.commit();
 	}
 	while a < data.len() {
 		// new triemut every 3 element
 		root = {
-			let mut t = RefTrieDBMutNoExt::from_existing(&mut memdb, &mut root, LayoutNew).unwrap();
+			let mut t = RefTrieDBMutNoExt::from_existing(&mut memdb, &mut root).unwrap();
 			for _ in 0..3 {
 				if data[a].0 {
 					// remove
@@ -930,7 +924,7 @@ pub fn compare_no_ext_insert_remove(
 			*t.root()
 		};
 	}
-	let mut t = RefTrieDBMutNoExt::from_existing(&mut memdb, &mut root, LayoutNew).unwrap();
+	let mut t = RefTrieDBMutNoExt::from_existing(&mut memdb, &mut root).unwrap();
 	// we are testing the RefTrie code here so we do not sort or check uniqueness
 	// before.
 	assert_eq!(*t.root(), calc_root_no_ext(data2));
@@ -944,13 +938,13 @@ pub fn compare_no_ext_insert_remove(
 #[should_panic]
 #[test]
 fn too_big_nibble_len () {
-  // + 1 for 0 added byte of nibble encode
-  let input = vec![0u8; (noext_cst::LEAF_NODE_OVER as usize + 256) / 2 + 1];
-  let enc = ReferenceNodeCodecNoExt::leaf_node(&input, &[1]);
-  let dec = ReferenceNodeCodecNoExt::decode(&enc).unwrap();
-  let o_sl = if let Node::Leaf(sl,_) = dec {
-    //assert_eq!(&input[..], &sl.encoded(false)[..]);
-    Some(sl)
-  } else { None };
-  //assert!(o_sl.is_some());
+	// + 1 for 0 added byte of nibble encode
+	let input = vec![0u8; (noext_cst::LEAF_NODE_OVER as usize + 256) / 2 + 1];
+	let enc = ReferenceNodeCodecNoExt::leaf_node(&input, &[1]);
+	let dec = ReferenceNodeCodecNoExt::decode(&enc).unwrap();
+	let o_sl = if let Node::Leaf(sl,_) = dec {
+		//assert_eq!(&input[..], &sl.encoded(false)[..]);
+		Some(sl)
+	} else { None };
+	//assert!(o_sl.is_some());
 }

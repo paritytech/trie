@@ -91,7 +91,7 @@ mod test {
 		let mut db = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMut::new(&mut db, &mut root, Default::default());
+			let mut t = RefTrieDBMut::new(&mut db, &mut root);
 			t.insert(&KeccakHasher::hash(&[0x01u8, 0x23]), &[0x01u8, 0x23]).unwrap();
 		}
 		let t = RefSecTrieDB::new(&db, &root).unwrap();

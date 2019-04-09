@@ -342,11 +342,11 @@ where
 	}
 
 	/// Create new mutable instance of Trie.
-	pub fn create(&self, db: &'db mut HashDB<L::H, DBValue>, root: &'db mut TrieHash<L>, layout: L) -> Box<TrieMut<L::H, L::C> + 'db> {
+	pub fn create(&self, db: &'db mut HashDB<L::H, DBValue>, root: &'db mut TrieHash<L>) -> Box<TrieMut<L::H, L::C> + 'db> {
 		match self.spec {
-			TrieSpec::Generic => Box::new(TrieDBMut::new(db, root, layout)),
-			TrieSpec::Secure => Box::new(SecTrieDBMut::new(db, root, layout)),
-			TrieSpec::Fat => Box::new(FatDBMut::new(db, root, layout)),
+			TrieSpec::Generic => Box::new(TrieDBMut::<L>::new(db, root)),
+			TrieSpec::Secure => Box::new(SecTrieDBMut::<L>::new(db, root)),
+			TrieSpec::Fat => Box::new(FatDBMut::<L>::new(db, root)),
 		}
 	}
 
@@ -355,12 +355,11 @@ where
 		&self,
 		db: &'db mut HashDB<L::H, DBValue>,
 		root: &'db mut TrieHash<L>,
-		layout: L,
 	) -> Result<Box<TrieMut<L::H,L::C> + 'db>, TrieHash<L>, CError<L>> {
 		match self.spec {
-			TrieSpec::Generic => Ok(Box::new(TrieDBMut::from_existing(db, root, layout)?)),
-			TrieSpec::Secure => Ok(Box::new(SecTrieDBMut::from_existing(db, root, layout)?)),
-			TrieSpec::Fat => Ok(Box::new(FatDBMut::from_existing(db, root, layout)?)),
+			TrieSpec::Generic => Ok(Box::new(TrieDBMut::<L>::from_existing(db, root)?)),
+			TrieSpec::Secure => Ok(Box::new(SecTrieDBMut::<L>::from_existing(db, root)?)),
+			TrieSpec::Fat => Ok(Box::new(FatDBMut::<L>::from_existing(db, root)?)),
 		}
 	}
 
@@ -370,17 +369,15 @@ where
 
 
 /// trait with definition of trie layout
-pub trait TrieLayOut: Clone + Send + Sync + Default {
+pub trait TrieLayOut {
+  /// does the trie use extension before its branch
+  const USE_EXTENSION: bool;
   type H: Hasher;
   type C: NodeCodec<Self::H>;
-
-  /// does the trie use extension before its branch
-  fn uses_extension(&self) -> bool;
-  fn new_codec(&self) -> Self::C;
 }
 
 /// alias to acces hasher hash output type from a `TrieLayout`
-pub type TrieHash<L: TrieLayOut> = <L::H as Hasher>::Out;
+pub type TrieHash<L> = <<L as TrieLayOut>::H as Hasher>::Out;
 /// alias to acces `NodeCodec` `Error` type from a `TrieLayout`
-pub type CError<L: TrieLayOut> = <L::C as NodeCodec<L::H>>::Error;
+pub type CError<L> = <<L as TrieLayOut>::C as NodeCodec<<L as TrieLayOut>::H>>::Error;
 

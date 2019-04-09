@@ -58,7 +58,7 @@ use elastic_array::ElasticArray36;
 /// fn main() {
 ///   let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
 ///   let mut root = Default::default();
-///   RefTrieDBMut::new(&mut memdb, &mut root, Default::default()).insert(b"foo", b"bar").unwrap();
+///   RefTrieDBMut::new(&mut memdb, &mut root).insert(b"foo", b"bar").unwrap();
 ///   let t = RefTrieDB::new(&memdb, &root).unwrap();
 ///   assert!(t.contains(b"foo").unwrap());
 ///   assert_eq!(t.get(b"foo").unwrap().unwrap(), DBValue::from_slice(b"bar"));
@@ -183,7 +183,7 @@ where
 							trie: self.trie,
 							node_key: item,
 							partial_key: &self.partial_key,
-              index: None,
+							index: None,
 						})
 						.finish(),
 				Ok(Node::Branch(ref nodes, ref value)) => {
@@ -394,8 +394,8 @@ impl<'a, H: Hasher, C: NodeCodec<H>> TrieDBIterator<'a, H, C> {
 							self.key_nibbles.extend(slice.iter());
 							self.key_nibbles.push(i);
 							if let Some(ref child) = nodes[i as usize] {
-                full_key_nibbles += slice.len() + 1;
-                partial = partial.mid(slice.len() + 1);
+								full_key_nibbles += slice.len() + 1;
+								partial = partial.mid(slice.len() + 1);
 								let child = self.db.get_raw_or_lookup(&*child, &key.encoded_leftmost(full_key_nibbles, false))?;
 								child
 							} else {
@@ -571,7 +571,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
+			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 			for (x, y) in &pairs {
 				t.insert(x, y).unwrap();
 			}
@@ -598,7 +598,7 @@ mod tests {
 		let mut memdb = MemoryDB::<_, PrefixedKey<_>,_>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root, Default::default());
+			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
 			for (x, y) in &pairs {
 				t.insert(x, y).unwrap();
 			}
@@ -627,7 +627,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
+			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 			for (x, y) in &pairs {
 				t.insert(x, y).unwrap();
 			}
@@ -654,7 +654,7 @@ mod tests {
 		let mut memdb = MemoryDB::<_, PrefixedKey<_>,_>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root, Default::default());
+			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
 			for (x, y) in &pairs {
 				t.insert(x, y).unwrap();
 			}
@@ -679,7 +679,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
+			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 			for x in &d {
 				t.insert(x, x).unwrap();
 			}
@@ -697,7 +697,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root, Default::default());
+			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
 			for x in &d {
 				t.insert(x, x).unwrap();
 			}
@@ -716,7 +716,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root, Default::default());
+			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
 			for x in &d {
 				t.insert(x, x).unwrap();
 			}
@@ -755,7 +755,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
+			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 			t.insert(b"A", b"ABC").unwrap();
 			t.insert(b"B", b"ABCBA").unwrap();
 		}
@@ -771,7 +771,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root, Default::default());
+			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
 			t.insert(b"A", b"ABC").unwrap();
 			t.insert(b"B", b"ABCBA").unwrap();
 		}
@@ -790,7 +790,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let root = {
-			let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
+			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 			for x in &d {
 				t.insert(x, x).unwrap();
 			}
@@ -858,7 +858,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMut::new(&mut memdb, &mut root, Default::default());
+			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 			t.insert(b"A", b"ABC").unwrap();
 			t.insert(b"B", b"ABCBA").unwrap();
 		}

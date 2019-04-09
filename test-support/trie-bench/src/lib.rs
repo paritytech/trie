@@ -55,9 +55,9 @@ where
 			trie_root::<L::H, S, _, _, _>(d.0.clone())
 		})),
 		Fun::new("Fill", |b, d: &TrieInsertionList| b.iter(&mut ||{
-			let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(&L::C::empty_node()[..]);
+			let mut memdb = MemoryDB::<_, HashKey<L::H>, _>::new(&L::C::empty_node()[..]);
 			let mut root = <TrieHash<L>>::default();
-			let mut t = TrieDBMut::new(&mut memdb, &mut root, L::default());
+			let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);
 			for i in d.0.iter() {
 				t.insert(&i.0, &i.1).unwrap();
 			}
@@ -66,7 +66,7 @@ where
 			let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(&L::C::empty_node()[..]);
 			let mut root = <TrieHash<L>>::default();
 			{
-				let mut t = TrieDBMut::new(&mut memdb, &mut root, L::default());
+				let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);
 				for i in d.0.iter() {
 					t.insert(&i.0, &i.1).unwrap();
 				}

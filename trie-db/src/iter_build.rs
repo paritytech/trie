@@ -258,7 +258,7 @@ where
 			self.0[branch_d].0.iter(), v.as_ref().map(|v|v.as_ref()));
 		self.reset_depth(branch_d);
 		let ext_len = nkey.as_ref().map(|nkeyix|nkeyix.0).unwrap_or(0);
-		let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d - ext_len, false); // TODO EMCH !!!!!!!!!!! debug that it may be shifted from a unit!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+		let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d - ext_len, false);
 		cb_ext.process(&encoded_key[..], encoded, is_root)
 	}
 

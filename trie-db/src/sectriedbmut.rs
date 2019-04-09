@@ -32,15 +32,15 @@ where
 	/// Create a new trie with the backing database `db` and empty `root`
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
-	pub fn new(db: &'db mut HashDB<L::H, DBValue>, root: &'db mut TrieHash<L>, layout: L) -> Self {
-		SecTrieDBMut { raw: TrieDBMut::new(db, root, layout) }
+	pub fn new(db: &'db mut HashDB<L::H, DBValue>, root: &'db mut TrieHash<L>) -> Self {
+		SecTrieDBMut { raw: TrieDBMut::new(db, root) }
 	}
 
 	/// Create a new trie with the backing database `db` and `root`.
 	///
 	/// Returns an error if root does not exist.
-	pub fn from_existing(db: &'db mut HashDB<L::H, DBValue>, root: &'db mut TrieHash<L>, layout: L) -> Result<Self, TrieHash<L>, CError<L>> {
-		Ok(SecTrieDBMut { raw: TrieDBMut::from_existing(db, root, layout)? })
+	pub fn from_existing(db: &'db mut HashDB<L::H, DBValue>, root: &'db mut TrieHash<L>) -> Result<Self, TrieHash<L>, CError<L>> {
+		Ok(SecTrieDBMut { raw: TrieDBMut::from_existing(db, root)? })
 	}
 
 	/// Get the backing database.
@@ -94,7 +94,7 @@ mod test {
 		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefSecTrieDBMut::new(&mut memdb, &mut root, Default::default());
+			let mut t = RefSecTrieDBMut::new(&mut memdb, &mut root);
 			t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		}
 		let t = RefTrieDB::new(&memdb, &root).unwrap();
