@@ -18,11 +18,12 @@ use nibbleslice::NibbleSlice;
 use nibbleslice::NibbleOps;
 use ::core_::marker::PhantomData;
 
+// TODO EMCH change crate layout to give access to nibble vec field to nibble ops and avoid pub(crate)
 /// Owning, nibble-oriented byte vector. Counterpart to `NibbleSlice`.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct NibbleVec<N> {
-	inner: ElasticArray36<u8>,
-	len: usize,
+	pub(crate) inner: ElasticArray36<u8>,
+	pub(crate) len: usize,
 	marker: PhantomData<N>,
 }
 
@@ -52,51 +53,17 @@ impl<N: NibbleOps> NibbleVec<N> {
 	/// Try to get the nibble at the given offset.
 	#[inline]
 	pub fn at(&self, idx: usize) -> u8 {
-		if idx % 2 == 0 {
-			self.inner[idx / 2] >> 4
-		} else {
-			self.inner[idx / 2] & 0x0F
-		}
+		N::vec_at(self, idx)
 	}
 
 	/// Push a nibble onto the `NibbleVec`. Ignores the high 4 bits.
 	pub fn push(&mut self, nibble: u8) {
-		let nibble = nibble & 0x0F;
-
-		if self.len % 2 == 0 {
-			self.inner.push(nibble << 4);
-		} else {
-			*self.inner.last_mut().expect("len != 0 since len % 2 != 0; inner has a last element; qed") |= nibble;
-		}
-
-		self.len += 1;
+		N::push(self, nibble)
 	}
 
 	/// Try to pop a nibble off the `NibbleVec`. Fails if len == 0.
 	pub fn pop(&mut self) -> Option<u8> {
-		if self.is_empty() {
-			return None;
-		}
-
-		let byte = self.inner.pop().expect("len != 0; inner has last elem; qed");
-		let nibble = if self.len % 2 == 0 {
-			self.inner.push(byte & 0xF0);
-			byte & 0x0F
-		} else {
-			byte >> 4
-		};
-
-		self.len -= 1;
-		Some(nibble)
-	}
-
-	/// Try to treat this `NibbleVec` as a `NibbleSlice`. Works only if len is even.
-	pub fn as_nibbleslice(&self) -> Option<NibbleSlice<N>> {
-		if self.len % 2 == 0 {
-			Some(NibbleSlice::new(self.inner()))
-		} else {
-			None
-		}
+		N::pop(self)
 	}
 
 	/// Get the underlying byte slice.
@@ -134,16 +101,5 @@ mod tests {
 			assert_eq!(v.pop(), Some(i));
 			assert_eq!(v.len(), i as usize);
 		}
-	}
-
-	#[test]
-	fn nibbleslice_conv() {
-		let mut v = NibbleVec::new();
-		for i in 0..10 {
-			v.push(i);
-		}
-
-		let v2: NibbleVec<NibblePreHalf> = v.as_nibbleslice().unwrap().into();
-		assert_eq!(v, v2);
 	}
 }

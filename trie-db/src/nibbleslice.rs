@@ -18,6 +18,7 @@ use ::core_::cmp::*;
 use ::core_::fmt;
 use elastic_array::ElasticArray36;
 use ::core_::marker::PhantomData;
+use nibblevec::NibbleVec;
 
 // until const fn for pow
 const TWO_EXP: [usize; 9] = [1, 2, 4, 8, 16, 32, 64, 128, 256];
@@ -56,6 +57,15 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
  
 	/// encoded leftmost without checking end bound
 	fn encoded_leftmost_unchecked(s: &NibbleSlice<Self>, l: usize, is_leaf: bool) -> ElasticArray36<u8>;
+
+	/// Try to get the nibble at the given offset.
+	fn vec_at(s: &NibbleVec<Self>, idx: usize) -> u8;
+
+	/// Push a nibble onto the `NibbleVec`. Ignores the high 4 bits.
+	fn push(s: &mut NibbleVec<Self>, nibble: u8);
+
+	/// Try to pop a nibble off the `NibbleVec`. Fails if len == 0.
+	fn pop(s: &mut NibbleVec<Self>) -> Option<u8>;
 
 }
 
@@ -120,6 +130,44 @@ impl NibbleOps for NibblePreHalf {
 			i += 2;
 		}
 		r
+	}
+
+	#[inline]
+	fn vec_at(s: &NibbleVec<Self>, idx: usize) -> u8 {
+		if idx % 2 == 0 {
+			s.inner[idx / 2] >> 4
+		} else {
+			s.inner[idx / 2] & 0x0F
+		}
+	}
+
+	fn push(s: &mut NibbleVec<Self>, nibble: u8) {
+		let nibble = nibble & 0x0F;
+
+		if s.len % 2 == 0 {
+			s.inner.push(nibble << 4);
+		} else {
+			*s.inner.last_mut().expect("len != 0 since len % 2 != 0; inner has a last element; qed") |= nibble;
+		}
+
+		s.len += 1;
+	}
+
+	fn pop(s: &mut NibbleVec<Self>) -> Option<u8> {
+		if s.is_empty() {
+			return None;
+		}
+
+		let byte = s.inner.pop().expect("len != 0; inner has last elem; qed");
+		let nibble = if s.len % 2 == 0 {
+			s.inner.push(byte & 0xF0);
+			byte & 0x0F
+		} else {
+			byte >> 4
+		};
+
+		s.len -= 1;
+		Some(nibble)
 	}
 
 }
