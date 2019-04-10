@@ -14,6 +14,7 @@
 
 use elastic_array::ElasticArray36;
 use nibbleslice::NibbleSlice;
+use nibbleslice::NibbleOps;
 use nibblevec::NibbleVec;
 use super::DBValue;
 
@@ -25,17 +26,17 @@ pub type NodeKey = ElasticArray36<u8>;
 
 /// Type of node in the trie and essential information thereof.
 #[derive(Eq, PartialEq, Debug, Clone)]
-pub enum Node<'a> {
+pub enum Node<'a, N: NibbleOps> {
 	/// Null trie node; could be an empty root or an empty branch entry.
 	Empty,
 	/// Leaf node; has key slice and value. Value may not be empty.
-	Leaf(NibbleSlice<'a>, &'a [u8]),
+	Leaf(NibbleSlice<'a, N>, &'a [u8]),
 	/// Extension node; has key slice and node data. Data may not be null.
-	Extension(NibbleSlice<'a>, &'a [u8]),
+	Extension(NibbleSlice<'a, N>, &'a [u8]),
 	/// Branch node; has array of 16 child nodes (each possibly null) and an optional immediate node data.
 	Branch([Option<&'a [u8]>; 16], Option<&'a [u8]>),
 	/// Branch node with support for a nibble (to avoid extension node)
-	NibbledBranch(NibbleSlice<'a>, [Option<&'a [u8]>; 16], Option<&'a [u8]>),
+	NibbledBranch(NibbleSlice<'a, N>, [Option<&'a [u8]>; 16], Option<&'a [u8]>),
 }
 
 /// A Sparse (non mutable) owned vector struct to hold branch keys and value
@@ -93,21 +94,21 @@ impl Branch {
 
 /// An owning node type. Useful for trie iterators.
 #[derive(Debug, PartialEq, Eq)]
-pub enum OwnedNode {
+pub enum OwnedNode<N> {
 	/// Empty trie node.
 	Empty,
 	/// Leaf node: partial key and value.
-	Leaf(NibbleVec, DBValue),
+	Leaf(NibbleVec<N>, DBValue),
 	/// Extension node: partial key and child node.
-	Extension(NibbleVec, DBValue),
+	Extension(NibbleVec<N>, DBValue),
 	/// Branch node: 16 children and an optional value.
 	Branch(Branch),
 	/// Branch node: 16 children and an optional value.
-	NibbledBranch(NibbleVec, Branch),
+	NibbledBranch(NibbleVec<N>, Branch),
 }
 
-impl<'a> From<Node<'a>> for OwnedNode {
-	fn from(node: Node<'a>) -> Self {
+impl<'a, N: NibbleOps> From<Node<'a, N>> for OwnedNode<N> {
+	fn from(node: Node<'a, N>) -> Self {
 		match node {
 			Node::Empty => OwnedNode::Empty,
 			Node::Leaf(k, v) => OwnedNode::Leaf(k.into(), DBValue::from_slice(v)),

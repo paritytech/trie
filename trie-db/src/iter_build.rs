@@ -18,9 +18,11 @@ use hash_db::{Hasher, HashDB};
 use std::marker::PhantomData;
 use crate::triedbmut::{ChildReference};
 use crate::nibbleslice::NibbleSlice;
+use crate::nibbleslice::NibbleOps;
 use node_codec::NodeCodec;
 
-
+// TODO EMCH use L instead of HC (aka TrieLayout)
+// TODO EMCH move to NibbleOps to use right constants
 fn biggest_depth(v1: &[u8], v2: &[u8]) -> usize {
 	// sorted assertion preventing out of bound
 	for a in 0..v1.len() {
@@ -68,7 +70,7 @@ type CacheNode<HO> = Option<ChildReference<HO>>;
 // TODO test others layout
 // first usize to get nb of added value, second usize last added index
 // second str is in branch value
-struct CacheAccum<H: Hasher,C,V> (Vec<([CacheNode<<H as Hasher>::Out>; NIBBLE_SIZE], bool, Option<V>)>,PhantomData<(H,C)>);
+struct CacheAccum<H: Hasher,C,N,V> (Vec<([CacheNode<<H as Hasher>::Out>; NIBBLE_SIZE], bool, Option<V>)>,PhantomData<(H,C,N)>);
 
 #[inline(always)]
 fn new_vec_slice_buff<HO>() -> [CacheNode<HO>; NIBBLE_SIZE] {
@@ -84,10 +86,11 @@ fn new_vec_slice_buff<HO>() -> [CacheNode<HO>; NIBBLE_SIZE] {
 const INITIAL_DEPTH: usize = 10;
 const NIBBLE_SIZE: usize = 16;
 const NIBBLE_PER_BYTES: usize = 2; // 2 ^ 8 / 2 ^ NIBBLE_SIZE
-impl<H,C,V> CacheAccum<H,C,V>
+impl<H,C,N,V> CacheAccum<H,C,N,V>
 where
 	H: Hasher,
-	C: NodeCodec<H>,
+	N: NibbleOps,
+	C: NodeCodec<H,N>,
 	V: AsRef<[u8]>,
 	{
 
@@ -129,14 +132,14 @@ where
 	) {
 		let nibble_value = nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
-		let nkey = NibbleSlice::new_offset(&k2.as_ref()[..],target_depth+1);
+		let nkey = NibbleSlice::<N>::new_offset(&k2.as_ref()[..],target_depth+1);
 		// Note: fwiu, having fixed key size, all values are in leaf (no value in
 		// branch). TODO run metrics on a node to count branch with values
 		let encoded = C::leaf_node(&nkey.encoded(true).as_ref()[..], &v2.as_ref()[..]);
 		// TODO redesign nibleslice encoded to allow an inputstream (avoid this alloc) + design the
 		// thing other array of slice to avoid those concatenation unsecure or costy + same for nodes
 		// in fact or TODO put Vec in the trait?
-		let encoded_key = NibbleSlice::new(&k2.as_ref()[..]).encoded_leftmost(k2.as_ref().len() * NIBBLE_PER_BYTES - nkey.len(), false);
+		let encoded_key = NibbleSlice::<N>::new(&k2.as_ref()[..]).encoded_leftmost(k2.as_ref().len() * NIBBLE_PER_BYTES - nkey.len(), false);
 		let hash = cb_ext.process(&encoded_key[..], encoded, false);
 
 		// insert hash in branch (first level branch only at this point)
@@ -225,13 +228,13 @@ where
 		let v = self.0[branch_d].2.take();
 		let encoded = C::branch_node(self.0[branch_d].0.iter(), v.as_ref().map(|v|v.as_ref()));
 		self.reset_depth(branch_d);
-		let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d, false);
+		let encoded_key = NibbleSlice::<N>::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d, false);
 		let branch_hash = cb_ext.process(&encoded_key[..], encoded, is_root && nkey.is_none());
 
 		if let Some(nkeyix) = nkey {
-			let nib = NibbleSlice::new_offset(&key_branch.as_ref()[..],nkeyix.0).encoded_leftmost(nkeyix.1, false);
+			let nib = NibbleSlice::<N>::new_offset(&key_branch.as_ref()[..],nkeyix.0).encoded_leftmost(nkeyix.1, false);
 			let encoded = C::ext_node(&nib[..], branch_hash);
-			let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(nkeyix.0, false);
+			let encoded_key = NibbleSlice::<N>::new(&key_branch.as_ref()[..]).encoded_leftmost(nkeyix.0, false);
 			let h = cb_ext.process(&encoded_key[..], encoded, is_root);
 			h
 		} else {
@@ -251,54 +254,57 @@ where
 		// enc branch
 		let v = self.0[branch_d].2.take();
 		let enc_nkey = nkey.as_ref()
-				.map(|nkeyix|NibbleSlice::new_offset(&key_branch.as_ref()[..],nkeyix.0).encoded_leftmost(nkeyix.1, false));
+				.map(|nkeyix|NibbleSlice::<N>::new_offset(&key_branch.as_ref()[..],nkeyix.0).encoded_leftmost(nkeyix.1, false));
 		let encoded = C::branch_node_nibbled(
 			// warn direct use of default empty nible encoded: NibbleSlice::new_offset(&[],0).encoded(false);
 			enc_nkey.as_ref().map(|v|&v[..]).unwrap_or(&[0]),
 			self.0[branch_d].0.iter(), v.as_ref().map(|v|v.as_ref()));
 		self.reset_depth(branch_d);
 		let ext_len = nkey.as_ref().map(|nkeyix|nkeyix.0).unwrap_or(0);
-		let encoded_key = NibbleSlice::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d - ext_len, false);
+		let encoded_key = NibbleSlice::<N>::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d - ext_len, false);
 		cb_ext.process(&encoded_key[..], encoded, is_root)
 	}
 
 }
 
-pub fn trie_visit_no_ext<H, C, I, A, B, F>(input: I, cb_ext: &mut F) 
+pub fn trie_visit_no_ext<H, C, N, I, A, B, F>(input: I, cb_ext: &mut F) 
 	where
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,
 		H: Hasher,
-		C: NodeCodec<H>,
+		N: NibbleOps,
+		C: NodeCodec<H,N>,
 		F: ProcessEncodedNode<<H as Hasher>::Out>,
 	{
-		trie_visit_inner::<H, C, I, A, B, F>(input, cb_ext, true)
+		trie_visit_inner::<H, C, N, I, A, B, F>(input, cb_ext, true)
 	}
 
-pub fn trie_visit<H, C, I, A, B, F>(input: I, cb_ext: &mut F) 
+pub fn trie_visit<H, C, N, I, A, B, F>(input: I, cb_ext: &mut F) 
 	where
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,
 		H: Hasher,
-		C: NodeCodec<H>,
+		N: NibbleOps,
+		C: NodeCodec<H, N>,
 		F: ProcessEncodedNode<<H as Hasher>::Out>,
 	{
-		trie_visit_inner::<H, C, I, A, B, F>(input, cb_ext, false)
+		trie_visit_inner::<H, C, N, I, A, B, F>(input, cb_ext, false)
 	}
 
 // put no_ext as a trait: probably not worth it (fn designed for that)?
-fn trie_visit_inner<H, C, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool) 
+fn trie_visit_inner<H, C, N, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool) 
 	where
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,
 		H: Hasher,
-		C: NodeCodec<H>,
+		N: NibbleOps,
+		C: NodeCodec<H,N>,
 		F: ProcessEncodedNode<<H as Hasher>::Out>,
 	{
-	let mut depth_queue = CacheAccum::<H,C,B>::new();
+	let mut depth_queue = CacheAccum::<H,C,N,B>::new();
 	// compare iter ordering
 	let mut iter_input = input.into_iter();
 	if let Some(mut prev_val) = iter_input.next() {
@@ -338,9 +344,9 @@ fn trie_visit_inner<H, C, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool)
 			&& !depth_queue.touched(0) {
 			// one single element corner case
 			let (k2, v2) = prev_val;
-			let nkey = NibbleSlice::new_offset(&k2.as_ref()[..],prev_depth);
+			let nkey = NibbleSlice::<N>::new_offset(&k2.as_ref()[..],prev_depth);
 			let encoded = C::leaf_node(&nkey.encoded(true).as_ref()[..], &v2.as_ref()[..]);
-			let encoded_key = NibbleSlice::new(&k2.as_ref()[..]).encoded_leftmost(k2.as_ref().len() * NIBBLE_PER_BYTES - nkey.len(), false);
+			let encoded_key = NibbleSlice::<N>::new(&k2.as_ref()[..]).encoded_leftmost(k2.as_ref().len() * NIBBLE_PER_BYTES - nkey.len(), false);
 			cb_ext.process(&encoded_key[..], encoded, true);
 		} else {
 			//println!("fbvl {}", prev_depth);
@@ -531,10 +537,10 @@ mod test {
 		let hashdb = MemoryDB::<KeccakHasher, DBValue>::default();
 		reference_trie::compare_impl_no_ext_unordered_rem(data, rem, memdb, hashdb);
 	}*/
-  fn compare_no_ext_insert_remove(data: Vec<(bool, Vec<u8>,Vec<u8>)>) {
+	fn compare_no_ext_insert_remove(data: Vec<(bool, Vec<u8>,Vec<u8>)>) {
 		let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 		reference_trie::compare_no_ext_insert_remove(data, memdb);
-  }
+	}
 	fn compare_root(data: Vec<(Vec<u8>,Vec<u8>)>) {
 		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
 		reference_trie::compare_root(data, memdb);
@@ -669,12 +675,12 @@ mod test {
 
 	#[test]
 	fn fuzz_noext_ins_rem_pref () {
-    let data = vec![
-      (false, vec![0], vec![251, 255]),
-      (false, vec![0,1], vec![251, 255]),
-      (false, vec![0,1,2], vec![255; 32]),
-      (true, vec![0,1], vec![0, 251]),
-    ];
+		let data = vec![
+			(false, vec![0], vec![251, 255]),
+			(false, vec![0,1], vec![251, 255]),
+			(false, vec![0,1,2], vec![255; 32]),
+			(true, vec![0,1], vec![0, 251]),
+		];
 
 		compare_no_ext_insert_remove(data);
 	}
@@ -688,14 +694,14 @@ mod test {
 		compare_impl_no_ext_pk(data.clone());
 	}
 	#[test]
-  #[should_panic]
+	#[should_panic]
 	fn too_big_nibble_len_old () {
 		compare_impl_h(vec![
 			(vec![01u8;64],vec![0;32]),
 		]);
 	}
 	#[test]
-  #[should_panic]
+	#[should_panic]
 	fn too_big_nibble_len_new () {
 		compare_impl_no_ext(vec![
 			(vec![01u8;64 + 255],vec![0;32]),
@@ -706,13 +712,13 @@ mod test {
 
 /*	#[test]
 	fn fdispc () {
-  let data = vec![
-      (vec![0], vec![251;32]),
-      (vec![0,1], vec![251; 32]),
-      (vec![0,1,2], vec![251; 32]),
-  ];
-  compare_impl_no_ext_pk(data);
-  panic!("dd");
-  }
- */  
+	let data = vec![
+			(vec![0], vec![251;32]),
+			(vec![0,1], vec![251; 32]),
+			(vec![0,1,2], vec![251; 32]),
+	];
+	compare_impl_no_ext_pk(data);
+	panic!("dd");
+	}
+ */
 }

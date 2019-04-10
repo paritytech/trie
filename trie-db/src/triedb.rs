@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use hash_db::{Hasher, HashDBRef};
-use nibbleslice::{self, NibbleSlice, combine_encoded};
+use nibbleslice::{self, NibbleSlice, combine_encoded, NibbleOps};
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
 use super::lookup::Lookup;
@@ -116,24 +116,23 @@ where
 	}
 }
 
-impl<'db, L> Trie<L::H, L::C> for TrieDB<'db, L>
+impl<'db, L> Trie<L> for TrieDB<'db, L>
 where
 	L: TrieLayOut,
 {
 	fn root(&self) -> &TrieHash<L> { self.root }
 
 	fn get_with<'a, 'key, Q: Query<L::H>>(&'a self, key: &'key [u8], query: Q) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
-		where 'a: 'key
+		where 'a: 'key,
 	{
-		Lookup {
+		Lookup::<L, Q> { // TODO EMCH rem type
 			db: self.db,
 			query: query,
 			hash: self.root.clone(),
-			marker: PhantomData::<L::C>,
 		}.look_up(NibbleSlice::new(key))
 	}
 
-	fn iter<'a>(&'a self) -> Result<Box<TrieIterator<L::H, L::C, Item=TrieItem<TrieHash<L>, CError<L>>> + 'a>, TrieHash<L>, CError<L>> {
+	fn iter<'a>(&'a self) -> Result<Box<TrieIterator<L, Item=TrieItem<TrieHash<L>, CError<L>>> + 'a>, TrieHash<L>, CError<L>> {
 		TrieDBIterator::new(self).map(|iter| Box::new(iter) as Box<_>)
 	}
 }
@@ -264,12 +263,12 @@ enum Status {
 }
 
 #[derive(Eq, PartialEq, Debug)]
-struct Crumb {
-	node: OwnedNode,
+struct Crumb<N> {
+	node: OwnedNode<N>,
 	status: Status,
 }
 
-impl Crumb {
+impl<N: NibbleOps> Crumb<N> {
 	/// Move on to next status in the node's sequence.
 	fn increment(&mut self) {
 		self.status = match (&self.status, &self.node) {
@@ -288,7 +287,7 @@ impl Crumb {
 /// Iterator for going through all values in the trie.
 pub struct TrieDBIterator<'a, L: TrieLayOut> {
 	db: &'a TrieDB<'a, L>,
-	trail: Vec<Crumb>,
+	trail: Vec<Crumb<L::N>>,
 	key_nibbles: Vec<u8>,
 }
 
@@ -300,7 +299,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 		Ok(r)
 	}
 
-	fn seek<'key>(&mut self, node_data: &DBValue, key: NibbleSlice<'key>) -> Result<(), TrieHash<L>, CError<L>> {
+	fn seek<'key>(&mut self, node_data: &DBValue, key: NibbleSlice<'key, L::N>) -> Result<(), TrieHash<L>, CError<L>> {
 		let mut node_data = Cow::Borrowed(node_data);
 		let mut partial = key;
 		let mut full_key_nibbles = 0;
@@ -414,7 +413,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 	}
 
 	/// Descend into a payload.
-	fn descend_into_node(&mut self, node: OwnedNode) {
+	fn descend_into_node(&mut self, node: OwnedNode<L::N>) {
 		self.trail.push(Crumb { status: Status::Entering, node });
 		match &self.trail.last().expect("just pushed item; qed").node {
 			&OwnedNode::Leaf(ref n, _)
@@ -444,7 +443,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 	/// Encoded key for storage lookup
 	fn encoded_key(&self) -> ElasticArray36<u8> {
 		let key = self.key();
-		let slice = NibbleSlice::new(&key);
+		let slice = NibbleSlice::<L::N>::new(&key);
 		if self.key_nibbles.len() % 2 == 1 {
 			NibbleSlice::new_composed(&slice, &NibbleSlice::new_offset(&self.key_nibbles[(self.key_nibbles.len() - 1)..], 1)).encoded(false)
 		} else {
@@ -453,7 +452,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 	}
 }
 
-impl<'a, L: TrieLayOut> TrieIterator<L::H, L::C> for TrieDBIterator<'a, L> {
+impl<'a, L: TrieLayOut> TrieIterator<L> for TrieDBIterator<'a, L> {
 	/// Position the iterator on the first element with key >= `key`
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		self.trail.clear();
@@ -860,7 +859,7 @@ mod tests {
 
 		// query for an invalid data type to trigger an error
 		let q = |x: &[u8]| x.len() < 64;
-		let lookup = RefLookup { db: t.db(), query: q, hash: root, marker: PhantomData };
+		let lookup = RefLookup { db: t.db(), query: q, hash: root };
 		let query_result = lookup.look_up(NibbleSlice::new(b"A"));
 		assert_eq!(query_result.unwrap().unwrap(), true);
 	}

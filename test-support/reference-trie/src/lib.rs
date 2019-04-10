@@ -37,25 +37,27 @@ use trie_db::{
 use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
 
-pub use trie_db::{Trie, TrieMut, NibbleSlice, NodeCodec, Recorder, Record, TrieLayOut};
+pub use trie_db::{Trie, TrieMut, NibbleSlice, NodeCodec, Recorder, Record, TrieLayOut, NibblePreHalf, NibbleOps};
 pub use trie_root::TrieStream;
 
 /// trie layout similar to parity-ethereum
 pub struct LayoutOri;
 
 impl TrieLayOut for LayoutOri {
-  const USE_EXTENSION: bool = true;
+	const USE_EXTENSION: bool = true;
 	type H = keccak_hasher::KeccakHasher;
 	type C = ReferenceNodeCodec;
+	type N = NibblePreHalf;
 }
 
 /// trie layout similar to substrate one
 pub struct LayoutNew;
 
 impl TrieLayOut for LayoutNew {
-  const USE_EXTENSION: bool = false;
+	const USE_EXTENSION: bool = false;
 	type H = keccak_hasher::KeccakHasher;
 	type C = ReferenceNodeCodecNoExt;
+	type N = NibblePreHalf;
 }
 
 pub type RefTrieDB<'a> = trie_db::TrieDB<'a, LayoutOri>;
@@ -66,8 +68,8 @@ pub type RefFatDB<'a> = trie_db::FatDB<'a, LayoutOri>;
 pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, LayoutOri>;
 pub type RefSecTrieDB<'a> = trie_db::SecTrieDB<'a, LayoutOri>;
 pub type RefSecTrieDBMut<'a> = trie_db::SecTrieDBMut<'a, LayoutOri>;
-pub type RefLookup<'a, Q> = trie_db::Lookup<'a, KeccakHasher, ReferenceNodeCodec, Q>;
-pub type RefLookupNoExt<'a, Q> = trie_db::Lookup<'a, KeccakHasher, ReferenceNodeCodecNoExt, Q>;
+pub type RefLookup<'a, Q> = trie_db::Lookup<'a, LayoutOri, Q>;
+pub type RefLookupNoExt<'a, Q> = trie_db::Lookup<'a, LayoutNew, Q>;
 
 pub fn ref_trie_root<I, A, B>(input: I) -> <KeccakHasher as Hasher>::Out where
 	I: IntoIterator<Item = (A, B)>,
@@ -460,14 +462,14 @@ fn partial_enc(partial: &[u8], node_kind: NodeKindNoExt) -> Vec<u8> {
 // `impl<H: Hasher> NodeCodec<H> for RlpNodeCodec<H> where <KeccakHasher as Hasher>::Out: Decodable`
 // but due to the current limitations of Rust const evaluation we can't
 // do `const HASHED_NULL_NODE: <KeccakHasher as Hasher>::Out = <KeccakHasher as Hasher>::Out( … … )`. Perhaps one day soon?
-impl NodeCodec<KeccakHasher> for ReferenceNodeCodec {
+impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodec {
 	type Error = ReferenceError;
 
 	fn hashed_null_node() -> <KeccakHasher as Hasher>::Out {
 		KeccakHasher::hash(&[0u8][..])
 	}
 
-	fn decode(data: &[u8]) -> ::std::result::Result<Node, Self::Error> {
+	fn decode(data: &[u8]) -> ::std::result::Result<Node<N>, Self::Error> {
 		let input = &mut &*data;
 		match NodeHeader::decode(input).ok_or(ReferenceError::BadFormat)? {
 			NodeHeader::Null => Ok(Node::Empty),
@@ -572,14 +574,14 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodec {
 
 }
 
-impl NodeCodec<KeccakHasher> for ReferenceNodeCodecNoExt {
+impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodecNoExt {
 	type Error = ReferenceError;
 
 	fn hashed_null_node() -> <KeccakHasher as Hasher>::Out {
-		ReferenceNodeCodec::hashed_null_node()
+		<ReferenceNodeCodec as NodeCodec<_, N>>::hashed_null_node()
 	}
 
-	fn decode(data: &[u8]) -> ::std::result::Result<Node, Self::Error> {
+	fn decode(data: &[u8]) -> ::std::result::Result<Node<N>, Self::Error> {
 		let input = &mut &*data;
 		let head = NodeHeaderNoExt::decode(input).ok_or(ReferenceError::BadFormat)?;
 		match head {
@@ -621,7 +623,7 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodecNoExt {
 	}
 
 	fn try_decode_hash(data: &[u8]) -> Option<<KeccakHasher as Hasher>::Out> {
-		ReferenceNodeCodec::try_decode_hash(data)
+		<ReferenceNodeCodec as NodeCodec<_, N>>::try_decode_hash(data)
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
@@ -689,7 +691,7 @@ pub fn compare_impl<X : hash_db::HashDB<KeccakHasher,DBValue> + Eq> (
 ) {
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit::<KeccakHasher, ReferenceNodeCodec, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit::<KeccakHasher, ReferenceNodeCodec, NibblePreHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = {
@@ -731,7 +733,7 @@ pub fn compare_root(
 ) {
 	let root_new = {
 		let mut cb = TrieRoot::<KeccakHasher, _>::default();
-		trie_visit::<KeccakHasher, ReferenceNodeCodec, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit::<KeccakHasher, ReferenceNodeCodec, NibblePreHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = {
@@ -751,7 +753,7 @@ pub fn compare_unhashed(
 ) {
 	let root_new = {
 		let mut cb = trie_db::TrieRootUnhashed::<KeccakHasher>::default();
-		trie_visit::<KeccakHasher, ReferenceNodeCodec, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit::<KeccakHasher, ReferenceNodeCodec, NibblePreHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = ref_trie_root_unhashed(data);
@@ -764,7 +766,7 @@ pub fn compare_unhashed_no_ext(
 ) {
 	let root_new = {
 		let mut cb = trie_db::TrieRootUnhashed::<KeccakHasher>::default();
-		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePreHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = ref_trie_root_unhashed_no_ext(data);
@@ -783,7 +785,7 @@ pub fn calc_root<I,A,B>(
 		B: AsRef<[u8]> + fmt::Debug,
 {
 	let mut cb = TrieRoot::<KeccakHasher, _>::default();
-	trie_visit::<KeccakHasher, ReferenceNodeCodec, _, _, _, _>(data.into_iter(), &mut cb);
+	trie_visit::<KeccakHasher, ReferenceNodeCodec, NibblePreHalf, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
 
@@ -796,7 +798,7 @@ pub fn calc_root_no_ext<I,A,B>(
 		B: AsRef<[u8]> + fmt::Debug,
 {
 	let mut cb = TrieRoot::<KeccakHasher, _>::default();
-	trie_db::trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, _, _, _, _>(data.into_iter(), &mut cb);
+	trie_db::trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePreHalf, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
 
@@ -807,7 +809,7 @@ pub fn compare_impl_no_ext(
 ) {
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePreHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = {
@@ -863,7 +865,7 @@ pub fn compare_impl_no_ext_unordered(
 	};
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, _, _, _, _>(b_map.into_iter(), &mut cb);
+		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePreHalf, _, _, _, _>(b_map.into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 
@@ -940,8 +942,8 @@ pub fn compare_no_ext_insert_remove(
 fn too_big_nibble_len () {
 	// + 1 for 0 added byte of nibble encode
 	let input = vec![0u8; (noext_cst::LEAF_NODE_OVER as usize + 256) / 2 + 1];
-	let enc = ReferenceNodeCodecNoExt::leaf_node(&input, &[1]);
-	let dec = ReferenceNodeCodecNoExt::decode(&enc).unwrap();
+	let enc = <ReferenceNodeCodecNoExt as NodeCodec<_, NibblePreHalf>>::leaf_node(&input, &[1]);
+	let dec = <ReferenceNodeCodecNoExt as NodeCodec<_, NibblePreHalf>>::decode(&enc).unwrap();
 	let o_sl = if let Node::Leaf(sl,_) = dec {
 		//assert_eq!(&input[..], &sl.encoded(false)[..]);
 		Some(sl)

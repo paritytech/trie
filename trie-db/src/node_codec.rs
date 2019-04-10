@@ -17,6 +17,7 @@
 
 use hash_db::Hasher;
 use node::Node;
+use nibbleslice::NibbleOps;
 use ChildReference;
 #[cfg(feature = "std")]
 use std::borrow::Borrow;
@@ -42,15 +43,18 @@ impl<T> Error for T {}
 /// Trait for trie node encoding/decoding
 /// TODO add const MAX_NODE_LEN and run all encoding over a mutable buffer, returning size. ->
 /// avoid Vec by all means.
-pub trait NodeCodec<H: Hasher>: Sized {
+pub trait NodeCodec<H: Hasher, N: NibbleOps>: Sized {
 	/// Codec error type
 	type Error: Error;
 
+	// TODO EMCH since refact to use nibble ops: use of this method is super awkward
+	// -> making reference code implement statically other nibble could be the simpler
+	// way of fixing that
 	/// Get the hashed null node.
 	fn hashed_null_node() -> H::Out;
 
 	/// Decode bytes to a `Node`. Returns `Self::E` on failure.
-	fn decode(data: &[u8]) -> Result<Node, Self::Error>;
+	fn decode(data: &[u8]) -> Result<Node<N>, Self::Error>;
 
 	/// Decode bytes to the `Hasher`s output type. Returns `None` on failure.
 	fn try_decode_hash(data: &[u8]) -> Option<H::Out>;

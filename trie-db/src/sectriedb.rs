@@ -15,7 +15,6 @@
 use hash_db::{HashDBRef, Hasher};
 use super::triedb::TrieDB;
 use super::{Result, DBValue, Trie, TrieItem, TrieIterator, Query, TrieLayOut, CError, TrieHash};
-use node_codec::NodeCodec;
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
@@ -54,7 +53,7 @@ where
 	}
 }
 
-impl<'db, L> Trie<L::H, L::C> for SecTrieDB<'db, L>
+impl<'db, L> Trie<L> for SecTrieDB<'db, L>
 where
 	L: TrieLayOut,
 {
@@ -70,7 +69,7 @@ where
 		self.raw.get_with(L::H::hash(key).as_ref(), query)
 	}
 
-	fn iter<'a>(&'a self) -> Result<Box<TrieIterator<L::H, L::C, Item = TrieItem<TrieHash<L>, CError<L>>> + 'a>, TrieHash<L>, CError<L>> {
+	fn iter<'a>(&'a self) -> Result<Box<TrieIterator<L, Item = TrieItem<TrieHash<L>, CError<L>>> + 'a>, TrieHash<L>, CError<L>> {
 		TrieDB::iter(&self.raw)
 	}
 }

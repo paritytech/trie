@@ -15,26 +15,30 @@
 //! An owning, nibble-oriented byte vector.
 use elastic_array::ElasticArray36;
 use nibbleslice::NibbleSlice;
+use nibbleslice::NibbleOps;
+use ::core_::marker::PhantomData;
 
 /// Owning, nibble-oriented byte vector. Counterpart to `NibbleSlice`.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct NibbleVec {
+pub struct NibbleVec<N> {
 	inner: ElasticArray36<u8>,
 	len: usize,
+	marker: PhantomData<N>,
 }
 
-impl Default for NibbleVec {
+impl<N: NibbleOps> Default for NibbleVec<N> {
 	fn default() -> Self {
-		NibbleVec::new()
+		NibbleVec::<N>::new()
 	}
 }
 
-impl NibbleVec {
+impl<N: NibbleOps> NibbleVec<N> {
 	/// Make a new `NibbleVec`
 	pub fn new() -> Self {
 		NibbleVec {
 			inner: ElasticArray36::new(),
-			len: 0
+			len: 0,
+			marker: PhantomData,
 		}
 	}
 
@@ -87,7 +91,7 @@ impl NibbleVec {
 	}
 
 	/// Try to treat this `NibbleVec` as a `NibbleSlice`. Works only if len is even.
-	pub fn as_nibbleslice(&self) -> Option<NibbleSlice> {
+	pub fn as_nibbleslice(&self) -> Option<NibbleSlice<N>> {
 		if self.len % 2 == 0 {
 			Some(NibbleSlice::new(self.inner()))
 		} else {
@@ -101,8 +105,8 @@ impl NibbleVec {
 	}
 }
 
-impl<'a> From<NibbleSlice<'a>> for NibbleVec {
-	fn from(s: NibbleSlice<'a>) -> Self {
+impl<'a, N: NibbleOps> From<NibbleSlice<'a, N>> for NibbleVec<N> {
+	fn from(s: NibbleSlice<'a, N>) -> Self {
 		let mut v = NibbleVec::new();
 		for i in 0..s.len() {
 			v.push(s.at(i));
@@ -114,10 +118,11 @@ impl<'a> From<NibbleSlice<'a>> for NibbleVec {
 #[cfg(test)]
 mod tests {
 	use super::NibbleVec;
+	use nibbleslice::NibblePreHalf;
 
 	#[test]
 	fn push_pop() {
-		let mut v = NibbleVec::new();
+		let mut v = NibbleVec::<NibblePreHalf>::new();
 
 		for i in 0..16 {
 			v.push(i);
@@ -138,7 +143,7 @@ mod tests {
 			v.push(i);
 		}
 
-		let v2: NibbleVec = v.as_nibbleslice().unwrap().into();
+		let v2: NibbleVec<NibblePreHalf> = v.as_nibbleslice().unwrap().into();
 		assert_eq!(v, v2);
 	}
 }

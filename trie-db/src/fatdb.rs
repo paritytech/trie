@@ -44,7 +44,7 @@ where
 	pub fn db(&self) -> &HashDBRef<L::H, DBValue> { self.raw.db() }
 }
 
-impl<'db, L> Trie<L::H, L::C> for FatDB<'db, L>
+impl<'db, L> Trie<L> for FatDB<'db, L>
 where
 	L: TrieLayOut,
 {
@@ -60,7 +60,7 @@ where
 		self.raw.get_with(L::H::hash(key).as_ref(), query)
 	}
 
-	fn iter<'a>(&'a self) -> Result<Box<TrieIterator<L::H, L::C, Item = TrieItem<TrieHash<L>, CError<L>>> + 'a>, TrieHash<L>, CError<L>> {
+	fn iter<'a>(&'a self) -> Result<Box<TrieIterator<L, Item = TrieItem<TrieHash<L>, CError<L>>> + 'a>, TrieHash<L>, CError<L>> {
 		FatDBIterator::<L>::new(&self.raw).map(|iter| Box::new(iter) as Box<_>)
 	}
 }
@@ -87,7 +87,7 @@ where
 	}
 }
 
-impl<'db, L> TrieIterator<L::H, L::C> for FatDBIterator<'db, L>
+impl<'db, L> TrieIterator<L> for FatDBIterator<'db, L>
 where
 	L: TrieLayOut,
 {

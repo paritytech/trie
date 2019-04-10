@@ -50,7 +50,7 @@ where
 	pub fn db_mut(&mut self) -> &mut HashDB<L::H, DBValue> { self.raw.db_mut() }
 }
 
-impl<'db, L> TrieMut<L::H, L::C> for SecTrieDBMut<'db, L>
+impl<'db, L> TrieMut<L> for SecTrieDBMut<'db, L>
 where
 	L: TrieLayOut,
 {

@@ -14,7 +14,6 @@
 
 use hash_db::{HashDB, Hasher};
 use super::{Result, DBValue, TrieDBMut, TrieMut, TrieLayOut, TrieHash, CError};
-use node_codec::NodeCodec;
 
 /// A mutable `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 /// Additionaly it stores inserted hash-key mappings for later retrieval.
@@ -56,7 +55,7 @@ where
 	}
 }
 
-impl<'db, L> TrieMut<L::H, L::C> for FatDBMut<'db, L>
+impl<'db, L> TrieMut<L> for FatDBMut<'db, L>
 where
 	L: TrieLayOut,
 {
@@ -87,7 +86,7 @@ where
 		Ok(out)
 	}
 
-  fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+	fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
 		let hash = L::H::hash(key);
 		let out = self.raw.remove(hash.as_ref())?;
 

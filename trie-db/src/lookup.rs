@@ -18,32 +18,29 @@ use hash_db::{HashDBRef, Hasher};
 use nibbleslice::NibbleSlice;
 use node::Node;
 use node_codec::NodeCodec;
-use super::{DBValue, Result, TrieError, Query};
-use ::core_::marker::PhantomData;
+use super::{DBValue, Result, TrieError, Query, TrieLayOut, CError, TrieHash};
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 
 /// Trie lookup helper object.
-pub struct Lookup<'a, H: Hasher + 'a, C: NodeCodec<H>, Q: Query<H>> {
+pub struct Lookup<'a, L: TrieLayOut, Q: Query<L::H>> {
 	/// database to query from.
-	pub db: &'a HashDBRef<H, DBValue>,
+	pub db: &'a HashDBRef<L::H, DBValue>,
 	/// Query object to record nodes and transform data.
 	pub query: Q,
 	/// Hash to start at
-	pub hash: H::Out,
-	pub marker: PhantomData<C>, // TODO: probably not needed when all is said and done? When Query is made generic?
+	pub hash: TrieHash<L>,
 }
 
-impl<'a, H, C, Q> Lookup<'a, H, C, Q>
+impl<'a, L, Q> Lookup<'a, L, Q>
 where
-	H: Hasher,
-	C: NodeCodec<H>,
-	Q: Query<H>,
+	L: TrieLayOut,
+	Q: Query<L::H>,
 {
 	/// Look up the given key. If the value is found, it will be passed to the given
 	/// function to decode or copy.
-	pub fn look_up(mut self, key: NibbleSlice) -> Result<Option<Q::Item>, H::Out, C::Error> {
+	pub fn look_up(mut self, key: NibbleSlice<L::N>) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let mut partial = key;
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;
@@ -64,7 +61,7 @@ where
 			// without incrementing the depth.
 			let mut node_data = &node_data[..];
 			loop {
-				let decoded = match C::decode(node_data) {
+				let decoded = match L::C::decode(node_data) {
 					Ok(node) => node,
 					Err(e) => {
 						return Err(Box::new(TrieError::DecoderError(hash, e)))
@@ -117,7 +114,7 @@ where
 				}
 
 				// check if new node data is inline or hash.
-				if let Some(h) = C::try_decode_hash(&node_data) {
+				if let Some(h) = L::C::try_decode_hash(&node_data) {
 					hash = h;
 					break
 				}
