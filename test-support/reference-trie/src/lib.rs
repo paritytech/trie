@@ -151,6 +151,7 @@ enum NodeKindNoExt {
 	BranchWithValue,
 }
 
+// TODO EMCH version for end padding!!
 /// Create a leaf/extension node, encoding a number of nibbles. Note that this
 /// cannot handle a number of nibbles that is zero or greater than 84 + 255 and if
 /// you attempt to do so *IT WILL PANIC*.
@@ -429,19 +430,28 @@ fn take<'a>(input: &mut &'a[u8], count: usize) -> Option<&'a[u8]> {
 	Some(r)
 }
 
-fn partial_to_key(partial: &[u8], offset: u8, over: u8) -> Vec<u8> {
-	let nibble_count = (partial.len() - 1) * 2 + if partial[0] & 16 == 16 { 1 } else { 0 };
+fn partial_to_key<N: NibbleOps>(partial: &[u8], offset: u8, over: u8) -> Vec<u8> {
+  let hpe_pos = if N::PADD_AT_BEGIN { 0 } else { partial.len() - 1 };
+  let nb_nibble_hpe = N::nb_nibble_hpe(partial[hpe_pos]);
+	let nibble_count = (partial.len() - 1) * N::NIBBLE_PER_BYTE + nb_nibble_hpe;
 	assert!(nibble_count < over as usize);
 	let mut output = vec![offset + nibble_count as u8];
-	if nibble_count % 2 == 1 {
-		output.push(partial[0] & 0x0f);
+  if !N::PADD_AT_BEGIN {
+	  output.extend_from_slice(&partial[..hpe_pos]);
+  }
+	if nb_nibble_hpe > 0 {
+		output.push((partial[hpe_pos] & N::PADDING_BITMASK[nb_nibble_hpe - 1]) + N::PADDING_VALUE);
 	}
-	output.extend_from_slice(&partial[1..]);
+  if N::PADD_AT_BEGIN {
+	  output.extend_from_slice(&partial[1..]);
+  }
 	output
 }
 
-fn partial_enc(partial: &[u8], node_kind: NodeKindNoExt) -> Vec<u8> {
-	let nibble_count = (partial.len() - 1) * 2 + if partial[0] & 16 == 16 { 1 } else { 0 };
+fn partial_enc<N: NibbleOps>(partial: &[u8], node_kind: NodeKindNoExt) -> Vec<u8> {
+  let hpe_pos = if N::PADD_AT_BEGIN { 0 } else { partial.len() - 1 };
+  let nb_nibble_hpe = N::nb_nibble_hpe(partial[hpe_pos]);
+	let nibble_count = (partial.len() - 1) * N::NIBBLE_PER_BYTE + nb_nibble_hpe;
 
 	assert!(nibble_count < noext_cst::LEAF_NODE_OVER as usize + 256);
 
@@ -451,10 +461,15 @@ fn partial_enc(partial: &[u8], node_kind: NodeKindNoExt) -> Vec<u8> {
 		NodeKindNoExt::BranchWithValue => NodeHeaderNoExt::Branch(true, nibble_count).encode_to(&mut output),
 		NodeKindNoExt::BranchNoValue => NodeHeaderNoExt::Branch(false, nibble_count).encode_to(&mut output),
 	};
-	if nibble_count % 2 == 1 {
-		output.push(partial[0] & 0x0f);
+  if !N::PADD_AT_BEGIN {
+	  output.extend_from_slice(&partial[..hpe_pos]);
+  }
+	if nb_nibble_hpe > 0 {
+		output.push((partial[hpe_pos] & N::PADDING_BITMASK[nb_nibble_hpe - 1]) + N::PADDING_VALUE);
 	}
-	output.extend_from_slice(&partial[1..]);
+  if N::PADD_AT_BEGIN {
+	  output.extend_from_slice(&partial[1..]);
+  }
 	output
 }
 
@@ -466,7 +481,7 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodec {
 	type Error = ReferenceError;
 
 	fn hashed_null_node() -> <KeccakHasher as Hasher>::Out {
-		KeccakHasher::hash(&[0u8][..])
+		KeccakHasher::hash(&N::EMPTY_ENCODED[..])
 	}
 
 	fn decode(data: &[u8]) -> ::std::result::Result<Node<N>, Self::Error> {
@@ -474,6 +489,7 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodec {
 		match NodeHeader::decode(input).ok_or(ReferenceError::BadFormat)? {
 			NodeHeader::Null => Ok(Node::Empty),
 			NodeHeader::Branch(has_value) => {
+        // TODO EMCH var len bitmap up to 256 from 2 see NibbleOps variant 
 				let bitmap = u16::decode(input).ok_or(ReferenceError::BadFormat)?;
 				let value = if has_value {
 					let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
@@ -481,9 +497,10 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodec {
 				} else {
 					None
 				};
+        // TODO EMCH could not parameterized this on associated constant
 				let mut children = [None; 16];
 				let mut pot_cursor = 1;
-				for i in 0..16 {
+				for i in 0..N::NIBBLE_LEN {
 					if bitmap & pot_cursor != 0 {
 						let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 						children[i] = Some(take(input, count).ok_or(ReferenceError::BadFormat)?);
@@ -493,14 +510,16 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodec {
 				Ok(Node::Branch(children, value))
 			}
 			NodeHeader::Extension(nibble_count) => {
-				let nibble_data = take(input, (nibble_count + 1) / 2).ok_or(ReferenceError::BadFormat)?;
-				let nibble_slice = NibbleSlice::new_offset(nibble_data, nibble_count % 2);
+				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
+          .ok_or(ReferenceError::BadFormat)?;
+				let nibble_slice = NibbleSlice::new_offset(nibble_data, nibble_count % N::NIBBLE_PER_BYTE);
 				let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 				Ok(Node::Extension(nibble_slice, take(input, count).ok_or(ReferenceError::BadFormat)?))
 			}
 			NodeHeader::Leaf(nibble_count) => {
-				let nibble_data = take(input, (nibble_count + 1) / 2).ok_or(ReferenceError::BadFormat)?;
-				let nibble_slice = NibbleSlice::new_offset(nibble_data, nibble_count % 2);
+				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
+          .ok_or(ReferenceError::BadFormat)?;
+				let nibble_slice = NibbleSlice::new_offset(nibble_data, nibble_count % N::NIBBLE_PER_BYTE);
 				let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 				Ok(Node::Leaf(nibble_slice, take(input, count).ok_or(ReferenceError::BadFormat)?))
 			}
@@ -526,13 +545,13 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodec {
 	}
 
 	fn leaf_node(partial: &[u8], value: &[u8]) -> Vec<u8> {
-		let mut output = partial_to_key(partial, LEAF_NODE_OFFSET, LEAF_NODE_OVER);
+		let mut output = partial_to_key::<N>(partial, LEAF_NODE_OFFSET, LEAF_NODE_OVER);
 		value.encode_to(&mut output);
 		output
 	}
 
 	fn ext_node(partial: &[u8], child: ChildReference<<KeccakHasher as Hasher>::Out>) -> Vec<u8> {
-		let mut output = partial_to_key(partial, EXTENSION_NODE_OFFSET, EXTENSION_NODE_OVER);
+		let mut output = partial_to_key::<N>(partial, EXTENSION_NODE_OFFSET, EXTENSION_NODE_OVER);
 		match child {
 			ChildReference::Hash(h) => h.as_ref().encode_to(&mut output),
 			ChildReference::Inline(inline_data, len) => (&AsRef::<[u8]>::as_ref(&inline_data)[..len]).encode_to(&mut output),
@@ -587,11 +606,14 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodecNoExt {
 		match head {
 			NodeHeaderNoExt::Null => Ok(Node::Empty),
 			NodeHeaderNoExt::Branch(has_value, nibble_count) => {
-				if nibble_count % 2 == 1 && input[0] & 0xf0 != 0x00 {
+        let nb_nibble_hpe = nibble_count % N::NIBBLE_PER_BYTE;
+        let hpe_pos = if N::PADD_AT_BEGIN { 0 } else { nibble_count / N::NIBBLE_PER_BYTE };
+				if nb_nibble_hpe > 0 && input[hpe_pos] & !N::PADDING_BITMASK[nb_nibble_hpe - 1] != 0 {
 					return Err(ReferenceError::BadFormat);
 				}
-				let nibble_data = take(input, (nibble_count + 1) / 2).ok_or(ReferenceError::BadFormat)?;
-				let nibble_slice = NibbleSlice::new_offset(nibble_data, nibble_count % 2);
+				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
+          .ok_or(ReferenceError::BadFormat)?;
+				let nibble_slice = NibbleSlice::new_offset(nibble_data, nibble_count % N::NIBBLE_PER_BYTE);
 				let bitmap = u16::decode(input).ok_or(ReferenceError::BadFormat)?;
 				let value = if has_value {
 					let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
@@ -601,7 +623,7 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodecNoExt {
 				};
 				let mut children = [None; 16];
 				let mut pot_cursor = 1;
-				for i in 0..16 {
+				for i in 0..N::NIBBLE_LEN {
 					if bitmap & pot_cursor != 0 {
 						let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 						children[i] = Some(take(input, count).ok_or(ReferenceError::BadFormat)?);
@@ -611,11 +633,14 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodecNoExt {
 				Ok(Node::NibbledBranch(nibble_slice, children, value))
 			}
 			NodeHeaderNoExt::Leaf(nibble_count) => {
-				if nibble_count % 2 == 1 && input[0] & 0xf0 != 0x00 {
+        let nb_nibble_hpe = nibble_count % N::NIBBLE_PER_BYTE;
+        let hpe_pos = if N::PADD_AT_BEGIN { 0 } else { nibble_count / N::NIBBLE_PER_BYTE };
+				if nb_nibble_hpe > 0 && input[hpe_pos] & !N::PADDING_BITMASK[nb_nibble_hpe - 1] != 0 {
 					return Err(ReferenceError::BadFormat);
 				}
-				let nibble_data = take(input, (nibble_count + 1) / 2).ok_or(ReferenceError::BadFormat)?;
-				let nibble_slice = NibbleSlice::new_offset(nibble_data, nibble_count % 2);
+				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
+          .ok_or(ReferenceError::BadFormat)?;
+				let nibble_slice = NibbleSlice::new_offset(nibble_data, nibble_count % N::NIBBLE_PER_BYTE);
 				let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 				Ok(Node::Leaf(nibble_slice, take(input, count).ok_or(ReferenceError::BadFormat)?))
 			}
@@ -635,7 +660,7 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodecNoExt {
 	}
 
 	fn leaf_node(partial: &[u8], value: &[u8]) -> Vec<u8> {
-		let mut output = partial_enc(partial, NodeKindNoExt::Leaf);
+		let mut output = partial_enc::<N>(partial, NodeKindNoExt::Leaf);
 		value.encode_to(&mut output);
 		output
 	}
@@ -655,9 +680,9 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodecNoExt {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<KeccakHasher as Hasher>::Out>>>>,
 		maybe_value: Option<&[u8]>) -> Vec<u8> {
 		let mut output = if maybe_value.is_some() {
-			partial_enc(partial, NodeKindNoExt::BranchWithValue)
+			partial_enc::<N>(partial, NodeKindNoExt::BranchWithValue)
 		} else {
-			partial_enc(partial, NodeKindNoExt::BranchNoValue)
+			partial_enc::<N>(partial, NodeKindNoExt::BranchNoValue)
 		};
 		let bm_ix = output.len();
 		output.push(0);

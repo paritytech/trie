@@ -357,7 +357,7 @@ fn trie_visit_inner<H, C, N, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool)
 		}
 	} else {
 		// nothing null root corner case TODO warning hardcoded empty nibbleslice
-		cb_ext.process(&[0], C::empty_node(), true);
+		cb_ext.process(N::EMPTY_ENCODED, C::empty_node(), true);
 	}
 }
 

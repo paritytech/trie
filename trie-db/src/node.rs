@@ -33,6 +33,10 @@ pub enum Node<'a, N: NibbleOps> {
 	Leaf(NibbleSlice<'a, N>, &'a [u8]),
 	/// Extension node; has key slice and node data. Data may not be null.
 	Extension(NibbleSlice<'a, N>, &'a [u8]),
+  // TODO EMCH var length for children array is stuck behind https://github.com/rust-lang/rust/issues/43408
+  // So we should also put it as associated type of N, but generic_associated_types will be needed
+  // for lifetime, so we should ultimately use something similar to struct `Branch` it decodes from
+  // a slice that is already aligned (need 2* bound in case there is some headers).
 	/// Branch node; has array of 16 child nodes (each possibly null) and an optional immediate node data.
 	Branch([Option<&'a [u8]>; 16], Option<&'a [u8]>),
 	/// Branch node with support for a nibble (to avoid extension node)

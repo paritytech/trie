@@ -70,7 +70,7 @@ fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; 16]> {
 	])
 }
 
-struct Partial<'key, N> {
+struct Partial<'key, N: NibbleOps> {
 	key: NibbleSlice<'key, N>,
 	split: usize,
 }
@@ -384,7 +384,7 @@ where
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
 	pub fn from_existing(db: &'a mut HashDB<L::H, DBValue>, root: &'a mut TrieHash<L>) -> Result<Self, TrieHash<L>, CError<L>> {
-		if !db.contains(root, nibbleslice::EMPTY_ENCODED) {
+		if !db.contains(root, L::N::EMPTY_ENCODED) {
 			return Err(Box::new(TrieError::InvalidStateRoot(*root)));
 		}
 
@@ -1154,7 +1154,7 @@ where
 					self.commit_child(child, k)
 				});
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
-				*self.root = self.db.insert(nibbleslice::EMPTY_ENCODED, &encoded_root[..]);
+				*self.root = self.db.insert(L::N::EMPTY_ENCODED, &encoded_root[..]);
 				self.hash_count += 1;
 
 				self.root_handle = NodeHandle::Hash(*self.root);

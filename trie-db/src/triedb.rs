@@ -81,7 +81,7 @@ where
 	/// Create a new trie with the backing database `db` and `root`
 	/// Returns an error if `root` does not exist
 	pub fn new(db: &'db HashDBRef<L::H, DBValue>, root: &'db TrieHash<L>) -> Result<Self, TrieHash<L>, CError<L>> {
-		if !db.contains(root, nibbleslice::EMPTY_ENCODED) {
+		if !db.contains(root, L::N::EMPTY_ENCODED) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		} else {
 			Ok(TrieDB {db, root, hash_count: 0})
@@ -94,7 +94,7 @@ where
 	/// Get the data of the root node.
 	pub fn root_data(&self) -> Result<DBValue, TrieHash<L>, CError<L>> {
 		self.db
-			.get(self.root, nibbleslice::EMPTY_ENCODED)
+			.get(self.root, L::N::EMPTY_ENCODED)
 			.ok_or_else(|| Box::new(TrieError::InvalidStateRoot(*self.root)))
 	}
 
@@ -104,7 +104,7 @@ where
 	/// is known to be literal.
 	/// `partial_key` is encoded nibble slice that addresses the node.
 	fn get_raw_or_lookup(&'db self, node: &[u8], partial_key: &[u8]) -> Result<Cow<'db, DBValue>, TrieHash<L>, CError<L>> {
-		match (partial_key == nibbleslice::EMPTY_ENCODED, L::C::try_decode_hash(node)) {
+		match (partial_key == L::N::EMPTY_ENCODED, L::C::try_decode_hash(node)) {
 			(false, Some(key)) => {
 				self.db
 					.get(&key, partial_key)
