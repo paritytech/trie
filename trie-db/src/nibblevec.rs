@@ -85,11 +85,15 @@ impl<'a, N: NibbleOps> From<NibbleSlice<'a, N>> for NibbleVec<N> {
 #[cfg(test)]
 mod tests {
 	use super::NibbleVec;
-	use nibbleslice::NibblePreHalf;
+	use nibbleslice::{NibblePreHalf, NibblePostHalf, NibbleOps};
 
 	#[test]
 	fn push_pop() {
-		let mut v = NibbleVec::<NibblePreHalf>::new();
+		push_pop_inner::<NibblePreHalf>();
+		push_pop_inner::<NibblePostHalf>();
+	}
+	fn push_pop_inner<N: NibbleOps>() {
+		let mut v = NibbleVec::<N>::new();
 
 		for i in 0..16 {
 			v.push(i);

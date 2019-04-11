@@ -613,7 +613,11 @@ where
 					// append after cp == existing_key and partial > cp
 					trace!(target: "trie", "branch: ROUTE,AUGMENT");
 					let idx = partial.at(cp) as usize;
+		println!("cp{:x?}", key.encoded_prefix());
+		println!("cp{:x?}", key.mid());
 					key.advance(cp + 1);
+		println!("cp{:x?}", key.encoded_prefix());
+		println!("cp{:x?}", key.mid());
 					if let Some(child) = children[idx].take() {
 						// original had something there. recurse down into it.
 						let (new_child, changed) = self.insert_at(child, key, value, old_val)?;

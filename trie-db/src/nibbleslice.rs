@@ -38,23 +38,23 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	const EMPTY_ENCODED: &'static [u8];
 	/// Define wether we should pad eneven byte at start or at end
 	const PADD_AT_BEGIN: bool;
-  /// padding value to apply (default to 0)
+	/// padding value to apply (default to 0)
 	const PADDING_VALUE: u8 = 0;
-  /// padding bitmasks (could be calculated with a constant function).
+	/// padding bitmasks (could be calculated with a constant function).
 	const PADDING_BITMASK: &'static [u8];
-  /// mask for nibble encoded first byte for leaf
-  const NIBBLE_ODD_MASK: u8;
-  /// mask for nibble encoded first byte for extension TODO consider removal (unused)
-  const NIBBLE_EXT_MASK: u8;
-  /// mask for nibble encoded first byte for leaf
-  const NIBBLE_LEAF_MASK: u8;
+	/// mask for nibble encoded first byte for leaf
+	const NIBBLE_ODD_MASK: u8;
+	/// mask for nibble encoded first byte for extension TODO consider removal (unused)
+	const NIBBLE_EXT_MASK: u8;
+	/// mask for nibble encoded first byte for leaf
+	const NIBBLE_LEAF_MASK: u8;
 
 
-  // TODO redesign nibble slice to run as cursor over a full key (concat could really benefit from
-  // it)
-  /// type for storing padding length (nothing for prefixed impl)
-  /// should default to no padding
-  type PADDING_LEN: Clone + Default + Copy + Into<usize>;
+	// TODO redesign nibble slice to run as cursor over a full key (concat could really benefit from
+	// it)
+	/// type for storing padding length (nothing for prefixed impl)
+	/// should default to no padding
+	type PADDING_LEN: Clone + Default + Copy + Into<usize>;
 
 	/// Create a new nibble slice from the given HPE encoded data (e.g. output of `encoded()`).
 	fn from_encoded(data: &[u8]) -> (NibbleSlice<Self>, bool);
@@ -114,7 +114,7 @@ pub enum ByteLayout {
 pub struct Empty;
 
 impl Into<usize> for Empty {
-  fn into(self) -> usize { 0 }
+	fn into(self) -> usize { 0 }
 }
 
 impl NibbleOps for NibblePreHalf {
@@ -122,20 +122,20 @@ impl NibbleOps for NibblePreHalf {
 	const EMPTY_ENCODED: &'static [u8] = &[0];
 	const REPR: ByteLayout = ByteLayout::Half; 
 	const PADDING_BITMASK: &'static [u8] = &[0x0f];
-  const NIBBLE_ODD_MASK: u8 = 0x10;
-  const NIBBLE_EXT_MASK: u8 = 0x00;
-  const NIBBLE_LEAF_MASK: u8 = 0x20;
+	const NIBBLE_ODD_MASK: u8 = 0x10;
+	const NIBBLE_EXT_MASK: u8 = 0x00;
+	const NIBBLE_LEAF_MASK: u8 = 0x20;
 
 
-  type PADDING_LEN = Empty;
+	type PADDING_LEN = Empty;
 
 	fn from_encoded(data: &[u8]) -> (NibbleSlice<Self>, bool) {
 		if data.is_empty() {
 			(NibbleSlice::<Self>::new(&[]), false)
 		} else {
 			(NibbleSlice::<Self>::new_offset(data,
-        if data[0] & Self::NIBBLE_ODD_MASK == Self::NIBBLE_ODD_MASK {1} else {2}), 
-      data[0] & Self::NIBBLE_LEAF_MASK == Self::NIBBLE_LEAF_MASK)
+				if data[0] & Self::NIBBLE_ODD_MASK == Self::NIBBLE_ODD_MASK {1} else {2}), 
+			data[0] & Self::NIBBLE_LEAF_MASK == Self::NIBBLE_LEAF_MASK)
 		}
 	}
 
@@ -210,10 +210,10 @@ impl NibbleOps for NibblePreHalf {
 		Some(nibble)
 	}
 
-  #[inline]
+	#[inline]
 	fn nb_nibble_hpe(hpe: u8) -> usize {
-    if hpe & 16 == 16 { 1 } else { 0 }
-  }
+		if hpe & 16 == 16 { 1 } else { 0 }
+	}
 }
 
 /// half byte nibble padding at end when encoded
@@ -226,24 +226,24 @@ impl NibbleOps for NibblePostHalf {
 	const EMPTY_ENCODED: &'static [u8] = &[0];
 	const REPR: ByteLayout = ByteLayout::Half; 
 	const PADDING_BITMASK: &'static [u8] = &[0xf0];
-  const NIBBLE_ODD_MASK: u8 = 0x01;
-  const NIBBLE_EXT_MASK: u8 = 0x00;
-  const NIBBLE_LEAF_MASK: u8 = 0x02;
-  type PADDING_LEN = bool;
+	const NIBBLE_ODD_MASK: u8 = 0x01;
+	const NIBBLE_EXT_MASK: u8 = 0x00;
+	const NIBBLE_LEAF_MASK: u8 = 0x02;
+	type PADDING_LEN = bool;
 
 	fn from_encoded(data: &[u8]) -> (NibbleSlice<Self>, bool) {
 		if data.is_empty() {
 			(NibbleSlice::<Self>::new(&[]), false)
 		} else {
-      let end_ix = data.len() - 1;
-      let is_leaf = data[end_ix] & Self::NIBBLE_LEAF_MASK == Self::NIBBLE_LEAF_MASK;
-      let (padding, data) = if data[end_ix] & Self::NIBBLE_ODD_MASK == Self::NIBBLE_ODD_MASK {
-        (true, &data[..])
-      } else {
-        (false, &data[..end_ix])
-      };
+			let end_ix = data.len() - 1;
+			let is_leaf = data[end_ix] & Self::NIBBLE_LEAF_MASK == Self::NIBBLE_LEAF_MASK;
+			let (padding, data) = if data[end_ix] & Self::NIBBLE_ODD_MASK == Self::NIBBLE_ODD_MASK {
+				(true, &data[..])
+			} else {
+				(false, &data[..end_ix])
+			};
 			(NibbleSlice::<Self>::new_padded(data, padding), is_leaf)
-    }
+		}
 	}
 
 	#[inline(always)]
@@ -258,9 +258,9 @@ impl NibbleOps for NibblePostHalf {
 			}
 		} else {
 			let i = i - l;
-      debug_assert!( 
-        i < s.data_encode_suffix.len() * Self::NIBBLE_PER_BYTE
-        - s.offset_encode_suffix - s.end_padding_suffix as usize);
+			debug_assert!( 
+				i < s.data_encode_suffix.len() * Self::NIBBLE_PER_BYTE
+				- s.offset_encode_suffix - s.end_padding_suffix as usize);
 			if (s.offset_encode_suffix + i) & 1 == 1 {
 				s.data_encode_suffix[(s.offset_encode_suffix + i) / Self::NIBBLE_PER_BYTE] & 15u8
 			}
@@ -273,7 +273,7 @@ impl NibbleOps for NibblePostHalf {
 	fn encoded_leftmost_unchecked(s: &NibbleSlice<Self>, l: usize, is_leaf: bool) -> ElasticArray36<u8> {
 		let mut r = ElasticArray36::new();
 		let odd = l % Self::NIBBLE_PER_BYTE;
-    let mut i = 0;
+		let mut i = 0;
 		while i < l - odd {
 			r.push(Self::at(s, i) * 16 + Self::at(s, i + 1));
 			i += 2;
@@ -321,10 +321,10 @@ impl NibbleOps for NibblePostHalf {
 		Some(nibble)
 	}
 
-  #[inline]
+	#[inline]
 	fn nb_nibble_hpe(hpe: u8) -> usize {
-    if hpe & 16 == 16 { 1 } else { 0 }
-  }
+		if hpe & 16 == 16 { 1 } else { 0 }
+	}
 }
 
 
@@ -355,10 +355,10 @@ impl NibbleOps for NibblePostHalf {
 pub struct NibbleSlice<'a, N: NibbleOps> {
 	data: &'a [u8],
 	offset: usize,
-  end_padding: N::PADDING_LEN,
+	end_padding: N::PADDING_LEN,
 	data_encode_suffix: &'a [u8],
 	offset_encode_suffix: usize,
-  end_padding_suffix: N::PADDING_LEN,
+	end_padding_suffix: N::PADDING_LEN,
 	marker: PhantomData<N>,
 }
 
@@ -385,37 +385,37 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 
 	/// Create a new nibble slice with the given byte-slice with a nibble offset.
 	pub fn new_offset(data: &'a [u8], offset: usize) -> Self {
-    Self::new_slice(data, offset, Default::default())
+		Self::new_slice(data, offset, Default::default())
 	}
 
 	fn new_slice(data: &'a [u8], offset: usize, end_padding: N::PADDING_LEN) -> Self {
 		NibbleSlice {
 			data,
 			offset,
-      end_padding,
+			end_padding,
 			data_encode_suffix: &b""[..],
 			offset_encode_suffix: 0,
-      end_padding_suffix: Default::default(),
+			end_padding_suffix: Default::default(),
 			marker: PhantomData,
 		}
 	}
 
 
 	/// Create a new nibble slice with the given byte-slice and a padding at the end.
-  /// This is only use for building encoded slice with end padding
+	/// This is only use for building encoded slice with end padding
 	fn new_padded(data: &'a [u8], pad: N::PADDING_LEN) -> Self {
-    Self::new_slice(data, 0, pad)
-  }
+		Self::new_slice(data, 0, pad)
+	}
 
 	/// Create a composed nibble slice; one followed by the other.
 	pub fn new_composed(a: &Self, b: &Self) -> Self {
 		NibbleSlice {
 			data: a.data,
 			offset: a.offset,
-      end_padding: a.end_padding,
+			end_padding: a.end_padding,
 			data_encode_suffix: b.data,
 			offset_encode_suffix: b.offset,
-      end_padding_suffix: b.end_padding,
+			end_padding_suffix: b.end_padding,
 			marker: PhantomData,
 		}
 	}
@@ -448,10 +448,10 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		NibbleSlice {
 			data: self.data,
 			offset: self.offset + i,
-      end_padding: self.end_padding,
+			end_padding: self.end_padding,
 			data_encode_suffix: &b""[..],
 			offset_encode_suffix: 0,
-      end_padding_suffix: self.end_padding_suffix,
+			end_padding_suffix: self.end_padding_suffix,
 			marker: PhantomData,
 		}
 	}
@@ -541,9 +541,9 @@ mod tests {
 
 	#[test]
 	fn basics() {
-    basics_inner::<NibblePreHalf>();
-    basics_inner::<NibblePostHalf>();
-  }
+		basics_inner::<NibblePreHalf>();
+		basics_inner::<NibblePostHalf>();
+	}
 	fn basics_inner<N: NibbleOps>() {
 		let n = NibbleSlice::<N>::new(D);
 		assert_eq!(n.len(), 6);
@@ -561,9 +561,9 @@ mod tests {
 
 	#[test]
 	fn iterator() {
-    iterator_inner::<NibblePreHalf>();
-    iterator_inner::<NibblePostHalf>();
-  }
+		iterator_inner::<NibblePreHalf>();
+		iterator_inner::<NibblePostHalf>();
+	}
 	fn iterator_inner<N: NibbleOps>() {
 		let n = NibbleSlice::<N>::new(D);
 		let mut nibbles: Vec<u8> = vec![];
@@ -573,9 +573,9 @@ mod tests {
 
 	#[test]
 	fn mid() {
-    mid_inner::<NibblePreHalf>();
-    mid_inner::<NibblePostHalf>();
-  }
+		mid_inner::<NibblePreHalf>();
+		mid_inner::<NibblePostHalf>();
+	}
 	fn mid_inner<N: NibbleOps>() {
 		let n = NibbleSlice::<N>::new(D);
 		let m = n.mid(2);
@@ -605,7 +605,7 @@ mod tests {
 		assert_eq!(n.mid(1).encoded(false), ElasticArray36::from_slice(&[0x12, 0x34, 0x51]));
 		assert_eq!(n.mid(1).encoded(true), ElasticArray36::from_slice(&[0x12, 0x34, 0x53]));
 		let n = NibbleSlice::<NibblePostHalf>::from_encoded(&[0x12, 0x34, 0x51]).0; // unaligned end
-    assert_eq!(n.encoded(false), ElasticArray36::from_slice(&[0x12, 0x34, 0x51]));
+		assert_eq!(n.encoded(false), ElasticArray36::from_slice(&[0x12, 0x34, 0x51]));
 		assert_eq!(n.encoded(true), ElasticArray36::from_slice(&[0x12, 0x34, 0x53]));
 		assert_eq!(n.mid(1).encoded(false), ElasticArray36::from_slice(&[0x23, 0x45, 0x00]));
 		assert_eq!(n.mid(1).encoded(true), ElasticArray36::from_slice(&[0x23, 0x45, 0x02]));
@@ -632,9 +632,9 @@ mod tests {
 
 	#[test]
 	fn shared() {
-	  shared_inner::<NibblePreHalf>();
-	  shared_inner::<NibblePostHalf>();
-  }
+		shared_inner::<NibblePreHalf>();
+		shared_inner::<NibblePostHalf>();
+	}
 	fn shared_inner<N: NibbleOps>() {
 		let n = NibbleSlice::<N>::new(D);
 
@@ -652,9 +652,9 @@ mod tests {
 
 	#[test]
 	fn compare() {
-	  compare_inner::<NibblePreHalf>();
-	  compare_inner::<NibblePostHalf>();
-  }
+		compare_inner::<NibblePreHalf>();
+		compare_inner::<NibblePostHalf>();
+	}
 	fn compare_inner<N: NibbleOps>() {
 		let other = &[0x01u8, 0x23, 0x01, 0x23, 0x45];
 		let n = NibbleSlice::<N>::new(D);
