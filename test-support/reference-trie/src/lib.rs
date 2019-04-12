@@ -130,6 +130,16 @@ mod noext_cst {
 	pub const BRANCH_NODE_NO_VALUE_LAST: u8 = BRANCH_NODE_NO_VALUE_BIG - 1;
 }
 
+/// constant use with trie simplification codec
+mod s_cst {
+	pub const EMPTY_TRIE: u8 = 0;
+	pub const NIBBLE_SIZE_BOUND: usize = u16::max_value() as usize;
+	pub const LEAF_PREFIX_MASK: u8 = 0b_01 << 6;
+	pub const BRANCH_WITHOUT_MASK: u8 = 0b_10 << 6;
+	pub const BRANCH_WITH_MASK: u8 = 0b_11 << 6;
+}
+
+
 /// Create a leaf/extension node, encoding a number of nibbles. Note that this
 /// cannot handle a number of nibbles that is zero or greater than 125 and if
 /// you attempt to do so *IT WILL PANIC*.
@@ -332,29 +342,96 @@ impl Encode for NodeHeader {
 	}
 }
 
+/// bounding size to storage in a u16 variable to avoid dos
+fn s_encode_size_and_prefix<T: Output>(size: usize, prefix: u8, out: &mut T) {
+  let size = ::std::cmp::min(s_cst::NIBBLE_SIZE_BOUND, size);
+  let l1 = std::cmp::min(62, size);
+  let mut rem = size - l1;
+  if rem == 0 {
+    out.push_byte(prefix + l1 as u8);
+    return;
+  } else {
+    out.push_byte(prefix + 63);
+  }
+  while rem > 0 {
+    if rem < 256 {
+      out.push_byte((rem - 1) as u8);
+      return;
+    } else {
+      out.push_byte(255);
+      rem = rem.saturating_sub(255);
+    }
+  }
+}
+fn s_decode_size<I: Input>(first: u8, input: &mut I) -> Option<usize> {
+  let mut result = (first & 255u8 >> 2) as usize;
+  if result < 63 {
+    return Some(result);
+  }
+  result -= 1;
+  while result <= s_cst::NIBBLE_SIZE_BOUND {
+    let n = input.read_byte()? as usize;
+    if n < 255 {
+      return Some(result + n + 1);
+    }
+    result += 255;
+  }
+  Some(s_cst::NIBBLE_SIZE_BOUND)
+}
+
+#[test]
+fn test_encoding_simple_trie() {
+  for prefix in [
+    s_cst::LEAF_PREFIX_MASK,
+    s_cst::BRANCH_WITHOUT_MASK,
+    s_cst::BRANCH_WITH_MASK,
+  ].iter() {
+    for i in (0..1000)
+      .chain(s_cst::NIBBLE_SIZE_BOUND - 2..s_cst::NIBBLE_SIZE_BOUND + 2) {
+      let mut output = Vec::new();
+      s_encode_size_and_prefix(i, *prefix, &mut output);
+      let input  = &mut &output[..];
+      let first = input.read_byte().unwrap();
+      assert_eq!(first & (0b11 << 6), *prefix);
+      let v = s_decode_size(first, input);
+      assert_eq!(Some(std::cmp::min(i, s_cst::NIBBLE_SIZE_BOUND)), v);
+    }
+
+  }
+}
+
+/*
+#[test]
+fn test_mal() {
+  let mut unique = std::collections::BTreeMap::new();
+  // test over 32 bit only is still 4 byte & this bruteforce takes way to long...
+  for i in (0..u32::max_value() / 4) {
+    let enc = i.to_be_bytes();
+    assert!(enc[0] >> 6 == 0);
+    let input = &mut &enc[..];
+    let first = input.read_byte().unwrap();
+    if let Some(v) = s_decode_size(first, input) {
+      let mut rem = 0;
+      while let Some(_) = input.read_byte() { rem += 1 }
+      if let Some((prev,prem)) = unique.insert(v, (enc.to_vec(),rem)) {
+        assert_eq!(&enc[..4 - rem], &prev[..4 - prem],
+          "duplicated key val {} {} {:x?} {:x?}", v, i, prev, enc);
+      }
+    }
+  }
+}
+*/
+
 impl Encode for NodeHeaderNoExt {
 	fn encode_to<T: Output>(&self, output: &mut T) {
 		match self {
-			NodeHeaderNoExt::Null => output.push_byte(noext_cst::EMPTY_TRIE),
-
-			NodeHeaderNoExt::Branch(true, nibble_count) if *nibble_count < noext_cst::BRANCH_NODE_WITH_VALUE_OVER as usize =>
-				output.push_byte(noext_cst::BRANCH_NODE_WITH_VALUE + *nibble_count as u8),
-			NodeHeaderNoExt::Branch(true, nibble_count) => {
-				output.push_byte(noext_cst::BRANCH_NODE_WITH_VALUE_BIG);
-				output.push_byte((*nibble_count - noext_cst::BRANCH_NODE_WITH_VALUE_OVER as usize) as u8);
-			},
-			NodeHeaderNoExt::Branch(false, nibble_count) if *nibble_count < noext_cst::BRANCH_NODE_NO_VALUE_OVER as usize =>
-				output.push_byte(noext_cst::BRANCH_NODE_NO_VALUE + *nibble_count as u8),
-			NodeHeaderNoExt::Branch(false, nibble_count) => {
-				output.push_byte(noext_cst::BRANCH_NODE_NO_VALUE_BIG);
-				output.push_byte((*nibble_count - noext_cst::BRANCH_NODE_NO_VALUE_OVER as usize) as u8);
-			},
-			NodeHeaderNoExt::Leaf(nibble_count) if *nibble_count < noext_cst::LEAF_NODE_OVER as usize =>
-				output.push_byte(noext_cst::LEAF_NODE_OFFSET + *nibble_count as u8),
-			NodeHeaderNoExt::Leaf(nibble_count) => {
-				output.push_byte(noext_cst::LEAF_NODE_BIG);
-				output.push_byte((*nibble_count - noext_cst::LEAF_NODE_OVER as usize) as u8);
-			}
+			NodeHeaderNoExt::Null => output.push_byte(s_cst::EMPTY_TRIE),
+			NodeHeaderNoExt::Branch(true, nibble_count)  =>
+        s_encode_size_and_prefix(*nibble_count, s_cst::BRANCH_WITH_MASK, output),
+			NodeHeaderNoExt::Branch(false, nibble_count) =>
+        s_encode_size_and_prefix(*nibble_count, s_cst::BRANCH_WITHOUT_MASK, output),
+			NodeHeaderNoExt::Leaf(nibble_count) =>
+        s_encode_size_and_prefix(*nibble_count, s_cst::LEAF_PREFIX_MASK, output),
 		}
 	}
 }
@@ -373,33 +450,27 @@ impl Decode for NodeHeader {
 
 impl Decode for NodeHeaderNoExt {
 	fn decode<I: Input>(input: &mut I) -> Option<Self> {
-		Some(match input.read_byte()? {
-			noext_cst::EMPTY_TRIE => NodeHeaderNoExt::Null,
-
-			i @ noext_cst::LEAF_NODE_OFFSET ... noext_cst::LEAF_NODE_LAST =>
-				NodeHeaderNoExt::Leaf((i - noext_cst::LEAF_NODE_OFFSET) as usize),
-			noext_cst::LEAF_NODE_BIG =>
-				NodeHeaderNoExt::Leaf(input.read_byte()? as usize + noext_cst::LEAF_NODE_OVER as usize),
-
-			i @ noext_cst::BRANCH_NODE_WITH_VALUE ... noext_cst::BRANCH_NODE_WITH_VALUE_LAST =>
-				NodeHeaderNoExt::Branch(true, (i - noext_cst::BRANCH_NODE_WITH_VALUE) as usize),
-			noext_cst::BRANCH_NODE_WITH_VALUE_BIG =>
-				NodeHeaderNoExt::Branch(true, input.read_byte()? as usize + noext_cst::BRANCH_NODE_WITH_VALUE_OVER as usize),
-
-			i @ noext_cst::BRANCH_NODE_NO_VALUE ... noext_cst::BRANCH_NODE_NO_VALUE_LAST =>
-				NodeHeaderNoExt::Branch(false, (i - noext_cst::BRANCH_NODE_NO_VALUE) as usize),
-			noext_cst::BRANCH_NODE_NO_VALUE_BIG =>
-				NodeHeaderNoExt::Branch(false, input.read_byte()? as usize + noext_cst::BRANCH_NODE_NO_VALUE_OVER as usize),
-
-		})
+		let i = input.read_byte()?;
+    if i == s_cst::EMPTY_TRIE {
+      return Some(NodeHeaderNoExt::Null);
+    }
+    match i & (0b11 << 6) {
+      s_cst::LEAF_PREFIX_MASK => Some(NodeHeaderNoExt::Leaf(s_decode_size(i, input)?)),
+      s_cst::BRANCH_WITHOUT_MASK => Some(NodeHeaderNoExt::Branch(false, s_decode_size(i, input)?)),
+      s_cst::BRANCH_WITH_MASK => Some(NodeHeaderNoExt::Branch(true, s_decode_size(i, input)?)),
+      // do not allow any special encoding
+      _ => None,
+    }
 	}
 }
 
 /// Simple reference implementation of a `NodeCodec`.
+/// This is similar to ethereum implementation.
 #[derive(Default, Clone)]
 pub struct ReferenceNodeCodec;
 
 /// Simple reference implementation of a `NodeCodec`.
+/// This is following https://github.com/w3f/polkadot-re-spec/issues/8
 #[derive(Default, Clone)]
 pub struct ReferenceNodeCodecNoExt;
 
@@ -482,7 +553,7 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodec {
 	type Error = ReferenceError;
 
 	fn hashed_null_node() -> <KeccakHasher as Hasher>::Out {
-		KeccakHasher::hash(&N::EMPTY_ENCODED[..])
+		KeccakHasher::hash(<Self as NodeCodec<_, N>>::empty_node())
 	}
 
 	fn decode(data: &[u8]) -> ::std::result::Result<Node<N>, Self::Error> {
@@ -540,11 +611,11 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodec {
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
-		data == &[EMPTY_TRIE][..]
+		data == <Self as NodeCodec<_, N>>::empty_node()
 	}
 
-	fn empty_node() -> Vec<u8> {
-		vec![EMPTY_TRIE]
+	fn empty_node() -> &'static[u8] {
+		&[EMPTY_TRIE]
 	}
 
 	fn leaf_node(partial: &[u8], value: &[u8]) -> Vec<u8> {
@@ -600,7 +671,7 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodecNoExt {
 	type Error = ReferenceError;
 
 	fn hashed_null_node() -> <KeccakHasher as Hasher>::Out {
-		<ReferenceNodeCodec as NodeCodec<_, N>>::hashed_null_node()
+		KeccakHasher::hash(<Self as NodeCodec<_, N>>::empty_node())
 	}
 
 	fn decode(data: &[u8]) -> ::std::result::Result<Node<N>, Self::Error> {
@@ -657,11 +728,11 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodecNoExt {
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
-		data == &[noext_cst::EMPTY_TRIE][..]
+		data == <Self as NodeCodec<_, N>>::empty_node()
 	}
 
-	fn empty_node() -> Vec<u8> {
-		vec![EMPTY_TRIE]
+	fn empty_node() -> &'static [u8] {
+		&[s_cst::EMPTY_TRIE]
 	}
 
 	fn leaf_node(partial: &[u8], value: &[u8]) -> Vec<u8> {
@@ -796,7 +867,8 @@ pub fn compare_unhashed_no_ext(
 ) {
 	let root_new = {
 		let mut cb = trie_db::TrieRootUnhashed::<KeccakHasher>::default();
-		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePreHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
+    // TODO EMCH siwtch this to post and implement post on ref_trie_root_unhashed_no_ext!!
+		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePostHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = ref_trie_root_unhashed_no_ext(data);

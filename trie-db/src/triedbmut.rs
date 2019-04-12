@@ -186,7 +186,7 @@ where
 		H: Hasher<Out = O>,
 	{
 		match self {
-			Node::Empty => C::empty_node(),
+			Node::Empty => C::empty_node().to_vec(),
 			Node::Leaf(partial, value) => C::leaf_node(&partial, &value),
 			Node::Extension(partial, child) => C::ext_node(&partial, child_cb(child, &partial)),
 			Node::Branch(mut children, value) => {

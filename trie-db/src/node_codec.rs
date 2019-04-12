@@ -63,7 +63,7 @@ pub trait NodeCodec<H: Hasher, N: NibbleOps>: Sized {
 	fn is_empty_node(data: &[u8]) -> bool;
 
 	/// Returns an empty node
-	fn empty_node() -> Vec<u8>;
+	fn empty_node() -> &'static [u8];
 
 	/// Returns an encoded leaf node
 	fn leaf_node(partial: &[u8], value: &[u8]) -> Vec<u8>;
