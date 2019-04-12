@@ -25,7 +25,7 @@ const TWO_EXP: [usize; 9] = [1, 2, 4, 8, 16, 32, 64, 128, 256];
 /// Nibble specific variants
 /// Note that some function are defined here but ideally it should just be a set of
 /// constant (with function handling all constant case).
-pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy {
+pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy + super::MaybeDebug {
 	/// variant repr 
 	const REPR : ByteLayout;
 	/// Number of bit per nibble
@@ -54,7 +54,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	// it)
 	/// type for storing padding length (nothing for prefixed impl)
 	/// should default to no padding
-	type PADDING_LEN: Clone + Default + Copy + Into<usize>;
+	type PADDING_LEN: Clone + Default + Copy + Into<usize> + Eq;
 
 	/// Create a new nibble slice from the given HPE encoded data (e.g. output of `encoded()`).
 	fn from_encoded(data: &[u8]) -> (NibbleSlice<Self>, bool);
@@ -89,6 +89,11 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 
 	/// get nb nibble from hpe
 	fn nb_nibble_hpe(hpe: u8) -> usize;
+	/// get nb padding in hpe from nibble size
+	fn nb_padding(len: usize) -> usize;
+
+	/// conveniance convert to avoid new type
+	fn lossy_into_padding(nb: usize) -> Self::PADDING_LEN;
 }
 
 /// half byte nibble prepend encoding
@@ -110,13 +115,15 @@ pub enum ByteLayout {
 }
 
 /// `()` with a conversion to 0
-#[derive(Clone, Default, Copy)]
+#[derive(Clone, Default, Copy, PartialEq, Eq, Debug)]
 pub struct Empty;
 
 impl Into<usize> for Empty {
 	fn into(self) -> usize { 0 }
 }
 
+// TODO EMCH some method can be fuse with post half (see bug solving: eg new_offset and
+// new_padded_end merged
 impl NibbleOps for NibblePreHalf {
 	const PADD_AT_BEGIN: bool = true;
 	const EMPTY_ENCODED: &'static [u8] = &[0];
@@ -212,7 +219,16 @@ impl NibbleOps for NibblePreHalf {
 
 	#[inline]
 	fn nb_nibble_hpe(hpe: u8) -> usize {
-		if hpe & 16 == 16 { 1 } else { 0 }
+		if hpe & Self::NIBBLE_ODD_MASK == Self::NIBBLE_ODD_MASK { 1 } else { 0 }
+	}
+	#[inline]
+	fn nb_padding(len: usize) -> usize {
+		if len % Self::NIBBLE_PER_BYTE == 1 { 1 } else { 0 }
+	}
+	#[inline]
+	fn lossy_into_padding(nb: usize) -> Self::PADDING_LEN {
+		debug_assert!(nb < 1);
+		Empty 
 	}
 }
 
@@ -242,7 +258,7 @@ impl NibbleOps for NibblePostHalf {
 			} else {
 				(false, &data[..end_ix])
 			};
-			(NibbleSlice::<Self>::new_padded(data, padding), is_leaf)
+			(NibbleSlice::<Self>::new_padded_end(data, padding), is_leaf)
 		}
 	}
 
@@ -323,7 +339,16 @@ impl NibbleOps for NibblePostHalf {
 
 	#[inline]
 	fn nb_nibble_hpe(hpe: u8) -> usize {
-		if hpe & 16 == 16 { 1 } else { 0 }
+		if hpe & Self::NIBBLE_ODD_MASK == Self::NIBBLE_ODD_MASK { 1 } else { 0 }
+	}
+	#[inline]
+	fn nb_padding(len: usize) -> usize {
+		if len % Self::NIBBLE_PER_BYTE == 1 { 1 } else { 0 }
+	}
+	#[inline]
+	fn lossy_into_padding(nb: usize) -> Self::PADDING_LEN {
+		debug_assert!(nb < 2);
+		nb == 1
 	}
 }
 
@@ -381,12 +406,22 @@ impl<'a, N: NibbleOps> Iterator for NibbleSliceIterator<'a, N> {
 
 impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	/// Create a new nibble slice with the given byte-slice.
-	pub fn new(data: &'a [u8]) -> Self { NibbleSlice::new_offset(data, 0) }
+	pub fn new(data: &'a [u8]) -> Self { NibbleSlice::new_slice(data, 0, Default::default()) }
 
 	/// Create a new nibble slice with the given byte-slice with a nibble offset.
 	pub fn new_offset(data: &'a [u8], offset: usize) -> Self {
 		Self::new_slice(data, offset, Default::default())
 	}
+	/// Create a new nibble slice with the given padding
+	#[inline]
+	pub fn new_padded(data: &'a [u8], pad: usize) -> Self {
+		if N::PADD_AT_BEGIN {
+			Self::new_offset(data, pad)
+		} else {
+			Self::new_padded_end(data, N::lossy_into_padding(pad))
+		}
+	}
+
 
 	fn new_slice(data: &'a [u8], offset: usize, end_padding: N::PADDING_LEN) -> Self {
 		NibbleSlice {
@@ -403,7 +438,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 
 	/// Create a new nibble slice with the given byte-slice and a padding at the end.
 	/// This is only use for building encoded slice with end padding
-	fn new_padded(data: &'a [u8], pad: N::PADDING_LEN) -> Self {
+	fn new_padded_end(data: &'a [u8], pad: N::PADDING_LEN) -> Self {
 		Self::new_slice(data, 0, pad)
 	}
 

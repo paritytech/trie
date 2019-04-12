@@ -426,6 +426,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 		}
 	}
 
+  // TODO EMCH : do note generalize -> try remove (unexpose), encoded_key is use insstead
 	/// The present key.
 	fn key(&self) -> Vec<u8> {
 		// collapse the key_nibbles down to bytes.
@@ -444,8 +445,12 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 	fn encoded_key(&self) -> ElasticArray36<u8> {
 		let key = self.key();
 		let slice = NibbleSlice::<L::N>::new(&key);
-		if self.key_nibbles.len() % 2 == 1 {
-			NibbleSlice::new_composed(&slice, &NibbleSlice::new_offset(&self.key_nibbles[(self.key_nibbles.len() - 1)..], 1)).encoded(false)
+		let nb_padd = L::N::nb_padding(self.key_nibbles.len());
+		if nb_padd > 0 {
+			// TODO EMCH costy new_composed when slice build just above???
+			NibbleSlice::new_composed(&slice,
+				&NibbleSlice::new_padded(&self.key_nibbles[(self.key_nibbles.len() - 1)..], nb_padd))
+				.encoded(false)
 		} else {
 			slice.encoded(false)
 		}

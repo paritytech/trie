@@ -513,14 +513,16 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodec {
 			NodeHeader::Extension(nibble_count) => {
 				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
 					.ok_or(ReferenceError::BadFormat)?;
-				let nibble_slice = NibbleSlice::new_offset(nibble_data, nibble_count % N::NIBBLE_PER_BYTE);
+				let nibble_slice = NibbleSlice::new_padded(nibble_data,
+					nibble_count % N::NIBBLE_PER_BYTE); // TODO EMCH incorrect for non half padding!
 				let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 				Ok(Node::Extension(nibble_slice, take(input, count).ok_or(ReferenceError::BadFormat)?))
 			}
 			NodeHeader::Leaf(nibble_count) => {
 				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
 					.ok_or(ReferenceError::BadFormat)?;
-				let nibble_slice = NibbleSlice::new_offset(nibble_data, nibble_count % N::NIBBLE_PER_BYTE);
+				let nibble_slice = NibbleSlice::new_padded(nibble_data,
+					nibble_count % N::NIBBLE_PER_BYTE); // TODO EMCH incorrect for non half padding!
 				let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 				Ok(Node::Leaf(nibble_slice, take(input, count).ok_or(ReferenceError::BadFormat)?))
 			}
@@ -614,7 +616,8 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodecNoExt {
 				}
 				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
 					.ok_or(ReferenceError::BadFormat)?;
-				let nibble_slice = NibbleSlice::new_offset(nibble_data, nibble_count % N::NIBBLE_PER_BYTE);
+				let nibble_slice = NibbleSlice::new_padded(nibble_data,
+					nibble_count % N::NIBBLE_PER_BYTE); // TODO EMCH incorrect for non half padding!
 				let bitmap = u16::decode(input).ok_or(ReferenceError::BadFormat)?;
 				let value = if has_value {
 					let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
@@ -641,7 +644,8 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodecNoExt {
 				}
 				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
 					.ok_or(ReferenceError::BadFormat)?;
-				let nibble_slice = NibbleSlice::new_offset(nibble_data, nibble_count % N::NIBBLE_PER_BYTE);
+				let nibble_slice = NibbleSlice::new_padded(nibble_data,
+					nibble_count % N::NIBBLE_PER_BYTE); // TODO EMCH incorrect for non half padding!
 				let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 				Ok(Node::Leaf(nibble_slice, take(input, count).ok_or(ReferenceError::BadFormat)?))
 			}
