@@ -162,30 +162,18 @@ enum NodeKindNoExt {
 	BranchWithValue,
 }
 
-// TODO EMCH version for end padding!!
-/// Create a leaf/extension node, encoding a number of nibbles. Note that this
-/// cannot handle a number of nibbles that is zero or greater than 84 + 255 and if
-/// you attempt to do so *IT WILL PANIC*.
+/// Create a leaf/branch node, encoding a number of nibbles.
 fn fuse_nibbles_node_noext<'a>(nibbles: &'a [u8], kind: NodeKindNoExt) -> impl Iterator<Item = u8> + 'a {
-	debug_assert!(nibbles.len() < 255 + 84, "nibbles length too long. what kind of size of key are you trying to include in the trie!?!");
-	// We use two ranges of possible values; one for leafs and the other for extensions.
-	// Each range encodes zero following nibbles up to some maximum. If the maximum is
-	// reached, then it is considered "big" and a second byte follows it in order to
-	// encode a further offset to the number of nibbles of up to 255. Beyond that, we
-	// cannot encode. This shouldn't be a problem though since that allows for keys of
-	// up to 380 nibbles (190 bytes) and we expect key sizes to be generally 128-bit (16
-	// bytes) or, at a push, 384-bit (48 bytes).
+	let size = ::std::cmp::min(s_cst::NIBBLE_SIZE_BOUND, nibbles.len());
 
-	let (first_byte_small, big_threshold) = match kind {
-		NodeKindNoExt::Leaf => (noext_cst::LEAF_NODE_OFFSET,	noext_cst::LEAF_NODE_BIG as usize),
-		NodeKindNoExt::BranchNoValue => (noext_cst::BRANCH_NODE_NO_VALUE,	noext_cst::BRANCH_NODE_NO_VALUE_BIG as usize),
-		NodeKindNoExt::BranchWithValue => (noext_cst::BRANCH_NODE_WITH_VALUE,	noext_cst::BRANCH_NODE_WITH_VALUE_BIG as usize),
+	let iter_start = match kind {
+		NodeKindNoExt::Leaf => s_size_and_prefix_iter(size, s_cst::LEAF_PREFIX_MASK),
+		NodeKindNoExt::BranchNoValue => s_size_and_prefix_iter(size, s_cst::BRANCH_WITHOUT_MASK),
+		NodeKindNoExt::BranchWithValue => s_size_and_prefix_iter(size, s_cst::BRANCH_WITH_MASK),
 	};
-	let first_byte = first_byte_small + nibbles.len().min(big_threshold) as u8;
-	once(first_byte)
-		.chain(if nibbles.len() >= big_threshold { Some((nibbles.len() - big_threshold) as u8) } else { None })
-		.chain(if nibbles.len() % 2 == 1 { Some(nibbles[0]) } else { None })
-		.chain(nibbles[nibbles.len() % 2..].chunks(2).map(|ch| ch[0] << 4 | ch[1]))
+	iter_start
+		.chain(nibbles[..nibbles.len() - (nibbles.len() % 2)].chunks(2).map(|ch| ch[0] << 4 | ch[1]))
+		.chain(if nibbles.len() % 2 == 1 { Some(nibbles[nibbles.len() - 1] << 4) } else { None })
 }
 
 pub fn branch_node(has_value: bool, has_children: impl Iterator<Item = bool>) -> [u8; 3] {
@@ -270,7 +258,7 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 	}
 
 	fn append_empty_data(&mut self) {
-		self.buffer.push(noext_cst::EMPTY_TRIE);
+		self.buffer.push(s_cst::EMPTY_TRIE);
 	}
 
 	fn append_leaf(&mut self, key: &[u8], value: &[u8]) {
@@ -342,83 +330,95 @@ impl Encode for NodeHeader {
 	}
 }
 
-/// bounding size to storage in a u16 variable to avoid dos
-fn s_encode_size_and_prefix<T: Output>(size: usize, prefix: u8, out: &mut T) {
-  let size = ::std::cmp::min(s_cst::NIBBLE_SIZE_BOUND, size);
-  let l1 = std::cmp::min(62, size);
-  let mut rem = size - l1;
-  if rem == 0 {
-    out.push_byte(prefix + l1 as u8);
-    return;
-  } else {
-    out.push_byte(prefix + 63);
-  }
-  while rem > 0 {
-    if rem < 256 {
-      out.push_byte((rem - 1) as u8);
-      return;
-    } else {
-      out.push_byte(255);
-      rem = rem.saturating_sub(255);
-    }
-  }
+fn s_size_and_prefix_iter(size: usize, prefix: u8) -> impl Iterator<Item = u8> {
+	let size = ::std::cmp::min(s_cst::NIBBLE_SIZE_BOUND, size);
+
+	let l1 = std::cmp::min(62, size);
+	let (first_byte, mut rem) = if size == l1 {
+		(once(prefix + l1 as u8), 0)
+	} else {
+		(once(prefix + 63), size - l1)
+	};
+	let next_bytes = move || {
+		if rem > 0 {
+			if rem < 256 {
+				let res = rem - 1;
+				rem = 0;
+				Some(res as u8)
+			} else {
+				rem = rem.saturating_sub(255);
+				Some(255)
+			}
+		} else {
+			None
+		}
+	};
+	first_byte.chain(::std::iter::from_fn(next_bytes))
 }
+
+/// bounding size to storage in a u16 variable to avoid dos
+fn s_encode_size_and_prefix(size: usize, prefix: u8, out: &mut impl Output) {
+	for b in s_size_and_prefix_iter(size, prefix) {
+		out.push_byte(b)
+	}
+}
+
 fn s_decode_size<I: Input>(first: u8, input: &mut I) -> Option<usize> {
-  let mut result = (first & 255u8 >> 2) as usize;
-  if result < 63 {
-    return Some(result);
-  }
-  result -= 1;
-  while result <= s_cst::NIBBLE_SIZE_BOUND {
-    let n = input.read_byte()? as usize;
-    if n < 255 {
-      return Some(result + n + 1);
-    }
-    result += 255;
-  }
-  Some(s_cst::NIBBLE_SIZE_BOUND)
+	let mut result = (first & 255u8 >> 2) as usize;
+	if result < 63 {
+		return Some(result);
+	}
+	result -= 1;
+	while result <= s_cst::NIBBLE_SIZE_BOUND {
+		let n = input.read_byte()? as usize;
+		if n < 255 {
+			return Some(result + n + 1);
+		}
+		result += 255;
+	}
+	Some(s_cst::NIBBLE_SIZE_BOUND)
 }
 
 #[test]
 fn test_encoding_simple_trie() {
-  for prefix in [
-    s_cst::LEAF_PREFIX_MASK,
-    s_cst::BRANCH_WITHOUT_MASK,
-    s_cst::BRANCH_WITH_MASK,
-  ].iter() {
-    for i in (0..1000)
-      .chain(s_cst::NIBBLE_SIZE_BOUND - 2..s_cst::NIBBLE_SIZE_BOUND + 2) {
-      let mut output = Vec::new();
-      s_encode_size_and_prefix(i, *prefix, &mut output);
-      let input  = &mut &output[..];
-      let first = input.read_byte().unwrap();
-      assert_eq!(first & (0b11 << 6), *prefix);
-      let v = s_decode_size(first, input);
-      assert_eq!(Some(std::cmp::min(i, s_cst::NIBBLE_SIZE_BOUND)), v);
-    }
+	for prefix in [
+		s_cst::LEAF_PREFIX_MASK,
+		s_cst::BRANCH_WITHOUT_MASK,
+		s_cst::BRANCH_WITH_MASK,
+	].iter() {
+		for i in (0..1000)
+			.chain(s_cst::NIBBLE_SIZE_BOUND - 2..s_cst::NIBBLE_SIZE_BOUND + 2) {
+			let mut output = Vec::new();
+			s_encode_size_and_prefix(i, *prefix, &mut output);
+			let input	= &mut &output[..];
+			let first = input.read_byte().unwrap();
+			assert_eq!(first & (0b11 << 6), *prefix);
+			let v = s_decode_size(first, input);
+			assert_eq!(Some(std::cmp::min(i, s_cst::NIBBLE_SIZE_BOUND)), v);
+		}
 
-  }
+	}
 }
 
 /*
 #[test]
 fn test_mal() {
-  let mut unique = std::collections::BTreeMap::new();
-  // test over 32 bit only is still 4 byte & this bruteforce takes way to long...
-  for i in (0..u32::max_value() / 4) {
-    let enc = i.to_be_bytes();
-    assert!(enc[0] >> 6 == 0);
-    let input = &mut &enc[..];
-    let first = input.read_byte().unwrap();
-    if let Some(v) = s_decode_size(first, input) {
-      let mut rem = 0;
-      while let Some(_) = input.read_byte() { rem += 1 }
-      if let Some((prev,prem)) = unique.insert(v, (enc.to_vec(),rem)) {
-        assert_eq!(&enc[..4 - rem], &prev[..4 - prem],
-          "duplicated key val {} {} {:x?} {:x?}", v, i, prev, enc);
-      }
-    }
-  }
+	let mut unique = std::collections::BTreeMap::new();
+	// test over 32 bit only is still 4 byte & this bruteforce takes way to long...
+	for i in (0..u32::max_value() / 4) {
+		let enc = i.to_be_bytes();
+		assert!(enc[0] >> 6 == 0);
+		let input = &mut &enc[..];
+		let first = input.read_byte().unwrap();
+		if let Some(v) = s_decode_size(first, input) {
+			let mut rem = 0;
+			while let Some(_) = input.read_byte() { rem += 1 }
+			if let Some((prev,prem)) = unique.insert(v, (enc.to_vec(),rem)) {
+				assert_eq!(&enc[..4 - rem], &prev[..4 - prem],
+					"duplicated key val {} {} {:x?} {:x?}", v, i, prev, enc);
+			}
+		}
+	}
 }
 */
 
@@ -426,12 +426,12 @@ impl Encode for NodeHeaderNoExt {
 	fn encode_to<T: Output>(&self, output: &mut T) {
 		match self {
 			NodeHeaderNoExt::Null => output.push_byte(s_cst::EMPTY_TRIE),
-			NodeHeaderNoExt::Branch(true, nibble_count)  =>
-        s_encode_size_and_prefix(*nibble_count, s_cst::BRANCH_WITH_MASK, output),
+			NodeHeaderNoExt::Branch(true, nibble_count)	=>
+				s_encode_size_and_prefix(*nibble_count, s_cst::BRANCH_WITH_MASK, output),
 			NodeHeaderNoExt::Branch(false, nibble_count) =>
-        s_encode_size_and_prefix(*nibble_count, s_cst::BRANCH_WITHOUT_MASK, output),
+				s_encode_size_and_prefix(*nibble_count, s_cst::BRANCH_WITHOUT_MASK, output),
 			NodeHeaderNoExt::Leaf(nibble_count) =>
-        s_encode_size_and_prefix(*nibble_count, s_cst::LEAF_PREFIX_MASK, output),
+				s_encode_size_and_prefix(*nibble_count, s_cst::LEAF_PREFIX_MASK, output),
 		}
 	}
 }
@@ -451,16 +451,16 @@ impl Decode for NodeHeader {
 impl Decode for NodeHeaderNoExt {
 	fn decode<I: Input>(input: &mut I) -> Option<Self> {
 		let i = input.read_byte()?;
-    if i == s_cst::EMPTY_TRIE {
-      return Some(NodeHeaderNoExt::Null);
-    }
-    match i & (0b11 << 6) {
-      s_cst::LEAF_PREFIX_MASK => Some(NodeHeaderNoExt::Leaf(s_decode_size(i, input)?)),
-      s_cst::BRANCH_WITHOUT_MASK => Some(NodeHeaderNoExt::Branch(false, s_decode_size(i, input)?)),
-      s_cst::BRANCH_WITH_MASK => Some(NodeHeaderNoExt::Branch(true, s_decode_size(i, input)?)),
-      // do not allow any special encoding
-      _ => None,
-    }
+		if i == s_cst::EMPTY_TRIE {
+			return Some(NodeHeaderNoExt::Null);
+		}
+		match i & (0b11 << 6) {
+			s_cst::LEAF_PREFIX_MASK => Some(NodeHeaderNoExt::Leaf(s_decode_size(i, input)?)),
+			s_cst::BRANCH_WITHOUT_MASK => Some(NodeHeaderNoExt::Branch(false, s_decode_size(i, input)?)),
+			s_cst::BRANCH_WITH_MASK => Some(NodeHeaderNoExt::Branch(true, s_decode_size(i, input)?)),
+			// do not allow any special encoding
+			_ => None,
+		}
 	}
 }
 
@@ -525,7 +525,7 @@ fn partial_enc<N: NibbleOps>(partial: &[u8], node_kind: NodeKindNoExt) -> Vec<u8
 	let nb_nibble_hpe = N::nb_nibble_hpe(partial[hpe_pos]);
 	let nibble_count = (partial.len() - 1) * N::NIBBLE_PER_BYTE + nb_nibble_hpe;
 
-	assert!(nibble_count < noext_cst::LEAF_NODE_OVER as usize + 256);
+	let nibble_count = ::std::cmp::min(s_cst::NIBBLE_SIZE_BOUND, nibble_count);
 
 	let mut output = Vec::with_capacity(2 + partial.len());
 	match node_kind {
@@ -867,7 +867,7 @@ pub fn compare_unhashed_no_ext(
 ) {
 	let root_new = {
 		let mut cb = trie_db::TrieRootUnhashed::<KeccakHasher>::default();
-    // TODO EMCH siwtch this to post and implement post on ref_trie_root_unhashed_no_ext!!
+		// TODO EMCH siwtch this to post and implement post on ref_trie_root_unhashed_no_ext!!
 		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePostHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
@@ -1034,21 +1034,17 @@ pub fn compare_no_ext_insert_remove(
 	assert_eq!(*t.root(), calc_root_no_ext(data2));
 }
 
-// TODO define how this should be handle:
-// panic does not look really good:
-// Either redesign encoding trait for for errors
-// or bound it (currently the code overflow 255 to
-// 0 and truncate).
-#[should_panic]
+// TODO to big is currently truncate, keep it that way??
 #[test]
 fn too_big_nibble_len () {
 	// + 1 for 0 added byte of nibble encode
-	let input = vec![0u8; (noext_cst::LEAF_NODE_OVER as usize + 256) / 2 + 1];
-	let enc = <ReferenceNodeCodecNoExt as NodeCodec<_, NibblePreHalf>>::leaf_node(&input, &[1]);
-	let dec = <ReferenceNodeCodecNoExt as NodeCodec<_, NibblePreHalf>>::decode(&enc).unwrap();
+	let input = vec![0u8; (s_cst::NIBBLE_SIZE_BOUND as usize + 1) / 2 + 1];
+	let enc = <ReferenceNodeCodecNoExt as NodeCodec<_, NibblePostHalf>>::leaf_node(&input, &[1]);
+	let dec = <ReferenceNodeCodecNoExt as NodeCodec<_, NibblePostHalf>>::decode(&enc).unwrap();
 	let o_sl = if let Node::Leaf(sl,_) = dec {
-		//assert_eq!(&input[..], &sl.encoded(false)[..]);
+		assert_eq!(&input[..s_cst::NIBBLE_SIZE_BOUND as usize / 2],
+			&sl.encoded(false)[..s_cst::NIBBLE_SIZE_BOUND as usize / 2]);
 		Some(sl)
 	} else { None };
-	//assert!(o_sl.is_some());
+	assert!(o_sl.is_some());
 }

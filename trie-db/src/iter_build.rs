@@ -701,10 +701,11 @@ mod test {
 		]);
 	}
 	#[test]
-	#[should_panic]
 	fn too_big_nibble_len_new () {
+		// truncate keep things working in both situation (but will conflict for multiple common prefix
+		// val!!)
 		compare_impl_no_ext(vec![
-			(vec![01u8;64 + 255],vec![0;32]),
+			(vec![01u8;((u16::max_value() as usize + 1) / 2) + 1],vec![0;32]),
 		]);
 	}
 
