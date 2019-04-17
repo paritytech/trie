@@ -58,7 +58,7 @@ impl TrieLayOut for LayoutNew {
 	const USE_EXTENSION: bool = false;
 	type H = keccak_hasher::KeccakHasher;
 	type C = ReferenceNodeCodecNoExt;
-	type N = NibblePostHalf;
+	type N = NibblePreHalf;
 }
 
 pub type RefTrieDB<'a> = trie_db::TrieDB<'a, LayoutOri>;
@@ -172,8 +172,10 @@ fn fuse_nibbles_node_noext<'a>(nibbles: &'a [u8], kind: NodeKindNoExt) -> impl I
 		NodeKindNoExt::BranchWithValue => s_size_and_prefix_iter(size, s_cst::BRANCH_WITH_MASK),
 	};
 	iter_start
-		.chain(nibbles[..nibbles.len() - (nibbles.len() % 2)].chunks(2).map(|ch| ch[0] << 4 | ch[1]))
-		.chain(if nibbles.len() % 2 == 1 { Some(nibbles[nibbles.len() - 1] << 4) } else { None })
+		.chain(if nibbles.len() % 2 == 1 { Some(nibbles[0]) } else { None })
+		.chain(nibbles[nibbles.len() % 2..].chunks(2).map(|ch| ch[0] << 4 | ch[1]))
+		//.chain(nibbles[..nibbles.len() - (nibbles.len() % 2)].chunks(2).map(|ch| ch[0] << 4 | ch[1]))
+		//.chain(if nibbles.len() % 2 == 1 { Some(nibbles[nibbles.len() - 1] << 4) } else { None })
 }
 
 pub fn branch_node(has_value: bool, has_children: impl Iterator<Item = bool>) -> [u8; 3] {
@@ -868,7 +870,7 @@ pub fn compare_unhashed_no_ext(
 	let root_new = {
 		let mut cb = trie_db::TrieRootUnhashed::<KeccakHasher>::default();
 		// TODO EMCH siwtch this to post and implement post on ref_trie_root_unhashed_no_ext!!
-		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePostHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePreHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = ref_trie_root_unhashed_no_ext(data);
@@ -900,7 +902,7 @@ pub fn calc_root_no_ext<I,A,B>(
 		B: AsRef<[u8]> + fmt::Debug,
 {
 	let mut cb = TrieRoot::<KeccakHasher, _>::default();
-	trie_db::trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePostHalf, _, _, _, _>(data.into_iter(), &mut cb);
+	trie_db::trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePreHalf, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
 
@@ -911,7 +913,7 @@ pub fn compare_impl_no_ext(
 ) {
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePostHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePreHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = {
@@ -967,7 +969,7 @@ pub fn compare_impl_no_ext_unordered(
 	};
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePostHalf, _, _, _, _>(b_map.into_iter(), &mut cb);
+		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePreHalf, _, _, _, _>(b_map.into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 
@@ -1039,11 +1041,9 @@ pub fn compare_no_ext_insert_remove(
 fn too_big_nibble_len () {
 	// + 1 for 0 added byte of nibble encode
 	let input = vec![0u8; (s_cst::NIBBLE_SIZE_BOUND as usize + 1) / 2 + 1];
-	let enc = <ReferenceNodeCodecNoExt as NodeCodec<_, NibblePostHalf>>::leaf_node(&input, &[1]);
-	let dec = <ReferenceNodeCodecNoExt as NodeCodec<_, NibblePostHalf>>::decode(&enc).unwrap();
+	let enc = <ReferenceNodeCodecNoExt as NodeCodec<_, NibblePreHalf>>::leaf_node(&input, &[1]);
+	let dec = <ReferenceNodeCodecNoExt as NodeCodec<_, NibblePreHalf>>::decode(&enc).unwrap();
 	let o_sl = if let Node::Leaf(sl,_) = dec {
-		assert_eq!(&input[..s_cst::NIBBLE_SIZE_BOUND as usize / 2],
-			&sl.encoded(false)[..s_cst::NIBBLE_SIZE_BOUND as usize / 2]);
 		Some(sl)
 	} else { None };
 	assert!(o_sl.is_some());
