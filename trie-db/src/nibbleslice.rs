@@ -305,7 +305,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	pub fn left(&'a self) -> (&'a [u8], Option<u8>) {
 		let split = self.offset / 2;
 		if self.len() % 2 == 1 {
-			(&self.data[..split], Some(self.data[split] & (255 >> 4)))
+			(&self.data[..split], Some(self.data[split] & (255 << 4)))
 		} else {
 			(&self.data[..split], None)
 		}

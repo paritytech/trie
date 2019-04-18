@@ -757,12 +757,12 @@ mod tests {
 		{
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 			t.insert(b"A", b"ABC").unwrap();
-			t.insert(b"B", b"ABCBA").unwrap();
+			t.insert(b"B", b"ABCBAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
 		}
 
 		let t = RefTrieDB::new(&memdb, &root).unwrap();
 		assert_eq!(t.get_with(b"A", |x: &[u8]| x.len()).unwrap(), Some(3));
-		assert_eq!(t.get_with(b"B", |x: &[u8]| x.len()).unwrap(), Some(5));
+		assert_eq!(t.get_with(b"B", |x: &[u8]| x.len()).unwrap(), Some(32));
 		assert_eq!(t.get_with(b"C", |x: &[u8]| x.len()).unwrap(), None);
 	}
 

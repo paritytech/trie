@@ -70,7 +70,7 @@ fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; 16]> {
 	])
 }
 // TODO rem
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct PartialKey<'key, N: NibbleOps> {
 	key: NibbleSlice<'key, N>,
 }
@@ -100,43 +100,34 @@ impl<'key, N: NibbleOps> PartialKey<'key, N> {
 
 }
 
-struct PartialKeyMut<'key, N: NibbleOps> {
-	key: &'key mut ElasticArray36<u8>,
-	start: usize,
+#[derive(Debug)]
+struct PartialKeyMut<N: NibbleOps> {
+	key: ElasticArray36<u8>,
 	pad: usize,
 	marker: PhantomData<N>,
 }
-
-impl<'a, N: NibbleOps> PartialKeyMut<'a, N> {
-	fn new(key: &mut ElasticArray36<u8>) -> PartialKeyMut<N> {
-		Self::new_advance(key, 0)
-	}
-	fn new_advance(key: &mut ElasticArray36<u8>, start: usize) -> PartialKeyMut<N> {
+// TODO EMCH almost replaceble with nibblevec
+impl<N: NibbleOps> PartialKeyMut<N> {
+	fn new() -> PartialKeyMut<N> {
 		PartialKeyMut {
-			key,
-			start,
+			key: ElasticArray36::new(),
 			pad: 0,
 			marker: Default::default(),
 		}
-	}
 
-	// TODO EMCH unused?? can bybe simplify a bit even up to keyvec (there is quite some
-	// unused in fact only use into recursive encding).
-	fn advance(&mut self, by: usize) {
-		self.start += by
 	}
+  // TODO EMCH better truncate
+  fn truncate(&mut self, mov: usize) {
+    for _ in 0..mov {
+      self.pop();
+    }
+  }
 
 	/// ret slice and nb of padding byte
-	fn mid(&self) -> (NibbleSlice<N>, usize) {
-		let padd_end = self.pad;
-		(NibbleSlice::new_offset(&self.key[..], self.start), padd_end)
+	fn mid(&self) -> NibbleSlice<N> {
+		(NibbleSlice::new_offset(&self.key[..], self.key.len() * N::NIBBLE_PER_BYTE - self.pad))
 	}
 
-	fn encoded_prefix_owned(&self) -> (ElasticArray36<u8>, Option<u8>) {
-		let pr = self.mid().0;
-		let (a, b) = pr.left();
-		(a.into(), b)
-	}
 	/// Push a nibble onto the `NibbleVec`. Ignores the high 4 bits.
 	pub fn push(&mut self, nibble: u8) {
 		// TODO EMCH move to N
@@ -153,10 +144,11 @@ impl<'a, N: NibbleOps> PartialKeyMut<'a, N> {
 
 	/// Try to pop a nibble off the `NibbleVec`. Fails if len == 0.
 	pub fn pop(&mut self) -> Option<u8> {
-		if self.key.len() * N::NIBBLE_PER_BYTE <= self.start {
+    let len = self.key.len() * N::NIBBLE_PER_BYTE - self.pad;
+		if len == 0 {
 			return None;
 		}
-
+println!("tr {:x?}", self);
 		let byte = self.key.pop().expect("len != 0; inner has last elem; qed");
 		let nibble = if self.pad == 0 {
 			// TODO EMCH rem pop / push
@@ -164,10 +156,11 @@ impl<'a, N: NibbleOps> PartialKeyMut<'a, N> {
 			self.pad = 1;
 			byte & 0x0F
 		} else {
-			self.pad += 1;
+			self.pad -= 1;
 			byte >> 4
 		};
 
+println!("tr {:x?}", self);
 		Some(nibble)
 	}
 }
@@ -259,7 +252,7 @@ where
 	where
 		N: NibbleOps,
 		C: NodeCodec<H,N>,
-		F: FnMut(NodeHandle<H::Out>, &mut PartialKeyMut<N>) -> ChildReference<H::Out>,
+		F: FnMut(NodeHandle<H::Out>, Option<&NibbleSlice<N>>, Option<u8>) -> ChildReference<H::Out>,
 		H: Hasher<Out = O>,
 	{
 		match self {
@@ -268,8 +261,8 @@ where
 			Node::Extension(partial, child) => {
 				// warning we know that partial does not use pop backward from this point, child_cb using pop 
 				// here will break things TODO pop limited version of TrieDBMut??
-				let c = child_cb(child, &mut PartialKeyMut::new_advance(&mut partial.1.clone(), partial.0));
 				let pr = NibbleSlice::<N>::new_offset(&partial.1[..], partial.0);
+				let c = child_cb(child, Some(&pr), None);
 				C::ext_node(
 					pr.iter(),
 					pr.len(),
@@ -283,10 +276,7 @@ where
 						.map(Option::take)
 						.enumerate()
 						.map(|(i, maybe_child)| {
-							let mut ea = ElasticArray36::new();
-							let mut pkm = PartialKeyMut::new(&mut ea);
-							pkm.push(i as u8);
-							maybe_child.map(|child|child_cb(child, &mut pkm))
+							maybe_child.map(|child|child_cb(child, None, Some(i as u8)))
 						}),
 					value.as_ref().map(|v|&v[..])
 				)
@@ -305,10 +295,8 @@ where
 							maybe_child.map(|child| {
 								// TODO EMCH this clone should be avoid by having a lower limit to pkm
 								// and reseting each time (also good to secure pop!!)
-								let mut basis = partial.1.clone();
-								let mut pkm = PartialKeyMut::new_advance(&mut basis, partial.0);
-								pkm.push(i as u8);
-								child_cb(child, &mut pkm)
+				        let pr = NibbleSlice::<N>::new_offset(&partial.1[..], partial.0);
+								child_cb(child, Some(&pr), Some(i as u8))
 							})
 						}),
 					value.as_ref().map(|v|&v[..])
@@ -1227,8 +1215,12 @@ where
 
 		match self.storage.destroy(handle) {
 			Stored::New(node) => {
-				let encoded_root = node.into_encoded::<_, L::C, L::H, L::N>(|child, k| {
-					self.commit_child(child, k)
+        let mut k = PartialKeyMut::new();
+				let encoded_root = node.into_encoded::<_, L::C, L::H, L::N>(|child, o_sl, o_ix| {
+          let mov = concat_key(&mut k, o_sl, o_ix);
+					let cr = self.commit_child(child, &mut k);
+          k.truncate(mov);
+          cr
 				});
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
 				*self.root = self.db.insert(nibbleslice::EMPTY_ENCODED, &encoded_root[..]);
@@ -1257,18 +1249,16 @@ where
 					Stored::Cached(_, hash) => ChildReference::Hash(hash),
 					Stored::New(node) => {
 						let encoded = {
-							let commit_child = |node_handle, partial: &mut PartialKeyMut<L::N>| {
-								let (sl, pad) = partial.mid();
-								// TODO EMCH there is an optim for aligned case : directly cat in elasti array
-								for n in sl.range_iter(sl.len() - pad) {
-									prefix.push(n);
-								}
-								self.commit_child(node_handle, prefix)
+							let commit_child = |node_handle, o_sl: Option<&NibbleSlice<L::N>>, o_ix: Option<u8>| {
+                let mov = concat_key(prefix, o_sl, o_ix);
+								let cr = self.commit_child(node_handle, prefix);
+                prefix.truncate(mov);
+                cr
 							};
 							node.into_encoded::<_, L::C, L::H, L::N>(commit_child)
 						};
 						if encoded.len() >= L::H::LENGTH {
-							let hash = self.db.insert(prefix.mid().0.left(), &encoded[..]);
+							let hash = self.db.insert(prefix.mid().left(), &encoded[..]);
 							self.hash_count +=1;
 							ChildReference::Hash(hash)
 						} else {
@@ -1291,6 +1281,22 @@ where
 			NodeHandle::InMemory(StorageHandle(x)) => NodeHandle::InMemory(StorageHandle(x)),
 		}
 	}
+}
+
+fn concat_key<N: NibbleOps>(prefix: &mut PartialKeyMut<N>, o_sl: Option<&NibbleSlice<N>>, o_ix: Option<u8>) -> usize {
+  let mut res = 0;
+  if let Some(sl) = o_sl { 
+    // TODO EMCH align optim
+    for n in sl.iter() {
+      prefix.push(n);
+    }
+    res += sl.len();
+  }
+  if let Some(ix) = o_ix { 
+    prefix.push(ix);
+    res += 1;
+  }
+  res
 }
 
 impl<'a, L> TrieMut<L> for TrieDBMut<'a, L>

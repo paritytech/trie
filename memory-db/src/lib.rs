@@ -410,6 +410,7 @@ where
 			return Some(self.null_node_data.clone());
 		}
 
+    println!("get : {:x?} {:x?}", key, prefix);
 		let key = KF::key(key, prefix);
 		let r = match self.data.get(&key) {
 			Some(&(ref d, rc)) if rc > 0 => Some(d.clone()),
@@ -435,6 +436,7 @@ where
 			return;
 		}
 
+    println!("emp : {:x?} {:x?}", key, prefix);
 		let key = KF::key(&key, prefix);
 		match self.data.entry(key) {
 			Entry::Occupied(mut entry) => {
