@@ -47,7 +47,7 @@ where
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
-			let node_data = match self.db.get(&hash, &key.encoded_leftmost(key_nibbles, false)) {
+			let node_data = match self.db.get(&hash, key.mid(key_nibbles).left()) {
 				Some(value) => value,
 				None => return Err(Box::new(match depth {
 					0 => TrieError::InvalidStateRoot(hash),

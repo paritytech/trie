@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use hash_db::{Hasher, HashDBRef};
-use nibbleslice::{self, NibbleSlice, combine_encoded, NibbleOps};
+use hash_db::{Hasher, HashDBRef, Prefix};
+use nibbleslice::{self, NibbleSlice, NibbleOps};
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
 use super::lookup::Lookup;
@@ -81,7 +81,7 @@ where
 	/// Create a new trie with the backing database `db` and `root`
 	/// Returns an error if `root` does not exist
 	pub fn new(db: &'db HashDBRef<L::H, DBValue>, root: &'db TrieHash<L>) -> Result<Self, TrieHash<L>, CError<L>> {
-		if !db.contains(root, L::N::EMPTY_ENCODED) {
+		if !db.contains(root, nibbleslice::EMPTY_ENCODED) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		} else {
 			Ok(TrieDB {db, root, hash_count: 0})
@@ -94,7 +94,7 @@ where
 	/// Get the data of the root node.
 	pub fn root_data(&self) -> Result<DBValue, TrieHash<L>, CError<L>> {
 		self.db
-			.get(self.root, L::N::EMPTY_ENCODED)
+			.get(self.root, nibbleslice::EMPTY_ENCODED)
 			.ok_or_else(|| Box::new(TrieError::InvalidStateRoot(*self.root)))
 	}
 
@@ -103,8 +103,8 @@ where
 	/// may require a database lookup. If `is_root_data` then this is root-data and
 	/// is known to be literal.
 	/// `partial_key` is encoded nibble slice that addresses the node.
-	fn get_raw_or_lookup(&'db self, node: &[u8], partial_key: &[u8]) -> Result<Cow<'db, DBValue>, TrieHash<L>, CError<L>> {
-		match (partial_key == L::N::EMPTY_ENCODED, L::C::try_decode_hash(node)) {
+	fn get_raw_or_lookup(&'db self, node: &[u8], partial_key: Prefix) -> Result<Cow<'db, DBValue>, TrieHash<L>, CError<L>> {
+		match (partial_key.0.is_empty() && partial_key.1.is_none(), L::C::try_decode_hash(node)) {
 			(false, Some(key)) => {
 				self.db
 					.get(&key, partial_key)
@@ -146,7 +146,8 @@ where
 {
 	trie: &'db TrieDB<'db, L>,
 	node_key: &'a[u8],
-	partial_key: &'a ElasticArray36<u8>,
+	// TODO EMCH this field looks useless
+	partial_key: NibbleSlice<'a, L::N>,
 	index: Option<u8>,
 }
 
@@ -156,7 +157,7 @@ where
 	L: TrieLayOut,
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		if let Ok(node) = self.trie.get_raw_or_lookup(self.node_key, &self.partial_key) {
+		if let Ok(node) = self.trie.get_raw_or_lookup(self.node_key, self.partial_key.left()) {
 			match L::C::decode(&node) {
 				Ok(Node::Leaf(slice, value)) =>
 					match (f.debug_struct("Node::Leaf"), self.index) {
@@ -175,7 +176,7 @@ where
 						.field("item", &TrieAwareDebugNode{
 							trie: self.trie,
 							node_key: item,
-							partial_key: &self.partial_key,
+							partial_key: self.partial_key,
 							index: None,
 						})
 						.finish(),
@@ -247,7 +248,7 @@ where
 			.field("root", &TrieAwareDebugNode {
 				trie: self,
 				node_key: &root_rlp[..],
-				partial_key: &Default::default(),
+				partial_key: NibbleSlice::new(&[]),
 				index: None,
 			})
 			.finish()
@@ -288,6 +289,7 @@ impl<N: NibbleOps> Crumb<N> {
 pub struct TrieDBIterator<'a, L: TrieLayOut> {
 	db: &'a TrieDB<'a, L>,
 	trail: Vec<Crumb<L::N>>,
+	// TODO EMCH replace by niblleVec!!!
 	key_nibbles: Vec<u8>,
 }
 
@@ -333,7 +335,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 							self.key_nibbles.extend(slice.iter());
 							full_key_nibbles += slice.len();
 							partial = partial.mid(slice.len());
-							let data = self.db.get_raw_or_lookup(&*item, &key.encoded_leftmost(full_key_nibbles, false))?;
+							let data = self.db.get_raw_or_lookup(&*item, key.back(full_key_nibbles).left())?;
 							data
 						} else {
 							self.descend(&node_data)?;
@@ -358,7 +360,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 							if let Some(ref child) = nodes[i as usize] {
 								full_key_nibbles += 1;
 								partial = partial.mid(1);
-								let child = self.db.get_raw_or_lookup(&*child, &key.encoded_leftmost(full_key_nibbles, false))?;
+								let child = self.db.get_raw_or_lookup(&*child, key.back(full_key_nibbles).left())?;
 								child
 							} else {
 								return Ok(())
@@ -388,7 +390,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 							if let Some(ref child) = nodes[i as usize] {
 								full_key_nibbles += slice.len() + 1;
 								partial = partial.mid(slice.len() + 1);
-								let child = self.db.get_raw_or_lookup(&*child, &key.encoded_leftmost(full_key_nibbles, false))?;
+								let child = self.db.get_raw_or_lookup(&*child, key.back(full_key_nibbles).left())?;
 								child
 							} else {
 								return Ok(())
@@ -406,7 +408,8 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 
 	/// Descend into a payload.
 	fn descend(&mut self, d: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
-		let node_data = &self.db.get_raw_or_lookup(d, &self.encoded_key())?;
+		let p_key = self.key();
+		let node_data = &self.db.get_raw_or_lookup(d, self.encoded_key(&p_key))?;
 		let node = L::C::decode(&node_data)
 			.map_err(|e|Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), e)))?;
 		Ok(self.descend_into_node(node.into()))
@@ -426,8 +429,8 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 		}
 	}
 
-  // TODO EMCH : do note generalize -> try remove (unexpose), encoded_key is use insstead
-	/// The present key.
+	// TODO EMCH : do note generalize -> try remove (unexpose), encoded_key is use insstead
+	/// The present key. TODO not right it misses last
 	fn key(&self) -> Vec<u8> {
 		// collapse the key_nibbles down to bytes.
 		let nibbles = &self.key_nibbles;
@@ -441,18 +444,16 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 		result
 	}
 
+	// TODO EMCH : do note generalize -> try remove (unexpose), encoded_key is use insstead
 	/// Encoded key for storage lookup
-	fn encoded_key(&self) -> ElasticArray36<u8> {
-		let key = self.key();
+	fn encoded_key<'b>(&self, key: &'b Vec<u8>) -> (&'b [u8], Option<u8>) {
 		let slice = NibbleSlice::<L::N>::new(&key);
-		let nb_padd = L::N::nb_padding(self.key_nibbles.len());
+		let nb_padd = self.key_nibbles.len() % 2;
 		if nb_padd > 0 {
-			// TODO EMCH costy new_composed when slice build just above???
-			NibbleSlice::new_composed(&slice,
-				&NibbleSlice::new_padded(&self.key_nibbles[(self.key_nibbles.len() - 1)..], nb_padd))
-				.encoded(false)
+			// TODO EMCH costy new_composed when slice build just above??
+			(&key[..], Some(self.key_nibbles[self.key_nibbles.len() - 1] & (255 << 4)))
 		} else {
-			slice.encoded(false)
+			(&key[..], None)
 		}
 	}
 }
@@ -506,7 +507,8 @@ impl<'a, L: TrieLayOut> Iterator for TrieDBIterator<'a, L> {
 						return Some(Ok((self.key(), v.clone())));
 					},
 					(Status::At, &OwnedNode::Extension(_, ref d)) => {
-						IterStep::Descend::<TrieHash<L>, CError<L>>(self.db.get_raw_or_lookup(&*d, &self.encoded_key()))
+						let p_key = self.key();
+						IterStep::Descend::<TrieHash<L>, CError<L>>(self.db.get_raw_or_lookup(&*d, self.encoded_key(&p_key)))
 					},
 					(Status::At, &OwnedNode::Branch(_))
 						| (Status::At, &OwnedNode::NibbledBranch(_,_)) => IterStep::Continue,
@@ -518,9 +520,10 @@ impl<'a, L: TrieLayOut> Iterator for TrieDBIterator<'a, L> {
 							i => *self.key_nibbles.last_mut()
 								.expect("pushed as 0; moves sequentially; removed afterwards; qed") = i as u8,
 						}
+						let p_key = self.key();
 						IterStep::Descend::<TrieHash<L>, CError<L>>(self.db.get_raw_or_lookup(
 							&branch.index(i).expect("this arm guarded by branch[i].is_some(); qed"),
-							&self.encoded_key()))
+							self.encoded_key(&p_key)))
 					},
 					(Status::AtChild(i), &OwnedNode::Branch(_))
 						| (Status::AtChild(i), &OwnedNode::NibbledBranch(_,_)) => {
@@ -748,7 +751,7 @@ mod tests {
 	}
 
 	#[test]
-	fn get_len() {
+	fn get_len_with_ext() {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{

@@ -38,6 +38,7 @@ pub trait Error {}
 #[cfg(not(feature = "std"))]
 impl<T> Error for T {}
 
+pub type Partial<'a> = (Option<u8>, &'a[u8]);
 // TODO EMCH change node codec trait to use &mut self as input in order to run on internal buffer.
 // (not for decode actually!!; code seems fine to do that and new layout trait is ok too
 /// Trait for trie node encoding/decoding
@@ -66,14 +67,14 @@ pub trait NodeCodec<H: Hasher, N: NibbleOps>: Sized {
 	fn empty_node() -> &'static [u8];
 
 	/// Returns an encoded leaf node
-	fn leaf_node(partial: &[u8], value: &[u8]) -> Vec<u8>;
+	fn leaf_node(partial: Partial, value: &[u8]) -> Vec<u8>;
 
 	/// Returns an encoded extension node
-	fn ext_node(partial: &[u8], child_ref: ChildReference<H::Out>) -> Vec<u8>;
+	fn ext_node(partial: impl Iterator<Item = u8>, nb_nibble: usize, child_ref: ChildReference<H::Out>) -> Vec<u8>;
 
 	/// Returns an encoded branch node. Takes an iterator yielding `ChildReference<H::Out>` and an optional value
 	fn branch_node(children: impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, value: Option<&[u8]>) -> Vec<u8>;
 
 	/// Returns an encoded branch node with a possible partial path.
-	fn branch_node_nibbled(partial: &[u8], children: impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, value: Option<&[u8]>) -> Vec<u8>;
+	fn branch_node_nibbled(partial: impl Iterator<Item = u8>, nb_nibble: usize, children: impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, value: Option<&[u8]>) -> Vec<u8>;
 }

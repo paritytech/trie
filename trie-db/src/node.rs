@@ -21,8 +21,8 @@ use super::DBValue;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-/// Partial node key type.
-pub type NodeKey = ElasticArray36<u8>;
+/// Partial node key type: offset and owned value of a nibbleslice.
+pub type NodeKey = (usize, ElasticArray36<u8>);
 
 /// Type of node in the trie and essential information thereof.
 #[derive(Eq, PartialEq, Debug, Clone)]

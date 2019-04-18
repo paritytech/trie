@@ -96,8 +96,8 @@ pub use self::fatdb::{FatDB, FatDBIterator};
 pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
-pub use self::nibbleslice::{NibbleSlice, NibbleOps, NibblePreHalf, NibblePostHalf};
-pub use node_codec::NodeCodec;
+pub use self::nibbleslice::{NibbleSlice, NibbleOps, NibblePreHalf};
+pub use node_codec::{NodeCodec, Partial};
 pub use iter_build::{trie_visit, trie_visit_no_ext, ProcessEncodedNode, TrieBuilder, TrieRoot, TrieRootUnhashed};
 
 pub type DBValue = elastic_array::ElasticArray128<u8>;

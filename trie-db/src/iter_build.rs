@@ -14,12 +14,12 @@
 
 //! Alternative tools for working with key value iterator without recursion.
 
-use hash_db::{Hasher, HashDB};
+use hash_db::{Hasher, HashDB, Prefix};
 use std::marker::PhantomData;
 use crate::triedbmut::{ChildReference};
 use crate::nibbleslice::NibbleSlice;
 use crate::nibbleslice::NibbleOps;
-use node_codec::NodeCodec;
+use node_codec::{NodeCodec, Partial};
 
 // TODO EMCH use L instead of HC (aka TrieLayout)
 // TODO EMCH move to NibbleOps to use right constants
@@ -135,12 +135,11 @@ where
 		let nkey = NibbleSlice::<N>::new_offset(&k2.as_ref()[..],target_depth+1);
 		// Note: fwiu, having fixed key size, all values are in leaf (no value in
 		// branch). TODO run metrics on a node to count branch with values
-		let encoded = C::leaf_node(&nkey.encoded(true).as_ref()[..], &v2.as_ref()[..]);
+		let encoded = C::leaf_node(nkey.right(), &v2.as_ref()[..]);
 		// TODO redesign nibleslice encoded to allow an inputstream (avoid this alloc) + design the
 		// thing other array of slice to avoid those concatenation unsecure or costy + same for nodes
-		// in fact or TODO put Vec in the trait?
-		let encoded_key = NibbleSlice::<N>::new(&k2.as_ref()[..]).encoded_leftmost(k2.as_ref().len() * NIBBLE_PER_BYTES - nkey.len(), false);
-		let hash = cb_ext.process(&encoded_key[..], encoded, false);
+		let pr = NibbleSlice::<N>::new_offset(&k2.as_ref()[..], k2.as_ref().len() * NIBBLE_PER_BYTES - nkey.len());
+		let hash = cb_ext.process(pr.left(), encoded, false);
 
 		// insert hash in branch (first level branch only at this point)
 		self.set_node(target_depth, nibble_value as usize, Some(hash));
@@ -228,14 +227,14 @@ where
 		let v = self.0[branch_d].2.take();
 		let encoded = C::branch_node(self.0[branch_d].0.iter(), v.as_ref().map(|v|v.as_ref()));
 		self.reset_depth(branch_d);
-		let encoded_key = NibbleSlice::<N>::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d, false);
-		let branch_hash = cb_ext.process(&encoded_key[..], encoded, is_root && nkey.is_none());
+		let pr = NibbleSlice::<N>::new_offset(&key_branch.as_ref()[..], branch_d);
+		let branch_hash = cb_ext.process(pr.left(), encoded, is_root && nkey.is_none());
 
 		if let Some(nkeyix) = nkey {
-			let nib = NibbleSlice::<N>::new_offset(&key_branch.as_ref()[..],nkeyix.0).encoded_leftmost(nkeyix.1, false);
-			let encoded = C::ext_node(&nib[..], branch_hash);
-			let encoded_key = NibbleSlice::<N>::new(&key_branch.as_ref()[..]).encoded_leftmost(nkeyix.0, false);
-			let h = cb_ext.process(&encoded_key[..], encoded, is_root);
+			let pr = NibbleSlice::<N>::new_offset(&key_branch.as_ref()[..], nkeyix.0);
+			let nib = pr.range_iter(nkeyix.1);
+			let encoded = C::ext_node(nib, nkeyix.1 - nkeyix.0, branch_hash);
+			let h = cb_ext.process(pr.left(), encoded, is_root);
 			h
 		} else {
 			branch_hash
@@ -253,16 +252,17 @@ where
 		) -> ChildReference<<H as Hasher>::Out> {
 		// enc branch
 		let v = self.0[branch_d].2.take();
-		let enc_nkey = nkey.as_ref()
-				.map(|nkeyix|NibbleSlice::<N>::new_offset(&key_branch.as_ref()[..],nkeyix.0).encoded_leftmost(nkeyix.1, false));
+		let nkeyix = nkey.unwrap_or((0,0));
+		let pr = NibbleSlice::<N>::new_offset(&key_branch.as_ref()[..],nkeyix.0);
 		let encoded = C::branch_node_nibbled(
 			// warn direct use of default empty nible encoded: NibbleSlice::new_offset(&[],0).encoded(false);
-			enc_nkey.as_ref().map(|v|&v[..]).unwrap_or(&[0]),
+			pr.range_iter(nkeyix.1),
+			nkeyix.1 - nkeyix.0,
 			self.0[branch_d].0.iter(), v.as_ref().map(|v|v.as_ref()));
 		self.reset_depth(branch_d);
 		let ext_len = nkey.as_ref().map(|nkeyix|nkeyix.0).unwrap_or(0);
-		let encoded_key = NibbleSlice::<N>::new(&key_branch.as_ref()[..]).encoded_leftmost(branch_d - ext_len, false);
-		cb_ext.process(&encoded_key[..], encoded, is_root)
+		let pr = NibbleSlice::<N>::new_offset(&key_branch.as_ref()[..], branch_d - ext_len);
+		cb_ext.process(pr.left(), encoded, is_root)
 	}
 
 }
@@ -345,9 +345,9 @@ fn trie_visit_inner<H, C, N, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool)
 			// one single element corner case
 			let (k2, v2) = prev_val;
 			let nkey = NibbleSlice::<N>::new_offset(&k2.as_ref()[..],prev_depth);
-			let encoded = C::leaf_node(&nkey.encoded(true).as_ref()[..], &v2.as_ref()[..]);
-			let encoded_key = NibbleSlice::<N>::new(&k2.as_ref()[..]).encoded_leftmost(k2.as_ref().len() * NIBBLE_PER_BYTES - nkey.len(), false);
-			cb_ext.process(&encoded_key[..], encoded, true);
+			let encoded = C::leaf_node(nkey.right(), &v2.as_ref()[..]);
+			let pr = NibbleSlice::<N>::new_offset(&k2.as_ref()[..], k2.as_ref().len() * NIBBLE_PER_BYTES - nkey.len());
+			cb_ext.process(pr.left(), encoded, true);
 		} else {
 			//println!("fbvl {}", prev_depth);
 			depth_queue.flush_val(cb_ext, prev_depth, &prev_val);
@@ -357,12 +357,12 @@ fn trie_visit_inner<H, C, N, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool)
 		}
 	} else {
 		// nothing null root corner case TODO warning hardcoded empty nibbleslice
-		cb_ext.process(N::EMPTY_ENCODED, C::empty_node().to_vec(), true);
+		cb_ext.process(crate::nibbleslice::EMPTY_ENCODED, C::empty_node().to_vec(), true);
 	}
 }
 
 pub trait ProcessEncodedNode<HO> {
-	fn process(&mut self, encoded_prefix: &[u8], Vec<u8>, bool) -> ChildReference<HO>;
+	fn process(&mut self, encoded_prefix: Prefix, Vec<u8>, bool) -> ChildReference<HO>;
 }
 
 /// Get trie root and insert node in hash db on parsing.
@@ -381,7 +381,7 @@ impl<'a, H, HO, V, DB> TrieBuilder<'a, H, HO, V, DB> {
 }
 
 impl<'a, H: Hasher, V, DB: HashDB<H,V>> ProcessEncodedNode<<H as Hasher>::Out> for TrieBuilder<'a, H, <H as Hasher>::Out, V, DB> {
-	fn process(&mut self, encoded_prefix: &[u8], enc_ext: Vec<u8>, is_root: bool) -> ChildReference<<H as Hasher>::Out> {
+	fn process(&mut self, encoded_prefix: Prefix, enc_ext: Vec<u8>, is_root: bool) -> ChildReference<<H as Hasher>::Out> {
 		let len = enc_ext.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
 			let mut h = <<H as Hasher>::Out as Default>::default();
@@ -411,7 +411,7 @@ impl<H, HO> Default for TrieRoot<H, HO> {
 }
 
 impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRoot<H, <H as Hasher>::Out> {
-	fn process(&mut self, _: &[u8], enc_ext: Vec<u8>, is_root: bool) -> ChildReference<<H as Hasher>::Out> {
+	fn process(&mut self, _: Prefix, enc_ext: Vec<u8>, is_root: bool) -> ChildReference<<H as Hasher>::Out> {
 		let len = enc_ext.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
 			let mut h = <<H as Hasher>::Out as Default>::default();
@@ -448,7 +448,7 @@ impl<H> Default for TrieRootUnhashed<H> {
 }
 
 impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashed<H> {
-	fn process(&mut self, _: &[u8], enc_ext: Vec<u8>, is_root: bool) -> ChildReference<<H as Hasher>::Out> {
+	fn process(&mut self, _: Prefix, enc_ext: Vec<u8>, is_root: bool) -> ChildReference<<H as Hasher>::Out> {
 		let len = enc_ext.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
 			let mut h = <<H as Hasher>::Out as Default>::default();

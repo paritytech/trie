@@ -32,6 +32,14 @@ pub trait MaybeDebug {}
 #[cfg(not(feature = "std"))]
 impl<T> MaybeDebug for T {}
 
+
+/// Empty prefix constant
+pub static EMPTY_PREFIX: Prefix<'static> = (&[], None);
+
+/// prefix for trie value, encoded as reference and a last padded byte to
+/// match `left` function of nibbleslice
+pub type Prefix<'a> = (&'a[u8], Option<u8>);
+
 /// Trait describing an object that can hash a slice of bytes. Used to abstract
 /// other types over the hashing algorithm. Defines a single `hash` method and an
 /// `Out` associated type with the necessary bounds.
@@ -94,42 +102,42 @@ impl<'a, K, V> PlainDBRef<K, V> for &'a mut PlainDB<K, V> {
 pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
-	fn get(&self, key: &H::Out, prefix: &[u8]) -> Option<T>;
+	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
 
 	/// Check for the existance of a hash-key.
-	fn contains(&self, key: &H::Out, prefix: &[u8]) -> bool;
+	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool;
 
 	/// Insert a datum item into the DB and return the datum's hash for a later lookup. Insertions
 	/// are counted and the equivalent number of `remove()`s must be performed before the data
 	/// is considered dead.
-	fn insert(&mut self, prefix: &[u8], value: &[u8]) -> H::Out;
+	fn insert(&mut self, prefix: Prefix, value: &[u8]) -> H::Out;
 
 	/// Like `insert()`, except you provide the key and the data is all moved.
-	fn emplace(&mut self, key: H::Out, prefix: &[u8], value: T);
+	fn emplace(&mut self, key: H::Out, prefix: Prefix, value: T);
 
 	/// Remove a datum previously inserted. Insertions can be "owed" such that the same number of `insert()`s may
 	/// happen without the data being eventually being inserted into the DB. It can be "owed" more than once.
-	fn remove(&mut self, key: &H::Out, prefix: &[u8]);
+	fn remove(&mut self, key: &H::Out, prefix: Prefix);
 }
 
 /// Trait for immutable reference of HashDB.
 pub trait HashDBRef<H: Hasher, T> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
-	fn get(&self, key: &H::Out, prefix: &[u8]) -> Option<T>;
+	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
 
 	/// Check for the existance of a hash-key.
-	fn contains(&self, key: &H::Out, prefix: &[u8]) -> bool;
+	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool;
 }
 
 impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a HashDB<H, T> {
-	fn get(&self, key: &H::Out, prefix: &[u8]) -> Option<T> { HashDB::get(*self, key, prefix) }
-	fn contains(&self, key: &H::Out, prefix: &[u8]) -> bool { HashDB::contains(*self, key, prefix) }
+	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(*self, key, prefix) }
+	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool { HashDB::contains(*self, key, prefix) }
 }
 
 impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a mut HashDB<H, T> {
-	fn get(&self, key: &H::Out, prefix: &[u8]) -> Option<T> { HashDB::get(*self, key, prefix) }
-	fn contains(&self, key: &H::Out, prefix: &[u8]) -> bool { HashDB::contains(*self, key, prefix) }
+	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(*self, key, prefix) }
+	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool { HashDB::contains(*self, key, prefix) }
 }
 
 /// Upcast trait for HashDB.
