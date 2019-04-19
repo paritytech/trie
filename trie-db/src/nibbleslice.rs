@@ -358,17 +358,34 @@ impl<'a, N: NibbleOps> Into<NodeKey> for NibbleSlice<'a, N> {
 	}
 }
 
-// TODO rename or enhanch
+// TODO EMCH rename or enhanch + generalize (in NibbleOps) + use in a single place (cast from
+// leaf)
 pub fn into_part(inp: &NodeKey) -> Partial {
-	if inp.0 / 2 == 1 {
-		(Some(inp.1[0]),
-			&inp.1[1..]) 
+	let start = inp.0 / 2;
+	if inp.0 % 2 > 0 {
+		(Some(inp.1[start]),
+			&inp.1[start + 1..]) 
 	} else {
-		(None, &inp.1[..])
+		(None, &inp.1[start..])
 	}
 }
 
-
+#[test]
+fn into_part_test() {
+	let v = [
+		((0, [0x12, 0x34][..].into()),
+			(None, &vec![0x12, 0x34][..])),
+		((1, [0x12, 0x34][..].into()),
+			(Some(0x12), &vec![0x34][..])),
+		((2, [0x12, 0x34][..].into()),
+			(None, &vec![0x34][..])),
+		((3, [0x12, 0x34][..].into()),
+			(Some(0x34), &vec![][..])),
+	];
+	for nk in v.iter() {
+		assert_eq!(into_part(&nk.0), nk.1);
+	}
+}
 /*
 // TODO EMCH use in prev into fn
 impl<'a, N: NibbleOps> Into<(Option<u8>, &'a[u8])> for NibbleSlice<'a, N> {

@@ -116,12 +116,12 @@ impl<N: NibbleOps> PartialKeyMut<N> {
 		}
 
 	}
-  // TODO EMCH better truncate
-  fn truncate(&mut self, mov: usize) {
-    for _ in 0..mov {
-      self.pop();
-    }
-  }
+	// TODO EMCH better truncate
+	fn truncate(&mut self, mov: usize) {
+		for _ in 0..mov {
+			self.pop();
+		}
+	}
 
 	/// ret slice and nb of padding byte
 	fn mid(&self) -> NibbleSlice<N> {
@@ -144,11 +144,10 @@ impl<N: NibbleOps> PartialKeyMut<N> {
 
 	/// Try to pop a nibble off the `NibbleVec`. Fails if len == 0.
 	pub fn pop(&mut self) -> Option<u8> {
-    let len = self.key.len() * N::NIBBLE_PER_BYTE - self.pad;
+		let len = self.key.len() * N::NIBBLE_PER_BYTE - self.pad;
 		if len == 0 {
 			return None;
 		}
-println!("tr {:x?}", self);
 		let byte = self.key.pop().expect("len != 0; inner has last elem; qed");
 		let nibble = if self.pad == 0 {
 			// TODO EMCH rem pop / push
@@ -160,7 +159,6 @@ println!("tr {:x?}", self);
 			byte >> 4
 		};
 
-println!("tr {:x?}", self);
 		Some(nibble)
 	}
 }
@@ -295,7 +293,7 @@ where
 							maybe_child.map(|child| {
 								// TODO EMCH this clone should be avoid by having a lower limit to pkm
 								// and reseting each time (also good to secure pop!!)
-				        let pr = NibbleSlice::<N>::new_offset(&partial.1[..], partial.0);
+								let pr = NibbleSlice::<N>::new_offset(&partial.1[..], partial.0);
 								child_cb(child, Some(&pr), Some(i as u8))
 							})
 						}),
@@ -1215,12 +1213,12 @@ where
 
 		match self.storage.destroy(handle) {
 			Stored::New(node) => {
-        let mut k = PartialKeyMut::new();
+				let mut k = PartialKeyMut::new();
 				let encoded_root = node.into_encoded::<_, L::C, L::H, L::N>(|child, o_sl, o_ix| {
-          let mov = concat_key(&mut k, o_sl, o_ix);
+					let mov = concat_key(&mut k, o_sl, o_ix);
 					let cr = self.commit_child(child, &mut k);
-          k.truncate(mov);
-          cr
+					k.truncate(mov);
+					cr
 				});
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
 				*self.root = self.db.insert(nibbleslice::EMPTY_ENCODED, &encoded_root[..]);
@@ -1250,10 +1248,10 @@ where
 					Stored::New(node) => {
 						let encoded = {
 							let commit_child = |node_handle, o_sl: Option<&NibbleSlice<L::N>>, o_ix: Option<u8>| {
-                let mov = concat_key(prefix, o_sl, o_ix);
+								let mov = concat_key(prefix, o_sl, o_ix);
 								let cr = self.commit_child(node_handle, prefix);
-                prefix.truncate(mov);
-                cr
+								prefix.truncate(mov);
+								cr
 							};
 							node.into_encoded::<_, L::C, L::H, L::N>(commit_child)
 						};
@@ -1284,19 +1282,19 @@ where
 }
 
 fn concat_key<N: NibbleOps>(prefix: &mut PartialKeyMut<N>, o_sl: Option<&NibbleSlice<N>>, o_ix: Option<u8>) -> usize {
-  let mut res = 0;
-  if let Some(sl) = o_sl { 
-    // TODO EMCH align optim
-    for n in sl.iter() {
-      prefix.push(n);
-    }
-    res += sl.len();
-  }
-  if let Some(ix) = o_ix { 
-    prefix.push(ix);
-    res += 1;
-  }
-  res
+	let mut res = 0;
+	if let Some(sl) = o_sl { 
+		// TODO EMCH align optim
+		for n in sl.iter() {
+			prefix.push(n);
+		}
+		res += sl.len();
+	}
+	if let Some(ix) = o_ix { 
+		prefix.push(ix);
+		res += 1;
+	}
+	res
 }
 
 impl<'a, L> TrieMut<L> for TrieDBMut<'a, L>
