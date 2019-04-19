@@ -233,7 +233,7 @@ where
 		if let Some(nkeyix) = nkey {
 			let pr = NibbleSlice::<N>::new_offset(&key_branch.as_ref()[..], nkeyix.0);
 			let nib = pr.range_iter(nkeyix.1);
-			let encoded = C::ext_node(nib, nkeyix.1 - nkeyix.0, branch_hash);
+			let encoded = C::ext_node(nib, nkeyix.1, branch_hash);
 			let h = cb_ext.process(pr.left(), encoded, is_root);
 			h
 		} else {
@@ -257,7 +257,7 @@ where
 		let encoded = C::branch_node_nibbled(
 			// warn direct use of default empty nible encoded: NibbleSlice::new_offset(&[],0).encoded(false);
 			pr.range_iter(nkeyix.1),
-			nkeyix.1 - nkeyix.0,
+			nkeyix.1,
 			self.0[branch_d].0.iter(), v.as_ref().map(|v|v.as_ref()));
 		self.reset_depth(branch_d);
 		let ext_len = nkey.as_ref().map(|nkeyix|nkeyix.0).unwrap_or(0);

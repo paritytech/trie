@@ -522,7 +522,9 @@ fn partial_to_key_it<N: NibbleOps, I: Iterator<Item = u8>>(partial: I, nibble_co
 	assert!(nibble_count < over as usize);
 	let mut output = Vec::with_capacity(1 + (nibble_count / N::NIBBLE_PER_BYTE));
 	output.push(offset + nibble_count as u8);
+  println!("be : {:x?}", output);
 	output.extend(partial);
+  println!("ae : {:x?}", output);
 	output
 }
 
@@ -641,6 +643,7 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodec {
 
 	fn ext_node(partial: impl Iterator<Item = u8>, nb_nibble: usize, child: ChildReference<<KeccakHasher as Hasher>::Out>) -> Vec<u8> {
 		let mut output = partial_to_key_it::<N,_>(partial, nb_nibble, EXTENSION_NODE_OFFSET, EXTENSION_NODE_OVER);
+    println!("pkitr: {:x?} {}", &output[..], nb_nibble);
 		match child {
 			ChildReference::Hash(h) => h.as_ref().encode_to(&mut output),
 			ChildReference::Inline(inline_data, len) => (&AsRef::<[u8]>::as_ref(&inline_data)[..len]).encode_to(&mut output),
@@ -819,21 +822,21 @@ pub fn compare_impl<X : hash_db::HashDB<KeccakHasher,DBValue> + Eq> (
 		t.commit();
 		t.root().clone()
 	};
-	if root != root_new {
-		{
-			let db : &dyn hash_db::HashDB<_,_> = &memdb;
-			let t = RefTrieDB::new(&db, &root).unwrap();
-			println!("{:?}", t);
-			for a in t.iter().unwrap() {
-				println!("a:{:?}", a);
-			}
-		}
+	if root_new != root {
 		{
 			let db : &dyn hash_db::HashDB<_,_> = &hashdb;
 			let t = RefTrieDB::new(&db, &root_new).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
-				println!("a:{:?}", a);
+				println!("a:{:x?}", a);
+			}
+		}
+		{
+			let db : &dyn hash_db::HashDB<_,_> = &memdb;
+			let t = RefTrieDB::new(&db, &root).unwrap();
+			println!("{:?}", t);
+			for a in t.iter().unwrap() {
+				println!("a:{:x?}", a);
 			}
 		}
 	}

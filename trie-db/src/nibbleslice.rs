@@ -294,12 +294,30 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	/// return first encoded byte and following slice
 	pub fn right(&'a self) -> (Option<u8>, &'a [u8]) {
 		let split = self.offset / 2;
-		if self.data.len() % 2 == 1 {
-			(Some(self.data[split] & (255 << 4)), &self.data[split + 1 ..])
+		if self.len() % 2 == 1 {
+			(Some(self.data[split] & (255 >> 4)), &self.data[split + 1 ..])
 		} else {
 			(None, &self.data[split..])
 		}
 	}
+
+  /// return encoded value as an iterator
+	pub fn right_iter(&'a self) -> impl Iterator<Item = u8> + 'a {
+    let (mut first, sl) = self.right();
+    let mut ix = 0;
+		::std::iter::from_fn( move || {
+      if first.is_some() {
+        first.take()
+      } else {
+        if ix < sl.len() {
+          ix += 1;
+          Some(sl[ix - 1])
+        } else {
+          None
+        }
+      }
+    })
+  }
 
 	/// return left of key nibble
 	pub fn left(&'a self) -> (&'a [u8], Option<u8>) {
@@ -314,6 +332,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	/// get iterator over slice, slow
 	/// TODO switch to padded access as in right padded eg with a move end function that return self
 	/// and a padding len
+  /// TODO rename to mak it explicit that it works on encoded byte (not returning nibble)
 	pub fn range_iter(&'a self, to: usize) -> impl Iterator<Item = u8> + 'a {
 		let mut first = to % 2;
 		let aligned_i = (self.offset + to) % 2;

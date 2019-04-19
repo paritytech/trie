@@ -100,15 +100,15 @@ impl<'key, N: NibbleOps> PartialKey<'key, N> {
 
 }
 
-#[derive(Debug)]
-struct PartialKeyMut<N: NibbleOps> {
+#[derive(Debug, Clone)]
+pub(crate) struct PartialKeyMut<N: NibbleOps> {
 	key: ElasticArray36<u8>,
 	pad: usize,
 	marker: PhantomData<N>,
 }
 // TODO EMCH almost replaceble with nibblevec
 impl<N: NibbleOps> PartialKeyMut<N> {
-	fn new() -> PartialKeyMut<N> {
+	pub(crate) fn new() -> PartialKeyMut<N> {
 		PartialKeyMut {
 			key: ElasticArray36::new(),
 			pad: 0,
@@ -117,19 +117,20 @@ impl<N: NibbleOps> PartialKeyMut<N> {
 
 	}
 	// TODO EMCH better truncate
-	fn truncate(&mut self, mov: usize) {
+	pub(crate) fn truncate(&mut self, mov: usize) {
 		for _ in 0..mov {
 			self.pop();
 		}
 	}
 
 	/// ret slice and nb of padding byte
-	fn mid(&self) -> NibbleSlice<N> {
+	pub(crate) fn mid(&self) -> NibbleSlice<N> {
 		(NibbleSlice::new_offset(&self.key[..], self.key.len() * N::NIBBLE_PER_BYTE - self.pad))
 	}
 
 	/// Push a nibble onto the `NibbleVec`. Ignores the high 4 bits.
-	pub fn push(&mut self, nibble: u8) {
+  /// TODO EMCH make a append nibble slice fn (currently we push iter mostly) -> for aligned
+	pub(crate) fn push(&mut self, nibble: u8) {
 		// TODO EMCH move to N
 		let nibble = nibble & 0x0F;
 
@@ -143,7 +144,7 @@ impl<N: NibbleOps> PartialKeyMut<N> {
 	}
 
 	/// Try to pop a nibble off the `NibbleVec`. Fails if len == 0.
-	pub fn pop(&mut self) -> Option<u8> {
+	pub(crate) fn pop(&mut self) -> Option<u8> {
 		let len = self.key.len() * N::NIBBLE_PER_BYTE - self.pad;
 		if len == 0 {
 			return None;
@@ -260,9 +261,10 @@ where
 				// warning we know that partial does not use pop backward from this point, child_cb using pop 
 				// here will break things TODO pop limited version of TrieDBMut??
 				let pr = NibbleSlice::<N>::new_offset(&partial.1[..], partial.0);
+				let it = pr.right_iter();
 				let c = child_cb(child, Some(&pr), None);
 				C::ext_node(
-					pr.iter(),
+					it,
 					pr.len(),
 					c,
 				)
@@ -281,8 +283,9 @@ where
 			},
 			Node::NibbledBranch(partial, mut children, value) => {
 				let pr = NibbleSlice::<N>::new_offset(&partial.1[..], partial.0);
+				let it = pr.right_iter();
 				C::branch_node_nibbled(
-					pr.iter(),
+          it,
 					pr.len(),
 					// map the `NodeHandle`s from the Branch to `ChildReferences`
 					children.iter_mut()
@@ -1281,7 +1284,8 @@ where
 	}
 }
 
-fn concat_key<N: NibbleOps>(prefix: &mut PartialKeyMut<N>, o_sl: Option<&NibbleSlice<N>>, o_ix: Option<u8>) -> usize {
+// TODO EMCH a with_concat_key function using a closure and truncating correctly
+pub(crate) fn concat_key<N: NibbleOps>(prefix: &mut PartialKeyMut<N>, o_sl: Option<&NibbleSlice<N>>, o_ix: Option<u8>) -> usize {
 	let mut res = 0;
 	if let Some(sl) = o_sl { 
 		// TODO EMCH align optim
@@ -1295,6 +1299,12 @@ fn concat_key<N: NibbleOps>(prefix: &mut PartialKeyMut<N>, o_sl: Option<&NibbleS
 		res += 1;
 	}
 	res
+}
+
+pub(crate) fn concat_key_clone<N: NibbleOps>(prefix: &PartialKeyMut<N>, o_sl: Option<&NibbleSlice<N>>, o_ix: Option<u8>) -> PartialKeyMut<N> {
+  let mut p = prefix.clone();
+  concat_key(&mut p, o_sl, o_ix);
+  p
 }
 
 impl<'a, L> TrieMut<L> for TrieDBMut<'a, L>

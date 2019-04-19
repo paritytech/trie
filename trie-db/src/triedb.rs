@@ -19,7 +19,7 @@ use node_codec::NodeCodec;
 use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query, TrieLayOut, CError, TrieHash};
 use ::core_::marker::PhantomData;
-
+use triedbmut::{PartialKeyMut, concat_key_clone};
 #[cfg(feature = "std")]
 use ::std::fmt;
 #[cfg(feature = "std")]
@@ -146,8 +146,7 @@ where
 {
 	trie: &'db TrieDB<'db, L>,
 	node_key: &'a[u8],
-	// TODO EMCH this field looks useless
-	partial_key: NibbleSlice<'a, L::N>,
+  partial_key: PartialKeyMut<L::N>,
 	index: Option<u8>,
 }
 
@@ -157,7 +156,7 @@ where
 	L: TrieLayOut,
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		if let Ok(node) = self.trie.get_raw_or_lookup(self.node_key, self.partial_key.left()) {
+		if let Ok(node) = self.trie.get_raw_or_lookup(self.node_key, self.partial_key.mid().left()) {
 			match L::C::decode(&node) {
 				Ok(Node::Leaf(slice, value)) =>
 					match (f.debug_struct("Node::Leaf"), self.index) {
@@ -176,7 +175,7 @@ where
 						.field("item", &TrieAwareDebugNode{
 							trie: self.trie,
 							node_key: item,
-							partial_key: self.partial_key,
+							partial_key: concat_key_clone(&self.partial_key, Some(&slice), None),
 							index: None,
 						})
 						.finish(),
@@ -188,7 +187,7 @@ where
 							trie: self.trie,
 							index: Some(i as u8),
 							node_key: n,
-							partial_key: self.partial_key,
+							partial_key: concat_key_clone(&self.partial_key, None, Some(i as u8)),
 						})
 						.collect();
 					match (f.debug_struct("Node::Branch"), self.index) {
@@ -207,7 +206,7 @@ where
 							trie: self.trie,
 							index: Some(i as u8),
 							node_key: n,
-							partial_key: self.partial_key,
+							partial_key: concat_key_clone(&self.partial_key, Some(&slice), Some(i as u8)),
 						}).collect();
 					match (f.debug_struct("Node::NibbledBranch"), self.index) {
 						(ref mut d, Some(ref i)) => d.field("index", i),
@@ -248,7 +247,7 @@ where
 			.field("root", &TrieAwareDebugNode {
 				trie: self,
 				node_key: &root_rlp[..],
-				partial_key: NibbleSlice::new(&[]),
+        partial_key: PartialKeyMut::new(),
 				index: None,
 			})
 			.finish()
