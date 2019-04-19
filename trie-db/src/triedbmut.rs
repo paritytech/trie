@@ -920,12 +920,12 @@ where
         println!("beffix");
 				*old_val = Some(val);
 				// always replace since we took the value out.
-				Action::Replace(self.fix(Node::Branch(children, None), key.clone(), None)?)
+				Action::Replace(self.fix(Node::Branch(children, None), key.clone())?)
 			},
 			(Node::NibbledBranch(n, children, Some(val)), true) => {
 				*old_val = Some(val);
 				// always replace since we took the value out.
-				Action::Replace(self.fix(Node::NibbledBranch(n, children, None), key.clone(), None)?)
+				Action::Replace(self.fix(Node::NibbledBranch(n, children, None), key.clone())?)
 			},
 			(Node::Branch(mut children, value), false) => {
 				let idx = partial.at(0) as usize;
@@ -949,7 +949,7 @@ where
 							// the child we took was deleted.
 							// the node may need fixing.
 							trace!(target: "trie", "branch child deleted, partial={:?}", partial);
-							Action::Replace(self.fix(Node::Branch(children, value), prefix, None)?)
+							Action::Replace(self.fix(Node::Branch(children, value), prefix)?)
 						}
 					}
 				} else {
@@ -999,7 +999,7 @@ where
 								// the child we took was deleted.
 								// the node may need fixing.
 								trace!(target: "trie", "branch child deleted, partial={:?}", partial);
-								Action::Replace(self.fix(Node::NibbledBranch(encoded, children, value), prefix, None)?)
+								Action::Replace(self.fix(Node::NibbledBranch(encoded, children, value), prefix)?)
 							},
 						}
 					} else {
@@ -1036,7 +1036,7 @@ where
 							// if the child branch was unchanged, then the extension is too.
 							// otherwise, this extension may need fixing.
 							match changed {
-								true => Action::Replace(self.fix(Node::Extension(encoded, new_child), prefix, None)?),
+								true => Action::Replace(self.fix(Node::Extension(encoded, new_child), prefix)?),
 								false => Action::Restore(Node::Extension(encoded, new_child)),
 							}
 						}
@@ -1054,19 +1054,13 @@ where
 		})
 	}
 
-	fn lazy_get_buff<'b>(buff_key: &'b mut Option<PartialKeyMut<L::N>>, key: &PartialKey<L::N>) -> &'b mut PartialKeyMut<L::N> {
-    if buff_key.is_none() {
-      *buff_key = Some(PartialKeyMut::from_partial(key));
-    }
-    buff_key.as_mut().expect("lazy init above;qed")
-  }
 	/// Given a node which may be in an _invalid state_, fix it such that it is then in a valid
 	/// state.
 	///
 	/// _invalid state_ means:
 	/// - Branch node where there is only a single entry;
 	/// - Extension node followed by anything other than a Branch node.
-	fn fix(&mut self, node: Node<TrieHash<L>>, key: PartialKey<L::N>, buff_key: Option<PartialKeyMut<L::N>>) -> Result<Node<TrieHash<L>>, TrieHash<L>, CError<L>> {
+	fn fix(&mut self, node: Node<TrieHash<L>>, key: PartialKey<L::N>) -> Result<Node<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		match node {
 			Node::Branch(mut children, value) => {
 				// if only a single value, transmute to leaf/extension and feed through fixed.
@@ -1091,13 +1085,11 @@ where
 				match (used_index, value) {
 					(UsedIndex::None, None) => panic!("Branch with no subvalues. Something went wrong."),
 					(UsedIndex::One(a), None) => {
-            println!("IN ONE {:x?}", key);
 						// only one onward node. make an extension.
 						let new_partial = NibbleSlice::<L::N>::new_offset(&[a], 1).to_stored();
 						let child = children[a as usize].take().expect("used_index only set if occupied; qed");
-            println!("part {:x?}", new_partial);
 						let new_node = Node::Extension(new_partial, child);
-						self.fix(new_node, key, buff_key)
+						self.fix(new_node, key)
 					}
 					(UsedIndex::None, Some(value)) => {
 						// make a leaf.
@@ -1144,10 +1136,8 @@ where
 						let stored = match child {
 							NodeHandle::InMemory(h) => self.storage.destroy(h),
 							NodeHandle::Hash(h) => {
-                let buf = Self::lazy_get_buff(&mut buff_key, &kc);
-                buf.push(a);
                 // TODO NX !!! from this key advenac we are out of key -> can do a
-                // paded_encoded_prefix for one insert
+                // paded_encoded_prefix for one insert - just a nibble ta add (can reuse buff)
 								let handle = self.cache(h, buf.end().left())?;
                 buf.pop();
 								self.storage.destroy(handle)
@@ -1156,26 +1146,19 @@ where
 						let child_node = match stored {
 							Stored::New(node) => node,
 							Stored::Cached(node, hash) => {
-                let buf = Self::lazy_get_buff(&mut buff_key, &kc);
-                buf.push(a);
-								self.death_row.insert((hash, buf.end().left_owned()));
-                buf.pop();
+								self.death_row.insert((hash, key.encoded_prefix_owned()));
 								node
 							},
 						};
 						match child_node {
 							Node::Leaf(sub_partial, value) => {
-                let buf = Self::lazy_get_buff(&mut buff_key, &kc);
                 // TODO NX!!!
-                buf.push(a);
-                let s = buf.push_stored(&sub_partial);
+                // TODO a + buf + ck
 								Ok(Node::Leaf(buf.to_stored(s + 1 + b_slice_len), value))
 							},
 							Node::NibbledBranch(sub_partial, ch_children, ch_value) => {
-                let buf = Self::lazy_get_buff(&mut buff_key, &kc);
                 // TODO NX!!!
-                buf.push(a);
-                let s = buf.push_stored(&sub_partial);
+                // TODO a + buf + ck
 								Ok(Node::NibbledBranch(buf.to_stored(s + 1 + b_slice_len), ch_children, ch_value))
 							},
 							_ => unreachable!(),
@@ -1194,12 +1177,10 @@ where
 				}
 			},
 			Node::Extension(partial, child) => {
-				let mut kc = key.clone();
-        let ex_slice_len = (partial.1.len() * L::N::NIBBLE_PER_BYTE) -	partial.0;
-				kc.advance(ex_slice_len);
 				let stored = match child {
 					NodeHandle::InMemory(h) => self.storage.destroy(h),
 					NodeHandle::Hash(h) => {
+            // TODO NX!! here to 
 						let handle = self.cache(h, kc.encoded_prefix())?;
 						self.storage.destroy(handle)
 					}
@@ -1217,11 +1198,10 @@ where
 							// delete the cached child since we are going to replace it.
 							self.death_row.insert((hash, key.encoded_prefix_owned()));
 						}
-            let buf = Self::lazy_get_buff(&mut buff_key, &kc);
-            let s = buf.push_stored(&sub_partial);
             // TODO NX!!
+            // subpartial
 						trace!(target: "trie", "fixing: extension combination. new_partial={:?}", kc.mid().to_stored());
-						self.fix(Node::Extension(buf.to_stored(s + ex_slice_len), sub_child), key, None); // TODO EMCH no need to buff in param...
+						self.fix(Node::Extension(buf.to_stored(s + ex_slice_len), sub_child), key)
 					}
 					Node::Leaf(sub_partial, value) => {
             println!("leaf combine {:x?}", key);
@@ -1230,9 +1210,8 @@ where
 							// delete the cached child since we are going to replace it.
 							self.death_row.insert((hash, key.encoded_prefix_owned()));
 						}
-            let buf = Self::lazy_get_buff(&mut buff_key, &kc);
-            let s = buf.push_stored(&sub_partial);
             // TODO NX!!
+            // subpartial oly
 						trace!(target: "trie", "fixing: extension -> leaf. new_partial={:?}", kc.mid());
 						println!("fixing: extension -> leaf. new_partial={:?}", kc.mid());
 						Ok(Node::Leaf(buf.to_stored(s + ex_slice_len), value))
