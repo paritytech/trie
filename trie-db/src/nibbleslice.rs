@@ -293,6 +293,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 
 	/// return first encoded byte and following slice
 	pub fn right(&'a self) -> (Option<u8>, &'a [u8]) {
+    println!("rd: {} {}", self.offset, self.data.len());
 		let split = self.offset / 2;
 		if self.len() % 2 == 1 {
 			(Some(self.data[split] & (255 >> 4)), &self.data[split + 1 ..])
@@ -328,6 +329,11 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 			(&self.data[..split], None)
 		}
 	}
+	pub fn left_owned(&'a self) -> (ElasticArray36<u8>, Option<u8>) {
+    let (a, b) = self.left();
+    (a.into(), b)
+	}
+
 
 	/// get iterator over slice, slow
 	/// TODO switch to padded access as in right padded eg with a move end function that return self
