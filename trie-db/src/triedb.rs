@@ -815,38 +815,38 @@ mod tests {
                                     slice: ,
                                     value: [
                                         65,
-                                        65
-                                    ]
+                                        65,
+                                    ],
                                 },
                                 Node::Leaf {
                                     index: 2,
                                     slice: ,
                                     value: [
                                         65,
-                                        66
-                                    ]
-                                }
+                                        66,
+                                    ],
+                                },
                             ],
-                            value: None
-                        }
+                            value: None,
+                        },
                     ],
                     value: Some(
                         [
-                            65
-                        ]
-                    )
+                            65,
+                        ],
+                    ),
                 },
                 Node::Leaf {
                     index: 2,
                     slice: ,
                     value: [
-                        66
-                    ]
-                }
+                        66,
+                    ],
+                },
             ],
-            value: None
-        }
-    }
+            value: None,
+        },
+    },
 }");
 	}
 

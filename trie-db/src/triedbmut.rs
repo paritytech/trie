@@ -1891,26 +1891,16 @@ mod tests {
 
 		let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-    {
 		let mut t = RefTrieDBMut::new(&mut db, &mut root);
 		for &(ref key, ref value) in &x {
       println!("k{:x?}",key);
 			assert!(t.insert(key, value).unwrap().is_none());
 			assert_eq!(t.insert(key, value).unwrap(), Some(DBValue::from_slice(value)));
 		}
-
-			t.remove(&x.iter().next().unwrap().0).unwrap();
-    }
-		let t = RefTrieDB::new(&db, &root);
-    println!("{:?}", t);
-    panic!("yo");
-/*    let mut i = 0;
 		for (key, value) in x {
-      println!("rem{}",i);
-      i+=1;
 			assert_eq!(t.remove(&key).unwrap(), Some(DBValue::from_slice(&value)));
 			assert!(t.remove(&key).unwrap().is_none());
-		}*/
+		}
 	}
 
   #[test]
