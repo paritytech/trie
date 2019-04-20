@@ -256,7 +256,7 @@ where
 	/// extern crate keccak_hasher;
 	/// extern crate memory_db;
 	///
-	/// use hash_db::{Hasher, HashDB};
+	/// use hash_db::{Hasher, HashDB, EMPTY_PREFIX};
 	/// use keccak_hasher::KeccakHasher;
 	/// use memory_db::{MemoryDB, HashKey};
 	///
@@ -410,7 +410,6 @@ where
 			return Some(self.null_node_data.clone());
 		}
 
-    println!("get : {:x?} {:x?}", key, prefix);
 		let key = KF::key(key, prefix);
 		let r = match self.data.get(&key) {
 			Some(&(ref d, rc)) if rc > 0 => Some(d.clone()),
@@ -436,7 +435,6 @@ where
 			return;
 		}
 
-    println!("emp : {:x?} {:x?}", key, prefix);
 		let key = KF::key(&key, prefix);
 		match self.data.entry(key) {
 			Entry::Occupied(mut entry) => {

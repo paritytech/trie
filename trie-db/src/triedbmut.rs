@@ -85,16 +85,16 @@ impl<'key, N: NibbleOps> PartialKey<'key, N> {
 
 	fn advance(&mut self, by: usize) {
 
-    assert!(self.key.len() >= by);
+		assert!(self.key.len() >= by);
 		self.key = self.key.mid(by)
 	}
 
-  /// advance of return none if underlying slice is to short
-  fn checked_advance(&mut self, by: usize) -> bool {
-    if self.key.len() >= by {
-		  self.key = self.key.mid(by);
-      true
-    } else { false }
+	/// advance of return none if underlying slice is to short
+	fn checked_advance(&mut self, by: usize) -> bool {
+		if self.key.len() >= by {
+			self.key = self.key.mid(by);
+			true
+		} else { false }
 	}
 
 	fn mid(&self) -> NibbleSlice<'key, N> {
@@ -127,17 +127,17 @@ impl<N: NibbleOps> PartialKeyMut<N> {
 			marker: Default::default(),
 		}
 	}
-  /// warning this function expect the partialkey to be left aligned
+	/// warning this function expect the partialkey to be left aligned
 	pub(crate) fn from_partial(p: &PartialKey<N>) -> PartialKeyMut<N> {
-    let (sl, l) = p.encoded_prefix();
-    let key = sl[..].into();
-    let mut res = PartialKeyMut {
-      key,
-      pad: 0,
+		let (sl, l) = p.encoded_prefix();
+		let key = sl[..].into();
+		let mut res = PartialKeyMut {
+			key,
+			pad: 0,
 			marker: Default::default(),
-    };
-    l.map(|l| res.push(l));
-    res
+		};
+		l.map(|l| res.push(l));
+		res
 	}
 	
 	// TODO EMCH better truncate
@@ -147,21 +147,21 @@ impl<N: NibbleOps> PartialKeyMut<N> {
 		}
 	}
 
-  /// clear
+	/// clear
 	pub(crate) fn clear(&mut self) {
-    self.pad = 0;
-    self.key.clear();
+		self.pad = 0;
+		self.key.clear();
 	}
 
 
 	/// ret slice and nb of padding byte TODO rename this is confusing plus it can only be followed
-  /// by end: also rename this struct to prefix_accum or something like that
+	/// by end: also rename this struct to prefix_accum or something like that
 	pub(crate) fn end(&self) -> NibbleSlice<N> {
 		(NibbleSlice::new_offset(&self.key[..], self.key.len() * N::NIBBLE_PER_BYTE - self.pad))
 	}
 
 	/// Push a nibble onto the `NibbleVec`. Ignores the high 4 bits.
-  /// TODO EMCH make a append nibble slice fn (currently we push iter mostly) -> for aligned
+	/// TODO EMCH make a append nibble slice fn (currently we push iter mostly) -> for aligned
 	pub(crate) fn push(&mut self, nibble: u8) {
 		// TODO EMCH move to N
 		let nibble = nibble & 0x0F;
@@ -317,7 +317,7 @@ where
 				let pr = NibbleSlice::<N>::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
 				C::branch_node_nibbled(
-          it,
+					it,
 					pr.len(),
 					// map the `NodeHandle`s from the Branch to `ChildReferences`
 					children.iter_mut()
@@ -1084,6 +1084,7 @@ where
 					(UsedIndex::None, None) => panic!("Branch with no subvalues. Something went wrong."),
 					(UsedIndex::One(a), None) => {
 						// only one onward node. make an extension.
+
 						let new_partial = NibbleSlice::<L::N>::new_offset(&[a], 1).to_stored();
 						let child = children[a as usize].take().expect("used_index only set if occupied; qed");
 						let new_node = Node::Extension(new_partial, child);
@@ -1124,26 +1125,26 @@ where
 				match (used_index, value) {
 					(UsedIndex::None, None) => panic!("Branch with no subvalues. Something went wrong."),
 					(UsedIndex::One(a), None) => {
-            // TODO EMCH can simplify code by transforming to an extension like in branch
-            // (extension only temp value before being transformed).
+						// TODO EMCH can simplify code by transforming to an extension like in branch
+						// (extension only temp value before being transformed).
 						// only one onward node. use child instead
 						let child = children[a as usize].take().expect("used_index only set if occupied; qed");
-            let mut kc = key.clone();
-            kc.advance((enc_nibble.1.len() * L::N::NIBBLE_PER_BYTE) - enc_nibble.0);
+						let mut kc = key.clone();
+						kc.advance((enc_nibble.1.len() * L::N::NIBBLE_PER_BYTE) - enc_nibble.0);
 
-            let (st, ost, op) = match kc.encoded_prefix() {
-              (st, Some(v)) => {
-                let mut so: ElasticArray36<u8> = st.into();
-                so.push((v & (255 << 4)) | (a >> 4));
-                (st, Some(so), None)
-              },
-              (st, None) => (st, None, Some(a)),
-            };
-            let child_pref = (ost.as_ref().map(|st|&st[..]).unwrap_or(st), op);
+						let (st, ost, op) = match kc.encoded_prefix() {
+							(st, Some(v)) => {
+								let mut so: ElasticArray36<u8> = st.into();
+								so.push((v & (255 << 4)) | a);
+								(st, Some(so), None)
+							},
+							(st, None) => (st, None, Some(a << 4)),
+						};
+						let child_pref = (ost.as_ref().map(|st|&st[..]).unwrap_or(st), op);
 						let stored = match child {
 							NodeHandle::InMemory(h) => self.storage.destroy(h),
 							NodeHandle::Hash(h) => {
-                // TODO NX !!! from this key advenac we are out of key -> can do a
+								// TODO NX !!! from this key advenac we are out of key -> can do a
 								let handle = self.cache(h, child_pref)?;
 								self.storage.destroy(handle)
 							}
@@ -1157,18 +1158,18 @@ where
 						};
 						match child_node {
 							Node::Leaf(sub_partial, value) => {
-                let mut enc_nibble = enc_nibble;
-                // TODO NX!!!
-                combine_key::<L::N>(&mut enc_nibble, (1, &[a][..]));
-                combine_key::<L::N>(&mut enc_nibble, (sub_partial.0, &sub_partial.1[..]));
+								let mut enc_nibble = enc_nibble;
+								// TODO NX!!!
+								combine_key::<L::N>(&mut enc_nibble, (1, &[a][..]));
+								combine_key::<L::N>(&mut enc_nibble, (sub_partial.0, &sub_partial.1[..]));
 								Ok(Node::Leaf(enc_nibble, value))
 							},
 							Node::NibbledBranch(sub_partial, ch_children, ch_value) => {
-                let mut enc_nibble = enc_nibble;
-                // TODO NX!!!
-                // TODO a + buf + ck
-                combine_key::<L::N>(&mut enc_nibble, (1, &[a][..]));
-                combine_key::<L::N>(&mut enc_nibble, (sub_partial.0, &sub_partial.1[..]));
+								let mut enc_nibble = enc_nibble;
+								// TODO NX!!!
+								// TODO a + buf + ck
+								combine_key::<L::N>(&mut enc_nibble, (1, &[a][..]));
+								combine_key::<L::N>(&mut enc_nibble, (sub_partial.0, &sub_partial.1[..]));
 								Ok(Node::NibbledBranch(enc_nibble, ch_children, ch_value))
 							},
 							_ => unreachable!(),
@@ -1187,25 +1188,25 @@ where
 				}
 			},
 			Node::Extension(partial, child) => {
-        // we could advance key if there was not the recursion case, there might be prefix from
-        // branch.
-        let a = partial.1[partial.1.len() - 1] & (255 >> 4);
-        let mut kc = key.clone();
-        kc.advance((partial.1.len() * L::N::NIBBLE_PER_BYTE) - partial.0 - 1);
-        let (st, ost, op) = match kc.encoded_prefix() {
-          (st, Some(v)) => {
-            let mut so: ElasticArray36<u8> = st.into();
-            so.push((v & (255 << 4)) | (a >> 4));
-            (st, Some(so), None)
-          },
-          (st, None) => (st, None, Some(a)),
-        };
-        let child_pref = (ost.as_ref().map(|st|&st[..]).unwrap_or(st), op);
+				// we could advance key if there was not the recursion case, there might be prefix from
+				// branch.
+				let a = partial.1[partial.1.len() - 1] & (255 >> 4);
+				let mut kc = key.clone();
+				kc.advance((partial.1.len() * L::N::NIBBLE_PER_BYTE) - partial.0 - 1);
+				let (st, ost, op) = match kc.encoded_prefix() {
+					(st, Some(v)) => {
+						let mut so: ElasticArray36<u8> = st.into();
+						so.push((v & (255 << 4)) | a);
+						(st, Some(so), None)
+					},
+					(st, None) => (st, None, Some(a << 4)),
+				};
+				let child_pref = (ost.as_ref().map(|st|&st[..]).unwrap_or(st), op);
 	
 				let stored = match child {
 					NodeHandle::InMemory(h) => self.storage.destroy(h),
 					NodeHandle::Hash(h) => {
-            // TODO NX!! here to 
+						// TODO NX!! here to 
 						let handle = self.cache(h, child_pref)?;
 						self.storage.destroy(handle)
 					}
@@ -1223,10 +1224,10 @@ where
 							// delete the cached child since we are going to replace it.
 							self.death_row.insert((hash, (child_pref.0[..].into(), child_pref.1)));
 						}
-            // TODO NX!!
-            // subpartial
-            let mut partial = partial;
-            combine_key::<L::N>(&mut partial, (sub_partial.0, &sub_partial.1[..]));
+						// TODO NX!!
+						// subpartial
+						let mut partial = partial;
+						combine_key::<L::N>(&mut partial, (sub_partial.0, &sub_partial.1[..]));
 						trace!(target: "trie", "fixing: extension combination. new_partial={:?}", partial);
 						self.fix(Node::Extension(partial, sub_child), key)
 					}
@@ -1236,10 +1237,10 @@ where
 							// delete the cached child since we are going to replace it.
 							self.death_row.insert((hash, (child_pref.0[..].into(), child_pref.1)));
 						}
-            // TODO NX!!
-            // subpartial oly
-            let mut partial = partial;
-            combine_key::<L::N>(&mut partial, (sub_partial.0, &sub_partial.1[..]));
+						// TODO NX!!
+						// subpartial oly
+						let mut partial = partial;
+						combine_key::<L::N>(&mut partial, (sub_partial.0, &sub_partial.1[..]));
 						trace!(target: "trie", "fixing: extension -> leaf. new_partial={:?}", partial);
 						Ok(Node::Leaf(partial, value))
 					}
@@ -1367,9 +1368,9 @@ pub(crate) fn concat_key<N: NibbleOps>(prefix: &mut PartialKeyMut<N>, o_sl: Opti
 }
 
 pub(crate) fn concat_key_clone<N: NibbleOps>(prefix: &PartialKeyMut<N>, o_sl: Option<&NibbleSlice<N>>, o_ix: Option<u8>) -> PartialKeyMut<N> {
-  let mut p = prefix.clone();
-  concat_key(&mut p, o_sl, o_ix);
-  p
+	let mut p = prefix.clone();
+	concat_key(&mut p, o_sl, o_ix);
+	p
 }
 
 impl<'a, L> TrieMut<L> for TrieDBMut<'a, L>
@@ -1451,34 +1452,34 @@ where
 }
 
 fn combine_key<N: NibbleOps>(start: &mut NodeKey, end: (usize, &[u8])) {
-  let final_ofset = (start.0 + end.0) % N::NIBBLE_PER_BYTE;
-  let _shifted = shift_key::<N>(start, final_ofset);
-  let st = if end.0 > 0 {
-    let sl = start.1.len();
-    start.1[sl - 1] |= end.1[0] & (255 >> 4);
-    1
-  } else {
-    0
-  };
-  (st..end.1.len()).for_each(|i|start.1.push(end.1[i]));
+	let final_ofset = (start.0 + end.0) % N::NIBBLE_PER_BYTE;
+	let _shifted = shift_key::<N>(start, final_ofset);
+	let st = if end.0 > 0 {
+		let sl = start.1.len();
+		start.1[sl - 1] |= end.1[0] & (255 >> 4);
+		1
+	} else {
+		0
+	};
+	(st..end.1.len()).for_each(|i|start.1.push(end.1[i]));
 }
 
 fn shift_key<N: NibbleOps>(key: &mut NodeKey, ofset: usize) -> bool {
-  let old = key.0;
-  key.0 = ofset;
-  if old > ofset {
-    let kl = key.1.len();
-    (0..kl - 1).for_each(|i|key.1[i] = key.1[i] << 4 | key.1[i+1]>>4);
-    key.1[kl - 1] = key.1[kl - 1] << 4;
-    true
-  } else if old < ofset {
-    key.1.push(0);
-    (1..key.1.len()).rev().for_each(|i|key.1[i] = key.1[i - 1] << 4 | key.1[i] >> 4);
-    key.1[0] = key.1[0] >> 4;
-    true
-  } else {
-    false
-  }
+	let old = key.0;
+	key.0 = ofset;
+	if old > ofset {
+		let kl = key.1.len();
+		(0..kl - 1).for_each(|i|key.1[i] = key.1[i] << 4 | key.1[i+1]>>4);
+		key.1[kl - 1] = key.1[kl - 1] << 4;
+		true
+	} else if old < ofset {
+		key.1.push(0);
+		(1..key.1.len()).rev().for_each(|i|key.1[i] = key.1[i - 1] << 4 | key.1[i] >> 4);
+		key.1[0] = key.1[0] >> 4;
+		true
+	} else {
+		false
+	}
 }
 
 #[cfg(test)]
@@ -1893,7 +1894,6 @@ mod tests {
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut db, &mut root);
 		for &(ref key, ref value) in &x {
-      println!("k{:x?}",key);
 			assert!(t.insert(key, value).unwrap().is_none());
 			assert_eq!(t.insert(key, value).unwrap(), Some(DBValue::from_slice(value)));
 		}
@@ -1903,18 +1903,18 @@ mod tests {
 		}
 	}
 
-  #[test]
-  fn combine_test() {
-    let a: ElasticArray36<u8> = [0x12, 0x34][..].into();
-    let b: &[u8] = [0x56, 0x78][..].into();
-    let test_comb = |a: (_,&ElasticArray36<_>), b, c| { 
-      let mut a = (a.0,a.1.clone());
-      super::combine_key::<crate::nibbleslice::NibblePreHalf>(&mut a, b);
-      assert_eq!((a.0,&a.1[..]), c);
-    };
-    test_comb((0, &a), (0, &b), (0, &[0x12, 0x34, 0x56, 0x78][..]));
-    test_comb((1, &a), (0, &b), (1, &[0x12, 0x34, 0x56, 0x78][..]));
-    test_comb((0, &a), (1, &b), (1, &[0x01, 0x23, 0x46, 0x78][..]));
-    test_comb((1, &a), (1, &b), (0, &[0x23, 0x46, 0x78][..]));
-  }
+	#[test]
+	fn combine_test() {
+		let a: ElasticArray36<u8> = [0x12, 0x34][..].into();
+		let b: &[u8] = [0x56, 0x78][..].into();
+		let test_comb = |a: (_,&ElasticArray36<_>), b, c| { 
+			let mut a = (a.0,a.1.clone());
+			super::combine_key::<crate::nibbleslice::NibblePreHalf>(&mut a, b);
+			assert_eq!((a.0,&a.1[..]), c);
+		};
+		test_comb((0, &a), (0, &b), (0, &[0x12, 0x34, 0x56, 0x78][..]));
+		test_comb((1, &a), (0, &b), (1, &[0x12, 0x34, 0x56, 0x78][..]));
+		test_comb((0, &a), (1, &b), (1, &[0x01, 0x23, 0x46, 0x78][..]));
+		test_comb((1, &a), (1, &b), (0, &[0x23, 0x46, 0x78][..]));
+	}
 }
