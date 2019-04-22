@@ -54,12 +54,6 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	/// Try to get the nibble at the given offset.
 	fn vec_at(s: &NibbleVec<Self>, idx: usize) -> u8;
 
-	/// Push a nibble onto the `NibbleVec`. Ignores the high 4 bits.
-	fn push(s: &mut NibbleVec<Self>, nibble: u8);
-
-	/// Try to pop a nibble off the `NibbleVec`. Fails if len == 0.
-	fn pop(s: &mut NibbleVec<Self>) -> Option<u8>;
-
 }
 
 /// half byte nibble prepend encoding
@@ -110,35 +104,6 @@ impl NibbleOps for NibblePreHalf {
 		} else {
 			s.inner[idx / 2] & 0x0F
 		}
-	}
-
-	fn push(s: &mut NibbleVec<Self>, nibble: u8) {
-		let nibble = nibble & 0x0F;
-
-		if s.len % 2 == 0 {
-			s.inner.push(nibble << 4);
-		} else {
-			*s.inner.last_mut().expect("len != 0 since len % 2 != 0; inner has a last element; qed") |= nibble;
-		}
-
-		s.len += 1;
-	}
-
-	fn pop(s: &mut NibbleVec<Self>) -> Option<u8> {
-		if s.is_empty() {
-			return None;
-		}
-
-		let byte = s.inner.pop().expect("len != 0; inner has last elem; qed");
-		let nibble = if s.len % 2 == 0 {
-			s.inner.push(byte & 0xF0);
-			byte & 0x0F
-		} else {
-			byte >> 4
-		};
-
-		s.len -= 1;
-		Some(nibble)
 	}
 
 }
@@ -211,39 +176,42 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	pub fn iter(&'a self) -> NibbleSliceIterator<'a, N> {
 		NibbleSliceIterator { p: self, i: 0 }
 	}
-/*
-	/// Create a new nibble slice from the given encoded data, applying start padding.
-	pub fn from_encoded(data: &[u8], nibble_len: usize) -> NibbleSlice<N> {
-		// TODO EMCH better expression or specialization for len
-		let start_padding = (N::NIBBLE_PER_BYTE - data.len() % N::NIBBLE_PER_BYTE) % N::NIBBLE_PER_BYTE;
-		NibbleSlice::<N>::new_offset(data, start_padding)
-	}*/
 	/// helper function for getting slice from `NodeKey` stored in nodes
 	pub fn from_stored(i: &(usize,ElasticArray36<u8>)) -> NibbleSlice<N> {
 		NibbleSlice::<N>::new_offset(&i.1[..], i.0)
 	}
 	/// helper function to get `NodeKey` stored in nodes
-	pub fn to_stored(&self) -> (usize,ElasticArray36<u8>) {
+	pub fn to_stored(&self) -> NodeKey {
 		let split = self.offset / N::NIBBLE_PER_BYTE;
 		let offset = N::nb_padding(self.len());
 		(offset, self.data[split..].into())
 	}
 
 	/// helper function to get `NodeKey` stored in nodes, warning slow
-	pub fn to_stored_range(&self, nb: usize) -> (usize,ElasticArray36<u8>) {
-		if nb == self.len() { return self.to_stored() }
-/* TODO EMCH (commented thing is shit)		if nb % N::NIBBLE_PER_BYTE == 0 {
-			let split = self.offset / 2;
-			let end	= self.data.len() - (self.len() - (nb / N::NIBBLE_PER_BYTE)); 
-			return (self.len(), self.data[split..end].into())
-		}*/
-		let mut ea = ElasticArray36::new();
-		let iter = self.range_iter(nb);
-		for i in iter {
-			ea.push(i);
+	pub fn to_stored_range(&self, nb: usize) -> NodeKey {
+		if nb >= self.len() { return self.to_stored() }
+		if (self.offset + nb) % N::NIBBLE_PER_BYTE == 0 {
+			// aligned
+			let start = self.offset / N::NIBBLE_PER_BYTE;
+			let end = self.offset + nb / N::NIBBLE_PER_BYTE;
+			(N::nb_padding(nb), ElasticArray36::from_slice(&self.data[start..end]))
+		} else {
+			let start = self.offset / N::NIBBLE_PER_BYTE;
+			let end = (self.offset + nb) / N::NIBBLE_PER_BYTE;
+			let ea = ElasticArray36::from_slice(&self.data[start..=end]);
+      let n_offset = N::nb_padding(nb);
+      if n_offset == 1 {
+        let mut result = (0, ea);
+        super::triedbmut::shift_key::<N>(&mut result, 1);
+        result.1.pop();
+        result
+      } else {
+        let mut result = (1, ea);
+        super::triedbmut::shift_key::<N>(&mut result, 0);
+        result.1.pop();
+        result
+      }
 		}
- 
-		(N::nb_padding(nb), ea)
 	}
 
 	/// Is this an empty slice?
@@ -301,23 +269,23 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		}
 	}
 
-  /// return encoded value as an iterator
+	/// return encoded value as an iterator
 	pub fn right_iter(&'a self) -> impl Iterator<Item = u8> + 'a {
-    let (mut first, sl) = self.right();
-    let mut ix = 0;
+		let (mut first, sl) = self.right();
+		let mut ix = 0;
 		::std::iter::from_fn( move || {
-      if first.is_some() {
-        first.take()
-      } else {
-        if ix < sl.len() {
-          ix += 1;
-          Some(sl[ix - 1])
-        } else {
-          None
-        }
-      }
-    })
-  }
+			if first.is_some() {
+				first.take()
+			} else {
+				if ix < sl.len() {
+					ix += 1;
+					Some(sl[ix - 1])
+				} else {
+					None
+				}
+			}
+		})
+	}
 
 	/// return left of key nibble
 	pub fn left(&'a self) -> (&'a [u8], Option<u8>) {
@@ -329,15 +297,15 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		}
 	}
 	pub fn left_owned(&'a self) -> (ElasticArray36<u8>, Option<u8>) {
-    let (a, b) = self.left();
-    (a.into(), b)
+		let (a, b) = self.left();
+		(a.into(), b)
 	}
 
 
 	/// get iterator over slice, slow
 	/// TODO switch to padded access as in right padded eg with a move end function that return self
 	/// and a padding len
-  /// TODO rename to mak it explicit that it works on encoded byte (not returning nibble)
+	/// TODO rename to mak it explicit that it works on encoded byte (not returning nibble)
 	pub fn range_iter(&'a self, to: usize) -> impl Iterator<Item = u8> + 'a {
 		let mut first = to % 2;
 		let aligned_i = (self.offset + to) % 2;

@@ -19,7 +19,8 @@ use node_codec::NodeCodec;
 use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query, TrieLayOut, CError, TrieHash};
 use ::core_::marker::PhantomData;
-use triedbmut::{PartialKeyMut, concat_key_clone};
+use triedbmut::{concat_key_clone};
+use super::nibblevec::NibbleVec;
 #[cfg(feature = "std")]
 use ::std::fmt;
 #[cfg(feature = "std")]
@@ -146,7 +147,7 @@ where
 {
 	trie: &'db TrieDB<'db, L>,
 	node_key: &'a[u8],
-  partial_key: PartialKeyMut<L::N>,
+  partial_key: NibbleVec<L::N>,
 	index: Option<u8>,
 }
 
@@ -247,7 +248,7 @@ where
 			.field("root", &TrieAwareDebugNode {
 				trie: self,
 				node_key: &root_rlp[..],
-        partial_key: PartialKeyMut::new(),
+        partial_key: NibbleVec::new(),
 				index: None,
 			})
 			.finish()

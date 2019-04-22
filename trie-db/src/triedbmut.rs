@@ -16,6 +16,7 @@
 
 use super::{Result, TrieError, TrieMut, TrieLayOut, TrieHash, CError};
 use super::lookup::Lookup;
+use super::nibblevec::NibbleVec;
 use super::node::Node as EncodedNode;
 use node_codec::{NodeCodec, Partial};
 use super::{DBValue, node::NodeKey};
@@ -111,98 +112,6 @@ impl<'key, N: NibbleOps> PartialKey<'key, N> {
 	}
 
 }
-
-#[derive(Debug, Clone)]
-pub(crate) struct PartialKeyMut<N: NibbleOps> {
-	key: ElasticArray36<u8>,
-	pad: usize,
-	marker: PhantomData<N>,
-}
-// TODO EMCH almost replaceble with nibblevec
-impl<N: NibbleOps> PartialKeyMut<N> {
-	pub(crate) fn new() -> PartialKeyMut<N> {
-		PartialKeyMut {
-			key: Default::default(),
-			pad: 0,
-			marker: Default::default(),
-		}
-	}
-
-	/// truncate n last nibbles.
-	pub(crate) fn truncate(&mut self, mov: usize) {
-		if mov == 0 { return; }
-		if mov >= self.key.len() * N::NIBBLE_PER_BYTE - self.pad {
-			self.clear();
-			return;
-		}
-		let nb_rem = if (self.pad + mov) % N::NIBBLE_PER_BYTE > 0 {
-			self.pad = 1;
-			mov / N::NIBBLE_PER_BYTE
-
-		} else {
-			self.pad = 0;
-			(mov + 1) / N::NIBBLE_PER_BYTE
-
-		};
-		(0..nb_rem).for_each(|_|{ self.key.pop(); });
-		if self.pad == 1 {
-			let kl = self.key.len() - 1;
-			self.key[kl] &= 255 << 4;
-		}
-	}
-
-	/// clear
-	pub fn clear(&mut self) {
-		self.key.clear();
-		self.pad = 0;
-	}
-
-
-	/// Get prefix from `NibbleVec` (when used as a prefix stack of nibble).
-	pub(crate) fn as_prefix(&self) -> Prefix {
-		// TODO EMCH very similar to left fn -> put as much as possible in nibbleops
-		let offset = self.key.len() * N::NIBBLE_PER_BYTE - self.pad;
-		let split = offset / 2;
-		if offset % 2 == 1 {
-			(&self.key[..split], Some(self.key[split] & (255 << 4)))
-		} else {
-			(&self.key[..split], None)
-		}
-	}
-
-	/// Push a nibble onto the `NibbleVec`. Ignores the high 4 bits.
-	pub(crate) fn push(&mut self, nibble: u8) {
-		// TODO EMCH move to N
-		let nibble = nibble & 0x0F;
-
-		if self.pad == 0 {
-			self.key.push(nibble << 4);
-			self.pad = N::NIBBLE_PER_BYTE - 1;
-		} else {
-			*self.key.last_mut().expect("len != 0 since len % 2 != 0; inner has a last element; qed") |= nibble;
-			self.pad -= 1;
-		}
-	}
-
-	/// push a full partial.
-	pub(crate) fn append_partial(&mut self, (o_n, sl): Partial) {
-		if let Some(nibble) = o_n {
-			self.push(nibble)
-		}
-		if self.pad == 0 {
-			self.key.append_slice(&sl[..]);
-		} else {
-			let kend = self.key.len() - 1;
-			if sl.len() > 0 {
-				self.key[kend] &= 255 << 4;
-				self.key[kend] |= sl[0] >> 4;
-				(0..sl.len() - 1).for_each(|i|self.key.push(sl[i] << 4 | sl[i+1]>>4));
-				self.key.push(sl[sl.len() - 1] << 4);
-			}
-		}
-	}
-}
-
 
 /// Node types in the Trie.
 #[derive(Debug)]
@@ -1287,7 +1196,7 @@ where
 
 		match self.storage.destroy(handle) {
 			Stored::New(node) => {
-				let mut k = PartialKeyMut::new();
+				let mut k = NibbleVec::new();
 				let encoded_root = node.into_encoded::<_, L::C, L::H, L::N>(|child, o_sl, o_ix| {
 					let mov = concat_key(&mut k, o_sl, o_ix);
 					let cr = self.commit_child(child, &mut k);
@@ -1313,7 +1222,7 @@ where
 	/// case where we can fit the actual data in the `Hasher`s output type, we
 	/// store the data inline. This function is used as the callback to the
 	/// `into_encoded` method of `Node`.
-	fn commit_child(&mut self, handle: NodeHandle<TrieHash<L>>, prefix: &mut PartialKeyMut<L::N>) -> ChildReference<TrieHash<L>> {
+	fn commit_child(&mut self, handle: NodeHandle<TrieHash<L>>, prefix: &mut NibbleVec<L::N>) -> ChildReference<TrieHash<L>> {
 		match handle {
 			NodeHandle::Hash(hash) => ChildReference::Hash(hash),
 			NodeHandle::InMemory(storage_handle) => {
@@ -1358,7 +1267,7 @@ where
 
 // TODO EMCH change usage here to run on self buffer
 // TODO EMCH a with_concat_key function using a closure and truncating correctly
-pub(crate) fn concat_key<N: NibbleOps>(prefix: &mut PartialKeyMut<N>, o_sl: Option<&NibbleSlice<N>>, o_ix: Option<u8>) -> usize {
+pub(crate) fn concat_key<N: NibbleOps>(prefix: &mut NibbleVec<N>, o_sl: Option<&NibbleSlice<N>>, o_ix: Option<u8>) -> usize {
 	let mut res = 0;
 	if let Some(sl) = o_sl { 
     prefix.append_partial(sl.right());
@@ -1371,7 +1280,7 @@ pub(crate) fn concat_key<N: NibbleOps>(prefix: &mut PartialKeyMut<N>, o_sl: Opti
 	res
 }
 
-pub(crate) fn concat_key_clone<N: NibbleOps>(prefix: &PartialKeyMut<N>, o_sl: Option<&NibbleSlice<N>>, o_ix: Option<u8>) -> PartialKeyMut<N> {
+pub(crate) fn concat_key_clone<N: NibbleOps>(prefix: &NibbleVec<N>, o_sl: Option<&NibbleSlice<N>>, o_ix: Option<u8>) -> NibbleVec<N> {
 	let mut p = prefix.clone();
 	concat_key(&mut p, o_sl, o_ix);
 	p
@@ -1455,6 +1364,7 @@ where
 	}
 }
 
+/// TODO EMCH Consider moving to NibbleOps
 fn combine_key<N: NibbleOps>(start: &mut NodeKey, end: (usize, &[u8])) {
 	let final_ofset = (start.0 + end.0) % N::NIBBLE_PER_BYTE;
 	let _shifted = shift_key::<N>(start, final_ofset);
@@ -1468,7 +1378,8 @@ fn combine_key<N: NibbleOps>(start: &mut NodeKey, end: (usize, &[u8])) {
 	(st..end.1.len()).for_each(|i|start.1.push(end.1[i]));
 }
 
-fn shift_key<N: NibbleOps>(key: &mut NodeKey, ofset: usize) -> bool {
+/// TODO EMCH Consider moving to NibbleOps
+pub(crate) fn shift_key<N: NibbleOps>(key: &mut NodeKey, ofset: usize) -> bool {
 	let old = key.0;
 	key.0 = ofset;
 	if old > ofset {
@@ -1920,29 +1831,6 @@ mod tests {
 		test_comb((1, &a), (0, &b), (1, &[0x12, 0x34, 0x56, 0x78][..]));
 		test_comb((0, &a), (1, &b), (1, &[0x01, 0x23, 0x46, 0x78][..]));
 		test_comb((1, &a), (1, &b), (0, &[0x23, 0x46, 0x78][..]));
-	}
-
-	#[test]
-	fn truncate_test() {
-		let test_trun = |a: &[u8], b: usize, c: (&[u8], usize)| { 
-			let mut k = super::PartialKeyMut::<crate::nibbleslice::NibblePreHalf>::new();
-      for v in a {
-        k.push(*v);
-      }
-      k.truncate(b);
-      assert_eq!((&k.key[..], k.pad), c);
-		};
-		test_trun(&[1,2,3,4], 0, (&[0x12, 0x34], 0));
-		test_trun(&[1,2,3,4], 1, (&[0x12, 0x30], 1));
-		test_trun(&[1,2,3,4], 2, (&[0x12], 0));
-		test_trun(&[1,2,3,4], 3, (&[0x10], 1));
-		test_trun(&[1,2,3,4], 4, (&[], 0));
-		test_trun(&[1,2,3,4], 5, (&[], 0));
-		test_trun(&[1,2,3], 0, (&[0x12, 0x30], 1));
-		test_trun(&[1,2,3], 1, (&[0x12], 0));
-		test_trun(&[1,2,3], 2, (&[0x10], 1));
-		test_trun(&[1,2,3], 3, (&[], 0));
-		test_trun(&[1,2,3], 4, (&[], 0));
 	}
 
 }
