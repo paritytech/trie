@@ -17,7 +17,7 @@
 use super::{Result, TrieError, TrieMut, TrieLayOut, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::Node as EncodedNode;
-use node_codec::NodeCodec;
+use node_codec::{NodeCodec, Partial};
 use super::{DBValue, node::NodeKey};
 
 use hash_db::{HashDB, Hasher, Prefix};
@@ -114,7 +114,7 @@ impl<'key, N: NibbleOps> PartialKey<'key, N> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct PartialKeyMut<N: NibbleOps> {
-	key: Vec<u8>,
+	key: ElasticArray36<u8>,
 	pad: usize,
 	marker: PhantomData<N>,
 }
@@ -122,46 +122,55 @@ pub(crate) struct PartialKeyMut<N: NibbleOps> {
 impl<N: NibbleOps> PartialKeyMut<N> {
 	pub(crate) fn new() -> PartialKeyMut<N> {
 		PartialKeyMut {
-			key: Vec::new(),
+			key: Default::default(),
 			pad: 0,
 			marker: Default::default(),
 		}
 	}
-	/// warning this function expect the partialkey to be left aligned
-	pub(crate) fn from_partial(p: &PartialKey<N>) -> PartialKeyMut<N> {
-		let (sl, l) = p.encoded_prefix();
-		let key = sl[..].into();
-		let mut res = PartialKeyMut {
-			key,
-			pad: 0,
-			marker: Default::default(),
-		};
-		l.map(|l| res.push(l));
-		res
-	}
-	
-	// TODO EMCH better truncate
+
+	/// truncate n last nibbles.
 	pub(crate) fn truncate(&mut self, mov: usize) {
-		for _ in 0..mov {
-			self.pop();
+		if mov == 0 { return; }
+		if mov >= self.key.len() * N::NIBBLE_PER_BYTE - self.pad {
+			self.clear();
+			return;
+		}
+		let nb_rem = if (self.pad + mov) % N::NIBBLE_PER_BYTE > 0 {
+			self.pad = 1;
+			mov / N::NIBBLE_PER_BYTE
+
+		} else {
+			self.pad = 0;
+			(mov + 1) / N::NIBBLE_PER_BYTE
+
+		};
+		(0..nb_rem).for_each(|_|{ self.key.pop(); });
+		if self.pad == 1 {
+			let kl = self.key.len() - 1;
+			self.key[kl] &= 255 << 4;
 		}
 	}
 
 	/// clear
-	pub(crate) fn clear(&mut self) {
-		self.pad = 0;
+	pub fn clear(&mut self) {
 		self.key.clear();
+		self.pad = 0;
 	}
 
 
-	/// ret slice and nb of padding byte TODO rename this is confusing plus it can only be followed
-	/// by end: also rename this struct to prefix_accum or something like that
-	pub(crate) fn end(&self) -> NibbleSlice<N> {
-		(NibbleSlice::new_offset(&self.key[..], self.key.len() * N::NIBBLE_PER_BYTE - self.pad))
+	/// Get prefix from `NibbleVec` (when used as a prefix stack of nibble).
+	pub(crate) fn as_prefix(&self) -> Prefix {
+		// TODO EMCH very similar to left fn -> put as much as possible in nibbleops
+		let offset = self.key.len() * N::NIBBLE_PER_BYTE - self.pad;
+		let split = offset / 2;
+		if offset % 2 == 1 {
+			(&self.key[..split], Some(self.key[split] & (255 << 4)))
+		} else {
+			(&self.key[..split], None)
+		}
 	}
 
 	/// Push a nibble onto the `NibbleVec`. Ignores the high 4 bits.
-	/// TODO EMCH make a append nibble slice fn (currently we push iter mostly) -> for aligned
 	pub(crate) fn push(&mut self, nibble: u8) {
 		// TODO EMCH move to N
 		let nibble = nibble & 0x0F;
@@ -175,24 +184,22 @@ impl<N: NibbleOps> PartialKeyMut<N> {
 		}
 	}
 
-	/// Try to pop a nibble off the `NibbleVec`. Fails if len == 0.
-	pub(crate) fn pop(&mut self) -> Option<u8> {
-		let len = self.key.len() * N::NIBBLE_PER_BYTE - self.pad;
-		if len == 0 {
-			return None;
+	/// push a full partial.
+	pub(crate) fn append_partial(&mut self, (o_n, sl): Partial) {
+		if let Some(nibble) = o_n {
+			self.push(nibble)
 		}
-		let byte = self.key.pop().expect("len != 0; inner has last elem; qed");
-		let nibble = if self.pad == 0 {
-			// TODO EMCH rem pop / push
-			self.key.push(byte & 0xF0);
-			self.pad = 1;
-			byte & 0x0F
+		if self.pad == 0 {
+			self.key.append_slice(&sl[..]);
 		} else {
-			self.pad -= 1;
-			byte >> 4
-		};
-
-		Some(nibble)
+			let kend = self.key.len() - 1;
+			if sl.len() > 0 {
+				self.key[kend] &= 255 << 4;
+				self.key[kend] |= sl[0] >> 4;
+				(0..sl.len() - 1).for_each(|i|self.key.push(sl[i] << 4 | sl[i+1]>>4));
+				self.key.push(sl[sl.len() - 1] << 4);
+			}
+		}
 	}
 }
 
@@ -1323,7 +1330,7 @@ where
 							node.into_encoded::<_, L::C, L::H, L::N>(commit_child)
 						};
 						if encoded.len() >= L::H::LENGTH {
-							let hash = self.db.insert(prefix.end().left(), &encoded[..]);
+							let hash = self.db.insert(prefix.as_prefix(), &encoded[..]);
 							self.hash_count +=1;
 							ChildReference::Hash(hash)
 						} else {
@@ -1354,10 +1361,7 @@ where
 pub(crate) fn concat_key<N: NibbleOps>(prefix: &mut PartialKeyMut<N>, o_sl: Option<&NibbleSlice<N>>, o_ix: Option<u8>) -> usize {
 	let mut res = 0;
 	if let Some(sl) = o_sl { 
-		// TODO EMCH align optim
-		for n in sl.iter() {
-			prefix.push(n);
-		}
+    prefix.append_partial(sl.right());
 		res += sl.len();
 	}
 	if let Some(ix) = o_ix { 
@@ -1917,4 +1921,28 @@ mod tests {
 		test_comb((0, &a), (1, &b), (1, &[0x01, 0x23, 0x46, 0x78][..]));
 		test_comb((1, &a), (1, &b), (0, &[0x23, 0x46, 0x78][..]));
 	}
+
+	#[test]
+	fn truncate_test() {
+		let test_trun = |a: &[u8], b: usize, c: (&[u8], usize)| { 
+			let mut k = super::PartialKeyMut::<crate::nibbleslice::NibblePreHalf>::new();
+      for v in a {
+        k.push(*v);
+      }
+      k.truncate(b);
+      assert_eq!((&k.key[..], k.pad), c);
+		};
+		test_trun(&[1,2,3,4], 0, (&[0x12, 0x34], 0));
+		test_trun(&[1,2,3,4], 1, (&[0x12, 0x30], 1));
+		test_trun(&[1,2,3,4], 2, (&[0x12], 0));
+		test_trun(&[1,2,3,4], 3, (&[0x10], 1));
+		test_trun(&[1,2,3,4], 4, (&[], 0));
+		test_trun(&[1,2,3,4], 5, (&[], 0));
+		test_trun(&[1,2,3], 0, (&[0x12, 0x30], 1));
+		test_trun(&[1,2,3], 1, (&[0x12], 0));
+		test_trun(&[1,2,3], 2, (&[0x10], 1));
+		test_trun(&[1,2,3], 3, (&[], 0));
+		test_trun(&[1,2,3], 4, (&[], 0));
+	}
+
 }

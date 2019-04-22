@@ -156,7 +156,7 @@ where
 	L: TrieLayOut,
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		if let Ok(node) = self.trie.get_raw_or_lookup(self.node_key, self.partial_key.end().left()) {
+		if let Ok(node) = self.trie.get_raw_or_lookup(self.node_key, self.partial_key.as_prefix()) {
 			match L::C::decode(&node) {
 				Ok(Node::Leaf(slice, value)) =>
 					match (f.debug_struct("Node::Leaf"), self.index) {

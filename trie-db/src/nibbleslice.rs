@@ -292,7 +292,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	}
 
 	/// return first encoded byte and following slice
-	pub fn right(&'a self) -> (Option<u8>, &'a [u8]) {
+	pub fn right(&'a self) -> Partial {
 		let split = self.offset / 2;
 		if self.len() % 2 == 1 {
 			(Some(self.data[split] & (255 >> 4)), &self.data[split + 1 ..])

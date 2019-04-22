@@ -70,6 +70,14 @@ impl<N: NibbleOps> NibbleVec<N> {
 	pub fn inner(&self) -> &[u8] {
 		&self.inner[..]
 	}
+
+	/// clear
+	pub fn clear(&mut self) {
+		self.inner.clear();
+		self.len = 0;
+	}
+
+
 }
 
 impl<'a, N: NibbleOps> From<NibbleSlice<'a, N>> for NibbleVec<N> {
