@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use hash_db::{Hasher, HashDBRef, Prefix};
+use hash_db::{HashDBRef, Prefix};
 use nibbleslice::{self, NibbleSlice, NibbleOps};
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;

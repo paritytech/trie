@@ -71,46 +71,9 @@ fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; 16]> {
 	])
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct PartialKey<'key, N: NibbleOps> {
-	key: NibbleSlice<'key, N>,
-}
-
-impl<'key, N: NibbleOps> PartialKey<'key, N> {
-	fn new(key: NibbleSlice<N>) -> PartialKey<N> {
-		PartialKey {
-			key,
-		}
-	}
-
-	fn advance(&mut self, by: usize) {
-
-		assert!(self.key.len() >= by);
-		self.key = self.key.mid(by)
-	}
-
-	/// advance of return none if underlying slice is to short
-	fn checked_advance(&mut self, by: usize) -> bool {
-		if self.key.len() >= by {
-			self.key = self.key.mid(by);
-			true
-		} else { false }
-	}
-
-	fn mid(&self) -> NibbleSlice<'key, N> {
-		self.key
-	}
-
-	fn encoded_prefix(&self) -> Prefix {
-		self.key.left()
-	}
-
-	fn encoded_prefix_owned(&self) -> (ElasticArray36<u8>, Option<u8>) {
-		let (a, b) = self.encoded_prefix();
-		(a.into(), b)
-	}
-
-}
+/// type alias to indicate the nible cover a full key,
+/// and left side therefore is a full prefix.
+type NibbleFullKey<'key, N> = NibbleSlice<'key, N>;
 
 /// Node types in the Trie.
 #[derive(Debug)]
@@ -454,8 +417,8 @@ where
 
 	// inspect a node, choosing either to replace, restore, or delete it.
 	// if restored or replaced, returns the new node along with a flag of whether it was changed.
-	fn inspect<F>(&mut self, stored: Stored<TrieHash<L>>, key: &mut PartialKey<L::N>, inspector: F) -> Result<Option<(Stored<TrieHash<L>>, bool)>, TrieHash<L>, CError<L>>
-	where F: FnOnce(&mut Self, Node<TrieHash<L>>, &mut PartialKey<L::N>) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>> {
+	fn inspect<F>(&mut self, stored: Stored<TrieHash<L>>, key: &mut NibbleFullKey<L::N>, inspector: F) -> Result<Option<(Stored<TrieHash<L>>, bool)>, TrieHash<L>, CError<L>>
+	where F: FnOnce(&mut Self, Node<TrieHash<L>>, &mut NibbleFullKey<L::N>) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		Ok(match stored {
 			Stored::New(node) => match inspector(self, node, key)? {
 				Action::Restore(node) => Some((Stored::New(node), false)),
@@ -465,11 +428,11 @@ where
 			Stored::Cached(node, hash) => match inspector(self, node, key)? {
 				Action::Restore(node) => Some((Stored::Cached(node, hash), false)),
 				Action::Replace(node) => {
-					self.death_row.insert((hash, key.encoded_prefix_owned()));
+					self.death_row.insert((hash, key.left_owned()));
 					Some((Stored::New(node), true))
 				}
 				Action::Delete => {
-					self.death_row.insert((hash, key.encoded_prefix_owned()));
+					self.death_row.insert((hash, key.left_owned()));
 					None
 				}
 			},
@@ -539,10 +502,10 @@ where
 	}
 
 	/// insert a key-value pair into the trie, creating new nodes if necessary.
-	fn insert_at(&mut self, handle: NodeHandle<TrieHash<L>>, key: &mut PartialKey<L::N>, value: DBValue, old_val: &mut Option<DBValue>) -> Result<(StorageHandle, bool), TrieHash<L>, CError<L>> {
+	fn insert_at(&mut self, handle: NodeHandle<TrieHash<L>>, key: &mut NibbleFullKey<L::N>, value: DBValue, old_val: &mut Option<DBValue>) -> Result<(StorageHandle, bool), TrieHash<L>, CError<L>> {
 		let h = match handle {
 			NodeHandle::InMemory(h) => h,
-			NodeHandle::Hash(h) => self.cache(h, key.encoded_prefix())?,
+			NodeHandle::Hash(h) => self.cache(h, key.left())?,
 		};
 		let stored = self.storage.destroy(h); // cache then destroy for hash handle (handle being root in most case), direct access somehow?
 		let (new_stored, changed) = self.inspect(stored, key, move |trie, stored, key| {
@@ -553,8 +516,8 @@ where
 	}
 
 	/// the insertion inspector.
-	fn insert_inspector(&mut self, node: Node<TrieHash<L>>, key: &mut PartialKey<L::N>, value: DBValue, old_val: &mut Option<DBValue>) -> Result<InsertAction<TrieHash<L>>, TrieHash<L>, CError<L>> {
-		let partial = key.mid();
+	fn insert_inspector(&mut self, node: Node<TrieHash<L>>, key: &mut NibbleFullKey<L::N>, value: DBValue, old_val: &mut Option<DBValue>) -> Result<InsertAction<TrieHash<L>>, TrieHash<L>, CError<L>> {
+		let partial = key.clone();
 		trace!(target: "trie", "augmented (partial: {:?}, value: {:#x?})", partial, value);
 
 		Ok(match node {
@@ -588,7 +551,7 @@ where
 						}
 					} else {
 						// original had nothing there. compose a leaf.
-						let leaf = self.storage.alloc(Stored::New(Node::Leaf(key.mid().to_stored(), value)));
+						let leaf = self.storage.alloc(Stored::New(Node::Leaf(key.to_stored(), value)));
 						children[idx] = Some(leaf.into());
 					}
 
@@ -657,7 +620,7 @@ where
 						}
 					} else {
 						// original had nothing there. compose a leaf.
-						let leaf = self.storage.alloc(Stored::New(Node::Leaf(key.mid().to_stored(), value)));
+						let leaf = self.storage.alloc(Stored::New(Node::Leaf(key.to_stored(), value)));
 						children[idx] = Some(leaf.into());
 					}
 					InsertAction::Replace(Node::NibbledBranch(
@@ -810,11 +773,11 @@ where
 	}
 
 	/// Remove a node from the trie based on key.
-	fn remove_at(&mut self, handle: NodeHandle<TrieHash<L>>, key: &mut PartialKey<L::N>, old_val: &mut Option<DBValue>) -> Result<Option<(StorageHandle, bool)>, TrieHash<L>, CError<L>> {
+	fn remove_at(&mut self, handle: NodeHandle<TrieHash<L>>, key: &mut NibbleFullKey<L::N>, old_val: &mut Option<DBValue>) -> Result<Option<(StorageHandle, bool)>, TrieHash<L>, CError<L>> {
 		let stored = match handle {
 			NodeHandle::InMemory(h) => self.storage.destroy(h),
 			NodeHandle::Hash(h) => {
-				let handle = self.cache(h, key.encoded_prefix())?;
+				let handle = self.cache(h, key.left())?;
 				self.storage.destroy(handle)
 			}
 		};
@@ -825,8 +788,8 @@ where
 	}
 
 	/// the removal inspector
-	fn remove_inspector(&mut self, node: Node<TrieHash<L>>, key: &mut PartialKey<L::N>, old_val: &mut Option<DBValue>) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>> {
-		let partial = key.mid();
+	fn remove_inspector(&mut self, node: Node<TrieHash<L>>, key: &mut NibbleFullKey<L::N>, old_val: &mut Option<DBValue>) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>> {
+		let partial = key.clone();
 		Ok(match (node, partial.is_empty()) {
 			(Node::Empty, _) => Action::Delete,
 			(Node::Branch(c, None), true) => Action::Restore(Node::Branch(c, None)),
@@ -973,7 +936,7 @@ where
 	/// _invalid state_ means:
 	/// - Branch node where there is only a single entry;
 	/// - Extension node followed by anything other than a Branch node.
-	fn fix(&mut self, node: Node<TrieHash<L>>, key: PartialKey<L::N>) -> Result<Node<TrieHash<L>>, TrieHash<L>, CError<L>> {
+	fn fix(&mut self, node: Node<TrieHash<L>>, key: NibbleSlice<L::N>) -> Result<Node<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		match node {
 			Node::Branch(mut children, value) => {
 				// if only a single value, transmute to leaf/extension and feed through fixed.
@@ -1047,7 +1010,7 @@ where
 						let mut kc = key.clone();
 						kc.advance((enc_nibble.1.len() * L::N::NIBBLE_PER_BYTE) - enc_nibble.0);
 
-						let (st, ost, op) = match kc.encoded_prefix() {
+						let (st, ost, op) = match kc.left() {
 							(st, Some(v)) => {
 								let mut so: ElasticArray36<u8> = st.into();
 								so.push((v & (255 << 4)) | a);
@@ -1108,7 +1071,7 @@ where
 				let a = partial.1[partial.1.len() - 1] & (255 >> 4);
 				let mut kc = key.clone();
 				kc.advance((partial.1.len() * L::N::NIBBLE_PER_BYTE) - partial.0 - 1);
-				let (st, ost, op) = match kc.encoded_prefix() {
+				let (st, ost, op) = match kc.left() {
 					(st, Some(v)) => {
 						let mut so: ElasticArray36<u8> = st.into();
 						so.push((v & (255 << 4)) | a);
@@ -1320,7 +1283,7 @@ where
 		let root_handle = self.root_handle();
 		let (new_handle, changed) = self.insert_at(
 			root_handle,
-			&mut PartialKey::new(NibbleSlice::new(key)),
+			&mut NibbleSlice::new(key),
 			DBValue::from_slice(value),
 			&mut old_val,
 		)?;
@@ -1335,7 +1298,7 @@ where
 		trace!(target: "trie", "remove: key={:#x?}", key);
 
 		let root_handle = self.root_handle();
-		let mut key = PartialKey::new(NibbleSlice::new(key));
+		let mut key = NibbleSlice::new(key);
 		let mut old_val = None;
 
 		match self.remove_at(root_handle, &mut key, &mut old_val)? {

@@ -21,6 +21,7 @@ use nibblevec::NibbleVec;
 use elastic_array::ElasticArray36;
 use node::NodeKey;
 use node_codec::Partial;
+use hash_db::Prefix;
 
 pub const EMPTY_ENCODED: (&'static [u8], Option<u8>) = (&[], None);
 // until const fn for pow
@@ -242,6 +243,11 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 			marker: PhantomData,
 		}
 	}
+  /// Advance the view on the slice by `i` nibbles
+	pub fn advance(&mut self, i: usize) {
+		debug_assert!(self.len() >= i);
+    self.offset += i;
+	}
 	/// Return object to an offset position
 	pub fn back(&self, i: usize) -> NibbleSlice<'a, N> {
 		NibbleSlice {
@@ -295,7 +301,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	}
 
 	/// return left of key nibble
-	pub fn left(&'a self) -> (&'a [u8], Option<u8>) {
+	pub fn left(&'a self) -> Prefix {
 		let split = self.offset / 2;
 		if self.len() % 2 == 1 {
 			(&self.data[..split], Some(self.data[split] & (255 << 4)))
