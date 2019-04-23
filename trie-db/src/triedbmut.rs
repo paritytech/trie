@@ -18,13 +18,12 @@ use super::{Result, TrieError, TrieMut, TrieLayOut, TrieHash, CError};
 use super::lookup::Lookup;
 use super::nibblevec::NibbleVec;
 use super::node::Node as EncodedNode;
-use node_codec::{NodeCodec, Partial};
+use node_codec::NodeCodec;
 use super::{DBValue, node::NodeKey};
 
 use hash_db::{HashDB, Hasher, Prefix};
 use nibbleslice::{self, NibbleSlice, NibbleOps};
 use elastic_array::ElasticArray36;
-use ::core_::marker::PhantomData;
 use ::core_::mem;
 use ::core_::ops::Index;
 use ::core_::hash::Hash;
@@ -1369,7 +1368,8 @@ mod tests {
 	use keccak_hasher::KeccakHasher;
 	use elastic_array::ElasticArray36;
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, TrieLayOut, NodeCodec,
-		ReferenceNodeCodec, ref_trie_root, RefTrieDB, RefTrieDBNoExt, LayoutOri};
+		ReferenceNodeCodec, ReferenceNodeCodecNoExt, ref_trie_root, ref_trie_root_no_ext,
+    RefTrieDB, RefTrieDBNoExt, LayoutOri, LayoutNew};
 
 	fn populate_trie<'db>(
 		db: &'db mut HashDB<KeccakHasher, DBValue>,
@@ -1458,7 +1458,51 @@ mod tests {
 			}
 			assert_eq!(*memtrie.root(), hashed_null_node);
 		}
+
+    // no_ext
+		let mut seed = Default::default();
+		for test_i in 0..10 {
+			if test_i % 50 == 0 {
+				debug!("{:?} of 10000 stress tests done", test_i);
+			}
+			let x = StandardMap {
+				alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
+				min_key: 5,
+				journal_key: 0,
+				value_mode: ValueMode::Index,
+				count: 5,
+			}.make_with(&mut seed);
+
+			let real = ref_trie_root_no_ext(x.clone());
+			let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+			let mut root = Default::default();
+			let mut memtrie = populate_trie_no_ext(&mut memdb, &mut root, &x);
+
+			memtrie.commit();
+			if *memtrie.root() != real {
+				println!("TRIE MISMATCH");
+				println!("");
+				println!("{:?} vs {:?}", memtrie.root(), real);
+				for i in &x {
+					println!("{:#x?} -> {:#x?}", i.0, i.1);
+				}
+			}
+			assert_eq!(*memtrie.root(), real);
+			unpopulate_trie_no_ext(&mut memtrie, &x);
+			memtrie.commit();
+			let hashed_null_node = <ReferenceNodeCodecNoExt as NodeCodec<_, <LayoutNew as TrieLayOut>::N>>::hashed_null_node();
+			if *memtrie.root() != hashed_null_node {
+				println!("- TRIE MISMATCH");
+				println!("");
+				println!("{:#x?} vs {:#x?}", memtrie.root(), hashed_null_node);
+				for i in &x {
+					println!("{:#x?} -> {:#x?}", i.0, i.1);
+				}
+			}
+			assert_eq!(*memtrie.root(), hashed_null_node);
+		}
 	}
+
 
 	#[test]
 	fn init() {

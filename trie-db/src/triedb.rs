@@ -18,7 +18,6 @@ use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
 use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query, TrieLayOut, CError, TrieHash};
-use ::core_::marker::PhantomData;
 use triedbmut::{concat_key_clone};
 use super::nibblevec::NibbleVec;
 #[cfg(feature = "std")]
@@ -33,7 +32,6 @@ use alloc::boxed::Box;
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use elastic_array::ElasticArray36;
 
 /// A `Trie` implementation using a generic `HashDB` backing database, a `Hasher`
 /// implementation to generate keys and a `NodeCodec` implementation to encode/decode
@@ -447,10 +445,8 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 	// TODO EMCH : do note generalize -> try remove (unexpose), encoded_key is use insstead
 	/// Encoded key for storage lookup
 	fn encoded_key<'b>(&self, key: &'b Vec<u8>) -> (&'b [u8], Option<u8>) {
-		let slice = NibbleSlice::<L::N>::new(&key);
 		let nb_padd = self.key_nibbles.len() % 2;
 		if nb_padd > 0 {
-			// TODO EMCH costy new_composed when slice build just above??
 			(&key[..], Some(self.key_nibbles[self.key_nibbles.len() - 1] & (255 << 4)))
 		} else {
 			(&key[..], None)

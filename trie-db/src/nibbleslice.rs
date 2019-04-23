@@ -286,7 +286,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	pub fn right_iter(&'a self) -> impl Iterator<Item = u8> + 'a {
 		let (mut first, sl) = self.right();
 		let mut ix = 0;
-		::std::iter::from_fn( move || {
+		::core_::iter::from_fn( move || {
 			if first.is_some() {
 				first.take()
 			} else {
@@ -322,7 +322,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		let aligned = aligned_i == 0;
 		let mut ix = self.offset / 2;
 		let ix_lim = (self.offset + to) / 2;
-		::std::iter::from_fn( move || {
+		::core_::iter::from_fn( move || {
 			if aligned {
 				if first > 0 {
 					first = 0;

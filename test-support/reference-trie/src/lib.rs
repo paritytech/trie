@@ -115,7 +115,7 @@ const EXTENSION_NODE_OVER: u8 = BRANCH_NODE_NO_VALUE - EXTENSION_NODE_OFFSET;
 const LEAF_NODE_LAST: u8 = EXTENSION_NODE_OFFSET - 1;
 const EXTENSION_NODE_LAST: u8 = BRANCH_NODE_NO_VALUE - 1;
 
-mod noext_cst {
+/*mod noext_cst {
 	pub const EMPTY_TRIE: u8 = 0;
 	pub const LEAF_NODE_OFFSET: u8 = 1;
 	pub const LEAF_NODE_BIG: u8 = 85;
@@ -129,7 +129,7 @@ mod noext_cst {
 	pub const LEAF_NODE_LAST: u8 = LEAF_NODE_BIG - 1;
 	pub const BRANCH_NODE_WITH_VALUE_LAST: u8 = BRANCH_NODE_WITH_VALUE_BIG - 1;
 	pub const BRANCH_NODE_NO_VALUE_LAST: u8 = BRANCH_NODE_NO_VALUE_BIG - 1;
-}
+}*/
 
 /// constant use with trie simplification codec
 mod s_cst {

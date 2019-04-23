@@ -14,7 +14,7 @@
 
 //! Trie lookup via HashDB.
 
-use hash_db::{HashDBRef, Hasher};
+use hash_db::HashDBRef;
 use nibbleslice::NibbleSlice;
 use node::Node;
 use node_codec::NodeCodec;
