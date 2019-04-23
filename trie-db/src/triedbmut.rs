@@ -1470,7 +1470,7 @@ mod tests {
 				min_key: 5,
 				journal_key: 0,
 				value_mode: ValueMode::Index,
-				count: 5,
+				count: 100,
 			}.make_with(&mut seed);
 
 			let real = ref_trie_root_no_ext(x.clone());
