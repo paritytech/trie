@@ -70,8 +70,7 @@ fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; 16]> {
 		None, None, None, None, None, None, None, None,
 	])
 }
-// TODO rem? not sure using a different name makes it explicit we are on a full key.
-// therefore on left aligned slice
+
 #[derive(Clone, Debug)]
 pub(crate) struct PartialKey<'key, N: NibbleOps> {
 	key: NibbleSlice<'key, N>,
@@ -1824,7 +1823,7 @@ mod tests {
 		let b: &[u8] = [0x56, 0x78][..].into();
 		let test_comb = |a: (_,&ElasticArray36<_>), b, c| { 
 			let mut a = (a.0,a.1.clone());
-			super::combine_key::<crate::nibbleslice::NibblePreHalf>(&mut a, b);
+			super::combine_key::<crate::nibbleslice::NibbleHalf>(&mut a, b);
 			assert_eq!((a.0,&a.1[..]), c);
 		};
 		test_comb((0, &a), (0, &b), (0, &[0x12, 0x34, 0x56, 0x78][..]));

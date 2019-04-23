@@ -168,11 +168,11 @@ impl<'a, N: NibbleOps> From<NibbleSlice<'a, N>> for NibbleVec<N> {
 #[cfg(test)]
 mod tests {
 	use super::NibbleVec;
-	use nibbleslice::{NibblePreHalf, NibbleOps};
+	use nibbleslice::{NibbleHalf, NibbleOps};
 
 	#[test]
 	fn push_pop() {
-		push_pop_inner::<NibblePreHalf>();
+		push_pop_inner::<NibbleHalf>();
 	}
 	fn push_pop_inner<N: NibbleOps>() {
 		let mut v = NibbleVec::<N>::new();
@@ -192,7 +192,7 @@ mod tests {
 	#[test]
 	fn truncate_test() {
 		let test_trun = |a: &[u8], b: usize, c: (&[u8], usize)| { 
-			let mut k = NibbleVec::<crate::nibbleslice::NibblePreHalf>::new();
+			let mut k = NibbleVec::<crate::nibbleslice::NibbleHalf>::new();
       for v in a {
         k.push(*v);
       }

@@ -29,49 +29,62 @@ const TWO_EXP: [usize; 9] = [1, 2, 4, 8, 16, 32, 64, 128, 256];
 /// Note that some function are defined here but ideally it should just be a set of
 /// constant (with function handling all constant case).
 pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy + super::MaybeDebug {
-	/// variant repr 
-	const REPR : ByteLayout;
-	/// Number of bit per nibble
-	const BIT_PER_NIBBLE : usize = TWO_EXP[Self::REPR as usize]; // 2usize.pow(Self::REPR as u32);
-	/// Number of nibble per byte
-	const NIBBLE_PER_BYTE : usize = 8 / Self::BIT_PER_NIBBLE;
-	/// Number of nibble per node (must be power of 2 and under 256)
-	const NIBBLE_LEN : usize = TWO_EXP[8 / Self::NIBBLE_PER_BYTE]; //2usize.pow(8 as u32 / Self::NIBBLE_PER_BYTE as u32);
-	/// padding value to apply (default to 0)
-	const PADDING_VALUE: u8 = 0;
-	/// padding bitmasks (could be calculated with a constant function).
-	const PADDING_BITMASK: &'static [u8];
+  /// variant repr 
+  const REPR : ByteLayout;
+  /// Number of bit per nibble
+  const BIT_PER_NIBBLE : usize = TWO_EXP[Self::REPR as usize]; // 2usize.pow(Self::REPR as u32);
+  /// Number of nibble per byte
+  const NIBBLE_PER_BYTE : usize = 8 / Self::BIT_PER_NIBBLE;
+  /// Number of nibble per node (must be power of 2 and under 256)
+  const NIBBLE_LEN : usize = TWO_EXP[8 / Self::NIBBLE_PER_BYTE]; //2usize.pow(8 as u32 / Self::NIBBLE_PER_BYTE as u32);
+  /// padding bitmasks (could be calculated with a constant function).
+  /// First is bit mask to apply, second is right shift needed.
+  /// TODO EMCH check that array act as constant
+  const PADDING_BITMASK: &'static [(u8, usize)];
 
+  /// Try to get the nibble at the given offset.
 	#[inline]
-	/// Number of padding needed for a length `i`.
-	fn nb_padding(i: usize) -> usize {
-		// TODO bench something faster
-		(Self::NIBBLE_PER_BYTE - (i % Self::NIBBLE_PER_BYTE)) % Self::NIBBLE_PER_BYTE
+	fn vec_at(s: &NibbleVec<Self>, idx: usize) -> u8 {
+    let ix = idx / Self::NIBBLE_PER_BYTE;
+    let pad = idx % Self::NIBBLE_PER_BYTE;
+		(s.inner[ix] & Self::PADDING_BITMASK[pad].0)
+      >> Self::PADDING_BITMASK[pad].1
 	}
-	/// Get the nibble at position `i`.
-	fn at(&NibbleSlice<Self>, i: usize) -> u8;
 
-	/// Try to get the nibble at the given offset.
-	fn vec_at(s: &NibbleVec<Self>, idx: usize) -> u8;
+  /// Get the nibble at position `i`.
+	#[inline(always)]
+	fn at(s: &NibbleSlice<Self>, i: usize) -> u8 {
+    let ix = (s.offset + i) / Self::NIBBLE_PER_BYTE;
+    let pad = (s.offset + i) % Self::NIBBLE_PER_BYTE;
+		(s.data[ix] & Self::PADDING_BITMASK[pad].0)
+      >> Self::PADDING_BITMASK[pad].1
+	}
+
+  #[inline]
+  /// Number of padding needed for a length `i`.
+  fn nb_padding(i: usize) -> usize {
+    // TODO bench something faster
+    (Self::NIBBLE_PER_BYTE - (i % Self::NIBBLE_PER_BYTE)) % Self::NIBBLE_PER_BYTE
+  }
 
 }
 
 /// half byte nibble prepend encoding
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, Debug)]
-pub struct NibblePreHalf;
+pub struct NibbleHalf;
 
 
 /// Type of nibble in term of byte size
 #[repr(usize)]
 pub enum ByteLayout {
-	/// nibble of one bit length
-	Bit = 0, // 1, 8, 2
-	/// nibble of a quarter byte length
-	Quarter = 1, // 2, 4, 4
-	/// nibble of a half byte length
-	Half = 2, // 4, 2, 16
-	/// nibble of one byte length
-	Full = 3, // 8, 1, 256
+  /// nibble of one bit length
+  Bit = 0, // 1, 8, 2
+  /// nibble of a quarter byte length
+  Quarter = 1, // 2, 4, 4
+  /// nibble of a half byte length
+  Half = 2, // 4, 2, 16
+  /// nibble of one byte length
+  Full = 3, // 8, 1, 256
 }
 
 /// `()` with a conversion to 0
@@ -79,34 +92,28 @@ pub enum ByteLayout {
 pub struct Empty;
 
 impl Into<usize> for Empty {
-	fn into(self) -> usize { 0 }
+  fn into(self) -> usize { 0 }
 }
 
-// TODO EMCH some method can be fuse with post half (see bug solving: eg new_offset and
+impl NibbleOps for NibbleHalf {
+  const REPR: ByteLayout = ByteLayout::Half; 
+  const PADDING_BITMASK: &'static [(u8, usize)] = &[(0xFF, 4), (0x0F, 0)];
+}
+
+#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, Debug)]
+pub struct NibbleQuarter;
+
 // new_padded_end merged
-impl NibbleOps for NibblePreHalf {
-	const REPR: ByteLayout = ByteLayout::Half; 
-	const PADDING_BITMASK: &'static [u8] = &[0x0f];
-
-	#[inline(always)]
-	fn at(s: &NibbleSlice<Self>, i: usize) -> u8 {
-		if (s.offset + i) & 1 == 1 {
-			s.data[(s.offset + i) / Self::NIBBLE_PER_BYTE] & 15u8
-		} else {
-			s.data[(s.offset + i) / Self::NIBBLE_PER_BYTE] >> 4
-		}
-	}
-
-	#[inline]
-	fn vec_at(s: &NibbleVec<Self>, idx: usize) -> u8 {
-		if idx % 2 == 0 {
-			s.inner[idx / 2] >> 4
-		} else {
-			s.inner[idx / 2] & 0x0F
-		}
-	}
-
+impl NibbleOps for NibbleQuarter {
+  const REPR: ByteLayout = ByteLayout::Quarter; 
+  const PADDING_BITMASK: &'static [(u8, usize)] = &[
+    (0b1111_1111, 6),
+    (0b0011_1111, 4),
+    (0b0000_1111, 2),
+    (0b0000_0011, 0),
+  ];
 }
+
 
 
 /// Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
@@ -303,10 +310,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 
 
 	/// get iterator over slice, slow
-	/// TODO switch to padded access as in right padded eg with a move end function that return self
-	/// and a padding len
-	/// TODO rename to mak it explicit that it works on encoded byte (not returning nibble)
-	pub fn range_iter(&'a self, to: usize) -> impl Iterator<Item = u8> + 'a {
+	pub fn right_range_iter(&'a self, to: usize) -> impl Iterator<Item = u8> + 'a {
 		let mut first = to % 2;
 		let aligned_i = (self.offset + to) % 2;
 		let aligned = aligned_i == 0;
@@ -437,14 +441,14 @@ impl<'a, N: NibbleOps> fmt::Debug for NibbleSlice<'a, N> {
 #[cfg(test)]
 mod tests {
 	use super::NibbleSlice;
-	use super::NibblePreHalf;
+	use super::NibbleHalf;
 	use super::NibbleOps;
 	use elastic_array::ElasticArray36;
 	static D: &'static [u8;3] = &[0x01u8, 0x23, 0x45];
 
 	#[test]
 	fn basics() {
-		basics_inner::<NibblePreHalf>();
+		basics_inner::<NibbleHalf>();
 	}
 	fn basics_inner<N: NibbleOps>() {
 		let n = NibbleSlice::<N>::new(D);
@@ -463,7 +467,7 @@ mod tests {
 
 	#[test]
 	fn iterator() {
-		iterator_inner::<NibblePreHalf>();
+		iterator_inner::<NibbleHalf>();
 	}
 	fn iterator_inner<N: NibbleOps>() {
 		let n = NibbleSlice::<N>::new(D);
@@ -474,7 +478,7 @@ mod tests {
 
 	#[test]
 	fn mid() {
-		mid_inner::<NibblePreHalf>();
+		mid_inner::<NibbleHalf>();
 	}
 	fn mid_inner<N: NibbleOps>() {
 		let n = NibbleSlice::<N>::new(D);
@@ -490,8 +494,8 @@ mod tests {
 
 	#[test]
 	fn encoded_pre() {
-		let n = NibbleSlice::<NibblePreHalf>::new(D);
-		let len = D.len() * NibblePreHalf::NIBBLE_PER_BYTE;
+		let n = NibbleSlice::<NibbleHalf>::new(D);
+		let len = D.len() * NibbleHalf::NIBBLE_PER_BYTE;
 		assert_eq!(n.to_stored(), (0, ElasticArray36::from_slice(&[0x01, 0x23, 0x45])));
 		assert_eq!(n.mid(1).to_stored(), (1, ElasticArray36::from_slice(&[0x01, 0x23, 0x45])));
 		assert_eq!(n.mid(2).to_stored(), (0, ElasticArray36::from_slice(&[0x23, 0x45])));
@@ -515,16 +519,16 @@ mod tests {
 
 	#[test]
 	fn from_encoded_pre() {
-		let n = NibbleSlice::<NibblePreHalf>::new(D);
-		let len = D.len() * NibblePreHalf::NIBBLE_PER_BYTE;
+		let n = NibbleSlice::<NibbleHalf>::new(D);
+		let len = D.len() * NibbleHalf::NIBBLE_PER_BYTE;
 		let stored: ElasticArray36<u8> = [0x01, 0x23, 0x45][..].into();
 		assert_eq!(n, NibbleSlice::from_stored(&(0, stored.clone())));
 		assert_eq!(n.mid(1), NibbleSlice::from_stored(&(1, stored)));
 	}
 	#[test]
 	fn range_iter() {
-		let n = NibbleSlice::<NibblePreHalf>::new(D);
-		let len = D.len() * NibblePreHalf::NIBBLE_PER_BYTE;
+		let n = NibbleSlice::<NibbleHalf>::new(D);
+		let len = D.len() * NibbleHalf::NIBBLE_PER_BYTE;
 		for i in [
 			vec![],
 			vec![0x00],
@@ -567,26 +571,16 @@ mod tests {
 
 	}
 
-	fn range_iter_test(n: NibbleSlice<NibblePreHalf>, nb: usize, mid: Option<usize>, res: &[u8]) {
+	fn range_iter_test(n: NibbleSlice<NibbleHalf>, nb: usize, mid: Option<usize>, res: &[u8]) {
 		let n = if let Some(i) = mid {
 			n.mid(i)
 		} else { n };
-		assert_eq!(&n.range_iter(nb).collect::<Vec<_>>()[..], res);
+		assert_eq!(&n.right_range_iter(nb).collect::<Vec<_>>()[..], res);
 	}
-
-/*	#[test]
-	fn from_encoded_post() {
-		let n = NibbleSlice::<NibblePostHalf>::new(D);
-		assert_eq!((n, false), NibbleSlice::from_encoded(&[0x01, 0x23, 0x45, 0x00]));
-		assert_eq!((n, true), NibbleSlice::from_encoded(&[0x01, 0x23, 0x45, 0x02]));
-		assert_eq!((n.mid(1), false), NibbleSlice::from_encoded(&[0x12, 0x34, 0x51]));
-		assert_eq!((n.mid(1), true), NibbleSlice::from_encoded(&[0x12, 0x34, 0x53]));
-	}*/
-
 
 	#[test]
 	fn shared() {
-		shared_inner::<NibblePreHalf>();
+		shared_inner::<NibbleHalf>();
 	}
 	fn shared_inner<N: NibbleOps>() {
 		let n = NibbleSlice::<N>::new(D);
@@ -605,7 +599,7 @@ mod tests {
 
 	#[test]
 	fn compare() {
-		compare_inner::<NibblePreHalf>();
+		compare_inner::<NibbleHalf>();
 	}
 	fn compare_inner<N: NibbleOps>() {
 		let other = &[0x01u8, 0x23, 0x01, 0x23, 0x45];

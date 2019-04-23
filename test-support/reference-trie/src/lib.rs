@@ -39,7 +39,7 @@ use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
 
 pub use trie_db::{Trie, TrieMut, NibbleSlice, Recorder, NodeCodec};
-pub use trie_db::{Record, TrieLayOut, NibblePreHalf, NibbleOps};
+pub use trie_db::{Record, TrieLayOut, NibbleHalf, NibbleOps};
 pub use trie_root::TrieStream;
 
 /// trie layout similar to parity-ethereum
@@ -49,7 +49,7 @@ impl TrieLayOut for LayoutOri {
 	const USE_EXTENSION: bool = true;
 	type H = keccak_hasher::KeccakHasher;
 	type C = ReferenceNodeCodec;
-	type N = NibblePreHalf;
+	type N = NibbleHalf;
 }
 
 /// trie layout similar to substrate one
@@ -59,7 +59,7 @@ impl TrieLayOut for LayoutNew {
 	const USE_EXTENSION: bool = false;
 	type H = keccak_hasher::KeccakHasher;
 	type C = ReferenceNodeCodecNoExt;
-	type N = NibblePreHalf;
+	type N = NibbleHalf;
 }
 
 pub type RefTrieDB<'a> = trie_db::TrieDB<'a, LayoutOri>;
@@ -511,7 +511,7 @@ fn partial_to_key<N: NibbleOps>(partial: Partial, offset: u8, over: u8) -> Vec<u
 	assert!(nibble_count < over as usize);
 	let mut output = vec![offset + nibble_count as u8];
 	if let Some(v) = partial.0 {
-		output.push((v & N::PADDING_BITMASK[nb_nibble_hpe - 1]) + N::PADDING_VALUE);
+		output.push(v & N::PADDING_BITMASK[nb_nibble_hpe].0);
 	}
 	output.extend_from_slice(&partial.1[..]);
 	output
@@ -556,7 +556,7 @@ fn partial_enc<N: NibbleOps>(partial: Partial, node_kind: NodeKindNoExt) -> Vec<
 		NodeKindNoExt::BranchNoValue => NodeHeaderNoExt::Branch(false, nibble_count).encode_to(&mut output),
 	};
 	if let Some(v) = partial.0 {
-		output.push((v & N::PADDING_BITMASK[nb_nibble_hpe - 1]) + N::PADDING_VALUE);
+		output.push(v & N::PADDING_BITMASK[nb_nibble_hpe].0);
 	}
 	output.extend_from_slice(&partial.1[..]);
 	output
@@ -602,7 +602,7 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodec {
 				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
 					.ok_or(ReferenceError::BadFormat)?;
 				let nibble_slice = NibbleSlice::new_offset(nibble_data,
-					nibble_count % N::NIBBLE_PER_BYTE); // TODO EMCH incorrect for non half padding!
+					N::nb_padding(nibble_count));
 				let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 				Ok(Node::Extension(nibble_slice, take(input, count).ok_or(ReferenceError::BadFormat)?))
 			}
@@ -610,7 +610,7 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodec {
 				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
 					.ok_or(ReferenceError::BadFormat)?;
 				let nibble_slice = NibbleSlice::new_offset(nibble_data,
-					nibble_count % N::NIBBLE_PER_BYTE); // TODO EMCH incorrect for non half padding!
+					N::nb_padding(nibble_count));
 				let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 				Ok(Node::Leaf(nibble_slice, take(input, count).ok_or(ReferenceError::BadFormat)?))
 			}
@@ -700,13 +700,13 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodecNoExt {
 			NodeHeaderNoExt::Null => Ok(Node::Empty),
 			NodeHeaderNoExt::Branch(has_value, nibble_count) => {
 				let nb_nibble_hpe = nibble_count % N::NIBBLE_PER_BYTE;
-				if nb_nibble_hpe > 0 && input[0] & !N::PADDING_BITMASK[nb_nibble_hpe - 1] != 0 {
+				if nb_nibble_hpe > 0 && input[0] & !N::PADDING_BITMASK[nb_nibble_hpe].0 != 0 {
 					return Err(ReferenceError::BadFormat);
 				}
 				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
 					.ok_or(ReferenceError::BadFormat)?;
 				let nibble_slice = NibbleSlice::new_offset(nibble_data,
-					nibble_count % N::NIBBLE_PER_BYTE); // TODO EMCH incorrect for non half padding!
+					N::nb_padding(nibble_count));
 				let bitmap = u16::decode(input).ok_or(ReferenceError::BadFormat)?;
 				let value = if has_value {
 					let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
@@ -727,13 +727,13 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodecNoExt {
 			}
 			NodeHeaderNoExt::Leaf(nibble_count) => {
 				let nb_nibble_hpe = nibble_count % N::NIBBLE_PER_BYTE;
-				if nb_nibble_hpe > 0 && input[0] & !N::PADDING_BITMASK[nb_nibble_hpe - 1] != 0 {
+				if nb_nibble_hpe > 0 && input[0] & !N::PADDING_BITMASK[nb_nibble_hpe].0 != 0 {
 					return Err(ReferenceError::BadFormat);
 				}
 				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
 					.ok_or(ReferenceError::BadFormat)?;
 				let nibble_slice = NibbleSlice::new_offset(nibble_data,
-					nibble_count % N::NIBBLE_PER_BYTE); // TODO EMCH incorrect for non half padding!
+					N::nb_padding(nibble_count));
 				let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 				Ok(Node::Leaf(nibble_slice, take(input, count).ok_or(ReferenceError::BadFormat)?))
 			}
@@ -810,7 +810,7 @@ pub fn compare_impl<X : hash_db::HashDB<KeccakHasher,DBValue> + Eq> (
 ) {
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit::<KeccakHasher, ReferenceNodeCodec, NibblePreHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit::<KeccakHasher, ReferenceNodeCodec, NibbleHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = {
@@ -852,7 +852,7 @@ pub fn compare_root(
 ) {
 	let root_new = {
 		let mut cb = TrieRoot::<KeccakHasher, _>::default();
-		trie_visit::<KeccakHasher, ReferenceNodeCodec, NibblePreHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit::<KeccakHasher, ReferenceNodeCodec, NibbleHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = {
@@ -872,7 +872,7 @@ pub fn compare_unhashed(
 ) {
 	let root_new = {
 		let mut cb = trie_db::TrieRootUnhashed::<KeccakHasher>::default();
-		trie_visit::<KeccakHasher, ReferenceNodeCodec, NibblePreHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit::<KeccakHasher, ReferenceNodeCodec, NibbleHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = ref_trie_root_unhashed(data);
@@ -885,8 +885,7 @@ pub fn compare_unhashed_no_ext(
 ) {
 	let root_new = {
 		let mut cb = trie_db::TrieRootUnhashed::<KeccakHasher>::default();
-		// TODO EMCH siwtch this to post and implement post on ref_trie_root_unhashed_no_ext!!
-		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePreHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibbleHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = ref_trie_root_unhashed_no_ext(data);
@@ -905,7 +904,7 @@ pub fn calc_root<I,A,B>(
 		B: AsRef<[u8]> + fmt::Debug,
 {
 	let mut cb = TrieRoot::<KeccakHasher, _>::default();
-	trie_visit::<KeccakHasher, ReferenceNodeCodec, NibblePreHalf, _, _, _, _>(data.into_iter(), &mut cb);
+	trie_visit::<KeccakHasher, ReferenceNodeCodec, NibbleHalf, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
 
@@ -918,7 +917,7 @@ pub fn calc_root_no_ext<I,A,B>(
 		B: AsRef<[u8]> + fmt::Debug,
 {
 	let mut cb = TrieRoot::<KeccakHasher, _>::default();
-	trie_db::trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePreHalf, _, _, _, _>(data.into_iter(), &mut cb);
+	trie_db::trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibbleHalf, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
 
@@ -929,7 +928,7 @@ pub fn compare_impl_no_ext(
 ) {
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePreHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibbleHalf, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = {
@@ -985,7 +984,7 @@ pub fn compare_impl_no_ext_unordered(
 	};
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibblePreHalf, _, _, _, _>(b_map.into_iter(), &mut cb);
+		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibbleHalf, _, _, _, _>(b_map.into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 
@@ -1052,13 +1051,13 @@ pub fn compare_no_ext_insert_remove(
 	assert_eq!(*t.root(), calc_root_no_ext(data2));
 }
 
-// TODO to big is currently truncate, keep it that way??
+// TODO EMCH to big is currently truncate, keep it that way?? wait for final spec
 #[test]
 fn too_big_nibble_len () {
 	// + 1 for 0 added byte of nibble encode
 	let input = vec![0u8; (s_cst::NIBBLE_SIZE_BOUND as usize + 1) / 2 + 1];
-	let enc = <ReferenceNodeCodecNoExt as NodeCodec<_, NibblePreHalf>>::leaf_node((None,&input), (&[1]));
-	let dec = <ReferenceNodeCodecNoExt as NodeCodec<_, NibblePreHalf>>::decode(&enc).unwrap();
+	let enc = <ReferenceNodeCodecNoExt as NodeCodec<_, NibbleHalf>>::leaf_node((None,&input), (&[1]));
+	let dec = <ReferenceNodeCodecNoExt as NodeCodec<_, NibbleHalf>>::decode(&enc).unwrap();
 	let o_sl = if let Node::Leaf(sl,_) = dec {
 		Some(sl)
 	} else { None };
