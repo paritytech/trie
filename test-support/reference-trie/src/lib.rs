@@ -1056,7 +1056,7 @@ pub fn compare_no_ext_insert_remove(
 fn too_big_nibble_len () {
 	// + 1 for 0 added byte of nibble encode
 	let input = vec![0u8; (s_cst::NIBBLE_SIZE_BOUND as usize + 1) / 2 + 1];
-	let enc = <ReferenceNodeCodecNoExt as NodeCodec<_, NibbleHalf>>::leaf_node((None,&input), (&[1]));
+	let enc = <ReferenceNodeCodecNoExt as NodeCodec<_, NibbleHalf>>::leaf_node((None,&input), &[1]);
 	let dec = <ReferenceNodeCodecNoExt as NodeCodec<_, NibbleHalf>>::decode(&enc).unwrap();
 	let o_sl = if let Node::Leaf(sl,_) = dec {
 		Some(sl)

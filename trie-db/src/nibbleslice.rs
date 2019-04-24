@@ -353,55 +353,11 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	}
 }
 
-// TODO EMCH not generic (not that partial type does not support nothing else than 4 byte)
 impl<'a, N: NibbleOps> Into<NodeKey> for NibbleSlice<'a, N> {
 	fn into(self) -> NodeKey {
 		(self.offset, self.data.into())
 	}
 }
-
-// TODO EMCH rename or enhanch + generalize (in NibbleOps) + use in a single place (cast from
-// leaf)
-pub fn into_part(inp: &NodeKey) -> Partial {
-	let start = inp.0 / 2;
-	if inp.0 % 2 > 0 {
-		(Some(inp.1[start]),
-			&inp.1[start + 1..]) 
-	} else {
-		(None, &inp.1[start..])
-	}
-}
-
-#[test]
-fn into_part_test() {
-	let v = [
-		((0, [0x12, 0x34][..].into()),
-			(None, &vec![0x12, 0x34][..])),
-		((1, [0x12, 0x34][..].into()),
-			(Some(0x12), &vec![0x34][..])),
-		((2, [0x12, 0x34][..].into()),
-			(None, &vec![0x34][..])),
-		((3, [0x12, 0x34][..].into()),
-			(Some(0x34), &vec![][..])),
-	];
-	for nk in v.iter() {
-		assert_eq!(into_part(&nk.0), nk.1);
-	}
-}
-/*
-// TODO EMCH use in prev into fn
-impl<'a, N: NibbleOps> Into<(Option<u8>, &'a[u8])> for NibbleSlice<'a, N> {
-	fn into(self) -> (Option<u8>, &'a[u8]) {
-		if self.len() / 2 == 1 {
-			(Some(self.data[self.offset/2] & (255 >> 4)),
-				&self.data[self.offset/2 + 1..]) 
-		} else {
-			(None,
-				&self.data[self.offset/2..])
-		}
-	}
-}
-*/
 
 impl<'a, N: NibbleOps> PartialEq for NibbleSlice<'a, N> {
 	fn eq(&self, them: &Self) -> bool {
@@ -501,32 +457,15 @@ mod tests {
 	#[test]
 	fn encoded_pre() {
 		let n = NibbleSlice::<NibbleHalf>::new(D);
-		let len = D.len() * NibbleHalf::NIBBLE_PER_BYTE;
 		assert_eq!(n.to_stored(), (0, ElasticArray36::from_slice(&[0x01, 0x23, 0x45])));
 		assert_eq!(n.mid(1).to_stored(), (1, ElasticArray36::from_slice(&[0x01, 0x23, 0x45])));
 		assert_eq!(n.mid(2).to_stored(), (0, ElasticArray36::from_slice(&[0x23, 0x45])));
 		assert_eq!(n.mid(3).to_stored(), (1, ElasticArray36::from_slice(&[0x23, 0x45])));
 	}
-/*
-	#[test]
-	fn encoded_post() {
-		let n = NibbleSlice::<NibblePostHalf>::new(D);
-		assert_eq!(n.encoded(false), ElasticArray36::from_slice(&[0x01, 0x23, 0x45, 0x00]));
-		assert_eq!(n.encoded(true), ElasticArray36::from_slice(&[0x01, 0x23, 0x45, 0x02]));
-		assert_eq!(n.mid(1).encoded(false), ElasticArray36::from_slice(&[0x12, 0x34, 0x51]));
-		assert_eq!(n.mid(1).encoded(true), ElasticArray36::from_slice(&[0x12, 0x34, 0x53]));
-		let n = NibbleSlice::<NibblePostHalf>::from_encoded(&[0x12, 0x34, 0x51]).0; // unaligned end
-		assert_eq!(n.encoded(false), ElasticArray36::from_slice(&[0x12, 0x34, 0x51]));
-		assert_eq!(n.encoded(true), ElasticArray36::from_slice(&[0x12, 0x34, 0x53]));
-		assert_eq!(n.mid(1).encoded(false), ElasticArray36::from_slice(&[0x23, 0x45, 0x00]));
-		assert_eq!(n.mid(1).encoded(true), ElasticArray36::from_slice(&[0x23, 0x45, 0x02]));
-	}
-*/
 
 	#[test]
 	fn from_encoded_pre() {
 		let n = NibbleSlice::<NibbleHalf>::new(D);
-		let len = D.len() * NibbleHalf::NIBBLE_PER_BYTE;
 		let stored: ElasticArray36<u8> = [0x01, 0x23, 0x45][..].into();
 		assert_eq!(n, NibbleSlice::from_stored(&(0, stored.clone())));
 		assert_eq!(n.mid(1), NibbleSlice::from_stored(&(1, stored)));
@@ -534,7 +473,6 @@ mod tests {
 	#[test]
 	fn range_iter() {
 		let n = NibbleSlice::<NibbleHalf>::new(D);
-		let len = D.len() * NibbleHalf::NIBBLE_PER_BYTE;
 		for i in [
 			vec![],
 			vec![0x00],

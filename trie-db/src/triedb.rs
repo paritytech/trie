@@ -124,7 +124,7 @@ where
 	fn get_with<'a, 'key, Q: Query<L::H>>(&'a self, key: &'key [u8], query: Q) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
 		where 'a: 'key,
 	{
-		Lookup::<L, Q> { // TODO EMCH rem type
+		Lookup::<L, Q> {
 			db: self.db,
 			query: query,
 			hash: self.root.clone(),
@@ -551,7 +551,7 @@ impl<'a, L: TrieLayOut> Iterator for TrieDBIterator<'a, L> {
 
 #[cfg(test)]
 mod tests {
-	use memory_db::{MemoryDB, PrefixedKey, HashKey};
+	use memory_db::{MemoryDB, PrefixedKey};
 	use keccak_hasher::KeccakHasher;
 	use DBValue;
 	use reference_trie::{RefTrieDB, RefTrieDBMut, RefLookup, Trie, TrieMut, NibbleSlice};
@@ -849,7 +849,6 @@ mod tests {
 
 	#[test]
 	fn test_lookup_with_corrupt_data_returns_decoder_error() {
-		use std::marker::PhantomData;
 
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();

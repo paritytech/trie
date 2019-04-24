@@ -155,7 +155,7 @@ where
 		}
 	}
 
-	// TODO: parallelize TODO EMCH does not need to consume self: change that
+	// TODO: parallelize
 	fn into_encoded<F, C, H, N>(self, mut child_cb: F) -> Vec<u8>
 	where
 		N: NibbleOps,
@@ -165,10 +165,11 @@ where
 	{
 		match self {
 			Node::Empty => C::empty_node().to_vec(),
-			Node::Leaf(partial, value) => C::leaf_node(nibbleslice::into_part(&partial), &value),
+			Node::Leaf(partial, value) => {
+				let pr = NibbleSlice::<N>::new_offset(&partial.1[..], partial.0);
+        C::leaf_node(pr.right(), &value)
+      },
 			Node::Extension(partial, child) => {
-				// warning we know that partial does not use pop backward from this point, child_cb using pop 
-				// here will break things TODO pop limited version of TrieDBMut??
 				let pr = NibbleSlice::<N>::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
 				let c = child_cb(child, Some(&pr), None);
@@ -1231,7 +1232,7 @@ where
 pub(crate) fn concat_key<N: NibbleOps>(prefix: &mut NibbleVec<N>, o_sl: Option<&NibbleSlice<N>>, o_ix: Option<u8>) -> usize {
 	let mut res = 0;
 	if let Some(sl) = o_sl { 
-    prefix.append_partial(sl.right());
+		prefix.append_partial(sl.right());
 		res += sl.len();
 	}
 	if let Some(ix) = o_ix { 
@@ -1363,13 +1364,13 @@ mod tests {
 	use env_logger;
 	use standardmap::*;
 	use DBValue;
-	use memory_db::{MemoryDB, PrefixedKey, HashKey};
+	use memory_db::{MemoryDB, PrefixedKey};
 	use hash_db::{Hasher, HashDB};
 	use keccak_hasher::KeccakHasher;
 	use elastic_array::ElasticArray36;
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, TrieLayOut, NodeCodec,
 		ReferenceNodeCodec, ReferenceNodeCodecNoExt, ref_trie_root, ref_trie_root_no_ext,
-    RefTrieDB, RefTrieDBNoExt, LayoutOri, LayoutNew};
+		RefTrieDBNoExt, LayoutOri, LayoutNew};
 
 	fn populate_trie<'db>(
 		db: &'db mut HashDB<KeccakHasher, DBValue>,
@@ -1459,7 +1460,7 @@ mod tests {
 			assert_eq!(*memtrie.root(), hashed_null_node);
 		}
 
-    // no_ext
+		// no_ext
 		let mut seed = Default::default();
 		for test_i in 0..10 {
 			if test_i % 50 == 0 {
@@ -1528,17 +1529,12 @@ mod tests {
 
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t1 = RefTrieDBMut::new(&mut memdb, &mut root);
-		t1.insert(&[0x01, 0x23], big_value).unwrap();
-		t1.insert(&[0x01, 0x34], big_value).unwrap();
-		let mut memdb2 = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
-		let mut root2 = Default::default();
-		let mut t2 = RefTrieDBMut::new(&mut memdb2, &mut root2);
+		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 
-		t2.insert(&[0x01], big_value).unwrap();
-		t2.insert(&[0x01, 0x23], big_value).unwrap();
-		t2.insert(&[0x01, 0x34], big_value).unwrap();
-		t2.remove(&[0x01]).unwrap();
+		t.insert(&[0x01], big_value).unwrap();
+		t.insert(&[0x01, 0x23], big_value).unwrap();
+		t.insert(&[0x01, 0x34], big_value).unwrap();
+		t.remove(&[0x01]).unwrap();
 	}
 
 	#[test]
@@ -1547,24 +1543,18 @@ mod tests {
 		let big_value2 = b"00000000000000000000000000000002";
 		let big_value3 = b"00000000000000000000000000000004";
 
-		let mut memdb2 = MemoryDB::<_,PrefixedKey<_>,_>::default();
-		let mut root2 = Default::default();
+		let mut memdb = MemoryDB::<_,PrefixedKey<_>,_>::default();
+		let mut root = Default::default();
 		{
-			let mut memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
-			let mut root = Default::default();
-			let mut t1 = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
-			//t1.insert(&[0x01, 0x23], big_value).unwrap();
-			//t1.insert(&[0x01, 0x34], big_value).unwrap();
-			let mut t2 = RefTrieDBMutNoExt::new(&mut memdb2, &mut root2);
+			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
 
-			t2.insert(&[0x01, 0x23], big_value3).unwrap();
-			t2.insert(&[0x01], big_value2).unwrap();
-			t2.insert(&[0x01, 0x34], big_value).unwrap();
-			t2.remove(&[0x01]).unwrap();
+			t.insert(&[0x01, 0x23], big_value3).unwrap();
+			t.insert(&[0x01], big_value2).unwrap();
+			t.insert(&[0x01, 0x34], big_value).unwrap();
+			t.remove(&[0x01]).unwrap();
 			// commit on drop
 		}
-		let t2 = RefTrieDBNoExt::new(& memdb2, &root2); 
-		assert_eq!(&root2[..], &reference_trie::calc_root_no_ext(vec![
+		assert_eq!(&root[..], &reference_trie::calc_root_no_ext(vec![
 		 (vec![0x01u8, 0x23], big_value3.to_vec()),
 		 (vec![0x01u8, 0x34], big_value.to_vec()),
 		])[..]);

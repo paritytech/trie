@@ -468,15 +468,9 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashed<H> {
 
 #[cfg(test)]
 mod test {
-	use super::*;
-	use env_logger;
-	use standardmap::*;
 	use DBValue;
 	use memory_db::{MemoryDB, HashKey, PrefixedKey};
-	use hash_db::{Hasher, HashDB};
 	use keccak_hasher::KeccakHasher;
-	use reference_trie::{RefTrieDBMut, RefTrieDB, Trie, TrieMut,
-	ReferenceNodeCodec, ref_trie_root};
 
 	#[test]
 	fn trie_root_empty () {
