@@ -287,7 +287,6 @@ impl<N: NibbleOps> Crumb<N> {
 pub struct TrieDBIterator<'a, L: TrieLayOut> {
 	db: &'a TrieDB<'a, L>,
 	trail: Vec<Crumb<L::N>>,
-	// TODO EMCH replace by niblleVec!!!
 	key_nibbles: NibbleVec<L::N>,
 }
 
@@ -330,8 +329,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 								status: Status::At,
 								node: node.clone().into(),
 							});
-						slice.iter().for_each(|i|self.key_nibbles.push(i));
-						// TODO EMCH self.key_nibbles.append_partial(slice.right());
+              self.key_nibbles.append_partial(slice.right());
 							full_key_nibbles += slice.len();
 							partial = partial.mid(slice.len());
 							let data = self.db.get_raw_or_lookup(&*item, key.back(full_key_nibbles).left())?;
@@ -407,8 +405,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 
 	/// Descend into a payload.
 	fn descend(&mut self, d: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
-		let p_key = self.key();
-		let node_data = &self.db.get_raw_or_lookup(d, self.encoded_key(&p_key))?;
+		let node_data = &self.db.get_raw_or_lookup(d, self.key_nibbles.as_prefix())?;
 		let node = L::C::decode(&node_data)
 			.map_err(|e|Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), e)))?;
 		Ok(self.descend_into_node(node.into()))
@@ -424,40 +421,23 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 				| &OwnedNode::Extension(ref n, _)
 				| &OwnedNode::NibbledBranch(ref n, _)
 				=> {
-          // TODO EMCH optimize this
-				(0..n.len()).for_each(|i| key_nibbles.push(n.at(i)));
+        if let Some(part) = n.as_nibbleslice() {
+			    key_nibbles.append_partial(part.right());
+        } else {
+          // TODO EMCH range_iter on nibble vec or simply cat of two nibblevec
+          (0..n.len()).for_each(|i|key_nibbles.push(n.at(i)));
+        }
 			},
 			_ => {}
 		}
 	}
 
-	// TODO EMCH : do note generalize -> try remove (unexpose), encoded_key is use insstead
-	/// The present key. TODO not right it misses last
-	fn key(&self) -> Vec<u8> {
-		// collapse the key_nibbles down to bytes.
-		let nibbles = &self.key_nibbles;
-		let mut i = 1;
-		let mut result = <Vec<u8>>::with_capacity(nibbles.len() / 2);
-		let len = nibbles.len();
-		while i < len {
-      // TODO EMCH damn stupid code replace when nibblevec got already
-      // packed thing: neend to return nibble vec (same for encoded_key)
-			result.push(nibbles.at(i - 1) * 16 + nibbles.at(i));
-			i += 2;
-		}
-		result
+	/// The present key. This can only be called on valued node (key is therefore
+  /// aligned to byte).
+	fn key(&self) -> NibbleSlice<L::N> {
+    self.key_nibbles.as_nibbleslice().expect("a key is aligned to byte;qed")
 	}
 
-	// TODO EMCH : do note generalize -> try remove (unexpose), encoded_key is use insstead
-	/// Encoded key for storage lookup
-	fn encoded_key<'b>(&self, key: &'b Vec<u8>) -> (&'b [u8], Option<u8>) {
-		let nb_padd = self.key_nibbles.len() % 2;
-		if nb_padd > 0 {
-			(&key[..], Some(self.key_nibbles.at(self.key_nibbles.len() - 1) & (255 << 4)))
-		} else {
-			(&key[..], None)
-		}
-	}
 }
 
 impl<'a, L: TrieLayOut> TrieIterator<L> for TrieDBIterator<'a, L> {
@@ -501,14 +481,13 @@ impl<'a, L: TrieLayOut> Iterator for TrieDBIterator<'a, L> {
 					(Status::At, &OwnedNode::Branch(ref branch))
 					 | (Status::At, &OwnedNode::NibbledBranch(_, ref branch)) if branch.has_value() => {
 						let value = branch.get_value().expect("already checked `has_value`");
-						return Some(Ok((self.key(), DBValue::from_slice(value))));
+						return Some(Ok((self.key().right().1.into(), DBValue::from_slice(value))));
 					},
 					(Status::At, &OwnedNode::Leaf(_, ref v)) => {
-						return Some(Ok((self.key(), v.clone())));
+						return Some(Ok((self.key().right().1.into(), v.clone())));
 					},
 					(Status::At, &OwnedNode::Extension(_, ref d)) => {
-						let p_key = self.key();
-						IterStep::Descend::<TrieHash<L>, CError<L>>(self.db.get_raw_or_lookup(&*d, self.encoded_key(&p_key)))
+						IterStep::Descend::<TrieHash<L>, CError<L>>(self.db.get_raw_or_lookup(&*d, self.key_nibbles.as_prefix()))
 					},
 					(Status::At, &OwnedNode::Branch(_))
 						| (Status::At, &OwnedNode::NibbledBranch(_,_)) => IterStep::Continue,
@@ -522,10 +501,9 @@ impl<'a, L: TrieLayOut> Iterator for TrieDBIterator<'a, L> {
                 self.key_nibbles.push(i as u8);
               },
 						}
-						let p_key = self.key();
 						IterStep::Descend::<TrieHash<L>, CError<L>>(self.db.get_raw_or_lookup(
 							&branch.index(i).expect("this arm guarded by branch[i].is_some(); qed"),
-							self.encoded_key(&p_key)))
+							self.key_nibbles.as_prefix()))
 					},
 					(Status::AtChild(i), &OwnedNode::Branch(_))
 						| (Status::AtChild(i), &OwnedNode::NibbledBranch(_,_)) => {

@@ -152,6 +152,15 @@ impl<N: NibbleOps> NibbleVec<N> {
 		self.len = 0;
 	}
 
+	/// Try to treat this `NibbleVec` as a `NibbleSlice`. Works only if len is even.
+	pub fn as_nibbleslice(&self) -> Option<NibbleSlice<N>> {
+    // TODO is_aligned from NibbleVec
+		if self.len % 2 == 0 {
+			Some(NibbleSlice::new(self.inner()))
+		} else {
+			None
+		}
+	}
 
 }
 
