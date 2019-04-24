@@ -89,8 +89,8 @@ impl<N: NibbleOps> NibbleVec<N> {
 		Some(nibble)
 	}
 
-	/// truncate n last nibbles.
-	pub fn truncate(&mut self, mov: usize) {
+	/// remove n last nibbles.
+	pub fn drop_lasts(&mut self, mov: usize) {
 		if mov == 0 { return; }
 		if mov >= self.len {
 			self.clear();
@@ -190,13 +190,13 @@ mod tests {
 	}
 
 	#[test]
-	fn truncate_test() {
+	fn drop_lasts_test() {
 		let test_trun = |a: &[u8], b: usize, c: (&[u8], usize)| { 
 			let mut k = NibbleVec::<crate::nibbleslice::NibbleHalf>::new();
       for v in a {
         k.push(*v);
       }
-      k.truncate(b);
+      k.drop_lasts(b);
       assert_eq!((&k.inner[..], k.len), c);
 		};
 		test_trun(&[1,2,3,4], 0, (&[0x12, 0x34], 4));

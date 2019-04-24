@@ -1162,7 +1162,7 @@ where
 				let encoded_root = node.into_encoded::<_, L::C, L::H, L::N>(|child, o_sl, o_ix| {
 					let mov = concat_key(&mut k, o_sl, o_ix);
 					let cr = self.commit_child(child, &mut k);
-					k.truncate(mov);
+					k.drop_lasts(mov);
 					cr
 				});
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
@@ -1195,7 +1195,7 @@ where
 							let commit_child = |node_handle, o_sl: Option<&NibbleSlice<L::N>>, o_ix: Option<u8>| {
 								let mov = concat_key(prefix, o_sl, o_ix);
 								let cr = self.commit_child(node_handle, prefix);
-								prefix.truncate(mov);
+								prefix.drop_lasts(mov);
 								cr
 							};
 							node.into_encoded::<_, L::C, L::H, L::N>(commit_child)

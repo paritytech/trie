@@ -288,13 +288,13 @@ pub struct TrieDBIterator<'a, L: TrieLayOut> {
 	db: &'a TrieDB<'a, L>,
 	trail: Vec<Crumb<L::N>>,
 	// TODO EMCH replace by niblleVec!!!
-	key_nibbles: Vec<u8>,
+	key_nibbles: NibbleVec<L::N>,
 }
 
 impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 	/// Create a new iterator.
 	pub fn new(db: &'a TrieDB<L>) -> Result<TrieDBIterator<'a, L>, TrieHash<L>, CError<L>> {
-		let mut r = TrieDBIterator { db, trail: Vec::with_capacity(8), key_nibbles: Vec::with_capacity(64) };
+		let mut r = TrieDBIterator { db, trail: Vec::with_capacity(8), key_nibbles: NibbleVec::new() };
 		db.root_data().and_then(|root_data| r.descend(&root_data))?;
 		Ok(r)
 	}
@@ -321,7 +321,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 							});
 						}
 
-						self.key_nibbles.extend(slice.iter());
+						self.key_nibbles.append_partial(slice.right());
 						return Ok(())
 					},
 					Node::Extension(ref slice, ref item) => {
@@ -330,7 +330,8 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 								status: Status::At,
 								node: node.clone().into(),
 							});
-							self.key_nibbles.extend(slice.iter());
+						slice.iter().for_each(|i|self.key_nibbles.push(i));
+						// TODO EMCH self.key_nibbles.append_partial(slice.right());
 							full_key_nibbles += slice.len();
 							partial = partial.mid(slice.len());
 							let data = self.db.get_raw_or_lookup(&*item, key.back(full_key_nibbles).left())?;
@@ -383,7 +384,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 								status: Status::AtChild(i as usize),
 								node: node.clone().into(),
 							});
-							self.key_nibbles.extend(slice.iter());
+						  self.key_nibbles.append_partial(slice.right());
 							self.key_nibbles.push(i);
 							if let Some(ref child) = nodes[i as usize] {
 								full_key_nibbles += slice.len() + 1;
@@ -415,13 +416,16 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 
 	/// Descend into a payload.
 	fn descend_into_node(&mut self, node: OwnedNode<L::N>) {
-		self.trail.push(Crumb { status: Status::Entering, node });
-		match &self.trail.last().expect("just pushed item; qed").node {
+    let trail = &mut self.trail;
+    let key_nibbles = &mut self.key_nibbles;
+		trail.push(Crumb { status: Status::Entering, node });
+		match &trail.last().expect("just pushed item; qed").node {
 			&OwnedNode::Leaf(ref n, _)
 				| &OwnedNode::Extension(ref n, _)
 				| &OwnedNode::NibbledBranch(ref n, _)
 				=> {
-				self.key_nibbles.extend((0..n.len()).map(|i| n.at(i)));
+          // TODO EMCH optimize this
+				(0..n.len()).for_each(|i| key_nibbles.push(n.at(i)));
 			},
 			_ => {}
 		}
@@ -436,7 +440,9 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 		let mut result = <Vec<u8>>::with_capacity(nibbles.len() / 2);
 		let len = nibbles.len();
 		while i < len {
-			result.push(nibbles[i - 1] * 16 + nibbles[i]);
+      // TODO EMCH damn stupid code replace when nibblevec got already
+      // packed thing: neend to return nibble vec (same for encoded_key)
+			result.push(nibbles.at(i - 1) * 16 + nibbles.at(i));
 			i += 2;
 		}
 		result
@@ -447,7 +453,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 	fn encoded_key<'b>(&self, key: &'b Vec<u8>) -> (&'b [u8], Option<u8>) {
 		let nb_padd = self.key_nibbles.len() % 2;
 		if nb_padd > 0 {
-			(&key[..], Some(self.key_nibbles[self.key_nibbles.len() - 1] & (255 << 4)))
+			(&key[..], Some(self.key_nibbles.at(self.key_nibbles.len() - 1) & (255 << 4)))
 		} else {
 			(&key[..], None)
 		}
@@ -482,13 +488,11 @@ impl<'a, L: TrieLayOut> Iterator for TrieDBIterator<'a, L> {
 					(Status::Exiting, n) => {
 						match *n {
 							OwnedNode::Leaf(ref n, _) | OwnedNode::Extension(ref n, _) => {
-								let l = self.key_nibbles.len();
-								self.key_nibbles.truncate(l - n.len());
+								self.key_nibbles.drop_lasts(n.len());
 							},
 							OwnedNode::Branch(_) => { self.key_nibbles.pop(); },
 							OwnedNode::NibbledBranch(ref n,_) => {
-								let l = self.key_nibbles.len();
-								self.key_nibbles.truncate(l - n.len() - 1);
+								self.key_nibbles.drop_lasts(n.len() + 1);
 							},
 							OwnedNode::Empty => {},
 						}
@@ -513,8 +517,10 @@ impl<'a, L: TrieLayOut> Iterator for TrieDBIterator<'a, L> {
 						if branch.index(i).is_some() => {
 						match i {
 							0 => self.key_nibbles.push(0),
-							i => *self.key_nibbles.last_mut()
-								.expect("pushed as 0; moves sequentially; removed afterwards; qed") = i as u8,
+							i => {
+                self.key_nibbles.pop();
+                self.key_nibbles.push(i as u8);
+              },
 						}
 						let p_key = self.key();
 						IterStep::Descend::<TrieHash<L>, CError<L>>(self.db.get_raw_or_lookup(
