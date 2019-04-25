@@ -15,7 +15,7 @@
 //! Trie lookup via HashDB.
 
 use hash_db::HashDBRef;
-use nibbleslice::NibbleSlice;
+use nibble::NibbleSlice;
 use node::Node;
 use node_codec::NodeCodec;
 use super::{DBValue, Result, TrieError, Query, TrieLayOut, CError, TrieHash};

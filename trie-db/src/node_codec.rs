@@ -17,7 +17,7 @@
 
 use hash_db::Hasher;
 use node::Node;
-use nibbleslice::NibbleOps;
+use nibble::NibbleOps;
 use ChildReference;
 #[cfg(feature = "std")]
 use std::borrow::Borrow;

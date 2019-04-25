@@ -17,140 +17,11 @@
 use ::core_::cmp::*;
 use ::core_::fmt;
 use ::core_::marker::PhantomData;
-use nibblevec::NibbleVec;
+use super::{NibbleOps, NibbleSlice, NibbleSliceIterator};
 use elastic_array::ElasticArray36;
 use node::NodeKey;
 use node_codec::Partial;
 use hash_db::Prefix;
-
-pub const EMPTY_ENCODED: (&'static [u8], Option<u8>) = (&[], None);
-// until const fn for pow
-const TWO_EXP: [usize; 9] = [1, 2, 4, 8, 16, 32, 64, 128, 256];
-/// Nibble specific variants
-/// Note that some function are defined here but ideally it should just be a set of
-/// constant (with function handling all constant case).
-pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy + super::MaybeDebug {
-  /// variant repr 
-  const REPR : ByteLayout;
-  /// Number of bit per nibble
-  const BIT_PER_NIBBLE : usize = TWO_EXP[Self::REPR as usize]; // 2usize.pow(Self::REPR as u32);
-  /// Number of nibble per byte
-  const NIBBLE_PER_BYTE : usize = 8 / Self::BIT_PER_NIBBLE;
-  /// Number of nibble per node (must be power of 2 and under 256)
-  const NIBBLE_LEN : usize = TWO_EXP[8 / Self::NIBBLE_PER_BYTE]; //2usize.pow(8 as u32 / Self::NIBBLE_PER_BYTE as u32);
-  /// padding bitmasks (could be calculated with a constant function).
-  /// First is bit mask to apply, second is right shift needed.
-  /// TODO EMCH check that array act as constant
-  const PADDING_BITMASK: &'static [(u8, usize)];
-
-  /// Try to get the nibble at the given offset.
-	#[inline]
-	fn vec_at(s: &NibbleVec<Self>, idx: usize) -> u8 {
-    let ix = idx / Self::NIBBLE_PER_BYTE;
-    let pad = idx % Self::NIBBLE_PER_BYTE;
-		(s.inner[ix] & Self::PADDING_BITMASK[pad].0)
-      >> Self::PADDING_BITMASK[pad].1
-	}
-
-  /// Get the nibble at position `i`.
-	#[inline(always)]
-	fn at(s: &NibbleSlice<Self>, i: usize) -> u8 {
-    let ix = (s.offset + i) / Self::NIBBLE_PER_BYTE;
-    let pad = (s.offset + i) % Self::NIBBLE_PER_BYTE;
-		(s.data[ix] & Self::PADDING_BITMASK[pad].0)
-      >> Self::PADDING_BITMASK[pad].1
-	}
-
-  #[inline]
-  /// Number of padding needed for a length `i`.
-  fn nb_padding(i: usize) -> usize {
-    // TODO bench something faster
-    (Self::NIBBLE_PER_BYTE - (i % Self::NIBBLE_PER_BYTE)) % Self::NIBBLE_PER_BYTE
-  }
-
-}
-
-/// half byte nibble prepend encoding
-#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, Debug)]
-pub struct NibbleHalf;
-
-
-/// Type of nibble in term of byte size
-#[repr(usize)]
-pub enum ByteLayout {
-  /// nibble of one bit length
-  Bit = 0, // 1, 8, 2
-  /// nibble of a quarter byte length
-  Quarter = 1, // 2, 4, 4
-  /// nibble of a half byte length
-  Half = 2, // 4, 2, 16
-  /// nibble of one byte length
-  Full = 3, // 8, 1, 256
-}
-
-/// `()` with a conversion to 0
-#[derive(Clone, Default, Copy, PartialEq, Eq, Debug)]
-pub struct Empty;
-
-impl Into<usize> for Empty {
-  fn into(self) -> usize { 0 }
-}
-
-impl NibbleOps for NibbleHalf {
-  const REPR: ByteLayout = ByteLayout::Half; 
-  const PADDING_BITMASK: &'static [(u8, usize)] = &[(0xFF, 4), (0x0F, 0)];
-}
-
-#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, Debug)]
-pub struct NibbleQuarter;
-
-// new_padded_end merged
-impl NibbleOps for NibbleQuarter {
-  const REPR: ByteLayout = ByteLayout::Quarter; 
-  const PADDING_BITMASK: &'static [(u8, usize)] = &[
-    (0b1111_1111, 6),
-    (0b0011_1111, 4),
-    (0b0000_1111, 2),
-    (0b0000_0011, 0),
-  ];
-}
-
-
-
-/// Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
-///
-/// This is an immutable struct. No operations actually change it.
-///
-/// # Example
-/// ```snippet
-/// use patricia_trie::nibbleslice::NibbleSlice;
-/// fn main() {
-///   let d1 = &[0x01u8, 0x23, 0x45];
-///   let d2 = &[0x34u8, 0x50, 0x12];
-///   let d3 = &[0x00u8, 0x12];
-///   let n1 = NibbleSlice::new(d1);			// 0,1,2,3,4,5
-///   let n2 = NibbleSlice::new(d2);			// 3,4,5,0,1,2
-///   let n3 = NibbleSlice::new_offset(d3, 1);	// 0,1,2
-///   assert!(n1 > n3);							// 0,1,2,... > 0,1,2
-///   assert!(n1 < n2);							// 0,... < 3,...
-///   assert!(n2.mid(3) == n3);					// 0,1,2 == 0,1,2
-///   assert!(n1.starts_with(&n3));
-///   assert_eq!(n1.common_prefix(&n3), 3);
-///   assert_eq!(n2.mid(3).common_prefix(&n1), 3);
-/// }
-/// ```
-#[derive(Copy, Clone)]
-pub struct NibbleSlice<'a, N: NibbleOps> {
-	data: &'a [u8],
-	offset: usize,
-	marker: PhantomData<N>,
-}
-
-/// Iterator type for a nibble slice.
-pub struct NibbleSliceIterator<'a, N: NibbleOps> {
-	p: &'a NibbleSlice<'a, N>,
-	i: usize,
-}
 
 impl<'a, N: NibbleOps> Iterator for NibbleSliceIterator<'a, N> {
 	type Item = u8;
@@ -210,12 +81,12 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
       let n_offset = N::nb_padding(nb);
       if n_offset == 1 {
         let mut result = (0, ea);
-        super::triedbmut::shift_key::<N>(&mut result, 1);
+        crate::triedbmut::shift_key::<N>(&mut result, 1);
         result.1.pop();
         result
       } else {
         let mut result = (1, ea);
-        super::triedbmut::shift_key::<N>(&mut result, 0);
+        crate::triedbmut::shift_key::<N>(&mut result, 0);
         result.1.pop();
         result
       }
@@ -402,9 +273,9 @@ impl<'a, N: NibbleOps> fmt::Debug for NibbleSlice<'a, N> {
 
 #[cfg(test)]
 mod tests {
-	use super::NibbleSlice;
-	use super::NibbleHalf;
-	use super::NibbleOps;
+	use crate::nibble::NibbleSlice;
+	use crate::nibble::NibbleHalf;
+	use crate::nibble::NibbleOps;
 	use elastic_array::ElasticArray36;
 	static D: &'static [u8;3] = &[0x01u8, 0x23, 0x45];
 

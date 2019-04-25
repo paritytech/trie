@@ -82,8 +82,7 @@ pub mod recorder;
 mod fatdb;
 mod fatdbmut;
 mod lookup;
-mod nibblevec;
-mod nibbleslice;
+mod nibble;
 mod node_codec;
 mod iter_build;
 
@@ -96,7 +95,7 @@ pub use self::fatdb::{FatDB, FatDBIterator};
 pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
-pub use self::nibbleslice::{NibbleSlice, NibbleOps, NibbleHalf};
+pub use self::nibble::{NibbleSlice, NibbleOps, NibbleHalf};
 pub use node_codec::{NodeCodec, Partial};
 pub use iter_build::{trie_visit, trie_visit_no_ext, ProcessEncodedNode, TrieBuilder, TrieRoot, TrieRootUnhashed};
 
@@ -215,7 +214,6 @@ pub trait Trie<L: TrieLayOut> {
 }
 
 /// A key-value datastore implemented as a database-backed modified Merkle tree.
-/// TODO EMCH switch to use only H::Out and C::Error as trait params??
 pub trait TrieMut<L: TrieLayOut> {
 	/// Return the root of the trie.
 	fn root(&mut self) -> &TrieHash<L>;

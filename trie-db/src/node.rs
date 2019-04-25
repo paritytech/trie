@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use elastic_array::ElasticArray36;
-use nibbleslice::NibbleSlice;
-use nibbleslice::NibbleOps;
-use nibblevec::NibbleVec;
+use nibble::NibbleSlice;
+use nibble::NibbleOps;
+use nibble::NibbleVec;
 use super::DBValue;
 
 #[cfg(not(feature = "std"))]

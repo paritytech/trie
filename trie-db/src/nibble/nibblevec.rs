@@ -14,20 +14,12 @@
 
 //! An owning, nibble-oriented byte vector.
 use elastic_array::ElasticArray36;
-use nibbleslice::NibbleSlice;
-use nibbleslice::NibbleOps;
+use nibble::NibbleSlice;
+use nibble::NibbleOps;
 use hash_db::Prefix;
 use node_codec::Partial;
 use ::core_::marker::PhantomData;
-
-// TODO EMCH change crate layout to give access to nibble vec field to nibble ops and avoid pub(crate)
-/// Owning, nibble-oriented byte vector. Counterpart to `NibbleSlice`.
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct NibbleVec<N> {
-	pub(crate) inner: ElasticArray36<u8>,
-	pub(crate) len: usize,
-	marker: PhantomData<N>,
-}
+use super::NibbleVec;
 
 impl<N: NibbleOps> Default for NibbleVec<N> {
 	fn default() -> Self {
@@ -176,8 +168,8 @@ impl<'a, N: NibbleOps> From<NibbleSlice<'a, N>> for NibbleVec<N> {
 
 #[cfg(test)]
 mod tests {
-	use super::NibbleVec;
-	use nibbleslice::{NibbleHalf, NibbleOps};
+	use crate::nibble::NibbleVec;
+	use crate::nibble::{NibbleHalf, NibbleOps};
 
 	#[test]
 	fn push_pop() {
@@ -201,7 +193,7 @@ mod tests {
 	#[test]
 	fn drop_lasts_test() {
 		let test_trun = |a: &[u8], b: usize, c: (&[u8], usize)| { 
-			let mut k = NibbleVec::<crate::nibbleslice::NibbleHalf>::new();
+			let mut k = NibbleVec::<crate::nibble::NibbleHalf>::new();
       for v in a {
         k.push(*v);
       }

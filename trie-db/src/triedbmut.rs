@@ -16,13 +16,13 @@
 
 use super::{Result, TrieError, TrieMut, TrieLayOut, TrieHash, CError};
 use super::lookup::Lookup;
-use super::nibblevec::NibbleVec;
 use super::node::Node as EncodedNode;
 use node_codec::NodeCodec;
 use super::{DBValue, node::NodeKey};
 
+use nibble::EMPTY_ENCODED as NIBBLE_EMPTY_ENCODED;
 use hash_db::{HashDB, Hasher, Prefix};
-use nibbleslice::{self, NibbleSlice, NibbleOps};
+use nibble::{NibbleVec, NibbleSlice, NibbleOps};
 use elastic_array::ElasticArray36;
 use ::core_::mem;
 use ::core_::ops::Index;
@@ -126,14 +126,14 @@ where
 					encoded_children[i].map(|data|
 						Self::inline_or_hash::<C, H, N>(data, db, storage)
 					)
-				};
+			};
 
-				Box::new([
-					child(0), child(1), child(2), child(3),
-					child(4), child(5), child(6), child(7),
-					child(8), child(9), child(10), child(11),
-					child(12), child(13), child(14), child(15),
-				])
+			Box::new([
+				child(0), child(1), child(2), child(3),
+				child(4), child(5), child(6), child(7),
+				child(8), child(9), child(10), child(11),
+				child(12), child(13), child(14), child(15),
+			])
 		};
 
 		match C::decode(data).unwrap_or(EncodedNode::Empty) {
@@ -380,7 +380,7 @@ where
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
 	pub fn from_existing(db: &'a mut HashDB<L::H, DBValue>, root: &'a mut TrieHash<L>) -> Result<Self, TrieHash<L>, CError<L>> {
-		if !db.contains(root, nibbleslice::EMPTY_ENCODED) {
+		if !db.contains(root, NIBBLE_EMPTY_ENCODED) {
 			return Err(Box::new(TrieError::InvalidStateRoot(*root)));
 		}
 
@@ -1166,7 +1166,7 @@ where
 					cr
 				});
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
-				*self.root = self.db.insert(nibbleslice::EMPTY_ENCODED, &encoded_root[..]);
+				*self.root = self.db.insert(NIBBLE_EMPTY_ENCODED, &encoded_root[..]);
 				self.hash_count += 1;
 
 				self.root_handle = NodeHandle::Hash(*self.root);
@@ -1820,7 +1820,7 @@ mod tests {
 		let b: &[u8] = [0x56, 0x78][..].into();
 		let test_comb = |a: (_,&ElasticArray36<_>), b, c| { 
 			let mut a = (a.0,a.1.clone());
-			super::combine_key::<crate::nibbleslice::NibbleHalf>(&mut a, b);
+			super::combine_key::<crate::nibble::NibbleHalf>(&mut a, b);
 			assert_eq!((a.0,&a.1[..]), c);
 		};
 		test_comb((0, &a), (0, &b), (0, &[0x12, 0x34, 0x56, 0x78][..]));

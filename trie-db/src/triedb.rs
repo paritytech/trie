@@ -13,13 +13,14 @@
 // limitations under the License.
 
 use hash_db::{HashDBRef, Prefix};
-use nibbleslice::{self, NibbleSlice, NibbleOps};
+use nibble::{NibbleSlice, NibbleOps};
+use nibble::EMPTY_ENCODED as NIBBLE_EMPTY_ENCODED;
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
 use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query, TrieLayOut, CError, TrieHash};
 use triedbmut::{concat_key_clone};
-use super::nibblevec::NibbleVec;
+use super::nibble::NibbleVec;
 #[cfg(feature = "std")]
 use ::std::fmt;
 #[cfg(feature = "std")]
@@ -80,7 +81,7 @@ where
 	/// Create a new trie with the backing database `db` and `root`
 	/// Returns an error if `root` does not exist
 	pub fn new(db: &'db HashDBRef<L::H, DBValue>, root: &'db TrieHash<L>) -> Result<Self, TrieHash<L>, CError<L>> {
-		if !db.contains(root, nibbleslice::EMPTY_ENCODED) {
+		if !db.contains(root, NIBBLE_EMPTY_ENCODED) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		} else {
 			Ok(TrieDB {db, root, hash_count: 0})
@@ -93,7 +94,7 @@ where
 	/// Get the data of the root node.
 	pub fn root_data(&self) -> Result<DBValue, TrieHash<L>, CError<L>> {
 		self.db
-			.get(self.root, nibbleslice::EMPTY_ENCODED)
+			.get(self.root, NIBBLE_EMPTY_ENCODED)
 			.ok_or_else(|| Box::new(TrieError::InvalidStateRoot(*self.root)))
 	}
 

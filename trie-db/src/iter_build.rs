@@ -17,8 +17,8 @@
 use hash_db::{Hasher, HashDB, Prefix};
 use std::marker::PhantomData;
 use crate::triedbmut::{ChildReference};
-use crate::nibbleslice::NibbleSlice;
-use crate::nibbleslice::NibbleOps;
+use crate::nibble::NibbleSlice;
+use crate::nibble::NibbleOps;
 use node_codec::NodeCodec;
 
 // TODO EMCH use L instead of HC (aka TrieLayout)
@@ -357,7 +357,7 @@ fn trie_visit_inner<H, C, N, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool)
 		}
 	} else {
 		// nothing null root corner case TODO warning hardcoded empty nibbleslice
-		cb_ext.process(crate::nibbleslice::EMPTY_ENCODED, C::empty_node().to_vec(), true);
+		cb_ext.process(crate::nibble::EMPTY_ENCODED, C::empty_node().to_vec(), true);
 	}
 }
 
