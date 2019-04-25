@@ -39,15 +39,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
   /// First is bit mask to apply, second is right shift needed.
   /// TODO EMCH check that array act as constant
   const PADDING_BITMASK: &'static [(u8, usize)];
-
-  /// Try to get the nibble at the given offset.
-	#[inline]
-	fn vec_at(s: &NibbleVec<Self>, idx: usize) -> u8 {
-    let ix = idx / Self::NIBBLE_PER_BYTE;
-    let pad = idx % Self::NIBBLE_PER_BYTE;
-		(s.inner[ix] & Self::PADDING_BITMASK[pad].0)
-      >> Self::PADDING_BITMASK[pad].1
-	}
+  const SINGLE_BITMASK: u8;
 
   /// Get the nibble at position `i`.
 	#[inline(always)]
@@ -87,6 +79,7 @@ pub enum ByteLayout {
 impl NibbleOps for NibbleHalf {
   const REPR: ByteLayout = ByteLayout::Half; 
   const PADDING_BITMASK: &'static [(u8, usize)] = &[(0xFF, 4), (0x0F, 0)];
+  const SINGLE_BITMASK: u8 = 0x0F;
 }
 
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, Debug)]
@@ -101,6 +94,7 @@ impl NibbleOps for NibbleQuarter {
     (0b0000_1111, 2),
     (0b0000_0011, 0),
   ];
+  const SINGLE_BITMASK: u8 = 0b0000_0011;
 }
 
 

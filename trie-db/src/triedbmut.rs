@@ -1370,7 +1370,7 @@ mod tests {
 	use elastic_array::ElasticArray36;
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, TrieLayOut, NodeCodec,
 		ReferenceNodeCodec, ReferenceNodeCodecNoExt, ref_trie_root, ref_trie_root_no_ext,
-		RefTrieDBNoExt, LayoutOri, LayoutNew};
+		LayoutOri, LayoutNew};
 
 	fn populate_trie<'db>(
 		db: &'db mut HashDB<KeccakHasher, DBValue>,

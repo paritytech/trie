@@ -47,11 +47,13 @@ impl<N: NibbleOps> NibbleVec<N> {
 	/// Try to get the nibble at the given offset.
 	#[inline]
 	pub fn at(&self, idx: usize) -> u8 {
-		N::vec_at(self, idx)
+		let ix = idx / N::NIBBLE_PER_BYTE;
+		let pad = idx % N::NIBBLE_PER_BYTE;
+		(self.inner[ix] & N::PADDING_BITMASK[pad].0)
+			>> N::PADDING_BITMASK[pad].1
 	}
-
 	/// Push a nibble onto the `NibbleVec`. Ignores the high 4 bits.
-	pub fn push(&mut self, nibble: u8) {
+	pub fn push_o(&mut self, nibble: u8) {
 		let nibble = nibble & 0x0F;
 
 		if self.len % 2 == 0 {
@@ -63,8 +65,20 @@ impl<N: NibbleOps> NibbleVec<N> {
 		self.len += 1;
 	}
 
-	/// Try to pop a nibble off the `NibbleVec`. Fails if len == 0.
-	pub fn pop(&mut self) -> Option<u8> {
+
+	/// Push a nibble onto the `NibbleVec`. Ignores the high 4 bits.
+	pub fn push(&mut self, nibble: u8) {
+		let i = self.len % N::NIBBLE_PER_BYTE;
+		let nibble = (nibble & N::SINGLE_BITMASK) << N::PADDING_BITMASK[i].1;
+
+		if i == 0 {
+			self.inner.push(nibble);
+		} else {
+			*self.inner.last_mut().expect("len != 0 since len % 2 != 0; inner has a last element; qed") |= nibble;
+		}
+		self.len += 1;
+	}
+	pub fn pop_o(&mut self) -> Option<u8> {
 		if self.is_empty() {
 			return None;
 		}
@@ -79,6 +93,20 @@ impl<N: NibbleOps> NibbleVec<N> {
 
 		self.len -= 1;
 		Some(nibble)
+	}
+	
+	/// Try to pop a nibble off the `NibbleVec`. Fails if len == 0.
+	pub fn pop(&mut self) -> Option<u8> {
+		if self.is_empty() {
+			return None;
+		}
+		let byte = self.inner.pop().expect("len != 0; inner has last elem; qed");
+		self.len -= 1;
+		let i_new = self.len % N::NIBBLE_PER_BYTE;
+		if i_new != 0 {
+			self.inner.push(byte & !N::PADDING_BITMASK[i_new].0);
+		}
+		Some((byte & N::PADDING_BITMASK[i_new].0) >> N::PADDING_BITMASK[i_new].1)
 	}
 
 	/// remove n last nibbles.
@@ -96,7 +124,7 @@ impl<N: NibbleOps> NibbleVec<N> {
 
 		};
 		(0..nb_rem).for_each(|_|{ self.inner.pop(); });
-    self.len -= mov;
+		self.len -= mov;
 		if self.len % 2 == 1 {
 			let kl = self.inner.len() - 1;
 			self.inner[kl] &= 255 << 4;
@@ -118,7 +146,7 @@ impl<N: NibbleOps> NibbleVec<N> {
 		if let Some(nibble) = o_n {
 			self.push(nibble)
 		}
-    let pad = self.inner.len() * N::NIBBLE_PER_BYTE - self.len;
+		let pad = self.inner.len() * N::NIBBLE_PER_BYTE - self.len;
 		if pad == 0 {
 			self.inner.append_slice(&sl[..]);
 		} else {
@@ -130,7 +158,7 @@ impl<N: NibbleOps> NibbleVec<N> {
 				self.inner.push(sl[sl.len() - 1] << 4);
 			}
 		}
-    self.len += sl.len() * N::NIBBLE_PER_BYTE;
+		self.len += sl.len() * N::NIBBLE_PER_BYTE;
 	}
 
 	/// Get the underlying byte slice.
@@ -146,8 +174,7 @@ impl<N: NibbleOps> NibbleVec<N> {
 
 	/// Try to treat this `NibbleVec` as a `NibbleSlice`. Works only if len is even.
 	pub fn as_nibbleslice(&self) -> Option<NibbleSlice<N>> {
-    // TODO is_aligned from NibbleVec
-		if self.len % 2 == 0 {
+		if self.len % N::NIBBLE_PER_BYTE == 0 {
 			Some(NibbleSlice::new(self.inner()))
 		} else {
 			None
@@ -169,24 +196,28 @@ impl<'a, N: NibbleOps> From<NibbleSlice<'a, N>> for NibbleVec<N> {
 #[cfg(test)]
 mod tests {
 	use crate::nibble::NibbleVec;
-	use crate::nibble::{NibbleHalf, NibbleOps};
+	use crate::nibble::{NibbleHalf, NibbleOps, NibbleQuarter};
 
 	#[test]
 	fn push_pop() {
 		push_pop_inner::<NibbleHalf>();
+		push_pop_inner::<NibbleQuarter>();
 	}
 	fn push_pop_inner<N: NibbleOps>() {
 		let mut v = NibbleVec::<N>::new();
 
-		for i in 0..16 {
-			v.push(i);
-			assert_eq!(v.len() - 1, i as usize);
-			assert_eq!(v.at(i as usize), i);
+		for i in 0..(N::NIBBLE_PER_BYTE * 3) {
+			let iu8 = (i % N::NIBBLE_PER_BYTE) as u8;
+			v.push(iu8);
+			assert_eq!(v.len() - 1, i);
+			assert_eq!(v.at(i), iu8);
 		}
 
-		for i in (0..16).rev() {
-			assert_eq!(v.pop(), Some(i));
-			assert_eq!(v.len(), i as usize);
+		for i in (0..(N::NIBBLE_PER_BYTE * 3)).rev() {
+			let iu8 = (i % N::NIBBLE_PER_BYTE) as u8;
+			let a = v.pop();
+			assert_eq!(a, Some(iu8));
+			assert_eq!(v.len(), i);
 		}
 	}
 
@@ -194,11 +225,11 @@ mod tests {
 	fn drop_lasts_test() {
 		let test_trun = |a: &[u8], b: usize, c: (&[u8], usize)| { 
 			let mut k = NibbleVec::<crate::nibble::NibbleHalf>::new();
-      for v in a {
-        k.push(*v);
-      }
-      k.drop_lasts(b);
-      assert_eq!((&k.inner[..], k.len), c);
+			for v in a {
+				k.push(*v);
+			}
+			k.drop_lasts(b);
+			assert_eq!((&k.inner[..], k.len), c);
 		};
 		test_trun(&[1,2,3,4], 0, (&[0x12, 0x34], 4));
 		test_trun(&[1,2,3,4], 1, (&[0x12, 0x30], 3));
