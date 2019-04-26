@@ -3,7 +3,7 @@ name = "memory-db"
 version = "0.12.2"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "In-memory implementation of hash-db, useful for tests"
-repository = "https://github.com/paritytech/parity-common"
+repository = "https://github.com/paritytech/trie"
 license = "Apache-2.0"
 
 [dependencies]
