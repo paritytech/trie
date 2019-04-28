@@ -37,7 +37,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
   const NIBBLE_LEN : usize = TWO_EXP[8 / Self::NIBBLE_PER_BYTE]; //2usize.pow(8 as u32 / Self::NIBBLE_PER_BYTE as u32);
   /// padding bitmasks (could be calculated with a constant function).
   /// First is bit mask to apply, second is right shift needed.
-  /// TODO EMCH check that array act as constant
+  /// TODO EMCH check that array acts as constant
   const PADDING_BITMASK: &'static [(u8, usize)];
   const SINGLE_BITMASK: u8;
 

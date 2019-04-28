@@ -52,18 +52,6 @@ impl<N: NibbleOps> NibbleVec<N> {
 		(self.inner[ix] & N::PADDING_BITMASK[pad].0)
 			>> N::PADDING_BITMASK[pad].1
 	}
-	/// Push a nibble onto the `NibbleVec`. Ignores the high 4 bits.
-	pub fn push_o(&mut self, nibble: u8) {
-		let nibble = nibble & 0x0F;
-
-		if self.len % 2 == 0 {
-			self.inner.push(nibble << 4);
-		} else {
-			*self.inner.last_mut().expect("len != 0 since len % 2 != 0; inner has a last element; qed") |= nibble;
-		}
-
-		self.len += 1;
-	}
 
 
 	/// Push a nibble onto the `NibbleVec`. Ignores the high 4 bits.
@@ -77,22 +65,6 @@ impl<N: NibbleOps> NibbleVec<N> {
 			*self.inner.last_mut().expect("len != 0 since len % 2 != 0; inner has a last element; qed") |= nibble;
 		}
 		self.len += 1;
-	}
-	pub fn pop_o(&mut self) -> Option<u8> {
-		if self.is_empty() {
-			return None;
-		}
-
-		let byte = self.inner.pop().expect("len != 0; inner has last elem; qed");
-		let nibble = if self.len % 2 == 0 {
-			self.inner.push(byte & 0xF0);
-			byte & 0x0F
-		} else {
-			byte >> 4
-		};
-
-		self.len -= 1;
-		Some(nibble)
 	}
 	
 	/// Try to pop a nibble off the `NibbleVec`. Fails if len == 0.
@@ -118,26 +90,26 @@ impl<N: NibbleOps> NibbleVec<N> {
 		}
 		let nb_rem = if (self.len - mov) % N::NIBBLE_PER_BYTE > 0 {
 			mov / N::NIBBLE_PER_BYTE
-
 		} else {
-			(mov + 1) / N::NIBBLE_PER_BYTE
-
+			(mov + N::NIBBLE_PER_BYTE - 1) / N::NIBBLE_PER_BYTE
 		};
 		(0..nb_rem).for_each(|_|{ self.inner.pop(); });
 		self.len -= mov;
-		if self.len % 2 == 1 {
+		let pos = self.len % N::NIBBLE_PER_BYTE;
+		if pos != 0 {
 			let kl = self.inner.len() - 1;
-			self.inner[kl] &= 255 << 4;
+			self.inner[kl] &= !N::PADDING_BITMASK[pos].0;
 		}
 	}
 
 	/// Get prefix from `NibbleVec` (when used as a prefix stack of nibble).
 	pub fn as_prefix(&self) -> Prefix {
-		let split = self.len / 2;
-		if self.len % 2 == 1 {
-			(&self.inner[..split], Some(self.inner[split] & (255 << 4)))
-		} else {
+		let split = self.len / N::NIBBLE_PER_BYTE;
+		let pos = self.len % N::NIBBLE_PER_BYTE;
+		if pos == 0 {
 			(&self.inner[..split], None)
+		} else {
+			(&self.inner[..split], Some(self.inner[split] & !N::PADDING_BITMASK[pos].0))
 		}
 	}
 
@@ -152,7 +124,8 @@ impl<N: NibbleOps> NibbleVec<N> {
 		} else {
 			let kend = self.inner.len() - 1;
 			if sl.len() > 0 {
-				self.inner[kend] &= 255 << 4;
+				let pos = self.len % N::NIBBLE_PER_BYTE;
+				self.inner[kend] &= !N::PADDING_BITMASK[pos].0;
 				self.inner[kend] |= sl[0] >> 4;
 				(0..sl.len() - 1).for_each(|i|self.inner.push(sl[i] << 4 | sl[i+1]>>4));
 				self.inner.push(sl[sl.len() - 1] << 4);
