@@ -38,7 +38,7 @@ pub trait Error {}
 #[cfg(not(feature = "std"))]
 impl<T> Error for T {}
 
-pub type Partial<'a> = (Option<u8>, &'a[u8]);
+pub type Partial<'a> = ((u8,u8), &'a[u8]);
 // TODO EMCH change node codec trait to use &mut self as input in order to run on internal buffer.
 // (not for decode actually!!; code seems fine to do that and new layout trait is ok too
 /// Trait for trie node encoding/decoding

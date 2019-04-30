@@ -506,12 +506,12 @@ fn take<'a>(input: &mut &'a[u8], count: usize) -> Option<&'a[u8]> {
 }
 
 fn partial_to_key<N: NibbleOps>(partial: Partial, offset: u8, over: u8) -> Vec<u8> {
-	let nb_nibble_hpe = if partial.0.is_some() { 1 } else { 0 };
+	let nb_nibble_hpe = (partial.0).0 as usize;
 	let nibble_count = partial.1.len() * N::NIBBLE_PER_BYTE + nb_nibble_hpe;
 	assert!(nibble_count < over as usize);
 	let mut output = vec![offset + nibble_count as u8];
-	if let Some(v) = partial.0 {
-		output.push(v & N::PADDING_BITMASK[nb_nibble_hpe].0);
+	if nb_nibble_hpe > 0 {
+		output.push((partial.0).1 & N::PADDING_BITMASK[nb_nibble_hpe].0);
 	}
 	output.extend_from_slice(&partial.1[..]);
 	output
@@ -522,9 +522,7 @@ fn partial_to_key_it<N: NibbleOps, I: Iterator<Item = u8>>(partial: I, nibble_co
 	assert!(nibble_count < over as usize);
 	let mut output = Vec::with_capacity(1 + (nibble_count / N::NIBBLE_PER_BYTE));
 	output.push(offset + nibble_count as u8);
-  println!("be : {:x?}", output);
 	output.extend(partial);
-  println!("ae : {:x?}", output);
 	output
 }
 
@@ -544,7 +542,7 @@ fn partial_enc_it<N: NibbleOps, I: Iterator<Item = u8>>(partial: I, nibble_count
 
 
 fn partial_enc<N: NibbleOps>(partial: Partial, node_kind: NodeKindNoExt) -> Vec<u8> {
-	let nb_nibble_hpe = if partial.0.is_some() { 1 } else { 0 };
+	let nb_nibble_hpe = (partial.0).0 as usize;
 	let nibble_count = partial.1.len() * N::NIBBLE_PER_BYTE + nb_nibble_hpe;
 
 	let nibble_count = ::std::cmp::min(s_cst::NIBBLE_SIZE_BOUND, nibble_count);
@@ -555,8 +553,8 @@ fn partial_enc<N: NibbleOps>(partial: Partial, node_kind: NodeKindNoExt) -> Vec<
 		NodeKindNoExt::BranchWithValue => NodeHeaderNoExt::Branch(true, nibble_count).encode_to(&mut output),
 		NodeKindNoExt::BranchNoValue => NodeHeaderNoExt::Branch(false, nibble_count).encode_to(&mut output),
 	};
-	if let Some(v) = partial.0 {
-		output.push(v & N::PADDING_BITMASK[nb_nibble_hpe].0);
+	if nb_nibble_hpe > 0 {
+		output.push((partial.0).1 & N::PADDING_BITMASK[nb_nibble_hpe].0);
 	}
 	output.extend_from_slice(&partial.1[..]);
 	output
@@ -1056,7 +1054,7 @@ pub fn compare_no_ext_insert_remove(
 fn too_big_nibble_len () {
 	// + 1 for 0 added byte of nibble encode
 	let input = vec![0u8; (s_cst::NIBBLE_SIZE_BOUND as usize + 1) / 2 + 1];
-	let enc = <ReferenceNodeCodecNoExt as NodeCodec<_, NibbleHalf>>::leaf_node((None,&input), &[1]);
+	let enc = <ReferenceNodeCodecNoExt as NodeCodec<_, NibbleHalf>>::leaf_node(((0,0),&input), &[1]);
 	let dec = <ReferenceNodeCodecNoExt as NodeCodec<_, NibbleHalf>>::decode(&enc).unwrap();
 	let o_sl = if let Node::Leaf(sl,_) = dec {
 		Some(sl)
