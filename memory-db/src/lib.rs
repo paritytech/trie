@@ -155,7 +155,10 @@ pub trait KeyFunction<H: KeyHasher> {
 pub fn prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8> {
 	let mut prefixed_key = Vec::with_capacity(key.as_ref().len() + prefix.0.len() + 1);
 	prefixed_key.extend_from_slice(prefix.0);
-	prefix.1.map(|v|prefixed_key.push(v));
+	if (prefix.1).0 > 0 {
+		prefixed_key.push((prefix.1).1);
+	}
+	prefixed_key.push((prefix.1).0); // put size to avoid any possible collision
 	prefixed_key.extend_from_slice(key.as_ref());
 	prefixed_key
 }

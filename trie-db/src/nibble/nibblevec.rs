@@ -105,20 +105,20 @@ impl<N: NibbleOps> NibbleVec<N> {
 	/// Get prefix from `NibbleVec` (when used as a prefix stack of nibble).
 	pub fn as_prefix(&self) -> Prefix {
 		let split = self.len / N::NIBBLE_PER_BYTE;
-		let pos = self.len % N::NIBBLE_PER_BYTE;
+		let pos = (self.len % N::NIBBLE_PER_BYTE) as u8;
 		if pos == 0 {
-			(&self.inner[..split], None)
+			(&self.inner[..split], (0,0))
 		} else {
-			(&self.inner[..split], Some(self.inner[split] & !N::PADDING_BITMASK[pos].0))
+			(&self.inner[..split], (pos, N::masked_left(pos, self.inner[split])))
 		}
 	}
 
 	/// push a full partial. TODO option for partial does not contain enough info
 	pub fn append_partial(&mut self, (o_n, sl): Partial) {
-    for i in (1..=o_n.0).rev() {
-      let ix = N::NIBBLE_PER_BYTE - i as usize;
+		for i in (1..=o_n.0).rev() {
+			let ix = N::NIBBLE_PER_BYTE - i as usize;
 			self.push((o_n.1 & N::PADDING_BITMASK[ix].0) >> N::PADDING_BITMASK[ix].1)
-    }
+		}
 		let pad = self.inner.len() * N::NIBBLE_PER_BYTE - self.len;
 		if pad == 0 {
 			self.inner.append_slice(&sl[..]);
@@ -126,8 +126,8 @@ impl<N: NibbleOps> NibbleVec<N> {
 			let kend = self.inner.len() - 1;
 			if sl.len() > 0 {
 				self.inner[kend] &= !N::PADDING_BITMASK[N::NIBBLE_PER_BYTE - pad].0;
-        let s1 = N::PADDING_BITMASK[pad - 1].1;
-        let s2 = 8 - s1;
+				let s1 = N::PADDING_BITMASK[pad - 1].1;
+				let s2 = 8 - s1;
 				self.inner[kend] |= sl[0] >> s1;
 				(0..sl.len() - 1).for_each(|i|self.inner.push(sl[i] << s2 | sl[i+1] >> s1));
 				self.inner.push(sl[sl.len() - 1] << s2);
@@ -212,10 +212,10 @@ mod tests {
 	}
 	fn append_partial_inner<N: NibbleOps>(res: &[u8], init: &[u8], partial: ((u8,u8), &[u8])) {
 		let mut resv = NibbleVec::<N>::new();
-    res.iter().for_each(|r|resv.push(*r));
+		res.iter().for_each(|r|resv.push(*r));
 		let mut initv = NibbleVec::<N>::new();
-    init.iter().for_each(|r|initv.push(*r));
-    initv.append_partial(partial);
+		init.iter().for_each(|r|initv.push(*r));
+		initv.append_partial(partial);
 		assert_eq!(resv, initv);
 	}
 

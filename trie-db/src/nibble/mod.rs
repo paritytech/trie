@@ -20,41 +20,57 @@ use ::core_::cmp::*;
 use ::core_::marker::PhantomData;
 use elastic_array::ElasticArray36;
 
-pub const EMPTY_ENCODED: (&'static [u8], Option<u8>) = (&[], None);
+pub const EMPTY_ENCODED: (&'static [u8], (u8, u8)) = (&[], (0, 0));
 // until const fn for pow
 const TWO_EXP: [usize; 9] = [1, 2, 4, 8, 16, 32, 64, 128, 256];
 /// Nibble specific variants
 /// Note that some function are defined here but ideally it should just be a set of
 /// constant (with function handling all constant case).
 pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy + super::MaybeDebug {
-  /// variant repr 
-  const REPR : ByteLayout;
-  /// Number of bit per nibble
-  const BIT_PER_NIBBLE : usize = TWO_EXP[Self::REPR as usize]; // 2usize.pow(Self::REPR as u32);
-  /// Number of nibble per byte
-  const NIBBLE_PER_BYTE : usize = 8 / Self::BIT_PER_NIBBLE;
-  /// Number of nibble per node (must be power of 2 and under 256)
-  const NIBBLE_LEN : usize = TWO_EXP[8 / Self::NIBBLE_PER_BYTE]; //2usize.pow(8 as u32 / Self::NIBBLE_PER_BYTE as u32);
-  /// padding bitmasks (could be calculated with a constant function).
-  /// First is bit mask to apply, second is right shift needed.
-  /// TODO EMCH check that array acts as constant
-  const PADDING_BITMASK: &'static [(u8, usize)];
-  const SINGLE_BITMASK: u8;
+	/// variant repr 
+	const REPR : ByteLayout;
+	/// Number of bit per nibble
+	const BIT_PER_NIBBLE : usize = TWO_EXP[Self::REPR as usize]; // 2usize.pow(Self::REPR as u32);
+	/// Number of nibble per byte
+	const NIBBLE_PER_BYTE : usize = 8 / Self::BIT_PER_NIBBLE;
+	/// Number of nibble per node (must be power of 2 and under 256)
+	const NIBBLE_LEN : usize = TWO_EXP[8 / Self::NIBBLE_PER_BYTE]; //2usize.pow(8 as u32 / Self::NIBBLE_PER_BYTE as u32);
+	/// padding bitmasks (could be calculated with a constant function).
+	/// First is bit mask to apply, second is right shift needed.
+	/// TODO EMCH check that array acts as constant
+	const PADDING_BITMASK: &'static [(u8, usize)];
+	/// las ix for nible
+	const LAST_N_IX: usize = Self::NIBBLE_LEN - 1;
+	/// las ix for nible as a u8 (for pattern matching)
+	const LAST_N_IX_U8: u8 = Self::LAST_N_IX as u8;
+	const SINGLE_BITMASK: u8;
 
-  /// Get the nibble at position `i`.
+	/// mask a byte from a ix > 0
 	#[inline(always)]
-	fn at(s: &NibbleSlice<Self>, i: usize) -> u8 {
-    let ix = (s.offset + i) / Self::NIBBLE_PER_BYTE;
-    let pad = (s.offset + i) % Self::NIBBLE_PER_BYTE;
-		(s.data[ix] & Self::PADDING_BITMASK[pad].0)
-      >> Self::PADDING_BITMASK[pad].1
+	fn masked_left(ix: u8, b: u8) -> u8 {
+		debug_assert!(ix > 0);
+		b & !Self::PADDING_BITMASK[ix as usize].0
+	}
+	/// push u8 nib value at ix into a existing byte 
+	#[inline(always)]
+	fn push_at_left(ix: u8, v: u8, into: u8) -> u8 {
+		into | (v << Self::PADDING_BITMASK[ix as usize].1)
 	}
 
-  #[inline]
-  /// Number of padding needed for a length `i`.
-  fn nb_padding(i: usize) -> usize {
-    (Self::NIBBLE_PER_BYTE - (i % Self::NIBBLE_PER_BYTE)) % Self::NIBBLE_PER_BYTE
-  }
+	/// Get the nibble at position `i`.
+	#[inline(always)]
+	fn at(s: &NibbleSlice<Self>, i: usize) -> u8 {
+		let ix = (s.offset + i) / Self::NIBBLE_PER_BYTE;
+		let pad = (s.offset + i) % Self::NIBBLE_PER_BYTE;
+		(s.data[ix] & Self::PADDING_BITMASK[pad].0)
+			>> Self::PADDING_BITMASK[pad].1
+	}
+
+	#[inline]
+	/// Number of padding needed for a length `i`.
+	fn nb_padding(i: usize) -> usize {
+		(Self::NIBBLE_PER_BYTE - (i % Self::NIBBLE_PER_BYTE)) % Self::NIBBLE_PER_BYTE
+	}
 
 }
 
@@ -66,20 +82,20 @@ pub struct NibbleHalf;
 /// Type of nibble in term of byte size
 #[repr(usize)]
 pub enum ByteLayout {
-  /// nibble of one bit length
-  Bit = 0, // 1, 8, 2
-  /// nibble of a quarter byte length
-  Quarter = 1, // 2, 4, 4
-  /// nibble of a half byte length
-  Half = 2, // 4, 2, 16
-  /// nibble of one byte length
-  Full = 3, // 8, 1, 256
+	/// nibble of one bit length
+	Bit = 0, // 1, 8, 2
+	/// nibble of a quarter byte length
+	Quarter = 1, // 2, 4, 4
+	/// nibble of a half byte length
+	Half = 2, // 4, 2, 16
+	/// nibble of one byte length
+	Full = 3, // 8, 1, 256
 }
 
 impl NibbleOps for NibbleHalf {
-  const REPR: ByteLayout = ByteLayout::Half; 
-  const PADDING_BITMASK: &'static [(u8, usize)] = &[(0xFF, 4), (0x0F, 0)];
-  const SINGLE_BITMASK: u8 = 0x0F;
+	const REPR: ByteLayout = ByteLayout::Half; 
+	const PADDING_BITMASK: &'static [(u8, usize)] = &[(0xFF, 4), (0x0F, 0)];
+	const SINGLE_BITMASK: u8 = 0x0F;
 }
 
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, Debug)]
@@ -87,14 +103,14 @@ pub struct NibbleQuarter;
 
 // new_padded_end merged
 impl NibbleOps for NibbleQuarter {
-  const REPR: ByteLayout = ByteLayout::Quarter; 
-  const PADDING_BITMASK: &'static [(u8, usize)] = &[
-    (0b1111_1111, 6),
-    (0b0011_1111, 4),
-    (0b0000_1111, 2),
-    (0b0000_0011, 0),
-  ];
-  const SINGLE_BITMASK: u8 = 0b0000_0011;
+	const REPR: ByteLayout = ByteLayout::Quarter; 
+	const PADDING_BITMASK: &'static [(u8, usize)] = &[
+		(0b1111_1111, 6),
+		(0b0011_1111, 4),
+		(0b0000_1111, 2),
+		(0b0000_0011, 0),
+	];
+	const SINGLE_BITMASK: u8 = 0b0000_0011;
 }
 
 

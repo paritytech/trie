@@ -167,8 +167,8 @@ where
 			Node::Empty => C::empty_node().to_vec(),
 			Node::Leaf(partial, value) => {
 				let pr = NibbleSlice::<N>::new_offset(&partial.1[..], partial.0);
-        C::leaf_node(pr.right(), &value)
-      },
+				C::leaf_node(pr.right(), &value)
+			},
 			Node::Extension(partial, child) => {
 				let pr = NibbleSlice::<N>::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
@@ -352,7 +352,7 @@ where
 	db: &'a mut HashDB<L::H, DBValue>,
 	root: &'a mut TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
-	death_row: HashSet<(TrieHash<L>, (ElasticArray36<u8>, Option<u8>))>,
+	death_row: HashSet<(TrieHash<L>, (ElasticArray36<u8>, (u8,u8)))>,
 	/// The number of hash operations this trie has performed.
 	/// Note that none are performed until changes are committed.
 	hash_count: usize,
@@ -1011,12 +1011,13 @@ where
 						kc.advance((enc_nibble.1.len() * L::N::NIBBLE_PER_BYTE) - enc_nibble.0);
 
 						let (st, ost, op) = match kc.left() {
-							(st, Some(v)) => {
+							(st, (0, _v)) => (st, None, (1, L::N::push_at_left(0, a, 0))),
+							(st, (i,v)) if i == L::N::LAST_N_IX_U8 => {
 								let mut so: ElasticArray36<u8> = st.into();
-								so.push((v & (255 << 4)) | a);
-								(st, Some(so), None)
+								so.push(L::N::masked_left(L::N::LAST_N_IX_U8, v) | a); // TODO replace by push_at left??
+								(st, Some(so), (0,0))
 							},
-							(st, None) => (st, None, Some(a << 4)),
+							(st, (ix, v)) => (st, None, (ix, L::N::push_at_left(ix, a, v))),
 						};
 						let child_pref = (ost.as_ref().map(|st|&st[..]).unwrap_or(st), op);
 						let stored = match child {
@@ -1072,12 +1073,13 @@ where
 				let mut kc = key.clone();
 				kc.advance((partial.1.len() * L::N::NIBBLE_PER_BYTE) - partial.0 - 1);
 				let (st, ost, op) = match kc.left() {
-					(st, Some(v)) => {
+					(st, (0, _v)) => (st, None, (1, L::N::push_at_left(0, a, 0))),
+					(st, (i,v)) if i == L::N::LAST_N_IX_U8 => {
 						let mut so: ElasticArray36<u8> = st.into();
-						so.push((v & (255 << 4)) | a);
-						(st, Some(so), None)
+						so.push(L::N::masked_left(L::N::LAST_N_IX_U8, v) | a); // TODO replace by push_at left??
+						(st, Some(so), (0,0))
 					},
-					(st, None) => (st, None, Some(a << 4)),
+					(st, (ix, v)) => (st, None, (ix, L::N::push_at_left(ix, a, v))),
 				};
 				let child_pref = (ost.as_ref().map(|st|&st[..]).unwrap_or(st), op);
 	

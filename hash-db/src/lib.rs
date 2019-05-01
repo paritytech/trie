@@ -34,11 +34,13 @@ impl<T> MaybeDebug for T {}
 
 
 /// Empty prefix constant
-pub static EMPTY_PREFIX: Prefix<'static> = (&[], None);
+pub static EMPTY_PREFIX: Prefix<'static> = (&[], (0,0));
 
 /// prefix for trie value, encoded as reference and a last padded byte to
-/// match `left` function of nibbleslice
-pub type Prefix<'a> = (&'a[u8], Option<u8>);
+/// match `left` function of nibbleslice.
+/// Padded byte is represented as a pair with number of nibble first and
+/// padded value second.
+pub type Prefix<'a> = (&'a[u8], (u8, u8));
 
 /// Trait describing an object that can hash a slice of bytes. Used to abstract
 /// other types over the hashing algorithm. Defines a single `hash` method and an

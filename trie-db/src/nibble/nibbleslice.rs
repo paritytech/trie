@@ -78,18 +78,18 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 			let start = self.offset / N::NIBBLE_PER_BYTE;
 			let end = (self.offset + nb) / N::NIBBLE_PER_BYTE;
 			let ea = ElasticArray36::from_slice(&self.data[start..=end]);
-      let n_offset = N::nb_padding(nb);
-      if n_offset == 1 {
-        let mut result = (0, ea);
-        crate::triedbmut::shift_key::<N>(&mut result, 1);
-        result.1.pop();
-        result
-      } else {
-        let mut result = (1, ea);
-        crate::triedbmut::shift_key::<N>(&mut result, 0);
-        result.1.pop();
-        result
-      }
+			let n_offset = N::nb_padding(nb);
+			if n_offset == 1 {
+				let mut result = (0, ea);
+				crate::triedbmut::shift_key::<N>(&mut result, 1);
+				result.1.pop();
+				result
+			} else {
+				let mut result = (1, ea);
+				crate::triedbmut::shift_key::<N>(&mut result, 0);
+				result.1.pop();
+				result
+			}
 		}
 	}
 
@@ -114,10 +114,10 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 			marker: PhantomData,
 		}
 	}
-  /// Advance the view on the slice by `i` nibbles
+	/// Advance the view on the slice by `i` nibbles
 	pub fn advance(&mut self, i: usize) {
 		debug_assert!(self.len() >= i);
-    self.offset += i;
+		self.offset += i;
 	}
 	/// Return object to an offset position
 	pub fn back(&self, i: usize) -> NibbleSlice<'a, N> {
@@ -146,7 +146,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	/// return first encoded byte and following slice
 	pub fn right(&'a self) -> Partial {
 		let split = self.offset / N::NIBBLE_PER_BYTE;
-    let nb = self.len() % N::NIBBLE_PER_BYTE;
+		let nb = self.len() % N::NIBBLE_PER_BYTE;
 		if nb > 0 {
 			((nb as u8, self.data[split] & N::PADDING_BITMASK[N::NIBBLE_PER_BYTE - nb].0), &self.data[split + 1 ..])
 		} else {
@@ -160,8 +160,8 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		let mut ix = 0;
 		::core_::iter::from_fn( move || {
 			if first.0 > 0 {
-        let ix = N::NIBBLE_PER_BYTE - first.0 as usize;
-        first.0 -= 1;
+				let ix = N::NIBBLE_PER_BYTE - first.0 as usize;
+				first.0 -= 1;
 				Some((first.1 & N::PADDING_BITMASK[ix].0) >> N::PADDING_BITMASK[ix].1)
 			} else {
 				if ix < sl.len() {
@@ -176,14 +176,15 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 
 	/// return left of key nibble
 	pub fn left(&'a self) -> Prefix {
-		let split = self.offset / 2;
-		if self.len() % 2 == 1 {
-			(&self.data[..split], Some(self.data[split] & (255 << 4)))
+		let split = self.offset / N::NIBBLE_PER_BYTE;
+		let ix = (self.offset % N::NIBBLE_PER_BYTE) as u8;
+		if ix == 0 {
+			(&self.data[..split], (0,0))
 		} else {
-			(&self.data[..split], None)
+			(&self.data[..split], (ix, N::masked_left(ix, self.data[split])))
 		}
 	}
-	pub fn left_owned(&'a self) -> (ElasticArray36<u8>, Option<u8>) {
+	pub fn left_owned(&'a self) -> (ElasticArray36<u8>, (u8,u8)) {
 		let (a, b) = self.left();
 		(a.into(), b)
 	}

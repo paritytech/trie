@@ -108,7 +108,7 @@ where
 			.map(|res| {
 				res.map(|(hash, value)| {
 					let aux_hash = L::H::hash(&hash);
-					(self.trie.db().get(&aux_hash, (&[], None)).expect("Missing fatdb hash").into_vec(), value)
+					(self.trie.db().get(&aux_hash, Default::default()).expect("Missing fatdb hash").into_vec(), value)
 				})
 			})
 	}

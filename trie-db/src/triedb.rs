@@ -104,7 +104,7 @@ where
 	/// is known to be literal.
 	/// `partial_key` is encoded nibble slice that addresses the node.
 	fn get_raw_or_lookup(&'db self, node: &[u8], partial_key: Prefix) -> Result<Cow<'db, DBValue>, TrieHash<L>, CError<L>> {
-		match (partial_key.0.is_empty() && partial_key.1.is_none(), L::C::try_decode_hash(node)) {
+		match (partial_key.0.is_empty() && (partial_key.1).0 == 0, L::C::try_decode_hash(node)) {
 			(false, Some(key)) => {
 				self.db
 					.get(&key, partial_key)
