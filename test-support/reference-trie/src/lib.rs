@@ -511,7 +511,7 @@ fn partial_to_key<N: NibbleOps>(partial: Partial, offset: u8, over: u8) -> Vec<u
 	assert!(nibble_count < over as usize);
 	let mut output = vec![offset + nibble_count as u8];
 	if nb_nibble_hpe > 0 {
-		output.push((partial.0).1 & N::PADDING_BITMASK[nb_nibble_hpe].0);
+		output.push(N::masked_right(nb_nibble_hpe as u8, (partial.0).1));
 	}
 	output.extend_from_slice(&partial.1[..]);
 	output
@@ -554,7 +554,7 @@ fn partial_enc<N: NibbleOps>(partial: Partial, node_kind: NodeKindNoExt) -> Vec<
 		NodeKindNoExt::BranchNoValue => NodeHeaderNoExt::Branch(false, nibble_count).encode_to(&mut output),
 	};
 	if nb_nibble_hpe > 0 {
-		output.push((partial.0).1 & N::PADDING_BITMASK[nb_nibble_hpe].0);
+		output.push(N::masked_right(nb_nibble_hpe as u8, (partial.0).1));
 	}
 	output.extend_from_slice(&partial.1[..]);
 	output
@@ -698,7 +698,7 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodecNoExt {
 			NodeHeaderNoExt::Null => Ok(Node::Empty),
 			NodeHeaderNoExt::Branch(has_value, nibble_count) => {
 				let nb_nibble_hpe = nibble_count % N::NIBBLE_PER_BYTE;
-				if nb_nibble_hpe > 0 && input[0] & !N::PADDING_BITMASK[nb_nibble_hpe].0 != 0 {
+				if nb_nibble_hpe > 0 && N::masked_left(nb_nibble_hpe as u8, input[0]) != 0 {
 					return Err(ReferenceError::BadFormat);
 				}
 				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
@@ -725,7 +725,7 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodecNoExt {
 			}
 			NodeHeaderNoExt::Leaf(nibble_count) => {
 				let nb_nibble_hpe = nibble_count % N::NIBBLE_PER_BYTE;
-				if nb_nibble_hpe > 0 && input[0] & !N::PADDING_BITMASK[nb_nibble_hpe].0 != 0 {
+				if nb_nibble_hpe > 0 && N::masked_left(nb_nibble_hpe as u8, input[0]) != 0 {
 					return Err(ReferenceError::BadFormat);
 				}
 				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)

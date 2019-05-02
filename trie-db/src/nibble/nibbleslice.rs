@@ -146,9 +146,9 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	/// return first encoded byte and following slice
 	pub fn right(&'a self) -> Partial {
 		let split = self.offset / N::NIBBLE_PER_BYTE;
-		let nb = self.len() % N::NIBBLE_PER_BYTE;
+		let nb = (self.len() % N::NIBBLE_PER_BYTE) as u8;
 		if nb > 0 {
-			((nb as u8, self.data[split] & N::PADDING_BITMASK[N::NIBBLE_PER_BYTE - nb].0), &self.data[split + 1 ..])
+			((nb, N::masked_right(nb, self.data[split])), &self.data[split + 1 ..])
 		} else {
 			((0,0), &self.data[split..])
 		}
@@ -162,7 +162,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 			if first.0 > 0 {
 				let ix = N::NIBBLE_PER_BYTE - first.0 as usize;
 				first.0 -= 1;
-				Some((first.1 & N::PADDING_BITMASK[ix].0) >> N::PADDING_BITMASK[ix].1)
+				Some(N::at_right(ix as u8, first.1))
 			} else {
 				if ix < sl.len() {
 					ix += 1;

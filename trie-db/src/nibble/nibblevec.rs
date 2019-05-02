@@ -49,20 +49,18 @@ impl<N: NibbleOps> NibbleVec<N> {
 	pub fn at(&self, idx: usize) -> u8 {
 		let ix = idx / N::NIBBLE_PER_BYTE;
 		let pad = idx % N::NIBBLE_PER_BYTE;
-		(self.inner[ix] & N::PADDING_BITMASK[pad].0)
-			>> N::PADDING_BITMASK[pad].1
+		N::at_right(pad as u8, self.inner[ix])
 	}
-
 
 	/// Push a nibble onto the `NibbleVec`. Ignores the high 4 bits.
 	pub fn push(&mut self, nibble: u8) {
 		let i = self.len % N::NIBBLE_PER_BYTE;
-		let nibble = (nibble & N::SINGLE_BITMASK) << N::PADDING_BITMASK[i].1;
 
 		if i == 0 {
-			self.inner.push(nibble);
+			self.inner.push(N::push_at_left(0, nibble, 0));
 		} else {
-			*self.inner.last_mut().expect("len != 0 since len % 2 != 0; inner has a last element; qed") |= nibble;
+			let dest = self.inner.last_mut().expect("len != 0 since len % 2 != 0; inner has a last element; qed");
+			*dest = N::push_at_left(i as u8, nibble, *dest);
 		}
 		self.len += 1;
 	}
@@ -76,9 +74,9 @@ impl<N: NibbleOps> NibbleVec<N> {
 		self.len -= 1;
 		let i_new = self.len % N::NIBBLE_PER_BYTE;
 		if i_new != 0 {
-			self.inner.push(byte & !N::PADDING_BITMASK[i_new].0);
+			self.inner.push(N::masked_left(i_new as u8, byte));
 		}
-		Some((byte & N::PADDING_BITMASK[i_new].0) >> N::PADDING_BITMASK[i_new].1)
+		Some(N::at_right(i_new as u8, byte))
 	}
 
 	/// remove n last nibbles.
@@ -98,7 +96,7 @@ impl<N: NibbleOps> NibbleVec<N> {
 		let pos = self.len % N::NIBBLE_PER_BYTE;
 		if pos != 0 {
 			let kl = self.inner.len() - 1;
-			self.inner[kl] &= !N::PADDING_BITMASK[pos].0;
+			self.inner[kl] = N::masked_left(pos as u8, self.inner[kl]);
 		}
 	}
 
@@ -113,11 +111,11 @@ impl<N: NibbleOps> NibbleVec<N> {
 		}
 	}
 
-	/// push a full partial. TODO option for partial does not contain enough info
+	/// push a full partial.
 	pub fn append_partial(&mut self, (o_n, sl): Partial) {
 		for i in (1..=o_n.0).rev() {
 			let ix = N::NIBBLE_PER_BYTE - i as usize;
-			self.push((o_n.1 & N::PADDING_BITMASK[ix].0) >> N::PADDING_BITMASK[ix].1)
+			self.push(N::at_right(ix as u8, o_n.1));
 		}
 		let pad = self.inner.len() * N::NIBBLE_PER_BYTE - self.len;
 		if pad == 0 {
@@ -125,9 +123,8 @@ impl<N: NibbleOps> NibbleVec<N> {
 		} else {
 			let kend = self.inner.len() - 1;
 			if sl.len() > 0 {
-				self.inner[kend] &= !N::PADDING_BITMASK[N::NIBBLE_PER_BYTE - pad].0;
-				let s1 = N::PADDING_BITMASK[pad - 1].1;
-				let s2 = 8 - s1;
+				self.inner[kend] = N::masked_left((N::NIBBLE_PER_BYTE - pad) as u8, self.inner[kend]);
+				let (s1, s2) = N::split_shifts(pad);
 				self.inner[kend] |= sl[0] >> s1;
 				(0..sl.len() - 1).for_each(|i|self.inner.push(sl[i] << s2 | sl[i+1] >> s1));
 				self.inner.push(sl[sl.len() - 1] << s2);

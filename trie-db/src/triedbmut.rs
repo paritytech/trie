@@ -1023,7 +1023,6 @@ where
 						let stored = match child {
 							NodeHandle::InMemory(h) => self.storage.destroy(h),
 							NodeHandle::Hash(h) => {
-								// TODO NX !!! from this key advenac we are out of key -> can do a
 								let handle = self.cache(h, child_pref)?;
 								self.storage.destroy(handle)
 							}
@@ -1038,14 +1037,12 @@ where
 						match child_node {
 							Node::Leaf(sub_partial, value) => {
 								let mut enc_nibble = enc_nibble;
-								// TODO NX!!!
 								combine_key::<L::N>(&mut enc_nibble, (1, &[a][..]));
 								combine_key::<L::N>(&mut enc_nibble, (sub_partial.0, &sub_partial.1[..]));
 								Ok(Node::Leaf(enc_nibble, value))
 							},
 							Node::NibbledBranch(sub_partial, ch_children, ch_value) => {
 								let mut enc_nibble = enc_nibble;
-								// TODO NX!!!
 								// TODO a + buf + ck
 								combine_key::<L::N>(&mut enc_nibble, (1, &[a][..]));
 								combine_key::<L::N>(&mut enc_nibble, (sub_partial.0, &sub_partial.1[..]));
@@ -1086,7 +1083,6 @@ where
 				let stored = match child {
 					NodeHandle::InMemory(h) => self.storage.destroy(h),
 					NodeHandle::Hash(h) => {
-						// TODO NX!! here to 
 						let handle = self.cache(h, child_pref)?;
 						self.storage.destroy(handle)
 					}
@@ -1104,7 +1100,6 @@ where
 							// delete the cached child since we are going to replace it.
 							self.death_row.insert((hash, (child_pref.0[..].into(), child_pref.1)));
 						}
-						// TODO NX!!
 						// subpartial
 						let mut partial = partial;
 						combine_key::<L::N>(&mut partial, (sub_partial.0, &sub_partial.1[..]));
@@ -1117,7 +1112,6 @@ where
 							// delete the cached child since we are going to replace it.
 							self.death_row.insert((hash, (child_pref.0[..].into(), child_pref.1)));
 						}
-						// TODO NX!!
 						// subpartial oly
 						let mut partial = partial;
 						combine_key::<L::N>(&mut partial, (sub_partial.0, &sub_partial.1[..]));

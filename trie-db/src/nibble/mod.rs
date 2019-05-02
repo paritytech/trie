@@ -51,6 +51,19 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 		debug_assert!(ix > 0);
 		b & !Self::PADDING_BITMASK[ix as usize].0
 	}
+	/// mask a byte from a ix > 0
+	#[inline(always)]
+	fn masked_right(ix: u8, b: u8) -> u8 {
+		debug_assert!(ix > 0);
+		b & Self::PADDING_BITMASK[ix as usize].0
+	}
+	/// get value at ix from a right first byte
+	#[inline(always)]
+	fn at_right(ix: u8, b: u8) -> u8 {
+		(b & Self::PADDING_BITMASK[ix as usize].0)
+			>> Self::PADDING_BITMASK[ix as usize].1
+	}
+
 	/// push u8 nib value at ix into a existing byte 
 	#[inline(always)]
 	fn push_at_left(ix: u8, v: u8, into: u8) -> u8 {
@@ -62,8 +75,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	fn at(s: &NibbleSlice<Self>, i: usize) -> u8 {
 		let ix = (s.offset + i) / Self::NIBBLE_PER_BYTE;
 		let pad = (s.offset + i) % Self::NIBBLE_PER_BYTE;
-		(s.data[ix] & Self::PADDING_BITMASK[pad].0)
-			>> Self::PADDING_BITMASK[pad].1
+		Self::at_right(pad as u8, s.data[ix])
 	}
 
 	#[inline]
@@ -72,6 +84,14 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 		(Self::NIBBLE_PER_BYTE - (i % Self::NIBBLE_PER_BYTE)) % Self::NIBBLE_PER_BYTE
 	}
 
+	/// split shifts for a given unaligned padding (pad != 0)
+	#[inline(always)]
+	fn split_shifts(pad: usize) -> (usize, usize) {
+		debug_assert!(pad > 0);
+		let s1 = Self::PADDING_BITMASK[pad - 1].1;
+		let s2 = 8 - s1;
+		(s1, s2)
+	}
 }
 
 /// half byte nibble prepend encoding
