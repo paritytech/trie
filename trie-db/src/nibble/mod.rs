@@ -40,7 +40,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	/// TODO EMCH check that array acts as constant
 	const PADDING_BITMASK: &'static [(u8, usize)];
 	/// las ix for nible
-	const LAST_N_IX: usize = Self::NIBBLE_LEN - 1;
+	const LAST_N_IX: usize = Self::NIBBLE_PER_BYTE - 1;
 	/// las ix for nible as a u8 (for pattern matching)
 	const LAST_N_IX_U8: u8 = Self::LAST_N_IX as u8;
 	const SINGLE_BITMASK: u8;

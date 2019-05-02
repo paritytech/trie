@@ -641,7 +641,6 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodec {
 
 	fn ext_node(partial: impl Iterator<Item = u8>, nb_nibble: usize, child: ChildReference<<KeccakHasher as Hasher>::Out>) -> Vec<u8> {
 		let mut output = partial_to_key_it::<N,_>(partial, nb_nibble, EXTENSION_NODE_OFFSET, EXTENSION_NODE_OVER);
-    println!("pkitr: {:x?} {}", &output[..], nb_nibble);
 		match child {
 			ChildReference::Hash(h) => h.as_ref().encode_to(&mut output),
 			ChildReference::Inline(inline_data, len) => (&AsRef::<[u8]>::as_ref(&inline_data)[..len]).encode_to(&mut output),
@@ -1043,6 +1042,11 @@ pub fn compare_no_ext_insert_remove(
 			*t.root()
 		};
 	}
+	/*{
+		let db : &dyn hash_db::HashDB<_,_> = &memdb;
+		let t = RefTrieDBNoExt::new(&db, &root).unwrap();
+		println!("{:x?}",t);
+	}*/
 	let mut t = RefTrieDBMutNoExt::from_existing(&mut memdb, &mut root).unwrap();
 	// we are testing the RefTrie code here so we do not sort or check uniqueness
 	// before.

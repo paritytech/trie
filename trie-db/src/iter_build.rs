@@ -675,16 +675,27 @@ mod test {
 		]);
 	}
 	#[test]
-	fn fuzz_noext_ins_rem_pref () {
+	fn fuzz_noext_ins_rem_1 () {
 		let data = vec![
 			(false, vec![0], vec![251, 255]),
 			(false, vec![0,1], vec![251, 255]),
 			(false, vec![0,1,2], vec![255; 32]),
 			(true, vec![0,1], vec![0, 251]),
 		];
-
 		compare_no_ext_insert_remove(data);
 	}
+
+	#[test]
+	fn fuzz_noext_ins_rem_2 () {
+    let data = vec![
+      (false, vec![0x00], vec![0xfd, 0xff]),
+      (false, vec![0x10, 0x00], vec![1;32]),
+      (false, vec![0x11, 0x10], vec![0;32]),
+      (true, vec![0x10, 0x00], vec![])
+    ];
+		compare_no_ext_insert_remove(data);
+	}
+
 	#[test]
 	fn two_bytes_nibble_len () {
 		let data = vec![

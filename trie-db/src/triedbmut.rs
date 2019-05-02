@@ -1009,7 +1009,6 @@ where
 						let child = children[a as usize].take().expect("used_index only set if occupied; qed");
 						let mut kc = key.clone();
 						kc.advance((enc_nibble.1.len() * L::N::NIBBLE_PER_BYTE) - enc_nibble.0);
-
 						let (st, ost, op) = match kc.left() {
 							(st, (0, _v)) => (st, None, (1, L::N::push_at_left(0, a, 0))),
 							(st, (i,v)) if i == L::N::LAST_N_IX_U8 => {
