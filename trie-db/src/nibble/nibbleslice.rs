@@ -62,7 +62,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	/// helper function to get `NodeKey` stored in nodes
 	pub fn to_stored(&self) -> NodeKey {
 		let split = self.offset / N::NIBBLE_PER_BYTE;
-		let offset = N::nb_padding(self.len());
+		let offset = self.offset % N::NIBBLE_PER_BYTE;
 		(offset, self.data[split..].into())
 	}
 
@@ -73,7 +73,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 			// aligned
 			let start = self.offset / N::NIBBLE_PER_BYTE;
 			let end = (self.offset + nb) / N::NIBBLE_PER_BYTE;
-			(N::nb_padding(nb), ElasticArray36::from_slice(&self.data[start..end]))
+			(nb % N::NIBBLE_PER_BYTE, ElasticArray36::from_slice(&self.data[start..end]))
 		} else {
 			let start = self.offset / N::NIBBLE_PER_BYTE;
 			let end = (self.offset + nb) / N::NIBBLE_PER_BYTE;

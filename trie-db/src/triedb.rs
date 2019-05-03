@@ -330,7 +330,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 								status: Status::At,
 								node: node.clone().into(),
 							});
-              self.key_nibbles.append_partial(slice.right());
+							self.key_nibbles.append_partial(slice.right());
 							full_key_nibbles += slice.len();
 							partial = partial.mid(slice.len());
 							let data = self.db.get_raw_or_lookup(&*item, key.back(full_key_nibbles).left())?;
@@ -434,9 +434,9 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 	}
 
 	/// The present key. This can only be called on valued node (key is therefore
-  /// aligned to byte).
+	/// aligned to byte).
 	fn key(&self) -> NibbleSlice<L::N> {
-    self.key_nibbles.as_nibbleslice().expect("a key is aligned to byte;qed")
+		self.key_nibbles.as_nibbleslice().expect("a key is aligned to byte;qed")
 	}
 
 }
