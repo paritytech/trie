@@ -49,7 +49,7 @@ impl<N: NibbleOps> NibbleVec<N> {
 	pub fn at(&self, idx: usize) -> u8 {
 		let ix = idx / N::NIBBLE_PER_BYTE;
 		let pad = idx % N::NIBBLE_PER_BYTE;
-		N::at_right(pad as u8, self.inner[ix])
+		N::at_left(pad as u8, self.inner[ix])
 	}
 
 	/// Push a nibble onto the `NibbleVec`. Ignores the high 4 bits.
@@ -76,7 +76,7 @@ impl<N: NibbleOps> NibbleVec<N> {
 		if i_new != 0 {
 			self.inner.push(N::masked_left(i_new as u8, byte));
 		}
-		Some(N::at_right(i_new as u8, byte))
+		Some(N::at_left(i_new as u8, byte))
 	}
 
 	/// remove n last nibbles.
@@ -115,7 +115,7 @@ impl<N: NibbleOps> NibbleVec<N> {
 	pub fn append_partial(&mut self, (o_n, sl): Partial) {
 		for i in (1..=o_n.0).rev() {
 			let ix = N::NIBBLE_PER_BYTE - i as usize;
-			self.push(N::at_right(ix as u8, o_n.1));
+			self.push(N::at_left(ix as u8, o_n.1));
 		}
 		let pad = self.inner.len() * N::NIBBLE_PER_BYTE - self.len;
 		if pad == 0 {

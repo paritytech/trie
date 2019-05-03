@@ -45,21 +45,22 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	const LAST_N_IX_U8: u8 = Self::LAST_N_IX as u8;
 	const SINGLE_BITMASK: u8;
 
-	/// mask a byte from a ix > 0
+	/// mask a byte from a ix > 0 (ix being content)
 	#[inline(always)]
 	fn masked_left(ix: u8, b: u8) -> u8 {
 		debug_assert!(ix > 0);
 		b & !Self::PADDING_BITMASK[ix as usize].0
 	}
-	/// mask a byte from a ix > 0
+	/// mask a byte from a ix > 0 (ix being padding)
 	#[inline(always)]
 	fn masked_right(ix: u8, b: u8) -> u8 {
 		debug_assert!(ix > 0);
 		b & Self::PADDING_BITMASK[ix as usize].0
 	}
 	/// get value at ix from a right first byte
+	/// TODO EMCH here left or right does not make lot of sense
 	#[inline(always)]
-	fn at_right(ix: u8, b: u8) -> u8 {
+	fn at_left(ix: u8, b: u8) -> u8 {
 		(b & Self::PADDING_BITMASK[ix as usize].0)
 			>> Self::PADDING_BITMASK[ix as usize].1
 	}
@@ -75,7 +76,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	fn at(s: &NibbleSlice<Self>, i: usize) -> u8 {
 		let ix = (s.offset + i) / Self::NIBBLE_PER_BYTE;
 		let pad = (s.offset + i) % Self::NIBBLE_PER_BYTE;
-		Self::at_right(pad as u8, s.data[ix])
+		Self::at_left(pad as u8, s.data[ix])
 	}
 
 	#[inline]
@@ -91,6 +92,20 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 		let s1 = Self::PADDING_BITMASK[pad - 1].1;
 		let s2 = 8 - s1;
 		(s1, s2)
+	}
+
+	/// number of common bit between two left pad byte
+	#[inline(always)]
+	fn left_common(a: u8, b: u8) -> usize {
+		let mut i = 0;
+		while i < Self::NIBBLE_PER_BYTE {
+			if (a >> Self::PADDING_BITMASK[i].1)
+				!= (b >> Self::PADDING_BITMASK[i].1) {
+				break;
+			}
+			i += 1;
+		}
+		return i;
 	}
 }
 

@@ -23,30 +23,25 @@ use node_codec::NodeCodec;
 
 // TODO EMCH use L instead of HC (aka TrieLayout)
 // TODO EMCH move to NibbleOps to use right constants
-fn biggest_depth(v1: &[u8], v2: &[u8]) -> usize {
+fn biggest_depth<N: NibbleOps>(v1: &[u8], v2: &[u8]) -> usize {
 	// sorted assertion preventing out of bound
 	for a in 0..v1.len() {
 		if v1[a] == v2[a] {
 		} else {
-			if (v1[a] >> 4) ==	(v2[a] >> 4) {
-				return a * NIBBLE_PER_BYTES + 1;
-			} else {
-				return a * NIBBLE_PER_BYTES;
-			}
+			return a * N::NIBBLE_PER_BYTE + N::left_common(v1[a], v2[a]);
 		}
 	}
-	return v1.len() * NIBBLE_PER_BYTES;
+	return v1.len() * N::NIBBLE_PER_BYTE;
 }
 
 // warn! start at 0 // TODO change biggest_depth??
 // warn! slow don't loop on that when possible
 #[inline(always)]
-fn nibble_at(v1: &[u8], ix: usize) -> u8 {
-	if ix % NIBBLE_PER_BYTES == 0 {
-		v1[ix / NIBBLE_PER_BYTES] >> 4
-	} else {
-		v1[ix / NIBBLE_PER_BYTES] & 15
-	}
+fn nibble_at<N: NibbleOps>(v1: &[u8], ix: usize) -> u8 {
+	N::at_left(
+		(ix % N::NIBBLE_PER_BYTE) as u8,
+		v1[ix / N::NIBBLE_PER_BYTE]
+	)
 }
 
 /*
@@ -70,10 +65,10 @@ type CacheNode<HO> = Option<ChildReference<HO>>;
 // TODO test others layout
 // first usize to get nb of added value, second usize last added index
 // second str is in branch value
-struct CacheAccum<H: Hasher,C,N,V> (Vec<([CacheNode<<H as Hasher>::Out>; NIBBLE_SIZE], bool, Option<V>)>,PhantomData<(H,C,N)>);
+struct CacheAccum<H: Hasher,C,N,V> (Vec<([CacheNode<<H as Hasher>::Out>; NIBBLE_SIZE_BUFF], bool, Option<V>)>,PhantomData<(H,C,N)>);
 
 #[inline(always)]
-fn new_vec_slice_buff<HO>() -> [CacheNode<HO>; NIBBLE_SIZE] {
+fn new_vec_slice_buff<HO>() -> [CacheNode<HO>; NIBBLE_SIZE_BUFF ] {
 	[
 		None, None, None, None,
 		None, None, None, None,
@@ -84,8 +79,10 @@ fn new_vec_slice_buff<HO>() -> [CacheNode<HO>; NIBBLE_SIZE] {
 
 /// initially allocated cache
 const INITIAL_DEPTH: usize = 10;
-const NIBBLE_SIZE: usize = 16;
-const NIBBLE_PER_BYTES: usize = 2; // 2 ^ 8 / 2 ^ NIBBLE_SIZE
+/// This should not exist and be associated const of trie layout
+/// TODO test `new_vec_slice_buff` as function of trait and associated type
+const NIBBLE_SIZE_BUFF: usize = 16;
+
 impl<H,C,N,V> CacheAccum<H,C,N,V>
 where
 	H: Hasher,
@@ -98,6 +95,17 @@ where
 		let mut v = Vec::with_capacity(INITIAL_DEPTH);
 		(0..INITIAL_DEPTH).for_each(|_|v.push((new_vec_slice_buff(), false, None)));
 		CacheAccum(v, PhantomData)
+	}
+
+	#[inline(always)]
+	fn set_elt(&mut self, depth:usize, sl: Option<V>) {
+		if depth >= self.0.len() {
+			for _i in self.0.len()..depth + 1 { 
+				self.0.push((new_vec_slice_buff(), false, None));
+			}
+		}
+		self.0[depth].2 = sl;
+		self.0[depth].1 = true;
 	}
 
 	#[inline(always)]
@@ -119,7 +127,7 @@ where
 	#[inline(always)]
 	fn reset_depth(&mut self, depth:usize) {
 		self.0[depth].1 = false;
-		for i in 0..NIBBLE_SIZE {
+		for i in 0..N::NIBBLE_LEN {
 			self.0[depth].0[i] = None;
 		}
 	}
@@ -130,7 +138,7 @@ where
 		target_depth: usize, 
 		(k2, v2): &(impl AsRef<[u8]>,impl AsRef<[u8]>), 
 	) {
-		let nibble_value = nibble_at(&k2.as_ref()[..], target_depth);
+		let nibble_value = nibble_at::<N>(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
 		let nkey = NibbleSlice::<N>::new_offset(&k2.as_ref()[..],target_depth+1);
 		// Note: fwiu, having fixed key size, all values are in leaf (no value in
@@ -138,7 +146,7 @@ where
 		let encoded = C::leaf_node(nkey.right(), &v2.as_ref()[..]);
 		// TODO redesign nibleslice encoded to allow an inputstream (avoid this alloc) + design the
 		// thing other array of slice to avoid those concatenation unsecure or costy + same for nodes
-		let pr = NibbleSlice::<N>::new_offset(&k2.as_ref()[..], k2.as_ref().len() * NIBBLE_PER_BYTES - nkey.len());
+		let pr = NibbleSlice::<N>::new_offset(&k2.as_ref()[..], k2.as_ref().len() * N::NIBBLE_PER_BYTE - nkey.len());
 		let hash = cb_ext.process(pr.left(), encoded, false);
 
 		// insert hash in branch (first level branch only at this point)
@@ -191,7 +199,7 @@ where
 					self.standard_ext(&ref_branch.as_ref()[..], cb_ext, branch_d, is_root, nkey)
 				};
 				// put hash in parent
-				let nibble: u8 = nibble_at(&ref_branch.as_ref()[..],d);
+				let nibble: u8 = nibble_at::<N>(&ref_branch.as_ref()[..],d);
 				self.set_node(d, nibble as usize, Some(h));
 			}
 			}
@@ -314,15 +322,16 @@ fn trie_visit_inner<H, C, N, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool)
 
 		for (k, v) in iter_input {
 			//println!("!{:?},{:?}",&k.as_ref(),&v.as_ref());
-			let common_depth = biggest_depth(&prev_val.0.as_ref()[..], &k.as_ref()[..]);
+			let common_depth = biggest_depth::<N>(&prev_val.0.as_ref()[..], &k.as_ref()[..]);
 			// 0 is a reserved value : could use option
 			let depth_item = common_depth;
-			if common_depth == prev_val.0.as_ref().len() * NIBBLE_PER_BYTES {
+			if common_depth == prev_val.0.as_ref().len() * N::NIBBLE_PER_BYTE {
 				//println!("stack {} ", common_depth);
 				// the new key include the previous one : branch value case
 				// just stored value at branch depth
-				depth_queue.0[common_depth].2 = Some(prev_val.1);
-				depth_queue.0[common_depth].1 = true;
+				// TODO EMCH bound check and extend depth queue
+				depth_queue.set_elt(common_depth, Some(prev_val.1));
+
 			} else if depth_item >= prev_depth {
 				//println!("fv {}", depth_item);
 				// put prev with next (common branch prev val can be flush)
@@ -346,7 +355,7 @@ fn trie_visit_inner<H, C, N, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool)
 			let (k2, v2) = prev_val;
 			let nkey = NibbleSlice::<N>::new_offset(&k2.as_ref()[..],prev_depth);
 			let encoded = C::leaf_node(nkey.right(), &v2.as_ref()[..]);
-			let pr = NibbleSlice::<N>::new_offset(&k2.as_ref()[..], k2.as_ref().len() * NIBBLE_PER_BYTES - nkey.len());
+			let pr = NibbleSlice::<N>::new_offset(&k2.as_ref()[..], k2.as_ref().len() * N::NIBBLE_PER_BYTE - nkey.len());
 			cb_ext.process(pr.left(), encoded, true);
 		} else {
 			//println!("fbvl {}", prev_depth);
@@ -497,6 +506,7 @@ mod test {
 		compare_impl_pk(data.clone());
 		compare_impl_no_ext(data.clone());
 		compare_impl_no_ext_pk(data.clone());
+//		compare_impl_no_ext_q(data.clone());
 	}
 
 	fn compare_impl_pk(data: Vec<(Vec<u8>,Vec<u8>)>) {
@@ -513,6 +523,11 @@ mod test {
 		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
 		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		reference_trie::compare_impl_no_ext(data, memdb, hashdb);
+	}
+	fn compare_impl_no_ext_q(data: Vec<(Vec<u8>,Vec<u8>)>) {
+		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
+		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+		reference_trie::compare_impl_no_ext_q(data, memdb, hashdb);
 	}
 	fn compare_impl_no_ext_pk(data: Vec<(Vec<u8>,Vec<u8>)>) {
 //		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
@@ -687,12 +702,12 @@ mod test {
 
 	#[test]
 	fn fuzz_noext_ins_rem_2 () {
-    let data = vec![
-      (false, vec![0x00], vec![0xfd, 0xff]),
-      (false, vec![0x10, 0x00], vec![1;32]),
-      (false, vec![0x11, 0x10], vec![0;32]),
-      (true, vec![0x10, 0x00], vec![])
-    ];
+		let data = vec![
+			(false, vec![0x00], vec![0xfd, 0xff]),
+			(false, vec![0x10, 0x00], vec![1;32]),
+			(false, vec![0x11, 0x10], vec![0;32]),
+			(true, vec![0x10, 0x00], vec![])
+		];
 		compare_no_ext_insert_remove(data);
 	}
 

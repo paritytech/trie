@@ -148,21 +148,21 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		let split = self.offset / N::NIBBLE_PER_BYTE;
 		let nb = (self.len() % N::NIBBLE_PER_BYTE) as u8;
 		if nb > 0 {
-			((nb, N::masked_right(nb, self.data[split])), &self.data[split + 1 ..])
+			((nb, N::masked_right(N::NIBBLE_PER_BYTE as u8 - nb, self.data[split])), &self.data[split + 1 ..])
 		} else {
 			((0,0), &self.data[split..])
 		}
 	}
 
-	/// return encoded value as an iterator
+	/// return encoded value as a packed byte iterator
 	pub fn right_iter(&'a self) -> impl Iterator<Item = u8> + 'a {
 		let (mut first, sl) = self.right();
 		let mut ix = 0;
 		::core_::iter::from_fn( move || {
 			if first.0 > 0 {
 				let ix = N::NIBBLE_PER_BYTE - first.0 as usize;
-				first.0 -= 1;
-				Some(N::at_right(ix as u8, first.1))
+				first.0 = 0;
+				Some(N::masked_right(ix as u8, first.1))
 			} else {
 				if ix < sl.len() {
 					ix += 1;
@@ -192,17 +192,18 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 
 	/// get iterator over slice, slow
 	pub fn right_range_iter(&'a self, to: usize) -> impl Iterator<Item = u8> + 'a {
-		let mut first = to % 2;
-		let aligned_i = (self.offset + to) % 2;
+		let mut pad_res = to % N::NIBBLE_PER_BYTE;
+		let aligned_i = (self.offset + to) % N::NIBBLE_PER_BYTE;
 		let aligned = aligned_i == 0;
-		let mut ix = self.offset / 2;
-		let ix_lim = (self.offset + to) / 2;
+		let mut ix = self.offset / N::NIBBLE_PER_BYTE;
+		let ix_lim = (self.offset + to) / N::NIBBLE_PER_BYTE;
 		::core_::iter::from_fn( move || {
 			if aligned {
-				if first > 0 {
-					first = 0;
+				if pad_res > 0 {
+					let v = N::masked_right((N::NIBBLE_PER_BYTE - pad_res) as u8, self.data[ix]);
+					pad_res = 0;
 					ix += 1;
-					Some(self.data[ix - 1] & (255 >> 4))
+					Some(v)
 				} else if ix < ix_lim {
 					ix += 1;
 					Some(self.data[ix - 1])
@@ -210,14 +211,17 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 					None
 				}
 			} else {
+				let (s1, s2) = N::split_shifts(aligned_i);
 				// unaligned
-				if first > 0 {
-					first = 0;
-					Some((self.data[ix] & (255 << 4)) >> 4)
+				let pad_nib = self.offset % N::NIBBLE_PER_BYTE;
+				if N::NIBBLE_PER_BYTE - pad_res < N::NIBBLE_PER_BYTE - pad_nib {
+					let v = self.data[ix] >> s1;
+					pad_res = 0;
+					Some(v)
 				} else if ix < ix_lim {
 					ix += 1;
-					let b1 = (self.data[ix - 1] & (255 >> 4)) << 4;
-					let b2 = (self.data[ix] & (255 << 4)) >> 4;
+					let b1 = self.data[ix - 1] << s2;
+					let b2 = self.data[ix] >> s1;
 					Some(b1 | b2)
 				} else {
 					None
@@ -279,6 +283,7 @@ impl<'a, N: NibbleOps> fmt::Debug for NibbleSlice<'a, N> {
 mod tests {
 	use crate::nibble::NibbleSlice;
 	use crate::nibble::NibbleHalf;
+	use crate::nibble::NibbleQuarter;
 	use crate::nibble::NibbleOps;
 	use elastic_array::ElasticArray36;
 	static D: &'static [u8;3] = &[0x01u8, 0x23, 0x45];
@@ -348,6 +353,7 @@ mod tests {
 	#[test]
 	fn range_iter() {
 		let n = NibbleSlice::<NibbleHalf>::new(D);
+		let n2 = NibbleSlice::<NibbleQuarter>::new(D);
 		for i in [
 			vec![],
 			vec![0x00],
@@ -357,7 +363,8 @@ mod tests {
 			vec![0x00, 0x12, 0x34],
 			vec![0x01, 0x23, 0x45],
 		].iter().enumerate() {
-			range_iter_test(n, i.0, None, &i.1[..]);
+			range_iter_test::<NibbleHalf>(n, i.0, None, &i.1[..]);
+			range_iter_test::<NibbleQuarter>(n2, i.0 * 2, None, &i.1[..]);
 		}
 		for i in [
 			vec![],
@@ -367,7 +374,8 @@ mod tests {
 			vec![0x12, 0x34],
 			vec![0x01, 0x23, 0x45],
 		].iter().enumerate() {
-			range_iter_test(n, i.0, Some(1), &i.1[..]);
+			range_iter_test::<NibbleHalf>(n, i.0, Some(1), &i.1[..]);
+			range_iter_test::<NibbleQuarter>(n2, i.0 * 2, Some(2), &i.1[..]);
 		}
 		for i in [
 			vec![],
@@ -376,7 +384,8 @@ mod tests {
 			vec![0x02, 0x34],
 			vec![0x23, 0x45],
 		].iter().enumerate() {
-			range_iter_test(n, i.0, Some(2), &i.1[..]);
+			range_iter_test::<NibbleHalf>(n, i.0, Some(2), &i.1[..]);
+			range_iter_test::<NibbleQuarter>(n2, i.0 * 2, Some(4), &i.1[..]);
 		}
 		for i in [
 			vec![],
@@ -384,13 +393,12 @@ mod tests {
 			vec![0x34],
 			vec![0x03, 0x45],
 		].iter().enumerate() {
-			range_iter_test(n, i.0, Some(3), &i.1[..]);
+			range_iter_test::<NibbleHalf>(n, i.0, Some(3), &i.1[..]);
+			range_iter_test::<NibbleQuarter>(n2, i.0 * 2, Some(6), &i.1[..]);
 		}
-
-
 	}
 
-	fn range_iter_test(n: NibbleSlice<NibbleHalf>, nb: usize, mid: Option<usize>, res: &[u8]) {
+	fn range_iter_test<N: NibbleOps>(n: NibbleSlice<N>, nb: usize, mid: Option<usize>, res: &[u8]) {
 		let n = if let Some(i) = mid {
 			n.mid(i)
 		} else { n };

@@ -39,7 +39,7 @@ use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
 
 pub use trie_db::{Trie, TrieMut, NibbleSlice, Recorder, NodeCodec};
-pub use trie_db::{Record, TrieLayOut, NibbleHalf, NibbleOps};
+pub use trie_db::{Record, TrieLayOut, NibbleHalf, NibbleQuarter, NibbleOps};
 pub use trie_root::TrieStream;
 
 /// trie layout similar to parity-ethereum
@@ -62,16 +62,31 @@ impl TrieLayOut for LayoutNew {
 	type N = NibbleHalf;
 }
 
+/// Test quarter nibble
+pub struct LayoutNewQuarter;
+
+impl TrieLayOut for LayoutNewQuarter {
+	const USE_EXTENSION: bool = false;
+	type H = keccak_hasher::KeccakHasher;
+	type C = ReferenceNodeCodecNoExt;
+	type N = NibbleQuarter;
+}
+
+
+
 pub type RefTrieDB<'a> = trie_db::TrieDB<'a, LayoutOri>;
 pub type RefTrieDBNoExt<'a> = trie_db::TrieDB<'a, LayoutNew>;
+pub type RefTrieDBNoExtQ<'a> = trie_db::TrieDB<'a, LayoutNewQuarter>;
 pub type RefTrieDBMut<'a> = trie_db::TrieDBMut<'a, LayoutOri>;
 pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMut<'a, LayoutNew>;
+pub type RefTrieDBMutNoExtQ<'a> = trie_db::TrieDBMut<'a, LayoutNewQuarter>;
 pub type RefFatDB<'a> = trie_db::FatDB<'a, LayoutOri>;
 pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, LayoutOri>;
 pub type RefSecTrieDB<'a> = trie_db::SecTrieDB<'a, LayoutOri>;
 pub type RefSecTrieDBMut<'a> = trie_db::SecTrieDBMut<'a, LayoutOri>;
 pub type RefLookup<'a, Q> = trie_db::Lookup<'a, LayoutOri, Q>;
 pub type RefLookupNoExt<'a, Q> = trie_db::Lookup<'a, LayoutNew, Q>;
+pub type RefLookupNoExtQ<'a, Q> = trie_db::Lookup<'a, LayoutNewQuarter, Q>;
 
 pub fn ref_trie_root<I, A, B>(input: I) -> <KeccakHasher as Hasher>::Out where
 	I: IntoIterator<Item = (A, B)>,
@@ -529,7 +544,7 @@ fn partial_to_key_it<N: NibbleOps, I: Iterator<Item = u8>>(partial: I, nibble_co
 fn partial_enc_it<N: NibbleOps, I: Iterator<Item = u8>>(partial: I, nibble_count: usize, node_kind: NodeKindNoExt) -> Vec<u8> {
 	let nibble_count = ::std::cmp::min(s_cst::NIBBLE_SIZE_BOUND, nibble_count);
 
-	let mut output = Vec::with_capacity(3 + nibble_count);
+	let mut output = Vec::with_capacity(3 + (nibble_count / N::NIBBLE_PER_BYTE));
 	match node_kind {
 		NodeKindNoExt::Leaf => NodeHeaderNoExt::Leaf(nibble_count).encode_to(&mut output),
 		NodeKindNoExt::BranchWithValue => NodeHeaderNoExt::Branch(true, nibble_count).encode_to(&mut output),
@@ -554,7 +569,7 @@ fn partial_enc<N: NibbleOps>(partial: Partial, node_kind: NodeKindNoExt) -> Vec<
 		NodeKindNoExt::BranchNoValue => NodeHeaderNoExt::Branch(false, nibble_count).encode_to(&mut output),
 	};
 	if nb_nibble_hpe > 0 {
-		output.push(N::masked_right(nb_nibble_hpe as u8, (partial.0).1));
+		output.push(N::masked_right((N::NIBBLE_PER_BYTE - nb_nibble_hpe) as u8, (partial.0).1));
 	}
 	output.extend_from_slice(&partial.1[..]);
 	output
@@ -697,7 +712,7 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodecNoExt {
 			NodeHeaderNoExt::Null => Ok(Node::Empty),
 			NodeHeaderNoExt::Branch(has_value, nibble_count) => {
 				let nb_nibble_hpe = nibble_count % N::NIBBLE_PER_BYTE;
-				if nb_nibble_hpe > 0 && N::masked_left(nb_nibble_hpe as u8, input[0]) != 0 {
+				if nb_nibble_hpe > 0 && N::masked_left((N::NIBBLE_PER_BYTE - nb_nibble_hpe) as u8, input[0]) != 0 {
 					return Err(ReferenceError::BadFormat);
 				}
 				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
@@ -724,7 +739,7 @@ impl<N: NibbleOps> NodeCodec<KeccakHasher, N> for ReferenceNodeCodecNoExt {
 			}
 			NodeHeaderNoExt::Leaf(nibble_count) => {
 				let nb_nibble_hpe = nibble_count % N::NIBBLE_PER_BYTE;
-				if nb_nibble_hpe > 0 && N::masked_left(nb_nibble_hpe as u8, input[0]) != 0 {
+				if nb_nibble_hpe > 0 && N::masked_left((N::NIBBLE_PER_BYTE - nb_nibble_hpe) as u8, input[0]) != 0 {
 					return Err(ReferenceError::BadFormat);
 				}
 				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
@@ -963,6 +978,53 @@ pub fn compare_impl_no_ext(
 
 	assert_eq!(root, root_new);
 }
+
+pub fn compare_impl_no_ext_q(
+	data: Vec<(Vec<u8>,Vec<u8>)>,
+	mut memdb: impl hash_db::HashDB<KeccakHasher,DBValue>,
+	mut hashdb: impl hash_db::HashDB<KeccakHasher,DBValue>,
+) {
+	let root_new = {
+		let mut cb = TrieBuilder::new(&mut hashdb);
+		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibbleQuarter, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		cb.root.unwrap_or(Default::default())
+	};
+	let root = {
+		let mut root = Default::default();
+		let mut t = RefTrieDBMutNoExtQ::new(&mut memdb, &mut root);
+		for i in 0..data.len() {
+			t.insert(&data[i].0[..],&data[i].1[..]).unwrap();
+		}
+		t.root().clone()
+	};
+	{
+		let db : &dyn hash_db::HashDB<_,_> = &memdb;
+			let t = RefTrieDBNoExtQ::new(&db, &root).unwrap();
+			println!("{:?}", t);
+	}
+
+	if root != root_new {
+		{
+			let db : &dyn hash_db::HashDB<_,_> = &memdb;
+			let t = RefTrieDBNoExtQ::new(&db, &root).unwrap();
+			println!("{:?}", t);
+			for a in t.iter().unwrap() {
+				println!("a:{:?}", a);
+			}
+		}
+		{
+			let db : &dyn hash_db::HashDB<_,_> = &hashdb;
+			let t = RefTrieDBNoExtQ::new(&db, &root_new).unwrap();
+			println!("{:?}", t);
+			for a in t.iter().unwrap() {
+				println!("a:{:?}", a);
+			}
+		}
+	}
+
+	assert_eq!(root, root_new);
+}
+
 
 pub fn compare_impl_no_ext_unordered(
 	data: Vec<(Vec<u8>,Vec<u8>)>,
