@@ -78,18 +78,12 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 			let start = self.offset / N::NIBBLE_PER_BYTE;
 			let end = (self.offset + nb) / N::NIBBLE_PER_BYTE;
 			let ea = ElasticArray36::from_slice(&self.data[start..=end]);
+      let ea_offset = self.offset % N::NIBBLE_PER_BYTE;
 			let n_offset = N::nb_padding(nb);
-			if n_offset == 1 {
-				let mut result = (0, ea);
-				crate::triedbmut::shift_key::<N>(&mut result, 1);
-				result.1.pop();
-				result
-			} else {
-				let mut result = (1, ea);
-				crate::triedbmut::shift_key::<N>(&mut result, 0);
-				result.1.pop();
-				result
-			}
+			let mut result = (ea_offset, ea);
+			N::shift_key(&mut result, n_offset);
+			result.1.pop();
+			result
 		}
 	}
 

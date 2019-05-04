@@ -19,6 +19,7 @@ mod nibbleslice;
 use ::core_::cmp::*;
 use ::core_::marker::PhantomData;
 use elastic_array::ElasticArray36;
+use crate::node::NodeKey;
 
 pub const EMPTY_ENCODED: (&'static [u8], (u8, u8)) = (&[], (0, 0));
 // until const fn for pow
@@ -107,6 +108,34 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 		}
 		return i;
 	}
+
+	/// shift key (right) alignment to match a given left offset, possibly leaving
+	/// wrong end of Nodekey (eg to combine two keys)
+	fn shift_key(key: &mut NodeKey, ofset: usize) -> bool {
+		let old_offset = key.0;
+		key.0 = ofset;
+		if old_offset > ofset {
+			// shift left
+			let shift = old_offset - ofset;
+			let (s1, s2) = Self::split_shifts(shift);
+			let kl = key.1.len();
+			(0..kl - 1).for_each(|i|key.1[i] = key.1[i] << s2 | key.1[i+1] >> s1);
+			key.1[kl - 1] = key.1[kl - 1] << s2;
+			true
+		} else if old_offset < ofset {
+			// shift right
+			let shift = ofset - old_offset;
+			let (s1, s2) = Self::split_shifts(shift);
+			key.1.push(0);
+			(1..key.1.len()).rev().for_each(|i|key.1[i] = key.1[i - 1] << s1 | key.1[i] >> s2);
+			key.1[0] = key.1[0] >> s2;
+			true
+		} else {
+			false
+		}
+	}
+
+
 }
 
 /// half byte nibble prepend encoding

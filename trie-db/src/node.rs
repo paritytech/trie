@@ -22,6 +22,7 @@ use super::DBValue;
 use alloc::vec::Vec;
 
 /// Partial node key type: offset and owned value of a nibbleslice.
+/// Offset is applied on first byte of array.
 pub type NodeKey = (usize, ElasticArray36<u8>);
 
 /// Type of node in the trie and essential information thereof.

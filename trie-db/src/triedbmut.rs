@@ -1036,14 +1036,13 @@ where
 						match child_node {
 							Node::Leaf(sub_partial, value) => {
 								let mut enc_nibble = enc_nibble;
-								combine_key::<L::N>(&mut enc_nibble, (1, &[a][..]));
+								combine_key::<L::N>(&mut enc_nibble, (L::N::NIBBLE_PER_BYTE - 1, &[a][..]));
 								combine_key::<L::N>(&mut enc_nibble, (sub_partial.0, &sub_partial.1[..]));
 								Ok(Node::Leaf(enc_nibble, value))
 							},
 							Node::NibbledBranch(sub_partial, ch_children, ch_value) => {
 								let mut enc_nibble = enc_nibble;
-								// TODO a + buf + ck
-								combine_key::<L::N>(&mut enc_nibble, (1, &[a][..]));
+								combine_key::<L::N>(&mut enc_nibble, (L::N::NIBBLE_PER_BYTE - 1, &[a][..]));
 								combine_key::<L::N>(&mut enc_nibble, (sub_partial.0, &sub_partial.1[..]));
 								Ok(Node::NibbledBranch(enc_nibble, ch_children, ch_value))
 							},
@@ -1321,37 +1320,18 @@ where
 	}
 }
 
-/// TODO EMCH Consider moving to NibbleOps
+/// combine two NodeKeys
 fn combine_key<N: NibbleOps>(start: &mut NodeKey, end: (usize, &[u8])) {
 	let final_ofset = (start.0 + end.0) % N::NIBBLE_PER_BYTE;
-	let _shifted = shift_key::<N>(start, final_ofset);
+	let _shifted = N::shift_key(start, final_ofset);
 	let st = if end.0 > 0 {
 		let sl = start.1.len();
-		start.1[sl - 1] |= end.1[0] & (255 >> 4);
+		start.1[sl - 1] |= N::masked_right(end.0 as u8, end.1[0]);
 		1
 	} else {
 		0
 	};
 	(st..end.1.len()).for_each(|i|start.1.push(end.1[i]));
-}
-
-/// TODO EMCH Consider moving to NibbleOps
-pub(crate) fn shift_key<N: NibbleOps>(key: &mut NodeKey, ofset: usize) -> bool {
-	let old = key.0;
-	key.0 = ofset;
-	if old > ofset {
-		let kl = key.1.len();
-		(0..kl - 1).for_each(|i|key.1[i] = key.1[i] << 4 | key.1[i+1]>>4);
-		key.1[kl - 1] = key.1[kl - 1] << 4;
-		true
-	} else if old < ofset {
-		key.1.push(0);
-		(1..key.1.len()).rev().for_each(|i|key.1[i] = key.1[i - 1] << 4 | key.1[i] >> 4);
-		key.1[0] = key.1[0] >> 4;
-		true
-	} else {
-		false
-	}
 }
 
 #[cfg(test)]
