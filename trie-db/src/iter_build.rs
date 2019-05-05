@@ -506,7 +506,7 @@ mod test {
 		compare_impl_pk(data.clone());
 		compare_impl_no_ext(data.clone());
 		compare_impl_no_ext_pk(data.clone());
-//		compare_impl_no_ext_q(data.clone());
+		compare_impl_no_ext_q(data.clone());
 	}
 
 	fn compare_impl_pk(data: Vec<(Vec<u8>,Vec<u8>)>) {

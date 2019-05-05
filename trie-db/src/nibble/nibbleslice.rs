@@ -186,16 +186,16 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 
 	/// get iterator over slice, slow
 	pub fn right_range_iter(&'a self, to: usize) -> impl Iterator<Item = u8> + 'a {
-		let mut pad_res = to % N::NIBBLE_PER_BYTE;
+		let mut nib_res = to % N::NIBBLE_PER_BYTE;
 		let aligned_i = (self.offset + to) % N::NIBBLE_PER_BYTE;
 		let aligned = aligned_i == 0;
 		let mut ix = self.offset / N::NIBBLE_PER_BYTE;
 		let ix_lim = (self.offset + to) / N::NIBBLE_PER_BYTE;
 		::core_::iter::from_fn( move || {
 			if aligned {
-				if pad_res > 0 {
-					let v = N::masked_right((N::NIBBLE_PER_BYTE - pad_res) as u8, self.data[ix]);
-					pad_res = 0;
+				if nib_res > 0 {
+					let v = N::masked_right((N::NIBBLE_PER_BYTE - nib_res) as u8, self.data[ix]);
+					nib_res = 0;
 					ix += 1;
 					Some(v)
 				} else if ix < ix_lim {
@@ -207,10 +207,10 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 			} else {
 				let (s1, s2) = N::split_shifts(aligned_i);
 				// unaligned
-				let pad_nib = self.offset % N::NIBBLE_PER_BYTE;
-				if N::NIBBLE_PER_BYTE - pad_res < N::NIBBLE_PER_BYTE - pad_nib {
+				if nib_res > 0 {
 					let v = self.data[ix] >> s1;
-					pad_res = 0;
+					let v = N::masked_right((N::NIBBLE_PER_BYTE - nib_res) as u8, v);
+					nib_res = 0;
 					Some(v)
 				} else if ix < ix_lim {
 					ix += 1;
