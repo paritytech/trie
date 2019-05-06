@@ -44,6 +44,7 @@ pub type Partial<'a> = ((u8,u8), &'a[u8]);
 /// Trait for trie node encoding/decoding
 /// TODO add const MAX_NODE_LEN and run all encoding over a mutable buffer, returning size. ->
 /// avoid Vec by all means.
+/// TODO also add inner trait impl for nibble ops encoding
 pub trait NodeCodec<H: Hasher, N: NibbleOps>: Sized {
 	/// Codec error type
 	type Error: Error;

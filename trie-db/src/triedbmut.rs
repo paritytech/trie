@@ -20,7 +20,7 @@ use super::node::Node as EncodedNode;
 use node_codec::NodeCodec;
 use super::{DBValue, node::NodeKey};
 
-use nibble::EMPTY_ENCODED as NIBBLE_EMPTY_ENCODED;
+use nibble::EMPTY_NIBBLE;
 use hash_db::{HashDB, Hasher, Prefix};
 use nibble::{NibbleVec, NibbleSlice, NibbleOps};
 use elastic_array::ElasticArray36;
@@ -378,7 +378,7 @@ where
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
 	pub fn from_existing(db: &'a mut HashDB<L::H, DBValue>, root: &'a mut TrieHash<L>) -> Result<Self, TrieHash<L>, CError<L>> {
-		if !db.contains(root, NIBBLE_EMPTY_ENCODED) {
+		if !db.contains(root, EMPTY_NIBBLE) {
 			return Err(Box::new(TrieError::InvalidStateRoot(*root)));
 		}
 
@@ -1067,7 +1067,7 @@ where
 					(st, (0, _v)) => (st, None, (1, L::N::push_at_left(0, a, 0))),
 					(st, (i,v)) if i == L::N::LAST_N_IX_U8 => {
 						let mut so: ElasticArray36<u8> = st.into();
-						so.push(L::N::masked_left(L::N::LAST_N_IX_U8, v) | a); // TODO replace by push_at left??
+						so.push(L::N::masked_left(L::N::LAST_N_IX_U8, v) | a);
 						(st, Some(so), (0,0))
 					},
 					(st, (ix, v)) => (st, None, (ix, L::N::push_at_left(ix, a, v))),
@@ -1156,7 +1156,7 @@ where
 					cr
 				});
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
-				*self.root = self.db.insert(NIBBLE_EMPTY_ENCODED, &encoded_root[..]);
+				*self.root = self.db.insert(EMPTY_NIBBLE, &encoded_root[..]);
 				self.hash_count += 1;
 
 				self.root_handle = NodeHandle::Hash(*self.root);

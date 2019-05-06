@@ -21,7 +21,7 @@ use ::core_::marker::PhantomData;
 use elastic_array::ElasticArray36;
 use crate::node::NodeKey;
 
-pub const EMPTY_ENCODED: (&'static [u8], (u8, u8)) = (&[], (0, 0));
+pub const EMPTY_NIBBLE: (&'static [u8], (u8, u8)) = (&[], (0, 0));
 // until const fn for pow
 const TWO_EXP: [usize; 9] = [1, 2, 4, 8, 16, 32, 64, 128, 256];
 /// Nibble specific variants
@@ -43,7 +43,6 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	const LAST_N_IX: usize = Self::NIBBLE_PER_BYTE - 1;
 	/// las ix for nible as a u8 (for pattern matching)
 	const LAST_N_IX_U8: u8 = Self::LAST_N_IX as u8;
-	const SINGLE_BITMASK: u8;
 
 	/// mask a byte from a ix > 0 (ix being content)
 	#[inline(always)]
@@ -64,14 +63,14 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 			>> Self::PADDING_BITMASK[ix as usize].1
 	}
 
-  /// get nibble for left aligned array
-  #[inline(always)]
-  fn left_nibble_at(v1: &[u8], ix: usize) -> u8 {
-    Self::at_left(
-      (ix % Self::NIBBLE_PER_BYTE) as u8,
-      v1[ix / Self::NIBBLE_PER_BYTE]
-    )
-  }
+	/// get nibble for left aligned array
+	#[inline(always)]
+	fn left_nibble_at(v1: &[u8], ix: usize) -> u8 {
+		Self::at_left(
+			(ix % Self::NIBBLE_PER_BYTE) as u8,
+			v1[ix / Self::NIBBLE_PER_BYTE]
+		)
+	}
 
 	/// push u8 nib value at ix into a existing byte 
 	#[inline(always)]
@@ -102,17 +101,17 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 		(s1, s2)
 	}
 
-  /// get biggest common depth between two left aligned packed nibble arrays
-  fn biggest_depth(v1: &[u8], v2: &[u8]) -> usize {
-    // sorted assertion preventing out of bound
-    for a in 0..v1.len() {
-      if v1[a] == v2[a] {
-      } else {
-        return a * Self::NIBBLE_PER_BYTE + Self::left_common(v1[a], v2[a]);
-      }
-    }
-    return v1.len() * Self::NIBBLE_PER_BYTE;
-  }
+	/// get biggest common depth between two left aligned packed nibble arrays
+	fn biggest_depth(v1: &[u8], v2: &[u8]) -> usize {
+		// sorted assertion preventing out of bound
+		for a in 0..v1.len() {
+			if v1[a] == v2[a] {
+			} else {
+				return a * Self::NIBBLE_PER_BYTE + Self::left_common(v1[a], v2[a]);
+			}
+		}
+		return v1.len() * Self::NIBBLE_PER_BYTE;
+	}
 
 	/// number of common bit between two left pad byte
 	#[inline(always)]
@@ -178,7 +177,6 @@ pub enum ByteLayout {
 impl NibbleOps for NibbleHalf {
 	const REPR: ByteLayout = ByteLayout::Half; 
 	const PADDING_BITMASK: &'static [(u8, usize)] = &[(0xFF, 4), (0x0F, 0)];
-	const SINGLE_BITMASK: u8 = 0x0F;
 }
 
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, Debug)]
@@ -193,7 +191,6 @@ impl NibbleOps for NibbleQuarter {
 		(0b0000_1111, 2),
 		(0b0000_0011, 0),
 	];
-	const SINGLE_BITMASK: u8 = 0b0000_0011;
 }
 
 

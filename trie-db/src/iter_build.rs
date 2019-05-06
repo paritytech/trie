@@ -22,25 +22,9 @@ use crate::nibble::NibbleOps;
 use node_codec::NodeCodec;
 
 
-/*
-// TODO remove for nibbleslice api TODO can be variable size
-fn encoded_nibble(ori: &[u8], is_leaf: bool) -> ElasticArray36<u8> {
-	let l = ori.len();
-	let mut r = ElasticArray36::new();
-	let mut i = l % 2;
-	r.push(if i == 1 {0x10 + ori[0]} else {0} + if is_leaf {0x20} else {0});
-	while i < l {
-		r.push(ori[i] * 16 + ori[i+1]);
-		i += 2;
-	}
-	r
-}
-*/
-
 type CacheNode<HO> = Option<ChildReference<HO>>;
 
 // (64 * 16) aka 2*byte size of key * nb nibble value, 2 being byte/nible (8/4)
-// TODO test others layout
 // first usize to get nb of added value, second usize last added index
 // second str is in branch value
 struct CacheAccum<H: Hasher,C,N,V> (Vec<([CacheNode<<H as Hasher>::Out>; NIBBLE_SIZE_BUFF], bool, Option<V>)>,PhantomData<(H,C,N)>);
@@ -58,7 +42,7 @@ fn new_vec_slice_buff<HO>() -> [CacheNode<HO>; NIBBLE_SIZE_BUFF ] {
 /// initially allocated cache
 const INITIAL_DEPTH: usize = 10;
 /// This should not exist and be associated const of trie layout
-/// TODO test `new_vec_slice_buff` as function of trait and associated type
+/// TODO EMCH test `new_vec_slice_buff` as function of trait and associated type
 const NIBBLE_SIZE_BUFF: usize = 16;
 
 impl<H,C,N,V> CacheAccum<H,C,N,V>
@@ -119,11 +103,7 @@ where
 		let nibble_value = N::left_nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
 		let nkey = NibbleSlice::<N>::new_offset(&k2.as_ref()[..],target_depth+1);
-		// Note: fwiu, having fixed key size, all values are in leaf (no value in
-		// branch). TODO run metrics on a node to count branch with values
 		let encoded = C::leaf_node(nkey.right(), &v2.as_ref()[..]);
-		// TODO redesign nibleslice encoded to allow an inputstream (avoid this alloc) + design the
-		// thing other array of slice to avoid those concatenation unsecure or costy + same for nodes
 		let pr = NibbleSlice::<N>::new_offset(&k2.as_ref()[..], k2.as_ref().len() * N::NIBBLE_PER_BYTE - nkey.len());
 		let hash = cb_ext.process(pr.left(), encoded, false);
 
@@ -151,8 +131,6 @@ where
 				let last_root = d == 0 && is_last;
 				// reduce slice for branch
 				let parent_branch = touched;
-				// TODO change this offset to not use nibble slice api (makes it hard to get the index
-				// thing)
 				let (slice_size, offset) = if parent_branch && last_root {
 					// corner branch last
 					(branch_d - d - 1, d + 1)
@@ -294,55 +272,47 @@ fn trie_visit_inner<H, C, N, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool)
 	// compare iter ordering
 	let mut iter_input = input.into_iter();
 	if let Some(mut prev_val) = iter_input.next() {
-		//println!("!st{:?},{:?}",&prev_val.0.as_ref(),&prev_val.1.as_ref());
-		// depth of last item TODO rename to last_depth
-		let mut prev_depth = 0;
+		// depth of last item
+		let mut last_depth = 0;
 
 		for (k, v) in iter_input {
-			//println!("!{:?},{:?}",&k.as_ref(),&v.as_ref());
 			let common_depth = N::biggest_depth(&prev_val.0.as_ref()[..], &k.as_ref()[..]);
 			// 0 is a reserved value : could use option
 			let depth_item = common_depth;
 			if common_depth == prev_val.0.as_ref().len() * N::NIBBLE_PER_BYTE {
-				//println!("stack {} ", common_depth);
 				// the new key include the previous one : branch value case
 				// just stored value at branch depth
 				depth_queue.set_elt(common_depth, Some(prev_val.1));
-			} else if depth_item >= prev_depth {
-				//println!("fv {}", depth_item);
+			} else if depth_item >= last_depth {
 				// put prev with next (common branch prev val can be flush)
 				depth_queue.flush_val(cb_ext, depth_item, &prev_val);
-			} else if depth_item < prev_depth {
-				//println!("fbv {}", prev_depth);
+			} else if depth_item < last_depth {
 				// do not put with next, previous is last of a branch
-				depth_queue.flush_val(cb_ext, prev_depth, &prev_val);
+				depth_queue.flush_val(cb_ext, last_depth, &prev_val);
 				let ref_branches = prev_val.0;
-				//println!("fb {} {}", depth_item, prev_depth);
-				depth_queue.flush_branch(no_ext, cb_ext, ref_branches, depth_item, prev_depth, false); // TODO flush at prev flush depth instead ??
+				depth_queue.flush_branch(no_ext, cb_ext, ref_branches, depth_item, last_depth, false);
 			}
 
 			prev_val = (k, v);
-			prev_depth = depth_item;
+			last_depth = depth_item;
 		}
 		// last pendings
-		if prev_depth == 0
+		if last_depth == 0
 			&& !depth_queue.touched(0) {
 			// one single element corner case
 			let (k2, v2) = prev_val;
-			let nkey = NibbleSlice::<N>::new_offset(&k2.as_ref()[..],prev_depth);
+			let nkey = NibbleSlice::<N>::new_offset(&k2.as_ref()[..],last_depth);
 			let encoded = C::leaf_node(nkey.right(), &v2.as_ref()[..]);
 			let pr = NibbleSlice::<N>::new_offset(&k2.as_ref()[..], k2.as_ref().len() * N::NIBBLE_PER_BYTE - nkey.len());
 			cb_ext.process(pr.left(), encoded, true);
 		} else {
-			//println!("fbvl {}", prev_depth);
-			depth_queue.flush_val(cb_ext, prev_depth, &prev_val);
+			depth_queue.flush_val(cb_ext, last_depth, &prev_val);
 			let ref_branches = prev_val.0;
-			//println!("fbl {} {}", 0, prev_depth);
-			depth_queue.flush_branch(no_ext, cb_ext, ref_branches, 0, prev_depth, true);
+			depth_queue.flush_branch(no_ext, cb_ext, ref_branches, 0, last_depth, true);
 		}
 	} else {
-		// nothing null root corner case TODO warning hardcoded empty nibbleslice
-		cb_ext.process(crate::nibble::EMPTY_ENCODED, C::empty_node().to_vec(), true);
+		// nothing null root corner case
+		cb_ext.process(crate::nibble::EMPTY_NIBBLE, C::empty_node().to_vec(), true);
 	}
 }
 
@@ -376,7 +346,6 @@ impl<'a, H: Hasher, V, DB: HashDB<H,V>> ProcessEncodedNode<<H as Hasher>::Out> f
 		}
 		let hash = self.db.insert(encoded_prefix, &enc_ext[..]);
 		if is_root {
-			//println!("isroot touch");
 			self.root = Some(hash.clone());
 		};
 		ChildReference::Hash(hash)

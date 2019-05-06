@@ -14,7 +14,7 @@
 
 use hash_db::{HashDBRef, Prefix};
 use nibble::{NibbleSlice, NibbleOps};
-use nibble::EMPTY_ENCODED as NIBBLE_EMPTY_ENCODED;
+use nibble::EMPTY_NIBBLE;
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
 use super::lookup::Lookup;
@@ -80,7 +80,7 @@ where
 	/// Create a new trie with the backing database `db` and `root`
 	/// Returns an error if `root` does not exist
 	pub fn new(db: &'db HashDBRef<L::H, DBValue>, root: &'db TrieHash<L>) -> Result<Self, TrieHash<L>, CError<L>> {
-		if !db.contains(root, NIBBLE_EMPTY_ENCODED) {
+		if !db.contains(root, EMPTY_NIBBLE) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		} else {
 			Ok(TrieDB {db, root, hash_count: 0})
@@ -93,7 +93,7 @@ where
 	/// Get the data of the root node.
 	pub fn root_data(&self) -> Result<DBValue, TrieHash<L>, CError<L>> {
 		self.db
-			.get(self.root, NIBBLE_EMPTY_ENCODED)
+			.get(self.root, EMPTY_NIBBLE)
 			.ok_or_else(|| Box::new(TrieError::InvalidStateRoot(*self.root)))
 	}
 
@@ -145,7 +145,7 @@ where
 {
 	trie: &'db TrieDB<'db, L>,
 	node_key: &'a[u8],
-  partial_key: NibbleVec<L::N>,
+	partial_key: NibbleVec<L::N>,
 	index: Option<u8>,
 }
 
@@ -246,7 +246,7 @@ where
 			.field("root", &TrieAwareDebugNode {
 				trie: self,
 				node_key: &root_rlp[..],
-        partial_key: NibbleVec::new(),
+				partial_key: NibbleVec::new(),
 				index: None,
 			})
 			.finish()
@@ -382,7 +382,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 								status: Status::AtChild(i as usize),
 								node: node.clone().into(),
 							});
-						  self.key_nibbles.append_partial(slice.right());
+							self.key_nibbles.append_partial(slice.right());
 							self.key_nibbles.push(i);
 							if let Some(ref child) = nodes[i as usize] {
 								full_key_nibbles += slice.len() + 1;
@@ -413,8 +413,8 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 
 	/// Descend into a payload.
 	fn descend_into_node(&mut self, node: OwnedNode<L::N>) {
-    let trail = &mut self.trail;
-    let key_nibbles = &mut self.key_nibbles;
+		let trail = &mut self.trail;
+		let key_nibbles = &mut self.key_nibbles;
 		trail.push(Crumb { status: Status::Entering, node });
 		match &trail.last().expect("just pushed item; qed").node {
 			&OwnedNode::Leaf(ref n, _)
@@ -490,9 +490,9 @@ impl<'a, L: TrieLayOut> Iterator for TrieDBIterator<'a, L> {
 						match i {
 							0 => self.key_nibbles.push(0),
 							i => {
-                self.key_nibbles.pop();
-                self.key_nibbles.push(i as u8);
-              },
+								self.key_nibbles.pop();
+								self.key_nibbles.push(i as u8);
+							},
 						}
 						IterStep::Descend::<TrieHash<L>, CError<L>>(self.db.get_raw_or_lookup(
 							&branch.index(i).expect("this arm guarded by branch[i].is_some(); qed"),
