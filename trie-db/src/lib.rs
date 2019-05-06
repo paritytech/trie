@@ -97,7 +97,8 @@ pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
 pub use self::nibble::{NibbleSlice, NibbleOps, NibbleHalf, NibbleQuarter};
 pub use node_codec::{NodeCodec, Partial};
-pub use iter_build::{trie_visit, trie_visit_no_ext, ProcessEncodedNode, TrieBuilder, TrieRoot, TrieRootUnhashed};
+pub use iter_build::{trie_visit, trie_visit_no_ext, ProcessEncodedNode,
+  TrieBuilder, TrieRoot, TrieRootUnhashed, CacheBuilder, Cache16, Cache4};
 
 pub type DBValue = elastic_array::ElasticArray128<u8>;
 
@@ -369,6 +370,7 @@ pub trait TrieLayOut {
 	type H: Hasher;
 	type C: NodeCodec<Self::H, Self::N>;
 	type N: NibbleOps;
+	type CB: CacheBuilder<<Self::H as Hasher>::Out>;
 }
 
 /// alias to acces hasher hash output type from a `TrieLayout`

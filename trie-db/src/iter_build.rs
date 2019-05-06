@@ -21,23 +21,49 @@ use crate::nibble::NibbleSlice;
 use crate::nibble::NibbleOps;
 use node_codec::NodeCodec;
 
+macro_rules! exp_disp {
+  (@3, [$($inpp:expr),*]) => { exp_disp!(@2, [$($inpp,)* $($inpp),*]) };
+  (@2, [$($inpp:expr),*]) => { exp_disp!(@1, [$($inpp,)* $($inpp),*]) };
+  (@1, [$($inpp:expr),*]) => { [$($inpp,)* $($inpp),*] };
+}
 
 type CacheNode<HO> = Option<ChildReference<HO>>;
+
+/// a builder for fix constant len cache, should match nibble ops `NIBBLE_LEN` 
+pub trait CacheBuilder<HO> {
+  /// size of cache
+  const SIZE: usize;
+  /// the fix cache
+  type AN: AsRef<[CacheNode<HO>]> + AsMut<[CacheNode<HO>]>;
+  /// builder for cache
+  fn new_vec_slice_buff() -> Self::AN; 
+}
+
+pub struct Cache16;
+pub struct Cache4;
+
+impl<HO> CacheBuilder<HO> for Cache16 {
+  const SIZE: usize = 16;
+  type AN = [CacheNode<HO>; 16];
+  #[inline(always)]
+  fn new_vec_slice_buff() -> Self::AN {
+	  exp_disp!(@3, [None,None])
+  }
+}
+
+impl<HO> CacheBuilder<HO> for Cache4 {
+  const SIZE: usize = 4;
+  type AN = [CacheNode<HO>; 4];
+  #[inline(always)]
+  fn new_vec_slice_buff() -> Self::AN {
+	  exp_disp!(@2, [None])
+  }
+}
 
 // (64 * 16) aka 2*byte size of key * nb nibble value, 2 being byte/nible (8/4)
 // first usize to get nb of added value, second usize last added index
 // second str is in branch value
-struct CacheAccum<H: Hasher,C,N,V> (Vec<([CacheNode<<H as Hasher>::Out>; NIBBLE_SIZE_BUFF], bool, Option<V>)>,PhantomData<(H,C,N)>);
-
-#[inline(always)]
-fn new_vec_slice_buff<HO>() -> [CacheNode<HO>; NIBBLE_SIZE_BUFF ] {
-	[
-		None, None, None, None,
-		None, None, None, None,
-		None, None, None, None,
-		None, None, None, None,
-	]
-}
+struct CacheAccum<H: Hasher,C,N,CB: CacheBuilder<H::Out>,V> (Vec<(CB::AN, bool, Option<V>)>,PhantomData<(H,C,N,CB)>);
 
 /// initially allocated cache
 const INITIAL_DEPTH: usize = 10;
@@ -45,17 +71,18 @@ const INITIAL_DEPTH: usize = 10;
 /// TODO EMCH test `new_vec_slice_buff` as function of trait and associated type
 const NIBBLE_SIZE_BUFF: usize = 16;
 
-impl<H,C,N,V> CacheAccum<H,C,N,V>
+impl<H: Hasher,C,N,CB,V> CacheAccum<H,C,N,CB,V>
 where
 	H: Hasher,
 	N: NibbleOps,
+	CB: CacheBuilder<<H as Hasher>::Out>,
 	C: NodeCodec<H,N>,
 	V: AsRef<[u8]>,
 	{
 
 	fn new() -> Self {
 		let mut v = Vec::with_capacity(INITIAL_DEPTH);
-		(0..INITIAL_DEPTH).for_each(|_|v.push((new_vec_slice_buff(), false, None)));
+		(0..INITIAL_DEPTH).for_each(|_|v.push((CB::new_vec_slice_buff(), false, None)));
 		CacheAccum(v, PhantomData)
 	}
 
@@ -63,7 +90,7 @@ where
 	fn set_elt(&mut self, depth:usize, sl: Option<V>) {
 		if depth >= self.0.len() {
 			for _i in self.0.len()..depth + 1 { 
-				self.0.push((new_vec_slice_buff(), false, None));
+				self.0.push((CB::new_vec_slice_buff(), false, None));
 			}
 		}
 		self.0[depth].2 = sl;
@@ -74,10 +101,10 @@ where
 	fn set_node(&mut self, depth:usize, nibble_ix:usize, node: CacheNode<H::Out>) {
 		if depth >= self.0.len() {
 			for _i in self.0.len()..depth + 1 { 
-				self.0.push((new_vec_slice_buff(), false, None));
+				self.0.push((CB::new_vec_slice_buff(), false, None));
 			}
 		}
-		self.0[depth].0[nibble_ix] = node;
+		self.0[depth].0.as_mut()[nibble_ix] = node;
 		self.0[depth].1 = true;
 	}
 
@@ -90,7 +117,7 @@ where
 	fn reset_depth(&mut self, depth:usize) {
 		self.0[depth].1 = false;
 		for i in 0..N::NIBBLE_LEN {
-			self.0[depth].0[i] = None;
+			self.0[depth].0.as_mut()[i] = None;
 		}
 	}
 
@@ -189,7 +216,7 @@ where
 
 		// enc branch
 		let v = self.0[branch_d].2.take();
-		let encoded = C::branch_node(self.0[branch_d].0.iter(), v.as_ref().map(|v|v.as_ref()));
+		let encoded = C::branch_node(self.0[branch_d].0.as_ref().iter(), v.as_ref().map(|v|v.as_ref()));
 		self.reset_depth(branch_d);
 		let pr = NibbleSlice::<N>::new_offset(&key_branch.as_ref()[..], branch_d);
 		let branch_hash = cb_ext.process(pr.left(), encoded, is_root && nkey.is_none());
@@ -222,7 +249,7 @@ where
 			// warn direct use of default empty nible encoded: NibbleSlice::new_offset(&[],0).encoded(false);
 			pr.right_range_iter(nkeyix.1),
 			nkeyix.1,
-			self.0[branch_d].0.iter(), v.as_ref().map(|v|v.as_ref()));
+			self.0[branch_d].0.as_ref().iter(), v.as_ref().map(|v|v.as_ref()));
 		self.reset_depth(branch_d);
 		let ext_len = nkey.as_ref().map(|nkeyix|nkeyix.0).unwrap_or(0);
 		let pr = NibbleSlice::<N>::new_offset(&key_branch.as_ref()[..], branch_d - ext_len);
@@ -231,44 +258,47 @@ where
 
 }
 
-pub fn trie_visit_no_ext<H, C, N, I, A, B, F>(input: I, cb_ext: &mut F) 
+pub fn trie_visit_no_ext<H, C, N, CB, I, A, B, F>(input: I, cb_ext: &mut F) 
 	where
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,
 		H: Hasher,
 		N: NibbleOps,
+    CB: CacheBuilder<<H as Hasher>::Out>,
 		C: NodeCodec<H,N>,
 		F: ProcessEncodedNode<<H as Hasher>::Out>,
 	{
-		trie_visit_inner::<H, C, N, I, A, B, F>(input, cb_ext, true)
+		trie_visit_inner::<H, C, N, CB, I, A, B, F>(input, cb_ext, true)
 	}
 
-pub fn trie_visit<H, C, N, I, A, B, F>(input: I, cb_ext: &mut F) 
+pub fn trie_visit<H, C, N, CB, I, A, B, F>(input: I, cb_ext: &mut F) 
 	where
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,
 		H: Hasher,
 		N: NibbleOps,
+    CB: CacheBuilder<<H as Hasher>::Out>,
 		C: NodeCodec<H, N>,
 		F: ProcessEncodedNode<<H as Hasher>::Out>,
 	{
-		trie_visit_inner::<H, C, N, I, A, B, F>(input, cb_ext, false)
+		trie_visit_inner::<H, C, N, CB, I, A, B, F>(input, cb_ext, false)
 	}
 
 // put no_ext as a trait: probably not worth it (fn designed for that)?
-fn trie_visit_inner<H, C, N, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool) 
+fn trie_visit_inner<H, C, N, CB, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool) 
 	where
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,
 		H: Hasher,
 		N: NibbleOps,
+    CB: CacheBuilder<<H as Hasher>::Out>,
 		C: NodeCodec<H,N>,
 		F: ProcessEncodedNode<<H as Hasher>::Out>,
 	{
-	let mut depth_queue = CacheAccum::<H,C,N,B>::new();
+	let mut depth_queue = CacheAccum::<H,C,N,CB,B>::new();
 	// compare iter ordering
 	let mut iter_input = input.into_iter();
 	if let Some(mut prev_val) = iter_input.next() {

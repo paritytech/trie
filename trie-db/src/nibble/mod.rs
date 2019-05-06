@@ -153,7 +153,6 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 		}
 	}
 
-
 }
 
 /// half byte nibble prepend encoding
