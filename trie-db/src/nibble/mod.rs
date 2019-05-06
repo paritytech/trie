@@ -38,7 +38,6 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	const NIBBLE_LEN : usize = TWO_EXP[8 / Self::NIBBLE_PER_BYTE]; //2usize.pow(8 as u32 / Self::NIBBLE_PER_BYTE as u32);
 	/// padding bitmasks (could be calculated with a constant function).
 	/// First is bit mask to apply, second is right shift needed.
-	/// TODO EMCH check that array acts as constant
 	const PADDING_BITMASK: &'static [(u8, usize)];
 	/// las ix for nible
 	const LAST_N_IX: usize = Self::NIBBLE_PER_BYTE - 1;
@@ -59,12 +58,20 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 		b & Self::PADDING_BITMASK[ix as usize].0
 	}
 	/// get value at ix from a right first byte
-	/// TODO EMCH here left or right does not make lot of sense
 	#[inline(always)]
 	fn at_left(ix: u8, b: u8) -> u8 {
 		(b & Self::PADDING_BITMASK[ix as usize].0)
 			>> Self::PADDING_BITMASK[ix as usize].1
 	}
+
+  /// get nibble for left aligned array
+  #[inline(always)]
+  fn left_nibble_at(v1: &[u8], ix: usize) -> u8 {
+    Self::at_left(
+      (ix % Self::NIBBLE_PER_BYTE) as u8,
+      v1[ix / Self::NIBBLE_PER_BYTE]
+    )
+  }
 
 	/// push u8 nib value at ix into a existing byte 
 	#[inline(always)]
@@ -94,6 +101,18 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 		let s2 = 8 - s1;
 		(s1, s2)
 	}
+
+  /// get biggest common depth between two left aligned packed nibble arrays
+  fn biggest_depth(v1: &[u8], v2: &[u8]) -> usize {
+    // sorted assertion preventing out of bound
+    for a in 0..v1.len() {
+      if v1[a] == v2[a] {
+      } else {
+        return a * Self::NIBBLE_PER_BYTE + Self::left_common(v1[a], v2[a]);
+      }
+    }
+    return v1.len() * Self::NIBBLE_PER_BYTE;
+  }
 
 	/// number of common bit between two left pad byte
 	#[inline(always)]

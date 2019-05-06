@@ -21,28 +21,6 @@ use crate::nibble::NibbleSlice;
 use crate::nibble::NibbleOps;
 use node_codec::NodeCodec;
 
-// TODO EMCH use L instead of HC (aka TrieLayout)
-// TODO EMCH move to NibbleOps to use right constants
-fn biggest_depth<N: NibbleOps>(v1: &[u8], v2: &[u8]) -> usize {
-	// sorted assertion preventing out of bound
-	for a in 0..v1.len() {
-		if v1[a] == v2[a] {
-		} else {
-			return a * N::NIBBLE_PER_BYTE + N::left_common(v1[a], v2[a]);
-		}
-	}
-	return v1.len() * N::NIBBLE_PER_BYTE;
-}
-
-// warn! start at 0 // TODO change biggest_depth??
-// warn! slow don't loop on that when possible
-#[inline(always)]
-fn nibble_at<N: NibbleOps>(v1: &[u8], ix: usize) -> u8 {
-	N::at_left(
-		(ix % N::NIBBLE_PER_BYTE) as u8,
-		v1[ix / N::NIBBLE_PER_BYTE]
-	)
-}
 
 /*
 // TODO remove for nibbleslice api TODO can be variable size
@@ -138,7 +116,7 @@ where
 		target_depth: usize, 
 		(k2, v2): &(impl AsRef<[u8]>,impl AsRef<[u8]>), 
 	) {
-		let nibble_value = nibble_at::<N>(&k2.as_ref()[..], target_depth);
+		let nibble_value = N::left_nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
 		let nkey = NibbleSlice::<N>::new_offset(&k2.as_ref()[..],target_depth+1);
 		// Note: fwiu, having fixed key size, all values are in leaf (no value in
@@ -199,7 +177,7 @@ where
 					self.standard_ext(&ref_branch.as_ref()[..], cb_ext, branch_d, is_root, nkey)
 				};
 				// put hash in parent
-				let nibble: u8 = nibble_at::<N>(&ref_branch.as_ref()[..],d);
+				let nibble: u8 = N::left_nibble_at(&ref_branch.as_ref()[..],d);
 				self.set_node(d, nibble as usize, Some(h));
 			}
 			}
@@ -322,16 +300,14 @@ fn trie_visit_inner<H, C, N, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool)
 
 		for (k, v) in iter_input {
 			//println!("!{:?},{:?}",&k.as_ref(),&v.as_ref());
-			let common_depth = biggest_depth::<N>(&prev_val.0.as_ref()[..], &k.as_ref()[..]);
+			let common_depth = N::biggest_depth(&prev_val.0.as_ref()[..], &k.as_ref()[..]);
 			// 0 is a reserved value : could use option
 			let depth_item = common_depth;
 			if common_depth == prev_val.0.as_ref().len() * N::NIBBLE_PER_BYTE {
 				//println!("stack {} ", common_depth);
 				// the new key include the previous one : branch value case
 				// just stored value at branch depth
-				// TODO EMCH bound check and extend depth queue
 				depth_queue.set_elt(common_depth, Some(prev_val.1));
-
 			} else if depth_item >= prev_depth {
 				//println!("fv {}", depth_item);
 				// put prev with next (common branch prev val can be flush)

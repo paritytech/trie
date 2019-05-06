@@ -19,7 +19,6 @@ use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
 use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query, TrieLayOut, CError, TrieHash};
-use triedbmut::{concat_key_clone};
 use super::nibble::NibbleVec;
 #[cfg(feature = "std")]
 use ::std::fmt;
@@ -175,7 +174,7 @@ where
 						.field("item", &TrieAwareDebugNode{
 							trie: self.trie,
 							node_key: item,
-							partial_key: concat_key_clone(&self.partial_key, Some(&slice), None),
+							partial_key: self.partial_key.clone_append_slice_nibble(Some(&slice), None),
 							index: None,
 						})
 						.finish(),
@@ -187,7 +186,7 @@ where
 							trie: self.trie,
 							index: Some(i as u8),
 							node_key: n,
-							partial_key: concat_key_clone(&self.partial_key, None, Some(i as u8)),
+							partial_key: self.partial_key.clone_append_slice_nibble(None, Some(i as u8)),
 						})
 						.collect();
 					match (f.debug_struct("Node::Branch"), self.index) {
@@ -206,7 +205,7 @@ where
 							trie: self.trie,
 							index: Some(i as u8),
 							node_key: n,
-							partial_key: concat_key_clone(&self.partial_key, Some(&slice), Some(i as u8)),
+							partial_key: self.partial_key.clone_append_slice_nibble(Some(&slice), Some(i as u8)),
 						}).collect();
 					match (f.debug_struct("Node::NibbledBranch"), self.index) {
 						(ref mut d, Some(ref i)) => d.field("index", i),
@@ -421,14 +420,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 			&OwnedNode::Leaf(ref n, _)
 				| &OwnedNode::Extension(ref n, _)
 				| &OwnedNode::NibbledBranch(ref n, _)
-				=> {
-        if let Some(part) = n.as_nibbleslice() {
-			    key_nibbles.append_partial(part.right());
-        } else {
-          // TODO EMCH range_iter on nibble vec or simply cat of two nibblevec
-          (0..n.len()).for_each(|i|key_nibbles.push(n.at(i)));
-        }
-			},
+				=> key_nibbles.append(n),
 			_ => {}
 		}
 	}

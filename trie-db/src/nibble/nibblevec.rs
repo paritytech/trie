@@ -111,6 +111,24 @@ impl<N: NibbleOps> NibbleVec<N> {
 		}
 	}
 
+  /// push a full partial.
+	pub fn append(&mut self, v: &NibbleVec<N>) {
+
+    if v.len == 0 { return; }
+		let offset = self.len % N::NIBBLE_PER_BYTE;
+		let last_ix = self.len / N::NIBBLE_PER_BYTE;
+    if offset > 0 {
+      let (s1, s2) = N::split_shifts(offset);
+      self.inner[last_ix] = N::masked_left(offset as u8, self.inner[last_ix]) | (v.inner[0] >> s2);
+			(0..v.len() - 1).for_each(|i|self.inner.push(v.inner[i] << s1 | v.inner[i+1] >> s2));
+    } else {
+      (0..v.inner.len()).for_each(|i|self.inner.push(v.inner[i]));
+    }
+    self.len += v.len;
+	}
+
+
+
 	/// push a full partial.
 	pub fn append_partial(&mut self, (o_n, sl): Partial) {
 		for i in (1..=o_n.0).rev() {
@@ -132,6 +150,35 @@ impl<N: NibbleOps> NibbleVec<N> {
 		}
 		self.len += sl.len() * N::NIBBLE_PER_BYTE;
 	}
+
+  /// append slice or nibble
+  pub fn append_slice_nibble(
+    &mut self,
+    o_sl: Option<&NibbleSlice<N>>,
+    o_ix: Option<u8>
+  ) -> usize {
+    let mut res = 0;
+    if let Some(sl) = o_sl { 
+      self.append_partial(sl.right());
+      res += sl.len();
+    }
+    if let Some(ix) = o_ix { 
+      self.push(ix);
+      res += 1;
+    }
+    res
+  }
+  /// clone then append slice or nibble
+  pub fn clone_append_slice_nibble(
+    &self,
+    o_sl: Option<&NibbleSlice<N>>,
+    o_ix: Option<u8>
+  ) -> Self {
+    let mut p = self.clone();
+    p.append_slice_nibble(o_sl, o_ix);
+    p
+  }
+
 
 	/// Get the underlying byte slice.
 	pub fn inner(&self) -> &[u8] {

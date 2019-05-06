@@ -204,8 +204,6 @@ where
 						.map(|(i, maybe_child)|{
 							//let branch_ix = [i as u8];
 							maybe_child.map(|child| {
-								// TODO EMCH this clone should be avoid by having a lower limit to pkm
-								// and reseting each time (also good to secure pop!!)
 								let pr = NibbleSlice::<N>::new_offset(&partial.1[..], partial.0);
 								child_cb(child, Some(&pr), Some(i as u8))
 							})
@@ -1003,8 +1001,6 @@ where
 				match (used_index, value) {
 					(UsedIndex::None, None) => panic!("Branch with no subvalues. Something went wrong."),
 					(UsedIndex::One(a), None) => {
-						// TODO EMCH can simplify code by transforming to an extension like in branch
-						// (extension only temp value before being transformed).
 						// only one onward node. use child instead
 						let child = children[a as usize].take().expect("used_index only set if occupied; qed");
 						let mut kc = key.clone();
@@ -1013,7 +1009,7 @@ where
 							(st, (0, _v)) => (st, None, (1, L::N::push_at_left(0, a, 0))),
 							(st, (i,v)) if i == L::N::LAST_N_IX_U8 => {
 								let mut so: ElasticArray36<u8> = st.into();
-								so.push(L::N::masked_left(L::N::LAST_N_IX_U8, v) | a); // TODO replace by push_at left??
+								so.push(L::N::masked_left(L::N::LAST_N_IX_U8, v) | a);
 								(st, Some(so), (0,0))
 							},
 							(st, (ix, v)) => (st, None, (ix, L::N::push_at_left(ix, a, v))),
@@ -1154,7 +1150,7 @@ where
 			Stored::New(node) => {
 				let mut k = NibbleVec::new();
 				let encoded_root = node.into_encoded::<_, L::C, L::H, L::N>(|child, o_sl, o_ix| {
-					let mov = concat_key(&mut k, o_sl, o_ix);
+					let mov = k.append_slice_nibble(o_sl, o_ix);
 					let cr = self.commit_child(child, &mut k);
 					k.drop_lasts(mov);
 					cr
@@ -1187,7 +1183,7 @@ where
 					Stored::New(node) => {
 						let encoded = {
 							let commit_child = |node_handle, o_sl: Option<&NibbleSlice<L::N>>, o_ix: Option<u8>| {
-								let mov = concat_key(prefix, o_sl, o_ix);
+								let mov = prefix.append_slice_nibble(o_sl, o_ix);
 								let cr = self.commit_child(node_handle, prefix);
 								prefix.drop_lasts(mov);
 								cr
@@ -1220,27 +1216,6 @@ where
 	}
 }
 
-
-// TODO EMCH change usage here to run on self buffer
-// TODO EMCH a with_concat_key function using a closure and truncating correctly
-pub(crate) fn concat_key<N: NibbleOps>(prefix: &mut NibbleVec<N>, o_sl: Option<&NibbleSlice<N>>, o_ix: Option<u8>) -> usize {
-	let mut res = 0;
-	if let Some(sl) = o_sl { 
-		prefix.append_partial(sl.right());
-		res += sl.len();
-	}
-	if let Some(ix) = o_ix { 
-		prefix.push(ix);
-		res += 1;
-	}
-	res
-}
-
-pub(crate) fn concat_key_clone<N: NibbleOps>(prefix: &NibbleVec<N>, o_sl: Option<&NibbleSlice<N>>, o_ix: Option<u8>) -> NibbleVec<N> {
-	let mut p = prefix.clone();
-	concat_key(&mut p, o_sl, o_ix);
-	p
-}
 
 impl<'a, L> TrieMut<L> for TrieDBMut<'a, L>
 where

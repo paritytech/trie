@@ -48,9 +48,6 @@ pub trait NodeCodec<H: Hasher, N: NibbleOps>: Sized {
 	/// Codec error type
 	type Error: Error;
 
-	// TODO EMCH since refact to use nibble ops: use of this method is super awkward
-	// -> making reference code implement statically other nibble could be the simpler
-	// way of fixing that
 	/// Get the hashed null node.
 	fn hashed_null_node() -> H::Out;
 

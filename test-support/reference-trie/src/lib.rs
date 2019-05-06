@@ -1005,16 +1005,17 @@ pub fn compare_impl_no_ext_q(
 
 	if root != root_new {
 		{
-			let db : &dyn hash_db::HashDB<_,_> = &memdb;
-			let t = RefTrieDBNoExtQ::new(&db, &root).unwrap();
+			let db : &dyn hash_db::HashDB<_,_> = &hashdb;
+			let t = RefTrieDBNoExtQ::new(&db, &root_new).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
 			}
 		}
+
 		{
-			let db : &dyn hash_db::HashDB<_,_> = &hashdb;
-			let t = RefTrieDBNoExtQ::new(&db, &root_new).unwrap();
+			let db : &dyn hash_db::HashDB<_,_> = &memdb;
+			let t = RefTrieDBNoExtQ::new(&db, &root).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
