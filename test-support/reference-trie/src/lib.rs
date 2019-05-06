@@ -30,7 +30,6 @@ use trie_db::{
 	triedbmut::ChildReference,
 	DBValue,
 	trie_visit,
-	trie_visit_no_ext,
 	TrieBuilder,
 	TrieRoot,
 	Partial,
@@ -827,7 +826,7 @@ pub fn compare_impl<X : hash_db::HashDB<KeccakHasher,DBValue> + Eq> (
 ) {
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit::<KeccakHasher, ReferenceNodeCodec, NibbleHalf, Cache16, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit::<LayoutOri, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = {
@@ -869,7 +868,7 @@ pub fn compare_root(
 ) {
 	let root_new = {
 		let mut cb = TrieRoot::<KeccakHasher, _>::default();
-		trie_visit::<KeccakHasher, ReferenceNodeCodec, NibbleHalf, Cache16, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit::<LayoutOri, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = {
@@ -889,7 +888,7 @@ pub fn compare_unhashed(
 ) {
 	let root_new = {
 		let mut cb = trie_db::TrieRootUnhashed::<KeccakHasher>::default();
-		trie_visit::<KeccakHasher, ReferenceNodeCodec, NibbleHalf, Cache16, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit::<LayoutOri, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = ref_trie_root_unhashed(data);
@@ -902,7 +901,7 @@ pub fn compare_unhashed_no_ext(
 ) {
 	let root_new = {
 		let mut cb = trie_db::TrieRootUnhashed::<KeccakHasher>::default();
-		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibbleHalf, Cache16, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit::<LayoutNew, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = ref_trie_root_unhashed_no_ext(data);
@@ -921,7 +920,7 @@ pub fn calc_root<I,A,B>(
 		B: AsRef<[u8]> + fmt::Debug,
 {
 	let mut cb = TrieRoot::<KeccakHasher, _>::default();
-	trie_visit::<KeccakHasher, ReferenceNodeCodec, NibbleHalf, Cache16, _, _, _, _>(data.into_iter(), &mut cb);
+	trie_visit::<LayoutOri, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
 
@@ -934,7 +933,7 @@ pub fn calc_root_no_ext<I,A,B>(
 		B: AsRef<[u8]> + fmt::Debug,
 {
 	let mut cb = TrieRoot::<KeccakHasher, _>::default();
-	trie_db::trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibbleHalf, Cache16, _, _, _, _>(data.into_iter(), &mut cb);
+	trie_db::trie_visit::<LayoutNew, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
 
@@ -945,7 +944,7 @@ pub fn compare_impl_no_ext(
 ) {
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibbleHalf, Cache16, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit::<LayoutNew, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = {
@@ -991,7 +990,7 @@ pub fn compare_impl_no_ext_q(
 ) {
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibbleQuarter, Cache4, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit::<LayoutNewQuarter, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = {
@@ -1049,7 +1048,7 @@ pub fn compare_impl_no_ext_unordered(
 	};
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit_no_ext::<KeccakHasher, ReferenceNodeCodecNoExt, NibbleHalf, Cache16, _, _, _, _>(b_map.into_iter(), &mut cb);
+		trie_visit::<LayoutNew, _, _, _, _>(b_map.into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 

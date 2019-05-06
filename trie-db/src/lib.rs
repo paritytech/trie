@@ -97,7 +97,7 @@ pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
 pub use self::nibble::{NibbleSlice, NibbleOps, NibbleHalf, NibbleQuarter};
 pub use node_codec::{NodeCodec, Partial};
-pub use iter_build::{trie_visit, trie_visit_no_ext, ProcessEncodedNode,
+pub use iter_build::{trie_visit, ProcessEncodedNode,
   TrieBuilder, TrieRoot, TrieRootUnhashed, CacheBuilder, Cache16, Cache4};
 
 pub type DBValue = elastic_array::ElasticArray128<u8>;

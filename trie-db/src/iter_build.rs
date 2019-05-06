@@ -20,6 +20,7 @@ use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
 use crate::nibble::NibbleOps;
 use node_codec::NodeCodec;
+use crate::{TrieLayOut, TrieHash};
 
 macro_rules! exp_disp {
   (@3, [$($inpp:expr),*]) => { exp_disp!(@2, [$($inpp,)* $($inpp),*]) };
@@ -59,11 +60,11 @@ impl<HO> CacheBuilder<HO> for Cache4 {
 	  exp_disp!(@2, [None])
   }
 }
-
+type ArrayNode<T> = <<T as TrieLayOut>::CB as CacheBuilder<TrieHash<T>>>::AN;
 // (64 * 16) aka 2*byte size of key * nb nibble value, 2 being byte/nible (8/4)
 // first usize to get nb of added value, second usize last added index
 // second str is in branch value
-struct CacheAccum<H: Hasher,C,N,CB: CacheBuilder<H::Out>,V> (Vec<(CB::AN, bool, Option<V>)>,PhantomData<(H,C,N,CB)>);
+struct CacheAccum<T: TrieLayOut,V> (Vec<(ArrayNode<T>, bool, Option<V>)>,PhantomData<T>);
 
 /// initially allocated cache
 const INITIAL_DEPTH: usize = 10;
@@ -71,18 +72,15 @@ const INITIAL_DEPTH: usize = 10;
 /// TODO EMCH test `new_vec_slice_buff` as function of trait and associated type
 const NIBBLE_SIZE_BUFF: usize = 16;
 
-impl<H: Hasher,C,N,CB,V> CacheAccum<H,C,N,CB,V>
+impl<T,V> CacheAccum<T,V>
 where
-	H: Hasher,
-	N: NibbleOps,
-	CB: CacheBuilder<<H as Hasher>::Out>,
-	C: NodeCodec<H,N>,
+	T: TrieLayOut,
 	V: AsRef<[u8]>,
 	{
 
 	fn new() -> Self {
 		let mut v = Vec::with_capacity(INITIAL_DEPTH);
-		(0..INITIAL_DEPTH).for_each(|_|v.push((CB::new_vec_slice_buff(), false, None)));
+		(0..INITIAL_DEPTH).for_each(|_|v.push((T::CB::new_vec_slice_buff(), false, None)));
 		CacheAccum(v, PhantomData)
 	}
 
@@ -90,7 +88,7 @@ where
 	fn set_elt(&mut self, depth:usize, sl: Option<V>) {
 		if depth >= self.0.len() {
 			for _i in self.0.len()..depth + 1 { 
-				self.0.push((CB::new_vec_slice_buff(), false, None));
+				self.0.push((T::CB::new_vec_slice_buff(), false, None));
 			}
 		}
 		self.0[depth].2 = sl;
@@ -98,10 +96,10 @@ where
 	}
 
 	#[inline(always)]
-	fn set_node(&mut self, depth:usize, nibble_ix:usize, node: CacheNode<H::Out>) {
+	fn set_node(&mut self, depth:usize, nibble_ix:usize, node: CacheNode<TrieHash<T>>) {
 		if depth >= self.0.len() {
 			for _i in self.0.len()..depth + 1 { 
-				self.0.push((CB::new_vec_slice_buff(), false, None));
+				self.0.push((T::CB::new_vec_slice_buff(), false, None));
 			}
 		}
 		self.0[depth].0.as_mut()[nibble_ix] = node;
@@ -116,22 +114,22 @@ where
 	#[inline(always)]
 	fn reset_depth(&mut self, depth:usize) {
 		self.0[depth].1 = false;
-		for i in 0..N::NIBBLE_LEN {
+		for i in 0..T::N::NIBBLE_LEN {
 			self.0[depth].0.as_mut()[i] = None;
 		}
 	}
 
 	fn flush_val (
 		&mut self,
-		cb_ext: &mut impl ProcessEncodedNode<<H as Hasher>::Out>,
+		cb_ext: &mut impl ProcessEncodedNode<TrieHash<T>>,
 		target_depth: usize, 
 		(k2, v2): &(impl AsRef<[u8]>,impl AsRef<[u8]>), 
 	) {
-		let nibble_value = N::left_nibble_at(&k2.as_ref()[..], target_depth);
+		let nibble_value = T::N::left_nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
-		let nkey = NibbleSlice::<N>::new_offset(&k2.as_ref()[..],target_depth+1);
-		let encoded = C::leaf_node(nkey.right(), &v2.as_ref()[..]);
-		let pr = NibbleSlice::<N>::new_offset(&k2.as_ref()[..], k2.as_ref().len() * N::NIBBLE_PER_BYTE - nkey.len());
+		let nkey = NibbleSlice::<T::N>::new_offset(&k2.as_ref()[..],target_depth+1);
+		let encoded = T::C::leaf_node(nkey.right(), &v2.as_ref()[..]);
+		let pr = NibbleSlice::<T::N>::new_offset(&k2.as_ref()[..], k2.as_ref().len() * T::N::NIBBLE_PER_BYTE - nkey.len());
 		let hash = cb_ext.process(pr.left(), encoded, false);
 
 		// insert hash in branch (first level branch only at this point)
@@ -141,7 +139,7 @@ where
 	fn flush_branch(
 		&mut self,
 		no_ext: bool,
-		cb_ext: &mut impl ProcessEncodedNode<<H as Hasher>::Out>,
+		cb_ext: &mut impl ProcessEncodedNode<TrieHash<T>>,
 		ref_branch: impl AsRef<[u8]> + Ord,
 		new_depth: usize, 
 		old_depth: usize,
@@ -182,7 +180,7 @@ where
 					self.standard_ext(&ref_branch.as_ref()[..], cb_ext, branch_d, is_root, nkey)
 				};
 				// put hash in parent
-				let nibble: u8 = N::left_nibble_at(&ref_branch.as_ref()[..],d);
+				let nibble: u8 = T::N::left_nibble_at(&ref_branch.as_ref()[..],d);
 				self.set_node(d, nibble as usize, Some(h));
 			}
 			}
@@ -208,23 +206,23 @@ where
 	fn standard_ext(
 		&mut self,
 		key_branch: &[u8],
-		cb_ext: &mut impl ProcessEncodedNode<<H as Hasher>::Out>,
+		cb_ext: &mut impl ProcessEncodedNode<TrieHash<T>>,
 		branch_d: usize,
 		is_root: bool,
 		nkey: Option<(usize, usize)>,
-	) -> ChildReference<<H as Hasher>::Out> {
+	) -> ChildReference<TrieHash<T>> {
 
 		// enc branch
 		let v = self.0[branch_d].2.take();
-		let encoded = C::branch_node(self.0[branch_d].0.as_ref().iter(), v.as_ref().map(|v|v.as_ref()));
+		let encoded = T::C::branch_node(self.0[branch_d].0.as_ref().iter(), v.as_ref().map(|v|v.as_ref()));
 		self.reset_depth(branch_d);
-		let pr = NibbleSlice::<N>::new_offset(&key_branch.as_ref()[..], branch_d);
+		let pr = NibbleSlice::<T::N>::new_offset(&key_branch.as_ref()[..], branch_d);
 		let branch_hash = cb_ext.process(pr.left(), encoded, is_root && nkey.is_none());
 
 		if let Some(nkeyix) = nkey {
-			let pr = NibbleSlice::<N>::new_offset(&key_branch.as_ref()[..], nkeyix.0);
+			let pr = NibbleSlice::<T::N>::new_offset(&key_branch.as_ref()[..], nkeyix.0);
 			let nib = pr.right_range_iter(nkeyix.1);
-			let encoded = C::ext_node(nib, nkeyix.1, branch_hash);
+			let encoded = T::C::ext_node(nib, nkeyix.1, branch_hash);
 			let h = cb_ext.process(pr.left(), encoded, is_root);
 			h
 		} else {
@@ -236,69 +234,39 @@ where
 	fn alt_no_ext(
 		&mut self,
 		key_branch: &[u8],
-		cb_ext: &mut impl ProcessEncodedNode<<H as Hasher>::Out>,
+		cb_ext: &mut impl ProcessEncodedNode<TrieHash<T>>,
 		branch_d: usize,
 		is_root: bool,
 		nkey: Option<(usize, usize)>,
-		) -> ChildReference<<H as Hasher>::Out> {
+		) -> ChildReference<TrieHash<T>> {
 		// enc branch
 		let v = self.0[branch_d].2.take();
 		let nkeyix = nkey.unwrap_or((0,0));
-		let pr = NibbleSlice::<N>::new_offset(&key_branch.as_ref()[..],nkeyix.0);
-		let encoded = C::branch_node_nibbled(
+		let pr = NibbleSlice::<T::N>::new_offset(&key_branch.as_ref()[..],nkeyix.0);
+		let encoded = T::C::branch_node_nibbled(
 			// warn direct use of default empty nible encoded: NibbleSlice::new_offset(&[],0).encoded(false);
 			pr.right_range_iter(nkeyix.1),
 			nkeyix.1,
 			self.0[branch_d].0.as_ref().iter(), v.as_ref().map(|v|v.as_ref()));
 		self.reset_depth(branch_d);
 		let ext_len = nkey.as_ref().map(|nkeyix|nkeyix.0).unwrap_or(0);
-		let pr = NibbleSlice::<N>::new_offset(&key_branch.as_ref()[..], branch_d - ext_len);
+		let pr = NibbleSlice::<T::N>::new_offset(&key_branch.as_ref()[..], branch_d - ext_len);
 		cb_ext.process(pr.left(), encoded, is_root)
 	}
 
 }
 
-pub fn trie_visit_no_ext<H, C, N, CB, I, A, B, F>(input: I, cb_ext: &mut F) 
+/// visit trie
+pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F) 
 	where
+		T: TrieLayOut,
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,
-		H: Hasher,
-		N: NibbleOps,
-    CB: CacheBuilder<<H as Hasher>::Out>,
-		C: NodeCodec<H,N>,
-		F: ProcessEncodedNode<<H as Hasher>::Out>,
+		F: ProcessEncodedNode<TrieHash<T>>,
 	{
-		trie_visit_inner::<H, C, N, CB, I, A, B, F>(input, cb_ext, true)
-	}
-
-pub fn trie_visit<H, C, N, CB, I, A, B, F>(input: I, cb_ext: &mut F) 
-	where
-		I: IntoIterator<Item = (A, B)>,
-		A: AsRef<[u8]> + Ord,
-		B: AsRef<[u8]>,
-		H: Hasher,
-		N: NibbleOps,
-    CB: CacheBuilder<<H as Hasher>::Out>,
-		C: NodeCodec<H, N>,
-		F: ProcessEncodedNode<<H as Hasher>::Out>,
-	{
-		trie_visit_inner::<H, C, N, CB, I, A, B, F>(input, cb_ext, false)
-	}
-
-// put no_ext as a trait: probably not worth it (fn designed for that)?
-fn trie_visit_inner<H, C, N, CB, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: bool) 
-	where
-		I: IntoIterator<Item = (A, B)>,
-		A: AsRef<[u8]> + Ord,
-		B: AsRef<[u8]>,
-		H: Hasher,
-		N: NibbleOps,
-    CB: CacheBuilder<<H as Hasher>::Out>,
-		C: NodeCodec<H,N>,
-		F: ProcessEncodedNode<<H as Hasher>::Out>,
-	{
-	let mut depth_queue = CacheAccum::<H,C,N,CB,B>::new();
+  let no_ext = !T::USE_EXTENSION;
+	let mut depth_queue = CacheAccum::<T,B>::new();
 	// compare iter ordering
 	let mut iter_input = input.into_iter();
 	if let Some(mut prev_val) = iter_input.next() {
@@ -306,10 +274,10 @@ fn trie_visit_inner<H, C, N, CB, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: b
 		let mut last_depth = 0;
 
 		for (k, v) in iter_input {
-			let common_depth = N::biggest_depth(&prev_val.0.as_ref()[..], &k.as_ref()[..]);
+			let common_depth = T::N::biggest_depth(&prev_val.0.as_ref()[..], &k.as_ref()[..]);
 			// 0 is a reserved value : could use option
 			let depth_item = common_depth;
-			if common_depth == prev_val.0.as_ref().len() * N::NIBBLE_PER_BYTE {
+			if common_depth == prev_val.0.as_ref().len() * T::N::NIBBLE_PER_BYTE {
 				// the new key include the previous one : branch value case
 				// just stored value at branch depth
 				depth_queue.set_elt(common_depth, Some(prev_val.1));
@@ -331,9 +299,9 @@ fn trie_visit_inner<H, C, N, CB, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: b
 			&& !depth_queue.touched(0) {
 			// one single element corner case
 			let (k2, v2) = prev_val;
-			let nkey = NibbleSlice::<N>::new_offset(&k2.as_ref()[..],last_depth);
-			let encoded = C::leaf_node(nkey.right(), &v2.as_ref()[..]);
-			let pr = NibbleSlice::<N>::new_offset(&k2.as_ref()[..], k2.as_ref().len() * N::NIBBLE_PER_BYTE - nkey.len());
+			let nkey = NibbleSlice::<T::N>::new_offset(&k2.as_ref()[..],last_depth);
+			let encoded = T::C::leaf_node(nkey.right(), &v2.as_ref()[..]);
+			let pr = NibbleSlice::<T::N>::new_offset(&k2.as_ref()[..], k2.as_ref().len() * T::N::NIBBLE_PER_BYTE - nkey.len());
 			cb_ext.process(pr.left(), encoded, true);
 		} else {
 			depth_queue.flush_val(cb_ext, last_depth, &prev_val);
@@ -342,7 +310,7 @@ fn trie_visit_inner<H, C, N, CB, I, A, B, F>(input: I, cb_ext: &mut F, no_ext: b
 		}
 	} else {
 		// nothing null root corner case
-		cb_ext.process(crate::nibble::EMPTY_NIBBLE, C::empty_node().to_vec(), true);
+		cb_ext.process(crate::nibble::EMPTY_NIBBLE, T::C::empty_node().to_vec(), true);
 	}
 }
 
