@@ -68,9 +68,6 @@ struct CacheAccum<T: TrieLayOut,V> (Vec<(ArrayNode<T>, bool, Option<V>)>,Phantom
 
 /// initially allocated cache
 const INITIAL_DEPTH: usize = 10;
-/// This should not exist and be associated const of trie layout
-/// TODO EMCH test `new_vec_slice_buff` as function of trait and associated type
-const NIBBLE_SIZE_BUFF: usize = 16;
 
 impl<T,V> CacheAccum<T,V>
 where
@@ -80,7 +77,8 @@ where
 
 	fn new() -> Self {
 		let mut v = Vec::with_capacity(INITIAL_DEPTH);
-		(0..INITIAL_DEPTH).for_each(|_|v.push((T::CB::new_vec_slice_buff(), false, None)));
+		(0..INITIAL_DEPTH).for_each(|_|
+      v.push((T::CB::new_vec_slice_buff(), false, None)));
 		CacheAccum(v, PhantomData)
 	}
 

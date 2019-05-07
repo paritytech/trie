@@ -48,6 +48,8 @@ pub type Partial<'a> = ((u8,u8), &'a[u8]);
 pub trait NodeCodec<H: Hasher, N: NibbleOps>: Sized {
 	/// Codec error type
 	type Error: Error;
+	/// child bitmap codec to use
+	type BM: ChildBitmap<Error = Self::Error>;
 
 	/// Get the hashed null node.
 	fn hashed_null_node() -> H::Out;
@@ -75,4 +77,26 @@ pub trait NodeCodec<H: Hasher, N: NibbleOps>: Sized {
 
 	/// Returns an encoded branch node with a possible partial path.
 	fn branch_node_nibbled(partial: impl Iterator<Item = u8>, nb_nibble: usize, children: impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, value: Option<&[u8]>) -> Vec<u8>;
+}
+
+/// extract child bitmap encoding that is related to the trie number of children
+/// This would be useless with https://github.com/rust-lang/rust/issues/43408
+pub trait ChildBitmap: Sized {
+	/// length to encode the bitmap
+	const ENCODED_LEN: usize;
+	/// Codec error type
+	type Error: Error;
+
+	/// Codec buf to use	
+	type Buff: AsRef<[u8]> + AsMut<[u8]> + Default;
+
+	/// decode bitmap
+	fn decode(data: &[u8]) -> Result<Self, Self::Error>;
+
+	/// got values
+	fn value_at(&self, i: usize) -> bool;
+
+	/// encode to dest of right len
+	fn encode<I: Iterator<Item = bool>>(has_children: I , dest: &mut [u8]);
+
 }

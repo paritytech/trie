@@ -14,7 +14,7 @@
 
 use elastic_array::ElasticArray36;
 use nibble::NibbleSlice;
-use nibble::NibbleOps;
+use nibble::{NibbleOps, ChildSliceIx};
 use nibble::NibbleVec;
 use super::DBValue;
 
@@ -24,6 +24,9 @@ use alloc::vec::Vec;
 /// Partial node key type: offset and owned value of a nibbleslice.
 /// Offset is applied on first byte of array.
 pub type NodeKey = (usize, ElasticArray36<u8>);
+
+/// alias to branch children slice
+pub type BranchChildrenSlice<'a, N> = (<N as NibbleOps>::ChildSliceIx, &'a[u8]); 
 
 /// Type of node in the trie and essential information thereof.
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -39,44 +42,40 @@ pub enum Node<'a, N: NibbleOps> {
 	// for lifetime, so we should ultimately use something similar to struct `Branch` it decodes from
 	// a slice that is already aligned (need 2* bound in case there is some headers).
 	/// Branch node; has array of 16 child nodes (each possibly null) and an optional immediate node data.
-	Branch([Option<&'a [u8]>; 16], Option<&'a [u8]>),
+	Branch(BranchChildrenSlice<'a, N>, Option<&'a [u8]>),
 	/// Branch node with support for a nibble (to avoid extension node)
-	NibbledBranch(NibbleSlice<'a, N>, [Option<&'a [u8]>; 16], Option<&'a [u8]>),
+	NibbledBranch(NibbleSlice<'a, N>, BranchChildrenSlice<'a, N>, Option<&'a [u8]>),
 }
 
 /// A Sparse (non mutable) owned vector struct to hold branch keys and value
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct Branch {
 	data: Vec<u8>,
-	ubounds: [usize; 18],
-	has_value: bool,
+	data_ix: usize,
+	ubounds_ix: usize,
+	child_head: usize,
 }
 
 impl Branch {
-	fn new(children: [Option<&[u8]>; 16], maybe_value: Option<&[u8]>) -> Self {
-		let mut data = Vec::with_capacity(children.iter()
-			.filter_map(|n| n.clone())
-			.map(|child| child.len())
-			.sum()
-		);
-		let mut ubounds = [0; 18];
-		for (maybe_child, ub) in children.iter().zip(ubounds.iter_mut().skip(1)) {
-			if let Some(child) = maybe_child {
-				data.extend_from_slice(child);
-			}
-			*ub = data.len();
+	fn new<N: NibbleOps>(children_slice: &BranchChildrenSlice<N>, maybe_value: Option<&[u8]>) -> Self {
+		let mut data: Vec<u8> = children_slice.1.into();
+		let data_ix = data.len();
+		let ubounds_ix = data_ix + maybe_value.map(|v|{
+			data.extend_from_slice(v);
+			v.len()
+		}).unwrap_or(0);
+		let mut i = 0;
+		while let Some(ix) = children_slice.0.as_ref().get(i) {
+			i += 1;
+			data.extend_from_slice(&ix.to_ne_bytes()[..]);
 		}
-		if let Some(value) = maybe_value {
-			data.extend_from_slice(value);
-			ubounds[17] = data.len();
-		}
-		Branch { data, ubounds, has_value: maybe_value.is_some() }
+		Branch { data, data_ix, ubounds_ix, child_head: N::ChildSliceIx::CONTENT_HEADER_SIZE }
 	}
 
 	/// Get the node value, if any
 	pub fn get_value(&self) -> Option<&[u8]> {
-		if self.has_value {
-			Some(&self.data[self.ubounds[16]..self.ubounds[17]])
+		if self.has_value() {
+			Some(&self.data[self.data_ix..self.ubounds_ix])
 		} else {
 			None
 		}
@@ -84,16 +83,28 @@ impl Branch {
 
 	/// Test if the node has a value
 	pub fn has_value(&self) -> bool {
-		self.has_value
+		self.data_ix < self.ubounds_ix
 	}
 
-	pub fn index(&self, index: usize) -> Option<&[u8]> {
-		assert!(index < 16);
-		if self.ubounds[index] == self.ubounds[index + 1] {
+	fn index_bound(&self, index: usize) -> Option<usize> {
+		use core_::convert::TryInto;
+		let s = self.ubounds_ix + index * 8;
+		let e = s + 8;
+		if self.data.len() < e {
 			None
 		} else {
-			Some(&self.data[self.ubounds[index]..self.ubounds[index + 1]])
+			self.data[s..e].try_into().ok().map(usize::from_ne_bytes)
 		}
+	}
+	pub fn index(&self, index: usize) -> Option<&[u8]> {
+		let b = (self.index_bound(index), self.index_bound(index + 1));
+		if let (Some(s), Some(e)) = b {
+			let s = s + self.child_head;
+			if s < e {
+				return Some(&self.data[s..e])
+			}
+		}
+		None
 	}
 }
 
@@ -109,6 +120,7 @@ pub enum OwnedNode<N> {
 	/// Branch node: 16 children and an optional value.
 	Branch(Branch),
 	/// Branch node: 16 children and an optional value.
+	/// TODO can put nibble vec into branch data vec
 	NibbledBranch(NibbleVec<N>, Branch),
 }
 
@@ -118,8 +130,8 @@ impl<'a, N: NibbleOps> From<Node<'a, N>> for OwnedNode<N> {
 			Node::Empty => OwnedNode::Empty,
 			Node::Leaf(k, v) => OwnedNode::Leaf(k.into(), DBValue::from_slice(v)),
 			Node::Extension(k, child) => OwnedNode::Extension(k.into(), DBValue::from_slice(child)),
-			Node::Branch(c, val) => OwnedNode::Branch(Branch::new(c, val)),
-			Node::NibbledBranch(k, c, val) => OwnedNode::NibbledBranch(k.into(), Branch::new(c, val)),
+			Node::Branch(c, val) => OwnedNode::Branch(Branch::new::<N>(&c, val)),
+			Node::NibbledBranch(k, c, val) => OwnedNode::NibbledBranch(k.into(), Branch::new::<N>(&c, val)),
 		}
 	}
 }

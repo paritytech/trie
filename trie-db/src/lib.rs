@@ -95,10 +95,11 @@ pub use self::fatdb::{FatDB, FatDBIterator};
 pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
-pub use self::nibble::{NibbleSlice, NibbleOps, NibbleHalf, NibbleQuarter};
-pub use node_codec::{NodeCodec, Partial};
+pub use self::nibble::{NibbleSlice, NibbleOps, NibbleHalf, NibbleQuarter,
+	ChildSliceIx};
+pub use node_codec::{NodeCodec, Partial, ChildBitmap};
 pub use iter_build::{trie_visit, ProcessEncodedNode,
-  TrieBuilder, TrieRoot, TrieRootUnhashed, CacheBuilder, Cache16, Cache4};
+	 TrieBuilder, TrieRoot, TrieRootUnhashed, CacheBuilder, Cache16, Cache4};
 
 pub type DBValue = elastic_array::ElasticArray128<u8>;
 
@@ -375,6 +376,7 @@ pub trait TrieLayOut {
 
 /// alias to acces hasher hash output type from a `TrieLayout`
 pub type TrieHash<L> = <<L as TrieLayOut>::H as Hasher>::Out;
+/// alias to acces bitmap codec from a `TrieLayout`
+pub type BitMap<L> = <<L as TrieLayOut>::C as NodeCodec<<L as TrieLayOut>::H, <L as TrieLayOut>::N>>::BM;
 /// alias to acces `NodeCodec` `Error` type from a `TrieLayout`
 pub type CError<L> = <<L as TrieLayOut>::C as NodeCodec<<L as TrieLayOut>::H, <L as TrieLayOut>::N>>::Error;
-

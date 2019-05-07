@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use hash_db::{HashDBRef, Prefix};
-use nibble::{NibbleSlice, NibbleOps};
+use nibble::{NibbleSlice, NibbleOps, ChildSliceIx};
 use nibble::EMPTY_NIBBLE;
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
@@ -179,7 +179,7 @@ where
 						})
 						.finish(),
 				Ok(Node::Branch(ref nodes, ref value)) => {
-					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.into_iter()
+					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.0.iter(nodes.1)
 						.enumerate()
 						.filter_map(|(i, n)| n.map(|n| (i, n)))
 						.map(|(i, n)| TrieAwareDebugNode {
@@ -198,10 +198,10 @@ where
 						.finish()
 				},
 				Ok(Node::NibbledBranch(slice, nodes, value)) => {
-					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.into_iter()
+					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.0.iter(nodes.1)
 						.enumerate()
 						.filter_map(|(i, n)| n.map(|n| (i, n)))
-						.map(|(i, n)| TrieAwareDebugNode { 
+						.map(|(i, n)| TrieAwareDebugNode {
 							trie: self.trie,
 							index: Some(i as u8),
 							node_key: n,
@@ -354,7 +354,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 								node: node.clone().into(),
 							});
 							self.key_nibbles.push(i);
-							if let Some(ref child) = nodes[i as usize] {
+							if let Some(ref child) = nodes.0.slice_at(i as usize, nodes.1) {
 								full_key_nibbles += 1;
 								partial = partial.mid(1);
 								let child = self.db.get_raw_or_lookup(&*child, key.back(full_key_nibbles).left())?;
@@ -384,7 +384,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 							});
 							self.key_nibbles.append_partial(slice.right());
 							self.key_nibbles.push(i);
-							if let Some(ref child) = nodes[i as usize] {
+							if let Some(ref child) = nodes.0.slice_at(i as usize, nodes.1) {
 								full_key_nibbles += slice.len() + 1;
 								partial = partial.mid(slice.len() + 1);
 								let child = self.db.get_raw_or_lookup(&*child, key.back(full_key_nibbles).left())?;

@@ -44,6 +44,11 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	/// las ix for nible as a u8 (for pattern matching)
 	const LAST_N_IX_U8: u8 = Self::LAST_N_IX as u8;
 
+	/// Buff for slice index store (we do not include
+	/// directly slice in it to avoid lifetime in
+	/// trait
+	type ChildSliceIx: ChildSliceIx;
+
 	/// mask a byte from a ix > 0 (ix being content)
 	#[inline(always)]
 	fn masked_left(ix: u8, b: u8) -> u8 {
@@ -152,7 +157,6 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 			false
 		}
 	}
-
 }
 
 /// half byte nibble prepend encoding
@@ -176,6 +180,7 @@ pub enum ByteLayout {
 impl NibbleOps for NibbleHalf {
 	const REPR: ByteLayout = ByteLayout::Half; 
 	const PADDING_BITMASK: &'static [(u8, usize)] = &[(0xFF, 4), (0x0F, 0)];
+	type ChildSliceIx = ChildSliceIx16;
 }
 
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, Debug)]
@@ -190,6 +195,7 @@ impl NibbleOps for NibbleQuarter {
 		(0b0000_1111, 2),
 		(0b0000_0011, 0),
 	];
+	type ChildSliceIx = ChildSliceIx4;
 }
 
 
@@ -236,4 +242,73 @@ pub struct NibbleSliceIterator<'a, N: NibbleOps> {
 	i: usize,
 }
 
+/// trait only here to avoid lifetime when storing slice
+/// This would be useless with https://github.com/rust-lang/rust/issues/43408
+pub trait ChildSliceIx: AsRef<[usize]>
+	+ AsMut<[usize]> + Default + Eq + PartialEq + crate::MaybeDebug
+	+ Clone {
 
+	/// nb nibble in slice
+	const NIBBLE_LEN : usize;
+	/// bit to skip between slice
+	const CONTENT_HEADER_SIZE: usize;
+
+	/// get an optional slice
+	fn slice_at<'a>(&self, ix: usize, data: &'a [u8]) -> Option<&'a[u8]> {
+		let b = (self.as_ref().get(ix), self.as_ref().get(ix + 1));
+		if let (Some(s), Some(e)) = b {
+			let s = s + Self::CONTENT_HEADER_SIZE;
+			if s < *e {
+				Some(&data[s..*e])
+			} else {
+				None
+			}
+		} else {
+			None
+		}
+	}
+	fn iter<'a>(&'a self, data: &'a [u8]) -> IterChildSliceIx<'a, Self> {
+		IterChildSliceIx(self, 0, data)
+	}
+}
+
+/// iterator over `ChildSliceIx` trait
+pub struct IterChildSliceIx<'a, CS>(&'a CS, usize, &'a[u8]);
+
+impl<'a, CS: ChildSliceIx> Iterator for IterChildSliceIx<'a, CS> {
+	type Item = Option<&'a[u8]>;
+	fn next(&mut self) -> Option<Self::Item> {
+		if self.1 == CS::NIBBLE_LEN {
+			return None;
+		}
+		self.1 += 1;
+		Some(self.0.slice_at(self.1 - 1, self.2))
+	}
+}
+
+macro_rules! child_slice_ix {
+	($me: ident, $size: expr, $pre: expr) => {
+		#[derive(Default, Eq, PartialEq, Debug, Clone)]
+		/// child slice ix for radix $size
+		pub struct $me([usize; $size + 1]);
+
+		impl AsRef<[usize]> for $me {
+			fn as_ref(&self) -> &[usize] {
+				&self.0[..]
+			}
+		}
+
+		impl AsMut<[usize]> for $me {
+			fn as_mut(&mut self) -> &mut [usize] {
+				&mut self.0[..]
+			}
+		}
+
+		impl ChildSliceIx for $me {
+			const CONTENT_HEADER_SIZE: usize = $pre;
+			const NIBBLE_LEN: usize = $size;
+		}
+	}
+}
+child_slice_ix!(ChildSliceIx16, 16, 1);
+child_slice_ix!(ChildSliceIx4, 4, 1);

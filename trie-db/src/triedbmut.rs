@@ -22,7 +22,7 @@ use super::{DBValue, node::NodeKey};
 
 use nibble::EMPTY_NIBBLE;
 use hash_db::{HashDB, Hasher, Prefix};
-use nibble::{NibbleVec, NibbleSlice, NibbleOps};
+use nibble::{NibbleVec, NibbleSlice, NibbleOps, ChildSliceIx, IterChildSliceIx};
 use elastic_array::ElasticArray36;
 use ::core_::mem;
 use ::core_::ops::Index;
@@ -63,11 +63,10 @@ impl<H> From<StorageHandle> for NodeHandle<H> {
 	}
 }
 
-fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; 16]> {
-	Box::new([
-		None, None, None, None, None, None, None, None,
-		None, None, None, None, None, None, None, None,
-	])
+fn empty_children<H,N: NibbleOps>() -> Vec<Option<NodeHandle<H>>> {
+	let mut res = Vec::with_capacity(N::NIBBLE_LEN);
+	(0..N::NIBBLE_LEN).for_each(|_|res.push(None));
+	res
 }
 
 /// type alias to indicate the nible cover a full key,
@@ -89,9 +88,9 @@ enum Node<H> {
 	/// The child node is always a branch.
 	Extension(NodeKey, NodeHandle<H>),
 	/// A branch has up to 16 children and an optional value.
-	Branch(Box<[Option<NodeHandle<H>>; 16]>, Option<DBValue>),
+	Branch(Vec<Option<NodeHandle<H>>>, Option<DBValue>),
 	/// Branch node with support for a nibble (to avoid extension node)
-	NibbledBranch(NodeKey, Box<[Option<NodeHandle<H>>; 16]>, Option<DBValue>),
+	NibbledBranch(NodeKey, Vec<Option<NodeHandle<H>>>, Option<DBValue>),
 }
 
 impl<O> Node<O>
@@ -121,19 +120,13 @@ where
 	fn from_encoded<'a, 'b, C, H, N>(data: &'a[u8], db: &HashDB<H, DBValue>, storage: &'b mut NodeStorage<H::Out>) -> Self
 	where N: NibbleOps, C: NodeCodec<H, N>, H: Hasher<Out = O>,
 	{
-		let dec_children = |encoded_children: &[Option<&'a [u8]>; 16], storage: &'b mut NodeStorage<H::Out>| {
-			let mut child = |i:usize| {
-					encoded_children[i].map(|data|
-						Self::inline_or_hash::<C, H, N>(data, db, storage)
-					)
-			};
-
-			Box::new([
-				child(0), child(1), child(2), child(3),
-				child(4), child(5), child(6), child(7),
-				child(8), child(9), child(10), child(11),
-				child(12), child(13), child(14), child(15),
-			])
+		let dec_children = |encoded_children: IterChildSliceIx<N::ChildSliceIx>, storage: &'b mut NodeStorage<H::Out>| {
+			let mut res = Vec::with_capacity(N::ChildSliceIx::NIBBLE_LEN);
+			encoded_children.for_each(|o_data|{
+				let v = o_data.map(|data|Self::inline_or_hash::<C, H, N>(data, db, storage));
+				res.push(v)
+			});
+			res
 		};
 
 		match C::decode(data).unwrap_or(EncodedNode::Empty) {
@@ -145,11 +138,11 @@ where
 					Self::inline_or_hash::<C, H, N>(cb, db, storage))
 				},
 				EncodedNode::Branch(encoded_children, val) => {
-					let children = dec_children(&encoded_children, storage);
+					let children = dec_children(encoded_children.0.iter(encoded_children.1), storage);
 					Node::Branch(children, val.map(DBValue::from_slice))
 				},
 				EncodedNode::NibbledBranch(k, encoded_children, val) => {
-					let children = dec_children(&encoded_children, storage);
+					let children = dec_children(encoded_children.0.iter(encoded_children.1), storage);
 					Node::NibbledBranch(k.into(), children, val.map(DBValue::from_slice))
 				},
 		}
@@ -576,7 +569,7 @@ where
 					trace!(target: "trie", "partially-shared-prefix (exist={:?}; new={:?}; cp={:?}): AUGMENT-AT-END", existing_key.len(), partial.len(), cp);
 					let low = Node::NibbledBranch(existing_key.mid(cp + 1).to_stored(), children, stored_value);
 					let ix = existing_key.at(cp);
-					let mut children = empty_children();
+					let mut children = empty_children::<_, L::N>();
 					let alloc_storage = self.storage.alloc(Stored::New(low));
 
 
@@ -647,7 +640,7 @@ where
 					trace!(target: "trie", "lesser-common-prefix, not-both-empty (exist={:?}; new={:?}): TRANSMUTE,AUGMENT", existing_key.len(), partial.len());
 
 					// one of us isn't empty: transmute to branch here
-					let mut children = empty_children();
+					let mut children = empty_children::<_, L::N>();
 					let branch = if L::USE_EXTENSION && existing_key.is_empty() {
 						// always replace since branch isn't leaf.
 						Node::Branch(children, Some(stored_value))
@@ -671,7 +664,7 @@ where
 
 					// fully-shared prefix for an extension.
 					// make a stub branch
-					let branch = Node::NibbledBranch(existing_key.to_stored(), empty_children(), Some(stored_value));
+					let branch = Node::NibbledBranch(existing_key.to_stored(), empty_children::<_, L::N>(), Some(stored_value));
 					// augment the new branch.
 					let branch = self.insert_inspector(branch, key, value, old_val)?.unwrap_node();
 
@@ -683,7 +676,7 @@ where
 
 					// fully-shared prefix for an extension.
 					// make a stub branch and an extension.
-					let branch = Node::Branch(empty_children(), Some(stored_value));
+					let branch = Node::Branch(empty_children::<_, L::N>(), Some(stored_value));
 					// augment the new branch.
 					key.advance(cp);
 					let branch = self.insert_inspector(branch, key, value, old_val)?.unwrap_node();
@@ -722,7 +715,7 @@ where
 					assert!(!existing_key.is_empty());
 					let idx = existing_key.at(0) as usize;
 
-					let mut children = empty_children();
+					let mut children = empty_children::<_, L::N>();
 					children[idx] = if existing_key.len() == 1 {
 						// direct extension, just replace.
 						Some(child_branch)
@@ -1320,7 +1313,7 @@ mod tests {
 	use elastic_array::ElasticArray36;
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, TrieLayOut, NodeCodec,
 		ReferenceNodeCodec, ReferenceNodeCodecNoExt, ref_trie_root, ref_trie_root_no_ext,
-		LayoutOri, LayoutNew, LayoutNewQuarter};
+		LayoutOri, LayoutNew, LayoutNewQuarter, BitMap16, BitMap};
 
 	fn populate_trie<'db>(
 		db: &'db mut HashDB<KeccakHasher, DBValue>,
@@ -1398,7 +1391,7 @@ mod tests {
 			assert_eq!(*memtrie.root(), real);
 			unpopulate_trie(&mut memtrie, &x);
 			memtrie.commit();
-			let hashed_null_node = <ReferenceNodeCodec as NodeCodec<_, <LayoutOri as TrieLayOut>::N>>::hashed_null_node();
+			let hashed_null_node = <ReferenceNodeCodec<BitMap<LayoutOri>> as NodeCodec<_, <LayoutOri as TrieLayOut>::N>>::hashed_null_node();
 			if *memtrie.root() != hashed_null_node {
 				println!("- TRIE MISMATCH");
 				println!("");
@@ -1441,7 +1434,7 @@ mod tests {
 			assert_eq!(*memtrie.root(), real);
 			unpopulate_trie_no_ext(&mut memtrie, &x);
 			memtrie.commit();
-			let hashed_null_node = <ReferenceNodeCodecNoExt as NodeCodec<_, <LayoutNew as TrieLayOut>::N>>::hashed_null_node();
+			let hashed_null_node = <ReferenceNodeCodecNoExt<BitMap<LayoutOri>> as NodeCodec<_, <LayoutNew as TrieLayOut>::N>>::hashed_null_node();
 			if *memtrie.root() != hashed_null_node {
 				println!("- TRIE MISMATCH");
 				println!("");
@@ -1460,7 +1453,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
-		let hashed_null_node = <ReferenceNodeCodec as NodeCodec<_, <LayoutOri as TrieLayOut>::N>>::hashed_null_node();
+		let hashed_null_node = <ReferenceNodeCodecNoExt<BitMap<LayoutOri>> as NodeCodec<_, <LayoutNew as TrieLayOut>::N>>::hashed_null_node();
 		assert_eq!(*t.root(), hashed_null_node);
 	}
 
@@ -1736,7 +1729,7 @@ mod tests {
 		}
 
 		assert!(t.is_empty());
-		let hashed_null_node = <ReferenceNodeCodec as NodeCodec<_, <LayoutOri as TrieLayOut>::N>>::hashed_null_node();
+		let hashed_null_node = <ReferenceNodeCodecNoExt<BitMap<LayoutOri>> as NodeCodec<_, <LayoutNew as TrieLayOut>::N>>::hashed_null_node();
 		assert_eq!(*t.root(), hashed_null_node);
 	}
 

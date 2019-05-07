@@ -18,7 +18,7 @@ use hash_db::HashDBRef;
 use nibble::NibbleSlice;
 use node::Node;
 use node_codec::NodeCodec;
-use super::{DBValue, Result, TrieError, Query, TrieLayOut, CError, TrieHash};
+use super::{DBValue, Result, TrieError, Query, TrieLayOut, CError, TrieHash, ChildSliceIx};
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
@@ -85,7 +85,7 @@ where
 					}
 					Node::Branch(children, value) => match partial.is_empty() {
 						true => return Ok(value.map(move |val| self.query.decode(val))),
-						false => match children[partial.at(0) as usize] {
+						false => match children.0.slice_at(partial.at(0) as usize, children.1) {
 							Some(x) => {
 								node_data = x;
 								partial = partial.mid(1);
@@ -101,7 +101,7 @@ where
 
 						match partial.len() == slice.len() {
 							true => return Ok(value.map(move |val| self.query.decode(val))),
-							false => match children[partial.at(slice.len()) as usize] {
+							false => match children.0.slice_at(partial.at(slice.len()) as usize, children.1) {
 								Some(x) => {
 									node_data = x;
 									partial = partial.mid(slice.len() + 1);
