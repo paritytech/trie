@@ -115,18 +115,23 @@ impl<N: NibbleOps> NibbleVec<N> {
 	pub fn append(&mut self, v: &NibbleVec<N>) {
 
 		if v.len == 0 { return; }
+		let final_len = self.len + v.len;
 		let offset = self.len % N::NIBBLE_PER_BYTE;
+		let final_offset = final_len % N::NIBBLE_PER_BYTE;
 		let last_ix = self.len / N::NIBBLE_PER_BYTE;
 		if offset > 0 {
 			let (s1, s2) = N::split_shifts(offset);
 			self.inner[last_ix] = N::masked_left(offset as u8, self.inner[last_ix]) | (v.inner[0] >> s2);
-			(0..v.len() - 1).for_each(|i|self.inner.push(v.inner[i] << s1 | v.inner[i+1] >> s2));
+			if final_offset > 0 {
+				(0..v.len() - 1).for_each(|i|self.inner.push(v.inner[i] << s1 | v.inner[i+1] >> s2));
+			} else {
+				(1..v.inner.len()).for_each(|i|self.inner.push(v.inner[i]));
+			}
 		} else {
 			(0..v.inner.len()).for_each(|i|self.inner.push(v.inner[i]));
 		}
 		self.len += v.len;
 	}
-
 
 
 	/// push a full partial.
