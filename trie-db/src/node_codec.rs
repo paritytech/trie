@@ -38,7 +38,9 @@ pub trait Error {}
 #[cfg(not(feature = "std"))]
 impl<T> Error for T {}
 
+/// a nible slice, a partial length (0 to max nb nibble - 1) first byte and a slice of full bytes
 pub type Partial<'a> = ((u8,u8), &'a[u8]);
+
 // TODO EMCH change node codec trait to use &mut self as input in order to run on internal buffer.
 // (not for decode actually!!; code seems fine to do that and new layout trait is ok too
 /// Trait for trie node encoding/decoding
@@ -48,7 +50,8 @@ pub type Partial<'a> = ((u8,u8), &'a[u8]);
 pub trait NodeCodec<H: Hasher, N: NibbleOps>: Sized {
 	/// Codec error type
 	type Error: Error;
-	/// child bitmap codec to use
+	/// child bitmap codec to use TODO EMCH nodecodec does not have to use a bitmap codec: this should be
+  /// only in codec implementation, having it as a subtype seems useless
 	type BM: ChildBitmap<Error = Self::Error>;
 
 	/// Get the hashed null node.
