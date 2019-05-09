@@ -86,13 +86,11 @@ impl<N: NibbleOps> NibbleVec<N> {
 			self.clear();
 			return;
 		}
-		let nb_rem = if (self.len - mov) % N::NIBBLE_PER_BYTE > 0 {
-			mov / N::NIBBLE_PER_BYTE
-		} else {
-			(mov + N::NIBBLE_PER_BYTE - 1) / N::NIBBLE_PER_BYTE
-		};
-		(0..nb_rem).for_each(|_|{ self.inner.pop(); });
-		self.len -= mov;
+		let end = self.len - mov;
+		let end_ix = end / N::NIBBLE_PER_BYTE
+			+ if end % N::NIBBLE_PER_BYTE == 0 { 0 } else { 1 };
+		(end_ix..self.inner.len()).for_each(|_|{ self.inner.pop(); });
+		self.len = end;
 		let pos = self.len % N::NIBBLE_PER_BYTE;
 		if pos != 0 {
 			let kl = self.inner.len() - 1;
@@ -122,10 +120,9 @@ impl<N: NibbleOps> NibbleVec<N> {
 		if offset > 0 {
 			let (s1, s2) = N::split_shifts(offset);
 			self.inner[last_ix] = N::masked_left(offset as u8, self.inner[last_ix]) | (v.inner[0] >> s2);
+			(0..v.inner.len() - 1).for_each(|i|self.inner.push(v.inner[i] << s1 | v.inner[i+1] >> s2));
 			if final_offset > 0 {
-				(0..v.len() - 1).for_each(|i|self.inner.push(v.inner[i] << s1 | v.inner[i+1] >> s2));
-			} else {
-				(1..v.inner.len()).for_each(|i|self.inner.push(v.inner[i]));
+				self.inner.push(v.inner[v.inner.len() - 1] << s1);
 			}
 		} else {
 			(0..v.inner.len()).for_each(|i|self.inner.push(v.inner[i]));

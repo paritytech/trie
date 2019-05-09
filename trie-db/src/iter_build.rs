@@ -23,42 +23,42 @@ use node_codec::NodeCodec;
 use crate::{TrieLayOut, TrieHash};
 
 macro_rules! exp_disp {
-  (@3, [$($inpp:expr),*]) => { exp_disp!(@2, [$($inpp,)* $($inpp),*]) };
-  (@2, [$($inpp:expr),*]) => { exp_disp!(@1, [$($inpp,)* $($inpp),*]) };
-  (@1, [$($inpp:expr),*]) => { [$($inpp,)* $($inpp),*] };
+	(@3, [$($inpp:expr),*]) => { exp_disp!(@2, [$($inpp,)* $($inpp),*]) };
+	(@2, [$($inpp:expr),*]) => { exp_disp!(@1, [$($inpp,)* $($inpp),*]) };
+	(@1, [$($inpp:expr),*]) => { [$($inpp,)* $($inpp),*] };
 }
 
 type CacheNode<HO> = Option<ChildReference<HO>>;
 
 /// a builder for fix constant len cache, should match nibble ops `NIBBLE_LEN` 
 pub trait CacheBuilder<HO> {
-  /// size of cache
-  const SIZE: usize;
-  /// the fix cache
-  type AN: AsRef<[CacheNode<HO>]> + AsMut<[CacheNode<HO>]>;
-  /// builder for cache
-  fn new_vec_slice_buff() -> Self::AN; 
+	/// size of cache
+	const SIZE: usize;
+	/// the fix cache
+	type AN: AsRef<[CacheNode<HO>]> + AsMut<[CacheNode<HO>]>;
+	/// builder for cache
+	fn new_vec_slice_buff() -> Self::AN; 
 }
 
 pub struct Cache16;
 pub struct Cache4;
 
 impl<HO> CacheBuilder<HO> for Cache16 {
-  const SIZE: usize = 16;
-  type AN = [CacheNode<HO>; 16];
-  #[inline(always)]
-  fn new_vec_slice_buff() -> Self::AN {
-	  exp_disp!(@3, [None,None])
-  }
+	const SIZE: usize = 16;
+	type AN = [CacheNode<HO>; 16];
+	#[inline(always)]
+	fn new_vec_slice_buff() -> Self::AN {
+		exp_disp!(@3, [None,None])
+	}
 }
 
 impl<HO> CacheBuilder<HO> for Cache4 {
-  const SIZE: usize = 4;
-  type AN = [CacheNode<HO>; 4];
-  #[inline(always)]
-  fn new_vec_slice_buff() -> Self::AN {
-	  exp_disp!(@2, [None])
-  }
+	const SIZE: usize = 4;
+	type AN = [CacheNode<HO>; 4];
+	#[inline(always)]
+	fn new_vec_slice_buff() -> Self::AN {
+		exp_disp!(@2, [None])
+	}
 }
 type ArrayNode<T> = <<T as TrieLayOut>::CB as CacheBuilder<TrieHash<T>>>::AN;
 // (64 * 16) aka 2*byte size of key * nb nibble value, 2 being byte/nible (8/4)
@@ -78,7 +78,7 @@ where
 	fn new() -> Self {
 		let mut v = Vec::with_capacity(INITIAL_DEPTH);
 		(0..INITIAL_DEPTH).for_each(|_|
-      v.push((T::CB::new_vec_slice_buff(), false, None)));
+			v.push((T::CB::new_vec_slice_buff(), false, None)));
 		CacheAccum(v, PhantomData)
 	}
 
@@ -263,7 +263,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F)
 		B: AsRef<[u8]>,
 		F: ProcessEncodedNode<TrieHash<T>>,
 	{
-  let no_ext = !T::USE_EXTENSION;
+	let no_ext = !T::USE_EXTENSION;
 	let mut depth_queue = CacheAccum::<T,B>::new();
 	// compare iter ordering
 	let mut iter_input = input.into_iter();
@@ -442,7 +442,31 @@ mod test {
 		]);
 	}
 
+	fn test_iter(data: Vec<(Vec<u8>,Vec<u8>)>) {
+		use reference_trie::{RefTrieDBMut, TrieMut, RefTrieDB, Trie};
+
+		let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut root = Default::default();
+		{
+			let mut t = RefTrieDBMut::new(&mut db, &mut root);
+			for i in 0..data.len() {
+				let key: &[u8]= &data[i].0;
+				let val: &[u8] = &data[i].1;
+				t.insert(key, val).unwrap();
+			}
+		}
+		let t = RefTrieDB::new(&db, &root).unwrap();
+		for (i, kv) in t.iter().unwrap().enumerate() {
+			let (k,v) = kv.unwrap();
+			let key: &[u8]= &data[i].0;
+			let val: &[u8] = &data[i].1;
+			assert_eq!(k,key);
+			assert_eq!(v,val);
+		}
+	}
+
 	fn compare_impl(data: Vec<(Vec<u8>,Vec<u8>)>) {
+		test_iter(data.clone());
 		compare_impl_h(data.clone());
 		compare_impl_pk(data.clone());
 		compare_impl_no_ext(data.clone());
