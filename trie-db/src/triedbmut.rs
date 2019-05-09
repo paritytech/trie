@@ -1290,8 +1290,8 @@ where
 
 /// combine two NodeKeys
 fn combine_key<N: NibbleOps>(start: &mut NodeKey, end: (usize, &[u8])) {
-	debug_assert!(start.0 < N::NIBBLE_LEN);
-	debug_assert!(end.0 < N::NIBBLE_LEN);
+	debug_assert!(start.0 < N::NIBBLE_PER_BYTE);
+	debug_assert!(end.0 < N::NIBBLE_PER_BYTE);
 	let final_ofset = (start.0 + end.0) % N::NIBBLE_PER_BYTE;
 	let _shifted = N::shift_key(start, final_ofset);
 	let st = if end.0 > 0 {
