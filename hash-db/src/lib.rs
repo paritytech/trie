@@ -20,13 +20,13 @@
 use std::fmt::Debug;
 #[cfg(feature = "std")]
 use std::hash;
+#[cfg(not(feature = "std"))]
+use core::hash;
+
 #[cfg(feature = "std")]
 pub trait MaybeDebug: Debug {}
 #[cfg(feature = "std")]
 impl<T: Debug> MaybeDebug for T {}
-
-#[cfg(not(feature = "std"))]
-use core::hash;
 #[cfg(not(feature = "std"))]
 pub trait MaybeDebug {}
 #[cfg(not(feature = "std"))]

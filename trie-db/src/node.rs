@@ -29,7 +29,8 @@ pub type NodeKey = (usize, ElasticArray36<u8>);
 pub type BranchChildrenSlice<'a, N> = (<N as NibbleOps>::ChildSliceIx, &'a[u8]); 
 
 /// Type of node in the trie and essential information thereof.
-#[derive(Eq, PartialEq, Debug, Clone)]
+#[derive(Eq, PartialEq, Clone)]
+#[cfg_attr(feature = "std", derive(Debug))]
 pub enum Node<'a, N: NibbleOps> {
 	/// Null trie node; could be an empty root or an empty branch entry.
 	Empty,

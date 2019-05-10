@@ -15,12 +15,15 @@
 //! Alternative tools for working with key value iterator without recursion.
 
 use hash_db::{Hasher, HashDB, Prefix};
-use std::marker::PhantomData;
+use core_::marker::PhantomData;
 use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
 use crate::nibble::NibbleOps;
 use node_codec::NodeCodec;
 use crate::{TrieLayOut, TrieHash};
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 macro_rules! exp_disp {
 	(@3, [$($inpp:expr),*]) => { exp_disp!(@2, [$($inpp,)* $($inpp),*]) };

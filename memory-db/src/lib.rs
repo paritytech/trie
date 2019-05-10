@@ -26,7 +26,8 @@ extern crate hashmap_core;
 extern crate alloc;
 #[cfg(test)] extern crate keccak_hasher;
 
-use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher, AsHashDB, AsPlainDB, Prefix};
+use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher,
+	AsHashDB, AsPlainDB, Prefix};
 #[cfg(feature = "std")]
 use heapsize::HeapSizeOf;
 #[cfg(feature = "std")]
@@ -57,6 +58,15 @@ use core::{
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
+
+#[cfg(feature = "std")]
+pub trait MaybeDebug: std::fmt::Debug {}
+#[cfg(feature = "std")]
+impl<T: std::fmt::Debug> MaybeDebug for T {}
+#[cfg(not(feature = "std"))]
+pub trait MaybeDebug {}
+#[cfg(not(feature = "std"))]
+impl<T> MaybeDebug for T {}
 
 /// Reference-counted memory-based `HashDB` implementation.
 ///
@@ -121,8 +131,8 @@ impl<H, KF, T> PartialEq<MemoryDB<H, KF, T>> for MemoryDB<H, KF, T>
 	where 
 	H: KeyHasher,
 	KF: KeyFunction<H>,
-	<KF as KeyFunction<H>>::Key: Eq + std::fmt::Debug,
-	T: Eq + std::fmt::Debug,
+	<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
+	T: Eq + MaybeDebug,
 {
 	fn eq(&self, other: &MemoryDB<H, KF, T>) -> bool {
 		for a in self.data.iter() {
@@ -140,8 +150,8 @@ impl<H, KF, T> Eq for MemoryDB<H, KF, T>
 	where 
 	H: KeyHasher,
 	KF: KeyFunction<H>,
-	<KF as KeyFunction<H>>::Key: Eq + std::fmt::Debug,
-				T: Eq + std::fmt::Debug,
+	<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
+				T: Eq + MaybeDebug,
 {}
  
 pub trait KeyFunction<H: KeyHasher> {
