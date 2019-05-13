@@ -105,6 +105,7 @@ where
 								Some(x) => {
 									node_data = x;
 									partial = partial.mid(slice.len() + 1);
+									key_nibbles += slice.len() + 1;
 								}
 								None => return Ok(None)
 							}

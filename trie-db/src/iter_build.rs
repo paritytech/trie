@@ -466,10 +466,40 @@ mod test {
 			assert_eq!(k,key);
 			assert_eq!(v,val);
 		}
+		for ((k, v)) in data.into_iter() {
+			assert_eq!(&t.get(&k[..]).unwrap().unwrap()[..], &v[..]);
+		}
+	}
+
+	fn test_iter_no_ext(data: Vec<(Vec<u8>,Vec<u8>)>) {
+		use reference_trie::{RefTrieDBMutNoExt, TrieMut, RefTrieDBNoExt, Trie};
+
+		let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut root = Default::default();
+		{
+			let mut t = RefTrieDBMutNoExt::new(&mut db, &mut root);
+			for i in 0..data.len() {
+				let key: &[u8]= &data[i].0;
+				let val: &[u8] = &data[i].1;
+				t.insert(key, val).unwrap();
+			}
+		}
+		let t = RefTrieDBNoExt::new(&db, &root).unwrap();
+		for (i, kv) in t.iter().unwrap().enumerate() {
+			let (k,v) = kv.unwrap();
+			let key: &[u8]= &data[i].0;
+			let val: &[u8] = &data[i].1;
+			assert_eq!(k,key);
+			assert_eq!(v,val);
+		}
+		for ((k, v)) in data.into_iter() {
+			assert_eq!(&t.get(&k[..]).unwrap().unwrap()[..], &v[..]);
+		}
 	}
 
 	fn compare_impl(data: Vec<(Vec<u8>,Vec<u8>)>) {
 		test_iter(data.clone());
+		test_iter_no_ext(data.clone());
 		compare_impl_h(data.clone());
 		compare_impl_pk(data.clone());
 		compare_impl_no_ext(data.clone());

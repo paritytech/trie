@@ -107,6 +107,7 @@ impl ChildBitmap for BitMap16 {
 		dest[1] = (bitmap / 256) as u8;
 	}
 }
+
 /// bitmap codec for radix 4
 pub struct BitMap4(u8);
 
@@ -554,7 +555,6 @@ impl Decode for NodeHeaderNoExt {
 }
 
 /// Simple reference implementation of a `NodeCodec`.
-/// This is similar to ethereum implementation.
 #[derive(Default, Clone)]
 pub struct ReferenceNodeCodec<BM>(PhantomData<BM>);
 
