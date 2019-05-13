@@ -15,7 +15,6 @@
 //! Reference-counted memory-based `HashDB` implementation.
 
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(not(feature = "std"), feature(alloc))]
 
 extern crate hash_db;
 #[cfg(feature = "std")]

@@ -89,8 +89,10 @@ impl Branch {
 
 	fn index_bound(&self, index: usize) -> Option<usize> {
 		use core_::convert::TryInto;
-		let s = self.ubounds_ix + index * 8;
-		let e = s + 8;
+		use core_::mem;
+		let usize_len = mem::size_of::<usize>(); 
+		let s = self.ubounds_ix + index * usize_len;
+		let e = s + usize_len;
 		if self.data.len() < e {
 			None
 		} else {

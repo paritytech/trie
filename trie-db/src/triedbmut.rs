@@ -509,15 +509,19 @@ where
 	/// the insertion inspector.
 	fn insert_inspector(&mut self, node: Node<TrieHash<L>>, key: &mut NibbleFullKey<L::N>, value: DBValue, old_val: &mut Option<DBValue>) -> Result<InsertAction<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		let partial = key.clone();
+
+		#[cfg(feature = "std")]
 		trace!(target: "trie", "augmented (partial: {:?}, value: {:#x?})", partial, value);
 
 		Ok(match node {
 			Node::Empty => {
+				#[cfg(feature = "std")]
 				trace!(target: "trie", "empty: COMPOSE");
 				InsertAction::Replace(Node::Leaf(partial.to_stored(), value))
 			},
 			Node::Branch(mut children, stored_value) => {
 				debug_assert!(L::USE_EXTENSION);
+				#[cfg(feature = "std")]
 				trace!(target: "trie", "branch: ROUTE,AUGMENT");
 
 				if partial.is_empty() {
@@ -551,6 +555,7 @@ where
 			},
 			Node::NibbledBranch(encoded, mut children, stored_value) => {
 				debug_assert!(!L::USE_EXTENSION);
+				#[cfg(feature = "std")]
 				trace!(target: "trie", "branch: ROUTE,AUGMENT");
 				let existing_key = NibbleSlice::from_stored(&encoded);
 
@@ -566,6 +571,7 @@ where
 					}
 				} else if cp < existing_key.len() {
 					// insert a branch value in between
+					#[cfg(feature = "std")]
 					trace!(target: "trie", "partially-shared-prefix (exist={:?}; new={:?}; cp={:?}): AUGMENT-AT-END", existing_key.len(), partial.len(), cp);
 					let low = Node::NibbledBranch(existing_key.mid(cp + 1).to_stored(), children, stored_value);
 					let ix = existing_key.at(cp);
@@ -598,6 +604,7 @@ where
 
 				} else {
 					// append after cp == existing_key and partial > cp
+					#[cfg(feature = "std")]
 					trace!(target: "trie", "branch: ROUTE,AUGMENT");
 					let idx = partial.at(cp) as usize;
 					key.advance(cp + 1);
@@ -625,6 +632,7 @@ where
 				let existing_key = NibbleSlice::from_stored(&encoded);
 				let cp = partial.common_prefix(&existing_key);
 				if cp == existing_key.len() && cp == partial.len() {
+					#[cfg(feature = "std")]
 					trace!(target: "trie", "equivalent-leaf: REPLACE");
 					// equivalent leaf.
 					let unchanged = stored_value == value;
@@ -637,6 +645,7 @@ where
 					}
 				} else if (L::USE_EXTENSION && cp == 0)
 					|| (!L::USE_EXTENSION && cp < existing_key.len()) {
+					#[cfg(feature = "std")]
 					trace!(target: "trie", "lesser-common-prefix, not-both-empty (exist={:?}; new={:?}): TRANSMUTE,AUGMENT", existing_key.len(), partial.len());
 
 					// one of us isn't empty: transmute to branch here
@@ -660,6 +669,7 @@ where
 					let branch_action = self.insert_inspector(branch, key, value, old_val)?.unwrap_node();
 					InsertAction::Replace(branch_action)
 				} else if !L::USE_EXTENSION {
+					#[cfg(feature = "std")]
 					trace!(target: "trie", "complete-prefix (cp={:?}): AUGMENT-AT-END", cp);
 
 					// fully-shared prefix for an extension.
@@ -672,6 +682,7 @@ where
 
 				} else if cp == existing_key.len() {
 					debug_assert!(L::USE_EXTENSION);
+					#[cfg(feature = "std")]
 					trace!(target: "trie", "complete-prefix (cp={:?}): AUGMENT-AT-END", cp);
 
 					// fully-shared prefix for an extension.
@@ -686,6 +697,7 @@ where
 					InsertAction::Replace(Node::Extension(existing_key.to_stored(), branch_handle))
 				} else {
 					debug_assert!(L::USE_EXTENSION);
+					#[cfg(feature = "std")]
 					trace!(target: "trie", "partially-shared-prefix (exist={:?}; new={:?}; cp={:?}): AUGMENT-AT-END", existing_key.len(), partial.len(), cp);
 
 					// partially-shared prefix for an extension.
@@ -708,6 +720,7 @@ where
 				let existing_key = NibbleSlice::from_stored(&encoded);
 				let cp = partial.common_prefix(&existing_key);
 				if cp == 0 {
+					#[cfg(feature = "std")]
 					trace!(target: "trie", "no-common-prefix, not-both-empty (exist={:?}; new={:?}): TRANSMUTE,AUGMENT", existing_key.len(), partial.len());
 
 					// partial isn't empty: make a branch here
@@ -729,6 +742,7 @@ where
 					let branch_action = self.insert_inspector(Node::Branch(children, None), key, value, old_val)?.unwrap_node();
 					InsertAction::Replace(branch_action)
 				} else if cp == existing_key.len() {
+					#[cfg(feature = "std")]
 					trace!(target: "trie", "complete-prefix (cp={:?}): AUGMENT-AT-END", cp);
 
 					// fully-shared prefix.
@@ -744,6 +758,7 @@ where
 						false => InsertAction::Restore(new_ext),
 					}
 				} else {
+					#[cfg(feature = "std")]
 					trace!(target: "trie", "partially-shared-prefix (exist={:?}; new={:?}; cp={:?}): AUGMENT-AT-END", existing_key.len(), partial.len(), cp);
 
 					// partially-shared.
@@ -798,6 +813,7 @@ where
 			(Node::Branch(mut children, value), false) => {
 				let idx = partial.at(0) as usize;
 				if let Some(child) = children[idx].take() {
+					#[cfg(feature = "std")]
 					trace!(target: "trie", "removing value out of branch child, partial={:?}", partial);
 					let prefix = key.clone();
 					key.advance(1);
@@ -815,6 +831,7 @@ where
 						None => {
 							// the child we took was deleted.
 							// the node may need fixing.
+							#[cfg(feature = "std")]
 							trace!(target: "trie", "branch child deleted, partial={:?}", partial);
 							Action::Replace(self.fix(Node::Branch(children, value), prefix)?)
 						}
@@ -848,6 +865,7 @@ where
 					let idx = partial.at(cp) as usize;
 
 					if let Some(child) = children[idx].take() {
+						#[cfg(feature = "std")]
 						trace!(target: "trie", "removing value out of branch child, partial={:?}", partial);
 						let prefix = key.clone();
 						key.advance(cp + 1);
@@ -865,6 +883,7 @@ where
 							None => {
 								// the child we took was deleted.
 								// the node may need fixing.
+								#[cfg(feature = "std")]
 								trace!(target: "trie", "branch child deleted, partial={:?}", partial);
 								Action::Replace(self.fix(Node::NibbledBranch(encoded, children, value), prefix)?)
 							},
@@ -882,6 +901,7 @@ where
 					Action::Delete
 				} else {
 					// leaf the node alone.
+					#[cfg(feature = "std")]
 					trace!(target: "trie", "restoring leaf wrong partial, partial={:?}, existing={:?}", partial, NibbleSlice::<L::N>::from_stored(&encoded));
 					Action::Restore(Node::Leaf(encoded, value))
 				}
@@ -893,6 +913,7 @@ where
 				};
 				if cp == existing_len {
 					// try to remove from the child branch.
+					#[cfg(feature = "std")]
 					trace!(target: "trie", "removing from extension child, partial={:?}", partial);
 					let prefix = key.clone();
 					key.advance(cp);
@@ -961,11 +982,13 @@ where
 					}
 					(UsedIndex::None, Some(value)) => {
 						// make a leaf.
+						#[cfg(feature = "std")]
 						trace!(target: "trie", "fixing: branch -> leaf");
 						Ok(Node::Leaf(NibbleSlice::<L::N>::new(&[]).to_stored(), value))
 					}
 					(_, value) => {
 						// all is well.
+						#[cfg(feature = "std")]
 						trace!(target: "trie", "fixing: restoring branch");
 						Ok(Node::Branch(children, value))
 					}
@@ -1040,11 +1063,13 @@ where
 					},
 					(UsedIndex::None, Some(value)) => {
 						// make a leaf.
+						#[cfg(feature = "std")]
 						trace!(target: "trie", "fixing: branch -> leaf");
 						Ok(Node::Leaf(enc_nibble, value))
 					},
 					(_, value) => {
 						// all is well.
+						#[cfg(feature = "std")]
 						trace!(target: "trie", "fixing: restoring branch");
 						Ok(Node::NibbledBranch(enc_nibble, children, value))
 					},
@@ -1090,6 +1115,7 @@ where
 						// subpartial
 						let mut partial = partial;
 						combine_key::<L::N>(&mut partial, (sub_partial.0, &sub_partial.1[..]));
+						#[cfg(feature = "std")]
 						trace!(target: "trie", "fixing: extension combination. new_partial={:?}", partial);
 						self.fix(Node::Extension(partial, sub_child), key)
 					}
@@ -1102,10 +1128,12 @@ where
 						// subpartial oly
 						let mut partial = partial;
 						combine_key::<L::N>(&mut partial, (sub_partial.0, &sub_partial.1[..]));
+						#[cfg(feature = "std")]
 						trace!(target: "trie", "fixing: extension -> leaf. new_partial={:?}", partial);
 						Ok(Node::Leaf(partial, value))
 					}
 					child_node => {
+						#[cfg(feature = "std")]
 						trace!(target: "trie", "fixing: restoring extension");
 
 						// reallocate the child node.
@@ -1126,9 +1154,11 @@ where
 	/// Commit the in-memory changes to disk, freeing their storage and
 	/// updating the state root.
 	pub fn commit(&mut self) {
+		#[cfg(feature = "std")]
 		trace!(target: "trie", "Committing trie changes to db.");
 
 		// always kill all the nodes on death row.
+		#[cfg(feature = "std")]
 		trace!(target: "trie", "{:?} nodes to remove from db", self.death_row.len());
 		for (hash, prefix) in self.death_row.drain() {
 			self.db.remove(&hash, (&prefix.0[..], prefix.1));
@@ -1148,6 +1178,7 @@ where
 					k.drop_lasts(mov);
 					cr
 				});
+				#[cfg(feature = "std")]
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
 				*self.root = self.db.insert(EMPTY_NIBBLE, &encoded_root[..]);
 				self.hash_count += 1;
@@ -1240,6 +1271,7 @@ where
 
 		let mut old_val = None;
 
+		#[cfg(feature = "std")]
 		trace!(target: "trie", "insert: key={:#x?}, value={:#x?}", key, value);
 
 		let root_handle = self.root_handle();
@@ -1250,6 +1282,7 @@ where
 			&mut old_val,
 		)?;
 
+		#[cfg(feature = "std")]
 		trace!(target: "trie", "insert: altered trie={}", changed);
 		self.root_handle = NodeHandle::InMemory(new_handle);
 
@@ -1257,6 +1290,7 @@ where
 	}
 
 	fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+		#[cfg(feature = "std")]
 		trace!(target: "trie", "remove: key={:#x?}", key);
 
 		let root_handle = self.root_handle();
@@ -1265,10 +1299,12 @@ where
 
 		match self.remove_at(root_handle, &mut key, &mut old_val)? {
 			Some((handle, changed)) => {
+				#[cfg(feature = "std")]
 				trace!(target: "trie", "remove: altered trie={}", changed);
 				self.root_handle = NodeHandle::InMemory(handle);
 			}
 			None => {
+				#[cfg(feature = "std")]
 				trace!(target: "trie", "remove: obliterated trie");
 				self.root_handle = NodeHandle::Hash(L::C::hashed_null_node());
 				*self.root = L::C::hashed_null_node();
