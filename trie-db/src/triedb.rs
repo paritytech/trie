@@ -253,7 +253,9 @@ where
 	}
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+
+#[cfg_attr(feature = "std", derive(Debug))]
+#[derive(Clone, Eq, PartialEq)]
 enum Status {
 	Entering,
 	At,
@@ -261,7 +263,8 @@ enum Status {
 	Exiting,
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "std", derive(Debug))]
+#[derive(Eq, PartialEq)]
 struct Crumb<N> {
 	node: OwnedNode<N>,
 	status: Status,

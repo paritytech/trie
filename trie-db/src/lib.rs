@@ -106,7 +106,8 @@ pub type DBValue = elastic_array::ElasticArray128<u8>;
 ///
 /// These borrow the data within them to avoid excessive copying on every
 /// trie operation.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "std", derive(Debug))]
 pub enum TrieError<T, E> {
 	/// Attempted to create a trie with a state root not in the DB.
 	InvalidStateRoot(T),
@@ -246,7 +247,8 @@ pub trait TrieIterator<L: TrieLayOut>: Iterator {
 }
 
 /// Trie types
-#[derive(Debug, PartialEq, Clone)]
+#[derive(PartialEq, Clone)]
+#[cfg_attr(feature = "std", derive(Debug))]
 pub enum TrieSpec {
 	/// Generic trie.
 	Generic,

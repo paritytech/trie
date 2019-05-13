@@ -261,6 +261,7 @@ impl<'a, N: NibbleOps> Ord for NibbleSlice<'a, N> {
 	}
 }
 
+#[cfg(feature = "std")]
 impl<'a, N: NibbleOps> fmt::Debug for NibbleSlice<'a, N> {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		for i in 0..self.len() {

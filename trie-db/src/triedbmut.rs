@@ -45,11 +45,11 @@ use alloc::vec::Vec;
 
 // For lookups into the Node storage buffer.
 // This is deliberately non-copyable.
-#[derive(Debug)]
+#[cfg_attr(feature = "std", derive(Debug))]
 struct StorageHandle(usize);
 
 // Handles to nodes in the trie.
-#[derive(Debug)]
+#[cfg_attr(feature = "std", derive(Debug))]
 enum NodeHandle<H> {
 	/// Loaded into memory.
 	InMemory(StorageHandle),
@@ -74,7 +74,7 @@ fn empty_children<H,N: NibbleOps>() -> Vec<Option<NodeHandle<H>>> {
 type NibbleFullKey<'key, N> = NibbleSlice<'key, N>;
 
 /// Node types in the Trie.
-#[derive(Debug)]
+#[cfg_attr(feature = "std", derive(Debug))]
 enum Node<H> {
 	/// Empty node.
 	Empty,
@@ -931,7 +931,7 @@ where
 		match node {
 			Node::Branch(mut children, value) => {
 				// if only a single value, transmute to leaf/extension and feed through fixed.
-				#[derive(Debug)]
+				#[cfg_attr(feature = "std", derive(Debug))]
 				enum UsedIndex {
 					None,
 					One(u8),
@@ -973,7 +973,7 @@ where
 			},
 			Node::NibbledBranch(enc_nibble, mut children, value) => {
 				// if only a single value, transmute to leaf/extension and feed through fixed.
-				#[derive(Debug)]
+				#[cfg_attr(feature = "std", derive(Debug))]
 				enum UsedIndex {
 					None,
 					One(u8),

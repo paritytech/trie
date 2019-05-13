@@ -47,9 +47,9 @@ pub enum Node<'a, N: NibbleOps> {
 	/// Branch node with support for a nibble (to avoid extension node)
 	NibbledBranch(NibbleSlice<'a, N>, BranchChildrenSlice<'a, N>, Option<&'a [u8]>),
 }
-
 /// A Sparse (non mutable) owned vector struct to hold branch keys and value
-#[derive(Eq, PartialEq, Debug, Clone)]
+#[cfg_attr(feature = "std", derive(Debug))]
+#[derive(Eq, PartialEq, Clone)]
 pub struct Branch {
 	data: Vec<u8>,
 	data_ix: usize,
@@ -110,7 +110,8 @@ impl Branch {
 }
 
 /// An owning node type. Useful for trie iterators.
-#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "std", derive(Debug))]
+#[derive(PartialEq, Eq)]
 pub enum OwnedNode<N> {
 	/// Empty trie node.
 	Empty,

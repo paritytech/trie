@@ -19,6 +19,9 @@ criterion_group!(benches,
 	nibble_common_prefix,
 	root_old,
 	root_new,
+  root_a_big_v,
+  root_a_small_v,
+  root_b_small_v,
 );
 criterion_main!(benches);
 
@@ -48,6 +51,87 @@ fn nibble_common_prefix(b: &mut Criterion) {
 			}
 		})
 	});
+}
+
+fn root_a_big_v(c: &mut Criterion) {
+	let data : Vec<Vec<(Vec<u8>,Vec<u8>)>> = vec![
+		input2(29, 204800, 1024),
+	];
+
+	c.bench_function_over_inputs("root_a_big_v",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
+		b.iter(||{
+			let datac:Vec<(Vec<u8>,Vec<u8>)> = data.clone();
+			// this is in `ref_trie_root` added here to make things comparable
+			let inputc = datac
+				.iter()
+				.map(|v|(&v.0, &v.1))
+				.collect::<std::collections::BTreeMap<_, _>>();
+
+
+			reference_trie::calc_root(inputc);
+		})
+	,data);
+}
+
+fn root_b_big_v(c: &mut Criterion) {
+	let data : Vec<Vec<(Vec<u8>,Vec<u8>)>> = vec![
+		input2(29, 204800 / 2, 1024 * 2),
+	];
+
+	c.bench_function_over_inputs("root_a_big_v",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
+		b.iter(||{
+			let datac:Vec<(Vec<u8>,Vec<u8>)> = data.clone();
+			// this is in `ref_trie_root` added here to make things comparable
+			let inputc = datac
+				.iter()
+				.map(|v|(&v.0, &v.1))
+				.collect::<std::collections::BTreeMap<_, _>>();
+
+
+			reference_trie::calc_root(inputc);
+		})
+	,data);
+}
+
+
+fn root_a_small_v(c: &mut Criterion) {
+	let data : Vec<Vec<(Vec<u8>,Vec<u8>)>> = vec![
+		input2(29, 204800, 32),
+	];
+
+	c.bench_function_over_inputs("root_a_small_v",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
+		b.iter(||{
+			let datac:Vec<(Vec<u8>,Vec<u8>)> = data.clone();
+			// this is in `ref_trie_root` added here to make things comparable
+			let inputc = datac
+				.iter()
+				.map(|v|(&v.0, &v.1))
+				.collect::<std::collections::BTreeMap<_, _>>();
+
+
+			reference_trie::calc_root(inputc);
+		})
+	,data);
+}
+
+fn root_b_small_v(c: &mut Criterion) {
+	let data : Vec<Vec<(Vec<u8>,Vec<u8>)>> = vec![
+		input2(29, 204800 / 2, 32),
+	];
+
+	c.bench_function_over_inputs("root_b_small_v",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
+		b.iter(||{
+			let datac:Vec<(Vec<u8>,Vec<u8>)> = data.clone();
+			// this is in `ref_trie_root` added here to make things comparable
+			let inputc = datac
+				.iter()
+				.map(|v|(&v.0, &v.1))
+				.collect::<std::collections::BTreeMap<_, _>>();
+
+
+			reference_trie::calc_root(inputc);
+		})
+	,data);
 }
 
 fn root_old(c: &mut Criterion) {
@@ -122,6 +206,26 @@ fn fuzz_to_data(input: Vec<u8>) -> Vec<(Vec<u8>,Vec<u8>)> {
 	result
 }
 
+fn fuzz_to_data2(input: Vec<u8>, vl: usize) -> Vec<(Vec<u8>,Vec<u8>)> {
+	let mut result = Vec::new();
+	// enc = (minkeylen, maxkeylen (min max up to 32), datas)
+	// fix data len 2 bytes
+	let minkeylen = 1;
+	let maxkeylen = 32;
+	let mut ix = 0;
+	loop {
+		let keylen = 32;
+		let key = if input.len() > ix + keylen {
+			input[ix..ix+keylen].to_vec()
+		} else { break };
+		ix += keylen;
+		let val = vec![input[ix];vl];
+		result.push((key,val));
+	}
+	result
+}
+
+
 fn data_sorted_unique(input: Vec<(Vec<u8>,Vec<u8>)>) -> Vec<(Vec<u8>,Vec<u8>)> {
 	let mut m = std::collections::BTreeMap::new();
 	for (k,v) in input.into_iter() {
@@ -137,5 +241,15 @@ fn input(seed: u64, len: usize) -> Vec<(Vec<u8>,Vec<u8>)> {
 	let mut data = vec![0u8; len];
 	rng.fill_bytes(&mut data[..]);
 	let data = data_sorted_unique(fuzz_to_data(data));
+	data
+}
+
+fn input2(seed: u64, len: usize, vl: usize) -> Vec<(Vec<u8>,Vec<u8>)> {
+	use rand::SeedableRng;
+	use rand::RngCore;
+	let mut rng = rand::rngs::SmallRng::seed_from_u64(seed);
+	let mut data = vec![0u8; len];
+	rng.fill_bytes(&mut data[..]);
+	let data = data_sorted_unique(fuzz_to_data2(data,vl));
 	data
 }

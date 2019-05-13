@@ -160,7 +160,8 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 }
 
 /// half byte nibble prepend encoding
-#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, Debug)]
+#[cfg_attr(feature = "std", derive(Debug))]
+#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Copy)]
 pub struct NibbleHalf;
 
 
@@ -183,7 +184,8 @@ impl NibbleOps for NibbleHalf {
 	type ChildSliceIx = ChildSliceIx16;
 }
 
-#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, Debug)]
+#[cfg_attr(feature = "std", derive(Debug))]
+#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Copy)]
 pub struct NibbleQuarter;
 
 // new_padded_end merged
@@ -200,7 +202,8 @@ impl NibbleOps for NibbleQuarter {
 
 
 /// Owning, nibble-oriented byte vector. Counterpart to `NibbleSlice`.
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "std", derive(Debug))]
+#[derive(Clone, PartialEq, Eq)]
 pub struct NibbleVec<N> {
 	inner: ElasticArray36<u8>,
 	len: usize,
@@ -288,7 +291,8 @@ impl<'a, CS: ChildSliceIx> Iterator for IterChildSliceIx<'a, CS> {
 
 macro_rules! child_slice_ix {
 	($me: ident, $size: expr, $pre: expr) => {
-		#[derive(Default, Eq, PartialEq, Debug, Clone)]
+    #[cfg_attr(feature = "std", derive(Debug))]
+		#[derive(Default, Eq, PartialEq, Clone)]
 		/// child slice ix for radix $size
 		pub struct $me([usize; $size + 1]);
 

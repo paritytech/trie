@@ -167,8 +167,8 @@ pub fn prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8> {
 	prefixed_key.extend_from_slice(prefix.0);
 	if (prefix.1).0 > 0 {
 		prefixed_key.push((prefix.1).1);
+		prefixed_key.push((prefix.1).0); // put size to avoid any possible collision
 	}
-	prefixed_key.push((prefix.1).0); // put size to avoid any possible collision
 	prefixed_key.extend_from_slice(key.as_ref());
 	prefixed_key
 }

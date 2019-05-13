@@ -18,7 +18,8 @@
 use alloc::vec::Vec;
 
 /// A record of a visited node.
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[cfg_attr(feature = "std", derive(Debug))]
+#[derive(PartialEq, Eq, Clone)]
 pub struct Record<HO> {
 	/// The depth of this node.
 	pub depth: u32,
@@ -31,7 +32,7 @@ pub struct Record<HO> {
 }
 
 /// Records trie nodes as they pass it.
-#[derive(Debug)]
+#[cfg_attr(feature = "std", derive(Debug))]
 pub struct Recorder<HO> {
 	nodes: Vec<Record<HO>>,
 	min_depth: u32,
