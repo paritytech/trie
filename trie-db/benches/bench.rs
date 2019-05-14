@@ -19,9 +19,10 @@ criterion_group!(benches,
 	nibble_common_prefix,
 	root_old,
 	root_new,
-  root_a_big_v,
-  root_a_small_v,
-  root_b_small_v,
+	root_a_big_v,
+	root_b_big_v,
+	root_a_small_v,
+	root_b_small_v,
 );
 criterion_main!(benches);
 
@@ -55,7 +56,7 @@ fn nibble_common_prefix(b: &mut Criterion) {
 
 fn root_a_big_v(c: &mut Criterion) {
 	let data : Vec<Vec<(Vec<u8>,Vec<u8>)>> = vec![
-		input2(29, 204800, 1024),
+		input2(29, 204800 / 2, 512 * 2),
 	];
 
 	c.bench_function_over_inputs("root_a_big_v",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
@@ -75,10 +76,10 @@ fn root_a_big_v(c: &mut Criterion) {
 
 fn root_b_big_v(c: &mut Criterion) {
 	let data : Vec<Vec<(Vec<u8>,Vec<u8>)>> = vec![
-		input2(29, 204800 / 2, 1024 * 2),
+		input2(29, 204800, 512),
 	];
 
-	c.bench_function_over_inputs("root_a_big_v",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
+	c.bench_function_over_inputs("root_b_big_v",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
 		b.iter(||{
 			let datac:Vec<(Vec<u8>,Vec<u8>)> = data.clone();
 			// this is in `ref_trie_root` added here to make things comparable
@@ -116,7 +117,7 @@ fn root_a_small_v(c: &mut Criterion) {
 
 fn root_b_small_v(c: &mut Criterion) {
 	let data : Vec<Vec<(Vec<u8>,Vec<u8>)>> = vec![
-		input2(29, 204800 / 2, 32),
+		input2(29, 204800 / 2, 32 * 2),
 	];
 
 	c.bench_function_over_inputs("root_b_small_v",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
