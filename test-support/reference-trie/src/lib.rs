@@ -1211,25 +1211,25 @@ fn too_big_nibble_len () {
 
 #[test]
 fn size_encode_limit_values () {
-  let sizes = [0, 1, 62, 63, 64, 317, 318, 319, 572, 573, 574];
-  let encs = [
-    vec![0],
-    vec![1],
-    vec![0x3e],
-    vec![0x3f, 0],
-    vec![0x3f, 1],
-    vec![0x3f, 0xfe],
-    vec![0x3f, 0xff, 0],
-    vec![0x3f, 0xff, 1],
-    vec![0x3f, 0xff, 0xfe],
-    vec![0x3f, 0xff, 0xff, 0],
-    vec![0x3f, 0xff, 0xff, 1],
-  ];
-  for i in 0..sizes.len() {
-    let mut enc = Vec::new();
-    s_encode_size_and_prefix(sizes[i], 0, &mut enc);
-    assert_eq!(enc, encs[i]);
-    let s_dec = s_decode_size(encs[i][0], &mut &encs[i][1..]);
-    assert_eq!(s_dec, Some(sizes[i]));
-  }
+	let sizes = [0, 1, 62, 63, 64, 317, 318, 319, 572, 573, 574];
+	let encs = [
+		vec![0],
+		vec![1],
+		vec![0x3e],
+		vec![0x3f, 0],
+		vec![0x3f, 1],
+		vec![0x3f, 0xfe],
+		vec![0x3f, 0xff, 0],
+		vec![0x3f, 0xff, 1],
+		vec![0x3f, 0xff, 0xfe],
+		vec![0x3f, 0xff, 0xff, 0],
+		vec![0x3f, 0xff, 0xff, 1],
+	];
+	for i in 0..sizes.len() {
+		let mut enc = Vec::new();
+		s_encode_size_and_prefix(sizes[i], 0, &mut enc);
+		assert_eq!(enc, encs[i]);
+		let s_dec = s_decode_size(encs[i][0], &mut &encs[i][1..]);
+		assert_eq!(s_dec, Some(sizes[i]));
+	}
 }
