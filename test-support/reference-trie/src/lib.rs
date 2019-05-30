@@ -356,7 +356,12 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 		value.encode_to(&mut self.buffer);
 	}
 
-	fn begin_branch(&mut self, maybe_key: Option<&[u8]>, maybe_value: Option<&[u8]>, has_children: impl Iterator<Item = bool>) {
+	fn begin_branch(
+		&mut self,
+		maybe_key: Option<&[u8]>,
+		maybe_value: Option<&[u8]>,
+		has_children: impl Iterator<Item = bool>
+	) {
 		if let Some(partial) = maybe_key {
 			if maybe_value.is_some() {
 				self.buffer.extend(fuse_nibbles_node_noext(partial, NodeKindNoExt::BranchWithValue));
@@ -466,7 +471,7 @@ fn s_decode_size<I: Input>(first: u8, input: &mut I) -> Option<usize> {
 		}
 		result += 255;
 	}
-	Some(s_cst::NIBBLE_SIZE_BOUND)
+	None
 }
 
 #[test]
