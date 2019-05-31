@@ -18,7 +18,7 @@
 #![cfg_attr(not(feature = "std"), feature(alloc))]
 
 extern crate hash_db;
-extern crate parity_util_mem as malloc_size_of;
+extern crate parity_util_mem;
 #[cfg(feature = "deprecated")]
 #[cfg(feature = "std")]
 extern crate heapsize;
@@ -29,7 +29,7 @@ extern crate alloc;
 #[cfg(test)] extern crate keccak_hasher;
 
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher, AsHashDB, AsPlainDB};
-use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
+use parity_util_mem::{MallocSizeOf, MallocSizeOfOps};
 #[cfg(feature = "deprecated")]
 #[cfg(feature = "std")]
 use heapsize::HeapSizeOf;
@@ -308,7 +308,7 @@ where
 	T: HeapSizeOf,
 	KF: KeyFunction<H>,
 {
-	#[deprecated(since="0.12.0", note="please use `malloc_size_of` instead")]
+	#[deprecated(since="0.12.0", note="please use `size_of` instead")]
 	/// Returns the size of allocated heap memory
 	pub fn mem_used(&self) -> usize {
 		0//self.data.heap_size_of_children()
