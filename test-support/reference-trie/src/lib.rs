@@ -856,13 +856,18 @@ impl<N: NibbleOps, BM: ChildBitmap<Error = ReferenceError>> NodeCodec<KeccakHash
 		output
 	}
 
-	fn ext_node(_partial: impl Iterator<Item = u8>, _nbnibble: usize, _child: ChildReference<<KeccakHasher as Hasher>::Out>) -> Vec<u8> {
+	fn ext_node(
+    _partial: impl Iterator<Item = u8>,
+    _nbnibble: usize,
+    _child: ChildReference<<KeccakHasher as Hasher>::Out>,
+  ) -> Vec<u8> {
 		unreachable!()
 	}
 
 	fn branch_node(
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<KeccakHasher as Hasher>::Out>>>>,
-		_maybe_value: Option<&[u8]>) -> Vec<u8> {
+		_maybe_value: Option<&[u8]>,
+  ) -> Vec<u8> {
 		unreachable!()
 	}
 
@@ -870,7 +875,8 @@ impl<N: NibbleOps, BM: ChildBitmap<Error = ReferenceError>> NodeCodec<KeccakHash
 		partial: impl Iterator<Item = u8>,
 		nb_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<KeccakHasher as Hasher>::Out>>>>,
-		maybe_value: Option<&[u8]>) -> Vec<u8> {
+		maybe_value: Option<&[u8]>,
+  ) -> Vec<u8> {
 		let mut output = if maybe_value.is_some() {
 			partial_enc_it::<N,_>(partial, nb_nibble, NodeKindNoExt::BranchWithValue)
 		} else {
