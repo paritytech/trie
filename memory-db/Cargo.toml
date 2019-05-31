@@ -1,6 +1,6 @@
 [package]
 name = "memory-db"
-version = "0.12.2"
+version = "0.12.3"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "In-memory implementation of hash-db, useful for tests"
 repository = "https://github.com/paritytech/trie"
@@ -8,7 +8,7 @@ license = "Apache-2.0"
 
 [dependencies]
 heapsize = { version = "0.4", optional = true }
-parity-util-mem = { version = "0.1", git = "https://github.com/cheme/parity-common", branch = "deprecate_heapsize" }
+parity-util-mem = { version = "0.1" }
 hash-db = { path = "../hash-db", default-features = false, version = "0.12.2"}
 hashmap_core = { version = "0.1" }
 
