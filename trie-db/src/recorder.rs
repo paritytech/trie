@@ -14,6 +14,9 @@
 
 //! Trie query recorder.
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 /// A record of a visited node.
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Record<HO> {
@@ -68,13 +71,13 @@ impl<HO: Copy> Recorder<HO> {
 
 	/// Drain all visited records.
 	pub fn drain(&mut self) -> Vec<Record<HO>> {
-		::std::mem::replace(&mut self.nodes, Vec::new())
+		::core_::mem::replace(&mut self.nodes, Vec::new())
 	}
 }
 
 #[cfg(test)]
 mod tests {
-	use memory_db::MemoryDB;
+	use memory_db::{MemoryDB, HashKey};
 	use hash_db::Hasher;
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefTrieDB, RefTrieDBMut, Trie, TrieMut, Recorder, Record};
@@ -131,7 +134,7 @@ mod tests {
 
 	#[test]
 	fn trie_record() {
-		let mut db = MemoryDB::default();
+		let mut db = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
 		let mut root = Default::default();
 		{
 			let mut x = RefTrieDBMut::new(&mut db, &mut root);

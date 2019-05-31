@@ -17,6 +17,9 @@ use super::triedb::TrieDB;
 use super::{Result, DBValue, Trie, TrieItem, TrieIterator, Query};
 use node_codec::NodeCodec;
 
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
+
 /// A `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 ///
 /// Use it as a `Trie` trait object. You can use `raw()` to get the backing `TrieDB` object.
@@ -77,7 +80,7 @@ where
 
 #[cfg(test)]
 mod test {
-	use memory_db::MemoryDB;
+	use memory_db::{MemoryDB, HashKey};
 	use hash_db::Hasher;
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefTrieDBMut, RefSecTrieDB, Trie, TrieMut};
@@ -85,7 +88,7 @@ mod test {
 
 	#[test]
 	fn trie_to_sectrie() {
-		let mut db = MemoryDB::default();
+		let mut db = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut db, &mut root);

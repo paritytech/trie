@@ -1,11 +1,13 @@
 [package]
 name = "hash-db"
-version = "0.11.0"
+version = "0.12.2"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Trait for hash-keyed databases."
 license = "Apache-2.0"
 categories = [ "no-std" ]
+repository = "https://github.com/paritytech/trie"
 
 [features]
 default = ["std"]
-std = []
+std = [
+]
