@@ -8,7 +8,7 @@ license = "Apache-2.0"
 
 [dependencies]
 heapsize = { version = "0.4", optional = true }
-parity-util-mem = { version = "0.1" }
+parity-util-mem = { version = "0.1", default-features = false }
 hash-db = { path = "../hash-db", default-features = false, version = "0.12.3"}
 hashmap_core = { version = "0.1" }
 
@@ -21,6 +21,7 @@ default = ["std"]
 std = [
   "hash-db/std",
   "hashmap_core/disable",
+  "parity-util-mem/std",
 ]
 deprecated = [ "heapsize" ]
 
