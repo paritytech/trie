@@ -9,11 +9,11 @@ license = "Apache-2.0"
 [dependencies]
 heapsize = { version = "0.4", optional = true }
 parity-util-mem = { version = "0.1" }
-hash-db = { path = "../hash-db", default-features = false, version = "0.12.2"}
+hash-db = { path = "../hash-db", default-features = false, version = "0.12.3"}
 hashmap_core = { version = "0.1" }
 
 [dev-dependencies]
-keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.12.2"}
+keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.12.3"}
 criterion = "0.2.8"
 
 [features]
