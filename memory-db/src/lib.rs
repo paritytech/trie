@@ -172,6 +172,24 @@ pub fn prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8> {
 	prefixed_key
 }
 
+/// Legacy method for db using previous version of prefix encoding.
+/// Only for trie radix 16.
+pub fn legacy_prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8> {
+	let mut prefixed_key = Vec::with_capacity(key.as_ref().len() + prefix.0.len() + 1);
+	if (prefix.1).0 == 0 {
+		prefixed_key.extend_from_slice(prefix.0);
+	} else {
+		let mut prev = 0u8;
+		for i in prefix.0.iter() {
+			prefixed_key.push((prev << 4) + (*i >> 4));
+			prev = *i;
+		}
+		prefixed_key.push((prev << 4) + ((prefix.1).1 >> 4));
+	}
+	prefixed_key.extend_from_slice(key.as_ref());
+	prefixed_key
+}
+
 /// Make database key from hash only.
 pub fn hash_key<H: KeyHasher>(key: &H::Out, _prefix: Prefix) -> H::Out {
 	key.clone()
@@ -200,6 +218,22 @@ impl<H: KeyHasher> KeyFunction<H> for PrefixedKey<H> {
 		prefixed_key::<H>(hash, prefix)
 	}
 }
+
+#[derive(Clone,Debug)]
+/// Key function that concatenates prefix and hash.
+/// This is doing useless computation and should only be
+/// used for legacy purpose.
+pub struct LegacyPrefixedKey<H: KeyHasher>(PhantomData<H>);
+
+impl<H: KeyHasher> KeyFunction<H> for LegacyPrefixedKey<H> {
+	type Key = Vec<u8>;
+
+	fn key(hash: &H::Out, prefix: Prefix) -> Vec<u8> {
+		legacy_prefixed_key::<H>(hash, prefix)
+	}
+}
+
+
 
 impl<'a, H, KF, T> Default for MemoryDB<H, KF, T>
 where

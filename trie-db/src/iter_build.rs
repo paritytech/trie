@@ -323,7 +323,7 @@ pub trait ProcessEncodedNode<HO> {
 /// As for all `ProcessEncodedNode` implementation, it 
 /// is only for full trie parsing (not existing trie).
 pub struct TrieBuilder<'a, H, HO, V, DB> {
-	pub db: &'a mut DB,
+	db: &'a mut DB,
 	pub root: Option<HO>,
 	_ph: PhantomData<(H,V)>,
 }

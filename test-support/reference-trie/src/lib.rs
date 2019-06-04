@@ -42,7 +42,7 @@ use keccak_hasher::KeccakHasher;
 
 pub use trie_db::{Trie, TrieMut, NibbleSlice, Recorder, NodeCodec, ChildBitmap,
 	BitMap, ChildSliceIx};
-pub use trie_db::{Record, TrieLayOut, NibbleHalf, NibbleQuarter, NibbleOps};
+pub use trie_db::{Record, TrieLayOut, TrieOps, NibbleHalf, NibbleQuarter, NibbleOps};
 pub use trie_root::TrieStream;
 
 /// trie layout similar to parity-ethereum
@@ -56,6 +56,8 @@ impl TrieLayOut for LayoutOri {
 	type CB = Cache16;
 }
 
+impl TrieOps for LayoutOri { }
+
 /// trie layout similar to substrate one
 pub struct LayoutNew;
 
@@ -67,16 +69,20 @@ impl TrieLayOut for LayoutNew {
 	type CB = Cache16;
 }
 
+impl TrieOps for LayoutNew { }
+
 /// Test quarter nibble
 pub struct LayoutNewQuarter;
 
 impl TrieLayOut for LayoutNewQuarter {
-	const USE_EXTENSION: bool = false;
-	type H = keccak_hasher::KeccakHasher;
-	type C = ReferenceNodeCodecNoExt<BitMap4>;
-	type N = NibbleQuarter;
-	type CB = Cache4;
+  const USE_EXTENSION: bool = false;
+  type H = keccak_hasher::KeccakHasher;
+  type C = ReferenceNodeCodecNoExt<BitMap4>;
+  type N = NibbleQuarter;
+  type CB = Cache4;
 }
+
+impl TrieOps for LayoutNewQuarter { }
 
 /// bitmap codec for radix 16
 pub struct BitMap16(u16);

@@ -1,4 +1,4 @@
-// Copyright 2017, 2018 Parity Technologies
+// Copyright 2017, 2019 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -365,7 +365,7 @@ where
 	pub fn is_fat(&self) -> bool { self.spec == TrieSpec::Fat }
 }
 
-/// trait with definition of trie layout
+/// Trait with definition of trie layout
 pub trait TrieLayOut {
 	/// does the trie use extension before its branch
 	const USE_EXTENSION: bool;
@@ -373,6 +373,67 @@ pub trait TrieLayOut {
 	type C: NodeCodec<Self::H, Self::N>;
 	type N: NibbleOps;
 	type CB: CacheBuilder<<Self::H as Hasher>::Out>;
+}
+
+/// Trait with operation on key value iterator.
+/// This trait contains its own default implementation.
+/// Implementing it allows to use alternate algorithm.
+pub trait TrieOps: Sized + TrieLayOut {
+	/// Operation to build a trie db from its ordered iterator of key value
+	fn trie_build<DB, I, A, B>(db: &mut DB, input: I) -> <Self::H as Hasher>::Out where
+	DB: HashDB<Self::H, usize>,
+	I: IntoIterator<Item = (A, B)>,
+	A: AsRef<[u8]> + Ord,
+	B: AsRef<[u8]>,
+	{
+		let mut cb = TrieBuilder::new(db);
+		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
+		cb.root.unwrap_or(Default::default())
+	}
+	/// Determine a trie root given its ordered contents, closed form.
+	fn trie_root<I, A, B>(input: I) -> <Self::H as Hasher>::Out where
+	I: IntoIterator<Item = (A, B)>,
+	A: AsRef<[u8]> + Ord,
+	B: AsRef<[u8]>,
+	{
+		let mut cb = TrieRoot::<Self::H, _>::default();
+		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
+		cb.root.unwrap_or(Default::default())
+	}
+	
+	/// Determine a trie root node's data given its ordered contents, closed form.
+	fn trie_root_unhashed<I, A, B>(input: I) -> Vec<u8> where
+	I: IntoIterator<Item = (A, B)>,
+	A: AsRef<[u8]> + Ord,
+	B: AsRef<[u8]>,
+	{
+		let mut cb = TrieRootUnhashed::<Self::H>::default();
+		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
+		cb.root.unwrap_or(Default::default())
+	}
+	
+	/// Encoding of index as a key (when reusing general trie for 
+	/// indexed trie).
+	fn encode_index(input: u32) -> Vec<u8> {
+		// be for byte ordering
+		input.to_be_bytes().to_vec()
+	}
+	/// A trie root formed from the items, with keys attached according to their
+	/// compact-encoded index (using `parity-codec` crate).
+	fn ordered_trie_root<I, A>(input: I) -> <Self::H as Hasher>::Out
+	where
+		I: IntoIterator<Item = A>,
+		A: AsRef<[u8]>,
+	{
+		Self::trie_root(input
+			.into_iter()
+			.enumerate()
+			.map(|(i, v)| (Self::encode_index(i as u32), v))
+		)
+	}
+/*	/// Operation to build a trie from an unordered iterator of key value.
+	/// Operation to calculate a trie root from an ordered iterator of key value.
+	/// Operation to build a trie from an ordered iterator of key value.*/
 }
 
 /// alias to acces hasher hash output type from a `TrieLayout`
