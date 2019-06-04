@@ -177,9 +177,10 @@ pub fn prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8> {
 pub fn legacy_prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8> {
 	let mut prefixed_key = Vec::with_capacity(key.as_ref().len() + prefix.0.len() + 1);
 	if (prefix.1).0 == 0 {
+		prefixed_key.push(0);
 		prefixed_key.extend_from_slice(prefix.0);
 	} else {
-		let mut prev = 0u8;
+		let mut prev = 0x01u8;
 		for i in prefix.0.iter() {
 			prefixed_key.push((prev << 4) + (*i >> 4));
 			prev = *i;
