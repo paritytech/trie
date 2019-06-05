@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Alternative tools for working with key value iterator without recursion.
+//! Alternative tools for working with key value ordered iterator without recursion.
 
 use hash_db::{Hasher, HashDB, Prefix};
 use core_::marker::PhantomData;
@@ -33,17 +33,19 @@ macro_rules! exp_disp {
 
 type CacheNode<HO> = Option<ChildReference<HO>>;
 
-/// a builder for fix constant len cache, should match nibble ops `NIBBLE_LEN` 
+/// A builder for fix constant length cache, should match `NibbleOps` `NIBBLE_LEN`.
 pub trait CacheBuilder<HO> {
-	/// size of cache
+	/// Size of cache.
 	const SIZE: usize;
-	/// the fix cache
+	/// The type of the cache.
 	type AN: AsRef<[CacheNode<HO>]> + AsMut<[CacheNode<HO>]>;
-	/// builder for cache
+	/// Create a new cache.
 	fn new_vec_slice_buff() -> Self::AN; 
 }
 
+/// Cache builder for radix 16 trie.
 pub struct Cache16;
+/// Cache builder for radix 4 trie.
 pub struct Cache4;
 
 impl<HO> CacheBuilder<HO> for Cache16 {
@@ -63,13 +65,21 @@ impl<HO> CacheBuilder<HO> for Cache4 {
 		exp_disp!(@2, [None])
 	}
 }
+
 type ArrayNode<T> = <<T as TrieLayOut>::CB as CacheBuilder<TrieHash<T>>>::AN;
+
 // (64 * 16) aka 2*byte size of key * nb nibble value, 2 being byte/nible (8/4)
 // first usize to get nb of added value, second usize last added index
 // second str is in branch value
+/// Struct containing cache while iterating, can be at most the length of the lowest nibble.
+///
+/// Note that it is not memory optimal (all depth are allocated even if some are empty due
+/// to node partial).
+/// Three field are used, a cache over the children, a boolean to indicate a change occured,
+/// and an optional associated value.
 struct CacheAccum<T: TrieLayOut,V> (Vec<(ArrayNode<T>, bool, Option<V>)>,PhantomData<T>);
 
-/// initially allocated cache
+/// Initially allocated cache depth.
 const INITIAL_DEPTH: usize = 10;
 
 impl<T,V> CacheAccum<T,V>
@@ -257,7 +267,9 @@ where
 
 }
 
-/// visit trie
+/// Function visiting trie from key value with a `ProccessEncodedNode`.
+/// Calls to each node occurs ordered but with longest depth first (from node to
+/// branch to root), this differs form key ordering a bit.
 pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F) 
 	where
 		T: TrieLayOut,
@@ -315,12 +327,19 @@ pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F)
 	}
 }
 
+/// Visitor trait to implement when using `trie_visit`.
 pub trait ProcessEncodedNode<HO> {
+	/// Function call with prefix, encoded value and a boolean indicating if the
+	/// node is the root for each node of the trie.
+	///
+	/// Note that the returned value can be change depending on implementation,
+	/// but usually it should be the Hash of encoded node. This is returned for
+	/// optimisation purpose only (for builder hash_db does return this value).
 	fn process(&mut self, encoded_prefix: Prefix, Vec<u8>, bool) -> ChildReference<HO>;
 }
 
-/// Get trie root and insert node in hash db on parsing.
-/// As for all `ProcessEncodedNode` implementation, it 
+/// Get trie root and insert visited node in a hash_db.
+/// As for all `ProcessEncodedNode` implementation, it
 /// is only for full trie parsing (not existing trie).
 pub struct TrieBuilder<'a, H, HO, V, DB> {
 	db: &'a mut DB,
@@ -351,8 +370,9 @@ impl<'a, H: Hasher, V, DB: HashDB<H,V>> ProcessEncodedNode<<H as Hasher>::Out> f
 	}
 }
 
-/// Get trie root hash on parsing
+/// Calculate the trie root of the trie.
 pub struct TrieRoot<H, HO> {
+	/// The resulting root.
 	pub root: Option<HO>,
 	_ph: PhantomData<(H)>,
 }
@@ -380,16 +400,9 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRoot<H, <H as Has
 	}
 }
 
-/// Get trie root hash on parsing
-/// -> this seems to match current implementation
-/// of trie_root but I think it should return the 
-/// full stream of trie (which would not be doable
-/// with current `ProcessEncodedNode` definition
-/// but can be doable by switching to something
-/// similar to `TrieStream` (initially the trait
-/// was a simple FnMut but it make sense to move
-/// to something more refined).
+/// Get the trie root node encoding.
 pub struct TrieRootUnhashed<H> {
+	/// The resulting encoded root.
 	pub root: Option<Vec<u8>>,
 	_ph: PhantomData<(H)>,
 }

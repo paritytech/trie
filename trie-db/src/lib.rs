@@ -365,21 +365,30 @@ where
 	pub fn is_fat(&self) -> bool { self.spec == TrieSpec::Fat }
 }
 
-/// Trait with definition of trie layout
+/// Trait with definition of trie layout.
+/// It contains all associated trait needed for
+/// a trie definition.
 pub trait TrieLayOut {
-	/// does the trie use extension before its branch
+	/// If true, the trie will use extension nodes and
+	/// no partial in branch, if false the trie will only
+	/// use branch and node with partials in both.
 	const USE_EXTENSION: bool;
+	/// Hasher to use for this trie.
 	type H: Hasher;
+	/// Codec to use (need to match hasher and nibble ops)
 	type C: NodeCodec<Self::H, Self::N>;
+	/// Trie nibble constants.
 	type N: NibbleOps;
+	/// Technical trait for cache, it should match the radix
+	/// of `NibbleOps`.
 	type CB: CacheBuilder<<Self::H as Hasher>::Out>;
 }
 
 /// Trait with operation on key value iterator.
-/// This trait contains its own default implementation.
-/// Implementing it allows to use alternate algorithm.
+/// This trait contains its own default implementations
+/// and exists only to allow alternate algorithm usage.
 pub trait TrieOps: Sized + TrieLayOut {
-	/// Operation to build a trie db from its ordered iterator of key value
+	/// Operation to build a trie db from its ordered iterator over its key/values.
 	fn trie_build<DB, I, A, B>(db: &mut DB, input: I) -> <Self::H as Hasher>::Out where
 	DB: HashDB<Self::H, usize>,
 	I: IntoIterator<Item = (A, B)>,
@@ -400,7 +409,6 @@ pub trait TrieOps: Sized + TrieLayOut {
 		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	}
-	
 	/// Determine a trie root node's data given its ordered contents, closed form.
 	fn trie_root_unhashed<I, A, B>(input: I) -> Vec<u8> where
 	I: IntoIterator<Item = (A, B)>,
@@ -411,7 +419,6 @@ pub trait TrieOps: Sized + TrieLayOut {
 		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	}
-	
 	/// Encoding of index as a key (when reusing general trie for 
 	/// indexed trie).
 	fn encode_index(input: u32) -> Vec<u8> {
@@ -431,14 +438,11 @@ pub trait TrieOps: Sized + TrieLayOut {
 			.map(|(i, v)| (Self::encode_index(i as u32), v))
 		)
 	}
-/*	/// Operation to build a trie from an unordered iterator of key value.
-	/// Operation to calculate a trie root from an ordered iterator of key value.
-	/// Operation to build a trie from an ordered iterator of key value.*/
 }
 
-/// alias to acces hasher hash output type from a `TrieLayout`
+/// Alias accessor to hasher hash output type from a `TrieLayout`.
 pub type TrieHash<L> = <<L as TrieLayOut>::H as Hasher>::Out;
-/// alias to acces bitmap codec from a `TrieLayout`
+/// Alias accessor to bitmap codec from a `TrieLayout`.
 pub type BitMap<L> = <<L as TrieLayOut>::C as NodeCodec<<L as TrieLayOut>::H, <L as TrieLayOut>::N>>::BM;
-/// alias to acces `NodeCodec` `Error` type from a `TrieLayout`
+/// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
 pub type CError<L> = <<L as TrieLayOut>::C as NodeCodec<<L as TrieLayOut>::H, <L as TrieLayOut>::N>>::Error;

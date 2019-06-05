@@ -78,7 +78,10 @@ where
 {
 	/// Create a new trie with the backing database `db` and `root`
 	/// Returns an error if `root` does not exist
-	pub fn new(db: &'db HashDBRef<L::H, DBValue>, root: &'db TrieHash<L>) -> Result<Self, TrieHash<L>, CError<L>> {
+	pub fn new(
+		db: &'db HashDBRef<L::H, DBValue>,
+		root: &'db TrieHash<L>
+	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		} else {
@@ -101,7 +104,10 @@ where
 	/// may require a database lookup. If `is_root_data` then this is root-data and
 	/// is known to be literal.
 	/// `partial_key` is encoded nibble slice that addresses the node.
-	fn get_raw_or_lookup(&'db self, node: &[u8], partial_key: Prefix) -> Result<Cow<'db, DBValue>, TrieHash<L>, CError<L>> {
+	fn get_raw_or_lookup(
+		&'db self, node: &[u8],
+		partial_key: Prefix,
+	) -> Result<Cow<'db, DBValue>, TrieHash<L>, CError<L>> {
 		match (partial_key.0.is_empty() && (partial_key.1).0 == 0, L::C::try_decode_hash(node)) {
 			(false, Some(key)) => {
 				self.db
@@ -120,7 +126,11 @@ where
 {
 	fn root(&self) -> &TrieHash<L> { self.root }
 
-	fn get_with<'a, 'key, Q: Query<L::H>>(&'a self, key: &'key [u8], query: Q) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
+	fn get_with<'a, 'key, Q: Query<L::H>>(
+		&'a self,
+		key: &'key [u8],
+		query: Q,
+	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
 		where 'a: 'key,
 	{
 		Lookup::<L, Q> {
@@ -130,7 +140,11 @@ where
 		}.look_up(NibbleSlice::new(key))
 	}
 
-	fn iter<'a>(&'a self) -> Result<Box<TrieIterator<L, Item=TrieItem<TrieHash<L>, CError<L>>> + 'a>, TrieHash<L>, CError<L>> {
+	fn iter<'a>(&'a self)-> Result<
+		Box<TrieIterator<L, Item=TrieItem<TrieHash<L>, CError<L>>> + 'a>,
+		TrieHash<L>,
+		CError<L>,
+	> {
 		TrieDBIterator::new(self).map(|iter| Box::new(iter) as Box<_>)
 	}
 }
@@ -219,7 +233,7 @@ where
 
 				Err(e) => f.debug_struct("BROKEN_NODE")
 					.field("index", &self.index)
-					.field("key", &self.node_key) // [128, 225, 183, 218, 100, 173, 146, 231, 107, 158, 188, 21],
+					.field("key", &self.node_key)
 					.field("error", &format!("ERROR decoding node branch Rlp: {}", e))
 					.finish()
 			}
@@ -300,7 +314,11 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 		Ok(r)
 	}
 
-	fn seek<'key>(&mut self, node_data: &DBValue, key: NibbleSlice<'key, L::N>) -> Result<(), TrieHash<L>, CError<L>> {
+	fn seek<'key>(
+		&mut self,
+		node_data: &DBValue,
+		key: NibbleSlice<'key, L::N>,
+	) -> Result<(), TrieHash<L>, CError<L>> {
 		let mut node_data = Cow::Borrowed(node_data);
 		let mut partial = key;
 		let mut full_key_nibbles = 0;
@@ -395,7 +413,6 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 								return Ok(())
 							}
 						}
-
 					},
 					Node::Empty => return Ok(()),
 				}
@@ -482,7 +499,9 @@ impl<'a, L: TrieLayOut> Iterator for TrieDBIterator<'a, L> {
 						return Some(Ok((self.key().right().1.into(), v.clone())));
 					},
 					(Status::At, &OwnedNode::Extension(_, ref d)) => {
-						IterStep::Descend::<TrieHash<L>, CError<L>>(self.db.get_raw_or_lookup(&*d, self.key_nibbles.as_prefix()))
+						IterStep::Descend::<TrieHash<L>, CError<L>>(
+							self.db.get_raw_or_lookup(&*d, self.key_nibbles.as_prefix())
+						)
 					},
 					(Status::At, &OwnedNode::Branch(_))
 						| (Status::At, &OwnedNode::NibbledBranch(_,_)) => IterStep::Continue,
@@ -638,12 +657,21 @@ mod tests {
 		let t = RefTrieDBNoExt::new(&memdb, &root).unwrap();
 
 		let mut iter = t.iter().unwrap();
-		assert_eq!(iter.next().unwrap().unwrap(), (hex!("0103000000000000000464").to_vec(), DBValue::from_slice(&hex!("fffffffffe")[..])));
+		assert_eq!(
+			iter.next().unwrap().unwrap(),
+			(hex!("0103000000000000000464").to_vec(), DBValue::from_slice(&hex!("fffffffffe")[..]))
+		);
 		iter.seek(&hex!("00")[..]).unwrap();
-		assert_eq!(pairs, iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>());
+		assert_eq!(
+			pairs,
+			iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>(),
+		);
 		let mut iter = t.iter().unwrap();
 		iter.seek(&hex!("0103000000000000000465")[..]).unwrap();
-		assert_eq!(&pairs[1..], &iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>()[..]);
+		assert_eq!(
+			&pairs[1..],
+			&iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>()[..],
+		);
 	}
 
 
@@ -667,7 +695,12 @@ mod tests {
 
 	#[test]
 	fn iterator_no_ext() {
-		let d = vec![DBValue::from_slice(b"A"), DBValue::from_slice(b"AA"), DBValue::from_slice(b"AB"), DBValue::from_slice(b"B")];
+		let d = vec![
+			DBValue::from_slice(b"A"),
+			DBValue::from_slice(b"AA"),
+			DBValue::from_slice(b"AB"),
+			DBValue::from_slice(b"B"),
+		];
 
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
@@ -679,7 +712,10 @@ mod tests {
 		}
 
 		let t = RefTrieDBNoExt::new(&memdb, &root).unwrap();
-		assert_eq!(d.iter().map(|i| i.clone().into_vec()).collect::<Vec<_>>(), t.iter().unwrap().map(|x| x.unwrap().0).collect::<Vec<_>>());
+		assert_eq!(
+			d.iter().map(|i| i.clone().into_vec()).collect::<Vec<_>>(),
+			t.iter().unwrap().map(|x| x.unwrap().0).collect::<Vec<_>>(),
+		);
 		assert_eq!(d, t.iter().unwrap().map(|x| x.unwrap().1).collect::<Vec<_>>());
 	}
 
@@ -756,7 +792,6 @@ mod tests {
 		assert_eq!(t.get_with(b"B", |x: &[u8]| x.len()).unwrap(), Some(5));
 		assert_eq!(t.get_with(b"C", |x: &[u8]| x.len()).unwrap(), None);
 	}
-
 
 	#[test]
 	fn debug_output_supports_pretty_print() {

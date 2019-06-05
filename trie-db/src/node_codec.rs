@@ -39,7 +39,7 @@ pub trait Error {}
 impl<T> Error for T {}
 
 /// Immutable representation of a nible slice (right aligned).
-/// It contains a right aligned padded first byte (first pair element is the number of nibble
+/// It contains a right aligned padded first byte (first pair element is the number of nibbles
 /// (0 to max nb nibble - 1), second pair element is the padded nibble), and a slice over
 /// the remaining bytes.
 pub type Partial<'a> = ((u8,u8), &'a[u8]);
@@ -50,8 +50,9 @@ pub type Partial<'a> = ((u8,u8), &'a[u8]);
 pub trait NodeCodec<H: Hasher, N: NibbleOps>: Sized {
 	/// Codec error type
 	type Error: Error;
-	/// child bitmap codec to use TODO EMCH nodecodec does not have to use a bitmap codec: this should be
-  /// only in codec implementation, having it as a subtype seems useless
+	/// child bitmap codec to use
+  /// TODO EMCH nodecodec does not have to use a bitmap codec: this should be
+	/// only in codec implementation, having it as a subtype seems useless
 	type BM: ChildBitmap<Error = Self::Error>;
 
 	/// Get the hashed null node.
@@ -66,31 +67,48 @@ pub trait NodeCodec<H: Hasher, N: NibbleOps>: Sized {
 	/// Check if the provided bytes correspond to the codecs "empty" node.
 	fn is_empty_node(data: &[u8]) -> bool;
 
-	/// Returns an empty node
+	/// Returns an encoded empty node.
 	fn empty_node() -> &'static [u8];
 
 	/// Returns an encoded leaf node
 	fn leaf_node(partial: Partial, value: &[u8]) -> Vec<u8>;
 
 	/// Returns an encoded extension node
-	fn ext_node(partial: impl Iterator<Item = u8>, nb_nibble: usize, child_ref: ChildReference<H::Out>) -> Vec<u8>;
+  /// Note that nb_nibble is the number of element of the iterator
+  /// it can possibly be obtain by `Iterator` `size_hint`, but
+  /// for simplicity it is used directly as a parameter.
+	fn ext_node(
+    partial: impl Iterator<Item = u8>,
+    nb_nibble: usize,
+    child_ref: ChildReference<H::Out>,
+  ) -> Vec<u8>;
 
-	/// Returns an encoded branch node. Takes an iterator yielding `ChildReference<H::Out>` and an optional value
-	fn branch_node(children: impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, value: Option<&[u8]>) -> Vec<u8>;
+	/// Returns an encoded branch node.
+  /// Takes an iterator yielding `ChildReference<H::Out>` and an optional value.
+	fn branch_node(
+    children: impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>,
+    value: Option<&[u8]>,
+  ) -> Vec<u8>;
 
 	/// Returns an encoded branch node with a possible partial path.
-	fn branch_node_nibbled(partial: impl Iterator<Item = u8>, nb_nibble: usize, children: impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, value: Option<&[u8]>) -> Vec<u8>;
+  /// `nb_nibble` is the partial path lenghth as in `ext_node`.
+	fn branch_node_nibbled(
+    partial: impl Iterator<Item = u8>,
+    nb_nibble: usize,
+    children: impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>,
+    value: Option<&[u8]>
+  ) -> Vec<u8>;
 }
 
-/// extract child bitmap encoding that is related to the trie number of children
-/// This would be useless with https://github.com/rust-lang/rust/issues/43408
+/// Child bitmap encoder that is related to the trie number of children.
+/// This would be useless with https://github.com/rust-lang/rust/issues/43408.
 pub trait ChildBitmap: Sized {
 	/// length to encode the bitmap
 	const ENCODED_LEN: usize;
-	/// Codec error type
+	/// Codec error type.
 	type Error: Error;
 
-	/// Codec buf to use	
+	/// Codec buffer to use.	
 	type Buff: AsRef<[u8]> + AsMut<[u8]> + Default;
 
 	/// decode bitmap
@@ -101,5 +119,4 @@ pub trait ChildBitmap: Sized {
 
 	/// encode to dest of right len
 	fn encode<I: Iterator<Item = bool>>(has_children: I , dest: &mut [u8]);
-
 }

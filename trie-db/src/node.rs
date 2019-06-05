@@ -22,10 +22,11 @@ use super::DBValue;
 use alloc::vec::Vec;
 
 /// Partial node key type: offset and owned value of a nibbleslice.
-/// Offset is applied on first byte of array.
+/// Offset is applied on first byte of array (bytes are right aligned).
 pub type NodeKey = (usize, ElasticArray36<u8>);
 
-/// alias to branch children slice
+/// Alias to branch children slice, it is equivalent to '&[&[u8]]'.
+/// Reason for using it is https://github.com/rust-lang/rust/issues/43408.
 pub type BranchChildrenSlice<'a, N> = (<N as NibbleOps>::ChildSliceIx, &'a[u8]); 
 
 /// Type of node in the trie and essential information thereof.
@@ -38,13 +39,10 @@ pub enum Node<'a, N: NibbleOps> {
 	Leaf(NibbleSlice<'a, N>, &'a [u8]),
 	/// Extension node; has key slice and node data. Data may not be null.
 	Extension(NibbleSlice<'a, N>, &'a [u8]),
-	// TODO EMCH var length for children array is stuck behind https://github.com/rust-lang/rust/issues/43408
-	// So we should also put it as associated type of N, but generic_associated_types will be needed
-	// for lifetime, so we should ultimately use something similar to struct `Branch` it decodes from
-	// a slice that is already aligned (need 2* bound in case there is some headers).
-	/// Branch node; has array of 16 child nodes (each possibly null) and an optional immediate node data.
+	/// Branch node; has slice of child nodes (each possibly null)
+	/// and an optional immediate node data.
 	Branch(BranchChildrenSlice<'a, N>, Option<&'a [u8]>),
-	/// Branch node with support for a nibble (to avoid extension node)
+	/// Branch node with support for a nibble (when extension nodes are not used).
 	NibbledBranch(NibbleSlice<'a, N>, BranchChildrenSlice<'a, N>, Option<&'a [u8]>),
 }
 /// A Sparse (non mutable) owned vector struct to hold branch keys and value
@@ -58,7 +56,10 @@ pub struct Branch {
 }
 
 impl Branch {
-	fn new<N: NibbleOps>(children_slice: &BranchChildrenSlice<N>, maybe_value: Option<&[u8]>) -> Self {
+	fn new<N: NibbleOps>(
+		children_slice: &BranchChildrenSlice<N>,
+		maybe_value: Option<&[u8]>,
+	) -> Self {
 		let mut data: Vec<u8> = children_slice.1.into();
 		let data_ix = data.len();
 		let ubounds_ix = data_ix + maybe_value.map(|v|{
@@ -73,7 +74,7 @@ impl Branch {
 		Branch { data, data_ix, ubounds_ix, child_head: N::ChildSliceIx::CONTENT_HEADER_SIZE }
 	}
 
-	/// Get the node value, if any
+	/// Get the node value, if any.
 	pub fn get_value(&self) -> Option<&[u8]> {
 		if self.has_value() {
 			Some(&self.data[self.data_ix..self.ubounds_ix])
@@ -82,7 +83,7 @@ impl Branch {
 		}
 	}
 
-	/// Test if the node has a value
+	/// Test if the node has a value.
 	pub fn has_value(&self) -> bool {
 		self.data_ix < self.ubounds_ix
 	}
@@ -99,6 +100,8 @@ impl Branch {
 			self.data[s..e].try_into().ok().map(usize::from_ne_bytes)
 		}
 	}
+
+	/// Get the children encoded value at index, if any.
 	pub fn index(&self, index: usize) -> Option<&[u8]> {
 		let b = (self.index_bound(index), self.index_bound(index + 1));
 		if let (Some(s), Some(e)) = b {
@@ -121,10 +124,9 @@ pub enum OwnedNode<N> {
 	Leaf(NibbleVec<N>, DBValue),
 	/// Extension node: partial key and child node.
 	Extension(NibbleVec<N>, DBValue),
-	/// Branch node: 16 children and an optional value.
+	/// Branch node: children and an optional value.
 	Branch(Branch),
-	/// Branch node: 16 children and an optional value.
-	/// TODO can put nibble vec into branch data vec
+	/// Branch node: children and an optional value.
 	NibbledBranch(NibbleVec<N>, Branch),
 }
 

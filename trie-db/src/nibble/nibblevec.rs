@@ -28,7 +28,7 @@ impl<N: NibbleOps> Default for NibbleVec<N> {
 }
 
 impl<N: NibbleOps> NibbleVec<N> {
-	/// Make a new `NibbleVec`
+	/// Make a new `NibbleVec`.
 	pub fn new() -> Self {
 		NibbleVec {
 			inner: ElasticArray36::new(),
@@ -37,11 +37,11 @@ impl<N: NibbleOps> NibbleVec<N> {
 		}
 	}
 
-	/// Length of the `NibbleVec`
+	/// Length of the `NibbleVec`.
 	#[inline(always)]
 	pub fn len(&self) -> usize { self.len }
 
-	/// Retrurns true if `NibbleVec` has zero length
+	/// Retrurns true if `NibbleVec` has zero length.
 	pub fn is_empty(&self) -> bool { self.len == 0 }
 
 	/// Try to get the nibble at the given offset.
@@ -79,14 +79,14 @@ impl<N: NibbleOps> NibbleVec<N> {
 		Some(N::at_left(i_new as u8, byte))
 	}
 
-	/// remove n last nibbles.
-	pub fn drop_lasts(&mut self, mov: usize) {
-		if mov == 0 { return; }
-		if mov >= self.len {
+	/// Remove then n last nibbles in a faster way than popping n times.
+	pub fn drop_lasts(&mut self, n: usize) {
+		if n == 0 { return; }
+		if n >= self.len {
 			self.clear();
 			return;
 		}
-		let end = self.len - mov;
+		let end = self.len - n;
 		let end_ix = end / N::NIBBLE_PER_BYTE
 			+ if end % N::NIBBLE_PER_BYTE == 0 { 0 } else { 1 };
 		(end_ix..self.inner.len()).for_each(|_|{ self.inner.pop(); });
@@ -98,7 +98,7 @@ impl<N: NibbleOps> NibbleVec<N> {
 		}
 	}
 
-	/// Get prefix from `NibbleVec` (when used as a prefix stack of nibble).
+	/// Get `Prefix` representation of this `NibbleVec`.
 	pub fn as_prefix(&self) -> Prefix {
 		let split = self.len / N::NIBBLE_PER_BYTE;
 		let pos = (self.len % N::NIBBLE_PER_BYTE) as u8;
@@ -109,7 +109,7 @@ impl<N: NibbleOps> NibbleVec<N> {
 		}
 	}
 
-	/// push a full partial.
+	/// Append another `NibbleVec`. Can be slow (alignement of second vec).
 	pub fn append(&mut self, v: &NibbleVec<N>) {
 
 		if v.len == 0 { return; }
@@ -130,8 +130,7 @@ impl<N: NibbleOps> NibbleVec<N> {
 		self.len += v.len;
 	}
 
-
-	/// push a full partial.
+	/// Append a `Partial`. Can be slow (alignement of partial).
 	pub fn append_partial(&mut self, (o_n, sl): Partial) {
 		for i in (1..=o_n.0).rev() {
 			let ix = N::NIBBLE_PER_BYTE - i as usize;
@@ -154,11 +153,12 @@ impl<N: NibbleOps> NibbleVec<N> {
 	}
 
 	/// Utility function for chaining two optional appending
-  /// of `NibbleSliec` and/or a byte.
+  /// of `NibbleSlice` and/or a byte.
+  /// Can be slow.
 	pub(crate) fn append_slice_nibble(
 		&mut self,
 		o_sl: Option<&NibbleSlice<N>>,
-		o_ix: Option<u8>
+		o_ix: Option<u8>,
 	) -> usize {
 		let mut res = 0;
 		if let Some(sl) = o_sl { 
@@ -172,16 +172,16 @@ impl<N: NibbleOps> NibbleVec<N> {
 		res
 	}
 	/// Utility function for `append_slice_nibble` after a clone.
+  /// Can be slow.
 	pub(crate) fn clone_append_slice_nibble(
 		&self,
 		o_sl: Option<&NibbleSlice<N>>,
-		o_ix: Option<u8>
+		o_ix: Option<u8>,
 	) -> Self {
 		let mut p = self.clone();
 		p.append_slice_nibble(o_sl, o_ix);
 		p
 	}
-
 
 	/// Get the underlying byte slice.
 	pub fn inner(&self) -> &[u8] {
@@ -194,7 +194,7 @@ impl<N: NibbleOps> NibbleVec<N> {
 		self.len = 0;
 	}
 
-	/// Try to treat this `NibbleVec` as a `NibbleSlice`. Works only if len is even.
+	/// Try to treat this `NibbleVec` as a `NibbleSlice`. Works only if there is no padding.
 	pub fn as_nibbleslice(&self) -> Option<NibbleSlice<N>> {
 		if self.len % N::NIBBLE_PER_BYTE == 0 {
 			Some(NibbleSlice::new(self.inner()))
@@ -257,6 +257,7 @@ mod tests {
 		append_partial_inner::<NibbleQuarter>(&[3, 2, 1, 0, 2, 0, 3, 0, 1, 0, 2], &[3, 2], ((1,1), &[0x23, 0x12]));
 		append_partial_inner::<NibbleQuarter>(&[3, 2, 3, 2, 1, 0, 2, 0, 3, 0, 1, 0, 2], &[3, 2], ((3,0b111001), &[0x23, 0x12]));
 	}
+
 	fn append_partial_inner<N: NibbleOps>(res: &[u8], init: &[u8], partial: ((u8,u8), &[u8])) {
 		let mut resv = NibbleVec::<N>::new();
 		res.iter().for_each(|r|resv.push(*r));
@@ -265,7 +266,6 @@ mod tests {
 		initv.append_partial(partial);
 		assert_eq!(resv, initv);
 	}
-
 
 	#[test]
 	fn drop_lasts_test() {
@@ -289,6 +289,5 @@ mod tests {
 		test_trun(&[1,2,3], 3, (&[], 0));
 		test_trun(&[1,2,3], 4, (&[], 0));
 	}
-
 
 }

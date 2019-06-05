@@ -24,6 +24,7 @@ use super::MaybeDebug;
 
 // Workaround no constant function for pow.
 const TWO_EXP: [usize; 9] = [1, 2, 4, 8, 16, 32, 64, 128, 256];
+
 /// This trait contain Trie nibble specific definitions.
 /// This trait is mostly a collection of associated constant and some generic
 /// methods.

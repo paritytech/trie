@@ -67,9 +67,9 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	}
 
 	/// Helper function to create a owned `NodeKey` from this `NibbleSlice`,
-  /// and for a given number of nibble.
+	/// and for a given number of nibble.
 	/// Warning this method can be slow (number of nibble does not align the
-  /// original padding).
+	/// original padding).
 	pub fn to_stored_range(&self, nb: usize) -> NodeKey {
 		if nb >= self.len() { return self.to_stored() }
 		if (self.offset + nb) % N::NIBBLE_PER_BYTE == 0 {
@@ -143,7 +143,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	}
 
 	/// Return `Partial` representation of this slice:
-  /// first encoded byte and following slice.
+	/// first encoded byte and following slice.
 	pub fn right(&'a self) -> Partial {
 		let split = self.offset / N::NIBBLE_PER_BYTE;
 		let nb = (self.len() % N::NIBBLE_PER_BYTE) as u8;
@@ -154,7 +154,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		}
 	}
 
-	/// return encoded value as a packed byte iterator
+	/// Return an iterator over `Partial` bytes representation.
 	pub fn right_iter(&'a self) -> impl Iterator<Item = u8> + 'a {
 		let (mut first, sl) = self.right();
 		let mut ix = 0;
@@ -173,23 +173,8 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		})
 	}
 
-	/// return left of key nibble
-	pub fn left(&'a self) -> Prefix {
-		let split = self.offset / N::NIBBLE_PER_BYTE;
-		let ix = (self.offset % N::NIBBLE_PER_BYTE) as u8;
-		if ix == 0 {
-			(&self.data[..split], (0,0))
-		} else {
-			(&self.data[..split], (ix, N::masked_left(ix, self.data[split])))
-		}
-	}
-	pub fn left_owned(&'a self) -> (ElasticArray36<u8>, (u8,u8)) {
-		let (a, b) = self.left();
-		(a.into(), b)
-	}
-
-
-	/// get iterator over slice, slow
+	/// Return `Partial` bytes iterator over a range of byte..
+	/// Warning can be slow when unaligned (similar to `to_stored_range`).
 	pub fn right_range_iter(&'a self, to: usize) -> impl Iterator<Item = u8> + 'a {
 		let mut nib_res = to % N::NIBBLE_PER_BYTE;
 		let aligned_i = (self.offset + to) % N::NIBBLE_PER_BYTE;
@@ -226,8 +211,26 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 					None
 				}
 			}
-
 		})
+	}
+
+	/// Return left portion of `NibbleSlice`, if the slice
+	/// originates from a full key it will be the `Prefix of
+	/// the node`.
+	pub fn left(&'a self) -> Prefix {
+		let split = self.offset / N::NIBBLE_PER_BYTE;
+		let ix = (self.offset % N::NIBBLE_PER_BYTE) as u8;
+		if ix == 0 {
+			(&self.data[..split], (0,0))
+		} else {
+			(&self.data[..split], (ix, N::masked_left(ix, self.data[split])))
+		}
+	}
+
+	/// Owned version of a `Prefix` from a `left` method call.
+	pub fn left_owned(&'a self) -> (ElasticArray36<u8>, (u8,u8)) {
+		let (a, b) = self.left();
+		(a.into(), b)
 	}
 }
 
