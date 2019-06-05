@@ -1213,7 +1213,6 @@ pub fn compare_no_ext_insert_remove(
 	assert_eq!(*t.root(), calc_root_no_ext(data2));
 }
 
-// TODO EMCH to big is currently truncate, keep it that way?? wait for final spec
 #[test]
 fn too_big_nibble_len () {
 	// + 1 for 0 added byte of nibble encode

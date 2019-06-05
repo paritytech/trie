@@ -45,8 +45,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	/// The first element of each pair is a bit mask to apply,
 	/// the second element is a right shift to apply in some case.
 	///	const PADDING_BITMASK: &'static [(u8, usize)] = &[
-	/// Similar to following const function TODO EMCH switch to two
-  /// const function (will make code simpler).
+	/// Similar to following const function.
 	/// ```rust
 	/// const BIT_PER_NIBBLE: usize = 4;
 	/// const fn padding_bitmask(ix: usize) -> (u8, usize) {
@@ -59,28 +58,28 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	/// Last nibble index as u8, just a convenience constant for iteration on all nibble.
 	const LAST_N_IX_U8: u8 = (Self::NIBBLE_PER_BYTE - 1) as u8;
 
-	/// Buffer type  for slice index store (we do not include
+	/// Buffer type for slice index store (we do not include
 	/// directly slice in it to avoid lifetime in
 	/// trait
 	type ChildSliceIx: ChildSliceIx;
 
 
 	/// Mask a byte from a `ix` > 0 (ix being content).
-  /// Result is a byte containing `ix` nibble of left aligned content and padded with 0.
+	/// Result is a byte containing `ix` nibble of left aligned content and padded with 0.
 	#[inline(always)]
 	fn masked_left(ix: u8, b: u8) -> u8 {
 		debug_assert!(ix > 0);
 		b & !Self::PADDING_BITMASK[ix as usize].0
 	}
 	/// Mask a byte from a ix > 0 (ix being content)
-  /// Result is a byte containing `ix` nibble of right aligned content and padded with 0.
+	/// Result is a byte containing `ix` nibble of right aligned content and padded with 0.
 	#[inline(always)]
 	fn masked_right(ix: u8, b: u8) -> u8 {
 		if ix > 0 {
-		  b & Self::PADDING_BITMASK[Self::NIBBLE_PER_BYTE - ix as usize].0
-    } else {
-      b
-    }
+			b & Self::PADDING_BITMASK[Self::NIBBLE_PER_BYTE - ix as usize].0
+		} else {
+			b
+		}
 	}
 	/// Get u8 nibble value at a given index of a byte.
 	#[inline(always)]
@@ -119,7 +118,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	}
 
 	/// Calculate the array nibble shifts needed
-  /// for alignment a given unaligned padding (pad != 0).
+	/// for alignment a given unaligned padding (pad != 0).
 	#[inline(always)]
 	fn split_shifts(pad: usize) -> (usize, usize) {
 		debug_assert!(pad > 0);
@@ -155,7 +154,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	}
 
 	/// Shifts right aligned key to add a given left offset.
-  /// Resulting in possibly padding at both left and right
+	/// Resulting in possibly padding at both left and right
 	/// (example usage when combining two keys).
 	fn shift_key(key: &mut NodeKey, ofset: usize) -> bool {
 		let old_offset = key.0;
@@ -282,7 +281,7 @@ pub trait ChildSliceIx: AsRef<[usize]>
 	/// Constant length for the number of children.
 	const NIBBLE_LEN : usize;
 	/// Constant size of header
-  /// Should only be use for inner implementation.
+	/// Should only be use for inner implementation.
 	const CONTENT_HEADER_SIZE: usize;
 
 	/// Access a children slice at a given index.
@@ -321,7 +320,7 @@ impl<'a, CS: ChildSliceIx> Iterator for IterChildSliceIx<'a, CS> {
 
 macro_rules! child_slice_ix {
 	($me: ident, $size: expr, $pre: expr) => {
-    #[cfg_attr(feature = "std", derive(Debug))]
+		#[cfg_attr(feature = "std", derive(Debug))]
 		#[derive(Default, Eq, PartialEq, Clone)]
 		/// Child slice indexes for radix $size.
 		pub struct $me([usize; $size + 1]);

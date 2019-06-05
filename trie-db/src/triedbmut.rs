@@ -1426,7 +1426,7 @@ mod tests {
 	use elastic_array::ElasticArray36;
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, TrieLayOut, NodeCodec,
 		ReferenceNodeCodec, ReferenceNodeCodecNoExt, ref_trie_root, ref_trie_root_no_ext,
-		LayoutOri, LayoutNew, BitMap};
+		LayoutOri, BitMap};
 
 	fn populate_trie<'db>(
 		db: &'db mut HashDB<KeccakHasher, DBValue>,
@@ -1470,6 +1470,10 @@ mod tests {
 		}
 	}
 
+	fn reference_hashed_null_node() -> <KeccakHasher as Hasher>::Out {
+		<ReferenceNodeCodec<BitMap<LayoutOri>>
+			as NodeCodec<_, <LayoutOri as TrieLayOut>::N>>::hashed_null_node()
+	}
 
 	#[test]
 	fn playpen() {
@@ -1504,8 +1508,7 @@ mod tests {
 			assert_eq!(*memtrie.root(), real);
 			unpopulate_trie(&mut memtrie, &x);
 			memtrie.commit();
-			// TODO EMCH hashed null node helper
-			let hashed_null_node = <ReferenceNodeCodec<BitMap<LayoutOri>> as NodeCodec<_, <LayoutOri as TrieLayOut>::N>>::hashed_null_node();
+			let hashed_null_node = reference_hashed_null_node();
 			if *memtrie.root() != hashed_null_node {
 				println!("- TRIE MISMATCH");
 				println!("");
@@ -1548,7 +1551,7 @@ mod tests {
 			assert_eq!(*memtrie.root(), real);
 			unpopulate_trie_no_ext(&mut memtrie, &x);
 			memtrie.commit();
-			let hashed_null_node = <ReferenceNodeCodecNoExt<BitMap<LayoutOri>> as NodeCodec<_, <LayoutNew as TrieLayOut>::N>>::hashed_null_node();
+			let hashed_null_node = reference_hashed_null_node();
 			if *memtrie.root() != hashed_null_node {
 				println!("- TRIE MISMATCH");
 				println!("");
@@ -1566,7 +1569,7 @@ mod tests {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
-		let hashed_null_node = <ReferenceNodeCodecNoExt<BitMap<LayoutOri>> as NodeCodec<_, <LayoutNew as TrieLayOut>::N>>::hashed_null_node();
+		let hashed_null_node = reference_hashed_null_node();
 		assert_eq!(*t.root(), hashed_null_node);
 	}
 
@@ -1842,7 +1845,7 @@ mod tests {
 		}
 
 		assert!(t.is_empty());
-		let hashed_null_node = <ReferenceNodeCodecNoExt<BitMap<LayoutOri>> as NodeCodec<_, <LayoutNew as TrieLayOut>::N>>::hashed_null_node();
+		let hashed_null_node = reference_hashed_null_node();
 		assert_eq!(*t.root(), hashed_null_node);
 	}
 
