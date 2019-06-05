@@ -311,7 +311,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F)
 		}
 	} else {
 		// nothing null root corner case
-		cb_ext.process(crate::nibble::EMPTY_NIBBLE, T::C::empty_node().to_vec(), true);
+		cb_ext.process(hash_db::EMPTY_PREFIX, T::C::empty_node().to_vec(), true);
 	}
 }
 
@@ -466,7 +466,7 @@ mod test {
 			assert_eq!(k,key);
 			assert_eq!(v,val);
 		}
-		for ((k, v)) in data.into_iter() {
+		for (k, v) in data.into_iter() {
 			assert_eq!(&t.get(&k[..]).unwrap().unwrap()[..], &v[..]);
 		}
 	}
@@ -492,7 +492,7 @@ mod test {
 			assert_eq!(k,key);
 			assert_eq!(v,val);
 		}
-		for ((k, v)) in data.into_iter() {
+		for (k, v) in data.into_iter() {
 			assert_eq!(&t.get(&k[..]).unwrap().unwrap()[..], &v[..]);
 		}
 	}

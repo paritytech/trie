@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use hash_db::{HashDBRef, Prefix};
+use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
 use nibble::{NibbleSlice, NibbleOps, ChildSliceIx};
-use nibble::EMPTY_NIBBLE;
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
 use super::lookup::Lookup;
@@ -80,7 +79,7 @@ where
 	/// Create a new trie with the backing database `db` and `root`
 	/// Returns an error if `root` does not exist
 	pub fn new(db: &'db HashDBRef<L::H, DBValue>, root: &'db TrieHash<L>) -> Result<Self, TrieHash<L>, CError<L>> {
-		if !db.contains(root, EMPTY_NIBBLE) {
+		if !db.contains(root, EMPTY_PREFIX) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		} else {
 			Ok(TrieDB {db, root, hash_count: 0})
@@ -93,7 +92,7 @@ where
 	/// Get the data of the root node.
 	pub fn root_data(&self) -> Result<DBValue, TrieHash<L>, CError<L>> {
 		self.db
-			.get(self.root, EMPTY_NIBBLE)
+			.get(self.root, EMPTY_PREFIX)
 			.ok_or_else(|| Box::new(TrieError::InvalidStateRoot(*self.root)))
 	}
 

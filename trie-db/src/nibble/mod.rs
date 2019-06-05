@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Nibble oriented methods
+//! Nibble oriented methods.
 
 mod nibblevec;
 mod nibbleslice;
@@ -20,55 +20,75 @@ use ::core_::cmp::*;
 use ::core_::marker::PhantomData;
 use elastic_array::ElasticArray36;
 use crate::node::NodeKey;
+use super::MaybeDebug;
 
-pub const EMPTY_NIBBLE: (&'static [u8], (u8, u8)) = (&[], (0, 0));
-// until const fn for pow
+// Workaround no constant function for pow.
 const TWO_EXP: [usize; 9] = [1, 2, 4, 8, 16, 32, 64, 128, 256];
-/// Nibble specific variants
-/// Note that some function are defined here but ideally it should just be a set of
-/// constant (with function handling all constant case).
-pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy + super::MaybeDebug {
-	/// variant repr 
+/// This trait contain Trie nibble specific definitions.
+/// This trait is mostly a collection of associated constant and some generic
+/// methods.
+/// Generic methods should not need redefinition except for optimization
+/// purpose.
+pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy + MaybeDebug {
+	/// See [`ByteLayout`]. 
 	const REPR : ByteLayout;
-	/// Number of bit per nibble
+	/// Single nibble length in bit. 
 	const BIT_PER_NIBBLE : usize = TWO_EXP[Self::REPR as usize]; // 2usize.pow(Self::REPR as u32);
-	/// Number of nibble per byte
+	/// Number of nibble per byte.
 	const NIBBLE_PER_BYTE : usize = 8 / Self::BIT_PER_NIBBLE;
-	/// Number of nibble per node (must be power of 2 and under 256)
-	const NIBBLE_LEN : usize = TWO_EXP[8 / Self::NIBBLE_PER_BYTE]; //2usize.pow(8 as u32 / Self::NIBBLE_PER_BYTE as u32);
-	/// padding bitmasks (could be calculated with a constant function).
-	/// First is bit mask to apply, second is right shift needed.
+	/// Number of child for a branch (trie radix).
+	const NIBBLE_LEN : usize = TWO_EXP[Self::BIT_PER_NIBBLE];
+	//2usize.pow(8 as u32 / Self::NIBBLE_PER_BYTE as u32);
+	/// Padding bitmasks, internally use for working on padding byte.
+	/// Length of this array is `Self::BIT_PER_NIBBLE`.
+	/// The first element of each pair is a bit mask to apply,
+	/// the second element is a right shift to apply in some case.
+	///	const PADDING_BITMASK: &'static [(u8, usize)] = &[
+	/// Similar to following const function TODO EMCH switch to two
+  /// const function (will make code simpler).
+	/// ```rust
+	/// const BIT_PER_NIBBLE: usize = 4;
+	/// const fn padding_bitmask(ix: usize) -> (u8, usize) {
+	///   //assert!(ix < 8 / BIT_PER_NIBBLE);
+	///   let offset = BIT_PER_NIBBLE * ix;
+	///   (1u8 >> offset, 8 - offset)
+	/// }
+	/// ```
 	const PADDING_BITMASK: &'static [(u8, usize)];
-	/// las ix for nible
-	const LAST_N_IX: usize = Self::NIBBLE_PER_BYTE - 1;
-	/// las ix for nible as a u8 (for pattern matching)
-	const LAST_N_IX_U8: u8 = Self::LAST_N_IX as u8;
+	/// Last nibble index as u8, just a convenience constant for iteration on all nibble.
+	const LAST_N_IX_U8: u8 = (Self::NIBBLE_PER_BYTE - 1) as u8;
 
-	/// Buff for slice index store (we do not include
+	/// Buffer type  for slice index store (we do not include
 	/// directly slice in it to avoid lifetime in
 	/// trait
 	type ChildSliceIx: ChildSliceIx;
 
-	/// mask a byte from a ix > 0 (ix being content)
+
+	/// Mask a byte from a `ix` > 0 (ix being content).
+  /// Result is a byte containing `ix` nibble of left aligned content and padded with 0.
 	#[inline(always)]
 	fn masked_left(ix: u8, b: u8) -> u8 {
 		debug_assert!(ix > 0);
 		b & !Self::PADDING_BITMASK[ix as usize].0
 	}
-	/// mask a byte from a ix > 0 (ix being padding)
+	/// Mask a byte from a ix > 0 (ix being content)
+  /// Result is a byte containing `ix` nibble of right aligned content and padded with 0.
 	#[inline(always)]
 	fn masked_right(ix: u8, b: u8) -> u8 {
-		debug_assert!(ix > 0);
-		b & Self::PADDING_BITMASK[ix as usize].0
+		if ix > 0 {
+		  b & Self::PADDING_BITMASK[Self::NIBBLE_PER_BYTE - ix as usize].0
+    } else {
+      b
+    }
 	}
-	/// get value at ix from a right first byte
+	/// Get u8 nibble value at a given index of a byte.
 	#[inline(always)]
 	fn at_left(ix: u8, b: u8) -> u8 {
 		(b & Self::PADDING_BITMASK[ix as usize].0)
 			>> Self::PADDING_BITMASK[ix as usize].1
 	}
 
-	/// get nibble for left aligned array
+	/// Get u8 nibble value at a given index in a left aligned array.
 	#[inline(always)]
 	fn left_nibble_at(v1: &[u8], ix: usize) -> u8 {
 		Self::at_left(
@@ -77,13 +97,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 		)
 	}
 
-	/// push u8 nib value at ix into a existing byte 
-	#[inline(always)]
-	fn push_at_left(ix: u8, v: u8, into: u8) -> u8 {
-		into | (v << Self::PADDING_BITMASK[ix as usize].1)
-	}
-
-	/// Get the nibble at position `i`.
+	/// Get u8 nibble value at a given index in a `NibbleSlice`.
 	#[inline(always)]
 	fn at(s: &NibbleSlice<Self>, i: usize) -> u8 {
 		let ix = (s.offset + i) / Self::NIBBLE_PER_BYTE;
@@ -91,13 +105,20 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 		Self::at_left(pad as u8, s.data[ix])
 	}
 
+	/// Push u8 nibble value at a given index into an existing byte.
+	#[inline(always)]
+	fn push_at_left(ix: u8, v: u8, into: u8) -> u8 {
+		into | (v << Self::PADDING_BITMASK[ix as usize].1)
+	}
+
 	#[inline]
-	/// Number of padding needed for a length `i`.
+	/// Calculate the number of needed padding a array of nibble length `i`.
 	fn nb_padding(i: usize) -> usize {
 		(Self::NIBBLE_PER_BYTE - (i % Self::NIBBLE_PER_BYTE)) % Self::NIBBLE_PER_BYTE
 	}
 
-	/// split shifts for a given unaligned padding (pad != 0)
+	/// Calculate the array nibble shifts needed
+  /// for alignment a given unaligned padding (pad != 0).
 	#[inline(always)]
 	fn split_shifts(pad: usize) -> (usize, usize) {
 		debug_assert!(pad > 0);
@@ -106,7 +127,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 		(s1, s2)
 	}
 
-	/// get biggest common depth between two left aligned packed nibble arrays
+	/// Count the biggest common depth between two left aligned packed nibble slice.
 	fn biggest_depth(v1: &[u8], v2: &[u8]) -> usize {
 		// sorted assertion preventing out of bound
 		for a in 0..v1.len() {
@@ -118,7 +139,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 		return v1.len() * Self::NIBBLE_PER_BYTE;
 	}
 
-	/// number of common bit between two left pad byte
+	/// Calculate the number of common nibble between two left pad byte.
 	#[inline(always)]
 	fn left_common(a: u8, b: u8) -> usize {
 		let mut i = 0;
@@ -132,8 +153,9 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 		return i;
 	}
 
-	/// shift key (right) alignment to match a given left offset, possibly leaving
-	/// wrong end of Nodekey (eg to combine two keys)
+	/// Shifts right aligned key to add a given left offset.
+  /// Resulting in possibly padding at both left and right
+	/// (example usage when combining two keys).
 	fn shift_key(key: &mut NodeKey, ofset: usize) -> bool {
 		let old_offset = key.0;
 		key.0 = ofset;
@@ -159,22 +181,22 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	}
 }
 
-/// half byte nibble prepend encoding
+/// Radix 16 `NibbleOps` definition.
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Copy)]
 pub struct NibbleHalf;
 
-
-/// Type of nibble in term of byte size
+/// Ordered enumeration of the different possible number of nibble in
+/// a byte.
 #[repr(usize)]
 pub enum ByteLayout {
-	/// nibble of one bit length
+	/// Radix 2 trie. Eight nibble per byte.
 	Bit = 0, // 1, 8, 2
-	/// nibble of a quarter byte length
+	/// Radix 4 trie. Four nibble per byte.
 	Quarter = 1, // 2, 4, 4
-	/// nibble of a half byte length
+	/// Radix 16 trie. Two nibble per byte.
 	Half = 2, // 4, 2, 16
-	/// nibble of one byte length
+	/// Radix 256 trie. One nibble per byte.
 	Full = 3, // 8, 1, 256
 }
 
@@ -184,6 +206,7 @@ impl NibbleOps for NibbleHalf {
 	type ChildSliceIx = ChildSliceIx16;
 }
 
+/// Radix 4 `NibbleOps` definition.
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Copy)]
 pub struct NibbleQuarter;
@@ -202,6 +225,8 @@ impl NibbleOps for NibbleQuarter {
 
 
 /// Owning, nibble-oriented byte vector. Counterpart to `NibbleSlice`.
+/// Nibbles are always left aligned, so making a `NibbleVec` from
+/// a `NibbleSlice` can get costy.
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Clone, PartialEq, Eq)]
 pub struct NibbleVec<N> {
@@ -245,18 +270,21 @@ pub struct NibbleSliceIterator<'a, N: NibbleOps> {
 	i: usize,
 }
 
-/// trait only here to avoid lifetime when storing slice
-/// This would be useless with https://github.com/rust-lang/rust/issues/43408
+/// Technical trait only to access child slice from an encoded
+/// representation of a branch.
+/// This is use instead of `&[&[u8]]` to allow associated type
+/// with a constant lenght.
 pub trait ChildSliceIx: AsRef<[usize]>
 	+ AsMut<[usize]> + Default + Eq + PartialEq + crate::MaybeDebug
 	+ Clone {
 
-	/// nb nibble in slice
+	/// Constant length for the number of children.
 	const NIBBLE_LEN : usize;
-	/// bit to skip between slice
+	/// Constant size of header
+  /// Should only be use for inner implementation.
 	const CONTENT_HEADER_SIZE: usize;
 
-	/// get an optional slice
+	/// Access a children slice at a given index.
 	fn slice_at<'a>(&self, ix: usize, data: &'a [u8]) -> Option<&'a[u8]> {
 		let b = (self.as_ref().get(ix), self.as_ref().get(ix + 1));
 		if let (Some(s), Some(e)) = b {
@@ -270,12 +298,13 @@ pub trait ChildSliceIx: AsRef<[usize]>
 			None
 		}
 	}
+	/// Iterator over the children slice.
 	fn iter<'a>(&'a self, data: &'a [u8]) -> IterChildSliceIx<'a, Self> {
 		IterChildSliceIx(self, 0, data)
 	}
 }
 
-/// iterator over `ChildSliceIx` trait
+/// Iterator over `ChildSliceIx` trait. 
 pub struct IterChildSliceIx<'a, CS>(&'a CS, usize, &'a[u8]);
 
 impl<'a, CS: ChildSliceIx> Iterator for IterChildSliceIx<'a, CS> {
@@ -293,7 +322,7 @@ macro_rules! child_slice_ix {
 	($me: ident, $size: expr, $pre: expr) => {
     #[cfg_attr(feature = "std", derive(Debug))]
 		#[derive(Default, Eq, PartialEq, Clone)]
-		/// child slice ix for radix $size
+		/// Child slice indexes for radix $size.
 		pub struct $me([usize; $size + 1]);
 
 		impl AsRef<[usize]> for $me {

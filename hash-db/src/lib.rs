@@ -33,13 +33,18 @@ pub trait MaybeDebug {}
 impl<T> MaybeDebug for T {}
 
 
-/// Empty prefix constant
+/// An empty prefix constant. Mainly use for comparison
+/// and for root nodes.
 pub static EMPTY_PREFIX: Prefix<'static> = (&[], (0,0));
 
-/// prefix for trie value, encoded as reference and a last padded byte to
-/// match `left` function of nibbleslice.
-/// Padded byte is represented as a pair with number of nibble first and
-/// padded value second.
+/// The Prefix of a trie node. Prefix is nibble path up to
+/// the node in the trie.
+/// For a value node it is the value key without the Partial
+/// bytes (encoded in the node).
+/// Being the leftmost portion of a byte, its internal representation
+/// is byte slice and and a padded byte.
+/// The padded byte is represented as a pair with number of nibble first,
+/// and left aligned padded value second.
 pub type Prefix<'a> = (&'a[u8], (u8, u8));
 
 /// Trait describing an object that can hash a slice of bytes. Used to abstract

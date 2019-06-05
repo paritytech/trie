@@ -20,8 +20,7 @@ use super::node::Node as EncodedNode;
 use node_codec::NodeCodec;
 use super::{DBValue, node::NodeKey};
 
-use nibble::EMPTY_NIBBLE;
-use hash_db::{HashDB, Hasher, Prefix};
+use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use nibble::{NibbleVec, NibbleSlice, NibbleOps, ChildSliceIx, IterChildSliceIx};
 use elastic_array::ElasticArray36;
 use ::core_::mem;
@@ -371,7 +370,7 @@ where
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
 	pub fn from_existing(db: &'a mut HashDB<L::H, DBValue>, root: &'a mut TrieHash<L>) -> Result<Self, TrieHash<L>, CError<L>> {
-		if !db.contains(root, EMPTY_NIBBLE) {
+		if !db.contains(root, EMPTY_PREFIX) {
 			return Err(Box::new(TrieError::InvalidStateRoot(*root)));
 		}
 
@@ -1180,7 +1179,7 @@ where
 				});
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
-				*self.root = self.db.insert(EMPTY_NIBBLE, &encoded_root[..]);
+				*self.root = self.db.insert(EMPTY_PREFIX, &encoded_root[..]);
 				self.hash_count += 1;
 
 				self.root_handle = NodeHandle::Hash(*self.root);
@@ -1332,7 +1331,7 @@ fn combine_key<N: NibbleOps>(start: &mut NodeKey, end: (usize, &[u8])) {
 	let _shifted = N::shift_key(start, final_ofset);
 	let st = if end.0 > 0 {
 		let sl = start.1.len();
-		start.1[sl - 1] |= N::masked_right(end.0 as u8, end.1[0]);
+		start.1[sl - 1] |= N::masked_right((N::NIBBLE_PER_BYTE - end.0) as u8, end.1[0]);
 		1
 	} else {
 		0
@@ -1351,7 +1350,7 @@ mod tests {
 	use elastic_array::ElasticArray36;
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, TrieLayOut, NodeCodec,
 		ReferenceNodeCodec, ReferenceNodeCodecNoExt, ref_trie_root, ref_trie_root_no_ext,
-		LayoutOri, LayoutNew, LayoutNewQuarter, BitMap16, BitMap};
+		LayoutOri, LayoutNew, BitMap};
 
 	fn populate_trie<'db>(
 		db: &'db mut HashDB<KeccakHasher, DBValue>,

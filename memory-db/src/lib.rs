@@ -151,7 +151,7 @@ impl<H, KF, T> Eq for MemoryDB<H, KF, T>
 	KF: KeyFunction<H>,
 	<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
 				T: Eq + MaybeDebug,
-{}
+{ }
  
 pub trait KeyFunction<H: KeyHasher> {
 	type Key: Send + Sync + Clone + hash::Hash + Eq ;
@@ -161,6 +161,7 @@ pub trait KeyFunction<H: KeyHasher> {
 
 
 /// Make database key from hash and prefix.
+/// This is byte ordered similarilly to the original trie key.
 pub fn prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8> {
 	let mut prefixed_key = Vec::with_capacity(key.as_ref().len() + prefix.0.len() + 1);
 	prefixed_key.extend_from_slice(prefix.0);
@@ -233,8 +234,6 @@ impl<H: KeyHasher> KeyFunction<H> for LegacyPrefixedKey<H> {
 		legacy_prefixed_key::<H>(hash, prefix)
 	}
 }
-
-
 
 impl<'a, H, KF, T> Default for MemoryDB<H, KF, T>
 where
@@ -460,11 +459,10 @@ where
 		}
 
 		let key = KF::key(key, prefix);
-		let r = match self.data.get(&key) {
+		match self.data.get(&key) {
 			Some(&(ref d, rc)) if rc > 0 => Some(d.clone()),
 			_ => None
-		};
-		r
+		}
 	}
 
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {

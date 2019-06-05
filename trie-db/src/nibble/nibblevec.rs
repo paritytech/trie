@@ -153,8 +153,9 @@ impl<N: NibbleOps> NibbleVec<N> {
 		self.len += sl.len() * N::NIBBLE_PER_BYTE;
 	}
 
-	/// append slice or nibble
-	pub fn append_slice_nibble(
+	/// Utility function for chaining two optional appending
+  /// of `NibbleSliec` and/or a byte.
+	pub(crate) fn append_slice_nibble(
 		&mut self,
 		o_sl: Option<&NibbleSlice<N>>,
 		o_ix: Option<u8>
@@ -170,8 +171,8 @@ impl<N: NibbleOps> NibbleVec<N> {
 		}
 		res
 	}
-	/// clone then append slice or nibble
-	pub fn clone_append_slice_nibble(
+	/// Utility function for `append_slice_nibble` after a clone.
+	pub(crate) fn clone_append_slice_nibble(
 		&self,
 		o_sl: Option<&NibbleSlice<N>>,
 		o_ix: Option<u8>

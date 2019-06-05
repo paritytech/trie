@@ -43,7 +43,12 @@ pub use hash_db::Hasher;
 pub trait TrieStream {
 	fn new() -> Self;
 	fn append_empty_data(&mut self);
-	fn begin_branch(&mut self, maybe_key: Option<&[u8]>, maybe_value: Option<&[u8]>, has_children: impl Iterator<Item = bool>);
+	fn begin_branch(
+		&mut self,
+		maybe_key: Option<&[u8]>,
+		maybe_value: Option<&[u8]>,
+		has_children: impl Iterator<Item = bool>,
+	);
 	fn append_empty_child(&mut self) {}
 	fn end_branch(&mut self, _value: Option<&[u8]>) {}
 	fn append_leaf(&mut self, key: &[u8], value: &[u8]);
@@ -124,7 +129,8 @@ fn trie_root_inner<H, S, I, A, B>(input: I, no_ext: bool) -> H::Out where
 	H::hash(&stream.out())
 }
 
-/// variant of `trie_root` without extension 
+/// Variant of `trie_root` for patricia trie without extension node.
+/// See [`trie_root`].
 pub fn trie_root_no_ext<H, S, I, A, B>(input: I) -> H::Out where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
@@ -135,9 +141,10 @@ pub fn trie_root_no_ext<H, S, I, A, B>(input: I) -> H::Out where
 	trie_root_inner::<H, S, I, A, B>(input, true)
 }
 
-
-
 //#[cfg(test)]	// consider feature="std"
+/// Method similar to `trie_root` but returning the root encoded
+/// node instead of its hash.
+/// Mainly use for testing or debugging.
 pub fn unhashed_trie<H, S, I, A, B>(input: I) -> Vec<u8> where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
@@ -182,6 +189,8 @@ fn unhashed_trie_inner<H, S, I, A, B>(input: I, no_ext: bool) -> Vec<u8> where
 	stream.out()
 }
 
+/// Variant of `unhashed_trie` for patricia trie without extension node.
+/// See [`unhashed_trie`].
 pub fn unhashed_trie_no_ext<H, S, I, A, B>(input: I) -> Vec<u8> where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
@@ -191,7 +200,6 @@ pub fn unhashed_trie_no_ext<H, S, I, A, B>(input: I) -> Vec<u8> where
 {
 	unhashed_trie_inner::<H, S, I, A, B>(input, true)
 }
-
 
 /// Generates a key-hashed (secure) trie root hash for a vector of key-value tuples.
 ///
@@ -228,7 +236,6 @@ pub fn sec_trie_root<H, S, I, A, B>(input: I) -> H::Out where
 
 /// Takes a slice of key/value tuples where the key is a slice of nibbles
 /// and encodes it into the provided `Stream`.
-// pub fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S)
 fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ext: bool) where
 	A: AsRef<[u8]>,
 	B: AsRef<[u8]>,
@@ -304,7 +311,12 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 			for &count in &shared_nibble_counts {
 				if count > 0 {
 					// println!("[build_trie] branch slot {}; recursing with cursor={}, begin={}, shared nibbles={}, input={:?}", i, cursor, begin, shared_nibble_count, &input[begin..(begin + shared_nibble_count)]);
-					build_trie_trampoline::<H, S, _, _>(&input[begin..(begin + count)], cursor + 1, stream, no_ext);
+					build_trie_trampoline::<H, S, _, _>(
+						&input[begin..(begin + count)],
+						cursor + 1,
+						stream,
+						no_ext,
+					);
 					begin += count;
 				} else {
 					stream.append_empty_child();
@@ -319,7 +331,12 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 	}
 }
 
-fn build_trie_trampoline<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ext: bool) where
+fn build_trie_trampoline<H, S, A, B>(
+	input: &[(A, B)],
+	cursor: usize,
+	stream: &mut S,
+	no_ext: bool,
+) where
 	A: AsRef<[u8]>,
 	B: AsRef<[u8]>,
 	H: Hasher,

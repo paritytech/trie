@@ -55,18 +55,21 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	pub fn iter(&'a self) -> NibbleSliceIterator<'a, N> {
 		NibbleSliceIterator { p: self, i: 0 }
 	}
-	/// helper function for getting slice from `NodeKey` stored in nodes
-	pub fn from_stored(i: &(usize,ElasticArray36<u8>)) -> NibbleSlice<N> {
+	/// Get nibble slice from a `NodeKey`.
+	pub fn from_stored(i: &NodeKey) -> NibbleSlice<N> {
 		NibbleSlice::<N>::new_offset(&i.1[..], i.0)
 	}
-	/// helper function to get `NodeKey` stored in nodes
+	/// Helper function to create a owned `NodeKey` from this `NibbleSlice`.
 	pub fn to_stored(&self) -> NodeKey {
 		let split = self.offset / N::NIBBLE_PER_BYTE;
 		let offset = self.offset % N::NIBBLE_PER_BYTE;
 		(offset, self.data[split..].into())
 	}
 
-	/// helper function to get `NodeKey` stored in nodes, warning slow
+	/// Helper function to create a owned `NodeKey` from this `NibbleSlice`,
+  /// and for a given number of nibble.
+	/// Warning this method can be slow (number of nibble does not align the
+  /// original padding).
 	pub fn to_stored_range(&self, nb: usize) -> NodeKey {
 		if nb >= self.len() { return self.to_stored() }
 		if (self.offset + nb) % N::NIBBLE_PER_BYTE == 0 {
@@ -75,6 +78,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 			let end = (self.offset + nb) / N::NIBBLE_PER_BYTE;
 			(nb % N::NIBBLE_PER_BYTE, ElasticArray36::from_slice(&self.data[start..end]))
 		} else {
+			// unaligned
 			let start = self.offset / N::NIBBLE_PER_BYTE;
 			let end = (self.offset + nb) / N::NIBBLE_PER_BYTE;
 			let ea = ElasticArray36::from_slice(&self.data[start..=end]);
@@ -87,7 +91,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		}
 	}
 
-	/// Is this an empty slice?
+	/// Return true if the slice contains no nibbles.
 	pub fn is_empty(&self) -> bool { self.len() == 0 }
 
 	/// Get the length (in nibbles, naturally) of this slice.
@@ -108,12 +112,14 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 			marker: PhantomData,
 		}
 	}
-	/// Advance the view on the slice by `i` nibbles
+
+	/// Advance the view on the slice by `i` nibbles.
 	pub fn advance(&mut self, i: usize) {
 		debug_assert!(self.len() >= i);
 		self.offset += i;
 	}
-	/// Return object to an offset position
+
+	/// Move back to a previously valid fix offset position.
 	pub fn back(&self, i: usize) -> NibbleSlice<'a, N> {
 		NibbleSlice {
 			data: self.data,
@@ -121,7 +127,6 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 			marker: PhantomData,
 		}
 	}
-
 
 	/// Do we start with the same nibbles as the whole of `them`?
  	pub fn starts_with(&self, them: &Self) -> bool { self.common_prefix(them) == them.len() }
@@ -137,12 +142,13 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		i
 	}
 
-	/// return first encoded byte and following slice
+	/// Return `Partial` representation of this slice:
+  /// first encoded byte and following slice.
 	pub fn right(&'a self) -> Partial {
 		let split = self.offset / N::NIBBLE_PER_BYTE;
 		let nb = (self.len() % N::NIBBLE_PER_BYTE) as u8;
 		if nb > 0 {
-			((nb, N::masked_right(N::NIBBLE_PER_BYTE as u8 - nb, self.data[split])), &self.data[split + 1 ..])
+			((nb, N::masked_right(nb, self.data[split])), &self.data[split + 1 ..])
 		} else {
 			((0,0), &self.data[split..])
 		}
@@ -152,11 +158,10 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	pub fn right_iter(&'a self) -> impl Iterator<Item = u8> + 'a {
 		let (mut first, sl) = self.right();
 		let mut ix = 0;
-		::core_::iter::from_fn( move || {
+		::core_::iter::from_fn(move || {
 			if first.0 > 0 {
-				let ix = N::NIBBLE_PER_BYTE - first.0 as usize;
 				first.0 = 0;
-				Some(N::masked_right(ix as u8, first.1))
+				Some(N::masked_right(first.0, first.1))
 			} else {
 				if ix < sl.len() {
 					ix += 1;
@@ -194,7 +199,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		::core_::iter::from_fn( move || {
 			if aligned {
 				if nib_res > 0 {
-					let v = N::masked_right((N::NIBBLE_PER_BYTE - nib_res) as u8, self.data[ix]);
+					let v = N::masked_right(nib_res as u8, self.data[ix]);
 					nib_res = 0;
 					ix += 1;
 					Some(v)
@@ -209,7 +214,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 				// unaligned
 				if nib_res > 0 {
 					let v = self.data[ix] >> s1;
-					let v = N::masked_right((N::NIBBLE_PER_BYTE - nib_res) as u8, v);
+					let v = N::masked_right(nib_res as u8, v);
 					nib_res = 0;
 					Some(v)
 				} else if ix < ix_lim {

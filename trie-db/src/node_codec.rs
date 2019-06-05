@@ -38,15 +38,15 @@ pub trait Error {}
 #[cfg(not(feature = "std"))]
 impl<T> Error for T {}
 
-/// a nible slice, a partial length (0 to max nb nibble - 1) first byte and a slice of full bytes
+/// Immutable representation of a nible slice (right aligned).
+/// It contains a right aligned padded first byte (first pair element is the number of nibble
+/// (0 to max nb nibble - 1), second pair element is the padded nibble), and a slice over
+/// the remaining bytes.
 pub type Partial<'a> = ((u8,u8), &'a[u8]);
 
-// TODO EMCH change node codec trait to use &mut self as input in order to run on internal buffer.
-// (not for decode actually!!; code seems fine to do that and new layout trait is ok too
 /// Trait for trie node encoding/decoding
 /// TODO add const MAX_NODE_LEN and run all encoding over a mutable buffer, returning size. ->
 /// avoid Vec by all means.
-/// TODO also add inner trait impl for nibble ops encoding
 pub trait NodeCodec<H: Hasher, N: NibbleOps>: Sized {
 	/// Codec error type
 	type Error: Error;

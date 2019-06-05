@@ -651,7 +651,7 @@ fn partial_enc<N: NibbleOps>(partial: Partial, node_kind: NodeKindNoExt) -> Vec<
 		NodeKindNoExt::BranchNoValue => NodeHeaderNoExt::Branch(false, nibble_count).encode_to(&mut output),
 	};
 	if nb_nibble_hpe > 0 {
-		output.push(N::masked_right((N::NIBBLE_PER_BYTE - nb_nibble_hpe) as u8, (partial.0).1));
+		output.push(N::masked_right(nb_nibble_hpe as u8, (partial.0).1));
 	}
 	output.extend_from_slice(&partial.1[..]);
 	output
