@@ -442,7 +442,5 @@ pub trait TrieOps: Sized + TrieLayOut {
 
 /// Alias accessor to hasher hash output type from a `TrieLayout`.
 pub type TrieHash<L> = <<L as TrieLayOut>::H as Hasher>::Out;
-/// Alias accessor to bitmap codec from a `TrieLayout`.
-pub type BitMap<L> = <<L as TrieLayOut>::C as NodeCodec<<L as TrieLayOut>::H, <L as TrieLayOut>::N>>::BM;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
 pub type CError<L> = <<L as TrieLayOut>::C as NodeCodec<<L as TrieLayOut>::H, <L as TrieLayOut>::N>>::Error;

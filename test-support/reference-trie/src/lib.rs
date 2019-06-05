@@ -41,7 +41,7 @@ use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
 
 pub use trie_db::{Trie, TrieMut, NibbleSlice, Recorder, NodeCodec, ChildBitmap,
-	BitMap, ChildSliceIx};
+	ChildSliceIx};
 pub use trie_db::{Record, TrieLayOut, TrieOps, NibbleHalf, NibbleQuarter, NibbleOps};
 pub use trie_root::TrieStream;
 
@@ -663,7 +663,6 @@ fn partial_enc<N: NibbleOps>(partial: Partial, node_kind: NodeKindNoExt) -> Vec<
 // do `const HASHED_NULL_NODE: <KeccakHasher as Hasher>::Out = <KeccakHasher as Hasher>::Out( … … )`. Perhaps one day soon?
 impl<N: NibbleOps, BM: ChildBitmap<Error = ReferenceError>> NodeCodec<KeccakHasher, N> for ReferenceNodeCodec<BM> {
 	type Error = ReferenceError;
-	type BM = BM;
 
 	fn hashed_null_node() -> <KeccakHasher as Hasher>::Out {
 		KeccakHasher::hash(<Self as NodeCodec<_, N>>::empty_node())
@@ -787,7 +786,6 @@ impl<N: NibbleOps, BM: ChildBitmap<Error = ReferenceError>> NodeCodec<KeccakHash
 
 impl<N: NibbleOps, BM: ChildBitmap<Error = ReferenceError>> NodeCodec<KeccakHasher, N> for ReferenceNodeCodecNoExt<BM> {
 	type Error = ReferenceError;
-	type BM = BM;
 
 	fn hashed_null_node() -> <KeccakHasher as Hasher>::Out {
 		KeccakHasher::hash(<Self as NodeCodec<_, N>>::empty_node())

@@ -50,10 +50,6 @@ pub type Partial<'a> = ((u8,u8), &'a[u8]);
 pub trait NodeCodec<H: Hasher, N: NibbleOps>: Sized {
 	/// Codec error type
 	type Error: Error;
-	/// child bitmap codec to use
-  /// TODO EMCH nodecodec does not have to use a bitmap codec: this should be
-	/// only in codec implementation, having it as a subtype seems useless
-	type BM: ChildBitmap<Error = Self::Error>;
 
 	/// Get the hashed null node.
 	fn hashed_null_node() -> H::Out;

@@ -1425,8 +1425,8 @@ mod tests {
 	use keccak_hasher::KeccakHasher;
 	use elastic_array::ElasticArray36;
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, TrieLayOut, NodeCodec,
-		ReferenceNodeCodec, ReferenceNodeCodecNoExt, ref_trie_root, ref_trie_root_no_ext,
-		LayoutOri, BitMap};
+		ReferenceNodeCodec, ref_trie_root, ref_trie_root_no_ext,
+		LayoutOri, BitMap16};
 
 	fn populate_trie<'db>(
 		db: &'db mut HashDB<KeccakHasher, DBValue>,
@@ -1471,7 +1471,7 @@ mod tests {
 	}
 
 	fn reference_hashed_null_node() -> <KeccakHasher as Hasher>::Out {
-		<ReferenceNodeCodec<BitMap<LayoutOri>>
+		<ReferenceNodeCodec<BitMap16>
 			as NodeCodec<_, <LayoutOri as TrieLayOut>::N>>::hashed_null_node()
 	}
 
