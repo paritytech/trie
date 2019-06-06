@@ -109,7 +109,7 @@ use alloc::vec::Vec;
 ///   assert!(!m.contains(&k, &[]));
 /// }
 /// ```
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub struct MemoryDB<H, KF, T>
 	where
 	H: KeyHasher,
@@ -121,6 +121,33 @@ pub struct MemoryDB<H, KF, T>
 	_kf: PhantomData<KF>,
 }
 
+impl<H, KF, T> PartialEq<MemoryDB<H, KF, T>> for MemoryDB<H, KF, T>
+	where 
+	H: KeyHasher,
+	KF: KeyFunction<H>,
+	<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
+	T: Eq + MaybeDebug,
+{
+	fn eq(&self, other: &MemoryDB<H, KF, T>) -> bool {
+		for a in self.data.iter() {
+			match other.data.get(&a.0) {
+				Some(v) if v != a.1 => return false,
+				None => return false,
+				_ => (),
+			}
+		}
+		true
+	}
+}
+
+impl<H, KF, T> Eq for MemoryDB<H, KF, T>
+	where 
+	H: KeyHasher,
+	KF: KeyFunction<H>,
+	<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
+				T: Eq + MaybeDebug,
+{}
+ 
 pub trait KeyFunction<H: KeyHasher> {
 	type Key: Send + Sync + Clone + hash::Hash + Eq;
 
