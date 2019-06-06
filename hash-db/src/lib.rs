@@ -32,6 +32,13 @@ pub trait MaybeDebug {}
 #[cfg(not(feature = "std"))]
 impl<T> MaybeDebug for T {}
 
+
+/// Empty prefix constant.
+pub static EMPTY_PREFIX: Prefix<'static> = &[];
+
+/// Prefix byte information for avoding rc.
+pub type Prefix<'a> = &'a[u8];
+
 /// Trait describing an object that can hash a slice of bytes. Used to abstract
 /// other types over the hashing algorithm. Defines a single `hash` method and an
 /// `Out` associated type with the necessary bounds.
