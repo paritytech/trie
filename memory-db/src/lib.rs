@@ -62,6 +62,15 @@ use core::{
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
+#[cfg(feature = "std")]
+pub trait MaybeDebug: std::fmt::Debug {}
+#[cfg(feature = "std")]
+impl<T: std::fmt::Debug> MaybeDebug for T {}
+#[cfg(not(feature = "std"))]
+pub trait MaybeDebug {}
+#[cfg(not(feature = "std"))]
+impl<T> MaybeDebug for T {}
+
 /// Reference-counted memory-based `HashDB` implementation.
 ///
 /// Use `new()` to create a new database. Insert items with `insert()`, remove items
