@@ -161,7 +161,10 @@ pub trait KeyFunction<H: KeyHasher> {
 
 
 /// Make database key from hash and prefix.
-/// This is byte ordered similarilly to the original trie key.
+///
+/// Prefix could be ordered, but key hash appending will break this property.
+/// If true ordering is needed we would need a fix length encoding for prefix
+/// (so a maximum length and additional byte (or chunk of prefix encoded)).
 pub fn prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8> {
 	let mut prefixed_key = Vec::with_capacity(key.as_ref().len() + prefix.0.len() + 1);
 	prefixed_key.extend_from_slice(prefix.0);
@@ -172,6 +175,109 @@ pub fn prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8> {
 	prefixed_key.extend_from_slice(key.as_ref());
 	prefixed_key
 }
+
+#[test]
+fn test_ordered_prefixed_key() {
+	use keccak_hasher::KeccakHasher;
+	struct Opt;
+	impl IntoIterator for Opt {
+		type Item = usize;
+		type IntoIter = std::iter::Repeat<usize>;
+		fn into_iter(self) -> Self::IntoIter {
+			std::iter::repeat(1)
+		}
+	}
+	impl OrderedPrefixedKeyChunk for Opt { }
+	let prefixes = vec![
+		(vec![],(0u8, 0x00u8), [1u8;32]),
+		(vec![],(1u8, 0x00u8), [1u8;32]),
+		(vec![0u8],(0,0), [0;32]),
+		(vec![],(1u8, 0x10u8), [1u8;32]),
+		(vec![0x10u8],(0,0), [0;32]),
+		(vec![0x11u8],(0,0), [0;32]),
+	];
+	let oc: std::collections::BTreeSet<_> = prefixes.iter().map(|(p1, p2, k)| {
+		ordered_prefixed_key::<KeccakHasher, _>(&k.clone().into(), (&p1[..], p2.clone()), Opt)
+	}).collect();
+
+	for ((p1, p2, k),b) in prefixes.iter().zip(oc.iter()) {
+		assert_eq!(
+			&ordered_prefixed_key::<KeccakHasher, _>(&k.clone().into(), (&p1[..], p2.clone()), Opt),
+			b,
+		);
+	}
+}
+/// Parameterize the size of successive chunks when using
+/// `ordered_prefixed_key`.
+/// Length of each chunk is minimum 1, maximum 254.
+pub trait OrderedPrefixedKeyChunk: IntoIterator<Item = usize> {
+	/// Estimate a final length given a input length.
+	fn estimate_enc_len(input: usize) -> usize { input }
+}
+
+/// Make database key from hash and prefix.
+///
+/// The scheme allows byte ordering of key depending on prefix (can iterate
+/// trie with it).
+/// Every chunk we add a 2 byte (could be reduce to one if storing directly a
+/// total number of chunks), the number of written bytes (last prefix padded one included), and
+/// the number of bytes in the prefix padding byte (note that for aligned prefix we add a
+/// theorically useless 0 to keep a simple trait).
+pub fn ordered_prefixed_key<H, C>(key: &H::Out, prefix: Prefix, chunksiter: C) -> Vec<u8> 
+	where
+		H: KeyHasher,
+		C: OrderedPrefixedKeyChunk,
+	{
+	const REM_CHUNKS: u8 = 255;
+	const FULL_NIBBLES: u8 = 255;
+	let mut prefixed_key = Vec::with_capacity(
+		key.as_ref().len() + C::estimate_enc_len(prefix.0.len() + 2) + 1
+	);
+	let mut to_write = &prefix.0[..];
+	let mut rem = 0;
+	for chunk_len in chunksiter {
+		if chunk_len >= to_write.len() {
+			prefixed_key.extend_from_slice(&to_write[..]);
+			match chunk_len - to_write.len() {
+				0 => {
+					rem = chunk_len;
+					prefixed_key.push(REM_CHUNKS);
+					prefixed_key.push(FULL_NIBBLES);
+				},
+				1 => {
+					prefixed_key.push((prefix.1).1);
+					prefixed_key.push(to_write.len() as u8 + 1);
+					prefixed_key.push(REM_CHUNKS);
+					prefixed_key.push((prefix.1).0);
+				},
+				a => {
+					let pl = prefixed_key.len();
+					prefixed_key.push((prefix.1).1);
+					prefixed_key.resize(pl + a, 0);
+					prefixed_key.push(to_write.len() as u8 + 1);
+					prefixed_key.push((prefix.1).0);
+				},
+			}
+			break;
+		}
+
+		prefixed_key.extend_from_slice(&to_write[..chunk_len]);
+		to_write = &to_write[chunk_len..];
+		prefixed_key.push(REM_CHUNKS);
+		prefixed_key.push(FULL_NIBBLES);
+	}
+	if rem > 0 {
+		let pl = prefixed_key.len();
+		prefixed_key.push((prefix.1).1);
+		prefixed_key.resize(pl + rem, 0);
+		prefixed_key.push(1);
+		prefixed_key.push((prefix.1).0);
+	}
+	prefixed_key.extend_from_slice(key.as_ref());
+	prefixed_key
+}
+
+
 
 /// Legacy method for db using previous version of prefix encoding.
 /// Only for trie radix 16.
