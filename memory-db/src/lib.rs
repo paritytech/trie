@@ -179,6 +179,7 @@ pub fn prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8> {
 #[test]
 fn test_ordered_prefixed_key() {
 	use keccak_hasher::KeccakHasher;
+	#[derive(Debug, Clone, Default)]
 	struct Opt;
 	impl IntoIterator for Opt {
 		type Item = usize;
@@ -197,12 +198,12 @@ fn test_ordered_prefixed_key() {
 		(vec![0x11u8],(0,0), [0;32]),
 	];
 	let oc: std::collections::BTreeSet<_> = prefixes.iter().map(|(p1, p2, k)| {
-		ordered_prefixed_key::<KeccakHasher, _>(&k.clone().into(), (&p1[..], p2.clone()), Opt)
+		ordered_prefixed_key::<KeccakHasher, Opt>(&k.clone().into(), (&p1[..], p2.clone()))
 	}).collect();
 
 	for ((p1, p2, k),b) in prefixes.iter().zip(oc.iter()) {
 		assert_eq!(
-			&ordered_prefixed_key::<KeccakHasher, _>(&k.clone().into(), (&p1[..], p2.clone()), Opt),
+			&ordered_prefixed_key::<KeccakHasher, Opt>(&k.clone().into(), (&p1[..], p2.clone())),
 			b,
 		);
 	}
@@ -210,7 +211,7 @@ fn test_ordered_prefixed_key() {
 /// Parameterize the size of successive chunks when using
 /// `ordered_prefixed_key`.
 /// Length of each chunk is minimum 1, maximum 254.
-pub trait OrderedPrefixedKeyChunk: IntoIterator<Item = usize> {
+pub trait OrderedPrefixedKeyChunk: IntoIterator<Item = usize> + Clone + MaybeDebug + Default {
 	/// Estimate a final length given a input length.
 	fn estimate_enc_len(input: usize) -> usize { input }
 }
@@ -223,7 +224,7 @@ pub trait OrderedPrefixedKeyChunk: IntoIterator<Item = usize> {
 /// total number of chunks), the number of written bytes (last prefix padded one included), and
 /// the number of bytes in the prefix padding byte (note that for aligned prefix we add a
 /// theorically useless 0 to keep a simple trait).
-pub fn ordered_prefixed_key<H, C>(key: &H::Out, prefix: Prefix, chunksiter: C) -> Vec<u8> 
+pub fn ordered_prefixed_key<H, C>(key: &H::Out, prefix: Prefix) -> Vec<u8> 
 	where
 		H: KeyHasher,
 		C: OrderedPrefixedKeyChunk,
@@ -235,7 +236,7 @@ pub fn ordered_prefixed_key<H, C>(key: &H::Out, prefix: Prefix, chunksiter: C) -
 	);
 	let mut to_write = &prefix.0[..];
 	let mut rem = 0;
-	for chunk_len in chunksiter {
+	for chunk_len in C::default() {
 		if chunk_len >= to_write.len() {
 			prefixed_key.extend_from_slice(&to_write[..]);
 			match chunk_len - to_write.len() {
@@ -326,6 +327,29 @@ impl<H: KeyHasher> KeyFunction<H> for PrefixedKey<H> {
 		prefixed_key::<H>(hash, prefix)
 	}
 }
+
+#[derive(Clone,Debug)]
+/// Key function that concatenates prefix and hash.
+/// The resulting key byte is ordered by prefix byte value
+/// (in case of a trie prefix iteration over the prefixed
+/// key should give the same order as the trie).
+/// Also note that this scheme allows to retrieve the prefix
+/// original value.
+pub struct OrderedPrefixedKey<H: KeyHasher, C: OrderedPrefixedKeyChunk>(C, PhantomData<H>);
+
+impl<H, C> KeyFunction<H> for OrderedPrefixedKey<H, C> 
+	where
+		H: KeyHasher,
+		C: OrderedPrefixedKeyChunk,
+{
+	type Key = Vec<u8>;
+
+	fn key(hash: &H::Out, prefix: Prefix) -> Vec<u8> {
+		ordered_prefixed_key::<H, C>(hash, prefix)
+	}
+}
+
+
 
 #[derive(Clone,Debug)]
 /// Key function that concatenates prefix and hash.
