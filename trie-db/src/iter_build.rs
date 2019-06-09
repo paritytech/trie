@@ -16,6 +16,7 @@
 
 use hash_db::{Hasher, HashDB, Prefix};
 use core_::marker::PhantomData;
+use core_::cmp::max;
 use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
 use crate::nibble::NibbleOps;
@@ -75,9 +76,8 @@ type ArrayNode<T> = <<T as TrieLayOut>::CB as CacheBuilder<TrieHash<T>>>::AN;
 ///
 /// Note that it is not memory optimal (all depth are allocated even if some are empty due
 /// to node partial).
-/// Three field are used, a cache over the children, a boolean to indicate a change occured,
-/// and an optional associated value.
-struct CacheAccum<T: TrieLayOut,V> (Vec<(ArrayNode<T>, bool, Option<V>, usize)>,PhantomData<T>);
+/// Three field are used, a cache over the children, an optional associated value and the depth.
+struct CacheAccum<T: TrieLayOut,V> (Vec<(ArrayNode<T>, Option<V>, usize)>,PhantomData<T>);
 
 /// Initially allocated cache depth.
 const INITIAL_DEPTH: usize = 10;
@@ -89,85 +89,67 @@ where
 	{
 
 	fn new() -> Self {
-		let mut v = Vec::with_capacity(INITIAL_DEPTH);
-			v.push((T::CB::new_vec_slice_buff(), false, None, 0));
-/*		(0..INITIAL_DEPTH).for_each(|_|
-			v.push((T::CB::new_vec_slice_buff(), false, None)));*/
+		let v = Vec::with_capacity(INITIAL_DEPTH);
 		CacheAccum(v, PhantomData)
 	}
 
 	#[inline(always)]
 	fn set_elt(&mut self, depth:usize, sl: Option<V>) {
-    let mut last = self.0.len() - 1;
-		if self.0[last].3 < depth {
-			self.0.push((T::CB::new_vec_slice_buff(), false, None, depth));
-      last += 1;
-    }
-		if self.0[last].3 > depth {
-      assert!(false);
-    }
-    self.0[last].2 = sl;
-    self.0[last].1 = true;
+		if self.0.is_empty() || self.0[self.0.len() - 1].2 < depth {
+			self.0.push((T::CB::new_vec_slice_buff(), None, depth));
+		}
+		let last = self.0.len() - 1;
+		debug_assert!(self.0[last].2 <= depth);
+		self.0[last].1 = sl;
 	}
 
 	#[inline(always)]
 	fn set_node(&mut self, depth:usize, nibble_ix:usize, node: CacheNode<TrieHash<T>>) {
-    let mut last = self.0.len() - 1;
-		if self.0[last].3 < depth {
-			self.0.push((T::CB::new_vec_slice_buff(), false, None, depth));
-      last += 1;
-    }
-    assert_eq!(self.0[last].3, depth);
+		if self.0.is_empty() || self.0[self.0.len() - 1].2 < depth {
+			self.0.push((T::CB::new_vec_slice_buff(), None, depth));
+		}
+	
+		let last = self.0.len() - 1;
+		debug_assert!(self.0[last].2 == depth);
 
 		self.0[last].0.as_mut()[nibble_ix] = node;
-		self.0[last].1 = true;
 	}
 
 	#[inline(always)]
 	fn last_depth(&self) -> usize {
 		let ix = self.0.len();
-    if ix > 0 {
-      let last = ix - 1;
-      self.0[last].3
-    } else {
-      0
-    }
+		if ix > 0 {
+			let last = ix - 1;
+			self.0[last].2
+		} else {
+			0
+		}
 	}
 
 	#[inline(always)]
 	fn last_last_depth(&self) -> usize {
 		let ix = self.0.len();
-    if ix > 1 {
-      let last = ix - 2;
-      self.0[last].3
-    } else {
-      0
-    }
-  }
+		if ix > 1 {
+			let last = ix - 2;
+			self.0[last].2
+		} else {
+			0
+		}
+	}
 
 	#[inline(always)]
-	fn touched(&self, depth:usize) -> bool {
-		let mut res = false;
-		let mut ix = self.0.len();
-		while ix > 0 {
-
-
-    let last = ix - 1;
-// TODO rec does not make sense : rewrite the flush to access directly parent ix instead
-// of minus 1 loop...
-		res = self.0[last].1 && self.0[last].3 == depth;
-		if res { return res }
-		ix = last;
-		}
-		res
+	fn is_empty(&self) -> bool {
+		self.0.is_empty()
+	}
+	#[inline(always)]
+	fn is_one(&self) -> bool {
+		self.0.len() == 1
 	}
 
 	#[inline(always)]
 	fn reset_depth(&mut self, depth:usize) {
 
-    let last = self.0.len() - 1;
-    assert_eq!(self.0[last].3, depth);
-
+		debug_assert!(self.0[self.0.len() - 1].2 == depth);
 		self.0.pop();
 	}
 
@@ -179,9 +161,12 @@ where
 	) {
 		let nibble_value = T::N::left_nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
-		let nkey = NibbleSlice::<T::N>::new_offset(&k2.as_ref()[..],target_depth+1);
+		let nkey = NibbleSlice::<T::N>::new_offset(&k2.as_ref()[..],target_depth + 1);
 		let encoded = T::C::leaf_node(nkey.right(), &v2.as_ref()[..]);
-		let pr = NibbleSlice::<T::N>::new_offset(&k2.as_ref()[..], k2.as_ref().len() * T::N::NIBBLE_PER_BYTE - nkey.len());
+		let pr = NibbleSlice::<T::N>::new_offset(
+			&k2.as_ref()[..],
+			k2.as_ref().len() * T::N::NIBBLE_PER_BYTE - nkey.len(),
+		);
 		let hash = cb_ext.process(pr.left(), encoded, false);
 
 		// insert hash in branch (first level branch only at this point)
@@ -194,71 +179,37 @@ where
 		cb_ext: &mut impl ProcessEncodedNode<TrieHash<T>>,
 		ref_branch: impl AsRef<[u8]> + Ord,
 		new_depth: usize,
-		old_depth: usize,
 		is_last: bool,
 	) {
-		let mut last_branch_ix = None;
-		for d in (new_depth..=old_depth).rev() {
 
-/*      let lix = self.last_depth();
-      if lix == d {
-        let llix = self.last_last_depth();
-        let is_last = llix == lix;
-          // root
-        } else {
-        }
-      }*/
+		while self.last_depth() > new_depth || is_last && !self.is_empty() {
 
-			let touched = self.touched(d);
+			let lix = self.last_depth();
+			let llix = max(self.last_last_depth(), new_depth);
 
-			if touched || d == new_depth {
-			if let Some(branch_d) = last_branch_ix.take() {
-
-				let last_root = d == 0 && is_last;
-				// reduce slice for branch
-				let parent_branch = touched;
-				let (slice_size, offset) = if parent_branch && last_root {
-					// corner branch last
-					(branch_d - d - 1, d + 1)
-				} else if last_root {
-					// corner case non branch last
-					(branch_d - d, d)
-				} else {
-					(branch_d - d - 1, d + 1)
-				};
-
-				let nkey = if slice_size > 0 {
-					Some((offset, slice_size))
-				} else {
-					None
-				};
-	
-				let is_root = d == 0 && is_last && !parent_branch;
-				let h = if no_ext {
-					// enc branch
-					self.alt_no_ext(&ref_branch.as_ref()[..], cb_ext, branch_d, is_root, nkey)
-				} else {
-					self.standard_ext(&ref_branch.as_ref()[..], cb_ext, branch_d, is_root, nkey)
-				};
-				// put hash in parent
-				let nibble: u8 = T::N::left_nibble_at(&ref_branch.as_ref()[..],d);
-				self.set_node(d, nibble as usize, Some(h));
-			}
-			}
-
-		
-			if d > new_depth || is_last {
-				if touched {
-					last_branch_ix = Some(d);
-				}
-			}
-
-		}
-		if let Some(d) = last_branch_ix {
-			if no_ext {
-				self.alt_no_ext(&ref_branch.as_ref()[..], cb_ext, d, true, None);
+			let (offset, slice_size, is_root) = 
+				if llix == 0 && is_last && self.is_one() {
+				// branch root
+				(llix, lix - llix, true)
 			} else {
-				self.standard_ext(&ref_branch.as_ref()[..], cb_ext, d, true, None);
+				(llix + 1, lix - llix - 1, false)
+			};
+			let nkey = if slice_size > 0 {
+				Some((offset, slice_size))
+			} else {
+				None
+			};
+ 
+			let h = if no_ext {
+				// enc branch
+				self.alt_no_ext(&ref_branch.as_ref()[..], cb_ext, lix, is_root, nkey)
+			} else {
+				self.standard_ext(&ref_branch.as_ref()[..], cb_ext, lix, is_root, nkey)
+			};
+			if !is_root {
+				// put hash in parent
+				let nibble: u8 = T::N::left_nibble_at(&ref_branch.as_ref()[..],llix);
+				self.set_node(llix, nibble as usize, Some(h));
 			}
 		}
 	}
@@ -272,13 +223,15 @@ where
 		is_root: bool,
 		nkey: Option<(usize, usize)>,
 	) -> ChildReference<TrieHash<T>> {
-    let last = self.0.len() - 1;
-		assert_eq!(self.0[last].3, branch_d);
+		let last = self.0.len() - 1;
+		assert_eq!(self.0[last].2, branch_d);
 
 		// enc branch
-		let v = self.0[last].2.take();
-		let encoded = T::C::branch_node(self.0[last].0.as_ref().iter(), v.as_ref().map(|v|v.as_ref()));
-		// TODO branch_d == 0 means is _root ??!!
+		let v = self.0[last].1.take();
+		let encoded = T::C::branch_node(
+			self.0[last].0.as_ref().iter(),
+			v.as_ref().map(|v| v.as_ref()),
+		);
 		self.reset_depth(branch_d);
 		let pr = NibbleSlice::<T::N>::new_offset(&key_branch.as_ref()[..], branch_d);
 		let branch_hash = cb_ext.process(pr.left(), encoded, is_root && nkey.is_none());
@@ -303,22 +256,22 @@ where
 		is_root: bool,
 		nkey: Option<(usize, usize)>,
 		) -> ChildReference<TrieHash<T>> {
-    let last = self.0.len() - 1;
-		if self.0[last].3 != branch_d {
-      assert!(false);
-    }
+		let last = self.0.len() - 1;
+		debug_assert!(self.0[last].2 == branch_d);
 		// enc branch
-		let v = self.0[last].2.take();
+		let v = self.0[last].1.take();
 		let nkeyix = nkey.unwrap_or((0,0));
 		let pr = NibbleSlice::<T::N>::new_offset(&key_branch.as_ref()[..],nkeyix.0);
 		let encoded = T::C::branch_node_nibbled(
-			// warn direct use of default empty nible encoded: NibbleSlice::new_offset(&[],0).encoded(false);
 			pr.right_range_iter(nkeyix.1),
 			nkeyix.1,
-			self.0[last].0.as_ref().iter(), v.as_ref().map(|v|v.as_ref()));
+			self.0[last].0.as_ref().iter(), v.as_ref().map(|v| v.as_ref()));
 		self.reset_depth(branch_d);
-		let ext_len = nkey.as_ref().map(|nkeyix|nkeyix.0).unwrap_or(0);
-		let pr = NibbleSlice::<T::N>::new_offset(&key_branch.as_ref()[..], branch_d - ext_len);
+		let ext_len = nkey.as_ref().map(|nkeyix| nkeyix.0).unwrap_or(0);
+		let pr = NibbleSlice::<T::N>::new_offset(
+			&key_branch.as_ref()[..],
+			branch_d - ext_len,
+		);
 		cb_ext.process(pr.left(), encoded, is_root)
 	}
 
@@ -343,7 +296,9 @@ pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F)
 		// depth of last item
 		let mut last_depth = 0;
 
+		let mut single = true;
 		for (k, v) in iter_input {
+			single = false;
 			let common_depth = T::N::biggest_depth(&prev_val.0.as_ref()[..], &k.as_ref()[..]);
 			// 0 is a reserved value : could use option
 			let depth_item = common_depth;
@@ -358,25 +313,27 @@ pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F)
 				// do not put with next, previous is last of a branch
 				depth_queue.flush_val(cb_ext, last_depth, &prev_val);
 				let ref_branches = prev_val.0;
-				depth_queue.flush_branch(no_ext, cb_ext, ref_branches, depth_item, last_depth, false);
+				depth_queue.flush_branch(no_ext, cb_ext, ref_branches, depth_item, false);
 			}
 
 			prev_val = (k, v);
 			last_depth = depth_item;
 		}
 		// last pendings
-		if last_depth == 0
-			&& !depth_queue.touched(0) {
+		if single {
 			// one single element corner case
 			let (k2, v2) = prev_val;
 			let nkey = NibbleSlice::<T::N>::new_offset(&k2.as_ref()[..],last_depth);
 			let encoded = T::C::leaf_node(nkey.right(), &v2.as_ref()[..]);
-			let pr = NibbleSlice::<T::N>::new_offset(&k2.as_ref()[..], k2.as_ref().len() * T::N::NIBBLE_PER_BYTE - nkey.len());
+			let pr = NibbleSlice::<T::N>::new_offset(
+				&k2.as_ref()[..],
+				k2.as_ref().len() * T::N::NIBBLE_PER_BYTE - nkey.len(),
+			);
 			cb_ext.process(pr.left(), encoded, true);
 		} else {
 			depth_queue.flush_val(cb_ext, last_depth, &prev_val);
 			let ref_branches = prev_val.0;
-			depth_queue.flush_branch(no_ext, cb_ext, ref_branches, 0, last_depth, true);
+			depth_queue.flush_branch(no_ext, cb_ext, ref_branches, 0, true);
 		}
 	} else {
 		// nothing null root corner case
@@ -410,8 +367,14 @@ impl<'a, H, HO, V, DB> TrieBuilder<'a, H, HO, V, DB> {
 	}
 }
 
-impl<'a, H: Hasher, V, DB: HashDB<H,V>> ProcessEncodedNode<<H as Hasher>::Out> for TrieBuilder<'a, H, <H as Hasher>::Out, V, DB> {
-	fn process(&mut self, encoded_prefix: Prefix, enc_ext: Vec<u8>, is_root: bool) -> ChildReference<<H as Hasher>::Out> {
+impl<'a, H: Hasher, V, DB: HashDB<H,V>> ProcessEncodedNode<<H as Hasher>::Out>
+	for TrieBuilder<'a, H, <H as Hasher>::Out, V, DB> {
+	fn process(
+		&mut self,
+		encoded_prefix: Prefix,
+		enc_ext: Vec<u8>,
+		is_root: bool,
+	) -> ChildReference<<H as Hasher>::Out> {
 		let len = enc_ext.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
 			let mut h = <<H as Hasher>::Out as Default>::default();
@@ -441,7 +404,12 @@ impl<H, HO> Default for TrieRoot<H, HO> {
 }
 
 impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRoot<H, <H as Hasher>::Out> {
-	fn process(&mut self, _: Prefix, enc_ext: Vec<u8>, is_root: bool) -> ChildReference<<H as Hasher>::Out> {
+	fn process(
+		&mut self,
+		_: Prefix,
+		enc_ext: Vec<u8>,
+		is_root: bool,
+	) -> ChildReference<<H as Hasher>::Out> {
 		let len = enc_ext.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
 			let mut h = <<H as Hasher>::Out as Default>::default();
@@ -471,7 +439,12 @@ impl<H> Default for TrieRootUnhashed<H> {
 }
 
 impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashed<H> {
-	fn process(&mut self, _: Prefix, enc_ext: Vec<u8>, is_root: bool) -> ChildReference<<H as Hasher>::Out> {
+	fn process(
+		&mut self,
+		_: Prefix,
+		enc_ext: Vec<u8>,
+		is_root: bool,
+	) -> ChildReference<<H as Hasher>::Out> {
 		let len = enc_ext.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
 			let mut h = <<H as Hasher>::Out as Default>::default();
@@ -574,7 +547,7 @@ mod test {
 		compare_impl_pk(data.clone());
 		compare_impl_no_ext(data.clone());
 		compare_impl_no_ext_pk(data.clone());
-		//compare_impl_no_ext_q(data.clone());
+		compare_impl_no_ext_q(data.clone());
 	}
 
 	fn compare_impl_pk(data: Vec<(Vec<u8>,Vec<u8>)>) {
@@ -743,17 +716,17 @@ mod test {
 
 	#[test]
 	fn fuzz_noext3 () {
-		compare_impl(vec![
+		/*compare_impl(vec![
 			(vec![0],vec![0, 0]),
 			(vec![11,0],vec![0, 0]),
 			(vec![11,252],vec![11, 0]),
-		]);
-
-/*		compare_impl_no_ext_unordered(vec![
-			(vec![11,252],vec![11, 0]),
-			(vec![11,0],vec![0, 0]),
-			(vec![0],vec![0, 0]),
 		]);*/
+
+		compare_impl_no_ext_unordered(vec![
+			(vec![11,252],vec![11, 0]),
+			(vec![11,0],vec![0, 0]),
+			(vec![0],vec![0, 0]),
+		]);
 	}
 	#[test]
 	fn fuzz_noext4 () {
