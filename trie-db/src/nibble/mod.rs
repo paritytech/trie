@@ -139,7 +139,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 		return v1.len() * Self::NIBBLE_PER_BYTE;
 	}
 
-	/// Calculate the number of common nibble between two left pad byte.
+	/// Calculate the number of common nibble between two left aligned bytes.
 	#[inline(always)]
 	fn left_common(a: u8, b: u8) -> usize {
 		let mut i = 0;

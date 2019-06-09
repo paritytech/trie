@@ -77,7 +77,7 @@ type ArrayNode<T> = <<T as TrieLayOut>::CB as CacheBuilder<TrieHash<T>>>::AN;
 /// to node partial).
 /// Three field are used, a cache over the children, a boolean to indicate a change occured,
 /// and an optional associated value.
-struct CacheAccum<T: TrieLayOut,V> (Vec<(ArrayNode<T>, bool, Option<V>)>,PhantomData<T>);
+struct CacheAccum<T: TrieLayOut,V> (Vec<(ArrayNode<T>, bool, Option<V>, usize)>,PhantomData<T>);
 
 /// Initially allocated cache depth.
 const INITIAL_DEPTH: usize = 10;
@@ -90,50 +90,91 @@ where
 
 	fn new() -> Self {
 		let mut v = Vec::with_capacity(INITIAL_DEPTH);
-		(0..INITIAL_DEPTH).for_each(|_|
-			v.push((T::CB::new_vec_slice_buff(), false, None)));
+			v.push((T::CB::new_vec_slice_buff(), false, None, 0));
+/*		(0..INITIAL_DEPTH).for_each(|_|
+			v.push((T::CB::new_vec_slice_buff(), false, None)));*/
 		CacheAccum(v, PhantomData)
 	}
 
 	#[inline(always)]
 	fn set_elt(&mut self, depth:usize, sl: Option<V>) {
-		if depth >= self.0.len() {
-			for _i in self.0.len()..depth + 1 { 
-				self.0.push((T::CB::new_vec_slice_buff(), false, None));
-			}
-		}
-		self.0[depth].2 = sl;
-		self.0[depth].1 = true;
+    let mut last = self.0.len() - 1;
+		if self.0[last].3 < depth {
+			self.0.push((T::CB::new_vec_slice_buff(), false, None, depth));
+      last += 1;
+    }
+		if self.0[last].3 > depth {
+      assert!(false);
+    }
+    self.0[last].2 = sl;
+    self.0[last].1 = true;
 	}
 
 	#[inline(always)]
 	fn set_node(&mut self, depth:usize, nibble_ix:usize, node: CacheNode<TrieHash<T>>) {
-		if depth >= self.0.len() {
-			for _i in self.0.len()..depth + 1 { 
-				self.0.push((T::CB::new_vec_slice_buff(), false, None));
-			}
-		}
-		self.0[depth].0.as_mut()[nibble_ix] = node;
-		self.0[depth].1 = true;
+    let mut last = self.0.len() - 1;
+		if self.0[last].3 < depth {
+			self.0.push((T::CB::new_vec_slice_buff(), false, None, depth));
+      last += 1;
+    }
+    assert_eq!(self.0[last].3, depth);
+
+		self.0[last].0.as_mut()[nibble_ix] = node;
+		self.0[last].1 = true;
 	}
 
 	#[inline(always)]
+	fn last_depth(&self) -> usize {
+		let ix = self.0.len();
+    if ix > 0 {
+      let last = ix - 1;
+      self.0[last].3
+    } else {
+      0
+    }
+	}
+
+	#[inline(always)]
+	fn last_last_depth(&self) -> usize {
+		let ix = self.0.len();
+    if ix > 1 {
+      let last = ix - 2;
+      self.0[last].3
+    } else {
+      0
+    }
+  }
+
+	#[inline(always)]
 	fn touched(&self, depth:usize) -> bool {
-		self.0[depth].1
+		let mut res = false;
+		let mut ix = self.0.len();
+		while ix > 0 {
+
+
+    let last = ix - 1;
+// TODO rec does not make sense : rewrite the flush to access directly parent ix instead
+// of minus 1 loop...
+		res = self.0[last].1 && self.0[last].3 == depth;
+		if res { return res }
+		ix = last;
+		}
+		res
 	}
 
 	#[inline(always)]
 	fn reset_depth(&mut self, depth:usize) {
-		self.0[depth].1 = false;
-		for i in 0..T::N::NIBBLE_LEN {
-			self.0[depth].0.as_mut()[i] = None;
-		}
+
+    let last = self.0.len() - 1;
+    assert_eq!(self.0[last].3, depth);
+
+		self.0.pop();
 	}
 
 	fn flush_val (
 		&mut self,
 		cb_ext: &mut impl ProcessEncodedNode<TrieHash<T>>,
-		target_depth: usize, 
+		target_depth: usize,
 		(k2, v2): &(impl AsRef<[u8]>,impl AsRef<[u8]>), 
 	) {
 		let nibble_value = T::N::left_nibble_at(&k2.as_ref()[..], target_depth);
@@ -152,12 +193,21 @@ where
 		no_ext: bool,
 		cb_ext: &mut impl ProcessEncodedNode<TrieHash<T>>,
 		ref_branch: impl AsRef<[u8]> + Ord,
-		new_depth: usize, 
+		new_depth: usize,
 		old_depth: usize,
 		is_last: bool,
 	) {
 		let mut last_branch_ix = None;
 		for d in (new_depth..=old_depth).rev() {
+
+/*      let lix = self.last_depth();
+      if lix == d {
+        let llix = self.last_last_depth();
+        let is_last = llix == lix;
+          // root
+        } else {
+        }
+      }*/
 
 			let touched = self.touched(d);
 
@@ -222,10 +272,13 @@ where
 		is_root: bool,
 		nkey: Option<(usize, usize)>,
 	) -> ChildReference<TrieHash<T>> {
+    let last = self.0.len() - 1;
+		assert_eq!(self.0[last].3, branch_d);
 
 		// enc branch
-		let v = self.0[branch_d].2.take();
-		let encoded = T::C::branch_node(self.0[branch_d].0.as_ref().iter(), v.as_ref().map(|v|v.as_ref()));
+		let v = self.0[last].2.take();
+		let encoded = T::C::branch_node(self.0[last].0.as_ref().iter(), v.as_ref().map(|v|v.as_ref()));
+		// TODO branch_d == 0 means is _root ??!!
 		self.reset_depth(branch_d);
 		let pr = NibbleSlice::<T::N>::new_offset(&key_branch.as_ref()[..], branch_d);
 		let branch_hash = cb_ext.process(pr.left(), encoded, is_root && nkey.is_none());
@@ -250,15 +303,19 @@ where
 		is_root: bool,
 		nkey: Option<(usize, usize)>,
 		) -> ChildReference<TrieHash<T>> {
+    let last = self.0.len() - 1;
+		if self.0[last].3 != branch_d {
+      assert!(false);
+    }
 		// enc branch
-		let v = self.0[branch_d].2.take();
+		let v = self.0[last].2.take();
 		let nkeyix = nkey.unwrap_or((0,0));
 		let pr = NibbleSlice::<T::N>::new_offset(&key_branch.as_ref()[..],nkeyix.0);
 		let encoded = T::C::branch_node_nibbled(
 			// warn direct use of default empty nible encoded: NibbleSlice::new_offset(&[],0).encoded(false);
 			pr.right_range_iter(nkeyix.1),
 			nkeyix.1,
-			self.0[branch_d].0.as_ref().iter(), v.as_ref().map(|v|v.as_ref()));
+			self.0[last].0.as_ref().iter(), v.as_ref().map(|v|v.as_ref()));
 		self.reset_depth(branch_d);
 		let ext_len = nkey.as_ref().map(|nkeyix|nkeyix.0).unwrap_or(0);
 		let pr = NibbleSlice::<T::N>::new_offset(&key_branch.as_ref()[..], branch_d - ext_len);
@@ -517,7 +574,7 @@ mod test {
 		compare_impl_pk(data.clone());
 		compare_impl_no_ext(data.clone());
 		compare_impl_no_ext_pk(data.clone());
-		compare_impl_no_ext_q(data.clone());
+		//compare_impl_no_ext_q(data.clone());
 	}
 
 	fn compare_impl_pk(data: Vec<(Vec<u8>,Vec<u8>)>) {
@@ -686,11 +743,17 @@ mod test {
 
 	#[test]
 	fn fuzz_noext3 () {
-		compare_impl_no_ext_unordered(vec![
+		compare_impl(vec![
+			(vec![0],vec![0, 0]),
+			(vec![11,0],vec![0, 0]),
+			(vec![11,252],vec![11, 0]),
+		]);
+
+/*		compare_impl_no_ext_unordered(vec![
 			(vec![11,252],vec![11, 0]),
 			(vec![11,0],vec![0, 0]),
 			(vec![0],vec![0, 0]),
-		]);
+		]);*/
 	}
 	#[test]
 	fn fuzz_noext4 () {
