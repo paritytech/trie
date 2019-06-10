@@ -76,7 +76,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 			// aligned
 			let start = self.offset / N::NIBBLE_PER_BYTE;
 			let end = (self.offset + nb) / N::NIBBLE_PER_BYTE;
-			(nb % N::NIBBLE_PER_BYTE, ElasticArray36::from_slice(&self.data[start..end]))
+			(self.offset % N::NIBBLE_PER_BYTE, ElasticArray36::from_slice(&self.data[start..end]))
 		} else {
 			// unaligned
 			let start = self.offset / N::NIBBLE_PER_BYTE;

@@ -716,11 +716,11 @@ mod test {
 
 	#[test]
 	fn fuzz_noext3 () {
-		/*compare_impl(vec![
+		compare_impl(vec![
 			(vec![0],vec![0, 0]),
 			(vec![11,0],vec![0, 0]),
 			(vec![11,252],vec![11, 0]),
-		]);*/
+		]);
 
 		compare_impl_no_ext_unordered(vec![
 			(vec![11,252],vec![11, 0]),
