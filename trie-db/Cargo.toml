@@ -1,6 +1,6 @@
 [package]
 name = "trie-db"
-version = "0.12.2"
+version = "0.12.3"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Merkle-Patricia Trie generic over key hasher and node encoding"
 repository = "https://github.com/paritytech/trie"
@@ -10,17 +10,17 @@ license = "Apache-2.0"
 log = "0.4"
 rand = { version = "0.6", default-features = false }
 elastic-array = { version = "0.10", default-features = false }
-hash-db = { path = "../hash-db", default-features = false, version = "0.12.2"}
+hash-db = { path = "../hash-db", default-features = false, version = "0.12.3"}
 hashmap_core = { version = "0.1" }
 
 [dev-dependencies]
 env_logger = "0.6"
-memory-db = { path = "../memory-db", version = "0.12.2" }
-trie-root = { path = "../trie-root", version = "0.12.2"}
-trie-standardmap = { path = "../test-support/trie-standardmap", version = "0.12.2" }
-keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.12.2" }
+memory-db = { path = "../memory-db", version = "0.12.3" }
+trie-root = { path = "../trie-root", version = "0.12.3"}
+trie-standardmap = { path = "../test-support/trie-standardmap", version = "0.12.3" }
+keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.12.3" }
 # DISABLE the following line when publishing until cyclic dependencies are resolved https://github.com/rust-lang/cargo/issues/4242
-reference-trie = { path = "../test-support/reference-trie", version = "0.12.2" }
+reference-trie = { path = "../test-support/reference-trie", version = "0.12.3" }
 hex-literal = "0.1"
 criterion = "0.2.8"
 

@@ -1,16 +1,16 @@
 [package]
 name = "trie-bench"
 description = "Standard benchmarking suite for tries"
-version = "0.12.2"
+version = "0.12.3"
 authors = ["Parity Technologies <admin@parity.io>"]
 license = "Apache-2.0"
 
 [dependencies]
-keccak-hasher = { path = "../keccak-hasher", version = "0.12.2" }
-trie-standardmap = { path = "../trie-standardmap", version  = "0.12.2" }
-hash-db = { path = "../../hash-db" , version = "0.12.2"}
-memory-db = { path = "../../memory-db", version = "0.12.2" }
-trie-root = { path = "../../trie-root", version = "0.12.2" }
-trie-db = { path = "../../trie-db", version = "0.12.2" }
+keccak-hasher = { path = "../keccak-hasher", version = "0.12.3" }
+trie-standardmap = { path = "../trie-standardmap", version  = "0.12.3" }
+hash-db = { path = "../../hash-db" , version = "0.12.3"}
+memory-db = { path = "../../memory-db", version = "0.12.3" }
+trie-root = { path = "../../trie-root", version = "0.12.3" }
+trie-db = { path = "../../trie-db", version = "0.12.3" }
 criterion = "0.2.8"
 parity-codec = "3.0"

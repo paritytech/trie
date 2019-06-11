@@ -18,6 +18,8 @@
 #![cfg_attr(not(feature = "std"), feature(alloc))]
 
 extern crate hash_db;
+extern crate parity_util_mem;
+#[cfg(feature = "deprecated")]
 #[cfg(feature = "std")]
 extern crate heapsize;
 #[cfg(not(feature = "std"))]
@@ -27,6 +29,8 @@ extern crate alloc;
 #[cfg(test)] extern crate keccak_hasher;
 
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher, AsHashDB, AsPlainDB};
+use parity_util_mem::{MallocSizeOf, MallocSizeOfOps};
+#[cfg(feature = "deprecated")]
 #[cfg(feature = "std")]
 use heapsize::HeapSizeOf;
 #[cfg(feature = "std")]
@@ -57,6 +61,15 @@ use core::{
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
+
+#[cfg(feature = "std")]
+pub trait MaybeDebug: std::fmt::Debug {}
+#[cfg(feature = "std")]
+impl<T: std::fmt::Debug> MaybeDebug for T {}
+#[cfg(not(feature = "std"))]
+pub trait MaybeDebug {}
+#[cfg(not(feature = "std"))]
+impl<T> MaybeDebug for T {}
 
 /// Reference-counted memory-based `HashDB` implementation.
 ///
@@ -105,7 +118,7 @@ use alloc::vec::Vec;
 ///   assert!(!m.contains(&k, &[]));
 /// }
 /// ```
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub struct MemoryDB<H, KF, T>
 	where
 	H: KeyHasher,
@@ -117,12 +130,38 @@ pub struct MemoryDB<H, KF, T>
 	_kf: PhantomData<KF>,
 }
 
+impl<H, KF, T> PartialEq<MemoryDB<H, KF, T>> for MemoryDB<H, KF, T>
+	where 
+	H: KeyHasher,
+	KF: KeyFunction<H>,
+	<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
+	T: Eq + MaybeDebug,
+{
+	fn eq(&self, other: &MemoryDB<H, KF, T>) -> bool {
+		for a in self.data.iter() {
+			match other.data.get(&a.0) {
+				Some(v) if v != a.1 => return false,
+				None => return false,
+				_ => (),
+			}
+		}
+		true
+	}
+}
+
+impl<H, KF, T> Eq for MemoryDB<H, KF, T>
+	where 
+	H: KeyHasher,
+	KF: KeyFunction<H>,
+	<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
+				T: Eq + MaybeDebug,
+{}
+ 
 pub trait KeyFunction<H: KeyHasher> {
-	type Key: Send + Sync + Clone + hash::Hash + Eq ;
+	type Key: Send + Sync + Clone + hash::Hash + Eq;
 
 	fn key(hash: &H::Out, prefix: &[u8]) -> Self::Key;
 }
-
 
 /// Make database key from hash and prefix.
 pub fn prefixed_key<H: KeyHasher>(key: &H::Out, prefix: &[u8]) -> Vec<u8> {
@@ -137,6 +176,7 @@ pub fn hash_key<H: KeyHasher>(key: &H::Out, _prefix: &[u8]) -> H::Out {
 	key.clone()
 }
 
+#[derive(Clone,Debug)]
 /// Key function that only uses the hash
 pub struct HashKey<H: KeyHasher>(PhantomData<H>);
 
@@ -148,6 +188,7 @@ impl<H: KeyHasher> KeyFunction<H> for HashKey<H> {
 	}
 }
 
+#[derive(Clone,Debug)]
 /// Key function that concatenates prefix and hash.
 pub struct PrefixedKey<H: KeyHasher>(PhantomData<H>);
 
@@ -297,6 +338,7 @@ where
 	}
 }
 
+#[cfg(feature = "deprecated")]
 #[cfg(feature = "std")]
 impl<H, KF, T> MemoryDB<H, KF, T>
 where
@@ -304,12 +346,29 @@ where
 	T: HeapSizeOf,
 	KF: KeyFunction<H>,
 {
+	#[deprecated(since="0.12.0", note="please use `size_of` instead")]
 	/// Returns the size of allocated heap memory
 	pub fn mem_used(&self) -> usize {
 		0//self.data.heap_size_of_children()
 		// TODO Reenable above when HeapSizeOf supports arrays.
 	}
 }
+
+impl<H, KF, T> MallocSizeOf for MemoryDB<H, KF, T>
+where
+	H: KeyHasher,
+	H::Out: MallocSizeOf,
+	T: MallocSizeOf,
+	KF: KeyFunction<H>,
+	KF::Key: MallocSizeOf,
+{
+	fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+		self.data.size_of(ops)
+			+ self.null_node_data.size_of(ops)
+			+ self.hashed_null_node.size_of(ops)
+	}
+}
+
 
 impl<H, KF, T> PlainDB<H::Out, T> for MemoryDB<H, KF, T>
 where
