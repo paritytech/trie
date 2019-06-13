@@ -14,15 +14,6 @@
 
 //! Standard trie benchmarking tool.
 
-extern crate criterion;
-extern crate keccak_hasher;
-extern crate hash_db;
-extern crate memory_db;
-extern crate trie_db;
-extern crate trie_root;
-extern crate trie_standardmap;
-extern crate parity_codec;
-
 use parity_codec::{Encode, Compact};
 use criterion::{Criterion, black_box, Fun};
 use keccak_hasher::KeccakHasher;

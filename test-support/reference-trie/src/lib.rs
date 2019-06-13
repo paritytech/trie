@@ -14,16 +14,10 @@
 
 //! Reference implementation of a streamer.
 
-extern crate hash_db;
-extern crate trie_db;
-extern crate parity_codec as codec;
-extern crate trie_root;
-extern crate keccak_hasher;
-
 use std::fmt;
 use std::error::Error as StdError;
 use std::iter::once;
-use codec::{Decode, Input, Output, Encode, Compact};
+use parity_codec::{Decode, Input, Output, Encode, Compact};
 use trie_root::Hasher;
 use trie_db::{node::Node, triedbmut::ChildReference, DBValue};
 use keccak_hasher::KeccakHasher;

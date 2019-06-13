@@ -1,9 +1,10 @@
 [package]
 name = "trie-bench"
 description = "Standard benchmarking suite for tries"
-version = "0.12.3"
+version = "0.13.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 license = "Apache-2.0"
+edition = "2018"
 
 [dependencies]
 keccak-hasher = { path = "../keccak-hasher", version = "0.12.3" }
@@ -13,4 +14,4 @@ memory-db = { path = "../../memory-db", version = "0.12.3" }
 trie-root = { path = "../../trie-root", version = "0.12.3" }
 trie-db = { path = "../../trie-db", version = "0.12.3" }
 criterion = "0.2.8"
-parity-codec = "3.0"
+parity-codec = "4.0"
