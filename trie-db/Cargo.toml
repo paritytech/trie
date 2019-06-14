@@ -20,7 +20,7 @@ trie-root = { path = "../trie-root", version = "0.12.3"}
 trie-standardmap = { path = "../test-support/trie-standardmap", version = "0.12.3" }
 keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.12.3" }
 # DISABLE the following line when publishing until cyclic dependencies are resolved https://github.com/rust-lang/cargo/issues/4242
-reference-trie = { path = "../test-support/reference-trie", version = "0.12.3" }
+reference-trie = { path = "../test-support/reference-trie", version = "0.13.0" }
 hex-literal = "0.1"
 criterion = "0.2.8"
 
