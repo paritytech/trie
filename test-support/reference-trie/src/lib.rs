@@ -116,7 +116,7 @@ impl TrieStream for ReferenceTrieStream {
 			value.encode_to(&mut self.buffer);
 		}
 	}
-	
+
 	fn append_extension(&mut self, key: &[u8]) {
 		self.buffer.extend(fuse_nibbles_node(key, false));
 	}
