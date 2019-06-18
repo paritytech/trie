@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use hash_db::{Hasher, HashDBRef};
-use nibbleslice::{self, NibbleSlice, combine_encoded};
+use nibbleslice::{self, NibbleSlice};
+#[cfg(feature = "std")]
+use nibbleslice::combine_encoded;
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
 use super::lookup::Lookup;
@@ -69,7 +71,7 @@ where
 	H: Hasher + 'db,
 	C: NodeCodec<H>
 {
-	db: &'db HashDBRef<H, DBValue>,
+	db: &'db dyn HashDBRef<H, DBValue>,
 	root: &'db H::Out,
 	/// The number of hashes performed so far in operations on this trie.
 	hash_count: usize,
@@ -83,7 +85,10 @@ where
 {
 	/// Create a new trie with the backing database `db` and `root`
 	/// Returns an error if `root` does not exist
-	pub fn new(db: &'db HashDBRef<H, DBValue>, root: &'db H::Out) -> Result<Self, H::Out, C::Error> {
+	pub fn new(
+		db: &'db dyn HashDBRef<H, DBValue>,
+		root: &'db H::Out,
+	) -> Result<Self, H::Out, C::Error> {
 		if !db.contains(root, nibbleslice::EMPTY_ENCODED) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		} else {
@@ -92,7 +97,7 @@ where
 	}
 
 	/// Get the backing database.
-	pub fn db(&'db self) -> &'db HashDBRef<H, DBValue> { self.db }
+	pub fn db(&'db self) -> &'db dyn HashDBRef<H, DBValue> { self.db }
 
 	/// Get the data of the root node.
 	pub fn root_data(&self) -> Result<DBValue, H::Out, C::Error> {
@@ -137,7 +142,11 @@ where
 		}.look_up(NibbleSlice::new(key))
 	}
 
-	fn iter<'a>(&'a self) -> Result<Box<TrieIterator<H, C, Item=TrieItem<H::Out, C::Error>> + 'a>, H::Out, C::Error> {
+	fn iter<'a>(&'a self) -> Result<
+		Box<dyn TrieIterator<H, C, Item=TrieItem<H::Out, C::Error>> + 'a>,
+		H::Out,
+		C::Error,
+	> {
 		TrieDBIterator::new(self).map(|iter| Box::new(iter) as Box<_>)
 	}
 }
@@ -210,7 +219,7 @@ where
 				Err(e) => f.debug_struct("BROKEN_NODE")
 					.field("index", &self.index)
 					.field("key", &self.node_key)
-					.field("error",  &format!("ERROR decoding node branch Rlp: {}", e))
+					.field("error", &format!("ERROR decoding node branch Rlp: {}", e))
 					.finish()
 			}
 		} else {

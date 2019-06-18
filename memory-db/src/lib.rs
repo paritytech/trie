@@ -354,6 +354,9 @@ where
 	}
 }
 
+// not no_std implementation requires that hasmap core
+// got its implementation in parity-util-mem
+#[cfg(feature = "std")]
 impl<H, KF, T> MallocSizeOf for MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
@@ -368,6 +371,33 @@ where
 			+ self.hashed_null_node.size_of(ops)
 	}
 }
+
+// This is temporary code and should be in
+// parity-util-mem, but hashmap_core will probably
+// get replaced at some point by hashbrown so
+// this is a pragmatic temporary solution.
+#[cfg(not(feature = "std"))]
+impl<H, KF, T> MallocSizeOf for MemoryDB<H, KF, T>
+where
+	H: KeyHasher,
+	H::Out: MallocSizeOf,
+	T: MallocSizeOf,
+	KF: KeyFunction<H>,
+	KF::Key: MallocSizeOf,
+{
+	fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+		use core::mem::size_of;
+		let mut n = self.data.capacity() * (size_of::<T>() + size_of::<H>() + size_of::<usize>());
+		for (k, v) in self.data.iter() {
+			n += k.size_of(ops);
+			n += v.size_of(ops);
+		}
+		n
+			+ self.null_node_data.size_of(ops)
+			+ self.hashed_null_node.size_of(ops)
+	}
+}
+
 
 
 impl<H, KF, T> PlainDB<H::Out, T> for MemoryDB<H, KF, T>
@@ -525,8 +555,8 @@ where
 	KF: Send + Sync + KeyFunction<H>,
 	KF::Key: Borrow<[u8]> + for <'a> From<&'a [u8]>,
 {
-	fn as_plain_db(&self) -> &PlainDB<H::Out, T> { self }
-	fn as_plain_db_mut(&mut self) -> &mut PlainDB<H::Out, T> { self }
+	fn as_plain_db(&self) -> &dyn PlainDB<H::Out, T> { self }
+	fn as_plain_db_mut(&mut self) -> &mut dyn PlainDB<H::Out, T> { self }
 }
 
 impl<H, KF, T> AsHashDB<H, T> for MemoryDB<H, KF, T>
@@ -535,8 +565,8 @@ where
 	T: Default + PartialEq<T> + for<'a> From<&'a[u8]> + Clone + Send + Sync,
 	KF: Send + Sync + KeyFunction<H>,
 {
-	fn as_hash_db(&self) -> &HashDB<H, T> { self }
-	fn as_hash_db_mut(&mut self) -> &mut HashDB<H, T> { self }
+	fn as_hash_db(&self) -> &dyn HashDB<H, T> { self }
+	fn as_hash_db_mut(&mut self) -> &mut dyn HashDB<H, T> { self }
 }
 
 #[cfg(test)]

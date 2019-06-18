@@ -39,12 +39,15 @@ where
 	/// Create a new trie with the backing database `db` and empty `root`
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
-	pub fn new(db: &'db HashDBRef<H, DBValue>, root: &'db H::Out) -> Result<Self, H::Out, C::Error> {
+	pub fn new(
+		db: &'db dyn HashDBRef<H, DBValue>,
+		root: &'db H::Out,
+	) -> Result<Self, H::Out, C::Error> {
 		Ok(FatDB { raw: TrieDB::new(db, root)? })
 	}
 
 	/// Get the backing database.
-	pub fn db(&self) -> &HashDBRef<H, DBValue> { self.raw.db() }
+	pub fn db(&self) -> &dyn HashDBRef<H, DBValue> { self.raw.db() }
 }
 
 impl<'db, H, C> Trie<H, C> for FatDB<'db, H, C>
@@ -64,7 +67,11 @@ where
 		self.raw.get_with(H::hash(key).as_ref(), query)
 	}
 
-	fn iter<'a>(&'a self) -> Result<Box<TrieIterator<H, C, Item = TrieItem<H::Out, C::Error>> + 'a>, <H as Hasher>::Out, C::Error> {
+	fn iter<'a>(&'a self) -> Result<
+		Box<dyn TrieIterator<H, C, Item = TrieItem<H::Out, C::Error>> + 'a>,
+		<H as Hasher>::Out,
+		C::Error,
+	> {
 		FatDBIterator::<H, C>::new(&self.raw).map(|iter| Box::new(iter) as Box<_>)
 	}
 }
