@@ -36,24 +36,27 @@ where
 	/// Create a new trie with the backing database `db` and empty `root`
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
-	pub fn new(db: &'db mut HashDB<H, DBValue>, root: &'db mut H::Out) -> Self {
+	pub fn new(db: &'db mut dyn HashDB<H, DBValue>, root: &'db mut H::Out) -> Self {
 		FatDBMut { raw: TrieDBMut::new(db, root) }
 	}
 
 	/// Create a new trie with the backing database `db` and `root`.
 	///
 	/// Returns an error if root does not exist.
-	pub fn from_existing(db: &'db mut HashDB<H, DBValue>, root: &'db mut H::Out) -> Result<Self, H::Out, C::Error> {
+	pub fn from_existing(
+		db: &'db mut dyn HashDB<H, DBValue>,
+		root: &'db mut H::Out,
+	) -> Result<Self, H::Out, C::Error> {
 		Ok(FatDBMut { raw: TrieDBMut::from_existing(db, root)? })
 	}
 
 	/// Get the backing database.
-	pub fn db(&self) -> &HashDB<H, DBValue> {
+	pub fn db(&self) -> &dyn HashDB<H, DBValue> {
 		self.raw.db()
 	}
 
 	/// Get the backing database.
-	pub fn db_mut(&mut self) -> &mut HashDB<H, DBValue> {
+	pub fn db_mut(&mut self) -> &mut dyn HashDB<H, DBValue> {
 		self.raw.db_mut()
 	}
 }

@@ -41,7 +41,10 @@ where
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
 	/// Returns an error if root does not exist.
-	pub fn new(db: &'db HashDBRef<H, DBValue>, root: &'db H::Out) -> Result<Self, H::Out, C::Error> {
+	pub fn new(
+		db: &'db dyn HashDBRef<H, DBValue>,
+		root: &'db H::Out,
+	) -> Result<Self, H::Out, C::Error> {
 		Ok(SecTrieDB { raw: TrieDB::new(db, root)? })
 	}
 
@@ -73,7 +76,11 @@ where
 		self.raw.get_with(H::hash(key).as_ref(), query)
 	}
 
-	fn iter<'a>(&'a self) -> Result<Box<TrieIterator<H, C, Item = TrieItem<H::Out, C::Error>> + 'a>, H::Out, C::Error> {
+	fn iter<'a>(&'a self) -> Result<
+		Box<dyn TrieIterator<H, C, Item = TrieItem<H::Out, C::Error>> + 'a>,
+		H::Out,
+		C::Error,
+	> {
 		TrieDB::iter(&self.raw)
 	}
 }

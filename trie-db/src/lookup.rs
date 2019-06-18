@@ -27,7 +27,7 @@ use alloc::boxed::Box;
 /// Trie lookup helper object.
 pub struct Lookup<'a, H: Hasher + 'a, C: NodeCodec<H>, Q: Query<H>> {
 	/// database to query from.
-	pub db: &'a HashDBRef<H, DBValue>,
+	pub db: &'a dyn HashDBRef<H, DBValue>,
 	/// Query object to record nodes and transform data.
 	pub query: Q,
 	/// Hash to start at

@@ -212,7 +212,11 @@ pub trait Trie<H: Hasher, C: NodeCodec<H>> {
 	) -> Result<Option<Q::Item>, H::Out, C::Error> where 'a: 'key;
 
 	/// Returns a depth-first iterator over the elements of trie.
-	fn iter<'a>(&'a self) -> Result<Box<TrieIterator<H, C, Item = TrieItem<H::Out, C::Error >> + 'a>, H::Out, C::Error>;
+	fn iter<'a>(&'a self) -> Result<
+		Box<dyn TrieIterator<H, C, Item = TrieItem<H::Out, C::Error >> + 'a>,
+		H::Out,
+		C::Error,
+	>;
 }
 
 /// A key-value datastore implemented as a database-backed modified Merkle tree.
@@ -312,7 +316,11 @@ impl<'db, H: Hasher, C: NodeCodec<H>> Trie<H, C> for TrieKinds<'db, H, C> {
 		wrapper!(self, get_with, key, query)
 	}
 
-	fn iter<'a>(&'a self) -> Result<Box<TrieIterator<H, C, Item = TrieItem<H::Out, C::Error>> + 'a>, H::Out, C::Error> {
+	fn iter<'a>(&'a self) -> Result<
+		Box<dyn TrieIterator<H, C, Item = TrieItem<H::Out, C::Error>> + 'a>,
+		H::Out,
+		C::Error,
+	> {
 		wrapper!(self, iter,)
 	}
 }
@@ -330,7 +338,7 @@ where
 	/// Create new immutable instance of Trie.
 	pub fn readonly(
 		&self,
-		db: &'db HashDBRef<H, DBValue>,
+		db: &'db dyn HashDBRef<H, DBValue>,
 		root: &'db H::Out
 	) -> Result<TrieKinds<'db, H, C>, H::Out, <C as NodeCodec<H>>::Error> {
 		match self.spec {
@@ -341,7 +349,11 @@ where
 	}
 
 	/// Create new mutable instance of Trie.
-	pub fn create(&self, db: &'db mut HashDB<H, DBValue>, root: &'db mut H::Out) -> Box<TrieMut<H, C> + 'db> {
+	pub fn create(
+		&self,
+		db: &'db mut dyn HashDB<H, DBValue>,
+		root: &'db mut H::Out,
+	) -> Box<dyn TrieMut<H, C> + 'db> {
 		match self.spec {
 			TrieSpec::Generic => Box::new(TrieDBMut::<_, C>::new(db, root)),
 			TrieSpec::Secure => Box::new(SecTrieDBMut::<_, C>::new(db, root)),
@@ -352,9 +364,9 @@ where
 	/// Create new mutable instance of trie and check for errors.
 	pub fn from_existing(
 		&self,
-		db: &'db mut HashDB<H, DBValue>,
+		db: &'db mut dyn HashDB<H, DBValue>,
 		root: &'db mut H::Out
-	) -> Result<Box<TrieMut<H,C> + 'db>, H::Out, <C as NodeCodec<H>>::Error> {
+	) -> Result<Box<dyn TrieMut<H,C> + 'db>, H::Out, <C as NodeCodec<H>>::Error> {
 		match self.spec {
 			TrieSpec::Generic => Ok(Box::new(TrieDBMut::<_, C>::from_existing(db, root)?)),
 			TrieSpec::Secure => Ok(Box::new(SecTrieDBMut::<_, C>::from_existing(db, root)?)),

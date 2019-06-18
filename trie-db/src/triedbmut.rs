@@ -121,7 +121,7 @@ where
 	// load an inline node into memory or get the hash to do the lookup later.
 	fn inline_or_hash<C, H>(
 		node: &[u8],
-		db: &HashDB<H, DBValue>,
+		db: &dyn HashDB<H, DBValue>,
 		storage: &mut NodeStorage<H::Out>
 	) -> NodeHandle<H::Out>
 	where
@@ -137,7 +137,11 @@ where
 	}
 
 	// decode a node from encoded bytes without getting its children.
-	fn from_encoded<C, H>(data: &[u8], db: &HashDB<H, DBValue>, storage: &mut NodeStorage<H::Out>) -> Self
+	fn from_encoded<C, H>(
+		data: &[u8],
+		db: &dyn HashDB<H, DBValue>,
+		storage: &mut NodeStorage<H::Out>,
+	) -> Self
 	where C: NodeCodec<H>, H: Hasher<Out = O>,
 	{
 		match C::decode(data).unwrap_or(EncodedNode::Empty) {
@@ -327,7 +331,7 @@ where
 	C: NodeCodec<H>
 {
 	storage: NodeStorage<H::Out>,
-	db: &'a mut HashDB<H, DBValue>,
+	db: &'a mut dyn HashDB<H, DBValue>,
 	root: &'a mut H::Out,
 	root_handle: NodeHandle<H::Out>,
 	death_row: HashSet<(H::Out, NodeKey)>,
@@ -343,7 +347,7 @@ where
 	C: NodeCodec<H>
 {
 	/// Create a new trie with backing database `db` and empty `root`.
-	pub fn new(db: &'a mut HashDB<H, DBValue>, root: &'a mut H::Out) -> Self {
+	pub fn new(db: &'a mut dyn HashDB<H, DBValue>, root: &'a mut H::Out) -> Self {
 		*root = C::hashed_null_node();
 		let root_handle = NodeHandle::Hash(C::hashed_null_node());
 
@@ -360,7 +364,10 @@ where
 
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
-	pub fn from_existing(db: &'a mut HashDB<H, DBValue>, root: &'a mut H::Out) -> Result<Self, H::Out, C::Error> {
+	pub fn from_existing(
+		db: &'a mut dyn HashDB<H, DBValue>,
+		root: &'a mut H::Out,
+	) -> Result<Self, H::Out, C::Error> {
 		if !db.contains(root, nibbleslice::EMPTY_ENCODED) {
 			return Err(Box::new(TrieError::InvalidStateRoot(*root)));
 		}
@@ -377,12 +384,12 @@ where
 		})
 	}
 	/// Get the backing database.
-	pub fn db(&self) -> &HashDB<H, DBValue> {
+	pub fn db(&self) -> &dyn HashDB<H, DBValue> {
 		self.db
 	}
 
 	/// Get the backing database mutably.
-	pub fn db_mut(&mut self) -> &mut HashDB<H, DBValue> {
+	pub fn db_mut(&mut self) -> &mut dyn HashDB<H, DBValue> {
 		self.db
 	}
 
