@@ -389,12 +389,9 @@ where
 		use core::mem::size_of;
 		let mut n = self.data.capacity() * (size_of::<T>() + size_of::<H>() + size_of::<usize>());
 		for (k, v) in self.data.iter() {
-			n += k.size_of(ops);
-			n += v.size_of(ops);
+			n += k.size_of(ops) + v.size_of(ops);
 		}
-		n
-			+ self.null_node_data.size_of(ops)
-			+ self.hashed_null_node.size_of(ops)
+		n + self.null_node_data.size_of(ops) + self.hashed_null_node.size_of(ops)
 	}
 }
 
