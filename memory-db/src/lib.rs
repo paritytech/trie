@@ -354,8 +354,9 @@ where
 	}
 }
 
-// not no_std implementation requires that hasmap core
-// got its implementation in parity-util-mem
+// `no_std` implementation requires that hasmap
+// is implementated in parity-util-mem, that
+// is currently not the case.
 #[cfg(feature = "std")]
 impl<H, KF, T> MallocSizeOf for MemoryDB<H, KF, T>
 where
@@ -372,10 +373,9 @@ where
 	}
 }
 
-// This is temporary code and should be in
-// parity-util-mem, but hashmap_core will probably
-// get replaced at some point by hashbrown so
-// this is a pragmatic temporary solution.
+// This is temporary code, we should use
+// `parity-util-mem`, see
+// https://github.com/paritytech/trie/issues/21
 #[cfg(not(feature = "std"))]
 impl<H, KF, T> MallocSizeOf for MemoryDB<H, KF, T>
 where
