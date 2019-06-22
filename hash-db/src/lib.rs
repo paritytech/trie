@@ -95,12 +95,12 @@ pub trait PlainDBRef<K, V> {
 	fn contains(&self, key: &K) -> bool;
 }
 
-impl<'a, K, V> PlainDBRef<K, V> for &'a PlainDB<K, V> {
+impl<'a, K, V> PlainDBRef<K, V> for &'a dyn PlainDB<K, V> {
 	fn get(&self, key: &K) -> Option<V> { PlainDB::get(*self, key) }
 	fn contains(&self, key: &K) -> bool { PlainDB::contains(*self, key) }
 }
 
-impl<'a, K, V> PlainDBRef<K, V> for &'a mut PlainDB<K, V> {
+impl<'a, K, V> PlainDBRef<K, V> for &'a mut dyn PlainDB<K, V> {
 	fn get(&self, key: &K) -> Option<V> { PlainDB::get(*self, key) }
 	fn contains(&self, key: &K) -> bool { PlainDB::contains(*self, key) }
 }
@@ -137,12 +137,12 @@ pub trait HashDBRef<H: Hasher, T> {
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool;
 }
 
-impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a HashDB<H, T> {
+impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a dyn HashDB<H, T> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(*self, key, prefix) }
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool { HashDB::contains(*self, key, prefix) }
 }
 
-impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a mut HashDB<H, T> {
+impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a mut dyn HashDB<H, T> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(*self, key, prefix) }
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool { HashDB::contains(*self, key, prefix) }
 }
@@ -150,24 +150,24 @@ impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a mut HashDB<H, T> {
 /// Upcast trait for HashDB.
 pub trait AsHashDB<H: Hasher, T> {
 	/// Perform upcast to HashDB for anything that derives from HashDB.
-	fn as_hash_db(&self) -> &HashDB<H, T>;
+	fn as_hash_db(&self) -> &dyn HashDB<H, T>;
 	/// Perform mutable upcast to HashDB for anything that derives from HashDB.
-	fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (HashDB<H, T> + 'a);
+	fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (dyn HashDB<H, T> + 'a);
 }
 
 /// Upcast trait for PlainDB.
 pub trait AsPlainDB<K, V> {
 	/// Perform upcast to PlainDB for anything that derives from PlainDB.
-	fn as_plain_db(&self) -> &PlainDB<K, V>;
+	fn as_plain_db(&self) -> &dyn PlainDB<K, V>;
 	/// Perform mutable upcast to PlainDB for anything that derives from PlainDB.
-	fn as_plain_db_mut<'a>(&'a mut self) -> &'a mut (PlainDB<K, V> + 'a);
+	fn as_plain_db_mut<'a>(&'a mut self) -> &'a mut (dyn PlainDB<K, V> + 'a);
 }
 
 // NOTE: There used to be a `impl<T> AsHashDB for T` but that does not work with generics. See https://stackoverflow.com/questions/48432842/implementing-a-trait-for-reference-and-non-reference-types-causes-conflicting-im
 // This means we need concrete impls of AsHashDB in several places, which somewhat defeats the point of the trait.
-impl<'a, H: Hasher, T> AsHashDB<H, T> for &'a mut HashDB<H, T> {
-	fn as_hash_db(&self) -> &HashDB<H, T> { &**self }
-	fn as_hash_db_mut<'b>(&'b mut self) -> &'b mut (HashDB<H, T> + 'b) { &mut **self }
+impl<'a, H: Hasher, T> AsHashDB<H, T> for &'a mut dyn HashDB<H, T> {
+	fn as_hash_db(&self) -> &dyn HashDB<H, T> { &**self }
+	fn as_hash_db_mut<'b>(&'b mut self) -> &'b mut (dyn HashDB<H, T> + 'b) { &mut **self }
 }
 
 #[cfg(feature = "std")]

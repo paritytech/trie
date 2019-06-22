@@ -99,7 +99,7 @@ where
 	// load an inline node into memory or get the hash to do the lookup later.
 	fn inline_or_hash<C, H, N>(
 		node: &[u8],
-		db: &HashDB<H, DBValue>,
+		db: &dyn HashDB<H, DBValue>,
 		storage: &mut NodeStorage<H::Out>
 	) -> NodeHandle<H::Out>
 	where
@@ -118,7 +118,7 @@ where
 	// decode a node from encoded bytes without getting its children.
 	fn from_encoded<'a, 'b, C, H, N>(
 		data: &'a[u8],
-		db: &HashDB<H, DBValue>,
+		db: &dyn HashDB<H, DBValue>,
 		storage: &'b mut NodeStorage<H::Out>,
 	) -> Self
 		where
@@ -344,7 +344,7 @@ where
 	L: TrieLayOut,
 {
 	storage: NodeStorage<TrieHash<L>>,
-	db: &'a mut HashDB<L::H, DBValue>,
+	db: &'a mut dyn HashDB<L::H, DBValue>,
 	root: &'a mut TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
 	death_row: HashSet<(TrieHash<L>, (ElasticArray36<u8>, (u8,u8)))>,
@@ -358,7 +358,7 @@ where
 	L: TrieLayOut,
 {
 	/// Create a new trie with backing database `db` and empty `root`.
-	pub fn new(db: &'a mut HashDB<L::H, DBValue>, root: &'a mut TrieHash<L>) -> Self {
+	pub fn new(db: &'a mut dyn HashDB<L::H, DBValue>, root: &'a mut TrieHash<L>) -> Self {
 		*root = L::C::hashed_null_node();
 		let root_handle = NodeHandle::Hash(L::C::hashed_null_node());
 
@@ -375,7 +375,7 @@ where
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
 	pub fn from_existing(
-		db: &'a mut HashDB<L::H, DBValue>,
+		db: &'a mut dyn HashDB<L::H, DBValue>,
 		root: &'a mut TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
@@ -393,12 +393,12 @@ where
 		})
 	}
 	/// Get the backing database.
-	pub fn db(&self) -> &HashDB<L::H, DBValue> {
+	pub fn db(&self) -> &dyn HashDB<L::H, DBValue> {
 		self.db
 	}
 
 	/// Get the backing database mutably.
-	pub fn db_mut(&mut self) -> &mut HashDB<L::H, DBValue> {
+	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::H, DBValue> {
 		self.db
 	}
 
@@ -1429,7 +1429,7 @@ mod tests {
 		LayoutOri, BitMap16};
 
 	fn populate_trie<'db>(
-		db: &'db mut HashDB<KeccakHasher, DBValue>,
+		db: &'db mut dyn HashDB<KeccakHasher, DBValue>,
 		root: &'db mut <KeccakHasher as Hasher>::Out,
 		v: &[(Vec<u8>, Vec<u8>)]
 	) -> RefTrieDBMut<'db> {
@@ -1450,7 +1450,7 @@ mod tests {
 	}
 
 	fn populate_trie_no_ext<'db>(
-		db: &'db mut HashDB<KeccakHasher, DBValue>,
+		db: &'db mut dyn HashDB<KeccakHasher, DBValue>,
 		root: &'db mut <KeccakHasher as Hasher>::Out,
 		v: &[(Vec<u8>, Vec<u8>)]
 	) -> RefTrieDBMutNoExt<'db> {

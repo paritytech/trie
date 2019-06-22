@@ -26,7 +26,7 @@ use alloc::boxed::Box;
 /// Trie lookup helper object.
 pub struct Lookup<'a, L: TrieLayOut, Q: Query<L::H>> {
 	/// database to query from.
-	pub db: &'a HashDBRef<L::H, DBValue>,
+	pub db: &'a dyn HashDBRef<L::H, DBValue>,
 	/// Query object to record nodes and transform data.
 	pub query: Q,
 	/// Hash to start at

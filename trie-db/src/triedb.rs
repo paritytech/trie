@@ -66,7 +66,7 @@ pub struct TrieDB<'db, L>
 where
 	L: TrieLayOut,
 {
-	db: &'db HashDBRef<L::H, DBValue>,
+	db: &'db dyn HashDBRef<L::H, DBValue>,
 	root: &'db TrieHash<L>,
 	/// The number of hashes performed so far in operations on this trie.
 	hash_count: usize,
@@ -79,7 +79,7 @@ where
 	/// Create a new trie with the backing database `db` and `root`
 	/// Returns an error if `root` does not exist
 	pub fn new(
-		db: &'db HashDBRef<L::H, DBValue>,
+		db: &'db dyn HashDBRef<L::H, DBValue>,
 		root: &'db TrieHash<L>
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
@@ -90,7 +90,7 @@ where
 	}
 
 	/// Get the backing database.
-	pub fn db(&'db self) -> &'db HashDBRef<L::H, DBValue> { self.db }
+	pub fn db(&'db self) -> &'db dyn HashDBRef<L::H, DBValue> { self.db }
 
 	/// Get the data of the root node.
 	pub fn root_data(&self) -> Result<DBValue, TrieHash<L>, CError<L>> {
@@ -141,7 +141,7 @@ where
 	}
 
 	fn iter<'a>(&'a self)-> Result<
-		Box<TrieIterator<L, Item=TrieItem<TrieHash<L>, CError<L>>> + 'a>,
+		Box<dyn TrieIterator<L, Item=TrieItem<TrieHash<L>, CError<L>>> + 'a>,
 		TrieHash<L>,
 		CError<L>,
 	> {

@@ -39,21 +39,32 @@ extern crate keccak_hasher;
 
 pub use hash_db::Hasher;
 
-/// TODO: DOCUMENT!!!!
+/// Byte-stream oriented trait for constructing closed-form tries.
 pub trait TrieStream {
+	/// Construct a new `TrieStream`
 	fn new() -> Self;
+	/// Append an Empty node
 	fn append_empty_data(&mut self);
+	/// Start a new Branch node, possibly with a value; takes a list indicating
+	/// which slots in the Branch node has further child nodes.
 	fn begin_branch(
 		&mut self,
 		maybe_key: Option<&[u8]>,
 		maybe_value: Option<&[u8]>,
 		has_children: impl Iterator<Item = bool>,
 	);
+	/// Append an empty child node. Optional.
 	fn append_empty_child(&mut self) {}
+	/// Wrap up a Branch node portion of a `TrieStream` and append the value
+	/// stored on the Branch (if any).
 	fn end_branch(&mut self, _value: Option<&[u8]>) {}
+	/// Append a Leaf node
 	fn append_leaf(&mut self, key: &[u8], value: &[u8]);
+	/// Append an Extension node
 	fn append_extension(&mut self, key: &[u8]);
+	/// Append a Branch of Extension substream
 	fn append_substream<H: Hasher>(&mut self, other: Self);
+	/// Return the finished `TrieStream` as a vector of bytes.
 	fn out(self) -> Vec<u8>;
 }
 
@@ -108,6 +119,7 @@ fn trie_root_inner<H, S, I, A, B>(input: I, no_ext: bool) -> H::Out where
 		.into_iter()
 		.collect::<BTreeMap<_, _>>();
 
+	// convert to nibbles
 	let mut nibbles = Vec::with_capacity(input.keys().map(|k| k.as_ref().len()).sum::<usize>() * 2);
 	let mut lens = Vec::with_capacity(input.len() + 1);
 	lens.push(0);
@@ -183,7 +195,6 @@ fn unhashed_trie_inner<H, S, I, A, B>(input: I, no_ext: bool) -> Vec<u8> where
 		.map(|((_, v), w)| (&nibbles[w[0]..w[1]], v))
 		.collect::<Vec<_>>();
 
-	// println!("as nibbles: {:#x?}", input);
 	let mut stream = S::new();
 	build_trie::<H, S, _, _>(&input, 0, &mut stream, no_ext);
 	stream.out()
@@ -244,18 +255,11 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 {
 	match input.len() {
 		// No input, just append empty data.
-		0 => {
-			// println!("[build_trie] no input; appending empty, cursor={}, stream={:?}", cursor, stream.as_raw());
-			stream.append_empty_data()
-		},
+		0 => stream.append_empty_data(),
 		// Leaf node; append the remainder of the key and the value. Done.
-		1 => {
-			// println!("[build_trie] appending leaf, cursor={}, stream={:?}, partial key={:?}", cursor, stream.as_raw(), &input[0].0.as_ref()[cursor..]);
-			// stream.append_leaf::<H>(&input[0].0.as_ref()[cursor..], &input[0].1.as_ref() )
-			stream.append_leaf(&input[0].0.as_ref()[cursor..], &input[0].1.as_ref() )
-		},
-		// We have multiple items in the input. We need to figure out if we
-		// should add an extension node or a branch node.
+		1 => stream.append_leaf(&input[0].0.as_ref()[cursor..], &input[0].1.as_ref() ),
+		// We have multiple items in the input. Figure out if we should add an
+		// extension node or a branch node.
 		_ => {
 			let (key, value) = (&input[0].0.as_ref(), input[0].1.as_ref());
 			// Count the number of nibbles in the other elements that are
@@ -275,10 +279,8 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 					(cursor, Some(&key[0..0]))
 				}
 			} else if shared_nibble_count > cursor {
-				// println!("[build_trie] appending ext and recursing, cursor={}, stream={:?}, partial key={:?}", cursor, stream.as_raw(), &key[cursor..shared_nibble_count]);
 				stream.append_extension(&key[cursor..shared_nibble_count]);
 				build_trie_trampoline::<H, _, _, _>(input, shared_nibble_count, stream, no_ext);
-				// println!("[build_trie] returning after recursing, cursor={}, stream={:?}, partial key={:?}", cursor, stream.as_raw(), &key[cursor..shared_nibble_count]);
 				return;
 			} else { (cursor, None) };
 
@@ -289,10 +291,13 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 			// attached to it.
 			let value = if cursor == key.len() { Some(value) } else { None };
 
-			// We need to know how many keys each of the children account for.
+			// We need to know how many key nibbles each of the children account for.
 			let mut shared_nibble_counts = [0usize; 16];
 			{
-				// Children keys begin at either index 1 or 0, depending on whether we have a value.
+				// If the Branch node has a value then the first of the input keys
+				// is exactly the key for that value and we don't care about it
+				// when finding shared nibbles for our child nodes. (We know it's
+				// the first of the input keys, because the input is sorted)
 				let mut begin = match value { None => 0, _ => 1 };
 				for i in 0..16 {
 					shared_nibble_counts[i] = input[begin..].iter()
@@ -310,7 +315,6 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 			let mut begin = match value { None => 0, _ => 1 };
 			for &count in &shared_nibble_counts {
 				if count > 0 {
-					// println!("[build_trie] branch slot {}; recursing with cursor={}, begin={}, shared nibbles={}, input={:?}", i, cursor, begin, shared_nibble_count, &input[begin..(begin + shared_nibble_count)]);
 					build_trie_trampoline::<H, S, _, _>(
 						&input[begin..(begin + count)],
 						cursor + 1,
@@ -323,10 +327,7 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 				}
 			}
 
-			// println!("[build_trie] branch slot 17; cursor={}, appending value {:?}", cursor, value);
 			stream.end_branch(value);
-
-			// println!("[build_trie] ending branch node, cursor={}, stream={:?}", cursor, stream.as_raw());
 		}
 	}
 }

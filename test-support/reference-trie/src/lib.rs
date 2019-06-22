@@ -14,17 +14,11 @@
 
 //! Reference implementation of a streamer.
 
-extern crate hash_db;
-extern crate trie_db;
-extern crate parity_codec as codec;
-extern crate trie_root;
-extern crate keccak_hasher;
-
 use std::fmt;
 use std::error::Error as StdError;
 use std::iter::once;
 use std::marker::PhantomData;
-use codec::{Decode, Input, Output, Encode, Compact};
+use parity_codec::{Decode, Input, Output, Encode, Compact};
 use trie_root::Hasher;
 use trie_db::{
 	node::Node,
@@ -75,11 +69,11 @@ impl TrieOps for LayoutNew { }
 pub struct LayoutNewQuarter;
 
 impl TrieLayOut for LayoutNewQuarter {
-  const USE_EXTENSION: bool = false;
-  type H = keccak_hasher::KeccakHasher;
-  type C = ReferenceNodeCodecNoExt<BitMap4>;
-  type N = NibbleQuarter;
-  type CB = Cache4;
+	const USE_EXTENSION: bool = false;
+	type H = keccak_hasher::KeccakHasher;
+	type C = ReferenceNodeCodecNoExt<BitMap4>;
+	type N = NibbleQuarter;
+	type CB = Cache4;
 }
 
 impl TrieOps for LayoutNewQuarter { }
@@ -332,7 +326,7 @@ impl TrieStream for ReferenceTrieStream {
 	fn append_substream<H: Hasher>(&mut self, other: Self) {
 		let data = other.out();
 		match data.len() {
-			0...31 => data.encode_to(&mut self.buffer),
+			0..=31 => data.encode_to(&mut self.buffer),
 			_ => H::hash(&data).as_ref().encode_to(&mut self.buffer),
 		}
 	}
@@ -392,7 +386,7 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 	fn append_substream<H: Hasher>(&mut self, other: Self) {
 		let data = other.out();
 		match data.len() {
-			0...31 => data.encode_to(&mut self.buffer),
+			0..=31 => data.encode_to(&mut self.buffer),
 			_ => H::hash(&data).as_ref().encode_to(&mut self.buffer),
 		}
 	}
@@ -543,8 +537,8 @@ impl Decode for NodeHeader {
 			EMPTY_TRIE => NodeHeader::Null,
 			BRANCH_NODE_NO_VALUE => NodeHeader::Branch(false),
 			BRANCH_NODE_WITH_VALUE => NodeHeader::Branch(true),
-			i @ LEAF_NODE_OFFSET ... LEAF_NODE_LAST => NodeHeader::Leaf((i - LEAF_NODE_OFFSET) as usize),
-			i @ EXTENSION_NODE_OFFSET ... EXTENSION_NODE_LAST => NodeHeader::Extension((i - EXTENSION_NODE_OFFSET) as usize),
+			i @ LEAF_NODE_OFFSET ..= LEAF_NODE_LAST => NodeHeader::Leaf((i - LEAF_NODE_OFFSET) as usize),
+			i @ EXTENSION_NODE_OFFSET ..= EXTENSION_NODE_LAST => NodeHeader::Extension((i - EXTENSION_NODE_OFFSET) as usize),
 		})
 	}
 }
@@ -861,17 +855,17 @@ impl<N: NibbleOps, BM: ChildBitmap<Error = ReferenceError>> NodeCodec<KeccakHash
 	}
 
 	fn ext_node(
-    _partial: impl Iterator<Item = u8>,
-    _nbnibble: usize,
-    _child: ChildReference<<KeccakHasher as Hasher>::Out>,
-  ) -> Vec<u8> {
+		_partial: impl Iterator<Item = u8>,
+		_nbnibble: usize,
+		_child: ChildReference<<KeccakHasher as Hasher>::Out>,
+	) -> Vec<u8> {
 		unreachable!()
 	}
 
 	fn branch_node(
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<KeccakHasher as Hasher>::Out>>>>,
 		_maybe_value: Option<&[u8]>,
-  ) -> Vec<u8> {
+	) -> Vec<u8> {
 		unreachable!()
 	}
 
@@ -880,7 +874,7 @@ impl<N: NibbleOps, BM: ChildBitmap<Error = ReferenceError>> NodeCodec<KeccakHash
 		nb_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<KeccakHasher as Hasher>::Out>>>>,
 		maybe_value: Option<&[u8]>,
-  ) -> Vec<u8> {
+	) -> Vec<u8> {
 		let mut output = if maybe_value.is_some() {
 			partial_enc_it::<N,_>(partial, nb_nibble, NodeKindNoExt::BranchWithValue)
 		} else {

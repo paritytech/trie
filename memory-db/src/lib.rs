@@ -17,6 +17,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate hash_db;
+extern crate parity_util_mem;
+#[cfg(feature = "deprecated")]
 #[cfg(feature = "std")]
 extern crate heapsize;
 #[cfg(not(feature = "std"))]
@@ -27,6 +29,8 @@ extern crate alloc;
 
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher,
 	AsHashDB, AsPlainDB, Prefix};
+use parity_util_mem::{MallocSizeOf, MallocSizeOfOps};
+#[cfg(feature = "deprecated")]
 #[cfg(feature = "std")]
 use heapsize::HeapSizeOf;
 #[cfg(feature = "std")]
@@ -151,10 +155,10 @@ impl<H, KF, T> Eq for MemoryDB<H, KF, T>
 	KF: KeyFunction<H>,
 	<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
 				T: Eq + MaybeDebug,
-{ }
+{}
  
 pub trait KeyFunction<H: KeyHasher> {
-	type Key: Send + Sync + Clone + hash::Hash + Eq ;
+	type Key: Send + Sync + Clone + hash::Hash + Eq;
 
 	fn key(hash: &H::Out, prefix: Prefix) -> Self::Key;
 }
@@ -503,6 +507,7 @@ where
 	}
 }
 
+#[cfg(feature = "deprecated")]
 #[cfg(feature = "std")]
 impl<H, KF, T> MemoryDB<H, KF, T>
 where
@@ -510,12 +515,56 @@ where
 	T: HeapSizeOf,
 	KF: KeyFunction<H>,
 {
+	#[deprecated(since="0.12.0", note="please use `size_of` instead")]
 	/// Returns the size of allocated heap memory
 	pub fn mem_used(&self) -> usize {
 		0//self.data.heap_size_of_children()
 		// TODO Reenable above when HeapSizeOf supports arrays.
 	}
 }
+
+// `no_std` implementation requires that hasmap
+// is implementated in parity-util-mem, that
+// is currently not the case.
+#[cfg(feature = "std")]
+impl<H, KF, T> MallocSizeOf for MemoryDB<H, KF, T>
+where
+	H: KeyHasher,
+	H::Out: MallocSizeOf,
+	T: MallocSizeOf,
+	KF: KeyFunction<H>,
+	KF::Key: MallocSizeOf,
+{
+	fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+		self.data.size_of(ops)
+			+ self.null_node_data.size_of(ops)
+			+ self.hashed_null_node.size_of(ops)
+	}
+}
+
+// This is temporary code, we should use
+// `parity-util-mem`, see
+// https://github.com/paritytech/trie/issues/21
+#[cfg(not(feature = "std"))]
+impl<H, KF, T> MallocSizeOf for MemoryDB<H, KF, T>
+where
+	H: KeyHasher,
+	H::Out: MallocSizeOf,
+	T: MallocSizeOf,
+	KF: KeyFunction<H>,
+	KF::Key: MallocSizeOf,
+{
+	fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+		use core::mem::size_of;
+		let mut n = self.data.capacity() * (size_of::<T>() + size_of::<H>() + size_of::<usize>());
+		for (k, v) in self.data.iter() {
+			n += k.size_of(ops) + v.size_of(ops);
+		}
+		n + self.null_node_data.size_of(ops) + self.hashed_null_node.size_of(ops)
+	}
+}
+
+
 
 impl<H, KF, T> PlainDB<H::Out, T> for MemoryDB<H, KF, T>
 where
@@ -672,8 +721,8 @@ where
 	KF: Send + Sync + KeyFunction<H>,
 	KF::Key: Borrow<[u8]> + for <'a> From<&'a [u8]>,
 {
-	fn as_plain_db(&self) -> &PlainDB<H::Out, T> { self }
-	fn as_plain_db_mut(&mut self) -> &mut PlainDB<H::Out, T> { self }
+	fn as_plain_db(&self) -> &dyn PlainDB<H::Out, T> { self }
+	fn as_plain_db_mut(&mut self) -> &mut dyn PlainDB<H::Out, T> { self }
 }
 
 impl<H, KF, T> AsHashDB<H, T> for MemoryDB<H, KF, T>
@@ -682,8 +731,8 @@ where
 	T: Default + PartialEq<T> + for<'a> From<&'a[u8]> + Clone + Send + Sync,
 	KF: Send + Sync + KeyFunction<H>,
 {
-	fn as_hash_db(&self) -> &HashDB<H, T> { self }
-	fn as_hash_db_mut(&mut self) -> &mut HashDB<H, T> { self }
+	fn as_hash_db(&self) -> &dyn HashDB<H, T> { self }
+	fn as_hash_db_mut(&mut self) -> &mut dyn HashDB<H, T> { self }
 }
 
 #[cfg(test)]
