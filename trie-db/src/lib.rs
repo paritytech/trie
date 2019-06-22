@@ -97,7 +97,7 @@ pub use self::lookup::Lookup;
 pub use self::nibble::{NibbleSlice, NibbleOps, NibbleHalf, NibbleQuarter,
 	ChildSliceIx};
 pub use node_codec::{NodeCodec, Partial, ChildBitmap};
-pub use iter_build::{trie_visit, ProcessEncodedNode,
+pub use iter_build::{trie_visit, ProcessEncodedNode, TrieRootPrint,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed, CacheBuilder, Cache16, Cache4};
 
 pub type DBValue = elastic_array::ElasticArray128<u8>;

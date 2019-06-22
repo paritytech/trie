@@ -438,6 +438,48 @@ impl<H> Default for TrieRootUnhashed<H> {
 	}
 }
 
+/// Calculate the trie root of the trie.
+/// Print a debug trace.
+pub struct TrieRootPrint<H, HO> {
+	/// The resulting root.
+	pub root: Option<HO>,
+	_ph: PhantomData<(H)>,
+}
+
+impl<H, HO> Default for TrieRootPrint<H, HO> {
+	fn default() -> Self {
+		TrieRootPrint { root: None, _ph: PhantomData } 
+	}
+}
+
+impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootPrint<H, <H as Hasher>::Out> {
+	fn process(
+		&mut self,
+		p: Prefix,
+		enc_ext: Vec<u8>,
+		is_root: bool,
+	) -> ChildReference<<H as Hasher>::Out> {
+		println!("Encoded node: {:x?}", &enc_ext); 
+		println!("	with prefix: {:x?}", &p); 
+		let len = enc_ext.len();
+		if !is_root && len < <H as Hasher>::LENGTH {
+			let mut h = <<H as Hasher>::Out as Default>::default();
+			h.as_mut()[..len].copy_from_slice(&enc_ext[..len]);
+
+			println!("	inline len {}", len); 
+			return ChildReference::Inline(h, len);
+		}
+		let hash = <H as Hasher>::hash(&enc_ext[..]);
+		if is_root {
+			self.root = Some(hash.clone());
+		};
+		println!("	hashed to {:x?}", hash.as_ref()); 
+		ChildReference::Hash(hash)
+	}
+}
+
+
+
 impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashed<H> {
 	fn process(
 		&mut self,
