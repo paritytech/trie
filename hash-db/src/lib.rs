@@ -171,7 +171,7 @@ impl<'a, H: Hasher, T> AsHashDB<H, T> for &'a mut dyn HashDB<H, T> {
 }
 
 #[cfg(feature = "std")]
-impl<'a, K, V> AsPlainDB<K, V> for &'a mut PlainDB<K, V> {
-	fn as_plain_db(&self) -> &PlainDB<K, V> { &**self }
-	fn as_plain_db_mut<'b>(&'b mut self) -> &'b mut (PlainDB<K, V> + 'b) { &mut **self }
+impl<'a, K, V> AsPlainDB<K, V> for &'a mut dyn PlainDB<K, V> {
+	fn as_plain_db(&self) -> &dyn PlainDB<K, V> { &**self }
+	fn as_plain_db_mut<'b>(&'b mut self) -> &'b mut (dyn PlainDB<K, V> + 'b) { &mut **self }
 }

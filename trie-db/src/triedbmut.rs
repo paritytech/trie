@@ -1472,7 +1472,7 @@ mod tests {
 
 	fn reference_hashed_null_node() -> <KeccakHasher as Hasher>::Out {
 		<ReferenceNodeCodec<BitMap16>
-			as NodeCodec<_, <LayoutOri as TrieLayOut>::N>>::hashed_null_node()
+			as NodeCodec<KeccakHasher, <LayoutOri as TrieLayOut>::N>>::hashed_null_node()
 	}
 
 	#[test]

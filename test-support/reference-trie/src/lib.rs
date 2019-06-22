@@ -63,7 +63,18 @@ impl TrieLayOut for LayoutNew {
 	type CB = Cache16;
 }
 
-impl TrieOps for LayoutNew { }
+/// trie layout similar to substrate one
+pub struct LayoutNewH<H>(PhantomData<H>);
+
+impl<H: Hasher> TrieLayOut for LayoutNewH<H> {
+	const USE_EXTENSION: bool = false;
+	type H = H;
+	type C = ReferenceNodeCodecNoExt<BitMap16>;
+	type N = NibbleHalf;
+	type CB = Cache16;
+}
+
+impl<H: Hasher> TrieOps for LayoutNewH<H> { }
 
 /// Test quarter nibble
 pub struct LayoutNewQuarter;
@@ -655,11 +666,15 @@ fn partial_enc<N: NibbleOps>(partial: Partial, node_kind: NodeKindNoExt) -> Vec<
 // `impl<H: Hasher> NodeCodec<H> for RlpNodeCodec<H> where <KeccakHasher as Hasher>::Out: Decodable`
 // but due to the current limitations of Rust const evaluation we can't
 // do `const HASHED_NULL_NODE: <KeccakHasher as Hasher>::Out = <KeccakHasher as Hasher>::Out( … … )`. Perhaps one day soon?
-impl<N: NibbleOps, BM: ChildBitmap<Error = ReferenceError>> NodeCodec<KeccakHasher, N> for ReferenceNodeCodec<BM> {
+impl<
+	H: Hasher,
+	N: NibbleOps,
+	BM: ChildBitmap<Error = ReferenceError>
+> NodeCodec<H, N> for ReferenceNodeCodec<BM> {
 	type Error = ReferenceError;
 
-	fn hashed_null_node() -> <KeccakHasher as Hasher>::Out {
-		KeccakHasher::hash(<Self as NodeCodec<_, N>>::empty_node())
+	fn hashed_null_node() -> <H as Hasher>::Out {
+		H::hash(<Self as NodeCodec<H, N>>::empty_node())
 	}
 
 	fn decode(data: &[u8]) -> ::std::result::Result<Node<N>, Self::Error> {
@@ -709,9 +724,9 @@ impl<N: NibbleOps, BM: ChildBitmap<Error = ReferenceError>> NodeCodec<KeccakHash
 		}
 	}
 
-	fn try_decode_hash(data: &[u8]) -> Option<<KeccakHasher as Hasher>::Out> {
-		if data.len() == KeccakHasher::LENGTH {
-			let mut r = <KeccakHasher as Hasher>::Out::default();
+	fn try_decode_hash(data: &[u8]) -> Option<<H as Hasher>::Out> {
+		if data.len() == H::LENGTH {
+			let mut r = <H as Hasher>::Out::default();
 			r.as_mut().copy_from_slice(data);
 			Some(r)
 		} else {
@@ -720,7 +735,7 @@ impl<N: NibbleOps, BM: ChildBitmap<Error = ReferenceError>> NodeCodec<KeccakHash
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
-		data == <Self as NodeCodec<_, N>>::empty_node()
+		data == <Self as NodeCodec<H, N>>::empty_node()
 	}
 
 	fn empty_node() -> &'static[u8] {
@@ -733,7 +748,7 @@ impl<N: NibbleOps, BM: ChildBitmap<Error = ReferenceError>> NodeCodec<KeccakHash
 		output
 	}
 
-	fn ext_node(partial: impl Iterator<Item = u8>, nb_nibble: usize, child: ChildReference<<KeccakHasher as Hasher>::Out>) -> Vec<u8> {
+	fn ext_node(partial: impl Iterator<Item = u8>, nb_nibble: usize, child: ChildReference<<H as Hasher>::Out>) -> Vec<u8> {
 		let mut output = partial_to_key_it::<N,_>(partial, nb_nibble, EXTENSION_NODE_OFFSET, EXTENSION_NODE_OVER);
 		match child {
 			ChildReference::Hash(h) => h.as_ref().encode_to(&mut output),
@@ -743,7 +758,7 @@ impl<N: NibbleOps, BM: ChildBitmap<Error = ReferenceError>> NodeCodec<KeccakHash
 	}
 
 	fn branch_node(
-		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<KeccakHasher as Hasher>::Out>>>>,
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		maybe_value: Option<&[u8]>) -> Vec<u8> {
 		let mut output = vec![0; BM::ENCODED_LEN + 1];
 		let mut prefix: BM::Buff = Default::default();
@@ -771,18 +786,22 @@ impl<N: NibbleOps, BM: ChildBitmap<Error = ReferenceError>> NodeCodec<KeccakHash
 	fn branch_node_nibbled(
 		_partial:	impl Iterator<Item = u8>,
 		_nb_nibble: usize,
-		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<KeccakHasher as Hasher>::Out>>>>,
+		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		_maybe_value: Option<&[u8]>) -> Vec<u8> {
 		unreachable!()
 	}
 
 }
 
-impl<N: NibbleOps, BM: ChildBitmap<Error = ReferenceError>> NodeCodec<KeccakHasher, N> for ReferenceNodeCodecNoExt<BM> {
+impl<
+	H: Hasher,
+	N: NibbleOps,
+	BM: ChildBitmap<Error = ReferenceError>
+> NodeCodec<H, N> for ReferenceNodeCodecNoExt<BM> {
 	type Error = ReferenceError;
 
-	fn hashed_null_node() -> <KeccakHasher as Hasher>::Out {
-		KeccakHasher::hash(<Self as NodeCodec<_, N>>::empty_node())
+	fn hashed_null_node() -> <H as Hasher>::Out {
+		H::hash(<Self as NodeCodec<H, N>>::empty_node())
 	}
 
 	fn decode(data: &[u8]) -> ::std::result::Result<Node<N>, Self::Error> {
@@ -836,12 +855,12 @@ impl<N: NibbleOps, BM: ChildBitmap<Error = ReferenceError>> NodeCodec<KeccakHash
 		}
 	}
 
-	fn try_decode_hash(data: &[u8]) -> Option<<KeccakHasher as Hasher>::Out> {
-		<ReferenceNodeCodec<BM> as NodeCodec<_, N>>::try_decode_hash(data)
+	fn try_decode_hash(data: &[u8]) -> Option<<H as Hasher>::Out> {
+		<ReferenceNodeCodec<BM> as NodeCodec<H, N>>::try_decode_hash(data)
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
-		data == <Self as NodeCodec<_, N>>::empty_node()
+		data == <Self as NodeCodec<H, N>>::empty_node()
 	}
 
 	fn empty_node() -> &'static [u8] {
@@ -857,13 +876,13 @@ impl<N: NibbleOps, BM: ChildBitmap<Error = ReferenceError>> NodeCodec<KeccakHash
 	fn ext_node(
 		_partial: impl Iterator<Item = u8>,
 		_nbnibble: usize,
-		_child: ChildReference<<KeccakHasher as Hasher>::Out>,
+		_child: ChildReference<<H as Hasher>::Out>,
 	) -> Vec<u8> {
 		unreachable!()
 	}
 
 	fn branch_node(
-		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<KeccakHasher as Hasher>::Out>>>>,
+		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		_maybe_value: Option<&[u8]>,
 	) -> Vec<u8> {
 		unreachable!()
@@ -872,7 +891,7 @@ impl<N: NibbleOps, BM: ChildBitmap<Error = ReferenceError>> NodeCodec<KeccakHash
 	fn branch_node_nibbled(
 		partial: impl Iterator<Item = u8>,
 		nb_nibble: usize,
-		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<KeccakHasher as Hasher>::Out>>>>,
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		maybe_value: Option<&[u8]>,
 	) -> Vec<u8> {
 		let mut output = if maybe_value.is_some() {
@@ -892,7 +911,7 @@ impl<N: NibbleOps, BM: ChildBitmap<Error = ReferenceError>> NodeCodec<KeccakHash
 				true
 			}
 			&Some(ChildReference::Inline(inline_data, len)) => {
-				inline_data[..len].encode_to(&mut output);
+				inline_data.as_ref()[..len].encode_to(&mut output);
 				true
 			}
 			None => false,
@@ -1209,8 +1228,8 @@ pub fn compare_no_ext_insert_remove(
 fn too_big_nibble_len () {
 	// + 1 for 0 added byte of nibble encode
 	let input = vec![0u8; (s_cst::NIBBLE_SIZE_BOUND as usize + 1) / 2 + 1];
-	let enc = <ReferenceNodeCodecNoExt<BitMap16> as NodeCodec<_, NibbleHalf>>::leaf_node(((0,0),&input), &[1]);
-	let dec = <ReferenceNodeCodecNoExt<BitMap16> as NodeCodec<_, NibbleHalf>>::decode(&enc).unwrap();
+	let enc = <ReferenceNodeCodecNoExt<BitMap16> as NodeCodec<KeccakHasher, NibbleHalf>>::leaf_node(((0,0),&input), &[1]);
+	let dec = <ReferenceNodeCodecNoExt<BitMap16> as NodeCodec<KeccakHasher, NibbleHalf>>::decode(&enc).unwrap();
 	let o_sl = if let Node::Leaf(sl,_) = dec {
 		Some(sl)
 	} else { None };
