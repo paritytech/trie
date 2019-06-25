@@ -438,6 +438,7 @@ impl<H> Default for TrieRootUnhashed<H> {
 	}
 }
 
+#[cfg(feature = "std")]
 /// Calculate the trie root of the trie.
 /// Print a debug trace.
 pub struct TrieRootPrint<H, HO> {
@@ -446,12 +447,14 @@ pub struct TrieRootPrint<H, HO> {
 	_ph: PhantomData<(H)>,
 }
 
+#[cfg(feature = "std")]
 impl<H, HO> Default for TrieRootPrint<H, HO> {
 	fn default() -> Self {
 		TrieRootPrint { root: None, _ph: PhantomData } 
 	}
 }
 
+#[cfg(feature = "std")]
 impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootPrint<H, <H as Hasher>::Out> {
 	fn process(
 		&mut self,
@@ -824,6 +827,15 @@ mod test {
 			(vec![01u8;((u16::max_value() as usize + 1) / 2) + 1],vec![0;32]),
 		]);
 	}
+
+	#[test]
+	fn polka_re_test () {
+		compare_impl(vec![
+      (vec![77, 111, 111, 55, 111, 104, 121, 97], vec![68, 97, 105, 55, 105, 101, 116, 111]),
+      (vec![101, 105, 67, 104, 111, 111, 66, 56], vec![97, 56, 97, 113, 117, 53, 97]),
+      (vec![105, 97, 48, 77, 101, 105, 121, 101], vec![69, 109, 111, 111, 82, 49, 97, 105]),
+		]);
+  }
 
 
 
