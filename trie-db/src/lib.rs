@@ -97,7 +97,7 @@ pub use self::lookup::Lookup;
 pub use self::nibble::{NibbleSlice, NibbleOps, NibbleHalf, NibbleQuarter,
 	ChildSliceIx};
 pub use node_codec::{NodeCodec, Partial, ChildBitmap};
-pub use iter_build::{trie_visit, ProcessEncodedNode, TrieRootPrint,
+pub use iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed, CacheBuilder, Cache16, Cache4};
 
 #[cfg(feature = "std")]
