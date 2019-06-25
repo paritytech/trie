@@ -100,6 +100,9 @@ pub use node_codec::{NodeCodec, Partial, ChildBitmap};
 pub use iter_build::{trie_visit, ProcessEncodedNode, TrieRootPrint,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed, CacheBuilder, Cache16, Cache4};
 
+#[cfg(feature = "std")]
+pub use iter_build::TrieRootPrint;
+
 pub type DBValue = elastic_array::ElasticArray128<u8>;
 
 /// Trie Errors.
