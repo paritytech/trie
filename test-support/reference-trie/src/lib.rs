@@ -1041,6 +1041,38 @@ pub fn calc_root_no_ext<I,A,B>(
 	cb.root.unwrap_or(Default::default())
 }
 
+pub fn calc_root_build<I,A,B,DB>(
+	data: I,
+	hashdb: &mut DB
+) -> <KeccakHasher as Hasher>::Out
+	where
+		I: IntoIterator<Item = (A, B)>,
+		A: AsRef<[u8]> + Ord + fmt::Debug,
+		B: AsRef<[u8]> + fmt::Debug,
+    DB: hash_db::HashDB<KeccakHasher,DBValue>
+{
+	let mut cb = TrieBuilder::new(hashdb);
+	trie_visit::<LayoutOri, _, _, _, _>(data.into_iter(), &mut cb);
+	cb.root.unwrap_or(Default::default())
+}
+
+pub fn calc_root_build_no_ext<I,A,B,DB>(
+	data: I,
+	hashdb: &mut DB,
+) -> <KeccakHasher as Hasher>::Out
+	where
+		I: IntoIterator<Item = (A, B)>,
+		A: AsRef<[u8]> + Ord + fmt::Debug,
+		B: AsRef<[u8]> + fmt::Debug,
+    DB: hash_db::HashDB<KeccakHasher,DBValue>
+{
+	let mut cb = TrieBuilder::new(hashdb);
+	trie_db::trie_visit::<LayoutNew, _, _, _, _>(data.into_iter(), &mut cb);
+	cb.root.unwrap_or(Default::default())
+}
+
+
+
 pub fn compare_impl_no_ext(
 	data: Vec<(Vec<u8>,Vec<u8>)>,
 	mut memdb: impl hash_db::HashDB<KeccakHasher,DBValue>,

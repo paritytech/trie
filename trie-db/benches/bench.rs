@@ -28,6 +28,8 @@ criterion_group!(benches,
 	trie_mut_root_b,
 	trie_mut_a,
 	trie_mut_b,
+	trie_mut_build_a,
+	trie_mut_build_b,
 );
 criterion_main!(benches);
 
@@ -398,6 +400,50 @@ fn trie_mut_b(c: &mut Criterion) {
 					.expect("changes trie: insertion to trie is not allowed to fail within runtime");
 			}
 	
+		})
+	,data);
+}
+
+fn trie_mut_build_a(c: &mut Criterion) {
+	use memory_db::HashKey;
+	let data : Vec<Vec<(Vec<u8>,Vec<u8>)>> = vec![
+		input_unsorted(29, 204800 / 2, 512 * 2),
+	];
+
+	c.bench_function_over_inputs("trie_mut_build_a",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
+		b.iter(|| {
+			let datac:Vec<(Vec<u8>,Vec<u8>)> = data_sorted_unique(data.clone());
+			// this is in `ref_trie_root` added here to make things comparable
+			let inputc = datac
+				.iter()
+				.map(|v|(&v.0, &v.1))
+				.collect::<std::collections::BTreeMap<_, _>>();
+
+			let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
+			reference_trie::calc_root_build(inputc, &mut mdb);
+		})
+	,data);
+}
+
+fn trie_mut_build_b(c: &mut Criterion) {
+	use memory_db::HashKey;
+	let data : Vec<Vec<(Vec<u8>,Vec<u8>)>> = vec![
+		//input_unsorted(29, 204800, 512),
+		input_unsorted(29, 204800, 32),
+	];
+
+	c.bench_function_over_inputs("trie_mut_build_b",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
+		b.iter(||{
+			let datac:Vec<(Vec<u8>,Vec<u8>)> = data_sorted_unique(data.clone());
+			// this is in `ref_trie_root` added here to make things comparable
+			let inputc = datac
+				.iter()
+				.map(|v|(&v.0, &v.1))
+				.collect::<std::collections::BTreeMap<_, _>>();
+
+
+			let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
+			reference_trie::calc_root_build(inputc, &mut mdb);
 		})
 	,data);
 }
