@@ -107,7 +107,7 @@ where
 	}
 
 	#[inline(always)]
-	fn set_node(&mut self, depth:usize, nibble_ix:usize, node: CacheNode<TrieHash<T>>) {
+	fn set_node(&mut self, depth:usize, nibble_index:usize, node: CacheNode<TrieHash<T>>) {
 		if self.0.is_empty() || self.0[self.0.len() - 1].2 < depth {
 			self.0.push((T::CB::new_vec_slice_buff(), None, depth));
 		}
@@ -115,7 +115,7 @@ where
 		let last = self.0.len() - 1;
 		debug_assert!(self.0[last].2 == depth);
 
-		self.0[last].0.as_mut()[nibble_ix] = node;
+		self.0[last].0.as_mut()[nibble_index] = node;
 	}
 
 	#[inline(always)]

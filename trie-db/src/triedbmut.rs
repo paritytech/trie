@@ -21,7 +21,7 @@ use node_codec::NodeCodec;
 use super::{DBValue, node::NodeKey};
 
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
-use nibble::{NibbleVec, NibbleSlice, NibbleOps, ChildSliceIx, IterChildSliceIx};
+use nibble::{NibbleVec, NibbleSlice, NibbleOps, ChildSliceIndex, IterChildSliceIndex};
 use elastic_array::ElasticArray36;
 use ::core_::mem;
 use ::core_::ops::Index;
@@ -124,8 +124,11 @@ where
 		where
 			N: NibbleOps, C: NodeCodec<H, N>, H: Hasher<Out = O>,
 	{
-		let dec_children = |encoded_children: IterChildSliceIx<N::ChildSliceIx>, storage: &'b mut NodeStorage<H::Out>| {
-			let mut res = Vec::with_capacity(N::ChildSliceIx::NIBBLE_LEN);
+		let dec_children = |
+			encoded_children: IterChildSliceIndex<N::ChildSliceIndex>,
+			storage: &'b mut NodeStorage<H::Out>,
+		| {
+			let mut res = Vec::with_capacity(N::ChildSliceIndex::NIBBLE_LEN);
 			encoded_children.for_each(|o_data|{
 				let v = o_data.map(|data|Self::inline_or_hash::<C, H, N>(data, db, storage));
 				res.push(v)
@@ -199,7 +202,7 @@ where
 						.map(Option::take)
 						.enumerate()
 						.map(|(i, maybe_child)|{
-							//let branch_ix = [i as u8];
+							//let branch_index = [i as u8];
 							maybe_child.map(|child| {
 								let pr = NibbleSlice::<N>::new_offset(&partial.1[..], partial.0);
 								child_cb(child, Some(&pr), Some(i as u8))
@@ -1243,8 +1246,8 @@ where
 		match self.storage.destroy(handle) {
 			Stored::New(node) => {
 				let mut k = NibbleVec::new();
-				let encoded_root = node.into_encoded::<_, L::C, L::H, L::N>(|child, o_sl, o_ix| {
-					let mov = k.append_slice_nibble(o_sl, o_ix);
+				let encoded_root = node.into_encoded::<_, L::C, L::H, L::N>(|child, o_slice, o_index| {
+					let mov = k.append_slice_nibble(o_slice, o_index);
 					let cr = self.commit_child(child, &mut k);
 					k.drop_lasts(mov);
 					cr
@@ -1281,8 +1284,8 @@ where
 					Stored::Cached(_, hash) => ChildReference::Hash(hash),
 					Stored::New(node) => {
 						let encoded = {
-							let commit_child = |node_handle, o_sl: Option<&NibbleSlice<L::N>>, o_ix: Option<u8>| {
-								let mov = prefix.append_slice_nibble(o_sl, o_ix);
+							let commit_child = |node_handle, o_slice: Option<&NibbleSlice<L::N>>, o_index: Option<u8>| {
+								let mov = prefix.append_slice_nibble(o_slice, o_index);
 								let cr = self.commit_child(node_handle, prefix);
 								prefix.drop_lasts(mov);
 								cr

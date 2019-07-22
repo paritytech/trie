@@ -35,7 +35,7 @@ use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
 
 pub use trie_db::{Trie, TrieMut, NibbleSlice, Recorder, NodeCodec, BitMap,
-	ChildSliceIx};
+	ChildSliceIndex};
 pub use trie_db::{Record, TrieLayout, TrieOps, NibbleHalf, NibbleQuarter, NibbleOps};
 pub use trie_root::TrieStream;
 
@@ -277,14 +277,14 @@ fn branch_node(has_value: bool, has_children: impl Iterator<Item = bool>) -> [u8
 	res
 }
 
-fn branch_node_buf<BM: BitMap, I: Iterator<Item = bool>>(has_value: bool, has_children: I, dest: &mut[u8]) {
+fn branch_node_buf<BITMAP: BitMap, I: Iterator<Item = bool>>(has_value: bool, has_children: I, dest: &mut[u8]) {
 	let first = if has_value {
 		BRANCH_NODE_WITH_VALUE
 	} else {
 		BRANCH_NODE_NO_VALUE
 	};
 	dest[0] = first;
-	BM::encode(has_children, &mut dest[1..]);
+	BITMAP::encode(has_children, &mut dest[1..]);
 }
 
 fn branch_node_bit_mask(has_children: impl Iterator<Item = bool>) -> (u8, u8) {
@@ -379,8 +379,8 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 			} else {
 				self.buffer.extend(fuse_nibbles_node_noext(partial, NodeKindNoExt::BranchNoValue));
 			}
-			let bm = branch_node_bit_mask(has_children);
-			self.buffer.extend([bm.0,bm.1].iter());
+			let bitmap = branch_node_bit_mask(has_children);
+			self.buffer.extend([bitmap.0, bitmap.1].iter());
 		} else {
 			// should not happen
 			self.buffer.extend(&branch_node(maybe_value.is_some(), has_children));
@@ -584,12 +584,12 @@ fn take<'a>(input: &mut &'a[u8], count: usize) -> Option<&'a[u8]> {
 }
 
 fn partial_to_key<N: NibbleOps>(partial: Partial, offset: u8, over: u8) -> Vec<u8> {
-	let nb_nibble_hpe = (partial.0).0 as usize;
-	let nibble_count = partial.1.len() * N::NIBBLE_PER_BYTE + nb_nibble_hpe;
+	let number_nibble_encoded = (partial.0).0 as usize;
+	let nibble_count = partial.1.len() * N::NIBBLE_PER_BYTE + number_nibble_encoded;
 	assert!(nibble_count < over as usize);
 	let mut output = vec![offset + nibble_count as u8];
-	if nb_nibble_hpe > 0 {
-		output.push(N::masked_right(nb_nibble_hpe as u8, (partial.0).1));
+	if number_nibble_encoded > 0 {
+		output.push(N::masked_right(number_nibble_encoded as u8, (partial.0).1));
 	}
 	output.extend_from_slice(&partial.1[..]);
 	output
@@ -620,8 +620,8 @@ fn partial_enc_it<N: NibbleOps, I: Iterator<Item = u8>>(partial: I, nibble_count
 
 
 fn partial_enc<N: NibbleOps>(partial: Partial, node_kind: NodeKindNoExt) -> Vec<u8> {
-	let nb_nibble_hpe = (partial.0).0 as usize;
-	let nibble_count = partial.1.len() * N::NIBBLE_PER_BYTE + nb_nibble_hpe;
+	let number_nibble_encoded = (partial.0).0 as usize;
+	let nibble_count = partial.1.len() * N::NIBBLE_PER_BYTE + number_nibble_encoded;
 
 	let nibble_count = ::std::cmp::min(s_cst::NIBBLE_SIZE_BOUND, nibble_count);
 
@@ -631,8 +631,8 @@ fn partial_enc<N: NibbleOps>(partial: Partial, node_kind: NodeKindNoExt) -> Vec<
 		NodeKindNoExt::BranchWithValue => NodeHeaderNoExt::Branch(true, nibble_count).encode_to(&mut output),
 		NodeKindNoExt::BranchNoValue => NodeHeaderNoExt::Branch(false, nibble_count).encode_to(&mut output),
 	};
-	if nb_nibble_hpe > 0 {
-		output.push(N::masked_right(nb_nibble_hpe as u8, (partial.0).1));
+	if number_nibble_encoded > 0 {
+		output.push(N::masked_right(number_nibble_encoded as u8, (partial.0).1));
 	}
 	output.extend_from_slice(&partial.1[..]);
 	output
@@ -645,8 +645,8 @@ fn partial_enc<N: NibbleOps>(partial: Partial, node_kind: NodeKindNoExt) -> Vec<
 impl<
 	H: Hasher,
 	N: NibbleOps,
-	BM: BitMap<Error = ReferenceError>
-> NodeCodec<H, N> for ReferenceNodeCodec<BM> {
+	BITMAP: BitMap<Error = ReferenceError>
+> NodeCodec<H, N> for ReferenceNodeCodec<BITMAP> {
 	type Error = ReferenceError;
 
 	fn hashed_null_node() -> <H as Hasher>::Out {
@@ -658,8 +658,8 @@ impl<
 		match NodeHeader::decode(input).ok_or(ReferenceError::BadFormat)? {
 			NodeHeader::Null => Ok(Node::Empty),
 			NodeHeader::Branch(has_value) => {
-				let bm_slice = take(input, BM::ENCODED_LEN).ok_or(ReferenceError::BadFormat)?;
-				let bitmap = BM::decode(&bm_slice[..])?;
+				let bitmap_slice = take(input, BITMAP::ENCODED_LEN).ok_or(ReferenceError::BadFormat)?;
+				let bitmap = BITMAP::decode(&bitmap_slice[..])?;
 
 				let value = if has_value {
 					let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
@@ -667,7 +667,7 @@ impl<
 				} else {
 					None
 				};
-				let mut children: N::ChildSliceIx = Default::default();
+				let mut children: N::ChildSliceIndex = Default::default();
 				let child_val = &**input;
 				let mut ix = 0;
 				children.as_mut()[0] = ix;
@@ -675,7 +675,7 @@ impl<
 					if bitmap.value_at(i) {
 						let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 						let _ = take(input, count);
-						ix += count + N::ChildSliceIx::CONTENT_HEADER_SIZE;
+						ix += count + N::ChildSliceIndex::CONTENT_HEADER_SIZE;
 					}
 					children.as_mut()[i + 1] = ix;
 				}
@@ -685,7 +685,7 @@ impl<
 				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
 					.ok_or(ReferenceError::BadFormat)?;
 				let nibble_slice = NibbleSlice::new_offset(nibble_data,
-					N::nb_padding(nibble_count));
+					N::number_padding(nibble_count));
 				let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 				Ok(Node::Extension(nibble_slice, take(input, count).ok_or(ReferenceError::BadFormat)?))
 			}
@@ -693,7 +693,7 @@ impl<
 				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
 					.ok_or(ReferenceError::BadFormat)?;
 				let nibble_slice = NibbleSlice::new_offset(nibble_data,
-					N::nb_padding(nibble_count));
+					N::number_padding(nibble_count));
 				let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 				Ok(Node::Leaf(nibble_slice, take(input, count).ok_or(ReferenceError::BadFormat)?))
 			}
@@ -724,8 +724,8 @@ impl<
 		output
 	}
 
-	fn ext_node(partial: impl Iterator<Item = u8>, nb_nibble: usize, child: ChildReference<<H as Hasher>::Out>) -> Vec<u8> {
-		let mut output = partial_to_key_it::<N,_>(partial, nb_nibble, EXTENSION_NODE_OFFSET, EXTENSION_NODE_OVER);
+	fn ext_node(partial: impl Iterator<Item = u8>, number_nibble: usize, child: ChildReference<<H as Hasher>::Out>) -> Vec<u8> {
+		let mut output = partial_to_key_it::<N,_>(partial, number_nibble, EXTENSION_NODE_OFFSET, EXTENSION_NODE_OVER);
 		match child {
 			ChildReference::Hash(h) => h.as_ref().encode_to(&mut output),
 			ChildReference::Inline(inline_data, len) => (&AsRef::<[u8]>::as_ref(&inline_data)[..len]).encode_to(&mut output),
@@ -736,15 +736,15 @@ impl<
 	fn branch_node(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		maybe_value: Option<&[u8]>) -> Vec<u8> {
-		let mut output = vec![0; BM::ENCODED_LEN + 1];
-		let mut prefix: BM::Buff = Default::default();
+		let mut output = vec![0; BITMAP::ENCODED_LEN + 1];
+		let mut prefix: BITMAP::Buff = Default::default();
 		let have_value = if let Some(value) = maybe_value {
 			value.encode_to(&mut output);
 			true
 		} else {
 			false
 		};
-		branch_node_buf::<BM, _>(have_value, children.map(|maybe_child| match maybe_child.borrow() {
+		branch_node_buf::<BITMAP, _>(have_value, children.map(|maybe_child| match maybe_child.borrow() {
 			Some(ChildReference::Hash(h)) => {
 				h.as_ref().encode_to(&mut output);
 				true
@@ -755,13 +755,13 @@ impl<
 			}
 			None => false,
 		}), prefix.as_mut());
-		output[0..BM::ENCODED_LEN + 1].copy_from_slice(prefix.as_ref());
+		output[0..BITMAP::ENCODED_LEN + 1].copy_from_slice(prefix.as_ref());
 		output
 	}
 
 	fn branch_node_nibbled(
 		_partial:	impl Iterator<Item = u8>,
-		_nb_nibble: usize,
+		_number_nibble: usize,
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		_maybe_value: Option<&[u8]>) -> Vec<u8> {
 		unreachable!()
@@ -772,8 +772,8 @@ impl<
 impl<
 	H: Hasher,
 	N: NibbleOps,
-	BM: BitMap<Error = ReferenceError>
-> NodeCodec<H, N> for ReferenceNodeCodecNoExt<BM> {
+	BITMAP: BitMap<Error = ReferenceError>
+> NodeCodec<H, N> for ReferenceNodeCodecNoExt<BITMAP> {
 	type Error = ReferenceError;
 
 	fn hashed_null_node() -> <H as Hasher>::Out {
@@ -786,23 +786,24 @@ impl<
 		match head {
 			NodeHeaderNoExt::Null => Ok(Node::Empty),
 			NodeHeaderNoExt::Branch(has_value, nibble_count) => {
-				let nb_nibble_hpe = nibble_count % N::NIBBLE_PER_BYTE;
-				if nb_nibble_hpe > 0 && N::masked_left((N::NIBBLE_PER_BYTE - nb_nibble_hpe) as u8, input[0]) != 0 {
+				let number_nibble_encoded = nibble_count % N::NIBBLE_PER_BYTE;
+				if number_nibble_encoded > 0
+					&& N::masked_left((N::NIBBLE_PER_BYTE - number_nibble_encoded) as u8, input[0]) != 0 {
 					return Err(ReferenceError::BadFormat);
 				}
 				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
 					.ok_or(ReferenceError::BadFormat)?;
 				let nibble_slice = NibbleSlice::new_offset(nibble_data,
-					N::nb_padding(nibble_count));
-				let bm_slice = take(input, BM::ENCODED_LEN).ok_or(ReferenceError::BadFormat)?;
-				let bitmap = BM::decode(&bm_slice[..])?;
+					N::number_padding(nibble_count));
+				let bitmap_slice = take(input, BITMAP::ENCODED_LEN).ok_or(ReferenceError::BadFormat)?;
+				let bitmap = BITMAP::decode(&bitmap_slice[..])?;
 				let value = if has_value {
 					let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 					Some(take(input, count).ok_or(ReferenceError::BadFormat)?)
 				} else {
 					None
 				};
-				let mut children: N::ChildSliceIx = Default::default();
+				let mut children: N::ChildSliceIndex = Default::default();
 				let child_val = &**input;
 				let mut ix = 0;
 				children.as_mut()[0] = ix;
@@ -810,21 +811,21 @@ impl<
 					if bitmap.value_at(i) {
 						let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 						let _ = take(input, count);
-						ix += count + N::ChildSliceIx::CONTENT_HEADER_SIZE;
+						ix += count + N::ChildSliceIndex::CONTENT_HEADER_SIZE;
 					}
 					children.as_mut()[i + 1] = ix;
 				}
 				Ok(Node::NibbledBranch(nibble_slice, (children, child_val), value))
 			}
 			NodeHeaderNoExt::Leaf(nibble_count) => {
-				let nb_nibble_hpe = nibble_count % N::NIBBLE_PER_BYTE;
-				if nb_nibble_hpe > 0 && N::masked_left((N::NIBBLE_PER_BYTE - nb_nibble_hpe) as u8, input[0]) != 0 {
+				let number_nibble_encoded = nibble_count % N::NIBBLE_PER_BYTE;
+				if number_nibble_encoded > 0 && N::masked_left((N::NIBBLE_PER_BYTE - number_nibble_encoded) as u8, input[0]) != 0 {
 					return Err(ReferenceError::BadFormat);
 				}
 				let nibble_data = take(input, (nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE)
 					.ok_or(ReferenceError::BadFormat)?;
 				let nibble_slice = NibbleSlice::new_offset(nibble_data,
-					N::nb_padding(nibble_count));
+					N::number_padding(nibble_count));
 				let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
 				Ok(Node::Leaf(nibble_slice, take(input, count).ok_or(ReferenceError::BadFormat)?))
 			}
@@ -832,7 +833,7 @@ impl<
 	}
 
 	fn try_decode_hash(data: &[u8]) -> Option<<H as Hasher>::Out> {
-		<ReferenceNodeCodec<BM> as NodeCodec<H, N>>::try_decode_hash(data)
+		<ReferenceNodeCodec<BITMAP> as NodeCodec<H, N>>::try_decode_hash(data)
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
@@ -866,22 +867,22 @@ impl<
 
 	fn branch_node_nibbled(
 		partial: impl Iterator<Item = u8>,
-		nb_nibble: usize,
+		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		maybe_value: Option<&[u8]>,
 	) -> Vec<u8> {
 		let mut output = if maybe_value.is_some() {
-			partial_enc_it::<N,_>(partial, nb_nibble, NodeKindNoExt::BranchWithValue)
+			partial_enc_it::<N,_>(partial, number_nibble, NodeKindNoExt::BranchWithValue)
 		} else {
-			partial_enc_it::<N,_>(partial, nb_nibble, NodeKindNoExt::BranchNoValue)
+			partial_enc_it::<N,_>(partial, number_nibble, NodeKindNoExt::BranchNoValue)
 		};
-		let bm_ix = output.len();
-		let mut bm: BM::Buff = Default::default();
-		(0..BM::ENCODED_LEN).for_each(|_|output.push(0));
+		let bitmap_index = output.len();
+		let mut bitmap: BITMAP::Buff = Default::default();
+		(0..BITMAP::ENCODED_LEN).for_each(|_|output.push(0));
 		if let Some(value) = maybe_value {
 			value.encode_to(&mut output);
 		};
-		BM::encode(children.map(|maybe_child| match maybe_child.borrow() {
+		BITMAP::encode(children.map(|maybe_child| match maybe_child.borrow() {
 			Some(ChildReference::Hash(h)) => {
 				h.as_ref().encode_to(&mut output);
 				true
@@ -891,8 +892,9 @@ impl<
 				true
 			}
 			None => false,
-		}), bm.as_mut());
-		output[bm_ix..bm_ix + BM::ENCODED_LEN].copy_from_slice(&bm.as_ref()[..BM::ENCODED_LEN]);
+		}), bitmap.as_mut());
+		output[bitmap_index..bitmap_index + BITMAP::ENCODED_LEN]
+			.copy_from_slice(&bitmap.as_ref()[..BITMAP::ENCODED_LEN]);
 		output
 	}
 

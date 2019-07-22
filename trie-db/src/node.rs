@@ -14,7 +14,7 @@
 
 use elastic_array::ElasticArray36;
 use nibble::NibbleSlice;
-use nibble::{NibbleOps, ChildSliceIx};
+use nibble::{NibbleOps, ChildSliceIndex};
 use nibble::NibbleVec;
 use super::DBValue;
 
@@ -27,7 +27,7 @@ pub type NodeKey = (usize, ElasticArray36<u8>);
 
 /// Alias to branch children slice, it is equivalent to '&[&[u8]]'.
 /// Reason for using it is https://github.com/rust-lang/rust/issues/43408.
-pub type BranchChildrenSlice<'a, N> = (<N as NibbleOps>::ChildSliceIx, &'a[u8]);
+pub type BranchChildrenSlice<'a, N> = (<N as NibbleOps>::ChildSliceIndex, &'a[u8]);
 
 /// Type of node in the trie and essential information thereof.
 #[derive(Eq, PartialEq, Clone)]
@@ -50,8 +50,8 @@ pub enum Node<'a, N: NibbleOps> {
 #[derive(Eq, PartialEq, Clone)]
 pub struct Branch {
 	data: Vec<u8>,
-	data_ix: usize,
-	ubounds_ix: usize,
+	data_index: usize,
+	ubounds_index: usize,
 	child_head: usize,
 }
 
@@ -61,8 +61,8 @@ impl Branch {
 		maybe_value: Option<&[u8]>,
 	) -> Self {
 		let mut data: Vec<u8> = children_slice.1.into();
-		let data_ix = data.len();
-		let ubounds_ix = data_ix + maybe_value.map(|v|{
+		let data_index = data.len();
+		let ubounds_index = data_index + maybe_value.map(|v|{
 			data.extend_from_slice(v);
 			v.len()
 		}).unwrap_or(0);
@@ -71,13 +71,13 @@ impl Branch {
 			i += 1;
 			data.extend_from_slice(&ix.to_ne_bytes()[..]);
 		}
-		Branch { data, data_ix, ubounds_ix, child_head: N::ChildSliceIx::CONTENT_HEADER_SIZE }
+		Branch { data, data_index, ubounds_index, child_head: N::ChildSliceIndex::CONTENT_HEADER_SIZE }
 	}
 
 	/// Get the node value, if any.
 	pub fn get_value(&self) -> Option<&[u8]> {
 		if self.has_value() {
-			Some(&self.data[self.data_ix..self.ubounds_ix])
+			Some(&self.data[self.data_index..self.ubounds_index])
 		} else {
 			None
 		}
@@ -85,14 +85,14 @@ impl Branch {
 
 	/// Test if the node has a value.
 	pub fn has_value(&self) -> bool {
-		self.data_ix < self.ubounds_ix
+		self.data_index < self.ubounds_index
 	}
 
 	fn index_bound(&self, index: usize) -> Option<usize> {
 		use core_::convert::TryInto;
 		use core_::mem;
 		let usize_len = mem::size_of::<usize>(); 
-		let s = self.ubounds_ix + index * usize_len;
+		let s = self.ubounds_index + index * usize_len;
 		let e = s + usize_len;
 		if self.data.len() < e {
 			None

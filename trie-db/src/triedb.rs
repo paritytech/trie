@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
-use nibble::{NibbleSlice, NibbleOps, ChildSliceIx};
+use nibble::{NibbleSlice, NibbleOps, ChildSliceIndex};
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
 use super::lookup::Lookup;

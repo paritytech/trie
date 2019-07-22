@@ -95,7 +95,7 @@ pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
 pub use self::nibble::{NibbleSlice, NibbleOps, NibbleHalf, NibbleQuarter,
-	ChildSliceIx};
+	ChildSliceIndex};
 pub use node_codec::{NodeCodec, Partial, BitMap};
 pub use iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed, CacheBuilder, Cache16, Cache4};

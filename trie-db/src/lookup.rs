@@ -18,7 +18,7 @@ use hash_db::HashDBRef;
 use nibble::NibbleSlice;
 use node::Node;
 use node_codec::NodeCodec;
-use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash, ChildSliceIx};
+use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash, ChildSliceIndex};
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;

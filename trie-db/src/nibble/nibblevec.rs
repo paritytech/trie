@@ -87,9 +87,9 @@ impl<N: NibbleOps> NibbleVec<N> {
 			return;
 		}
 		let end = self.len - n;
-		let end_ix = end / N::NIBBLE_PER_BYTE
+		let end_index = end / N::NIBBLE_PER_BYTE
 			+ if end % N::NIBBLE_PER_BYTE == 0 { 0 } else { 1 };
-		(end_ix..self.inner.len()).for_each(|_|{ self.inner.pop(); });
+		(end_index..self.inner.len()).for_each(|_|{ self.inner.pop(); });
 		self.len = end;
 		let pos = self.len % N::NIBBLE_PER_BYTE;
 		if pos != 0 {
@@ -116,10 +116,10 @@ impl<N: NibbleOps> NibbleVec<N> {
 		let final_len = self.len + v.len;
 		let offset = self.len % N::NIBBLE_PER_BYTE;
 		let final_offset = final_len % N::NIBBLE_PER_BYTE;
-		let last_ix = self.len / N::NIBBLE_PER_BYTE;
+		let last_index = self.len / N::NIBBLE_PER_BYTE;
 		if offset > 0 {
 			let (s1, s2) = N::split_shifts(offset);
-			self.inner[last_ix] = N::masked_left(offset as u8, self.inner[last_ix]) | (v.inner[0] >> s2);
+			self.inner[last_index] = N::masked_left(offset as u8, self.inner[last_index]) | (v.inner[0] >> s2);
 			(0..v.inner.len() - 1).for_each(|i|self.inner.push(v.inner[i] << s1 | v.inner[i+1] >> s2));
 			if final_offset > 0 {
 				self.inner.push(v.inner[v.inner.len() - 1] << s1);
@@ -158,14 +158,14 @@ impl<N: NibbleOps> NibbleVec<N> {
 	pub(crate) fn append_slice_nibble(
 		&mut self,
 		o_sl: Option<&NibbleSlice<N>>,
-		o_ix: Option<u8>,
+		o_index: Option<u8>,
 	) -> usize {
 		let mut res = 0;
 		if let Some(sl) = o_sl {
 			self.append_partial(sl.right());
 			res += sl.len();
 		}
-		if let Some(ix) = o_ix {
+		if let Some(ix) = o_index {
 			self.push(ix);
 			res += 1;
 		}
@@ -175,11 +175,11 @@ impl<N: NibbleOps> NibbleVec<N> {
 	/// Can be slow.
 	pub(crate) fn clone_append_slice_nibble(
 		&self,
-		o_sl: Option<&NibbleSlice<N>>,
-		o_ix: Option<u8>,
+		o_slice: Option<&NibbleSlice<N>>,
+		o_index: Option<u8>,
 	) -> Self {
 		let mut p = self.clone();
-		p.append_slice_nibble(o_sl, o_ix);
+		p.append_slice_nibble(o_slice, o_index);
 		p
 	}
 

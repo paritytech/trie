@@ -61,7 +61,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	/// Buffer type for slice index store (we do not include
 	/// directly slice in it to avoid lifetime in
 	/// trait
-	type ChildSliceIx: ChildSliceIx;
+	type ChildSliceIndex: ChildSliceIndex;
 
 
 	/// Mask a byte from a `ix` > 0 (ix being content).
@@ -115,7 +115,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 
 	#[inline]
 	/// Calculate the number of needed padding a array of nibble length `i`.
-	fn nb_padding(i: usize) -> usize {
+	fn number_padding(i: usize) -> usize {
 		(Self::NIBBLE_PER_BYTE - (i % Self::NIBBLE_PER_BYTE)) % Self::NIBBLE_PER_BYTE
 	}
 
@@ -205,7 +205,7 @@ pub enum ByteLayout {
 impl NibbleOps for NibbleHalf {
 	const REPR: ByteLayout = ByteLayout::Half;
 	const PADDING_BITMASK: &'static [(u8, usize)] = &[(0xFF, 4), (0x0F, 0)];
-	type ChildSliceIx = ChildSliceIx16;
+	type ChildSliceIndex = ChildSliceIndex16;
 }
 
 /// Radix 4 `NibbleOps` definition.
@@ -222,7 +222,7 @@ impl NibbleOps for NibbleQuarter {
 		(0b0000_1111, 2),
 		(0b0000_0011, 0),
 	];
-	type ChildSliceIx = ChildSliceIx4;
+	type ChildSliceIndex = ChildSliceIndex4;
 }
 
 /// Owning, nibble-oriented byte vector. Counterpart to `NibbleSlice`.
@@ -275,7 +275,7 @@ pub struct NibbleSliceIterator<'a, N: NibbleOps> {
 /// representation of a branch.
 /// This is use instead of `&[&[u8]]` to allow associated type
 /// with a constant lenght.
-pub trait ChildSliceIx: AsRef<[usize]>
+pub trait ChildSliceIndex: AsRef<[usize]>
 	+ AsMut<[usize]> + Default + Eq + PartialEq + crate::MaybeDebug
 	+ Clone {
 
@@ -300,15 +300,15 @@ pub trait ChildSliceIx: AsRef<[usize]>
 		}
 	}
 	/// Iterator over the children slice.
-	fn iter<'a>(&'a self, data: &'a [u8]) -> IterChildSliceIx<'a, Self> {
-		IterChildSliceIx(self, 0, data)
+	fn iter<'a>(&'a self, data: &'a [u8]) -> IterChildSliceIndex<'a, Self> {
+		IterChildSliceIndex(self, 0, data)
 	}
 }
 
-/// Iterator over `ChildSliceIx` trait.
-pub struct IterChildSliceIx<'a, CS>(&'a CS, usize, &'a[u8]);
+/// Iterator over `ChildSliceIndex` trait.
+pub struct IterChildSliceIndex<'a, CS>(&'a CS, usize, &'a[u8]);
 
-impl<'a, CS: ChildSliceIx> Iterator for IterChildSliceIx<'a, CS> {
+impl<'a, CS: ChildSliceIndex> Iterator for IterChildSliceIndex<'a, CS> {
 	type Item = Option<&'a[u8]>;
 	fn next(&mut self) -> Option<Self::Item> {
 		if self.1 == CS::NIBBLE_LEN {
@@ -319,7 +319,7 @@ impl<'a, CS: ChildSliceIx> Iterator for IterChildSliceIx<'a, CS> {
 	}
 }
 
-macro_rules! child_slice_ix {
+macro_rules! child_slice_index {
 	($me: ident, $size: expr, $pre: expr) => {
 		#[cfg_attr(feature = "std", derive(Debug))]
 		#[derive(Default, Eq, PartialEq, Clone)]
@@ -338,11 +338,11 @@ macro_rules! child_slice_ix {
 			}
 		}
 
-		impl ChildSliceIx for $me {
+		impl ChildSliceIndex for $me {
 			const CONTENT_HEADER_SIZE: usize = $pre;
 			const NIBBLE_LEN: usize = $size;
 		}
 	}
 }
-child_slice_ix!(ChildSliceIx16, 16, 1);
-child_slice_ix!(ChildSliceIx4, 4, 1);
+child_slice_index!(ChildSliceIndex16, 16, 1);
+child_slice_index!(ChildSliceIndex4, 4, 1);
