@@ -13,21 +13,21 @@
 // limitations under the License.
 
 use hash_db::{HashDB, Hasher};
-use super::{Result, DBValue, TrieMut, TrieDBMut, TrieLayOut, TrieHash, CError};
+use super::{Result, DBValue, TrieMut, TrieDBMut, TrieLayout, TrieHash, CError};
 
 /// A mutable `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 ///
 /// Use it as a `Trie` or `TrieMut` trait object. You can use `raw()` to get the backing `TrieDBMut` object.
 pub struct SecTrieDBMut<'db, L>
 where
-	L: TrieLayOut
+	L: TrieLayout
 {
 	raw: TrieDBMut<'db, L>
 }
 
 impl<'db, L> SecTrieDBMut<'db, L>
 where
-	L: TrieLayOut
+	L: TrieLayout
 {
 	/// Create a new trie with the backing database `db` and empty `root`
 	/// Initialise to the state entailed by the genesis block.
@@ -55,7 +55,7 @@ where
 
 impl<'db, L> TrieMut<L> for SecTrieDBMut<'db, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	fn root(&mut self) -> &TrieHash<L> {
 		self.raw.root()

@@ -18,13 +18,13 @@ use hash_db::HashDBRef;
 use nibble::NibbleSlice;
 use node::Node;
 use node_codec::NodeCodec;
-use super::{DBValue, Result, TrieError, Query, TrieLayOut, CError, TrieHash, ChildSliceIx};
+use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash, ChildSliceIx};
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 
 /// Trie lookup helper object.
-pub struct Lookup<'a, L: TrieLayOut, Q: Query<L::H>> {
+pub struct Lookup<'a, L: TrieLayout, Q: Query<L::H>> {
 	/// database to query from.
 	pub db: &'a dyn HashDBRef<L::H, DBValue>,
 	/// Query object to record nodes and transform data.
@@ -35,7 +35,7 @@ pub struct Lookup<'a, L: TrieLayOut, Q: Query<L::H>> {
 
 impl<'a, L, Q> Lookup<'a, L, Q>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 	Q: Query<L::H>,
 {
 	/// Look up the given key. If the value is found, it will be passed to the given

@@ -14,7 +14,7 @@
 
 use hash_db::{HashDBRef, Hasher};
 use super::triedb::TrieDB;
-use super::{Result, DBValue, Trie, TrieItem, TrieIterator, Query, TrieLayOut, CError, TrieHash};
+use super::{Result, DBValue, Trie, TrieItem, TrieIterator, Query, TrieLayout, CError, TrieHash};
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
@@ -24,14 +24,14 @@ use alloc::boxed::Box;
 /// Use it as a `Trie` trait object. You can use `raw()` to get the backing `TrieDB` object.
 pub struct SecTrieDB<'db, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	raw: TrieDB<'db, L>
 }
 
 impl<'db, L> SecTrieDB<'db, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	/// Create a new trie with the backing database `db` and empty `root`
 	///
@@ -58,7 +58,7 @@ where
 
 impl<'db, L> Trie<L> for SecTrieDB<'db, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	fn root(&self) -> &TrieHash<L> { self.raw.root() }
 

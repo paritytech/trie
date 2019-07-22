@@ -189,7 +189,7 @@ impl<'a, F, T, H: Hasher> Query<H> for (&'a mut Recorder<H::Out>, F) where F: Fn
 }
 
 /// A key-value datastore implemented as a database-backed modified Merkle tree.
-pub trait Trie<L: TrieLayOut> {
+pub trait Trie<L: TrieLayout> {
 	/// Return the root of the trie.
 	fn root(&self) -> &TrieHash<L>;
 
@@ -226,7 +226,7 @@ pub trait Trie<L: TrieLayOut> {
 }
 
 /// A key-value datastore implemented as a database-backed modified Merkle tree.
-pub trait TrieMut<L: TrieLayOut> {
+pub trait TrieMut<L: TrieLayout> {
 	/// Return the root of the trie.
 	fn root(&mut self) -> &TrieHash<L>;
 
@@ -254,7 +254,7 @@ pub trait TrieMut<L: TrieLayOut> {
 }
 
 /// A trie iterator that also supports random access (`seek()`).
-pub trait TrieIterator<L: TrieLayOut>: Iterator {
+pub trait TrieIterator<L: TrieLayout>: Iterator {
 	/// Position the iterator on the first element with key >= `key`
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>>;
 }
@@ -279,14 +279,14 @@ impl Default for TrieSpec {
 
 /// Trie factory.
 #[derive(Default, Clone)]
-pub struct TrieFactory<L: TrieLayOut> {
+pub struct TrieFactory<L: TrieLayout> {
 	spec: TrieSpec,
 	layout: L,
 }
 
 /// All different kinds of tries.
 /// This is used to prevent a heap allocation for every created trie.
-pub enum TrieKinds<'db, L: TrieLayOut> {
+pub enum TrieKinds<'db, L: TrieLayout> {
 	/// A generic trie db.
 	Generic(TrieDB<'db, L>),
 	/// A secure trie db.
@@ -306,7 +306,7 @@ macro_rules! wrapper {
 	}
 }
 
-impl<'db, L: TrieLayOut> Trie<L> for TrieKinds<'db, L> {
+impl<'db, L: TrieLayout> Trie<L> for TrieKinds<'db, L> {
 	fn root(&self) -> &TrieHash<L> {
 		wrapper!(self, root,)
 	}
@@ -339,7 +339,7 @@ impl<'db, L: TrieLayOut> Trie<L> for TrieKinds<'db, L> {
 
 impl<'db, L> TrieFactory<L>
 where
-	L: TrieLayOut + 'db,
+	L: TrieLayout + 'db,
 {
 	/// Creates new factory.
 	pub fn new(spec: TrieSpec, layout: L) -> Self {
@@ -392,7 +392,7 @@ where
 /// Trait with definition of trie layout.
 /// Contains all associated trait needed for
 /// a trie definition or implementation.
-pub trait TrieLayOut {
+pub trait TrieLayout {
 	/// If true, the trie will use extension nodes and
 	/// no partial in branch, if false the trie will only
 	/// use branch and node with partials in both.
@@ -412,7 +412,7 @@ pub trait TrieLayOut {
 /// It associates trie definition with chosen methods.
 /// This trait contains its own default implementations
 /// and exists only to allow alternate algorithm usage.
-pub trait TrieOps: Sized + TrieLayOut {
+pub trait TrieOps: Sized + TrieLayout {
 	/// Operation to build a trie db from its ordered iterator over its key/values.
 	fn trie_build<DB, I, A, B>(db: &mut DB, input: I) -> <Self::H as Hasher>::Out where
 	DB: HashDB<Self::H, usize>,
@@ -466,6 +466,6 @@ pub trait TrieOps: Sized + TrieLayOut {
 }
 
 /// Alias accessor to hasher hash output type from a `TrieLayout`.
-pub type TrieHash<L> = <<L as TrieLayOut>::H as Hasher>::Out;
+pub type TrieHash<L> = <<L as TrieLayout>::H as Hasher>::Out;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
-pub type CError<L> = <<L as TrieLayOut>::C as NodeCodec<<L as TrieLayOut>::H, <L as TrieLayOut>::N>>::Error;
+pub type CError<L> = <<L as TrieLayout>::C as NodeCodec<<L as TrieLayout>::H, <L as TrieLayout>::N>>::Error;

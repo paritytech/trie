@@ -24,7 +24,7 @@ use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
 use crate::nibble::NibbleOps;
 use node_codec::NodeCodec;
-use crate::{TrieLayOut, TrieHash};
+use crate::{TrieLayout, TrieHash};
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
@@ -70,7 +70,7 @@ impl<HO> CacheBuilder<HO> for Cache4 {
 	}
 }
 
-type ArrayNode<T> = <<T as TrieLayOut>::CB as CacheBuilder<TrieHash<T>>>::AN;
+type ArrayNode<T> = <<T as TrieLayout>::CB as CacheBuilder<TrieHash<T>>>::AN;
 
 // (64 * 16) aka 2*byte size of key * nb nibble value, 2 being byte/nible (8/4)
 // first usize to get nb of added value, second usize last added index
@@ -80,14 +80,14 @@ type ArrayNode<T> = <<T as TrieLayOut>::CB as CacheBuilder<TrieHash<T>>>::AN;
 /// Note that it is not memory optimal (all depth are allocated even if some are empty due
 /// to node partial).
 /// Three field are used, a cache over the children, an optional associated value and the depth.
-struct CacheAccum<T: TrieLayOut,V> (Vec<(ArrayNode<T>, Option<V>, usize)>,PhantomData<T>);
+struct CacheAccum<T: TrieLayout,V> (Vec<(ArrayNode<T>, Option<V>, usize)>,PhantomData<T>);
 
 /// Initially allocated cache depth.
 const INITIAL_DEPTH: usize = 10;
 
 impl<T,V> CacheAccum<T,V>
 where
-	T: TrieLayOut,
+	T: TrieLayout,
 	V: AsRef<[u8]>,
 	{
 
@@ -285,7 +285,7 @@ where
 /// branch to root), this differs form key ordering a bit.
 pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F)
 	where
-		T: TrieLayOut,
+		T: TrieLayout,
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,

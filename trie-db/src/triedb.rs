@@ -17,7 +17,7 @@ use nibble::{NibbleSlice, NibbleOps, ChildSliceIx};
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
 use super::lookup::Lookup;
-use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query, TrieLayOut, CError, TrieHash};
+use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query, TrieLayout, CError, TrieHash};
 use super::nibble::NibbleVec;
 #[cfg(feature = "std")]
 use ::std::fmt;
@@ -64,7 +64,7 @@ use alloc::vec::Vec;
 /// ```
 pub struct TrieDB<'db, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	db: &'db dyn HashDBRef<L::H, DBValue>,
 	root: &'db TrieHash<L>,
@@ -74,7 +74,7 @@ where
 
 impl<'db, L> TrieDB<'db, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	/// Create a new trie with the backing database `db` and `root`
 	/// Returns an error if `root` does not exist
@@ -122,7 +122,7 @@ where
 
 impl<'db, L> Trie<L> for TrieDB<'db, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	fn root(&self) -> &TrieHash<L> { self.root }
 
@@ -154,7 +154,7 @@ where
 // This is for pretty debug output only
 struct TrieAwareDebugNode<'db, 'a, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	trie: &'db TrieDB<'db, L>,
 	node_key: &'a[u8],
@@ -165,7 +165,7 @@ where
 #[cfg(feature="std")]
 impl<'db, 'a, L> fmt::Debug for TrieAwareDebugNode<'db, 'a, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		if let Ok(node) = self.trie.get_raw_or_lookup(self.node_key, self.partial_key.as_prefix()) {
@@ -250,7 +250,7 @@ where
 #[cfg(feature="std")]
 impl<'db, L> fmt::Debug for TrieDB<'db, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		let root_rlp = self.root_data().unwrap();
@@ -300,13 +300,13 @@ impl<N: NibbleOps> Crumb<N> {
 }
 
 /// Iterator for going through all values in the trie.
-pub struct TrieDBIterator<'a, L: TrieLayOut> {
+pub struct TrieDBIterator<'a, L: TrieLayout> {
 	db: &'a TrieDB<'a, L>,
 	trail: Vec<Crumb<L::N>>,
 	key_nibbles: NibbleVec<L::N>,
 }
 
-impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
+impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 	/// Create a new iterator.
 	pub fn new(db: &'a TrieDB<L>) -> Result<TrieDBIterator<'a, L>, TrieHash<L>, CError<L>> {
 		let mut r = TrieDBIterator { db, trail: Vec::with_capacity(8), key_nibbles: NibbleVec::new() };
@@ -452,7 +452,7 @@ impl<'a, L: TrieLayOut> TrieDBIterator<'a, L> {
 
 }
 
-impl<'a, L: TrieLayOut> TrieIterator<L> for TrieDBIterator<'a, L> {
+impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBIterator<'a, L> {
 	/// Position the iterator on the first element with key >= `key`
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		self.trail.clear();
@@ -462,7 +462,7 @@ impl<'a, L: TrieLayOut> TrieIterator<L> for TrieDBIterator<'a, L> {
 	}
 }
 
-impl<'a, L: TrieLayOut> Iterator for TrieDBIterator<'a, L> {
+impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 	type Item = TrieItem<'a, TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {

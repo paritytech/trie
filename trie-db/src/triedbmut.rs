@@ -14,7 +14,7 @@
 
 //! In-memory trie representation.
 
-use super::{Result, TrieError, TrieMut, TrieLayOut, TrieHash, CError};
+use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::Node as EncodedNode;
 use node_codec::NodeCodec;
@@ -341,7 +341,7 @@ impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
 /// ```
 pub struct TrieDBMut<'a, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	storage: NodeStorage<TrieHash<L>>,
 	db: &'a mut dyn HashDB<L::H, DBValue>,
@@ -355,7 +355,7 @@ where
 
 impl<'a, L> TrieDBMut<'a, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	/// Create a new trie with backing database `db` and empty `root`.
 	pub fn new(db: &'a mut dyn HashDB<L::H, DBValue>, root: &'a mut TrieHash<L>) -> Self {
@@ -1318,7 +1318,7 @@ where
 
 impl<'a, L> TrieMut<L> for TrieDBMut<'a, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	fn root(&mut self) -> &TrieHash<L> {
 		self.commit();
@@ -1392,7 +1392,7 @@ where
 
 impl<'a, L> Drop for TrieDBMut<'a, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	fn drop(&mut self) {
 		self.commit();
@@ -1424,7 +1424,7 @@ mod tests {
 	use hash_db::{Hasher, HashDB};
 	use keccak_hasher::KeccakHasher;
 	use elastic_array::ElasticArray36;
-	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, TrieLayOut, NodeCodec,
+	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, TrieLayout, NodeCodec,
 		ReferenceNodeCodec, ref_trie_root, ref_trie_root_no_ext,
 		LayoutOri, BitMap16};
 
@@ -1472,7 +1472,7 @@ mod tests {
 
 	fn reference_hashed_null_node() -> <KeccakHasher as Hasher>::Out {
 		<ReferenceNodeCodec<BitMap16>
-			as NodeCodec<KeccakHasher, <LayoutOri as TrieLayOut>::N>>::hashed_null_node()
+			as NodeCodec<KeccakHasher, <LayoutOri as TrieLayout>::N>>::hashed_null_node()
 	}
 
 	#[test]

@@ -14,7 +14,7 @@
 
 use hash_db::{HashDBRef, Hasher};
 use super::{Result, DBValue, TrieDB, Trie, TrieDBIterator, TrieItem, TrieIterator, Query,
-	TrieLayOut, CError, TrieHash};
+	TrieLayout, CError, TrieHash};
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
@@ -25,14 +25,14 @@ use alloc::boxed::Box;
 /// Use it as a `Trie` or `TrieMut` trait object.
 pub struct FatDB<'db, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	raw: TrieDB<'db, L>,
 }
 
 impl<'db, L> FatDB<'db, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	/// Create a new trie with the backing database `db` and empty `root`
 	/// Initialise to the state entailed by the genesis block.
@@ -50,7 +50,7 @@ where
 
 impl<'db, L> Trie<L> for FatDB<'db, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	fn root(&self) -> &TrieHash<L> { self.raw.root() }
 
@@ -76,7 +76,7 @@ where
 /// Itarator over inserted pairs of key values.
 pub struct FatDBIterator<'db, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	trie_iterator: TrieDBIterator<'db, L>,
 	trie: &'db TrieDB<'db, L>,
@@ -84,7 +84,7 @@ where
 
 impl<'db, L> FatDBIterator<'db, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	/// Creates new iterator.
 	pub fn new(trie: &'db TrieDB<L>) -> Result<Self, TrieHash<L>, CError<L>> {
@@ -97,7 +97,7 @@ where
 
 impl<'db, L> TrieIterator<L> for FatDBIterator<'db, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		let hashed_key = L::H::hash(key);
@@ -107,7 +107,7 @@ where
 
 impl<'db, L> Iterator for FatDBIterator<'db, L>
 where
-	L: TrieLayOut,
+	L: TrieLayout,
 {
 	type Item = TrieItem<'db, TrieHash<L>, CError<L>>;
 

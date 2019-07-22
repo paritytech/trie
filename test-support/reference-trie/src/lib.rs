@@ -36,13 +36,13 @@ use keccak_hasher::KeccakHasher;
 
 pub use trie_db::{Trie, TrieMut, NibbleSlice, Recorder, NodeCodec, BitMap,
 	ChildSliceIx};
-pub use trie_db::{Record, TrieLayOut, TrieOps, NibbleHalf, NibbleQuarter, NibbleOps};
+pub use trie_db::{Record, TrieLayout, TrieOps, NibbleHalf, NibbleQuarter, NibbleOps};
 pub use trie_root::TrieStream;
 
 /// trie layout similar to parity-ethereum
 pub struct LayoutOri;
 
-impl TrieLayOut for LayoutOri {
+impl TrieLayout for LayoutOri {
 	const USE_EXTENSION: bool = true;
 	type H = keccak_hasher::KeccakHasher;
 	type C = ReferenceNodeCodec<BitMap16>;
@@ -55,7 +55,7 @@ impl TrieOps for LayoutOri { }
 /// trie layout similar to substrate one
 pub struct LayoutNew;
 
-impl TrieLayOut for LayoutNew {
+impl TrieLayout for LayoutNew {
 	const USE_EXTENSION: bool = false;
 	type H = keccak_hasher::KeccakHasher;
 	type C = ReferenceNodeCodecNoExt<BitMap16>;
@@ -66,7 +66,7 @@ impl TrieLayOut for LayoutNew {
 /// trie layout similar to substrate one
 pub struct LayoutNewH<H>(PhantomData<H>);
 
-impl<H: Hasher> TrieLayOut for LayoutNewH<H> {
+impl<H: Hasher> TrieLayout for LayoutNewH<H> {
 	const USE_EXTENSION: bool = false;
 	type H = H;
 	type C = ReferenceNodeCodecNoExt<BitMap16>;
@@ -79,7 +79,7 @@ impl<H: Hasher> TrieOps for LayoutNewH<H> { }
 /// Test quarter nibble
 pub struct LayoutNewQuarter;
 
-impl TrieLayOut for LayoutNewQuarter {
+impl TrieLayout for LayoutNewQuarter {
 	const USE_EXTENSION: bool = false;
 	type H = keccak_hasher::KeccakHasher;
 	type C = ReferenceNodeCodecNoExt<BitMap4>;
