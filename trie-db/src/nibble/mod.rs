@@ -31,9 +31,9 @@ const TWO_EXP: [usize; 9] = [1, 2, 4, 8, 16, 32, 64, 128, 256];
 /// Generic methods should not need redefinition except for optimization
 /// purpose.
 pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy + MaybeDebug {
-	/// See [`ByteLayout`]. 
+	/// See [`ByteLayout`].
 	const REPR : ByteLayout;
-	/// Single nibble length in bit. 
+	/// Single nibble length in bit.
 	const BIT_PER_NIBBLE : usize = TWO_EXP[Self::REPR as usize]; // 2usize.pow(Self::REPR as u32);
 	/// Number of nibble per byte.
 	const NIBBLE_PER_BYTE : usize = 8 / Self::BIT_PER_NIBBLE;
@@ -71,6 +71,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 		debug_assert!(ix > 0);
 		b & !Self::PADDING_BITMASK[ix as usize].0
 	}
+
 	/// Mask a byte from a ix > 0 (ix being content)
 	/// Result is a byte containing `ix` nibble of right aligned content and padded with 0.
 	#[inline(always)]
@@ -81,6 +82,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 			b
 		}
 	}
+
 	/// Get u8 nibble value at a given index of a byte.
 	#[inline(always)]
 	fn at_left(ix: u8, b: u8) -> u8 {
@@ -201,7 +203,7 @@ pub enum ByteLayout {
 }
 
 impl NibbleOps for NibbleHalf {
-	const REPR: ByteLayout = ByteLayout::Half; 
+	const REPR: ByteLayout = ByteLayout::Half;
 	const PADDING_BITMASK: &'static [(u8, usize)] = &[(0xFF, 4), (0x0F, 0)];
 	type ChildSliceIx = ChildSliceIx16;
 }
@@ -213,7 +215,7 @@ pub struct NibbleQuarter;
 
 // new_padded_end merged
 impl NibbleOps for NibbleQuarter {
-	const REPR: ByteLayout = ByteLayout::Quarter; 
+	const REPR: ByteLayout = ByteLayout::Quarter;
 	const PADDING_BITMASK: &'static [(u8, usize)] = &[
 		(0b1111_1111, 6),
 		(0b0011_1111, 4),
@@ -222,7 +224,6 @@ impl NibbleOps for NibbleQuarter {
 	];
 	type ChildSliceIx = ChildSliceIx4;
 }
-
 
 /// Owning, nibble-oriented byte vector. Counterpart to `NibbleSlice`.
 /// Nibbles are always left aligned, so making a `NibbleVec` from
@@ -304,7 +305,7 @@ pub trait ChildSliceIx: AsRef<[usize]>
 	}
 }
 
-/// Iterator over `ChildSliceIx` trait. 
+/// Iterator over `ChildSliceIx` trait.
 pub struct IterChildSliceIx<'a, CS>(&'a CS, usize, &'a[u8]);
 
 impl<'a, CS: ChildSliceIx> Iterator for IterChildSliceIx<'a, CS> {

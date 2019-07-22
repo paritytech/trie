@@ -55,10 +55,12 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	pub fn iter(&'a self) -> NibbleSliceIterator<'a, N> {
 		NibbleSliceIterator { p: self, i: 0 }
 	}
+
 	/// Get nibble slice from a `NodeKey`.
 	pub fn from_stored(i: &NodeKey) -> NibbleSlice<N> {
 		NibbleSlice::<N>::new_offset(&i.1[..], i.0)
 	}
+
 	/// Helper function to create a owned `NodeKey` from this `NibbleSlice`.
 	pub fn to_stored(&self) -> NodeKey {
 		let split = self.offset / N::NIBBLE_PER_BYTE;
@@ -129,9 +131,9 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	}
 
 	/// Do we start with the same nibbles as the whole of `them`?
- 	pub fn starts_with(&self, them: &Self) -> bool { self.common_prefix(them) == them.len() }
+	pub fn starts_with(&self, them: &Self) -> bool { self.common_prefix(them) == them.len() }
 
- 	/// How many of the same nibbles at the beginning do we match with `them`?
+	/// How many of the same nibbles at the beginning do we match with `them`?
 	pub fn common_prefix(&self, them: &Self) -> usize {
 		let s = min(self.len(), them.len());
 		let mut i = 0usize;

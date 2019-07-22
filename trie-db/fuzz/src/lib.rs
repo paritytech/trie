@@ -58,7 +58,7 @@ fn fuzz_to_data(input: &[u8]) -> Vec<(Vec<u8>,Vec<u8>)> {
 fn fuzz_removal(data: Vec<(Vec<u8>,Vec<u8>)>) -> Vec<(bool, Vec<u8>,Vec<u8>)> {
 	let mut res = Vec::new();
 	let mut torem = None;
-  let mut a = 0;
+	let mut a = 0;
 	for (a, d) in data.into_iter().enumerate() {
 		if a % 7 == 6	{
 			// a random removal some time

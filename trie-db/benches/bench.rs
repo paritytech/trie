@@ -375,7 +375,7 @@ fn trie_mut_a(c: &mut Criterion) {
 				trie.insert(&key, &value)
 					.expect("changes trie: insertion to trie is not allowed to fail within runtime");
 			}
-	
+
 		})
 	,data);
 }
@@ -399,7 +399,7 @@ fn trie_mut_b(c: &mut Criterion) {
 				trie.insert(&key, &value)
 					.expect("changes trie: insertion to trie is not allowed to fail within runtime");
 			}
-	
+
 		})
 	,data);
 }
@@ -447,5 +447,3 @@ fn trie_mut_build_b(c: &mut Criterion) {
 		})
 	,data);
 }
-
-

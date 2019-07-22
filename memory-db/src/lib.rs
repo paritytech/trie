@@ -164,11 +164,11 @@ pub trait KeyFunction<H: KeyHasher> {
 }
 
 
-/// Make database key from hash and prefix.
+/// Derive a database key from hash and prefix.
 ///
-/// Prefix could be ordered, but key hash appending will break this property.
-/// If true ordering is needed we would need a fix length encoding for prefix
-/// (so a maximum length and additional byte (or chunk of prefix encoded)).
+/// This method does not preserve ordering of prefix.
+///
+/// If ordering is needed, a length encoded prefix would be needed.
 pub fn prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8> {
 	let mut prefixed_key = Vec::with_capacity(key.as_ref().len() + prefix.0.len() + 1);
 	prefixed_key.extend_from_slice(prefix.0);
@@ -212,6 +212,7 @@ fn test_ordered_prefixed_key() {
 		);
 	}
 }
+
 /// Parameterize the size of successive chunks when using
 /// `ordered_prefixed_key`.
 /// Length of each chunk is minimum 1, maximum 254.
@@ -220,15 +221,15 @@ pub trait OrderedPrefixedKeyChunk: IntoIterator<Item = usize> + Clone + MaybeDeb
 	fn estimate_enc_len(input: usize) -> usize { input }
 }
 
-/// Make database key from hash and prefix.
+/// Derive a database key from hash and prefix.
 ///
-/// The scheme allows byte ordering of key depending on prefix (can iterate
-/// trie with it).
-/// Every chunk we add a 2 byte (could be reduce to one if storing directly a
-/// total number of chunks), the number of written bytes (last prefix padded one included), and
-/// the number of bytes in the prefix padding byte (note that for aligned prefix we add a
-/// theorically useless 0 to keep a simple trait).
-pub fn ordered_prefixed_key<H, C>(key: &H::Out, prefix: Prefix) -> Vec<u8> 
+/// Key are byte ordered depending on prefix (follows trie iteration).
+///
+/// Size encoding use fix sized chunks with 2 additional encoding bytes (not optimal
+/// for multiple chunks):  the number of written bytes , and
+/// the number of bytes in the prefix padding byte.
+/// Padding is 0 values, and the 2 additional bytes allows ordering for 0 keys.
+pub fn ordered_prefixed_key<H, C>(key: &H::Out, prefix: Prefix) -> Vec<u8>
 	where
 		H: KeyHasher,
 		C: OrderedPrefixedKeyChunk,
@@ -336,12 +337,12 @@ impl<H: KeyHasher> KeyFunction<H> for PrefixedKey<H> {
 /// Key function that concatenates prefix and hash.
 /// The resulting key byte is ordered by prefix byte value
 /// (in case of a trie prefix iteration over the prefixed
-/// key should give the same order as the trie).
-/// Also note that this scheme allows to retrieve the prefix
+/// nodes are ordered the same way as in the trie).
+/// Also note that this scheme allow retrieval of the prefix
 /// original value.
 pub struct OrderedPrefixedKey<H: KeyHasher, C: OrderedPrefixedKeyChunk>(C, PhantomData<H>);
 
-impl<H, C> KeyFunction<H> for OrderedPrefixedKey<H, C> 
+impl<H, C> KeyFunction<H> for OrderedPrefixedKey<H, C>
 	where
 		H: KeyHasher,
 		C: OrderedPrefixedKeyChunk,

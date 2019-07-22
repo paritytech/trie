@@ -405,8 +405,6 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 	fn out(self) -> Vec<u8> { self.buffer }
 }
 
-
-
 /// A node header.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 enum NodeHeader {
@@ -462,7 +460,6 @@ fn s_size_and_prefix_iter(size: usize, prefix: u8) -> impl Iterator<Item = u8> {
 	first_byte.chain(::std::iter::from_fn(next_bytes))
 }
 
-/// bounding size to storage in a u16 variable to avoid dos
 fn s_encode_size_and_prefix(size: usize, prefix: u8, out: &mut impl Output) {
 	for b in s_size_and_prefix_iter(size, prefix) {
 		out.push_byte(b)
@@ -505,28 +502,6 @@ fn test_encoding_simple_trie() {
 
 	}
 }
-
-/*
-#[test]
-fn test_mal() {
-	let mut unique = std::collections::BTreeMap::new();
-	// test over 32 bit only is still 4 byte & this bruteforce takes way to long...
-	for i in (0..u32::max_value() / 4) {
-		let enc = i.to_be_bytes();
-		assert!(enc[0] >> 6 == 0);
-		let input = &mut &enc[..];
-		let first = input.read_byte().unwrap();
-		if let Some(v) = s_decode_size(first, input) {
-			let mut rem = 0;
-			while let Some(_) = input.read_byte() { rem += 1 }
-			if let Some((prev,prem)) = unique.insert(v, (enc.to_vec(),rem)) {
-				assert_eq!(&enc[..4 - rem], &prev[..4 - prem],
-					"duplicated key val {} {} {:x?} {:x?}", v, i, prev, enc);
-			}
-		}
-	}
-}
-*/
 
 impl Encode for NodeHeaderNoExt {
 	fn encode_to<T: Output>(&self, output: &mut T) {
@@ -575,7 +550,8 @@ impl Decode for NodeHeaderNoExt {
 pub struct ReferenceNodeCodec<BM>(PhantomData<BM>);
 
 /// Simple reference implementation of a `NodeCodec`.
-/// This is following https://github.com/w3f/polkadot-re-spec/issues/8
+/// Implementation follows https://github.com/w3f/polkadot-re-spec/issues/8.
+/// It is mainly testing trie without extension node.
 #[derive(Default, Clone)]
 pub struct ReferenceNodeCodecNoExt<BM>(PhantomData<BM>);
 
@@ -922,7 +898,7 @@ impl<
 
 }
 
-// TODO fuse with other layout
+/// Compare trie builder and in memory trie.
 pub fn compare_impl<X : hash_db::HashDB<KeccakHasher,DBValue> + Eq> (
 	data: Vec<(Vec<u8>,Vec<u8>)>,
 	mut memdb: X,
@@ -966,6 +942,7 @@ pub fn compare_impl<X : hash_db::HashDB<KeccakHasher,DBValue> + Eq> (
 	assert!(memdb == hashdb);
 }
 
+/// Compare trie builder and trie root implementations.
 pub fn compare_root(
 	data: Vec<(Vec<u8>,Vec<u8>)>,
 	mut memdb: impl hash_db::HashDB<KeccakHasher,DBValue>,
@@ -987,6 +964,7 @@ pub fn compare_root(
 	assert_eq!(root, root_new);
 }
 
+/// Compare trie builder and trie root unhashed implementations.
 pub fn compare_unhashed(
 	data: Vec<(Vec<u8>,Vec<u8>)>,
 ) {
@@ -1000,6 +978,8 @@ pub fn compare_unhashed(
 	assert_eq!(root, root_new);
 }
 
+/// Compare trie builder and trie root unhashed implementations.
+/// This uses the variant without extension nodes.
 pub fn compare_unhashed_no_ext(
 	data: Vec<(Vec<u8>,Vec<u8>)>,
 ) {
@@ -1013,8 +993,7 @@ pub fn compare_unhashed_no_ext(
 	assert_eq!(root, root_new);
 }
 
-
-
+/// Trie builder root calculation utility.
 pub fn calc_root<I,A,B>(
 	data: I,
 ) -> <KeccakHasher as Hasher>::Out
@@ -1028,6 +1007,8 @@ pub fn calc_root<I,A,B>(
 	cb.root.unwrap_or(Default::default())
 }
 
+/// Trie builder root calculation utility.
+/// This uses the variant without extension nodes.
 pub fn calc_root_no_ext<I,A,B>(
 	data: I,
 ) -> <KeccakHasher as Hasher>::Out
@@ -1041,6 +1022,7 @@ pub fn calc_root_no_ext<I,A,B>(
 	cb.root.unwrap_or(Default::default())
 }
 
+/// Trie builder trie building utility.
 pub fn calc_root_build<I,A,B,DB>(
 	data: I,
 	hashdb: &mut DB
@@ -1049,13 +1031,15 @@ pub fn calc_root_build<I,A,B,DB>(
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord + fmt::Debug,
 		B: AsRef<[u8]> + fmt::Debug,
-    DB: hash_db::HashDB<KeccakHasher,DBValue>
+		DB: hash_db::HashDB<KeccakHasher,DBValue>
 {
 	let mut cb = TrieBuilder::new(hashdb);
 	trie_visit::<LayoutOri, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
 
+/// Trie builder trie building utility.
+/// This uses the variant without extension nodes.
 pub fn calc_root_build_no_ext<I,A,B,DB>(
 	data: I,
 	hashdb: &mut DB,
@@ -1064,15 +1048,15 @@ pub fn calc_root_build_no_ext<I,A,B,DB>(
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord + fmt::Debug,
 		B: AsRef<[u8]> + fmt::Debug,
-    DB: hash_db::HashDB<KeccakHasher,DBValue>
+		DB: hash_db::HashDB<KeccakHasher,DBValue>
 {
 	let mut cb = TrieBuilder::new(hashdb);
 	trie_db::trie_visit::<LayoutNew, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
 
-
-
+/// Compare trie builder and in memory trie.
+/// This uses the variant without extension nodes.
 pub fn compare_impl_no_ext(
 	data: Vec<(Vec<u8>,Vec<u8>)>,
 	mut memdb: impl hash_db::HashDB<KeccakHasher,DBValue>,
@@ -1091,12 +1075,7 @@ pub fn compare_impl_no_ext(
 		}
 		t.root().clone()
 	};
-/*	{
-		let db : &dyn hash_db::HashDB<_,_> = &memdb;
-			let t = RefTrieDBNoExt::new(&db, &root).unwrap();
-			println!("{:?}", t);
-	}*/
-		
+	
 	if root != root_new {
 		{
 			let db : &dyn hash_db::HashDB<_,_> = &memdb;
@@ -1119,6 +1098,9 @@ pub fn compare_impl_no_ext(
 	assert_eq!(root, root_new);
 }
 
+/// Compare trie builder and in memory trie.
+/// This uses the variant without extension nodes.
+/// This uses a radix 4 trie.
 pub fn compare_impl_no_ext_q(
 	data: Vec<(Vec<u8>,Vec<u8>)>,
 	mut memdb: impl hash_db::HashDB<KeccakHasher,DBValue>,
@@ -1166,7 +1148,7 @@ pub fn compare_impl_no_ext_q(
 	assert_eq!(root, root_new);
 }
 
-
+/// `compare_impl_no_ext` for unordered input.
 pub fn compare_impl_no_ext_unordered(
 	data: Vec<(Vec<u8>,Vec<u8>)>,
 	mut memdb: impl hash_db::HashDB<KeccakHasher,DBValue>,
@@ -1210,6 +1192,8 @@ pub fn compare_impl_no_ext_unordered(
 	assert_eq!(root, root_new);
 }
 
+/// Testing utility that uses some periodic removal over
+/// its input test data.
 pub fn compare_no_ext_insert_remove(
 	data: Vec<(bool, Vec<u8>,Vec<u8>)>,
 	mut memdb: impl hash_db::HashDB<KeccakHasher,DBValue>,

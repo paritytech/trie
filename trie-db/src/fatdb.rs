@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use hash_db::{HashDBRef, Hasher};
-use super::{Result, DBValue, TrieDB, Trie, TrieDBIterator, TrieItem, TrieIterator, Query, TrieLayOut, CError, TrieHash};
+use super::{Result, DBValue, TrieDB, Trie, TrieDBIterator, TrieItem, TrieIterator, Query,
+	TrieLayOut, CError, TrieHash};
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;

@@ -37,14 +37,14 @@ impl<T> MaybeDebug for T {}
 /// and for root nodes.
 pub static EMPTY_PREFIX: Prefix<'static> = (&[], (0,0));
 
-/// The Prefix of a trie node. Prefix is nibble path up to
+/// The prefix of a trie node, a prefix is the nibble path up to
 /// the node in the trie.
-/// For a value node it is the value key without the Partial
-/// bytes (encoded in the node).
-/// Being the leftmost portion of a byte, its internal representation
-/// is byte slice and and a padded byte.
-/// The padded byte is represented as a pair with number of nibble first,
-/// and left aligned padded value second.
+/// For a value node, it is the node key without the partial
+/// bytes (part of the key encoded in the node).
+/// As the leftmost portion of a byte array, its internal representation
+/// is a byte slice followed by a padded byte.
+/// The padded byte is a pair of u8 containing the number of nibble first,
+/// and the left aligned padded value second.
 pub type Prefix<'a> = (&'a[u8], (u8, u8));
 
 /// Trait describing an object that can hash a slice of bytes. Used to abstract

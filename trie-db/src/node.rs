@@ -27,7 +27,7 @@ pub type NodeKey = (usize, ElasticArray36<u8>);
 
 /// Alias to branch children slice, it is equivalent to '&[&[u8]]'.
 /// Reason for using it is https://github.com/rust-lang/rust/issues/43408.
-pub type BranchChildrenSlice<'a, N> = (<N as NibbleOps>::ChildSliceIx, &'a[u8]); 
+pub type BranchChildrenSlice<'a, N> = (<N as NibbleOps>::ChildSliceIx, &'a[u8]);
 
 /// Type of node in the trie and essential information thereof.
 #[derive(Eq, PartialEq, Clone)]

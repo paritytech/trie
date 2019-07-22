@@ -13,6 +13,9 @@
 // limitations under the License.
 
 //! Alternative tools for working with key value ordered iterator without recursion.
+//! This is iterative implementation of `trie_root` algorithm, using `NodeCodec`
+//! implementation.
+//! See `trie_visit` function.
 
 use hash_db::{Hasher, HashDB, Prefix};
 use core_::marker::PhantomData;
@@ -41,7 +44,7 @@ pub trait CacheBuilder<HO> {
 	/// The type of the cache.
 	type AN: AsRef<[CacheNode<HO>]> + AsMut<[CacheNode<HO>]>;
 	/// Create a new cache.
-	fn new_vec_slice_buff() -> Self::AN; 
+	fn new_vec_slice_buff() -> Self::AN;
 }
 
 /// Cache builder for radix 16 trie.
@@ -72,7 +75,7 @@ type ArrayNode<T> = <<T as TrieLayOut>::CB as CacheBuilder<TrieHash<T>>>::AN;
 // (64 * 16) aka 2*byte size of key * nb nibble value, 2 being byte/nible (8/4)
 // first usize to get nb of added value, second usize last added index
 // second str is in branch value
-/// Struct containing cache while iterating, can be at most the length of the lowest nibble.
+/// Struct containing iteration cache, can be at most the length of the lowest nibble.
 ///
 /// Note that it is not memory optimal (all depth are allocated even if some are empty due
 /// to node partial).
@@ -108,7 +111,7 @@ where
 		if self.0.is_empty() || self.0[self.0.len() - 1].2 < depth {
 			self.0.push((T::CB::new_vec_slice_buff(), None, depth));
 		}
-	
+
 		let last = self.0.len() - 1;
 		debug_assert!(self.0[last].2 == depth);
 
@@ -157,7 +160,7 @@ where
 		&mut self,
 		cb_ext: &mut impl ProcessEncodedNode<TrieHash<T>>,
 		target_depth: usize,
-		(k2, v2): &(impl AsRef<[u8]>,impl AsRef<[u8]>), 
+		(k2, v2): &(impl AsRef<[u8]>,impl AsRef<[u8]>),
 	) {
 		let nibble_value = T::N::left_nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
@@ -187,7 +190,7 @@ where
 			let lix = self.last_depth();
 			let llix = max(self.last_last_depth(), new_depth);
 
-			let (offset, slice_size, is_root) = 
+			let (offset, slice_size, is_root) =
 				if llix == 0 && is_last && self.is_one() {
 				// branch root
 				(llix, lix - llix, true)
@@ -199,7 +202,7 @@ where
 			} else {
 				None
 			};
- 
+
 			let h = if no_ext {
 				// enc branch
 				self.alt_no_ext(&ref_branch.as_ref()[..], cb_ext, lix, is_root, nkey)
@@ -277,10 +280,10 @@ where
 
 }
 
-/// Function visiting trie from key value with a `ProccessEncodedNode`.
+/// Function visiting trie from key/value inputs with a `ProccessEncodedNode` callback.
 /// Calls to each node occurs ordered but with longest depth first (from node to
 /// branch to root), this differs form key ordering a bit.
-pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F) 
+pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F)
 	where
 		T: TrieLayOut,
 		I: IntoIterator<Item = (A, B)>,
@@ -363,7 +366,7 @@ pub struct TrieBuilder<'a, H, HO, V, DB> {
 
 impl<'a, H, HO, V, DB> TrieBuilder<'a, H, HO, V, DB> {
 	pub fn new(db: &'a mut DB) -> Self {
-		TrieBuilder { db, root: None, _ph: PhantomData } 
+		TrieBuilder { db, root: None, _ph: PhantomData }
 	}
 }
 
@@ -399,7 +402,7 @@ pub struct TrieRoot<H, HO> {
 
 impl<H, HO> Default for TrieRoot<H, HO> {
 	fn default() -> Self {
-		TrieRoot { root: None, _ph: PhantomData } 
+		TrieRoot { root: None, _ph: PhantomData }
 	}
 }
 
@@ -434,7 +437,7 @@ pub struct TrieRootUnhashed<H> {
 
 impl<H> Default for TrieRootUnhashed<H> {
 	fn default() -> Self {
-		TrieRootUnhashed { root: None, _ph: PhantomData } 
+		TrieRootUnhashed { root: None, _ph: PhantomData }
 	}
 }
 
@@ -450,7 +453,7 @@ pub struct TrieRootPrint<H, HO> {
 #[cfg(feature = "std")]
 impl<H, HO> Default for TrieRootPrint<H, HO> {
 	fn default() -> Self {
-		TrieRootPrint { root: None, _ph: PhantomData } 
+		TrieRootPrint { root: None, _ph: PhantomData }
 	}
 }
 
@@ -462,21 +465,21 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootPrint<H, <H a
 		enc_ext: Vec<u8>,
 		is_root: bool,
 	) -> ChildReference<<H as Hasher>::Out> {
-		println!("Encoded node: {:x?}", &enc_ext); 
-		println!("	with prefix: {:x?}", &p); 
+		println!("Encoded node: {:x?}", &enc_ext);
+		println!("	with prefix: {:x?}", &p);
 		let len = enc_ext.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
 			let mut h = <<H as Hasher>::Out as Default>::default();
 			h.as_mut()[..len].copy_from_slice(&enc_ext[..len]);
 
-			println!("	inline len {}", len); 
+			println!("	inline len {}", len);
 			return ChildReference::Inline(h, len);
 		}
 		let hash = <H as Hasher>::hash(&enc_ext[..]);
 		if is_root {
 			self.root = Some(hash.clone());
 		};
-		println!("	hashed to {:x?}", hash.as_ref()); 
+		println!("	hashed to {:x?}", hash.as_ref());
 		ChildReference::Hash(hash)
 	}
 }
@@ -502,8 +505,6 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashed<H> {
 		ChildReference::Hash(hash)
 	}
 }
-
-
 
 #[cfg(test)]
 mod test {
@@ -679,7 +680,6 @@ mod test {
 		compare_unhashed(d.clone());
 		compare_unhashed_no_ext(d);
 	}
-
 	#[test]
 	fn root_extension_tierce_big () {
 		// on more content unhashed would hash
@@ -691,8 +691,6 @@ mod test {
 			(vec![6u8,2u8,3u8,13u8],vec![8u8;32]),
 		]);
 	}
-
-
 	#[test]
 	fn trie_middle_node2x () {
 		compare_impl(vec![
@@ -756,7 +754,6 @@ mod test {
 			(vec![0xbb, 0xcc], vec![0xbc]),
 		]);
 	}
-
 	#[test]
 	fn fuzz_noext3 () {
 		compare_impl(vec![
@@ -789,7 +786,6 @@ mod test {
 		];
 		compare_no_ext_insert_remove(data);
 	}
-
 	#[test]
 	fn fuzz_noext_ins_rem_2 () {
 		let data = vec![
@@ -800,7 +796,6 @@ mod test {
 		];
 		compare_no_ext_insert_remove(data);
 	}
-
 	#[test]
 	fn two_bytes_nibble_len () {
 		let data = vec![
@@ -829,23 +824,10 @@ mod test {
 	#[test]
 	fn polka_re_test () {
 		compare_impl(vec![
-      (vec![77, 111, 111, 55, 111, 104, 121, 97], vec![68, 97, 105, 55, 105, 101, 116, 111]),
-      (vec![101, 105, 67, 104, 111, 111, 66, 56], vec![97, 56, 97, 113, 117, 53, 97]),
-      (vec![105, 97, 48, 77, 101, 105, 121, 101], vec![69, 109, 111, 111, 82, 49, 97, 105]),
+			(vec![77, 111, 111, 55, 111, 104, 121, 97], vec![68, 97, 105, 55, 105, 101, 116, 111]),
+			(vec![101, 105, 67, 104, 111, 111, 66, 56], vec![97, 56, 97, 113, 117, 53, 97]),
+			(vec![105, 97, 48, 77, 101, 105, 121, 101], vec![69, 109, 111, 111, 82, 49, 97, 105]),
 		]);
-  }
-
-
-
-/*	#[test]
-	fn fdispc () {
-	let data = vec![
-			(vec![0], vec![251;32]),
-			(vec![0,1], vec![251; 32]),
-			(vec![0,1,2], vec![251; 32]),
-	];
-	compare_impl_no_ext_pk(data);
-	panic!("dd");
 	}
- */
+
 }

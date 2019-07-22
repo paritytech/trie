@@ -64,7 +64,7 @@ impl<N: NibbleOps> NibbleVec<N> {
 		}
 		self.len += 1;
 	}
-	
+
 	/// Try to pop a nibble off the `NibbleVec`. Fails if len == 0.
 	pub fn pop(&mut self) -> Option<u8> {
 		if self.is_empty() {
@@ -153,26 +153,26 @@ impl<N: NibbleOps> NibbleVec<N> {
 	}
 
 	/// Utility function for chaining two optional appending
-  /// of `NibbleSlice` and/or a byte.
-  /// Can be slow.
+	/// of `NibbleSlice` and/or a byte.
+	/// Can be slow.
 	pub(crate) fn append_slice_nibble(
 		&mut self,
 		o_sl: Option<&NibbleSlice<N>>,
 		o_ix: Option<u8>,
 	) -> usize {
 		let mut res = 0;
-		if let Some(sl) = o_sl { 
+		if let Some(sl) = o_sl {
 			self.append_partial(sl.right());
 			res += sl.len();
 		}
-		if let Some(ix) = o_ix { 
+		if let Some(ix) = o_ix {
 			self.push(ix);
 			res += 1;
 		}
 		res
 	}
 	/// Utility function for `append_slice_nibble` after a clone.
-  /// Can be slow.
+	/// Can be slow.
 	pub(crate) fn clone_append_slice_nibble(
 		&self,
 		o_sl: Option<&NibbleSlice<N>>,
@@ -269,7 +269,7 @@ mod tests {
 
 	#[test]
 	fn drop_lasts_test() {
-		let test_trun = |a: &[u8], b: usize, c: (&[u8], usize)| { 
+		let test_trun = |a: &[u8], b: usize, c: (&[u8], usize)| {
 			let mut k = NibbleVec::<crate::nibble::NibbleHalf>::new();
 			for v in a {
 				k.push(*v);

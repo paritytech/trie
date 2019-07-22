@@ -202,7 +202,10 @@ pub trait Trie<L: TrieLayOut> {
 	}
 
 	/// What is the value of the given key in this trie?
-	fn get<'a, 'key>(&'a self, key: &'key [u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> where 'a: 'key {
+	fn get<'a, 'key>(
+		&'a self,
+		key: &'key [u8],
+	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> where 'a: 'key {
 		self.get_with(key, DBValue::from_slice)
 	}
 
@@ -236,7 +239,10 @@ pub trait TrieMut<L: TrieLayOut> {
 	}
 
 	/// What is the value of the given key in this trie?
-	fn get<'a, 'key>(&'a self, key: &'key [u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> where 'a: 'key;
+	fn get<'a, 'key>(
+		&'a self,
+		key: &'key [u8],
+	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> where 'a: 'key;
 
 	/// Insert a `key`/`value` pair into the trie. An empty value is equivalent to removing
 	/// `key` from the trie. Returns the old value associated with this key, if it existed.
@@ -313,7 +319,10 @@ impl<'db, L: TrieLayOut> Trie<L> for TrieKinds<'db, L> {
 		wrapper!(self, contains, key)
 	}
 
-	fn get_with<'a, 'key, Q: Query<L::H>>(&'a self, key: &'key [u8], query: Q) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
+	fn get_with<'a, 'key, Q: Query<L::H>>(
+		&'a self, key: &'key [u8],
+		query: Q,
+	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
 		where 'a: 'key
 	{
 		wrapper!(self, get_with, key, query)
@@ -381,8 +390,8 @@ where
 }
 
 /// Trait with definition of trie layout.
-/// It contains all associated trait needed for
-/// a trie definition.
+/// Contains all associated trait needed for
+/// a trie definition or implementation.
 pub trait TrieLayOut {
 	/// If true, the trie will use extension nodes and
 	/// no partial in branch, if false the trie will only
@@ -390,9 +399,9 @@ pub trait TrieLayOut {
 	const USE_EXTENSION: bool;
 	/// Hasher to use for this trie.
 	type H: Hasher;
-	/// Codec to use (need to match hasher and nibble ops)
+	/// Codec to use (needs to match hasher and nibble ops).
 	type C: NodeCodec<Self::H, Self::N>;
-	/// Trie nibble constants.
+	/// Trie nibble constants. It defines trie radix.
 	type N: NibbleOps;
 	/// Technical trait for cache, it should match the radix
 	/// of `NibbleOps`.
@@ -400,6 +409,7 @@ pub trait TrieLayOut {
 }
 
 /// Trait with operation on key value iterator.
+/// It associates trie definition with chosen methods.
 /// This trait contains its own default implementations
 /// and exists only to allow alternate algorithm usage.
 pub trait TrieOps: Sized + TrieLayOut {
@@ -434,7 +444,7 @@ pub trait TrieOps: Sized + TrieLayOut {
 		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	}
-	/// Encoding of index as a key (when reusing general trie for 
+	/// Encoding of index as a key (when reusing general trie for
 	/// indexed trie).
 	fn encode_index(input: u32) -> Vec<u8> {
 		// be for byte ordering
