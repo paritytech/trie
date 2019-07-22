@@ -96,9 +96,9 @@ pub trait NodeCodec<H: Hasher, N: NibbleOps>: Sized {
   ) -> Vec<u8>;
 }
 
-/// Child bitmap encoder that is related to the trie number of children.
+/// Bitmap encoder for the number of children nodes.
 /// This would be useless with https://github.com/rust-lang/rust/issues/43408.
-pub trait ChildBitmap: Sized {
+pub trait BitMap: Sized {
 	/// length to encode the bitmap
 	const ENCODED_LEN: usize;
 	/// Codec error type.

@@ -34,7 +34,7 @@ use trie_db::{
 use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
 
-pub use trie_db::{Trie, TrieMut, NibbleSlice, Recorder, NodeCodec, ChildBitmap,
+pub use trie_db::{Trie, TrieMut, NibbleSlice, Recorder, NodeCodec, BitMap,
 	ChildSliceIx};
 pub use trie_db::{Record, TrieLayOut, TrieOps, NibbleHalf, NibbleQuarter, NibbleOps};
 pub use trie_root::TrieStream;
@@ -92,7 +92,7 @@ impl TrieOps for LayoutNewQuarter { }
 /// bitmap codec for radix 16
 pub struct BitMap16(u16);
 
-impl ChildBitmap for BitMap16 {
+impl BitMap for BitMap16 {
 	const ENCODED_LEN: usize = 2;
 	type Error = ReferenceError;
 	type Buff = [u8;3]; // need a byte for header
@@ -122,7 +122,7 @@ impl ChildBitmap for BitMap16 {
 /// bitmap codec for radix 4
 pub struct BitMap4(u8);
 
-impl ChildBitmap for BitMap4 {
+impl BitMap for BitMap4 {
 	const ENCODED_LEN: usize = 1;
 	type Error = ReferenceError;
 	type Buff = [u8;2]; // need a byte for header
@@ -277,7 +277,7 @@ fn branch_node(has_value: bool, has_children: impl Iterator<Item = bool>) -> [u8
 	res
 }
 
-fn branch_node_buf<BM: ChildBitmap, I: Iterator<Item = bool>>(has_value: bool, has_children: I, dest: &mut[u8]) {
+fn branch_node_buf<BM: BitMap, I: Iterator<Item = bool>>(has_value: bool, has_children: I, dest: &mut[u8]) {
 	let first = if has_value {
 		BRANCH_NODE_WITH_VALUE
 	} else {
@@ -645,7 +645,7 @@ fn partial_enc<N: NibbleOps>(partial: Partial, node_kind: NodeKindNoExt) -> Vec<
 impl<
 	H: Hasher,
 	N: NibbleOps,
-	BM: ChildBitmap<Error = ReferenceError>
+	BM: BitMap<Error = ReferenceError>
 > NodeCodec<H, N> for ReferenceNodeCodec<BM> {
 	type Error = ReferenceError;
 
@@ -772,7 +772,7 @@ impl<
 impl<
 	H: Hasher,
 	N: NibbleOps,
-	BM: ChildBitmap<Error = ReferenceError>
+	BM: BitMap<Error = ReferenceError>
 > NodeCodec<H, N> for ReferenceNodeCodecNoExt<BM> {
 	type Error = ReferenceError;
 
