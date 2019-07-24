@@ -39,7 +39,7 @@ pub use trie_db::{Trie, TrieMut, NibbleSlice, Recorder, NodeCodec, BitMap,
 pub use trie_db::{Record, TrieLayout, TrieOps, NibbleHalf, NibbleQuarter, NibbleOps};
 pub use trie_root::TrieStream;
 
-/// trie layout using extension nodes.
+/// Trie layout using extension nodes.
 pub struct ExtensionLayout;
 
 impl TrieLayout for ExtensionLayout {
@@ -52,7 +52,7 @@ impl TrieLayout for ExtensionLayout {
 
 impl TrieOps for ExtensionLayout { }
 
-/// trie layout similar to substrate one
+/// Trie layout without extension nodes.
 pub struct NoExtensionLayout;
 
 impl TrieLayout for NoExtensionLayout {
@@ -550,8 +550,9 @@ impl Decode for NodeHeaderNoExt {
 pub struct ReferenceNodeCodec<BM>(PhantomData<BM>);
 
 /// Simple reference implementation of a `NodeCodec`.
-/// Implementation follows https://github.com/w3f/polkadot-re-spec/issues/8.
-/// It is mainly testing trie without extension node.
+/// Implementation follows initial specification of
+/// https://github.com/w3f/polkadot-re-spec/issues/8.
+/// But it is mainly the testing codec without extension node.
 #[derive(Default, Clone)]
 pub struct ReferenceNodeCodecNoExt<BM>(PhantomData<BM>);
 
