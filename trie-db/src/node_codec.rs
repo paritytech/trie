@@ -105,7 +105,7 @@ pub trait BitMap: Sized {
 	type Error: Error;
 
 	/// Codec buffer to use.	
-	type Buff: AsRef<[u8]> + AsMut<[u8]> + Default;
+	type Buffer: AsRef<[u8]> + AsMut<[u8]> + Default;
 
 	/// decode bitmap
 	fn decode(data: &[u8]) -> Result<Self, Self::Error>;

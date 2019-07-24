@@ -39,10 +39,10 @@ pub use trie_db::{Trie, TrieMut, NibbleSlice, Recorder, NodeCodec, BitMap,
 pub use trie_db::{Record, TrieLayout, TrieOps, NibbleHalf, NibbleQuarter, NibbleOps};
 pub use trie_root::TrieStream;
 
-/// trie layout similar to parity-ethereum
-pub struct LayoutOri;
+/// trie layout using extension nodes.
+pub struct ExtensionLayout;
 
-impl TrieLayout for LayoutOri {
+impl TrieLayout for ExtensionLayout {
 	const USE_EXTENSION: bool = true;
 	type H = keccak_hasher::KeccakHasher;
 	type C = ReferenceNodeCodec<BitMap16>;
@@ -50,12 +50,12 @@ impl TrieLayout for LayoutOri {
 	type CB = Cache16;
 }
 
-impl TrieOps for LayoutOri { }
+impl TrieOps for ExtensionLayout { }
 
 /// trie layout similar to substrate one
-pub struct LayoutNew;
+pub struct NoExtensionLayout;
 
-impl TrieLayout for LayoutNew {
+impl TrieLayout for NoExtensionLayout {
 	const USE_EXTENSION: bool = false;
 	type H = keccak_hasher::KeccakHasher;
 	type C = ReferenceNodeCodecNoExt<BitMap16>;
@@ -64,9 +64,9 @@ impl TrieLayout for LayoutNew {
 }
 
 /// trie layout similar to substrate one
-pub struct LayoutNewH<H>(PhantomData<H>);
+pub struct SimpleNoExtensionLayout<H>(PhantomData<H>);
 
-impl<H: Hasher> TrieLayout for LayoutNewH<H> {
+impl<H: Hasher> TrieLayout for SimpleNoExtensionLayout<H> {
 	const USE_EXTENSION: bool = false;
 	type H = H;
 	type C = ReferenceNodeCodecNoExt<BitMap16>;
@@ -74,12 +74,12 @@ impl<H: Hasher> TrieLayout for LayoutNewH<H> {
 	type CB = Cache16;
 }
 
-impl<H: Hasher> TrieOps for LayoutNewH<H> { }
+impl<H: Hasher> TrieOps for SimpleNoExtensionLayout<H> { }
 
 /// Test quarter nibble
-pub struct LayoutNewQuarter;
+pub struct NoExtensionLayoutQuarter;
 
-impl TrieLayout for LayoutNewQuarter {
+impl TrieLayout for NoExtensionLayoutQuarter {
 	const USE_EXTENSION: bool = false;
 	type H = keccak_hasher::KeccakHasher;
 	type C = ReferenceNodeCodecNoExt<BitMap4>;
@@ -87,7 +87,7 @@ impl TrieLayout for LayoutNewQuarter {
 	type CB = Cache4;
 }
 
-impl TrieOps for LayoutNewQuarter { }
+impl TrieOps for NoExtensionLayoutQuarter { }
 
 /// bitmap codec for radix 16
 pub struct BitMap16(u16);
@@ -95,7 +95,7 @@ pub struct BitMap16(u16);
 impl BitMap for BitMap16 {
 	const ENCODED_LEN: usize = 2;
 	type Error = ReferenceError;
-	type Buff = [u8;3]; // need a byte for header
+	type Buffer = [u8;3]; // need a byte for header
 
 	fn decode(data: &[u8]) -> Result<Self, Self::Error> {
 		u16::decode(&mut &data[..])
@@ -125,7 +125,7 @@ pub struct BitMap4(u8);
 impl BitMap for BitMap4 {
 	const ENCODED_LEN: usize = 1;
 	type Error = ReferenceError;
-	type Buff = [u8;2]; // need a byte for header
+	type Buffer = [u8;2]; // need a byte for header
 
 	fn decode(data: &[u8]) -> Result<Self, Self::Error> {
 		if data.len() == 0 || data[0] & 0xf0 != 0 {
@@ -151,19 +151,19 @@ impl BitMap for BitMap4 {
 
 }
 
-pub type RefTrieDB<'a> = trie_db::TrieDB<'a, LayoutOri>;
-pub type RefTrieDBNoExt<'a> = trie_db::TrieDB<'a, LayoutNew>;
-pub type RefTrieDBNoExtQ<'a> = trie_db::TrieDB<'a, LayoutNewQuarter>;
-pub type RefTrieDBMut<'a> = trie_db::TrieDBMut<'a, LayoutOri>;
-pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMut<'a, LayoutNew>;
-pub type RefTrieDBMutNoExtQ<'a> = trie_db::TrieDBMut<'a, LayoutNewQuarter>;
-pub type RefFatDB<'a> = trie_db::FatDB<'a, LayoutOri>;
-pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, LayoutOri>;
-pub type RefSecTrieDB<'a> = trie_db::SecTrieDB<'a, LayoutOri>;
-pub type RefSecTrieDBMut<'a> = trie_db::SecTrieDBMut<'a, LayoutOri>;
-pub type RefLookup<'a, Q> = trie_db::Lookup<'a, LayoutOri, Q>;
-pub type RefLookupNoExt<'a, Q> = trie_db::Lookup<'a, LayoutNew, Q>;
-pub type RefLookupNoExtQ<'a, Q> = trie_db::Lookup<'a, LayoutNewQuarter, Q>;
+pub type RefTrieDB<'a> = trie_db::TrieDB<'a, ExtensionLayout>;
+pub type RefTrieDBNoExt<'a> = trie_db::TrieDB<'a, NoExtensionLayout>;
+pub type RefTrieDBNoExtQ<'a> = trie_db::TrieDB<'a, NoExtensionLayoutQuarter>;
+pub type RefTrieDBMut<'a> = trie_db::TrieDBMut<'a, ExtensionLayout>;
+pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMut<'a, NoExtensionLayout>;
+pub type RefTrieDBMutNoExtQ<'a> = trie_db::TrieDBMut<'a, NoExtensionLayoutQuarter>;
+pub type RefFatDB<'a> = trie_db::FatDB<'a, ExtensionLayout>;
+pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, ExtensionLayout>;
+pub type RefSecTrieDB<'a> = trie_db::SecTrieDB<'a, ExtensionLayout>;
+pub type RefSecTrieDBMut<'a> = trie_db::SecTrieDBMut<'a, ExtensionLayout>;
+pub type RefLookup<'a, Q> = trie_db::Lookup<'a, ExtensionLayout, Q>;
+pub type RefLookupNoExt<'a, Q> = trie_db::Lookup<'a, NoExtensionLayout, Q>;
+pub type RefLookupNoExtQ<'a, Q> = trie_db::Lookup<'a, NoExtensionLayoutQuarter, Q>;
 
 pub fn ref_trie_root<I, A, B>(input: I) -> <KeccakHasher as Hasher>::Out where
 	I: IntoIterator<Item = (A, B)>,
@@ -737,7 +737,7 @@ impl<
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		maybe_value: Option<&[u8]>) -> Vec<u8> {
 		let mut output = vec![0; BITMAP::ENCODED_LEN + 1];
-		let mut prefix: BITMAP::Buff = Default::default();
+		let mut prefix: BITMAP::Buffer = Default::default();
 		let have_value = if let Some(value) = maybe_value {
 			value.encode_to(&mut output);
 			true
@@ -877,7 +877,7 @@ impl<
 			partial_enc_it::<N,_>(partial, number_nibble, NodeKindNoExt::BranchNoValue)
 		};
 		let bitmap_index = output.len();
-		let mut bitmap: BITMAP::Buff = Default::default();
+		let mut bitmap: BITMAP::Buffer = Default::default();
 		(0..BITMAP::ENCODED_LEN).for_each(|_|output.push(0));
 		if let Some(value) = maybe_value {
 			value.encode_to(&mut output);
@@ -908,7 +908,7 @@ pub fn compare_impl<X : hash_db::HashDB<KeccakHasher,DBValue> + Eq> (
 ) {
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit::<LayoutOri, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit::<ExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = {
@@ -951,7 +951,7 @@ pub fn compare_root(
 ) {
 	let root_new = {
 		let mut cb = TrieRoot::<KeccakHasher, _>::default();
-		trie_visit::<LayoutOri, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit::<ExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = {
@@ -972,7 +972,7 @@ pub fn compare_unhashed(
 ) {
 	let root_new = {
 		let mut cb = trie_db::TrieRootUnhashed::<KeccakHasher>::default();
-		trie_visit::<LayoutOri, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit::<ExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = ref_trie_root_unhashed(data);
@@ -987,7 +987,7 @@ pub fn compare_unhashed_no_ext(
 ) {
 	let root_new = {
 		let mut cb = trie_db::TrieRootUnhashed::<KeccakHasher>::default();
-		trie_visit::<LayoutNew, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit::<NoExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = ref_trie_root_unhashed_no_ext(data);
@@ -1005,7 +1005,7 @@ pub fn calc_root<I,A,B>(
 		B: AsRef<[u8]> + fmt::Debug,
 {
 	let mut cb = TrieRoot::<KeccakHasher, _>::default();
-	trie_visit::<LayoutOri, _, _, _, _>(data.into_iter(), &mut cb);
+	trie_visit::<ExtensionLayout, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
 
@@ -1020,7 +1020,7 @@ pub fn calc_root_no_ext<I,A,B>(
 		B: AsRef<[u8]> + fmt::Debug,
 {
 	let mut cb = TrieRoot::<KeccakHasher, _>::default();
-	trie_db::trie_visit::<LayoutNew, _, _, _, _>(data.into_iter(), &mut cb);
+	trie_db::trie_visit::<NoExtensionLayout, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
 
@@ -1036,7 +1036,7 @@ pub fn calc_root_build<I,A,B,DB>(
 		DB: hash_db::HashDB<KeccakHasher,DBValue>
 {
 	let mut cb = TrieBuilder::new(hashdb);
-	trie_visit::<LayoutOri, _, _, _, _>(data.into_iter(), &mut cb);
+	trie_visit::<ExtensionLayout, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
 
@@ -1053,7 +1053,7 @@ pub fn calc_root_build_no_ext<I,A,B,DB>(
 		DB: hash_db::HashDB<KeccakHasher,DBValue>
 {
 	let mut cb = TrieBuilder::new(hashdb);
-	trie_db::trie_visit::<LayoutNew, _, _, _, _>(data.into_iter(), &mut cb);
+	trie_db::trie_visit::<NoExtensionLayout, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
 
@@ -1066,7 +1066,7 @@ pub fn compare_impl_no_ext(
 ) {
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit::<LayoutNew, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit::<NoExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = {
@@ -1110,7 +1110,7 @@ pub fn compare_impl_no_ext_q(
 ) {
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit::<LayoutNewQuarter, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		trie_visit::<NoExtensionLayoutQuarter, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = {
@@ -1168,7 +1168,7 @@ pub fn compare_impl_no_ext_unordered(
 	};
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit::<LayoutNew, _, _, _, _>(b_map.into_iter(), &mut cb);
+		trie_visit::<NoExtensionLayout, _, _, _, _>(b_map.into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 
