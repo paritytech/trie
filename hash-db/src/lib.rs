@@ -39,9 +39,9 @@ pub static EMPTY_PREFIX: Prefix<'static> = (&[], (0,0));
 
 /// The prefix of a trie node, a prefix is the nibble path up to
 /// the node in the trie.
-/// For a value node, it is the node key without the partial
-/// bytes (part of the key encoded in the node).
-/// As the leftmost portion of a byte array, its internal representation
+/// For a value node, it is the node key with its node partial
+/// bytes removed (the node key can be split into prefix and node partial).
+/// As the leftmost portion of the node key, its internal representation
 /// is a byte slice followed by a padded byte.
 /// The padded byte is a pair of u8 containing the number of nibble first,
 /// and the left aligned padded value second.

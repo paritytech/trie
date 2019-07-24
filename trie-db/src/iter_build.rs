@@ -626,11 +626,6 @@ mod test {
 		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		reference_trie::compare_impl_no_ext_unordered(data, memdb, hashdb);
 	}
-/*	fn compare_impl_no_ext_unordered_rem(data: Vec<(Vec<u8>,Vec<u8>)>, rem: &[(usize,usize)]) {
-		let memdb = MemoryDB::default();
-		let hashdb = MemoryDB::<KeccakHasher, DBValue>::default();
-		reference_trie::compare_impl_no_ext_unordered_rem(data, rem, memdb, hashdb);
-	}*/
 	fn compare_no_ext_insert_remove(data: Vec<(bool, Vec<u8>,Vec<u8>)>) {
 		let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 		reference_trie::compare_no_ext_insert_remove(data, memdb);

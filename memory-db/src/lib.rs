@@ -174,7 +174,6 @@ pub fn prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8> {
 	prefixed_key.extend_from_slice(prefix.0);
 	if (prefix.1).0 > 0 {
 		prefixed_key.push((prefix.1).1);
-		prefixed_key.push((prefix.1).0); // put size to avoid any possible collision
 	}
 	prefixed_key.extend_from_slice(key.as_ref());
 	prefixed_key
@@ -215,6 +214,8 @@ fn test_ordered_prefixed_key() {
 
 /// Parameterize the size of successive chunks when using
 /// `ordered_prefixed_key`.
+/// Chunks are successive fix length byte arrays containing the key.
+/// Last chunk is padded with 0 values.
 /// Length of each chunk is minimum 1, maximum 254.
 pub trait OrderedPrefixedKeyChunk: IntoIterator<Item = usize> + Clone + MaybeDebug + Default {
 	/// Estimate a final length given a input length.
