@@ -173,7 +173,7 @@ where
 				let pr = NibbleSlice::<N>::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
 				let c = child_cb(child, Some(&pr), None);
-				C::ext_node(
+				C::extension_node(
 					it,
 					pr.len(),
 					c,
@@ -907,11 +907,11 @@ where
 				}
 			},
 			(Node::NibbledBranch(encoded, mut children, value), false) => {
-				let (cp, existing_len) = {
+				let (cp, existing_length) = {
 					let existing_key = NibbleSlice::from_stored(&encoded);
 					(existing_key.common_prefix(&partial), existing_key.len())
 				};
-				if cp == existing_len && cp == partial.len() {
+				if cp == existing_length && cp == partial.len() {
 
 					// replace val
 					if let Some(val) = value {
@@ -922,11 +922,11 @@ where
 					} else {
 						Action::Restore(Node::NibbledBranch(encoded, children, None))
 					}
-				} else if cp < existing_len {
+				} else if cp < existing_length {
 					// partway through an extension -- nothing to do here.
 					Action::Restore(Node::NibbledBranch(encoded, children, value))
 				} else {
-					// cp == existing_len && cp < partial.len() : check children
+					// cp == existing_length && cp < partial.len() : check children
 					let idx = partial.at(cp) as usize;
 
 					if let Some(child) = children[idx].take() {
@@ -977,11 +977,11 @@ where
 				}
 			},
 			(Node::Extension(encoded, child_branch), _) => {
-				let (cp, existing_len) = {
+				let (cp, existing_length) = {
 					let existing_key = NibbleSlice::from_stored(&encoded);
 					(existing_key.common_prefix(&partial), existing_key.len())
 				};
-				if cp == existing_len {
+				if cp == existing_length {
 					// try to remove from the child branch.
 					#[cfg(feature = "std")]
 					trace!(target: "trie", "removing from extension child, partial={:?}", partial);
@@ -1428,7 +1428,7 @@ mod tests {
 	use keccak_hasher::KeccakHasher;
 	use elastic_array::ElasticArray36;
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, TrieLayout, NodeCodec,
-		ReferenceNodeCodec, ref_trie_root, ref_trie_root_no_ext,
+		ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension,
 		ExtensionLayout, BitMap16};
 
 	fn populate_trie<'db>(
@@ -1452,7 +1452,7 @@ mod tests {
 		}
 	}
 
-	fn populate_trie_no_ext<'db>(
+	fn populate_trie_no_extension<'db>(
 		db: &'db mut dyn HashDB<KeccakHasher, DBValue>,
 		root: &'db mut <KeccakHasher as Hasher>::Out,
 		v: &[(Vec<u8>, Vec<u8>)]
@@ -1466,7 +1466,7 @@ mod tests {
 		t
 	}
 
-	fn unpopulate_trie_no_ext<'db>(t: &mut RefTrieDBMutNoExt<'db>, v: &[(Vec<u8>, Vec<u8>)]) {
+	fn unpopulate_trie_no_extension<'db>(t: &mut RefTrieDBMutNoExt<'db>, v: &[(Vec<u8>, Vec<u8>)]) {
 		for i in v {
 			let key: &[u8]= &i.0;
 			t.remove(key).unwrap();
@@ -1494,7 +1494,7 @@ mod tests {
 				count: 100,
 			}.make_with(&mut seed);
 
-			let real = ref_trie_root(x.clone());
+			let real = reference_trie_root(x.clone());
 			let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 			let mut root = Default::default();
 			let mut memtrie = populate_trie(&mut memdb, &mut root, &x);
@@ -1523,7 +1523,7 @@ mod tests {
 			assert_eq!(*memtrie.root(), hashed_null_node);
 		}
 
-		// no_ext
+		// no_extension
 		let mut seed = Default::default();
 		for test_i in 0..10 {
 			if test_i % 50 == 0 {
@@ -1537,10 +1537,10 @@ mod tests {
 				count: 100,
 			}.make_with(&mut seed);
 
-			let real = ref_trie_root_no_ext(x.clone());
+			let real = reference_trie_root_no_extension(x.clone());
 			let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 			let mut root = Default::default();
-			let mut memtrie = populate_trie_no_ext(&mut memdb, &mut root, &x);
+			let mut memtrie = populate_trie_no_extension(&mut memdb, &mut root, &x);
 
 			memtrie.commit();
 			if *memtrie.root() != real {
@@ -1552,7 +1552,7 @@ mod tests {
 				}
 			}
 			assert_eq!(*memtrie.root(), real);
-			unpopulate_trie_no_ext(&mut memtrie, &x);
+			unpopulate_trie_no_extension(&mut memtrie, &x);
 			memtrie.commit();
 			let hashed_null_node = reference_hashed_null_node();
 			if *memtrie.root() != hashed_null_node {
@@ -1582,7 +1582,7 @@ mod tests {
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
-		assert_eq!(*t.root(), ref_trie_root(vec![ (vec![0x01u8, 0x23], vec![0x01u8, 0x23]) ]));
+		assert_eq!(*t.root(), reference_trie_root(vec![ (vec![0x01u8, 0x23], vec![0x01u8, 0x23]) ]));
 	}
 
 	#[test]
@@ -1600,7 +1600,7 @@ mod tests {
 	}
 
 	#[test]
-	fn remove_to_empty_no_ext() {
+	fn remove_to_empty_no_extension() {
 		let big_value = b"00000000000000000000000000000000";
 		let big_value2 = b"00000000000000000000000000000002";
 		let big_value3 = b"00000000000000000000000000000004";
@@ -1616,7 +1616,7 @@ mod tests {
 			t.remove(&[0x01]).unwrap();
 			// commit on drop
 		}
-		assert_eq!(&root[..], &reference_trie::calc_root_no_ext(vec![
+		assert_eq!(&root[..], &reference_trie::calc_root_no_extension(vec![
 		 (vec![0x01u8, 0x23], big_value3.to_vec()),
 		 (vec![0x01u8, 0x34], big_value.to_vec()),
 		])[..]);
@@ -1630,7 +1630,7 @@ mod tests {
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[0x01u8, 0x23], &[0x23u8, 0x45]).unwrap();
-		assert_eq!(*t.root(), ref_trie_root(vec![ (vec![0x01u8, 0x23], vec![0x23u8, 0x45]) ]));
+		assert_eq!(*t.root(), reference_trie_root(vec![ (vec![0x01u8, 0x23], vec![0x23u8, 0x45]) ]));
 	}
 
 	#[test]
@@ -1640,7 +1640,7 @@ mod tests {
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[0x11u8, 0x23], &[0x11u8, 0x23]).unwrap();
-		assert_eq!(*t.root(), ref_trie_root(vec![
+		assert_eq!(*t.root(), reference_trie_root(vec![
 			(vec![0x01u8, 0x23], vec![0x01u8, 0x23]),
 			(vec![0x11u8, 0x23], vec![0x11u8, 0x23])
 		]));
@@ -1654,7 +1654,7 @@ mod tests {
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[0xf1u8, 0x23], &[0xf1u8, 0x23]).unwrap();
 		t.insert(&[0x81u8, 0x23], &[0x81u8, 0x23]).unwrap();
-		assert_eq!(*t.root(), ref_trie_root(vec![
+		assert_eq!(*t.root(), reference_trie_root(vec![
 			(vec![0x01u8, 0x23], vec![0x01u8, 0x23]),
 			(vec![0x81u8, 0x23], vec![0x81u8, 0x23]),
 			(vec![0xf1u8, 0x23], vec![0xf1u8, 0x23]),
@@ -1668,7 +1668,7 @@ mod tests {
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[], &[0x0]).unwrap();
-		assert_eq!(*t.root(), ref_trie_root(vec![
+		assert_eq!(*t.root(), reference_trie_root(vec![
 			(vec![], vec![0x0]),
 			(vec![0x01u8, 0x23], vec![0x01u8, 0x23]),
 		]));
@@ -1681,7 +1681,7 @@ mod tests {
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[0x01u8, 0x34], &[0x01u8, 0x34]).unwrap();
-		assert_eq!(*t.root(), ref_trie_root(vec![
+		assert_eq!(*t.root(), reference_trie_root(vec![
 			(vec![0x01u8, 0x23], vec![0x01u8, 0x23]),
 			(vec![0x01u8, 0x34], vec![0x01u8, 0x34]),
 		]));
@@ -1695,7 +1695,7 @@ mod tests {
 		t.insert(&[0x01, 0x23, 0x45], &[0x01]).unwrap();
 		t.insert(&[0x01, 0xf3, 0x45], &[0x02]).unwrap();
 		t.insert(&[0x01, 0xf3, 0xf5], &[0x03]).unwrap();
-		assert_eq!(*t.root(), ref_trie_root(vec![
+		assert_eq!(*t.root(), reference_trie_root(vec![
 			(vec![0x01, 0x23, 0x45], vec![0x01]),
 			(vec![0x01, 0xf3, 0x45], vec![0x02]),
 			(vec![0x01, 0xf3, 0xf5], vec![0x03]),
@@ -1712,7 +1712,7 @@ mod tests {
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], big_value0).unwrap();
 		t.insert(&[0x11u8, 0x23], big_value1).unwrap();
-		assert_eq!(*t.root(), ref_trie_root(vec![
+		assert_eq!(*t.root(), reference_trie_root(vec![
 			(vec![0x01u8, 0x23], big_value0.to_vec()),
 			(vec![0x11u8, 0x23], big_value1.to_vec())
 		]));
@@ -1727,7 +1727,7 @@ mod tests {
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], big_value).unwrap();
 		t.insert(&[0x11u8, 0x23], big_value).unwrap();
-		assert_eq!(*t.root(), ref_trie_root(vec![
+		assert_eq!(*t.root(), reference_trie_root(vec![
 			(vec![0x01u8, 0x23], big_value.to_vec()),
 			(vec![0x11u8, 0x23], big_value.to_vec())
 		]));
@@ -1783,7 +1783,7 @@ mod tests {
 				count: 4,
 			}.make_with(&mut seed);
 
-			let real = ref_trie_root(x.clone());
+			let real = reference_trie_root(x.clone());
 			let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 			let mut root = Default::default();
 			let mut memtrie = populate_trie(&mut memdb, &mut root, &x);
@@ -1841,7 +1841,7 @@ mod tests {
 			t.insert(key, value).unwrap();
 		}
 
-		assert_eq!(*t.root(), ref_trie_root(x.clone()));
+		assert_eq!(*t.root(), reference_trie_root(x.clone()));
 
 		for &(ref key, _) in &x {
 			t.insert(key, &[]).unwrap();

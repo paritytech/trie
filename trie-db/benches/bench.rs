@@ -30,6 +30,7 @@ criterion_group!(benches,
 	trie_mut_b,
 	trie_mut_build_a,
 	trie_mut_build_b,
+	nibble_common_prefix,
 );
 criterion_main!(benches);
 
@@ -70,7 +71,7 @@ fn root_a_big_v(c: &mut Criterion) {
 	c.bench_function_over_inputs("root_a_big_v",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
 		b.iter(||{
 			let datac:Vec<(Vec<u8>,Vec<u8>)> = data.clone();
-			// this is in `ref_trie_root` added here to make things comparable
+			// this is in `reference_trie_root` added here to make things comparable
 			let inputc = datac
 				.iter()
 				.map(|v|(&v.0, &v.1))
@@ -90,7 +91,7 @@ fn root_b_big_v(c: &mut Criterion) {
 	c.bench_function_over_inputs("root_b_big_v",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
 		b.iter(||{
 			let datac:Vec<(Vec<u8>,Vec<u8>)> = data.clone();
-			// this is in `ref_trie_root` added here to make things comparable
+			// this is in `reference_trie_root` added here to make things comparable
 			let inputc = datac
 				.iter()
 				.map(|v|(&v.0, &v.1))
@@ -111,7 +112,7 @@ fn root_a_small_v(c: &mut Criterion) {
 	c.bench_function_over_inputs("root_a_small_v",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
 		b.iter(||{
 			let datac:Vec<(Vec<u8>,Vec<u8>)> = data.clone();
-			// this is in `ref_trie_root` added here to make things comparable
+			// this is in `reference_trie_root` added here to make things comparable
 			let inputc = datac
 				.iter()
 				.map(|v|(&v.0, &v.1))
@@ -131,7 +132,7 @@ fn root_b_small_v(c: &mut Criterion) {
 	c.bench_function_over_inputs("root_b_small_v",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
 		b.iter(||{
 			let datac:Vec<(Vec<u8>,Vec<u8>)> = data.clone();
-			// this is in `ref_trie_root` added here to make things comparable
+			// this is in `reference_trie_root` added here to make things comparable
 			let inputc = datac
 				.iter()
 				.map(|v|(&v.0, &v.1))
@@ -158,7 +159,7 @@ fn root_old(c: &mut Criterion) {
 				.iter()
 				.map(|v|(&v.0, &v.1));
 
-			reference_trie::ref_trie_root(inputc);
+			reference_trie::reference_trie_root(inputc);
 		})
 	,data);
 }
@@ -175,7 +176,7 @@ fn root_new(c: &mut Criterion) {
 	c.bench_function_over_inputs("root_new",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
 		b.iter(||{
 			let datac:Vec<(Vec<u8>,Vec<u8>)> = data.clone();
-			// this is in `ref_trie_root` added here to make things comparable
+			// this is in `reference_trie_root` added here to make things comparable
 			let inputc = datac
 				.iter()
 				.map(|v|(&v.0, &v.1))
@@ -217,10 +218,6 @@ fn fuzz_to_data(input: Vec<u8>) -> Vec<(Vec<u8>,Vec<u8>)> {
 
 fn fuzz_to_data2(input: Vec<u8>, vl: usize) -> Vec<(Vec<u8>,Vec<u8>)> {
 	let mut result = Vec::new();
-	// enc = (minkeylen, maxkeylen (min max up to 32), datas)
-	// fix data len 2 bytes
-	let minkeylen = 1;
-	let maxkeylen = 32;
 	let mut ix = 0;
 	loop {
 		let keylen = 32;
@@ -253,23 +250,23 @@ fn input(seed: u64, len: usize) -> Vec<(Vec<u8>,Vec<u8>)> {
 	data
 }
 
-fn input2(seed: u64, len: usize, vl: usize) -> Vec<(Vec<u8>,Vec<u8>)> {
+fn input2(seed: u64, len: usize, value_length: usize) -> Vec<(Vec<u8>,Vec<u8>)> {
 	use rand::SeedableRng;
 	use rand::RngCore;
 	let mut rng = rand::rngs::SmallRng::seed_from_u64(seed);
 	let mut data = vec![0u8; len];
 	rng.fill_bytes(&mut data[..]);
-	let data = data_sorted_unique(fuzz_to_data2(data,vl));
+	let data = data_sorted_unique(fuzz_to_data2(data,value_length));
 	data
 }
 
-fn input_unsorted(seed: u64, len: usize, vl: usize) -> Vec<(Vec<u8>,Vec<u8>)> {
+fn input_unsorted(seed: u64, len: usize, value_length: usize) -> Vec<(Vec<u8>,Vec<u8>)> {
 	use rand::SeedableRng;
 	use rand::RngCore;
 	let mut rng = rand::rngs::SmallRng::seed_from_u64(seed);
 	let mut data = vec![0u8; len];
 	rng.fill_bytes(&mut data[..]);
-	fuzz_to_data(data)
+	fuzz_to_data2(data, value_length)
 }
 
 fn trie_mut_root_a(c: &mut Criterion) {
@@ -280,7 +277,7 @@ fn trie_mut_root_a(c: &mut Criterion) {
 	c.bench_function_over_inputs("trie_mut_root_a",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
 		b.iter(|| {
 			let datac:Vec<(Vec<u8>,Vec<u8>)> = data_sorted_unique(data.clone());
-			// this is in `ref_trie_root` added here to make things comparable
+			// this is in `reference_trie_root` added here to make things comparable
 			let inputc = datac
 				.iter()
 				.map(|v|(&v.0, &v.1))
@@ -288,29 +285,27 @@ fn trie_mut_root_a(c: &mut Criterion) {
 
 
 			reference_trie::calc_root(inputc);
-		})
-	,data);
+		}),
+		data);
 }
 
 fn trie_mut_root_b(c: &mut Criterion) {
 	let data : Vec<Vec<(Vec<u8>,Vec<u8>)>> = vec![
-		//input_unsorted(29, 204800, 512),
 		input_unsorted(29, 204800, 32),
 	];
 
 	c.bench_function_over_inputs("trie_mut_root_b",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
 		b.iter(||{
 			let datac:Vec<(Vec<u8>,Vec<u8>)> = data_sorted_unique(data.clone());
-			// this is in `ref_trie_root` added here to make things comparable
+			// this is in `reference_trie_root` added here to make things comparable
 			let inputc = datac
 				.iter()
 				.map(|v|(&v.0, &v.1))
 				.collect::<std::collections::BTreeMap<_, _>>();
 
-
 			reference_trie::calc_root(inputc);
-		})
-	,data);
+		}),
+		data);
 }
 
 fn trie_mut_ref_root_a(c: &mut Criterion) {
@@ -322,16 +317,15 @@ fn trie_mut_ref_root_a(c: &mut Criterion) {
 		b.iter(|| {
 			let datac:Vec<(Vec<u8>,Vec<u8>)> = data.clone(); // no need to sort for trie_root, see implementation
 
-			// this is in `ref_trie_root` added here to make things comparable
+			// this is in `reference_trie_root` added here to make things comparable
 			let inputc = datac
 				.iter()
 				.map(|v|(&v.0, &v.1))
 				.collect::<std::collections::BTreeMap<_, _>>();
 
-
-			reference_trie::ref_trie_root(inputc);
-		})
-	,data);
+			reference_trie::reference_trie_root(inputc);
+		}),
+		data);
 }
 
 fn trie_mut_ref_root_b(c: &mut Criterion) {
@@ -343,16 +337,15 @@ fn trie_mut_ref_root_b(c: &mut Criterion) {
 	c.bench_function_over_inputs("trie_mut_ref_root_b",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
 		b.iter(||{
 			let datac:Vec<(Vec<u8>,Vec<u8>)> = data.clone(); // no need to sort for trie_root, see implementation
-			// this is in `ref_trie_root` added here to make things comparable
+			// this is in `reference_trie_root` added here to make things comparable
 			let inputc = datac
 				.iter()
 				.map(|v|(&v.0, &v.1))
 				.collect::<std::collections::BTreeMap<_, _>>();
 
-
-			reference_trie::ref_trie_root(inputc);
-		})
-	,data);
+			reference_trie::reference_trie_root(inputc);
+		}),
+		data);
 }
 
 
@@ -376,8 +369,8 @@ fn trie_mut_a(c: &mut Criterion) {
 					.expect("changes trie: insertion to trie is not allowed to fail within runtime");
 			}
 
-		})
-	,data);
+		}),
+		data);
 }
 
 fn trie_mut_b(c: &mut Criterion) {
@@ -400,8 +393,8 @@ fn trie_mut_b(c: &mut Criterion) {
 					.expect("changes trie: insertion to trie is not allowed to fail within runtime");
 			}
 
-		})
-	,data);
+		}),
+		data);
 }
 
 fn trie_mut_build_a(c: &mut Criterion) {
@@ -413,7 +406,7 @@ fn trie_mut_build_a(c: &mut Criterion) {
 	c.bench_function_over_inputs("trie_mut_build_a",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
 		b.iter(|| {
 			let datac:Vec<(Vec<u8>,Vec<u8>)> = data_sorted_unique(data.clone());
-			// this is in `ref_trie_root` added here to make things comparable
+			// this is in `reference_trie_root` added here to make things comparable
 			let inputc = datac
 				.iter()
 				.map(|v|(&v.0, &v.1))
@@ -421,8 +414,8 @@ fn trie_mut_build_a(c: &mut Criterion) {
 
 			let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
 			reference_trie::calc_root_build(inputc, &mut mdb);
-		})
-	,data);
+		}),
+		data);
 }
 
 fn trie_mut_build_b(c: &mut Criterion) {
@@ -435,15 +428,14 @@ fn trie_mut_build_b(c: &mut Criterion) {
 	c.bench_function_over_inputs("trie_mut_build_b",|b: &mut Bencher, data: &Vec<(Vec<u8>,Vec<u8>)>|
 		b.iter(||{
 			let datac:Vec<(Vec<u8>,Vec<u8>)> = data_sorted_unique(data.clone());
-			// this is in `ref_trie_root` added here to make things comparable
+			// this is in `reference_trie_root` added here to make things comparable
 			let inputc = datac
 				.iter()
 				.map(|v|(&v.0, &v.1))
 				.collect::<std::collections::BTreeMap<_, _>>();
 
-
 			let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
 			reference_trie::calc_root_build(inputc, &mut mdb);
-		})
-	,data);
+		}),
+		data);
 }

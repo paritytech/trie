@@ -70,30 +70,30 @@ pub trait NodeCodec<H: Hasher, N: NibbleOps>: Sized {
 	fn leaf_node(partial: Partial, value: &[u8]) -> Vec<u8>;
 
 	/// Returns an encoded extension node
-  /// Note that number_nibble is the number of element of the iterator
-  /// it can possibly be obtain by `Iterator` `size_hint`, but
-  /// for simplicity it is used directly as a parameter.
-	fn ext_node(
-    partial: impl Iterator<Item = u8>,
-    number_nibble: usize,
-    child_ref: ChildReference<H::Out>,
-  ) -> Vec<u8>;
+	/// Note that number_nibble is the number of element of the iterator
+	/// it can possibly be obtain by `Iterator` `size_hint`, but
+	/// for simplicity it is used directly as a parameter.
+	fn extension_node(
+		partial: impl Iterator<Item = u8>,
+		number_nibble: usize,
+		child_ref: ChildReference<H::Out>,
+	) -> Vec<u8>;
 
 	/// Returns an encoded branch node.
-  /// Takes an iterator yielding `ChildReference<H::Out>` and an optional value.
+	/// Takes an iterator yielding `ChildReference<H::Out>` and an optional value.
 	fn branch_node(
-    children: impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>,
-    value: Option<&[u8]>,
-  ) -> Vec<u8>;
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>,
+		value: Option<&[u8]>,
+	) -> Vec<u8>;
 
 	/// Returns an encoded branch node with a possible partial path.
-  /// `number_nibble` is the partial path lenghth as in `ext_node`.
+	/// `number_nibble` is the partial path length as in `extension_node`.
 	fn branch_node_nibbled(
-    partial: impl Iterator<Item = u8>,
-    number_nibble: usize,
-    children: impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>,
-    value: Option<&[u8]>
-  ) -> Vec<u8>;
+		partial: impl Iterator<Item = u8>,
+		number_nibble: usize,
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>,
+		value: Option<&[u8]>
+	) -> Vec<u8>;
 }
 
 /// Bitmap encoder for the number of children nodes.

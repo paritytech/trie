@@ -4,10 +4,10 @@ use memory_db::{MemoryDB, HashKey, PrefixedKey};
 use reference_trie::{
 	RefTrieDBMutNoExt,
 	RefTrieDBMut,
-	ref_trie_root,
-	calc_root_no_ext,
+	reference_trie_root,
+	calc_root_no_extension,
 	calc_root,
-	compare_no_ext_insert_remove,
+	compare_no_extension_insert_remove,
 };
 use trie_db::{TrieMut, DBValue};
 use keccak_hasher::KeccakHasher;
@@ -78,7 +78,7 @@ fn fuzz_removal(data: Vec<(Vec<u8>,Vec<u8>)>) -> Vec<(bool, Vec<u8>,Vec<u8>)> {
 	res
 }
 
-pub fn fuzz_that_ref_trie_root(input: &[u8]) {
+pub fn fuzz_that_reference_trie_root(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data(input));
 	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
 	let mut root = Default::default();
@@ -86,21 +86,21 @@ pub fn fuzz_that_ref_trie_root(input: &[u8]) {
 	for a in 0..data.len() {
 		t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
 	}
-	assert_eq!(*t.root(), ref_trie_root(data));
+	assert_eq!(*t.root(), reference_trie_root(data));
 }
 
-pub fn fuzz_that_ref_trie_root_fix_len(input: &[u8]) {
-	let data = data_sorted_unique(fuzz_to_data_fix_len(input));
+pub fn fuzz_that_reference_trie_root_fix_length(input: &[u8]) {
+	let data = data_sorted_unique(fuzz_to_data_fix_length(input));
 	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
 	let mut root = Default::default();
 	let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 	for a in 0..data.len() {
 		t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
 	}
-	assert_eq!(*t.root(), ref_trie_root(data));
+	assert_eq!(*t.root(), reference_trie_root(data));
 }
 
-fn fuzz_to_data_fix_len(input: &[u8]) -> Vec<(Vec<u8>,Vec<u8>)> {
+fn fuzz_to_data_fix_length(input: &[u8]) -> Vec<(Vec<u8>,Vec<u8>)> {
 	let mut result = Vec::new();
 	let mut ix = 0;
 	loop {
@@ -127,21 +127,21 @@ fn data_sorted_unique(input: Vec<(Vec<u8>,Vec<u8>)>) -> Vec<(Vec<u8>,Vec<u8>)> {
 }
 
 
-pub fn fuzz_that_compare_impl(input: &[u8]) {
+pub fn fuzz_that_compare_implementations(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data(input));
 	//println!("data:{:?}", &data);
 	let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 	let hashdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
-	reference_trie::compare_impl(data, memdb, hashdb);
+	reference_trie::compare_implementations(data, memdb, hashdb);
 }
 
-pub fn fuzz_that_unhashed_no_ext(input: &[u8]) {
+pub fn fuzz_that_unhashed_no_extension(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data(input));
-	reference_trie::compare_unhashed_no_ext(data);
+	reference_trie::compare_unhashed_no_extension(data);
 }
 
 
-pub fn fuzz_that_no_ext_insert(input: &[u8]) {
+pub fn fuzz_that_no_extension_insert(input: &[u8]) {
 	let data = fuzz_to_data(input);
 	//println!("data{:?}", data);
 	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
@@ -154,13 +154,13 @@ pub fn fuzz_that_no_ext_insert(input: &[u8]) {
 	// before.
 	let data = data_sorted_unique(fuzz_to_data(input));
 	//println!("data{:?}", data);
-	assert_eq!(*t.root(), calc_root_no_ext(data));
+	assert_eq!(*t.root(), calc_root_no_extension(data));
 }
 
-pub fn fuzz_that_no_ext_insert_remove(input: &[u8]) {
+pub fn fuzz_that_no_extension_insert_remove(input: &[u8]) {
 	let data = fuzz_to_data(input);
 	let data = fuzz_removal(data);
 
 	let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
-	compare_no_ext_insert_remove(data, memdb);
+	compare_no_extension_insert_remove(data, memdb);
 }

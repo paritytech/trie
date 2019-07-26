@@ -68,7 +68,7 @@ pub trait TrieStream {
 	fn out(self) -> Vec<u8>;
 }
 
-fn shared_prefix_len<T: Eq>(first: &[T], second: &[T]) -> usize {
+fn shared_prefix_length<T: Eq>(first: &[T], second: &[T]) -> usize {
 	first.iter()
 		.zip(second.iter())
 		.position(|(f, s)| f != s)
@@ -107,7 +107,7 @@ pub fn trie_root<H, S, I, A, B>(input: I) -> H::Out where
 	trie_root_inner::<H, S, I, A, B>(input, false)
 }
 
-fn trie_root_inner<H, S, I, A, B>(input: I, no_ext: bool) -> H::Out where
+fn trie_root_inner<H, S, I, A, B>(input: I, no_extension: bool) -> H::Out where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
@@ -137,13 +137,13 @@ fn trie_root_inner<H, S, I, A, B>(input: I, no_ext: bool) -> H::Out where
 		.collect::<Vec<_>>();
 
 	let mut stream = S::new();
-	build_trie::<H, S, _, _>(&input, 0, &mut stream, no_ext);
+	build_trie::<H, S, _, _>(&input, 0, &mut stream, no_extension);
 	H::hash(&stream.out())
 }
 
 /// Variant of `trie_root` for patricia trie without extension node.
 /// See [`trie_root`].
-pub fn trie_root_no_ext<H, S, I, A, B>(input: I) -> H::Out where
+pub fn trie_root_no_extension<H, S, I, A, B>(input: I) -> H::Out where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
@@ -167,7 +167,7 @@ pub fn unhashed_trie<H, S, I, A, B>(input: I) -> Vec<u8> where
 	unhashed_trie_inner::<H, S, I, A, B>(input, false)
 }
 
-fn unhashed_trie_inner<H, S, I, A, B>(input: I, no_ext: bool) -> Vec<u8> where
+fn unhashed_trie_inner<H, S, I, A, B>(input: I, no_extension: bool) -> Vec<u8> where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
@@ -196,13 +196,13 @@ fn unhashed_trie_inner<H, S, I, A, B>(input: I, no_ext: bool) -> Vec<u8> where
 		.collect::<Vec<_>>();
 
 	let mut stream = S::new();
-	build_trie::<H, S, _, _>(&input, 0, &mut stream, no_ext);
+	build_trie::<H, S, _, _>(&input, 0, &mut stream, no_extension);
 	stream.out()
 }
 
 /// Variant of `unhashed_trie` for patricia trie without extension node.
 /// See [`unhashed_trie`].
-pub fn unhashed_trie_no_ext<H, S, I, A, B>(input: I) -> Vec<u8> where
+pub fn unhashed_trie_no_extension<H, S, I, A, B>(input: I) -> Vec<u8> where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
@@ -247,7 +247,7 @@ pub fn sec_trie_root<H, S, I, A, B>(input: I) -> H::Out where
 
 /// Takes a slice of key/value tuples where the key is a slice of nibbles
 /// and encodes it into the provided `Stream`.
-fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ext: bool) where
+fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_extension: bool) where
 	A: AsRef<[u8]>,
 	B: AsRef<[u8]>,
 	H: Hasher,
@@ -266,13 +266,13 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 			// shared with the first key.
 			// e.g. input = [ [1'7'3'10'12'13], [1'7'3'], [1'7'7'8'9'] ] => [1'7'] is common => 2
 			let shared_nibble_count = input.iter().skip(1).fold(key.len(), |acc, &(ref k, _)| {
-				cmp::min( shared_prefix_len(key, k.as_ref()), acc )
+				cmp::min( shared_prefix_length(key, k.as_ref()), acc )
 			});
 			// Add an extension node if the number of shared nibbles is greater
 			// than what we saw on the last call (`cursor`): append the new part
 			// of the path then recursively append the remainder of all items
 			// who had this partial key.
-			let (cursor, o_branch_slice) = if no_ext {
+			let (cursor, o_branch_slice) = if no_extension {
 				if shared_nibble_count > cursor {
 					(shared_nibble_count, Some(&key[cursor..shared_nibble_count]))
 				} else {
@@ -280,7 +280,7 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 				}
 			} else if shared_nibble_count > cursor {
 				stream.append_extension(&key[cursor..shared_nibble_count]);
-				build_trie_trampoline::<H, _, _, _>(input, shared_nibble_count, stream, no_ext);
+				build_trie_trampoline::<H, _, _, _>(input, shared_nibble_count, stream, no_extension);
 				return;
 			} else { (cursor, None) };
 
@@ -319,7 +319,7 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 						&input[begin..(begin + count)],
 						cursor + 1,
 						stream,
-						no_ext,
+						no_extension,
 					);
 					begin += count;
 				} else {
@@ -336,7 +336,7 @@ fn build_trie_trampoline<H, S, A, B>(
 	input: &[(A, B)],
 	cursor: usize,
 	stream: &mut S,
-	no_ext: bool,
+	no_extension: bool,
 ) where
 	A: AsRef<[u8]>,
 	B: AsRef<[u8]>,
@@ -344,6 +344,6 @@ fn build_trie_trampoline<H, S, A, B>(
 	S: TrieStream,
 {
 	let mut substream = S::new();
-	build_trie::<H, _, _, _>(input, cursor, &mut substream, no_ext);
+	build_trie::<H, _, _, _>(input, cursor, &mut substream, no_extension);
 	stream.append_substream::<H>(substream);
 }

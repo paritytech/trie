@@ -163,7 +163,6 @@ pub trait KeyFunction<H: KeyHasher> {
 	fn key(hash: &H::Out, prefix: Prefix) -> Self::Key;
 }
 
-
 /// Derive a database key from hash and prefix.
 ///
 /// This method does not preserve ordering of prefix.
@@ -178,113 +177,6 @@ pub fn prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8> {
 	prefixed_key.extend_from_slice(key.as_ref());
 	prefixed_key
 }
-
-#[test]
-fn test_ordered_prefixed_key() {
-	use keccak_hasher::KeccakHasher;
-	#[derive(Debug, Clone, Default)]
-	struct Opt;
-	impl IntoIterator for Opt {
-		type Item = usize;
-		type IntoIter = std::iter::Repeat<usize>;
-		fn into_iter(self) -> Self::IntoIter {
-			std::iter::repeat(1)
-		}
-	}
-	impl OrderedPrefixedKeyChunk for Opt { }
-	let prefixes = vec![
-		(vec![],(0u8, 0x00u8), [1u8;32]),
-		(vec![],(1u8, 0x00u8), [1u8;32]),
-		(vec![0u8],(0,0), [0;32]),
-		(vec![],(1u8, 0x10u8), [1u8;32]),
-		(vec![0x10u8],(0,0), [0;32]),
-		(vec![0x11u8],(0,0), [0;32]),
-	];
-	let oc: std::collections::BTreeSet<_> = prefixes.iter().map(|(p1, p2, k)| {
-		ordered_prefixed_key::<KeccakHasher, Opt>(&k.clone().into(), (&p1[..], p2.clone()))
-	}).collect();
-
-	for ((p1, p2, k),b) in prefixes.iter().zip(oc.iter()) {
-		assert_eq!(
-			&ordered_prefixed_key::<KeccakHasher, Opt>(&k.clone().into(), (&p1[..], p2.clone())),
-			b,
-		);
-	}
-}
-
-/// Parameterize the size of successive chunks when using
-/// `ordered_prefixed_key`.
-/// Chunks are successive fix length byte arrays containing the key.
-/// Last chunk is padded with 0 values.
-/// Length of each chunk is minimum 1, maximum 254.
-pub trait OrderedPrefixedKeyChunk: IntoIterator<Item = usize> + Clone + MaybeDebug + Default {
-	/// Estimate a final length given a input length.
-	fn estimate_enc_len(input: usize) -> usize { input }
-}
-
-/// Derive a database key from hash and prefix.
-///
-/// Key are byte ordered depending on prefix (follows trie iteration).
-///
-/// Size encoding use fix sized chunks with 2 additional encoding bytes (not optimal
-/// for multiple chunks):  the number of written bytes , and
-/// the number of bytes in the prefix padding byte.
-/// Padding is 0 values, and the 2 additional bytes allows ordering for 0 keys.
-pub fn ordered_prefixed_key<H, C>(key: &H::Out, prefix: Prefix) -> Vec<u8>
-	where
-		H: KeyHasher,
-		C: OrderedPrefixedKeyChunk,
-	{
-	const REM_CHUNKS: u8 = 255;
-	const FULL_NIBBLES: u8 = 255;
-	let mut prefixed_key = Vec::with_capacity(
-		key.as_ref().len() + C::estimate_enc_len(prefix.0.len() + 2) + 1
-	);
-	let mut to_write = &prefix.0[..];
-	let mut rem = 0;
-	for chunk_len in C::default() {
-		if chunk_len >= to_write.len() {
-			prefixed_key.extend_from_slice(&to_write[..]);
-			match chunk_len - to_write.len() {
-				0 => {
-					rem = chunk_len;
-					prefixed_key.push(REM_CHUNKS);
-					prefixed_key.push(FULL_NIBBLES);
-				},
-				1 => {
-					prefixed_key.push((prefix.1).1);
-					prefixed_key.push(to_write.len() as u8 + 1);
-					prefixed_key.push(REM_CHUNKS);
-					prefixed_key.push((prefix.1).0);
-				},
-				a => {
-					let pl = prefixed_key.len();
-					prefixed_key.push((prefix.1).1);
-					prefixed_key.resize(pl + a, 0);
-					prefixed_key.push(to_write.len() as u8 + 1);
-					prefixed_key.push((prefix.1).0);
-				},
-			}
-			break;
-		}
-
-		prefixed_key.extend_from_slice(&to_write[..chunk_len]);
-		to_write = &to_write[chunk_len..];
-		prefixed_key.push(REM_CHUNKS);
-		prefixed_key.push(FULL_NIBBLES);
-	}
-	if rem > 0 {
-		let pl = prefixed_key.len();
-		prefixed_key.push((prefix.1).1);
-		prefixed_key.resize(pl + rem, 0);
-		prefixed_key.push(1);
-		prefixed_key.push((prefix.1).0);
-	}
-	prefixed_key.extend_from_slice(key.as_ref());
-	prefixed_key
-}
-
-
 
 /// Legacy method for db using previous version of prefix encoding.
 /// Only for trie radix 16.
@@ -333,29 +225,6 @@ impl<H: KeyHasher> KeyFunction<H> for PrefixedKey<H> {
 		prefixed_key::<H>(hash, prefix)
 	}
 }
-
-#[derive(Clone,Debug)]
-/// Key function that concatenates prefix and hash.
-/// The resulting key byte is ordered by prefix byte value
-/// (in case of a trie prefix iteration over the prefixed
-/// nodes are ordered the same way as in the trie).
-/// Also note that this scheme allow retrieval of the prefix
-/// original value.
-pub struct OrderedPrefixedKey<H: KeyHasher, C: OrderedPrefixedKeyChunk>(C, PhantomData<H>);
-
-impl<H, C> KeyFunction<H> for OrderedPrefixedKey<H, C>
-	where
-		H: KeyHasher,
-		C: OrderedPrefixedKeyChunk,
-{
-	type Key = Vec<u8>;
-
-	fn key(hash: &H::Out, prefix: Prefix) -> Vec<u8> {
-		ordered_prefixed_key::<H, C>(hash, prefix)
-	}
-}
-
-
 
 #[derive(Clone,Debug)]
 /// Key function that concatenates prefix and hash.
@@ -565,8 +434,6 @@ where
 		n + self.null_node_data.size_of(ops) + self.hashed_null_node.size_of(ops)
 	}
 }
-
-
 
 impl<H, KF, T> PlainDB<H::Out, T> for MemoryDB<H, KF, T>
 where

@@ -9,9 +9,9 @@ edition = "2018"
 cargo-fuzz = true
 
 [dependencies]
-memory-db = { path = "../../memory-db", version = "0.12.2" }
-reference-trie = { path = "../../test-support/reference-trie", version = "0.12.2" }
-keccak-hasher = { path = "../../test-support/keccak-hasher", version = "0.12.2" }
+memory-db = { path = "../../memory-db", version = "0.15.0" }
+reference-trie = { path = "../../test-support/reference-trie", version = "0.15.0" }
+keccak-hasher = { path = "../../test-support/keccak-hasher", version = "0.15.0" }
 honggfuzz = "0.5"
 
 [dependencies.trie-db]
@@ -48,7 +48,3 @@ path = "fuzz_targets/no_ext_insert.rs"
 [[bin]]
 name = "no_ext_insert_rem"
 path = "fuzz_targets/no_ext_insert_rem.rs"
-
-[[bin]]
-name = "hfuzz_trie_root_new"
-path = "hongfuzz_targets/trie_root_new.rs"
