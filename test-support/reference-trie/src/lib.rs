@@ -107,15 +107,15 @@ impl BitMap for BitMap16 {
 		self.0 & (1u16 << i) != 0
 	}
 
-	fn encode<I: Iterator<Item = bool>>(has_children: I , dest: &mut [u8]) {
+	fn encode<I: Iterator<Item = bool>>(has_children: I , output: &mut [u8]) {
 		let mut bitmap: u16 = 0;
 		let mut cursor: u16 = 1;
 		for v in has_children {
 			if v { bitmap |= cursor }
 			cursor <<= 1;
 		}
-		dest[0] = (bitmap % 256) as u8;
-		dest[1] = (bitmap / 256) as u8;
+		output[0] = (bitmap % 256) as u8;
+		output[1] = (bitmap / 256) as u8;
 	}
 }
 
@@ -139,14 +139,14 @@ impl BitMap for BitMap4 {
 		self.0 & (1u8 << i) != 0
 	}
 
-	fn encode<I: Iterator<Item = bool>>(has_children: I , dest: &mut [u8]) {
+	fn encode<I: Iterator<Item = bool>>(has_children: I , output: &mut [u8]) {
 		let mut bitmap: u8 = 0;
 		let mut cursor: u8 = 1;
 		for v in has_children {
 			if v { bitmap |= cursor }
 			cursor <<= 1;
 		}
-		dest[0] = bitmap;
+		output[0] = bitmap;
 	}
 
 }
@@ -265,15 +265,15 @@ fn branch_node(has_value: bool, has_children: impl Iterator<Item = bool>) -> [u8
 fn branch_node_buffered<BITMAP: BitMap, I: Iterator<Item = bool>>(
 	has_value: bool,
 	has_children: I,
-	dest: &mut[u8],
+	output: &mut[u8],
 ) {
 	let first = if has_value {
 		BRANCH_NODE_WITH_VALUE
 	} else {
 		BRANCH_NODE_NO_VALUE
 	};
-	dest[0] = first;
-	BITMAP::encode(has_children, &mut dest[1..]);
+	output[0] = first;
+	BITMAP::encode(has_children, &mut output[1..]);
 }
 
 fn branch_node_bit_mask(has_children: impl Iterator<Item = bool>) -> (u8, u8) {
@@ -491,8 +491,7 @@ fn test_encoding_simple_trie() {
 		BRANCH_WITHOUT_MASK_NO_EXT,
 		BRANCH_WITH_MASK_NO_EXT,
 	].iter() {
-		for i in (0..1000)
-			.chain(NIBBLE_SIZE_BOUND_NO_EXT - 2..NIBBLE_SIZE_BOUND_NO_EXT + 2) {
+		for i in (0..1000).chain(NIBBLE_SIZE_BOUND_NO_EXT - 2..NIBBLE_SIZE_BOUND_NO_EXT + 2) {
 			let mut output = Vec::new();
 			encode_size_and_prefix(i, *prefix, &mut output);
 			let input	= &mut &output[..];
@@ -782,7 +781,8 @@ impl<
 
 	fn branch_node(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
-		maybe_value: Option<&[u8]>) -> Vec<u8> {
+		maybe_value: Option<&[u8]>,
+	) -> Vec<u8> {
 		let mut output = vec![0; BITMAP::ENCODED_LEN + 1];
 		let mut prefix: BITMAP::Buffer = Default::default();
 		let have_value = if let Some(value) = maybe_value {
@@ -820,7 +820,7 @@ impl<
 impl<
 	H: Hasher,
 	N: NibbleOps,
-	BITMAP: BitMap<Error = ReferenceError>
+	BITMAP: BitMap<Error = ReferenceError>,
 > NodeCodec<H, N> for ReferenceNodeCodecNoExt<BITMAP> {
 	type Error = ReferenceError;
 
@@ -1192,15 +1192,15 @@ pub fn compare_implementations_no_extension_q(
 	};
 	{
 		let db : &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = RefTrieDBNoExtQ::new(&db, &root).unwrap();
-			println!("{:?}", t);
+		let t = RefTrieDBNoExtQ::new(&db, &root).unwrap();
+		println!("{:?}", t);
 	}
 
 	if root != root_new {
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
 			let t = RefTrieDBNoExtQ::new(&db, &root_new).unwrap();
-			println!("it: {:?}", t);
+			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
 			}
@@ -1209,7 +1209,7 @@ pub fn compare_implementations_no_extension_q(
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &memdb;
 			let t = RefTrieDBNoExtQ::new(&db, &root).unwrap();
-			println!("fu: {:?}", t);
+			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
 			}

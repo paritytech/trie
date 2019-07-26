@@ -42,9 +42,9 @@ pub trait CacheBuilder<HO> {
 	/// Size of cache.
 	const SIZE: usize;
 	/// The type of the cache.
-	type AN: AsRef<[CacheNode<HO>]> + AsMut<[CacheNode<HO>]>;
+	type Cache: AsRef<[CacheNode<HO>]> + AsMut<[CacheNode<HO>]>;
 	/// Create a new cache.
-	fn new_vec_slice_buffer() -> Self::AN;
+	fn new_vec_slice_buffer() -> Self::Cache;
 }
 
 /// Cache builder for radix 16 trie.
@@ -54,23 +54,23 @@ pub struct Cache4;
 
 impl<HO> CacheBuilder<HO> for Cache16 {
 	const SIZE: usize = 16;
-	type AN = [CacheNode<HO>; 16];
+	type Cache = [CacheNode<HO>; 16];
 	#[inline(always)]
-	fn new_vec_slice_buffer() -> Self::AN {
+	fn new_vec_slice_buffer() -> Self::Cache {
 		exponential_out!(@3, [None, None])
 	}
 }
 
 impl<HO> CacheBuilder<HO> for Cache4 {
 	const SIZE: usize = 4;
-	type AN = [CacheNode<HO>; 4];
+	type Cache = [CacheNode<HO>; 4];
 	#[inline(always)]
-	fn new_vec_slice_buffer() -> Self::AN {
+	fn new_vec_slice_buffer() -> Self::Cache {
 		exponential_out!(@2, [None])
 	}
 }
 
-type ArrayNode<T> = <<T as TrieLayout>::CB as CacheBuilder<TrieHash<T>>>::AN;
+type ArrayNode<T> = <<T as TrieLayout>::CB as CacheBuilder<TrieHash<T>>>::Cache;
 
 // (64 * 16) aka 2*byte size of key * nb nibble value, 2 being byte/nible (8/4)
 // first usize to get nb of added value, second usize last added index
@@ -86,10 +86,10 @@ struct CacheAccum<T: TrieLayout, V> (Vec<(ArrayNode<T>, Option<V>, usize)>, Phan
 const INITIAL_DEPTH: usize = 10;
 
 impl<T, V> CacheAccum<T, V>
-where
-	T: TrieLayout,
-	V: AsRef<[u8]>,
-	{
+	where
+		T: TrieLayout,
+		V: AsRef<[u8]>,
+{
 
 	fn new() -> Self {
 		let v = Vec::with_capacity(INITIAL_DEPTH);
@@ -97,17 +97,17 @@ where
 	}
 
 	#[inline(always)]
-	fn set_elt(&mut self, depth:usize, sl: Option<V>) {
+	fn set_cache_value(&mut self, depth:usize, value: Option<V>) {
 		if self.0.is_empty() || self.0[self.0.len() - 1].2 < depth {
 			self.0.push((T::CB::new_vec_slice_buffer(), None, depth));
 		}
 		let last = self.0.len() - 1;
 		debug_assert!(self.0[last].2 <= depth);
-		self.0[last].1 = sl;
+		self.0[last].1 = value;
 	}
 
 	#[inline(always)]
-	fn set_node(&mut self, depth:usize, nibble_index:usize, node: CacheNode<TrieHash<T>>) {
+	fn set_node(&mut self, depth: usize, nibble_index: usize, node: CacheNode<TrieHash<T>>) {
 		if self.0.is_empty() || self.0[self.0.len() - 1].2 < depth {
 			self.0.push((T::CB::new_vec_slice_buffer(), None, depth));
 		}
@@ -150,13 +150,12 @@ where
 	}
 
 	#[inline(always)]
-	fn reset_depth(&mut self, depth:usize) {
-
+	fn reset_depth(&mut self, depth: usize) {
 		debug_assert!(self.0[self.0.len() - 1].2 == depth);
 		self.0.pop();
 	}
 
-	fn flush_val (
+	fn flush_value (
 		&mut self,
 		cb_ext: &mut impl ProcessEncodedNode<TrieHash<T>>,
 		target_depth: usize,
@@ -204,10 +203,10 @@ where
 			};
 
 			let h = if no_extension {
-				// enc branch
-				self.alt_no_extension(&ref_branch.as_ref()[..], cb_ext, lix, is_root, nkey)
+				// encode branch
+				self.no_extension(&ref_branch.as_ref()[..], cb_ext, lix, is_root, nkey)
 			} else {
-				self.standard_ext(&ref_branch.as_ref()[..], cb_ext, lix, is_root, nkey)
+				self.standard_extension(&ref_branch.as_ref()[..], cb_ext, lix, is_root, nkey)
 			};
 			if !is_root {
 				// put hash in parent
@@ -218,7 +217,7 @@ where
 	}
 
 	#[inline(always)]
-	fn standard_ext(
+	fn standard_extension(
 		&mut self,
 		key_branch: &[u8],
 		cb_ext: &mut impl ProcessEncodedNode<TrieHash<T>>,
@@ -229,7 +228,7 @@ where
 		let last = self.0.len() - 1;
 		assert_eq!(self.0[last].2, branch_d);
 
-		// enc branch
+		// encode branch
 		let v = self.0[last].1.take();
 		let encoded = T::C::branch_node(
 			self.0[last].0.as_ref().iter(),
@@ -251,7 +250,7 @@ where
 	}
 
 	#[inline(always)]
-	fn alt_no_extension(
+	fn no_extension(
 		&mut self,
 		key_branch: &[u8],
 		cb_ext: &mut impl ProcessEncodedNode<TrieHash<T>>,
@@ -261,7 +260,7 @@ where
 		) -> ChildReference<TrieHash<T>> {
 		let last = self.0.len() - 1;
 		debug_assert!(self.0[last].2 == branch_d);
-		// enc branch
+		// encode branch
 		let v = self.0[last].1.take();
 		let nkeyix = nkey.unwrap_or((0, 0));
 		let pr = NibbleSlice::<T::N>::new_offset(&key_branch.as_ref()[..], nkeyix.0);
@@ -295,37 +294,37 @@ pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F)
 	let mut depth_queue = CacheAccum::<T, B>::new();
 	// compare iter ordering
 	let mut iter_input = input.into_iter();
-	if let Some(mut prev_val) = iter_input.next() {
+	if let Some(mut previous_value) = iter_input.next() {
 		// depth of last item
 		let mut last_depth = 0;
 
 		let mut single = true;
 		for (k, v) in iter_input {
 			single = false;
-			let common_depth = T::N::biggest_depth(&prev_val.0.as_ref()[..], &k.as_ref()[..]);
+			let common_depth = T::N::biggest_depth(&previous_value.0.as_ref()[..], &k.as_ref()[..]);
 			// 0 is a reserved value : could use option
 			let depth_item = common_depth;
-			if common_depth == prev_val.0.as_ref().len() * T::N::NIBBLE_PER_BYTE {
+			if common_depth == previous_value.0.as_ref().len() * T::N::NIBBLE_PER_BYTE {
 				// the new key include the previous one : branch value case
 				// just stored value at branch depth
-				depth_queue.set_elt(common_depth, Some(prev_val.1));
+				depth_queue.set_cache_value(common_depth, Some(previous_value.1));
 			} else if depth_item >= last_depth {
-				// put prev with next (common branch prev val can be flush)
-				depth_queue.flush_val(cb_ext, depth_item, &prev_val);
+				// put previous with next (common branch previous value can be flush)
+				depth_queue.flush_value(cb_ext, depth_item, &previous_value);
 			} else if depth_item < last_depth {
 				// do not put with next, previous is last of a branch
-				depth_queue.flush_val(cb_ext, last_depth, &prev_val);
-				let ref_branches = prev_val.0;
+				depth_queue.flush_value(cb_ext, last_depth, &previous_value);
+				let ref_branches = previous_value.0;
 				depth_queue.flush_branch(no_extension, cb_ext, ref_branches, depth_item, false);
 			}
 
-			prev_val = (k, v);
+			previous_value = (k, v);
 			last_depth = depth_item;
 		}
 		// last pendings
 		if single {
 			// one single element corner case
-			let (k2, v2) = prev_val;
+			let (k2, v2) = previous_value;
 			let nkey = NibbleSlice::<T::N>::new_offset(&k2.as_ref()[..], last_depth);
 			let encoded = T::C::leaf_node(nkey.right(), &v2.as_ref()[..]);
 			let pr = NibbleSlice::<T::N>::new_offset(
@@ -334,8 +333,8 @@ pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F)
 			);
 			cb_ext.process(pr.left(), encoded, true);
 		} else {
-			depth_queue.flush_val(cb_ext, last_depth, &prev_val);
-			let ref_branches = prev_val.0;
+			depth_queue.flush_value(cb_ext, last_depth, &previous_value);
+			let ref_branches = previous_value.0;
 			depth_queue.flush_branch(no_extension, cb_ext, ref_branches, 0, true);
 		}
 	} else {
@@ -541,17 +540,17 @@ mod test {
 			let mut t = RefTrieDBMut::new(&mut db, &mut root);
 			for i in 0..data.len() {
 				let key: &[u8]= &data[i].0;
-				let val: &[u8] = &data[i].1;
-				t.insert(key, val).unwrap();
+				let value: &[u8] = &data[i].1;
+				t.insert(key, value).unwrap();
 			}
 		}
 		let t = RefTrieDB::new(&db, &root).unwrap();
 		for (i, kv) in t.iter().unwrap().enumerate() {
 			let (k, v) = kv.unwrap();
 			let key: &[u8]= &data[i].0;
-			let val: &[u8] = &data[i].1;
+			let value: &[u8] = &data[i].1;
 			assert_eq!(k, key);
-			assert_eq!(v, val);
+			assert_eq!(v, value);
 		}
 		for (k, v) in data.into_iter() {
 			assert_eq!(&t.get(&k[..]).unwrap().unwrap()[..], &v[..]);
@@ -567,17 +566,17 @@ mod test {
 			let mut t = RefTrieDBMutNoExt::new(&mut db, &mut root);
 			for i in 0..data.len() {
 				let key: &[u8]= &data[i].0;
-				let val: &[u8] = &data[i].1;
-				t.insert(key, val).unwrap();
+				let value: &[u8] = &data[i].1;
+				t.insert(key, value).unwrap();
 			}
 		}
 		let t = RefTrieDBNoExt::new(&db, &root).unwrap();
 		for (i, kv) in t.iter().unwrap().enumerate() {
 			let (k, v) = kv.unwrap();
 			let key: &[u8]= &data[i].0;
-			let val: &[u8] = &data[i].1;
+			let value: &[u8] = &data[i].1;
 			assert_eq!(k, key);
-			assert_eq!(v, val);
+			assert_eq!(v, value);
 		}
 		for (k, v) in data.into_iter() {
 			assert_eq!(&t.get(&k[..]).unwrap().unwrap()[..], &v[..]);
@@ -615,8 +614,6 @@ mod test {
 		reference_trie::compare_implementations_no_extension_q(data, memdb, hashdb);
 	}
 	fn compare_implementations_no_extension_prefixed(data: Vec<(Vec<u8>, Vec<u8>)>) {
-//		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
-//		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 		let hashdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		reference_trie::compare_implementations_no_extension(data, memdb, hashdb);

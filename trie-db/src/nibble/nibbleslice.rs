@@ -300,6 +300,7 @@ mod tests {
 	fn basics() {
 		basics_inner::<NibbleHalf>();
 	}
+
 	fn basics_inner<N: NibbleOps>() {
 		let n = NibbleSlice::<N>::new(D);
 		assert_eq!(n.len(), 6);
@@ -319,6 +320,7 @@ mod tests {
 	fn iterator() {
 		iterator_inner::<NibbleHalf>();
 	}
+
 	fn iterator_inner<N: NibbleOps>() {
 		let n = NibbleSlice::<N>::new(D);
 		let mut nibbles: Vec<u8> = vec![];
@@ -330,6 +332,7 @@ mod tests {
 	fn mid() {
 		mid_inner::<NibbleHalf>();
 	}
+
 	fn mid_inner<N: NibbleOps>() {
 		let n = NibbleSlice::<N>::new(D);
 		let m = n.mid(2);
@@ -358,6 +361,7 @@ mod tests {
 		assert_eq!(n, NibbleSlice::from_stored(&(0, stored.clone())));
 		assert_eq!(n.mid(1), NibbleSlice::from_stored(&(1, stored)));
 	}
+
 	#[test]
 	fn range_iter() {
 		let n = NibbleSlice::<NibbleHalf>::new(D);

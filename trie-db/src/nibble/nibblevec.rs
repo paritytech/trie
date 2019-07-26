@@ -59,9 +59,9 @@ impl<N: NibbleOps> NibbleVec<N> {
 		if i == 0 {
 			self.inner.push(N::push_at_left(0, nibble, 0));
 		} else {
-			let dest = self.inner.last_mut()
+			let output = self.inner.last_mut()
 				.expect("len != 0 since len % 2 != 0; inner has a last element; qed");
-			*dest = N::push_at_left(i as u8, nibble, *dest);
+			*output = N::push_at_left(i as u8, nibble, *output);
 		}
 		self.len += 1;
 	}
@@ -232,6 +232,7 @@ mod tests {
 		push_pop_inner::<NibbleHalf>();
 		push_pop_inner::<NibbleQuarter>();
 	}
+
 	fn push_pop_inner<N: NibbleOps>() {
 		let mut v = NibbleVec::<N>::new();
 
@@ -249,6 +250,7 @@ mod tests {
 			assert_eq!(v.len(), i);
 		}
 	}
+
 	#[test]
 	fn append_partial() {
 		append_partial_inner::<NibbleHalf>(&[1, 2, 3], &[], ((1, 1), &[0x23]));

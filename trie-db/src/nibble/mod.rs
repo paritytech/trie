@@ -34,12 +34,11 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	/// See [`ByteLayout`].
 	const REPR : ByteLayout;
 	/// Single nibble length in bit.
-	const BIT_PER_NIBBLE : usize = TWO_EXP[Self::REPR as usize]; // 2usize.pow(Self::REPR as u32);
+	const BIT_PER_NIBBLE : usize = TWO_EXP[Self::REPR as usize];
 	/// Number of nibble per byte.
 	const NIBBLE_PER_BYTE : usize = 8 / Self::BIT_PER_NIBBLE;
 	/// Number of child for a branch (trie radix).
 	const NIBBLE_LENGTH : usize = TWO_EXP[Self::BIT_PER_NIBBLE];
-	//2usize.pow(8 as u32 / Self::NIBBLE_PER_BYTE as u32);
 	/// Padding bitmasks, internally use for working on padding byte.
 	/// Length of this array is `Self::BIT_PER_NIBBLE`.
 	/// The first element of each pair is a bit mask to apply,
@@ -62,7 +61,6 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	/// directly slice in it to avoid lifetime in
 	/// trait
 	type ChildSliceIndex: ChildSliceIndex;
-
 
 	/// Mask a byte from a `ix` > 0 (ix being content).
 	/// Result is a byte containing `ix` nibble of left aligned content and padded with 0.
@@ -181,6 +179,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 			false
 		}
 	}
+
 }
 
 /// Radix 16 `NibbleOps` definition.

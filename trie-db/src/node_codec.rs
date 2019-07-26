@@ -107,12 +107,13 @@ pub trait BitMap: Sized {
 	/// Codec buffer to use.	
 	type Buffer: AsRef<[u8]> + AsMut<[u8]> + Default;
 
-	/// decode bitmap
+	/// Decode bitmap from its encoded full slice.
 	fn decode(data: &[u8]) -> Result<Self, Self::Error>;
 
-	/// got values
+	/// Return wether the bitmap registered a value for a branch
+  /// child index.
 	fn value_at(&self, i: usize) -> bool;
 
-	/// encode to dest of right len
-	fn encode<I: Iterator<Item = bool>>(has_children: I , dest: &mut [u8]);
+	/// Encode bitmap, output slice must be of right length. 
+	fn encode<I: Iterator<Item = bool>>(has_children: I , output: &mut [u8]);
 }

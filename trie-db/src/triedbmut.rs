@@ -612,8 +612,8 @@ where
 				trace!(target: "trie", "branch: ROUTE,AUGMENT");
 				let existing_key = NibbleSlice::from_stored(&encoded);
 
-				let cp = partial.common_prefix(&existing_key);
-				if cp == existing_key.len() && cp == partial.len() {
+				let common = partial.common_prefix(&existing_key);
+				if common == existing_key.len() && common == partial.len() {
 					let unchanged = stored_value.as_ref() == Some(&value);
 					let branch = Node::NibbledBranch(
 						existing_key.to_stored(),
@@ -626,40 +626,40 @@ where
 						true => InsertAction::Restore(branch),
 						false => InsertAction::Replace(branch),
 					}
-				} else if cp < existing_key.len() {
+				} else if common < existing_key.len() {
 					// insert a branch value in between
 					#[cfg(feature = "std")]
 					trace!(
 						target: "trie",
-						"partially-shared-prefix (exist={:?}; new={:?}; cp={:?}): AUGMENT-AT-END",
+						"partially-shared-prefix (exist={:?}; new={:?}; common={:?}): AUGMENT-AT-END",
 						existing_key.len(),
 						partial.len(),
-						cp,
+						common,
 					);
-					let nbranch_partial = existing_key.mid(cp + 1).to_stored();
+					let nbranch_partial = existing_key.mid(common + 1).to_stored();
 					let low = Node::NibbledBranch(nbranch_partial, children, stored_value);
-					let ix = existing_key.at(cp);
+					let ix = existing_key.at(common);
 					let mut children = empty_children::<_, L::N>();
 					let alloc_storage = self.storage.alloc(Stored::New(low));
 
 
 					children[ix as usize] = Some(alloc_storage.into());
 
-					if partial.len() - cp == 0 {
+					if partial.len() - common == 0 {
 						InsertAction::Replace(Node::NibbledBranch(
-							existing_key.to_stored_range(cp),
+							existing_key.to_stored_range(common),
 							children,
 							Some(value),
 							)
 						)
 					} else {
-						let ix = partial.at(cp);
-						let stored_leaf = Node::Leaf(partial.mid(cp + 1).to_stored(), value);
+						let ix = partial.at(common);
+						let stored_leaf = Node::Leaf(partial.mid(common + 1).to_stored(), value);
 						let leaf = self.storage.alloc(Stored::New(stored_leaf));
 
 						children[ix as usize] = Some(leaf.into());
 						InsertAction::Replace(Node::NibbledBranch(
-							existing_key.to_stored_range(cp),
+							existing_key.to_stored_range(common),
 							children,
 							None,
 							)
@@ -668,11 +668,11 @@ where
 					}
 
 				} else {
-					// Append after cp == existing_key and partial > cp
+					// Append after common == existing_key and partial > common
 					#[cfg(feature = "std")]
 					trace!(target: "trie", "branch: ROUTE,AUGMENT");
-					let idx = partial.at(cp) as usize;
-					key.advance(cp + 1);
+					let idx = partial.at(common) as usize;
+					key.advance(common + 1);
 					if let Some(child) = children[idx].take() {
 						// Original had something there. recurse down into it.
 						let (new_child, changed) = self.insert_at(child, key, value, old_val)?;
@@ -703,8 +703,8 @@ where
 			},
 			Node::Leaf(encoded, stored_value) => {
 				let existing_key = NibbleSlice::from_stored(&encoded);
-				let cp = partial.common_prefix(&existing_key);
-				if cp == existing_key.len() && cp == partial.len() {
+				let common = partial.common_prefix(&existing_key);
+				if common == existing_key.len() && common == partial.len() {
 					#[cfg(feature = "std")]
 					trace!(target: "trie", "equivalent-leaf: REPLACE");
 					// equivalent leaf.
@@ -716,8 +716,8 @@ where
 						true => InsertAction::Restore(Node::Leaf(encoded.clone(), value)),
 						false => InsertAction::Replace(Node::Leaf(encoded.clone(), value)),
 					}
-				} else if (L::USE_EXTENSION && cp == 0)
-					|| (!L::USE_EXTENSION && cp < existing_key.len()) {
+				} else if (L::USE_EXTENSION && common == 0)
+					|| (!L::USE_EXTENSION && common < existing_key.len()) {
 					#[cfg(feature = "std")]
 					trace!(
 						target: "trie",
@@ -733,9 +733,9 @@ where
 						// always replace since branch isn't leaf.
 						Node::Branch(children, Some(stored_value))
 					} else {
-						let idx = existing_key.at(cp) as usize;
+						let idx = existing_key.at(common) as usize;
 						let new_leaf = Node::Leaf(
-							existing_key.mid(cp + 1).to_stored(),
+							existing_key.mid(common + 1).to_stored(),
 							stored_value,
 						);
 						children[idx] = Some(self.storage.alloc(Stored::New(new_leaf)).into());
@@ -743,7 +743,7 @@ where
 						if L::USE_EXTENSION {
 							Node::Branch(children, None)
 						} else {
-							Node::NibbledBranch(partial.to_stored_range(cp), children, None)
+							Node::NibbledBranch(partial.to_stored_range(common), children, None)
 						}
 					};
 
@@ -754,7 +754,7 @@ where
 					InsertAction::Replace(branch_action)
 				} else if !L::USE_EXTENSION {
 					#[cfg(feature = "std")]
-					trace!(target: "trie", "complete-prefix (cp={:?}): AUGMENT-AT-END", cp);
+					trace!(target: "trie", "complete-prefix (common={:?}): AUGMENT-AT-END", common);
 
 					// fully-shared prefix for an extension.
 					// make a stub branch
@@ -769,16 +769,16 @@ where
 
 					InsertAction::Replace(branch)
 
-				} else if cp == existing_key.len() {
+				} else if common == existing_key.len() {
 					debug_assert!(L::USE_EXTENSION);
 					#[cfg(feature = "std")]
-					trace!(target: "trie", "complete-prefix (cp={:?}): AUGMENT-AT-END", cp);
+					trace!(target: "trie", "complete-prefix (common={:?}): AUGMENT-AT-END", common);
 
 					// fully-shared prefix for an extension.
 					// make a stub branch and an extension.
 					let branch = Node::Branch(empty_children::<_, L::N>(), Some(stored_value));
 					// augment the new branch.
-					key.advance(cp);
+					key.advance(common);
 					let branch = self.insert_inspector(branch, key, value, old_val)?.unwrap_node();
 
 					// always replace since we took a leaf and made an extension.
@@ -789,24 +789,24 @@ where
 					#[cfg(feature = "std")]
 					trace!(
 						target: "trie",
-						"partially-shared-prefix (exist={:?}; new={:?}; cp={:?}): AUGMENT-AT-END",
+						"partially-shared-prefix (exist={:?}; new={:?}; common={:?}): AUGMENT-AT-END",
 						existing_key.len(),
 						partial.len(),
-						cp,
+						common,
 					);
 
 					// partially-shared prefix for an extension.
 					// start by making a leaf.
-					let low = Node::Leaf(existing_key.mid(cp).to_stored(), stored_value);
+					let low = Node::Leaf(existing_key.mid(common).to_stored(), stored_value);
 
-					// augment it. this will result in the Leaf -> cp == 0 routine,
+					// augment it. this will result in the Leaf -> common == 0 routine,
 					// which creates a branch.
-					key.advance(cp);
+					key.advance(common);
 					let augmented_low = self.insert_inspector(low, key, value, old_val)?
 						.unwrap_node();
 					// make an extension using it. this is a replacement.
 					InsertAction::Replace(Node::Extension(
-						existing_key.to_stored_range(cp),
+						existing_key.to_stored_range(common),
 						self.storage.alloc(Stored::New(augmented_low)).into()
 					))
 				}
@@ -814,8 +814,8 @@ where
 			Node::Extension(encoded, child_branch) => {
 				debug_assert!(L::USE_EXTENSION);
 				let existing_key = NibbleSlice::from_stored(&encoded);
-				let cp = partial.common_prefix(&existing_key);
-				if cp == 0 {
+				let common = partial.common_prefix(&existing_key);
+				if common == 0 {
 					#[cfg(feature = "std")]
 					trace!(
 						target: "trie",
@@ -848,14 +848,14 @@ where
 						old_val,
 					)?.unwrap_node();
 					InsertAction::Replace(branch_action)
-				} else if cp == existing_key.len() {
+				} else if common == existing_key.len() {
 					#[cfg(feature = "std")]
-					trace!(target: "trie", "complete-prefix (cp={:?}): AUGMENT-AT-END", cp);
+					trace!(target: "trie", "complete-prefix (common={:?}): AUGMENT-AT-END", common);
 
 					// fully-shared prefix.
 
 					// insert into the child node.
-					key.advance(cp);
+					key.advance(common);
 					let (new_child, changed) = self.insert_at(child_branch, key, value, old_val)?;
 					let new_ext = Node::Extension(existing_key.to_stored(), new_child.into());
 
@@ -868,23 +868,23 @@ where
 					#[cfg(feature = "std")]
 					trace!(
 						target: "trie",
-						"partially-shared-prefix (exist={:?}; new={:?}; cp={:?}):\
+						"partially-shared-prefix (exist={:?}; new={:?}; common={:?}):\
 							 AUGMENT-AT-END",
 						existing_key.len(),
 						partial.len(),
-						cp,
+						common,
 					);
 
 					// partially-shared.
-					let low = Node::Extension(existing_key.mid(cp).to_stored(), child_branch);
-					// augment the extension. this will take the cp == 0 path, creating a branch.
-					key.advance(cp);
+					let low = Node::Extension(existing_key.mid(common).to_stored(), child_branch);
+					// augment the extension. this will take the common == 0 path, creating a branch.
+					key.advance(common);
 					let augmented_low = self.insert_inspector(low, key, value, old_val)?.unwrap_node();
 
 					// always replace, since this extension is not the one we started with.
 					// this is known because the partial key is only the common prefix.
 					InsertAction::Replace(Node::Extension(
-						existing_key.to_stored_range(cp),
+						existing_key.to_stored_range(common),
 						self.storage.alloc(Stored::New(augmented_low)).into()
 					))
 				}
@@ -975,11 +975,11 @@ where
 				}
 			},
 			(Node::NibbledBranch(encoded, mut children, value), false) => {
-				let (cp, existing_length) = {
+				let (common, existing_length) = {
 					let existing_key = NibbleSlice::from_stored(&encoded);
 					(existing_key.common_prefix(&partial), existing_key.len())
 				};
-				if cp == existing_length && cp == partial.len() {
+				if common == existing_length && common == partial.len() {
 
 					// replace val
 					if let Some(val) = value {
@@ -990,12 +990,12 @@ where
 					} else {
 						Action::Restore(Node::NibbledBranch(encoded, children, None))
 					}
-				} else if cp < existing_length {
+				} else if common < existing_length {
 					// partway through an extension -- nothing to do here.
 					Action::Restore(Node::NibbledBranch(encoded, children, value))
 				} else {
-					// cp == existing_length && cp < partial.len() : check children
-					let idx = partial.at(cp) as usize;
+					// common == existing_length && common < partial.len() : check children
+					let idx = partial.at(common) as usize;
 
 					if let Some(child) = children[idx].take() {
 						#[cfg(feature = "std")]
@@ -1005,7 +1005,7 @@ where
 							partial,
 						);
 						let prefix = key.clone();
-						key.advance(cp + 1);
+						key.advance(common + 1);
 						match self.remove_at(child, key, old_val)? {
 							Some((new, changed)) => {
 								children[idx] = Some(new.into());
@@ -1055,16 +1055,16 @@ where
 				}
 			},
 			(Node::Extension(encoded, child_branch), _) => {
-				let (cp, existing_length) = {
+				let (common, existing_length) = {
 					let existing_key = NibbleSlice::from_stored(&encoded);
 					(existing_key.common_prefix(&partial), existing_key.len())
 				};
-				if cp == existing_length {
+				if common == existing_length {
 					// try to remove from the child branch.
 					#[cfg(feature = "std")]
 					trace!(target: "trie", "removing from extension child, partial={:?}", partial);
 					let prefix = key.clone();
-					key.advance(cp);
+					key.advance(common);
 					match self.remove_at(child_branch, key, old_val)? {
 						Some((new_child, changed)) => {
 							let new_child = new_child.into();

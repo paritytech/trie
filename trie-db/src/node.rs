@@ -49,9 +49,14 @@ pub enum Node<'a, N: NibbleOps> {
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Eq, PartialEq, Clone)]
 pub struct Branch {
+	/// All data in branch as a single byte buffer.
+	/// It contains children slice, then value, then 
 	data: Vec<u8>,
+	/// Start of data/value index.
 	data_index: usize,
+	/// Start of ubounds, ubounds are the index of every children.
 	ubounds_index: usize,
+	/// Size of a child header (a constant value).
 	child_head: usize,
 }
 
