@@ -124,8 +124,10 @@ pub enum TrieError<T, E> {
 impl<T, E> fmt::Display for TrieError<T, E> where T: MaybeDebug, E: MaybeDebug {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		match *self {
-			TrieError::InvalidStateRoot(ref root) => write!(f, "Invalid state root: {:?}", root),
-			TrieError::IncompleteDatabase(ref missing) => write!(f, "Database missing expected key: {:?}", missing),
+			TrieError::InvalidStateRoot(ref root) =>
+				write!(f, "Invalid state root: {:?}", root),
+			TrieError::IncompleteDatabase(ref missing) =>
+				write!(f, "Database missing expected key: {:?}", missing),
 			TrieError::DecoderError(ref hash, ref decoder_err) => {
 				write!(f, "Decoding failed for hash {:?}; err: {:?}", hash, decoder_err)
 			}
@@ -144,7 +146,8 @@ impl<T, E> Error for TrieError<T, E> where T: fmt::Debug, E: Error {
 	}
 }
 
-/// Trie result type. Boxed to avoid copying around extra space for the `Hasher`s `Out` on successful queries.
+/// Trie result type.
+/// Boxed to avoid copying around extra space for the `Hasher`s `Out` on successful queries.
 pub type Result<T, H, E> = ::core_::result::Result<T, Box<TrieError<H, E>>>;
 
 
@@ -246,7 +249,11 @@ pub trait TrieMut<L: TrieLayout> {
 
 	/// Insert a `key`/`value` pair into the trie. An empty value is equivalent to removing
 	/// `key` from the trie. Returns the old value associated with this key, if it existed.
-	fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>;
+	fn insert(
+		&mut self,
+		key: &[u8],
+		value: &[u8],
+	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>;
 
 	/// Remove a `key` from the trie. Equivalent to making it equal to the empty
 	/// value. Returns the old value associated with this key, if it existed.
@@ -468,4 +475,6 @@ pub trait TrieOps: Sized + TrieLayout {
 /// Alias accessor to hasher hash output type from a `TrieLayout`.
 pub type TrieHash<L> = <<L as TrieLayout>::H as Hasher>::Out;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
-pub type CError<L> = <<L as TrieLayout>::C as NodeCodec<<L as TrieLayout>::H, <L as TrieLayout>::N>>::Error;
+pub type CError<L> = <
+	<L as TrieLayout>::C as NodeCodec<<L as TrieLayout>::H, <L as TrieLayout>::N>
+>::Error;

@@ -76,7 +76,11 @@ where
 		self.raw.get(L::H::hash(key).as_ref())
 	}
 
-	fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+	fn insert(
+		&mut self,
+		key: &[u8],
+		value: &[u8],
+	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
 		let hash = L::H::hash(key);
 		let out = self.raw.insert(hash.as_ref(), value)?;
 		let db = self.raw.db_mut();
@@ -120,7 +124,10 @@ mod test {
 			t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		}
 		let t = RefTrieDB::new(&memdb, &root).unwrap();
-		assert_eq!(t.get(&KeccakHasher::hash(&[0x01u8, 0x23])), Ok(Some(DBValue::from_slice(&[0x01u8, 0x23]))));
+		assert_eq!(
+			t.get(&KeccakHasher::hash(&[0x01u8, 0x23])),
+			Ok(Some(DBValue::from_slice(&[0x01u8, 0x23]))),
+		);
 	}
 
 	#[test]

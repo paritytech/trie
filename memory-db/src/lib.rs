@@ -655,7 +655,10 @@ mod tests {
 
 		assert_eq!(main.raw(&remove_key, EMPTY_PREFIX).unwrap(), (&"doggo".as_bytes().to_vec(), 0));
 		assert_eq!(main.raw(&insert_key, EMPTY_PREFIX).unwrap(), (&"arf".as_bytes().to_vec(), 2));
-		assert_eq!(main.raw(&negative_remove_key, EMPTY_PREFIX).unwrap(), (&"negative".as_bytes().to_vec(), -2));
+		assert_eq!(
+			main.raw(&negative_remove_key, EMPTY_PREFIX).unwrap(),
+			(&"negative".as_bytes().to_vec(), -2),
+		);
 	}
 
 	#[test]

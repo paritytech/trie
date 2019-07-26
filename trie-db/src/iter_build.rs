@@ -37,7 +37,7 @@ macro_rules! exponential_out {
 
 type CacheNode<HO> = Option<ChildReference<HO>>;
 
-/// A builder for fix constant length cache, should match `NibbleOps` `NIBBLE_LEN`.
+/// A builder for fix constant length cache, should match `NibbleOps` `NIBBLE_LENGTH`.
 pub trait CacheBuilder<HO> {
 	/// Size of cache.
 	const SIZE: usize;
@@ -794,8 +794,8 @@ mod test {
 	#[test]
 	fn two_bytes_nibble_length () {
 		let data = vec![
-			(vec![00u8],vec![0]),
-			(vec![01u8;64],vec![0;32]),
+			(vec![00u8], vec![0]),
+			(vec![01u8;64], vec![0;32]),
 		];
 		compare_implementations_no_extension(data.clone());
 		compare_implementations_no_extension_prefixed(data.clone());
@@ -804,15 +804,13 @@ mod test {
 	#[should_panic]
 	fn too_big_nibble_length_old () {
 		compare_implementations_h(vec![
-			(vec![01u8;64],vec![0;32]),
+			(vec![01u8;64], vec![0;32]),
 		]);
 	}
 	#[test]
 	fn too_big_nibble_length_new () {
-		// truncate keep things working in both situation (but will conflict for multiple common prefix
-		// val!!)
 		compare_implementations_no_extension(vec![
-			(vec![01u8;((u16::max_value() as usize + 1) / 2) + 1],vec![0;32]),
+			(vec![01u8;((u16::max_value() as usize + 1) / 2) + 1], vec![0;32]),
 		]);
 	}
 

@@ -58,7 +58,8 @@ where
 		self.raw.contains(L::H::hash(key).as_ref())
 	}
 
-	fn get_with<'a, 'key, Q: Query<L::H>>(&'a self, key: &'key [u8], query: Q) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
+	fn get_with<'a, 'key, Q: Query<L::H>>(&'a self, key: &'key [u8], query: Q)
+		-> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
 		where 'a: 'key
 	{
 		self.raw.get_with(L::H::hash(key).as_ref(), query)
@@ -116,7 +117,12 @@ where
 			.map(|res| {
 				res.map(|(hash, value)| {
 					let aux_hash = L::H::hash(&hash);
-					(self.trie.db().get(&aux_hash, Default::default()).expect("Missing fatdb hash").into_vec(), value)
+					(
+						self.trie.db().get(&aux_hash, Default::default())
+							.expect("Missing fatdb hash")
+							.into_vec(),
+						value,
+					)
 				})
 			})
 	}

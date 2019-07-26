@@ -40,7 +40,10 @@ where
 {
 	/// Look up the given key. If the value is found, it will be passed to the given
 	/// function to decode or copy.
-	pub fn look_up(mut self, key: NibbleSlice<L::N>) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
+	pub fn look_up(
+		mut self,
+		key: NibbleSlice<L::N>,
+	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let mut partial = key;
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;
@@ -101,7 +104,8 @@ where
 
 						match partial.len() == slice.len() {
 							true => return Ok(value.map(move |val| self.query.decode(val))),
-							false => match children.0.slice_at(partial.at(slice.len()) as usize, children.1) {
+							false => match children.0
+								.slice_at(partial.at(slice.len()) as usize, children.1) {
 								Some(x) => {
 									node_data = x;
 									partial = partial.mid(slice.len() + 1);

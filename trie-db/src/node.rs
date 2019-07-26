@@ -71,7 +71,12 @@ impl Branch {
 			i += 1;
 			data.extend_from_slice(&ix.to_ne_bytes()[..]);
 		}
-		Branch { data, data_index, ubounds_index, child_head: N::ChildSliceIndex::CONTENT_HEADER_SIZE }
+		Branch {
+			data,
+			data_index,
+			ubounds_index,
+			child_head: N::ChildSliceIndex::CONTENT_HEADER_SIZE,
+		}
 	}
 
 	/// Get the node value, if any.
@@ -134,10 +139,14 @@ impl<'a, N: NibbleOps> From<Node<'a, N>> for OwnedNode<N> {
 	fn from(node: Node<'a, N>) -> Self {
 		match node {
 			Node::Empty => OwnedNode::Empty,
-			Node::Leaf(k, v) => OwnedNode::Leaf(k.into(), DBValue::from_slice(v)),
-			Node::Extension(k, child) => OwnedNode::Extension(k.into(), DBValue::from_slice(child)),
-			Node::Branch(c, val) => OwnedNode::Branch(Branch::new::<N>(&c, val)),
-			Node::NibbledBranch(k, c, val) => OwnedNode::NibbledBranch(k.into(), Branch::new::<N>(&c, val)),
+			Node::Leaf(k, v) =>
+				OwnedNode::Leaf(k.into(), DBValue::from_slice(v)),
+			Node::Extension(k, child) =>
+				OwnedNode::Extension(k.into(), DBValue::from_slice(child)),
+			Node::Branch(c, val) =>
+				OwnedNode::Branch(Branch::new::<N>(&c, val)),
+			Node::NibbledBranch(k, c, val) =>
+				OwnedNode::NibbledBranch(k.into(), Branch::new::<N>(&c, val)),
 		}
 	}
 }

@@ -59,7 +59,8 @@ impl<N: NibbleOps> NibbleVec<N> {
 		if i == 0 {
 			self.inner.push(N::push_at_left(0, nibble, 0));
 		} else {
-			let dest = self.inner.last_mut().expect("len != 0 since len % 2 != 0; inner has a last element; qed");
+			let dest = self.inner.last_mut()
+				.expect("len != 0 since len % 2 != 0; inner has a last element; qed");
 			*dest = N::push_at_left(i as u8, nibble, *dest);
 		}
 		self.len += 1;
@@ -119,13 +120,15 @@ impl<N: NibbleOps> NibbleVec<N> {
 		let last_index = self.len / N::NIBBLE_PER_BYTE;
 		if offset > 0 {
 			let (s1, s2) = N::split_shifts(offset);
-			self.inner[last_index] = N::masked_left(offset as u8, self.inner[last_index]) | (v.inner[0] >> s2);
-			(0..v.inner.len() - 1).for_each(|i|self.inner.push(v.inner[i] << s1 | v.inner[i+1] >> s2));
+			self.inner[last_index] = N::masked_left(offset as u8, self.inner[last_index])
+				| (v.inner[0] >> s2);
+			(0..v.inner.len() - 1)
+				.for_each(|i| self.inner.push(v.inner[i] << s1 | v.inner[i+1] >> s2));
 			if final_offset > 0 {
 				self.inner.push(v.inner[v.inner.len() - 1] << s1);
 			}
 		} else {
-			(0..v.inner.len()).for_each(|i|self.inner.push(v.inner[i]));
+			(0..v.inner.len()).for_each(|i| self.inner.push(v.inner[i]));
 		}
 		self.len += v.len;
 	}
@@ -142,10 +145,13 @@ impl<N: NibbleOps> NibbleVec<N> {
 		} else {
 			let kend = self.inner.len() - 1;
 			if sl.len() > 0 {
-				self.inner[kend] = N::masked_left((N::NIBBLE_PER_BYTE - pad) as u8, self.inner[kend]);
+				self.inner[kend] = N::masked_left(
+					(N::NIBBLE_PER_BYTE - pad) as u8,
+					self.inner[kend],
+				);
 				let (s1, s2) = N::split_shifts(pad);
 				self.inner[kend] |= sl[0] >> s1;
-				(0..sl.len() - 1).for_each(|i|self.inner.push(sl[i] << s2 | sl[i+1] >> s1));
+				(0..sl.len() - 1).for_each(|i| self.inner.push(sl[i] << s2 | sl[i+1] >> s1));
 				self.inner.push(sl[sl.len() - 1] << s2);
 			}
 		}
@@ -157,13 +163,13 @@ impl<N: NibbleOps> NibbleVec<N> {
 	/// Can be slow.
 	pub(crate) fn append_slice_nibble(
 		&mut self,
-		o_sl: Option<&NibbleSlice<N>>,
+		o_slice: Option<&NibbleSlice<N>>,
 		o_index: Option<u8>,
 	) -> usize {
 		let mut res = 0;
-		if let Some(sl) = o_sl {
-			self.append_partial(sl.right());
-			res += sl.len();
+		if let Some(slice) = o_slice {
+			self.append_partial(slice.right());
+			res += slice.len();
 		}
 		if let Some(ix) = o_index {
 			self.push(ix);
@@ -171,6 +177,7 @@ impl<N: NibbleOps> NibbleVec<N> {
 		}
 		res
 	}
+
 	/// Utility function for `append_slice_nibble` after a clone.
 	/// Can be slow.
 	pub(crate) fn clone_append_slice_nibble(
@@ -244,18 +251,49 @@ mod tests {
 	}
 	#[test]
 	fn append_partial() {
-		append_partial_inner::<NibbleHalf>(&[1,2,3], &[], ((1,1), &[0x23]));
-		append_partial_inner::<NibbleHalf>(&[1,2,3], &[1], ((0,0), &[0x23]));
-		append_partial_inner::<NibbleHalf>(&[0,1,2,3], &[0], ((1,1), &[0x23]));
-		append_partial_inner::<NibbleQuarter>(&[1, 0, 2, 0, 3], &[], ((1,1), &[0x23]));
-		append_partial_inner::<NibbleQuarter>(&[1, 0, 2, 0, 3, 0, 1, 0, 2], &[], ((1,1), &[0x23, 0x12]));
-		append_partial_inner::<NibbleQuarter>(&[2, 1, 0, 2, 0, 3, 0, 1, 0, 2], &[], ((2,0b1001), &[0x23, 0x12]));
-		append_partial_inner::<NibbleQuarter>(&[3, 2, 1, 0, 2, 0, 3, 0, 1, 0, 2], &[], ((3,0b111001), &[0x23, 0x12]));
-		append_partial_inner::<NibbleQuarter>(&[3, 1, 0, 2, 0, 3, 0, 1, 0, 2], &[3], ((1,1), &[0x23, 0x12]));
-		append_partial_inner::<NibbleQuarter>(&[3, 2, 3, 1, 0, 2, 0, 3, 0, 1, 0, 2], &[3, 2, 3], ((1,1), &[0x23, 0x12]));
-		append_partial_inner::<NibbleQuarter>(&[3, 2, 3, 2, 1, 0, 2, 0, 3, 0, 1, 0, 2], &[3, 2, 3], ((2,0b1001), &[0x23, 0x12]));
-		append_partial_inner::<NibbleQuarter>(&[3, 2, 1, 0, 2, 0, 3, 0, 1, 0, 2], &[3, 2], ((1,1), &[0x23, 0x12]));
-		append_partial_inner::<NibbleQuarter>(&[3, 2, 3, 2, 1, 0, 2, 0, 3, 0, 1, 0, 2], &[3, 2], ((3,0b111001), &[0x23, 0x12]));
+		append_partial_inner::<NibbleHalf>(&[1,2,3], &[], ((1, 1), &[0x23]));
+		append_partial_inner::<NibbleHalf>(&[1,2,3], &[1], ((0, 0), &[0x23]));
+		append_partial_inner::<NibbleHalf>(&[0,1,2,3], &[0], ((1, 1), &[0x23]));
+		append_partial_inner::<NibbleQuarter>(&[1, 0, 2, 0, 3], &[], ((1, 1), &[0x23]));
+		append_partial_inner::<NibbleQuarter>(
+			&[1, 0, 2, 0, 3, 0, 1, 0, 2],
+			&[],
+			((1,1), &[0x23, 0x12]),
+		);
+		append_partial_inner::<NibbleQuarter>(
+			&[2, 1, 0, 2, 0, 3, 0, 1, 0, 2],
+			&[],
+			((2, 0b1001), &[0x23, 0x12]),
+		);
+		append_partial_inner::<NibbleQuarter>(
+			&[3, 2, 1, 0, 2, 0, 3, 0, 1, 0, 2],
+			&[],
+			((3, 0b111001), &[0x23, 0x12]));
+		append_partial_inner::<NibbleQuarter>(
+			&[3, 1, 0, 2, 0, 3, 0, 1, 0, 2],
+			&[3],
+			((1, 1), &[0x23, 0x12]),
+		);
+		append_partial_inner::<NibbleQuarter>(
+			&[3, 2, 3, 1, 0, 2, 0, 3, 0, 1, 0, 2],
+			&[3, 2, 3],
+			((1, 1), &[0x23, 0x12]),
+		);
+		append_partial_inner::<NibbleQuarter>(
+			&[3, 2, 3, 2, 1, 0, 2, 0, 3, 0, 1, 0, 2],
+			&[3, 2, 3],
+			((2, 0b1001), &[0x23, 0x12]),
+		);
+		append_partial_inner::<NibbleQuarter>(
+			&[3, 2, 1, 0, 2, 0, 3, 0, 1, 0, 2],
+			&[3, 2],
+			((1, 1), &[0x23, 0x12]),
+		);
+		append_partial_inner::<NibbleQuarter>(
+			&[3, 2, 3, 2, 1, 0, 2, 0, 3, 0, 1, 0, 2],
+			&[3, 2],
+			((3, 0b111001), &[0x23, 0x12]),
+		);
 	}
 
 	fn append_partial_inner<N: NibbleOps>(res: &[u8], init: &[u8], partial: ((u8,u8), &[u8])) {

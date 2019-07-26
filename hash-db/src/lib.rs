@@ -52,7 +52,8 @@ pub type Prefix<'a> = (&'a[u8], (u8, u8));
 /// `Out` associated type with the necessary bounds.
 pub trait Hasher: Sync + Send {
 	/// The output type of the `Hasher`
-	type Out: AsRef<[u8]> + AsMut<[u8]> + Default + MaybeDebug + PartialEq + Eq + hash::Hash + Send + Sync + Clone + Copy;
+	type Out: AsRef<[u8]> + AsMut<[u8]> + Default + MaybeDebug + PartialEq + Eq
+		+ hash::Hash + Send + Sync + Clone + Copy;
 	/// What to use to build `HashMap`s with this `Hasher`
 	type StdHasher: Sync + Send + Default + hash::Hasher;
 	/// The length in bytes of the `Hasher` output
@@ -122,8 +123,9 @@ pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 	/// Like `insert()`, except you provide the key and the data is all moved.
 	fn emplace(&mut self, key: H::Out, prefix: Prefix, value: T);
 
-	/// Remove a datum previously inserted. Insertions can be "owed" such that the same number of `insert()`s may
-	/// happen without the data being eventually being inserted into the DB. It can be "owed" more than once.
+	/// Remove a datum previously inserted. Insertions can be "owed" such that the same number of
+	/// `insert()`s may happen without the data being eventually being inserted into the DB.
+	/// It can be "owed" more than once.
 	fn remove(&mut self, key: &H::Out, prefix: Prefix);
 }
 
@@ -139,12 +141,16 @@ pub trait HashDBRef<H: Hasher, T> {
 
 impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a dyn HashDB<H, T> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(*self, key, prefix) }
-	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool { HashDB::contains(*self, key, prefix) }
+	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
+		HashDB::contains(*self, key, prefix)
+	}
 }
 
 impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a mut dyn HashDB<H, T> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(*self, key, prefix) }
-	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool { HashDB::contains(*self, key, prefix) }
+	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
+		HashDB::contains(*self, key, prefix)
+	}
 }
 
 /// Upcast trait for HashDB.
@@ -163,8 +169,11 @@ pub trait AsPlainDB<K, V> {
 	fn as_plain_db_mut<'a>(&'a mut self) -> &'a mut (dyn PlainDB<K, V> + 'a);
 }
 
-// NOTE: There used to be a `impl<T> AsHashDB for T` but that does not work with generics. See https://stackoverflow.com/questions/48432842/implementing-a-trait-for-reference-and-non-reference-types-causes-conflicting-im
-// This means we need concrete impls of AsHashDB in several places, which somewhat defeats the point of the trait.
+// NOTE: There used to be a `impl<T> AsHashDB for T` but that does not work with generics.
+// See https://stackoverflow.com/questions/48432842/
+// implementing-a-trait-for-reference-and-non-reference-types-causes-conflicting-im
+// This means we need concrete impls of AsHashDB in several places, which somewhat defeats
+// the point of the trait.
 impl<'a, H: Hasher, T> AsHashDB<H, T> for &'a mut dyn HashDB<H, T> {
 	fn as_hash_db(&self) -> &dyn HashDB<H, T> { &**self }
 	fn as_hash_db_mut<'b>(&'b mut self) -> &'b mut (dyn HashDB<H, T> + 'b) { &mut **self }

@@ -17,7 +17,8 @@ use nibble::{NibbleSlice, NibbleOps, ChildSliceIndex};
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
 use super::lookup::Lookup;
-use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query, TrieLayout, CError, TrieHash};
+use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query,
+	TrieLayout, CError, TrieHash};
 use super::nibble::NibbleVec;
 #[cfg(feature = "std")]
 use ::std::fmt;
@@ -100,8 +101,8 @@ where
 	}
 
 	/// Given some node-describing data `node`, and node key return the actual node RLP.
-	/// This could be a simple identity operation in the case that the node is sufficiently small, but
-	/// may require a database lookup. If `is_root_data` then this is root-data and
+	/// This could be a simple identity operation in the case that the node is sufficiently small,
+	/// but may require a database lookup. If `is_root_data` then this is root-data and
 	/// is known to be literal.
 	/// `partial_key` is encoded nibble slice that addresses the node.
 	fn get_raw_or_lookup(
@@ -187,7 +188,8 @@ where
 						.field("item", &TrieAwareDebugNode{
 							trie: self.trie,
 							node_key: item,
-							partial_key: self.partial_key.clone_append_slice_nibble(Some(&slice), None),
+							partial_key: self.partial_key
+								.clone_append_slice_nibble(Some(&slice), None),
 							index: None,
 						})
 						.finish(),
@@ -199,7 +201,8 @@ where
 							trie: self.trie,
 							index: Some(i as u8),
 							node_key: n,
-							partial_key: self.partial_key.clone_append_slice_nibble(None, Some(i as u8)),
+							partial_key: self.partial_key
+								.clone_append_slice_nibble(None, Some(i as u8)),
 						})
 						.collect();
 					match (f.debug_struct("Node::Branch"), self.index) {
@@ -218,7 +221,8 @@ where
 							trie: self.trie,
 							index: Some(i as u8),
 							node_key: n,
-							partial_key: self.partial_key.clone_append_slice_nibble(Some(&slice), Some(i as u8)),
+							partial_key: self.partial_key
+								.clone_append_slice_nibble(Some(&slice), Some(i as u8)),
 						}).collect();
 					match (f.debug_struct("Node::NibbledBranch"), self.index) {
 						(ref mut d, Some(ref i)) => d.field("index", i),
@@ -293,7 +297,7 @@ impl<N: NibbleOps> Crumb<N> {
 				| (&Status::At, &OwnedNode::NibbledBranch(..)) => Status::AtChild(0),
 			(&Status::AtChild(x), &OwnedNode::Branch(_))
 				| (&Status::AtChild(x), &OwnedNode::NibbledBranch(..))
-				if x < N::NIBBLE_LEN => Status::AtChild(x + 1),
+				if x < N::NIBBLE_LENGTH => Status::AtChild(x + 1),
 			_ => Status::Exiting,
 		}
 	}
@@ -309,7 +313,11 @@ pub struct TrieDBIterator<'a, L: TrieLayout> {
 impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 	/// Create a new iterator.
 	pub fn new(db: &'a TrieDB<L>) -> Result<TrieDBIterator<'a, L>, TrieHash<L>, CError<L>> {
-		let mut r = TrieDBIterator { db, trail: Vec::with_capacity(8), key_nibbles: NibbleVec::new() };
+		let mut r = TrieDBIterator {
+			db,
+			trail: Vec::with_capacity(8),
+			key_nibbles: NibbleVec::new(),
+		};
 		db.root_data().and_then(|root_data| r.descend(&root_data))?;
 		Ok(r)
 	}
@@ -352,7 +360,9 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 							self.key_nibbles.append_partial(slice.right());
 							full_key_nibbles += slice.len();
 							partial = partial.mid(slice.len());
-							let data = self.db.get_raw_or_lookup(&*item, key.back(full_key_nibbles).left())?;
+							let data = self.db
+								.get_raw_or_lookup(&*item, key.back(full_key_nibbles)
+								.left())?;
 							data
 						} else {
 							self.descend(&node_data)?;
@@ -377,7 +387,9 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 							if let Some(ref child) = nodes.0.slice_at(i as usize, nodes.1) {
 								full_key_nibbles += 1;
 								partial = partial.mid(1);
-								let child = self.db.get_raw_or_lookup(&*child, key.back(full_key_nibbles).left())?;
+								let child = self.db
+									.get_raw_or_lookup(&*child, key.back(full_key_nibbles)
+									.left())?;
 								child
 							} else {
 								return Ok(())
@@ -407,7 +419,9 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 							if let Some(ref child) = nodes.0.slice_at(i as usize, nodes.1) {
 								full_key_nibbles += slice.len() + 1;
 								partial = partial.mid(slice.len() + 1);
-								let child = self.db.get_raw_or_lookup(&*child, key.back(full_key_nibbles).left())?;
+								let child = self.db
+									.get_raw_or_lookup(&*child, key.back(full_key_nibbles)
+									.left())?;
 								child
 							} else {
 								return Ok(())
@@ -490,8 +504,8 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 						}
 						IterStep::PopTrail
 					},
-					(Status::At, &OwnedNode::Branch(ref branch))
-					 | (Status::At, &OwnedNode::NibbledBranch(_, ref branch)) if branch.has_value() => {
+					(Status::At, &OwnedNode::NibbledBranch(_, ref branch))
+						| (Status::At, &OwnedNode::Branch(ref branch)) if branch.has_value() => {
 						let value = branch.get_value().expect("already checked `has_value`");
 						return Some(Ok((self.key().right().1.into(), DBValue::from_slice(value))));
 					},
@@ -630,12 +644,28 @@ mod tests {
 		let t = RefTrieDB::new(&memdb, &root).unwrap();
 
 		let mut iter = t.iter().unwrap();
-		assert_eq!(iter.next().unwrap().unwrap(), (hex!("0103000000000000000464").to_vec(), DBValue::from_slice(&hex!("fffffffffe")[..])));
+		assert_eq!(
+			iter.next().unwrap().unwrap(),
+			(
+				hex!("0103000000000000000464").to_vec(),
+				DBValue::from_slice(&hex!("fffffffffe")[..]),
+			)
+		);
 		iter.seek(&hex!("00")[..]).unwrap();
-		assert_eq!(pairs, iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>());
+		assert_eq!(
+			pairs,
+			iter.map(|x| x.unwrap())
+				.map(|(k, v)| (k, v[..].to_vec()))
+				.collect::<Vec<_>>()
+		);
 		let mut iter = t.iter().unwrap();
 		iter.seek(&hex!("0103000000000000000465")[..]).unwrap();
-		assert_eq!(&pairs[1..], &iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>()[..]);
+		assert_eq!(
+			&pairs[1..],
+			&iter.map(|x| x.unwrap())
+				.map(|(k, v)| (k, v[..].to_vec()))
+				.collect::<Vec<_>>()[..]
+		);
 	}
 
 	#[test]
@@ -677,7 +707,12 @@ mod tests {
 
 	#[test]
 	fn iterator() {
-		let d = vec![DBValue::from_slice(b"A"), DBValue::from_slice(b"AA"), DBValue::from_slice(b"AB"), DBValue::from_slice(b"B")];
+		let d = vec![
+			DBValue::from_slice(b"A"),
+			DBValue::from_slice(b"AA"),
+			DBValue::from_slice(b"AB"),
+			DBValue::from_slice(b"B"),
+		];
 
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
@@ -689,7 +724,15 @@ mod tests {
 		}
 
 		let t = RefTrieDB::new(&memdb, &root).unwrap();
-		assert_eq!(d.iter().map(|i| i.clone().into_vec()).collect::<Vec<_>>(), t.iter().unwrap().map(|x| x.unwrap().0).collect::<Vec<_>>());
+		assert_eq!(
+			d.iter()
+				.map(|i| i.clone().into_vec())
+				.collect::<Vec<_>>(),
+			t.iter()
+				.unwrap()
+				.map(|x| x.unwrap().0)
+				.collect::<Vec<_>>()
+		);
 		assert_eq!(d, t.iter().unwrap().map(|x| x.unwrap().1).collect::<Vec<_>>());
 	}
 
@@ -722,7 +765,12 @@ mod tests {
 
 	#[test]
 	fn iterator_seek() {
-		let d = vec![ DBValue::from_slice(b"A"), DBValue::from_slice(b"AA"), DBValue::from_slice(b"AB"), DBValue::from_slice(b"B") ];
+		let d = vec![
+			DBValue::from_slice(b"A"),
+			DBValue::from_slice(b"AA"),
+			DBValue::from_slice(b"AB"),
+			DBValue::from_slice(b"B"),
+		];
 
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
@@ -795,7 +843,12 @@ mod tests {
 
 	#[test]
 	fn debug_output_supports_pretty_print() {
-		let d = vec![ DBValue::from_slice(b"A"), DBValue::from_slice(b"AA"), DBValue::from_slice(b"AB"), DBValue::from_slice(b"B") ];
+		let d = vec![
+			DBValue::from_slice(b"A"),
+			DBValue::from_slice(b"AA"),
+			DBValue::from_slice(b"AB"),
+			DBValue::from_slice(b"B"),
+		];
 
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();

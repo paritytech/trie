@@ -17,7 +17,8 @@ use super::{Result, DBValue, TrieMut, TrieDBMut, TrieLayout, TrieHash, CError};
 
 /// A mutable `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 ///
-/// Use it as a `Trie` or `TrieMut` trait object. You can use `raw()` to get the backing `TrieDBMut` object.
+/// Use it as a `Trie` or `TrieMut` trait object. You can use `raw()` to get the backing `TrieDBMut`
+/// object.
 pub struct SecTrieDBMut<'db, L>
 where
 	L: TrieLayout
@@ -75,7 +76,10 @@ where
 		self.raw.get(&L::H::hash(key).as_ref())
 	}
 
-	fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+	fn insert(
+		&mut self, key: &[u8],
+		value: &[u8],
+	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
 		self.raw.insert(&L::H::hash(key).as_ref(), value)
 	}
 
@@ -101,6 +105,9 @@ mod test {
 			t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		}
 		let t = RefTrieDB::new(&memdb, &root).unwrap();
-		assert_eq!(t.get(&KeccakHasher::hash(&[0x01u8, 0x23])).unwrap().unwrap(), DBValue::from_slice(&[0x01u8, 0x23]));
+		assert_eq!(
+			t.get(&KeccakHasher::hash(&[0x01u8, 0x23])).unwrap().unwrap(),
+			DBValue::from_slice(&[0x01u8, 0x23]),
+		);
 	}
 }

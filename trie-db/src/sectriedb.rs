@@ -66,7 +66,11 @@ where
 		self.raw.contains(L::H::hash(key).as_ref())
 	}
 
-	fn get_with<'a, 'key, Q: Query<L::H>>(&'a self, key: &'key [u8], query: Q) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
+	fn get_with<'a, 'key, Q: Query<L::H>>(
+		&'a self,
+		key: &'key [u8],
+		query: Q,
+	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
 		where 'a: 'key
 	{
 		self.raw.get_with(L::H::hash(key).as_ref(), query)

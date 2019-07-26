@@ -38,7 +38,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	/// Number of nibble per byte.
 	const NIBBLE_PER_BYTE : usize = 8 / Self::BIT_PER_NIBBLE;
 	/// Number of child for a branch (trie radix).
-	const NIBBLE_LEN : usize = TWO_EXP[Self::BIT_PER_NIBBLE];
+	const NIBBLE_LENGTH : usize = TWO_EXP[Self::BIT_PER_NIBBLE];
 	//2usize.pow(8 as u32 / Self::NIBBLE_PER_BYTE as u32);
 	/// Padding bitmasks, internally use for working on padding byte.
 	/// Length of this array is `Self::BIT_PER_NIBBLE`.
@@ -55,8 +55,8 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	/// }
 	/// ```
 	const PADDING_BITMASK: &'static [(u8, usize)];
-	/// Last nibble index as u8, just a convenience constant for iteration on all nibble.
-	const LAST_N_IX_U8: u8 = (Self::NIBBLE_PER_BYTE - 1) as u8;
+	/// Last nibble index as u8, a convenience constant for iteration on all nibble.
+	const LAST_NIBBLE_INDEX: u8 = (Self::NIBBLE_PER_BYTE - 1) as u8;
 
 	/// Buffer type for slice index store (we do not include
 	/// directly slice in it to avoid lifetime in
@@ -280,7 +280,7 @@ pub trait ChildSliceIndex: AsRef<[usize]>
 	+ Clone {
 
 	/// Constant length for the number of children.
-	const NIBBLE_LEN : usize;
+	const NIBBLE_LENGTH : usize;
 	/// Constant size of header
 	/// Should only be use for inner implementation.
 	const CONTENT_HEADER_SIZE: usize;
@@ -311,7 +311,7 @@ pub struct IterChildSliceIndex<'a, CS>(&'a CS, usize, &'a[u8]);
 impl<'a, CS: ChildSliceIndex> Iterator for IterChildSliceIndex<'a, CS> {
 	type Item = Option<&'a[u8]>;
 	fn next(&mut self) -> Option<Self::Item> {
-		if self.1 == CS::NIBBLE_LEN {
+		if self.1 == CS::NIBBLE_LENGTH {
 			return None;
 		}
 		self.1 += 1;
@@ -340,7 +340,7 @@ macro_rules! child_slice_index {
 
 		impl ChildSliceIndex for $me {
 			const CONTENT_HEADER_SIZE: usize = $pre;
-			const NIBBLE_LEN: usize = $size;
+			const NIBBLE_LENGTH: usize = $size;
 		}
 	}
 }
