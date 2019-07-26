@@ -631,7 +631,8 @@ where
 					#[cfg(feature = "std")]
 					trace!(
 						target: "trie",
-						"partially-shared-prefix (exist={:?}; new={:?}; common={:?}): AUGMENT-AT-END",
+						"partially-shared-prefix (exist={:?}; new={:?}; common={:?}):\
+							 AUGMENT-AT-END",
 						existing_key.len(),
 						partial.len(),
 						common,
@@ -789,7 +790,8 @@ where
 					#[cfg(feature = "std")]
 					trace!(
 						target: "trie",
-						"partially-shared-prefix (exist={:?}; new={:?}; common={:?}): AUGMENT-AT-END",
+						"partially-shared-prefix (exist={:?}; new={:?}; common={:?}):\
+							 AUGMENT-AT-END",
 						existing_key.len(),
 						partial.len(),
 						common,
@@ -877,9 +879,11 @@ where
 
 					// partially-shared.
 					let low = Node::Extension(existing_key.mid(common).to_stored(), child_branch);
-					// augment the extension. this will take the common == 0 path, creating a branch.
+					// augment the extension. this will take the common == 0 path,
+					// creating a branch.
 					key.advance(common);
-					let augmented_low = self.insert_inspector(low, key, value, old_val)?.unwrap_node();
+					let augmented_low = self.insert_inspector(low, key, value, old_val)?
+						.unwrap_node();
 
 					// always replace, since this extension is not the one we started with.
 					// this is known because the partial key is only the common prefix.

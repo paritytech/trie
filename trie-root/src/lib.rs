@@ -280,7 +280,12 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 				}
 			} else if shared_nibble_count > cursor {
 				stream.append_extension(&key[cursor..shared_nibble_count]);
-				build_trie_trampoline::<H, _, _, _>(input, shared_nibble_count, stream, no_extension);
+				build_trie_trampoline::<H, _, _, _>(
+					input,
+					shared_nibble_count,
+					stream,
+					no_extension,
+				);
 				return;
 			} else { (cursor, None) };
 
@@ -310,8 +315,8 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 			// Put out the node header:
 			stream.begin_branch(o_branch_slice, value, shared_nibble_counts.iter().map(|&n| n > 0));
 
-			// Fill in each slot in the branch node. We don't need to bother with empty slots since they
-			// were registered in the header.
+			// Fill in each slot in the branch node. We don't need to bother with empty slots
+			// since they were registered in the header.
 			let mut begin = match value { None => 0, _ => 1 };
 			for &count in &shared_nibble_counts {
 				if count > 0 {
