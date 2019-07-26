@@ -62,7 +62,7 @@ impl Branch {
 	) -> Self {
 		let mut data: Vec<u8> = children_slice.1.into();
 		let data_index = data.len();
-		let ubounds_index = data_index + maybe_value.map(|v|{
+		let ubounds_index = data_index + maybe_value.map(|v| {
 			data.extend_from_slice(v);
 			v.len()
 		}).unwrap_or(0);

@@ -155,7 +155,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		if nb > 0 {
 			((nb, N::masked_right(nb, self.data[split])), &self.data[split + 1 ..])
 		} else {
-			((0,0), &self.data[split..])
+			((0, 0), &self.data[split..])
 		}
 	}
 
@@ -226,14 +226,14 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		let split = self.offset / N::NIBBLE_PER_BYTE;
 		let ix = (self.offset % N::NIBBLE_PER_BYTE) as u8;
 		if ix == 0 {
-			(&self.data[..split], (0,0))
+			(&self.data[..split], (0, 0))
 		} else {
 			(&self.data[..split], (ix, N::masked_left(ix, self.data[split])))
 		}
 	}
 
 	/// Owned version of a `Prefix` from a `left` method call.
-	pub fn left_owned(&'a self) -> (ElasticArray36<u8>, (u8,u8)) {
+	pub fn left_owned(&'a self) -> (ElasticArray36<u8>, (u8, u8)) {
 		let (a, b) = self.left();
 		(a.into(), b)
 	}

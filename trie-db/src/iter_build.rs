@@ -57,7 +57,7 @@ impl<HO> CacheBuilder<HO> for Cache16 {
 	type AN = [CacheNode<HO>; 16];
 	#[inline(always)]
 	fn new_vec_slice_buffer() -> Self::AN {
-		exponential_out!(@3, [None,None])
+		exponential_out!(@3, [None, None])
 	}
 }
 
@@ -80,12 +80,12 @@ type ArrayNode<T> = <<T as TrieLayout>::CB as CacheBuilder<TrieHash<T>>>::AN;
 /// Note that it is not memory optimal (all depth are allocated even if some are empty due
 /// to node partial).
 /// Three field are used, a cache over the children, an optional associated value and the depth.
-struct CacheAccum<T: TrieLayout,V> (Vec<(ArrayNode<T>, Option<V>, usize)>,PhantomData<T>);
+struct CacheAccum<T: TrieLayout, V> (Vec<(ArrayNode<T>, Option<V>, usize)>, PhantomData<T>);
 
 /// Initially allocated cache depth.
 const INITIAL_DEPTH: usize = 10;
 
-impl<T,V> CacheAccum<T,V>
+impl<T, V> CacheAccum<T, V>
 where
 	T: TrieLayout,
 	V: AsRef<[u8]>,
@@ -160,11 +160,11 @@ where
 		&mut self,
 		cb_ext: &mut impl ProcessEncodedNode<TrieHash<T>>,
 		target_depth: usize,
-		(k2, v2): &(impl AsRef<[u8]>,impl AsRef<[u8]>),
+		(k2, v2): &(impl AsRef<[u8]>, impl AsRef<[u8]>),
 	) {
 		let nibble_value = T::N::left_nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
-		let nkey = NibbleSlice::<T::N>::new_offset(&k2.as_ref()[..],target_depth + 1);
+		let nkey = NibbleSlice::<T::N>::new_offset(&k2.as_ref()[..], target_depth + 1);
 		let encoded = T::C::leaf_node(nkey.right(), &v2.as_ref()[..]);
 		let pr = NibbleSlice::<T::N>::new_offset(
 			&k2.as_ref()[..],
@@ -211,7 +211,7 @@ where
 			};
 			if !is_root {
 				// put hash in parent
-				let nibble: u8 = T::N::left_nibble_at(&ref_branch.as_ref()[..],llix);
+				let nibble: u8 = T::N::left_nibble_at(&ref_branch.as_ref()[..], llix);
 				self.set_node(llix, nibble as usize, Some(h));
 			}
 		}
@@ -263,8 +263,8 @@ where
 		debug_assert!(self.0[last].2 == branch_d);
 		// enc branch
 		let v = self.0[last].1.take();
-		let nkeyix = nkey.unwrap_or((0,0));
-		let pr = NibbleSlice::<T::N>::new_offset(&key_branch.as_ref()[..],nkeyix.0);
+		let nkeyix = nkey.unwrap_or((0, 0));
+		let pr = NibbleSlice::<T::N>::new_offset(&key_branch.as_ref()[..], nkeyix.0);
 		let encoded = T::C::branch_node_nibbled(
 			pr.right_range_iter(nkeyix.1),
 			nkeyix.1,
@@ -292,7 +292,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F)
 		F: ProcessEncodedNode<TrieHash<T>>,
 	{
 	let no_extension = !T::USE_EXTENSION;
-	let mut depth_queue = CacheAccum::<T,B>::new();
+	let mut depth_queue = CacheAccum::<T, B>::new();
 	// compare iter ordering
 	let mut iter_input = input.into_iter();
 	if let Some(mut prev_val) = iter_input.next() {
@@ -326,7 +326,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F)
 		if single {
 			// one single element corner case
 			let (k2, v2) = prev_val;
-			let nkey = NibbleSlice::<T::N>::new_offset(&k2.as_ref()[..],last_depth);
+			let nkey = NibbleSlice::<T::N>::new_offset(&k2.as_ref()[..], last_depth);
 			let encoded = T::C::leaf_node(nkey.right(), &v2.as_ref()[..]);
 			let pr = NibbleSlice::<T::N>::new_offset(
 				&k2.as_ref()[..],
@@ -361,7 +361,7 @@ pub trait ProcessEncodedNode<HO> {
 pub struct TrieBuilder<'a, H, HO, V, DB> {
 	db: &'a mut DB,
 	pub root: Option<HO>,
-	_ph: PhantomData<(H,V)>,
+	_ph: PhantomData<(H, V)>,
 }
 
 impl<'a, H, HO, V, DB> TrieBuilder<'a, H, HO, V, DB> {
@@ -370,7 +370,7 @@ impl<'a, H, HO, V, DB> TrieBuilder<'a, H, HO, V, DB> {
 	}
 }
 
-impl<'a, H: Hasher, V, DB: HashDB<H,V>> ProcessEncodedNode<<H as Hasher>::Out>
+impl<'a, H: Hasher, V, DB: HashDB<H, V>> ProcessEncodedNode<<H as Hasher>::Out>
 	for TrieBuilder<'a, H, <H as Hasher>::Out, V, DB> {
 	fn process(
 		&mut self,
@@ -520,19 +520,19 @@ mod test {
 	#[test]
 	fn trie_one_node () {
 		compare_implementations(vec![
-			(vec![1u8,2u8,3u8,4u8],vec![7u8]),
+			(vec![1u8, 2u8, 3u8, 4u8], vec![7u8]),
 		]);
 	}
 
 	#[test]
 	fn root_extension_one () {
 		compare_implementations(vec![
-			(vec![1u8,2u8,3u8,3u8],vec![8u8;32]),
-			(vec![1u8,2u8,3u8,4u8],vec![7u8;32]),
+			(vec![1u8, 2u8, 3u8, 3u8], vec![8u8;32]),
+			(vec![1u8, 2u8, 3u8, 4u8], vec![7u8;32]),
 		]);
 	}
 
-	fn test_iter(data: Vec<(Vec<u8>,Vec<u8>)>) {
+	fn test_iter(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		use reference_trie::{RefTrieDBMut, TrieMut, RefTrieDB, Trie};
 
 		let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
@@ -547,18 +547,18 @@ mod test {
 		}
 		let t = RefTrieDB::new(&db, &root).unwrap();
 		for (i, kv) in t.iter().unwrap().enumerate() {
-			let (k,v) = kv.unwrap();
+			let (k, v) = kv.unwrap();
 			let key: &[u8]= &data[i].0;
 			let val: &[u8] = &data[i].1;
-			assert_eq!(k,key);
-			assert_eq!(v,val);
+			assert_eq!(k, key);
+			assert_eq!(v, val);
 		}
 		for (k, v) in data.into_iter() {
 			assert_eq!(&t.get(&k[..]).unwrap().unwrap()[..], &v[..]);
 		}
 	}
 
-	fn test_iter_no_extension(data: Vec<(Vec<u8>,Vec<u8>)>) {
+	fn test_iter_no_extension(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		use reference_trie::{RefTrieDBMutNoExt, TrieMut, RefTrieDBNoExt, Trie};
 
 		let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
@@ -573,18 +573,18 @@ mod test {
 		}
 		let t = RefTrieDBNoExt::new(&db, &root).unwrap();
 		for (i, kv) in t.iter().unwrap().enumerate() {
-			let (k,v) = kv.unwrap();
+			let (k, v) = kv.unwrap();
 			let key: &[u8]= &data[i].0;
 			let val: &[u8] = &data[i].1;
-			assert_eq!(k,key);
-			assert_eq!(v,val);
+			assert_eq!(k, key);
+			assert_eq!(v, val);
 		}
 		for (k, v) in data.into_iter() {
 			assert_eq!(&t.get(&k[..]).unwrap().unwrap()[..], &v[..]);
 		}
 	}
 
-	fn compare_implementations(data: Vec<(Vec<u8>,Vec<u8>)>) {
+	fn compare_implementations(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		test_iter(data.clone());
 		test_iter_no_extension(data.clone());
 		compare_implementations_h(data.clone());
@@ -594,83 +594,83 @@ mod test {
 		compare_implementations_no_extension_q(data.clone());
 	}
 
-	fn compare_implementations_prefixed(data: Vec<(Vec<u8>,Vec<u8>)>) {
+	fn compare_implementations_prefixed(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 		let hashdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		reference_trie::compare_implementations(data, memdb, hashdb);
 	}
-	fn compare_implementations_h(data: Vec<(Vec<u8>,Vec<u8>)>) {
+	fn compare_implementations_h(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
 		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		reference_trie::compare_implementations(data, memdb, hashdb);
 	}
-	fn compare_implementations_no_extension(data: Vec<(Vec<u8>,Vec<u8>)>) {
+	fn compare_implementations_no_extension(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
 		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		reference_trie::compare_implementations_no_extension(data, memdb, hashdb);
 	}
-	fn compare_implementations_no_extension_q(data: Vec<(Vec<u8>,Vec<u8>)>) {
+	fn compare_implementations_no_extension_q(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
 		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		reference_trie::compare_implementations_no_extension_q(data, memdb, hashdb);
 	}
-	fn compare_implementations_no_extension_prefixed(data: Vec<(Vec<u8>,Vec<u8>)>) {
+	fn compare_implementations_no_extension_prefixed(data: Vec<(Vec<u8>, Vec<u8>)>) {
 //		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
 //		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 		let hashdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		reference_trie::compare_implementations_no_extension(data, memdb, hashdb);
 	}
-	fn compare_implementations_no_extension_unordered(data: Vec<(Vec<u8>,Vec<u8>)>) {
+	fn compare_implementations_no_extension_unordered(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
 		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		reference_trie::compare_implementations_no_extension_unordered(data, memdb, hashdb);
 	}
-	fn compare_no_extension_insert_remove(data: Vec<(bool, Vec<u8>,Vec<u8>)>) {
+	fn compare_no_extension_insert_remove(data: Vec<(bool, Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 		reference_trie::compare_no_extension_insert_remove(data, memdb);
 	}
-	fn compare_root(data: Vec<(Vec<u8>,Vec<u8>)>) {
+	fn compare_root(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
 		reference_trie::compare_root(data, memdb);
 	}
-	fn compare_unhashed(data: Vec<(Vec<u8>,Vec<u8>)>) {
+	fn compare_unhashed(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		reference_trie::compare_unhashed(data);
 	}
-	fn compare_unhashed_no_extension(data: Vec<(Vec<u8>,Vec<u8>)>) {
+	fn compare_unhashed_no_extension(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		reference_trie::compare_unhashed_no_extension(data);
 	}
 
 	#[test]
 	fn trie_middle_node1 () {
 		compare_implementations(vec![
-			(vec![1u8,2u8],vec![8u8;32]),
-			(vec![1u8,2u8,3u8,4u8],vec![7u8;32]),
+			(vec![1u8, 2u8], vec![8u8;32]),
+			(vec![1u8, 2u8, 3u8, 4u8], vec![7u8;32]),
 		]);
 	}
 
 	#[test]
 	fn trie_middle_node2 () {
 		compare_implementations(vec![
-			(vec![0u8,2u8,3u8,5u8,3u8],vec![1u8;32]),
-			(vec![1u8,2u8],vec![8u8;32]),
-			(vec![1u8,2u8,3u8,4u8],vec![7u8;32]),
-			(vec![1u8,2u8,3u8,5u8],vec![7u8;32]),
-			(vec![1u8,2u8,3u8,5u8,3u8],vec![7u8;32]),
+			(vec![0u8, 2u8, 3u8, 5u8, 3u8], vec![1u8;32]),
+			(vec![1u8, 2u8], vec![8u8;32]),
+			(vec![1u8, 2u8, 3u8, 4u8], vec![7u8;32]),
+			(vec![1u8, 2u8, 3u8, 5u8], vec![7u8;32]),
+			(vec![1u8, 2u8, 3u8, 5u8, 3u8], vec![7u8;32]),
 		]);
 	}
 	#[test]
 	fn root_extension_bis () {
 		compare_root(vec![
-			(vec![1u8,2u8,3u8,3u8],vec![8u8;32]),
-			(vec![1u8,2u8,3u8,4u8],vec![7u8;32]),
+			(vec![1u8, 2u8, 3u8, 3u8], vec![8u8;32]),
+			(vec![1u8, 2u8, 3u8, 4u8], vec![7u8;32]),
 		]);
 	}
 	#[test]
 	fn root_extension_tierce () {
 		let d = vec![
-			(vec![1u8,2u8,3u8,3u8],vec![8u8;2]),
-			(vec![1u8,2u8,3u8,4u8],vec![7u8;2]),
+			(vec![1u8, 2u8, 3u8, 3u8], vec![8u8;2]),
+			(vec![1u8, 2u8, 3u8, 4u8], vec![7u8;2]),
 		];
 		compare_unhashed(d.clone());
 		compare_unhashed_no_extension(d);
@@ -679,63 +679,63 @@ mod test {
 	fn root_extension_tierce_big () {
 		// on more content unhashed would hash
 		compare_unhashed(vec![
-			(vec![1u8,2u8,3u8,3u8],vec![8u8;32]),
-			(vec![1u8,2u8,3u8,4u8],vec![7u8;32]),
-			(vec![1u8,6u8,3u8,3u8],vec![8u8;32]),
-			(vec![6u8,2u8,3u8,3u8],vec![8u8;32]),
-			(vec![6u8,2u8,3u8,13u8],vec![8u8;32]),
+			(vec![1u8, 2u8, 3u8, 3u8], vec![8u8;32]),
+			(vec![1u8, 2u8, 3u8, 4u8], vec![7u8;32]),
+			(vec![1u8, 6u8, 3u8, 3u8], vec![8u8;32]),
+			(vec![6u8, 2u8, 3u8, 3u8], vec![8u8;32]),
+			(vec![6u8, 2u8, 3u8, 13u8], vec![8u8;32]),
 		]);
 	}
 	#[test]
 	fn trie_middle_node2x () {
 		compare_implementations(vec![
-			(vec![0u8,2u8,3u8,5u8,3u8],vec![1u8;2]),
-			(vec![1u8,2u8],vec![8u8;2]),
-			(vec![1u8,2u8,3u8,4u8],vec![7u8;2]),
-			(vec![1u8,2u8,3u8,5u8],vec![7u8;2]),
-			(vec![1u8,2u8,3u8,5u8,3u8],vec![7u8;2]),
+			(vec![0u8, 2u8, 3u8, 5u8, 3u8], vec![1u8;2]),
+			(vec![1u8, 2u8], vec![8u8;2]),
+			(vec![1u8, 2u8, 3u8, 4u8], vec![7u8;2]),
+			(vec![1u8, 2u8, 3u8, 5u8], vec![7u8;2]),
+			(vec![1u8, 2u8, 3u8, 5u8, 3u8], vec![7u8;2]),
 		]);
 	}
 	#[test]
 	fn fuzz1 () {
 		compare_implementations(vec![
-			(vec![01u8],vec![42u8,9]),
-			(vec![01u8,0u8],vec![0u8,0]),
-			(vec![255u8,2u8],vec![1u8,0]),
+			(vec![01u8], vec![42u8, 9]),
+			(vec![01u8, 0u8], vec![0u8, 0]),
+			(vec![255u8, 2u8], vec![1u8, 0]),
 		]);
 	}
 	#[test]
 	fn fuzz2 () {
 		compare_implementations(vec![
-			(vec![0,01u8],vec![42u8,9]),
-			(vec![0,01u8,0u8],vec![0u8,0]),
-			(vec![0,255u8,2u8],vec![1u8,0]),
+			(vec![0, 01u8], vec![42u8, 9]),
+			(vec![0, 01u8, 0u8], vec![0u8, 0]),
+			(vec![0, 255u8, 2u8], vec![1u8, 0]),
 		]);
 	}
 	#[test]
 	fn fuzz3 () {
 		compare_implementations(vec![
-			(vec![0],vec![196, 255]),
-			(vec![48],vec![138, 255]),
-			(vec![67],vec![0, 0]),
-			(vec![128],vec![255, 0]),
-			(vec![247],vec![0, 196]),
-			(vec![255],vec![0, 0]),
+			(vec![0], vec![196, 255]),
+			(vec![48], vec![138, 255]),
+			(vec![67], vec![0, 0]),
+			(vec![128], vec![255, 0]),
+			(vec![247], vec![0, 196]),
+			(vec![255], vec![0, 0]),
 		]);
 	}
 	#[test]
 	fn fuzz_no_extension1 () {
 		compare_implementations(vec![
-			(vec![0],vec![128, 0]),
-			(vec![128],vec![0, 0]),
+			(vec![0], vec![128, 0]),
+			(vec![128], vec![0, 0]),
 		]);
 	}
 	#[test]
 	fn fuzz_no_extension2 () {
 		compare_implementations(vec![
-			(vec![0],vec![6, 255]),
-			(vec![6],vec![255, 186]),
-			(vec![255],vec![186, 255]),
+			(vec![0], vec![6, 255]),
+			(vec![6], vec![255, 186]),
+			(vec![255], vec![186, 255]),
 		]);
 	}
 	#[test]
@@ -752,15 +752,15 @@ mod test {
 	#[test]
 	fn fuzz_no_extension3 () {
 		compare_implementations(vec![
-			(vec![0],vec![0, 0]),
-			(vec![11,0],vec![0, 0]),
-			(vec![11,252],vec![11, 0]),
+			(vec![0], vec![0, 0]),
+			(vec![11, 0], vec![0, 0]),
+			(vec![11, 252], vec![11, 0]),
 		]);
 
 		compare_implementations_no_extension_unordered(vec![
-			(vec![11,252],vec![11, 0]),
-			(vec![11,0],vec![0, 0]),
-			(vec![0],vec![0, 0]),
+			(vec![11, 252], vec![11, 0]),
+			(vec![11, 0], vec![0, 0]),
+			(vec![0], vec![0, 0]),
 		]);
 	}
 	#[test]
@@ -775,9 +775,9 @@ mod test {
 	fn fuzz_no_extension_insert_remove_1 () {
 		let data = vec![
 			(false, vec![0], vec![251, 255]),
-			(false, vec![0,1], vec![251, 255]),
-			(false, vec![0,1,2], vec![255; 32]),
-			(true, vec![0,1], vec![0, 251]),
+			(false, vec![0, 1], vec![251, 255]),
+			(false, vec![0, 1, 2], vec![255; 32]),
+			(true, vec![0, 1], vec![0, 251]),
 		];
 		compare_no_extension_insert_remove(data);
 	}

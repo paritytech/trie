@@ -333,7 +333,7 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 		loop {
 			let data = {
 				let node = L::C::decode(&node_data)
-					.map_err(|e|Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), e)))?;
+					.map_err(|e| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), e)))?;
 				match node {
 					Node::Leaf(slice, _) => {
 						if slice >= partial {
@@ -440,7 +440,7 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 	fn descend(&mut self, d: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		let node_data = &self.db.get_raw_or_lookup(d, self.key_nibbles.as_prefix())?;
 		let node = L::C::decode(&node_data)
-			.map_err(|e|Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), e)))?;
+			.map_err(|e| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), e)))?;
 		Ok(self.descend_into_node(node.into()))
 	}
 
@@ -497,7 +497,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 								self.key_nibbles.drop_lasts(n.len());
 							},
 							OwnedNode::Branch(_) => { self.key_nibbles.pop(); },
-							OwnedNode::NibbledBranch(ref n,_) => {
+							OwnedNode::NibbledBranch(ref n, _) => {
 								self.key_nibbles.drop_lasts(n.len() + 1);
 							},
 							OwnedNode::Empty => {},
@@ -518,7 +518,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 						)
 					},
 					(Status::At, &OwnedNode::Branch(_))
-						| (Status::At, &OwnedNode::NibbledBranch(_,_)) => IterStep::Continue,
+						| (Status::At, &OwnedNode::NibbledBranch(_, _)) => IterStep::Continue,
 					(Status::AtChild(i), &OwnedNode::Branch(ref branch))
 						| (Status::AtChild(i), &OwnedNode::NibbledBranch(_, ref branch)) 
 						if branch.index(i).is_some() => {
@@ -534,7 +534,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 							self.key_nibbles.as_prefix()))
 					},
 					(Status::AtChild(i), &OwnedNode::Branch(_))
-						| (Status::AtChild(i), &OwnedNode::NibbledBranch(_,_)) => {
+						| (Status::AtChild(i), &OwnedNode::NibbledBranch(_, _)) => {
 						if i == 0 {
 							self.key_nibbles.push(0);
 						}
@@ -603,7 +603,7 @@ mod tests {
 			(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
 		];
 
-		let mut memdb = MemoryDB::<_, PrefixedKey<_>,_>::default();
+		let mut memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
@@ -675,7 +675,7 @@ mod tests {
 			(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
 		];
 
-		let mut memdb = MemoryDB::<_, PrefixedKey<_>,_>::default();
+		let mut memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);

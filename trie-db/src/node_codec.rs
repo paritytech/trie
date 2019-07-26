@@ -42,7 +42,7 @@ impl<T> Error for T {}
 /// It contains a right aligned padded first byte (first pair element is the number of nibbles
 /// (0 to max nb nibble - 1), second pair element is the padded nibble), and a slice over
 /// the remaining bytes.
-pub type Partial<'a> = ((u8,u8), &'a[u8]);
+pub type Partial<'a> = ((u8, u8), &'a[u8]);
 
 /// Trait for trie node encoding/decoding
 /// TODO add const MAX_NODE_LEN and run all encoding over a mutable buffer, returning size. ->

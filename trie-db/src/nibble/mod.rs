@@ -166,7 +166,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 			let shift = old_offset - ofset;
 			let (s1, s2) = Self::split_shifts(shift);
 			let kl = key.1.len();
-			(0..kl - 1).for_each(|i|key.1[i] = key.1[i] << s2 | key.1[i+1] >> s1);
+			(0..kl - 1).for_each(|i| key.1[i] = key.1[i] << s2 | key.1[i+1] >> s1);
 			key.1[kl - 1] = key.1[kl - 1] << s2;
 			true
 		} else if old_offset < ofset {
@@ -174,7 +174,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 			let shift = ofset - old_offset;
 			let (s1, s2) = Self::split_shifts(shift);
 			key.1.push(0);
-			(1..key.1.len()).rev().for_each(|i|key.1[i] = key.1[i - 1] << s1 | key.1[i] >> s2);
+			(1..key.1.len()).rev().for_each(|i| key.1[i] = key.1[i - 1] << s1 | key.1[i] >> s2);
 			key.1[0] = key.1[0] >> s2;
 			true
 		} else {

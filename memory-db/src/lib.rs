@@ -202,7 +202,7 @@ pub fn hash_key<H: KeyHasher>(key: &H::Out, _prefix: Prefix) -> H::Out {
 	key.clone()
 }
 
-#[derive(Clone,Debug)]
+#[derive(Clone, Debug)]
 /// Key function that only uses the hash
 pub struct HashKey<H: KeyHasher>(PhantomData<H>);
 
@@ -214,7 +214,7 @@ impl<H: KeyHasher> KeyFunction<H> for HashKey<H> {
 	}
 }
 
-#[derive(Clone,Debug)]
+#[derive(Clone, Debug)]
 /// Key function that concatenates prefix and hash.
 pub struct PrefixedKey<H: KeyHasher>(PhantomData<H>);
 
@@ -226,7 +226,7 @@ impl<H: KeyHasher> KeyFunction<H> for PrefixedKey<H> {
 	}
 }
 
-#[derive(Clone,Debug)]
+#[derive(Clone, Debug)]
 /// Key function that concatenates prefix and hash.
 /// This is doing useless computation and should only be
 /// used for legacy purpose.

@@ -90,7 +90,7 @@ impl<N: NibbleOps> NibbleVec<N> {
 		let end = self.len - n;
 		let end_index = end / N::NIBBLE_PER_BYTE
 			+ if end % N::NIBBLE_PER_BYTE == 0 { 0 } else { 1 };
-		(end_index..self.inner.len()).for_each(|_|{ self.inner.pop(); });
+		(end_index..self.inner.len()).for_each(|_| { self.inner.pop(); });
 		self.len = end;
 		let pos = self.len % N::NIBBLE_PER_BYTE;
 		if pos != 0 {
@@ -104,7 +104,7 @@ impl<N: NibbleOps> NibbleVec<N> {
 		let split = self.len / N::NIBBLE_PER_BYTE;
 		let pos = (self.len % N::NIBBLE_PER_BYTE) as u8;
 		if pos == 0 {
-			(&self.inner[..split], (0,0))
+			(&self.inner[..split], (0, 0))
 		} else {
 			(&self.inner[..split], (pos, N::masked_left(pos, self.inner[split])))
 		}
@@ -251,14 +251,14 @@ mod tests {
 	}
 	#[test]
 	fn append_partial() {
-		append_partial_inner::<NibbleHalf>(&[1,2,3], &[], ((1, 1), &[0x23]));
-		append_partial_inner::<NibbleHalf>(&[1,2,3], &[1], ((0, 0), &[0x23]));
-		append_partial_inner::<NibbleHalf>(&[0,1,2,3], &[0], ((1, 1), &[0x23]));
+		append_partial_inner::<NibbleHalf>(&[1, 2, 3], &[], ((1, 1), &[0x23]));
+		append_partial_inner::<NibbleHalf>(&[1, 2, 3], &[1], ((0, 0), &[0x23]));
+		append_partial_inner::<NibbleHalf>(&[0, 1, 2, 3], &[0], ((1, 1), &[0x23]));
 		append_partial_inner::<NibbleQuarter>(&[1, 0, 2, 0, 3], &[], ((1, 1), &[0x23]));
 		append_partial_inner::<NibbleQuarter>(
 			&[1, 0, 2, 0, 3, 0, 1, 0, 2],
 			&[],
-			((1,1), &[0x23, 0x12]),
+			((1, 1), &[0x23, 0x12]),
 		);
 		append_partial_inner::<NibbleQuarter>(
 			&[2, 1, 0, 2, 0, 3, 0, 1, 0, 2],
@@ -296,11 +296,11 @@ mod tests {
 		);
 	}
 
-	fn append_partial_inner<N: NibbleOps>(res: &[u8], init: &[u8], partial: ((u8,u8), &[u8])) {
+	fn append_partial_inner<N: NibbleOps>(res: &[u8], init: &[u8], partial: ((u8, u8), &[u8])) {
 		let mut resv = NibbleVec::<N>::new();
-		res.iter().for_each(|r|resv.push(*r));
+		res.iter().for_each(|r| resv.push(*r));
 		let mut initv = NibbleVec::<N>::new();
-		init.iter().for_each(|r|initv.push(*r));
+		init.iter().for_each(|r| initv.push(*r));
 		initv.append_partial(partial);
 		assert_eq!(resv, initv);
 	}
@@ -315,17 +315,17 @@ mod tests {
 			k.drop_lasts(b);
 			assert_eq!((&k.inner[..], k.len), c);
 		};
-		test_trun(&[1,2,3,4], 0, (&[0x12, 0x34], 4));
-		test_trun(&[1,2,3,4], 1, (&[0x12, 0x30], 3));
-		test_trun(&[1,2,3,4], 2, (&[0x12], 2));
-		test_trun(&[1,2,3,4], 3, (&[0x10], 1));
-		test_trun(&[1,2,3,4], 4, (&[], 0));
-		test_trun(&[1,2,3,4], 5, (&[], 0));
-		test_trun(&[1,2,3], 0, (&[0x12, 0x30], 3));
-		test_trun(&[1,2,3], 1, (&[0x12], 2));
-		test_trun(&[1,2,3], 2, (&[0x10], 1));
-		test_trun(&[1,2,3], 3, (&[], 0));
-		test_trun(&[1,2,3], 4, (&[], 0));
+		test_trun(&[1, 2, 3, 4], 0, (&[0x12, 0x34], 4));
+		test_trun(&[1, 2, 3, 4], 1, (&[0x12, 0x30], 3));
+		test_trun(&[1, 2, 3, 4], 2, (&[0x12], 2));
+		test_trun(&[1, 2, 3, 4], 3, (&[0x10], 1));
+		test_trun(&[1, 2, 3, 4], 4, (&[], 0));
+		test_trun(&[1, 2, 3, 4], 5, (&[], 0));
+		test_trun(&[1, 2, 3], 0, (&[0x12, 0x30], 3));
+		test_trun(&[1, 2, 3], 1, (&[0x12], 2));
+		test_trun(&[1, 2, 3], 2, (&[0x10], 1));
+		test_trun(&[1, 2, 3], 3, (&[], 0));
+		test_trun(&[1, 2, 3], 4, (&[], 0));
 	}
 
 }

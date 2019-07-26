@@ -35,7 +35,7 @@ impl<T> MaybeDebug for T {}
 
 /// An empty prefix constant. Mainly use for comparison
 /// and for root nodes.
-pub static EMPTY_PREFIX: Prefix<'static> = (&[], (0,0));
+pub static EMPTY_PREFIX: Prefix<'static> = (&[], (0, 0));
 
 /// The prefix of a trie node, a prefix is the nibble path up to
 /// the node in the trie.

@@ -62,9 +62,9 @@ impl<H> From<StorageHandle> for NodeHandle<H> {
 	}
 }
 
-fn empty_children<H,N: NibbleOps>() -> Vec<Option<NodeHandle<H>>> {
+fn empty_children<H, N: NibbleOps>() -> Vec<Option<NodeHandle<H>>> {
 	let mut res = Vec::with_capacity(N::NIBBLE_LENGTH);
-	(0..N::NIBBLE_LENGTH).for_each(|_|res.push(None));
+	(0..N::NIBBLE_LENGTH).for_each(|_| res.push(None));
 	res
 }
 
@@ -130,8 +130,8 @@ where
 			storage: &'b mut NodeStorage<H::Out>,
 		| {
 			let mut res = Vec::with_capacity(N::ChildSliceIndex::NIBBLE_LENGTH);
-			encoded_children.for_each(|o_data|{
-				let v = o_data.map(|data|Self::inline_or_hash::<C, H, N>(data, db, storage));
+			encoded_children.for_each(|o_data| {
+				let v = o_data.map(|data| Self::inline_or_hash::<C, H, N>(data, db, storage));
 				res.push(v)
 			});
 			res
@@ -166,7 +166,7 @@ where
 	fn into_encoded<F, C, H, N>(self, mut child_cb: F) -> Vec<u8>
 	where
 		N: NibbleOps,
-		C: NodeCodec<H,N>,
+		C: NodeCodec<H, N>,
 		F: FnMut(NodeHandle<H::Out>, Option<&NibbleSlice<N>>, Option<u8>) -> ChildReference<H::Out>,
 		H: Hasher<Out = O>,
 	{
@@ -193,9 +193,9 @@ where
 						.map(Option::take)
 						.enumerate()
 						.map(|(i, maybe_child)| {
-							maybe_child.map(|child|child_cb(child, None, Some(i as u8)))
+							maybe_child.map(|child| child_cb(child, None, Some(i as u8)))
 						}),
-					value.as_ref().map(|v|&v[..])
+					value.as_ref().map(|v| &v[..])
 				)
 			},
 			Node::NibbledBranch(partial, mut children, value) => {
@@ -208,14 +208,14 @@ where
 					children.iter_mut()
 						.map(Option::take)
 						.enumerate()
-						.map(|(i, maybe_child)|{
+						.map(|(i, maybe_child)| {
 							//let branch_index = [i as u8];
 							maybe_child.map(|child| {
 								let pr = NibbleSlice::<N>::new_offset(&partial.1[..], partial.0);
 								child_cb(child, Some(&pr), Some(i as u8))
 							})
 						}),
-					value.as_ref().map(|v|&v[..])
+					value.as_ref().map(|v| &v[..])
 				)
 			},
 		}
@@ -357,7 +357,7 @@ where
 	db: &'a mut dyn HashDB<L::H, DBValue>,
 	root: &'a mut TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
-	death_row: HashSet<(TrieHash<L>, (ElasticArray36<u8>, (u8,u8)))>,
+	death_row: HashSet<(TrieHash<L>, (ElasticArray36<u8>, (u8, u8)))>,
 	/// The number of hash operations this trie has performed.
 	/// Note that none are performed until changes are committed.
 	hash_count: usize,
@@ -1027,7 +1027,7 @@ where
 									partial,
 								);
 								Action::Replace(
-									self.fix(Node::NibbledBranch(encoded, children, value),prefix)?
+									self.fix(Node::NibbledBranch(encoded, children, value), prefix)?
 								)
 							},
 						}
@@ -1181,14 +1181,14 @@ where
 						kc.advance((enc_nibble.1.len() * L::N::NIBBLE_PER_BYTE) - enc_nibble.0);
 						let (st, ost, op) = match kc.left() {
 							(st, (0, _v)) => (st, None, (1, L::N::push_at_left(0, a, 0))),
-							(st, (i,v)) if i == L::N::LAST_NIBBLE_INDEX => {
+							(st, (i, v)) if i == L::N::LAST_NIBBLE_INDEX => {
 								let mut so: ElasticArray36<u8> = st.into();
 								so.push(L::N::masked_left(L::N::LAST_NIBBLE_INDEX, v) | a);
-								(st, Some(so), (0,0))
+								(st, Some(so), (0, 0))
 							},
 							(st, (ix, v)) => (st, None, (ix, L::N::push_at_left(ix, a, v))),
 						};
-						let child_pref = (ost.as_ref().map(|st|&st[..]).unwrap_or(st), op);
+						let child_pref = (ost.as_ref().map(|st| &st[..]).unwrap_or(st), op);
 						let stored = match child {
 							NodeHandle::InMemory(h) => self.storage.destroy(h),
 							NodeHandle::Hash(h) => {
@@ -1260,11 +1260,11 @@ where
 						let mut so: ElasticArray36<u8> = st.into();
 						// Complete last byte with `a`.
 						so.push(L::N::masked_left(L::N::LAST_NIBBLE_INDEX, v) | a);
-						(st, Some(so), (0,0))
+						(st, Some(so), (0, 0))
 					},
 					(st, (ix, v)) => (st, None, (ix, L::N::push_at_left(ix, a, v))),
 				};
-				let child_pref = (ost.as_ref().map(|st|&st[..]).unwrap_or(st), op);
+				let child_pref = (ost.as_ref().map(|st| &st[..]).unwrap_or(st), op);
 	
 				let stored = match child {
 					NodeHandle::InMemory(h) => self.storage.destroy(h),
@@ -1538,7 +1538,7 @@ fn combine_key<N: NibbleOps>(start: &mut NodeKey, end: (usize, &[u8])) {
 	} else {
 		0
 	};
-	(st..end.1.len()).for_each(|i|start.1.push(end.1[i]));
+	(st..end.1.len()).for_each(|i| start.1.push(end.1[i]));
 }
 
 #[cfg(test)]
@@ -1731,7 +1731,7 @@ mod tests {
 		let big_value2 = b"00000000000000000000000000000002";
 		let big_value3 = b"00000000000000000000000000000004";
 
-		let mut memdb = MemoryDB::<_,PrefixedKey<_>,_>::default();
+		let mut memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
@@ -2009,10 +2009,10 @@ mod tests {
 	fn combine_test() {
 		let a: ElasticArray36<u8> = [0x12, 0x34][..].into();
 		let b: &[u8] = [0x56, 0x78][..].into();
-		let test_comb = |a: (_,&ElasticArray36<_>), b, c| { 
-			let mut a = (a.0,a.1.clone());
+		let test_comb = |a: (_, &ElasticArray36<_>), b, c| { 
+			let mut a = (a.0, a.1.clone());
 			super::combine_key::<crate::nibble::NibbleHalf>(&mut a, b);
-			assert_eq!((a.0,&a.1[..]), c);
+			assert_eq!((a.0, &a.1[..]), c);
 		};
 		test_comb((0, &a), (0, &b), (0, &[0x12, 0x34, 0x56, 0x78][..]));
 		test_comb((1, &a), (0, &b), (1, &[0x12, 0x34, 0x56, 0x78][..]));

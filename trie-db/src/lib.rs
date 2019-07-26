@@ -201,7 +201,7 @@ pub trait Trie<L: TrieLayout> {
 
 	/// Does the trie contain a given key?
 	fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
-		self.get(key).map(|x|x.is_some() )
+		self.get(key).map(|x| x.is_some() )
 	}
 
 	/// What is the value of the given key in this trie?
