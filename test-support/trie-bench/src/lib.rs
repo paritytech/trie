@@ -14,7 +14,7 @@
 
 //! Standard trie benchmarking tool.
 
-use parity_codec::{Encode, Compact};
+use parity_scale_codec::{Encode, Compact};
 use criterion::{Criterion, black_box, Fun};
 use keccak_hasher::KeccakHasher;
 use hash_db::Hasher;

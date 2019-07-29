@@ -17,7 +17,7 @@
 use std::fmt;
 use std::error::Error as StdError;
 use std::iter::once;
-use parity_codec::{Decode, Input, Output, Encode, Compact};
+use parity_scale_codec::{Decode, Input, Output, Encode, Compact};
 use trie_root::Hasher;
 use trie_db::{node::Node, triedbmut::ChildReference, DBValue};
 use keccak_hasher::KeccakHasher;
