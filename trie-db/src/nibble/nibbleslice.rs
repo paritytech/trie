@@ -153,7 +153,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		let split = self.offset / N::NIBBLE_PER_BYTE;
 		let nb = (self.len() % N::NIBBLE_PER_BYTE) as u8;
 		if nb > 0 {
-			((nb, N::masked_right(nb, self.data[split])), &self.data[split + 1 ..])
+			((nb, N::pad_right(nb, self.data[split])), &self.data[split + 1 ..])
 		} else {
 			((0, 0), &self.data[split..])
 		}
@@ -166,7 +166,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		::core_::iter::from_fn(move || {
 			if first.0 > 0 {
 				first.0 = 0;
-				Some(N::masked_right(first.0, first.1))
+				Some(N::pad_right(first.0, first.1))
 			} else {
 				if ix < sl.len() {
 					ix += 1;
@@ -189,7 +189,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		::core_::iter::from_fn( move || {
 			if aligned {
 				if nib_res > 0 {
-					let v = N::masked_right(nib_res as u8, self.data[ix]);
+					let v = N::pad_right(nib_res as u8, self.data[ix]);
 					nib_res = 0;
 					ix += 1;
 					Some(v)
@@ -204,7 +204,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 				// unaligned
 				if nib_res > 0 {
 					let v = self.data[ix] >> s1;
-					let v = N::masked_right(nib_res as u8, v);
+					let v = N::pad_right(nib_res as u8, v);
 					nib_res = 0;
 					Some(v)
 				} else if ix < ix_lim {
@@ -228,7 +228,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		if ix == 0 {
 			(&self.data[..split], (0, 0))
 		} else {
-			(&self.data[..split], (ix, N::masked_left(ix, self.data[split])))
+			(&self.data[..split], (ix, N::pad_left(ix, self.data[split])))
 		}
 	}
 

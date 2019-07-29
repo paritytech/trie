@@ -415,11 +415,10 @@ pub trait TrieLayout {
 	type Cache: CacheBuilder<<Self::Hash as Hasher>::Out>;
 }
 
-/// Trait with operation on key value iterator.
-/// It associates trie definition with chosen methods.
-/// This trait contains its own default implementations
-/// and exists only to allow alternate algorithm usage.
-pub trait TrieOps: Sized + TrieLayout {
+/// This traits associates a trie definition with prefered methods.
+/// It also contains own default implementations and can be
+/// use to allow switching implementation.
+pub trait TrieConfiguration: Sized + TrieLayout {
 	/// Operation to build a trie db from its ordered iterator over its key/values.
 	fn trie_build<DB, I, A, B>(db: &mut DB, input: I) -> <Self::Hash as Hasher>::Out where
 	DB: HashDB<Self::Hash, usize>,
@@ -431,7 +430,7 @@ pub trait TrieOps: Sized + TrieLayout {
 		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	}
-	/// Determine a trie root given its ordered contents, closed form.
+	/// Determines a trie root given its ordered contents, closed form.
 	fn trie_root<I, A, B>(input: I) -> <Self::Hash as Hasher>::Out where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
@@ -441,7 +440,7 @@ pub trait TrieOps: Sized + TrieLayout {
 		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	}
-	/// Determine a trie root node's data given its ordered contents, closed form.
+	/// Determines a trie root node's data given its ordered contents, closed form.
 	fn trie_root_unhashed<I, A, B>(input: I) -> Vec<u8> where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,

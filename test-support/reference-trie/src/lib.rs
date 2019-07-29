@@ -36,7 +36,7 @@ use keccak_hasher::KeccakHasher;
 
 pub use trie_db::{Trie, TrieMut, NibbleSlice, Recorder, NodeCodec, BitMap,
 	ChildSliceIndex};
-pub use trie_db::{Record, TrieLayout, TrieOps, NibbleHalf, NibbleQuarter, NibbleOps};
+pub use trie_db::{Record, TrieLayout, TrieConfiguration, NibbleHalf, NibbleQuarter, NibbleOps};
 pub use trie_root::TrieStream;
 
 /// Trie layout using extension nodes.
@@ -50,7 +50,22 @@ impl TrieLayout for ExtensionLayout {
 	type Cache = Cache16;
 }
 
-impl TrieOps for ExtensionLayout { }
+impl TrieConfiguration for ExtensionLayout { }
+
+
+/// Trie layout without extension nodes, allowing
+/// generic hasher.
+pub struct GenericNoExtensionLayout<H>(PhantomData<H>);
+
+impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
+	const USE_EXTENSION: bool = false;
+	type Hash = H;
+	type Codec = ReferenceNodeCodecNoExt<BitMap16>;
+	type Nibble = NibbleHalf;
+	type Cache = Cache16;
+}
+
+impl<H: Hasher> TrieConfiguration for GenericNoExtensionLayout<H> { }
 
 /// Trie layout without extension nodes.
 pub struct NoExtensionLayout;
@@ -63,20 +78,7 @@ impl TrieLayout for NoExtensionLayout {
 	type Cache = Cache16;
 }
 
-/// trie layout similar to substrate one
-pub struct SimpleNoExtensionLayout<H>(PhantomData<H>);
-
-impl<H: Hasher> TrieLayout for SimpleNoExtensionLayout<H> {
-	const USE_EXTENSION: bool = false;
-	type Hash = H;
-	type Codec = ReferenceNodeCodecNoExt<BitMap16>;
-	type Nibble = NibbleHalf;
-	type Cache = Cache16;
-}
-
-impl<H: Hasher> TrieOps for SimpleNoExtensionLayout<H> { }
-
-/// Test quarter nibble
+/// Test Layout for quarter nibble (radix 4 trie).
 pub struct NoExtensionLayoutQuarter;
 
 impl TrieLayout for NoExtensionLayoutQuarter {
@@ -87,9 +89,9 @@ impl TrieLayout for NoExtensionLayoutQuarter {
 	type Cache = Cache4;
 }
 
-impl TrieOps for NoExtensionLayoutQuarter { }
+impl TrieConfiguration for NoExtensionLayoutQuarter { }
 
-/// bitmap codec for radix 16
+/// Children bitmap codec for radix 16 trie.
 pub struct BitMap16(u16);
 
 impl BitMap for BitMap16 {
@@ -119,7 +121,7 @@ impl BitMap for BitMap16 {
 	}
 }
 
-/// bitmap codec for radix 4
+/// Children bitmap codec for radix 4 trie.
 pub struct BitMap4(u8);
 
 impl BitMap for BitMap4 {
@@ -239,7 +241,7 @@ enum NodeKindNoExt {
 	BranchWithValue,
 }
 
-/// Create a leaf/branch node, encoding a number of nibbles.
+/// Create a leaf or branch node header followed by its encoded partial nibbles.
 fn fuse_nibbles_node_no_extension<'a>(
 	nibbles: &'a [u8],
 	kind: NodeKindNoExt,
@@ -256,12 +258,16 @@ fn fuse_nibbles_node_no_extension<'a>(
 		.chain(nibbles[nibbles.len() % 2..].chunks(2).map(|ch| ch[0] << 4 | ch[1]))
 }
 
+/// Encoding of branch header and children bitmap (for trie stream radix 16).
+/// For stream variant with extension.
 fn branch_node(has_value: bool, has_children: impl Iterator<Item = bool>) -> [u8; 3] {
 	let mut result = [0, 0, 0];
 	branch_node_buffered::<BitMap16, _>(has_value, has_children, &mut result[..]);
 	result
 }
 
+/// Encoding of branch header and children bitmap for any radix.
+/// For codec/stream variant with extension.
 fn branch_node_buffered<BITMAP: BitMap, I: Iterator<Item = bool>>(
 	has_value: bool,
 	has_children: I,
@@ -276,6 +282,8 @@ fn branch_node_buffered<BITMAP: BitMap, I: Iterator<Item = bool>>(
 	BITMAP::encode(has_children, &mut output[1..]);
 }
 
+/// Encoding of children bitmap (for trie stream radix 16).
+/// For stream variant without extension.
 fn branch_node_bit_mask(has_children: impl Iterator<Item = bool>) -> (u8, u8) {
 	let mut bitmap: u16 = 0;
 	let mut cursor: u16 = 1;
@@ -286,7 +294,7 @@ fn branch_node_bit_mask(has_children: impl Iterator<Item = bool>) -> (u8, u8) {
 	((bitmap % 256 ) as u8, (bitmap / 256 ) as u8)
 }
 
-/// Reference implementation of a `TrieStream`.
+/// Reference implementation of a `TrieStream` with extension nodes.
 #[derive(Default, Clone)]
 pub struct ReferenceTrieStream {
 	buffer: Vec<u8>
@@ -339,7 +347,7 @@ impl TrieStream for ReferenceTrieStream {
 	fn out(self) -> Vec<u8> { self.buffer }
 }
 
-/// Reference implementation of a `TrieStream`.
+/// Reference implementation of a `TrieStream` without extension.
 #[derive(Default, Clone)]
 pub struct ReferenceTrieStreamNoExt {
 	buffer: Vec<u8>
@@ -556,9 +564,9 @@ impl Decode for NodeHeaderNoExt {
 pub struct ReferenceNodeCodec<BM>(PhantomData<BM>);
 
 /// Simple reference implementation of a `NodeCodec`.
-/// Implementation follows initial specification of
-/// https://github.com/w3f/polkadot-re-spec/issues/8.
-/// But it is mainly the testing codec without extension node.
+/// Even if implementation follows initial specification of
+/// https://github.com/w3f/polkadot-re-spec/issues/8, this may
+/// not follow it in the future, it is mainly the testing codec without extension node.
 #[derive(Default, Clone)]
 pub struct ReferenceNodeCodecNoExt<BM>(PhantomData<BM>);
 
@@ -596,12 +604,11 @@ fn partial_to_key<N: NibbleOps>(partial: Partial, offset: u8, over: u8) -> Vec<u
 	assert!(nibble_count < over as usize);
 	let mut output = vec![offset + nibble_count as u8];
 	if number_nibble_encoded > 0 {
-		output.push(N::masked_right(number_nibble_encoded as u8, (partial.0).1));
+		output.push(N::pad_right(number_nibble_encoded as u8, (partial.0).1));
 	}
 	output.extend_from_slice(&partial.1[..]);
 	output
 }
-
 
 fn partial_from_iterator_to_key<N: NibbleOps, I: Iterator<Item = u8>>(
 	partial: I,
@@ -636,8 +643,6 @@ fn partial_from_iterator_encode<N: NibbleOps, I: Iterator<Item = u8>>(
 	output
 }
 
-
-
 fn partial_encode<N: NibbleOps>(partial: Partial, node_kind: NodeKindNoExt) -> Vec<u8> {
 	let number_nibble_encoded = (partial.0).0 as usize;
 	let nibble_count = partial.1.len() * N::NIBBLE_PER_BYTE + number_nibble_encoded;
@@ -654,7 +659,7 @@ fn partial_encode<N: NibbleOps>(partial: Partial, node_kind: NodeKindNoExt) -> V
 			NodeHeaderNoExt::Branch(false, nibble_count).encode_to(&mut output),
 	};
 	if number_nibble_encoded > 0 {
-		output.push(N::masked_right(number_nibble_encoded as u8, (partial.0).1));
+		output.push(N::pad_right(number_nibble_encoded as u8, (partial.0).1));
 	}
 	output.extend_from_slice(&partial.1[..]);
 	output
@@ -837,7 +842,7 @@ impl<
 				let nibble_with_padding = nibble_count % N::NIBBLE_PER_BYTE;
 				let padding_length = N::NIBBLE_PER_BYTE - nibble_with_padding;
 				// check that the padding is valid (if any)
-				if nibble_with_padding > 0 && N::masked_left(padding_length as u8, input[0]) != 0 {
+				if nibble_with_padding > 0 && N::pad_left(padding_length as u8, input[0]) != 0 {
 					return Err(ReferenceError::BadFormat);
 				}
 				let nibble_data = take(
@@ -877,7 +882,7 @@ impl<
 				let nibble_with_padding = nibble_count % N::NIBBLE_PER_BYTE;
 				let padding_length = N::NIBBLE_PER_BYTE - nibble_with_padding;
 				// check that the padding is valid (if any)
-				if nibble_with_padding > 0 && N::masked_left(padding_length as u8, input[0]) != 0 {
+				if nibble_with_padding > 0 && N::pad_left(padding_length as u8, input[0]) != 0 {
 					return Err(ReferenceError::BadFormat);
 				}
 				let nibble_data = take(
@@ -1219,7 +1224,8 @@ pub fn compare_implementations_no_extension_q(
 	assert_eq!(root, root_new);
 }
 
-/// `compare_implementations_no_extension` for unordered input.
+/// `compare_implementations_no_extension` for unordered input (trie_root does
+/// ordering before running when trie_build expect correct ordering).
 pub fn compare_implementations_no_extension_unordered(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
 	mut memdb: impl hash_db::HashDB<KeccakHasher, DBValue>,

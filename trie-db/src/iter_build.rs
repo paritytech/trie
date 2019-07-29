@@ -72,9 +72,6 @@ impl<HO> CacheBuilder<HO> for Cache4 {
 
 type ArrayNode<T> = <<T as TrieLayout>::Cache as CacheBuilder<TrieHash<T>>>::Cache;
 
-// (64 * 16) aka 2*byte size of key * nb nibble value, 2 being byte/nible (8/4)
-// first usize to get nb of added value, second usize last added index
-// second str is in branch value
 /// Struct containing iteration cache, can be at most the length of the lowest nibble.
 ///
 /// Note that it is not memory optimal (all depth are allocated even if some are empty due
@@ -157,7 +154,7 @@ impl<T, V> CacheAccum<T, V>
 
 	fn flush_value (
 		&mut self,
-		cb_ext: &mut impl ProcessEncodedNode<TrieHash<T>>,
+		callback: &mut impl ProcessEncodedNode<TrieHash<T>>,
 		target_depth: usize,
 		(k2, v2): &(impl AsRef<[u8]>, impl AsRef<[u8]>),
 	) {
@@ -169,7 +166,7 @@ impl<T, V> CacheAccum<T, V>
 			&k2.as_ref()[..],
 			k2.as_ref().len() * T::Nibble::NIBBLE_PER_BYTE - nkey.len(),
 		);
-		let hash = cb_ext.process(pr.left(), encoded, false);
+		let hash = callback.process(pr.left(), encoded, false);
 
 		// insert hash in branch (first level branch only at this point)
 		self.set_node(target_depth, nibble_value as usize, Some(hash));
@@ -178,7 +175,7 @@ impl<T, V> CacheAccum<T, V>
 	fn flush_branch(
 		&mut self,
 		no_extension: bool,
-		cb_ext: &mut impl ProcessEncodedNode<TrieHash<T>>,
+		callback: &mut impl ProcessEncodedNode<TrieHash<T>>,
 		ref_branch: impl AsRef<[u8]> + Ord,
 		new_depth: usize,
 		is_last: bool,
@@ -204,9 +201,9 @@ impl<T, V> CacheAccum<T, V>
 
 			let h = if no_extension {
 				// encode branch
-				self.no_extension(&ref_branch.as_ref()[..], cb_ext, lix, is_root, nkey)
+				self.no_extension(&ref_branch.as_ref()[..], callback, lix, is_root, nkey)
 			} else {
-				self.standard_extension(&ref_branch.as_ref()[..], cb_ext, lix, is_root, nkey)
+				self.standard_extension(&ref_branch.as_ref()[..], callback, lix, is_root, nkey)
 			};
 			if !is_root {
 				// put hash in parent
@@ -220,7 +217,7 @@ impl<T, V> CacheAccum<T, V>
 	fn standard_extension(
 		&mut self,
 		key_branch: &[u8],
-		cb_ext: &mut impl ProcessEncodedNode<TrieHash<T>>,
+		callback: &mut impl ProcessEncodedNode<TrieHash<T>>,
 		branch_d: usize,
 		is_root: bool,
 		nkey: Option<(usize, usize)>,
@@ -236,13 +233,13 @@ impl<T, V> CacheAccum<T, V>
 		);
 		self.reset_depth(branch_d);
 		let pr = NibbleSlice::<T::Nibble>::new_offset(&key_branch.as_ref()[..], branch_d);
-		let branch_hash = cb_ext.process(pr.left(), encoded, is_root && nkey.is_none());
+		let branch_hash = callback.process(pr.left(), encoded, is_root && nkey.is_none());
 
 		if let Some(nkeyix) = nkey {
 			let pr = NibbleSlice::<T::Nibble>::new_offset(&key_branch.as_ref()[..], nkeyix.0);
 			let nib = pr.right_range_iter(nkeyix.1);
 			let encoded = T::Codec::extension_node(nib, nkeyix.1, branch_hash);
-			let h = cb_ext.process(pr.left(), encoded, is_root);
+			let h = callback.process(pr.left(), encoded, is_root);
 			h
 		} else {
 			branch_hash
@@ -253,7 +250,7 @@ impl<T, V> CacheAccum<T, V>
 	fn no_extension(
 		&mut self,
 		key_branch: &[u8],
-		cb_ext: &mut impl ProcessEncodedNode<TrieHash<T>>,
+		callback: &mut impl ProcessEncodedNode<TrieHash<T>>,
 		branch_d: usize,
 		is_root: bool,
 		nkey: Option<(usize, usize)>,
@@ -274,15 +271,16 @@ impl<T, V> CacheAccum<T, V>
 			&key_branch.as_ref()[..],
 			branch_d - ext_length,
 		);
-		cb_ext.process(pr.left(), encoded, is_root)
+		callback.process(pr.left(), encoded, is_root)
 	}
 
 }
 
-/// Function visiting trie from key/value inputs with a `ProccessEncodedNode` callback.
-/// Calls to each node occurs ordered but with longest depth first (from node to
-/// branch to root), this differs form key ordering a bit.
-pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F)
+/// Function visiting trie from key value inputs with a `ProccessEncodedNode` callback.
+/// This is the main entry point of this module.
+/// Calls to each node occurs ordered by byte key value but with longest keys first (from node to
+/// branch to root), this differs from standard byte array ordering a bit.
+pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F)
 	where
 		T: TrieLayout,
 		I: IntoIterator<Item = (A, B)>,
@@ -310,12 +308,12 @@ pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F)
 				depth_queue.set_cache_value(common_depth, Some(previous_value.1));
 			} else if depth_item >= last_depth {
 				// put previous with next (common branch previous value can be flush)
-				depth_queue.flush_value(cb_ext, depth_item, &previous_value);
+				depth_queue.flush_value(callback, depth_item, &previous_value);
 			} else if depth_item < last_depth {
 				// do not put with next, previous is last of a branch
-				depth_queue.flush_value(cb_ext, last_depth, &previous_value);
+				depth_queue.flush_value(callback, last_depth, &previous_value);
 				let ref_branches = previous_value.0;
-				depth_queue.flush_branch(no_extension, cb_ext, ref_branches, depth_item, false);
+				depth_queue.flush_branch(no_extension, callback, ref_branches, depth_item, false);
 			}
 
 			previous_value = (k, v);
@@ -331,15 +329,15 @@ pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F)
 				&k2.as_ref()[..],
 				k2.as_ref().len() * T::Nibble::NIBBLE_PER_BYTE - nkey.len(),
 			);
-			cb_ext.process(pr.left(), encoded, true);
+			callback.process(pr.left(), encoded, true);
 		} else {
-			depth_queue.flush_value(cb_ext, last_depth, &previous_value);
+			depth_queue.flush_value(callback, last_depth, &previous_value);
 			let ref_branches = previous_value.0;
-			depth_queue.flush_branch(no_extension, cb_ext, ref_branches, 0, true);
+			depth_queue.flush_branch(no_extension, callback, ref_branches, 0, true);
 		}
 	} else {
 		// nothing null root corner case
-		cb_ext.process(hash_db::EMPTY_PREFIX, T::Codec::empty_node().to_vec(), true);
+		callback.process(hash_db::EMPTY_PREFIX, T::Codec::empty_node().to_vec(), true);
 	}
 }
 
@@ -348,10 +346,11 @@ pub trait ProcessEncodedNode<HO> {
 	/// Function call with prefix, encoded value and a boolean indicating if the
 	/// node is the root for each node of the trie.
 	///
-	/// Note that the returned value can be change depending on implementation,
-	/// but usually it should be the Hash of encoded node. This is returned for
-	/// optimisation purpose only (for builder hash_db does return this value).
-	fn process(&mut self, encoded_prefix: Prefix, Vec<u8>, bool) -> ChildReference<HO>;
+	/// Note that the returned value can change depending on implementation,
+	/// but usually it should be the Hash of encoded node.
+  /// This is not something direcly related to encoding but is here for
+	/// optimisation purpose (builder hash_db does return this value).
+	fn process(&mut self, prefix: Prefix, encoded_node: Vec<u8>, is_root: bool) -> ChildReference<HO>;
 }
 
 /// Get trie root and insert visited node in a hash_db.
@@ -373,18 +372,18 @@ impl<'a, H: Hasher, V, DB: HashDB<H, V>> ProcessEncodedNode<<H as Hasher>::Out>
 	for TrieBuilder<'a, H, <H as Hasher>::Out, V, DB> {
 	fn process(
 		&mut self,
-		encoded_prefix: Prefix,
-		enc_ext: Vec<u8>,
+		prefix: Prefix,
+		encoded_node: Vec<u8>,
 		is_root: bool,
 	) -> ChildReference<<H as Hasher>::Out> {
-		let len = enc_ext.len();
+		let len = encoded_node.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
 			let mut h = <<H as Hasher>::Out as Default>::default();
-			h.as_mut()[..len].copy_from_slice(&enc_ext[..len]);
+			h.as_mut()[..len].copy_from_slice(&encoded_node[..len]);
 
 			return ChildReference::Inline(h, len);
 		}
-		let hash = self.db.insert(encoded_prefix, &enc_ext[..]);
+		let hash = self.db.insert(prefix, &encoded_node[..]);
 		if is_root {
 			self.root = Some(hash.clone());
 		};
@@ -409,17 +408,17 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRoot<H, <H as Has
 	fn process(
 		&mut self,
 		_: Prefix,
-		enc_ext: Vec<u8>,
+		encoded_node: Vec<u8>,
 		is_root: bool,
 	) -> ChildReference<<H as Hasher>::Out> {
-		let len = enc_ext.len();
+		let len = encoded_node.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
 			let mut h = <<H as Hasher>::Out as Default>::default();
-			h.as_mut()[..len].copy_from_slice(&enc_ext[..len]);
+			h.as_mut()[..len].copy_from_slice(&encoded_node[..len]);
 
 			return ChildReference::Inline(h, len);
 		}
-		let hash = <H as Hasher>::hash(&enc_ext[..]);
+		let hash = <H as Hasher>::hash(&encoded_node[..]);
 		if is_root {
 			self.root = Some(hash.clone());
 		};
@@ -461,20 +460,20 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootPrint<H, <H a
 	fn process(
 		&mut self,
 		p: Prefix,
-		enc_ext: Vec<u8>,
+		encoded_node: Vec<u8>,
 		is_root: bool,
 	) -> ChildReference<<H as Hasher>::Out> {
-		println!("Encoded node: {:x?}", &enc_ext);
+		println!("Encoded node: {:x?}", &encoded_node);
 		println!("	with prefix: {:x?}", &p);
-		let len = enc_ext.len();
+		let len = encoded_node.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
 			let mut h = <<H as Hasher>::Out as Default>::default();
-			h.as_mut()[..len].copy_from_slice(&enc_ext[..len]);
+			h.as_mut()[..len].copy_from_slice(&encoded_node[..len]);
 
 			println!("	inline len {}", len);
 			return ChildReference::Inline(h, len);
 		}
-		let hash = <H as Hasher>::hash(&enc_ext[..]);
+		let hash = <H as Hasher>::hash(&encoded_node[..]);
 		if is_root {
 			self.root = Some(hash.clone());
 		};
@@ -487,19 +486,19 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashed<H> {
 	fn process(
 		&mut self,
 		_: Prefix,
-		enc_ext: Vec<u8>,
+		encoded_node: Vec<u8>,
 		is_root: bool,
 	) -> ChildReference<<H as Hasher>::Out> {
-		let len = enc_ext.len();
+		let len = encoded_node.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
 			let mut h = <<H as Hasher>::Out as Default>::default();
-			h.as_mut()[..len].copy_from_slice(&enc_ext[..len]);
+			h.as_mut()[..len].copy_from_slice(&encoded_node[..len]);
 
 			return ChildReference::Inline(h, len);
 		}
-		let hash = <H as Hasher>::hash(&enc_ext[..]);
+		let hash = <H as Hasher>::hash(&encoded_node[..]);
 		if is_root {
-			self.root = Some(enc_ext);
+			self.root = Some(encoded_node);
 		};
 		ChildReference::Hash(hash)
 	}
@@ -638,6 +637,8 @@ mod test {
 		reference_trie::compare_unhashed_no_extension(data);
 	}
 
+	// Following tests are a bunch of detected issue here for non regression.
+
 	#[test]
 	fn trie_middle_node1 () {
 		compare_implementations(vec![
@@ -645,7 +646,6 @@ mod test {
 			(vec![1u8, 2u8, 3u8, 4u8], vec![7u8;32]),
 		]);
 	}
-
 	#[test]
 	fn trie_middle_node2 () {
 		compare_implementations(vec![
@@ -810,7 +810,6 @@ mod test {
 			(vec![01u8;((u16::max_value() as usize + 1) / 2) + 1], vec![0;32]),
 		]);
 	}
-
 	#[test]
 	fn polka_re_test () {
 		compare_implementations(vec![

@@ -22,7 +22,7 @@ use elastic_array::ElasticArray36;
 use crate::node::NodeKey;
 use super::MaybeDebug;
 
-// Workaround no constant function for pow.
+// Work-around absence of constant function for math pow.
 const TWO_EXP: [usize; 9] = [1, 2, 4, 8, 16, 32, 64, 128, 256];
 
 /// This trait contain Trie nibble specific definitions.
@@ -32,9 +32,9 @@ const TWO_EXP: [usize; 9] = [1, 2, 4, 8, 16, 32, 64, 128, 256];
 /// purpose.
 pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy + MaybeDebug {
 	/// See [`ByteLayout`].
-	const REPR : ByteLayout;
+	const LAYOUT : ByteLayout;
 	/// Single nibble length in bit.
-	const BIT_PER_NIBBLE : usize = TWO_EXP[Self::REPR as usize];
+	const BIT_PER_NIBBLE : usize = TWO_EXP[Self::LAYOUT as usize];
 	/// Number of nibble per byte.
 	const NIBBLE_PER_BYTE : usize = 8 / Self::BIT_PER_NIBBLE;
 	/// Number of child for a branch (trie radix).
@@ -65,15 +65,15 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	/// Mask a byte from a `ix` > 0 (ix being content).
 	/// Result is a byte containing `ix` nibble of left aligned content and padded with 0.
 	#[inline(always)]
-	fn masked_left(ix: u8, b: u8) -> u8 {
+	fn pad_left(ix: u8, b: u8) -> u8 {
 		debug_assert!(ix > 0);
 		b & !Self::PADDING_BITMASK[ix as usize].0
 	}
 
-	/// Mask a byte from a ix > 0 (ix being content)
+	/// Mask a byte from a ix > 0 (ix being content).
 	/// Result is a byte containing `ix` nibble of right aligned content and padded with 0.
 	#[inline(always)]
-	fn masked_right(ix: u8, b: u8) -> u8 {
+	fn pad_right(ix: u8, b: u8) -> u8 {
 		if ix > 0 {
 			b & Self::PADDING_BITMASK[Self::NIBBLE_PER_BYTE - ix as usize].0
 		} else {
@@ -202,7 +202,7 @@ pub enum ByteLayout {
 }
 
 impl NibbleOps for NibbleHalf {
-	const REPR: ByteLayout = ByteLayout::Half;
+	const LAYOUT: ByteLayout = ByteLayout::Half;
 	const PADDING_BITMASK: &'static [(u8, usize)] = &[(0xFF, 4), (0x0F, 0)];
 	type ChildSliceIndex = ChildSliceIndex16;
 }
@@ -214,7 +214,7 @@ pub struct NibbleQuarter;
 
 // new_padded_end merged
 impl NibbleOps for NibbleQuarter {
-	const REPR: ByteLayout = ByteLayout::Quarter;
+	const LAYOUT: ByteLayout = ByteLayout::Quarter;
 	const PADDING_BITMASK: &'static [(u8, usize)] = &[
 		(0b1111_1111, 6),
 		(0b0011_1111, 4),

@@ -129,7 +129,6 @@ fn fuzz_to_data_fix_length(input: &[u8]) -> Vec<(Vec<u8>,Vec<u8>)> {
 	result
 }
 
-
 fn data_sorted_unique(input: Vec<(Vec<u8>,Vec<u8>)>) -> Vec<(Vec<u8>,Vec<u8>)> {
 	let mut m = std::collections::BTreeMap::new();
 	for (k,v) in input.into_iter() {
@@ -137,7 +136,6 @@ fn data_sorted_unique(input: Vec<(Vec<u8>,Vec<u8>)>) -> Vec<(Vec<u8>,Vec<u8>)> {
 	}
 	m.into_iter().collect()
 }
-
 
 pub fn fuzz_that_compare_implementations(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data(input));
@@ -151,7 +149,6 @@ pub fn fuzz_that_unhashed_no_extension(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data(input));
 	reference_trie::compare_unhashed_no_extension(data);
 }
-
 
 pub fn fuzz_that_no_extension_insert(input: &[u8]) {
 	let data = fuzz_to_data(input);

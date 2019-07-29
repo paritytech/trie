@@ -1187,7 +1187,7 @@ where
 							(st, (0, _v)) => (st, None, (1, L::Nibble::push_at_left(0, a, 0))),
 							(st, (i, v)) if i == L::Nibble::LAST_NIBBLE_INDEX => {
 								let mut so: ElasticArray36<u8> = st.into();
-								so.push(L::Nibble::masked_left(L::Nibble::LAST_NIBBLE_INDEX, v) | a);
+								so.push(L::Nibble::pad_left(L::Nibble::LAST_NIBBLE_INDEX, v) | a);
 								(st, Some(so), (0, 0))
 							},
 							(st, (ix, v)) => (st, None, (ix, L::Nibble::push_at_left(ix, a, v))),
@@ -1263,7 +1263,7 @@ where
 					(st, (i, v)) if i == L::Nibble::LAST_NIBBLE_INDEX => {
 						let mut so: ElasticArray36<u8> = st.into();
 						// Complete last byte with `a`.
-						so.push(L::Nibble::masked_left(L::Nibble::LAST_NIBBLE_INDEX, v) | a);
+						so.push(L::Nibble::pad_left(L::Nibble::LAST_NIBBLE_INDEX, v) | a);
 						(st, Some(so), (0, 0))
 					},
 					(st, (ix, v)) => (st, None, (ix, L::Nibble::push_at_left(ix, a, v))),
@@ -1537,7 +1537,7 @@ fn combine_key<N: NibbleOps>(start: &mut NodeKey, end: (usize, &[u8])) {
 	let _shifted = N::shift_key(start, final_ofset);
 	let st = if end.0 > 0 {
 		let sl = start.1.len();
-		start.1[sl - 1] |= N::masked_right((N::NIBBLE_PER_BYTE - end.0) as u8, end.1[0]);
+		start.1[sl - 1] |= N::pad_right((N::NIBBLE_PER_BYTE - end.0) as u8, end.1[0]);
 		1
 	} else {
 		0
