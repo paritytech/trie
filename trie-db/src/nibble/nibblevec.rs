@@ -161,7 +161,7 @@ impl<N: NibbleOps> NibbleVec<N> {
 	/// Utility function for chaining two optional appending
 	/// of `NibbleSlice` and/or a byte.
 	/// Can be slow.
-	pub(crate) fn append_slice_nibble(
+	pub(crate) fn append_optional_slice_and_nibble(
 		&mut self,
 		o_slice: Option<&NibbleSlice<N>>,
 		o_index: Option<u8>,
@@ -178,15 +178,15 @@ impl<N: NibbleOps> NibbleVec<N> {
 		res
 	}
 
-	/// Utility function for `append_slice_nibble` after a clone.
+	/// Utility function for `append_optional_slice_and_nibble` after a clone.
 	/// Can be slow.
-	pub(crate) fn clone_append_slice_nibble(
+	pub(crate) fn clone_append_optional_slice_and_nibble(
 		&self,
 		o_slice: Option<&NibbleSlice<N>>,
 		o_index: Option<u8>,
 	) -> Self {
 		let mut p = self.clone();
-		p.append_slice_nibble(o_slice, o_index);
+		p.append_optional_slice_and_nibble(o_slice, o_index);
 		p
 	}
 

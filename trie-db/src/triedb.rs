@@ -189,7 +189,7 @@ where
 							trie: self.trie,
 							node_key: item,
 							partial_key: self.partial_key
-								.clone_append_slice_nibble(Some(&slice), None),
+								.clone_append_optional_slice_and_nibble(Some(&slice), None),
 							index: None,
 						})
 						.finish(),
@@ -202,7 +202,7 @@ where
 							index: Some(i as u8),
 							node_key: n,
 							partial_key: self.partial_key
-								.clone_append_slice_nibble(None, Some(i as u8)),
+								.clone_append_optional_slice_and_nibble(None, Some(i as u8)),
 						})
 						.collect();
 					match (f.debug_struct("Node::Branch"), self.index) {
@@ -222,7 +222,7 @@ where
 							index: Some(i as u8),
 							node_key: n,
 							partial_key: self.partial_key
-								.clone_append_slice_nibble(Some(&slice), Some(i as u8)),
+								.clone_append_optional_slice_and_nibble(Some(&slice), Some(i as u8)),
 						}).collect();
 					match (f.debug_struct("Node::NibbledBranch"), self.index) {
 						(ref mut d, Some(ref i)) => d.field("index", i),
@@ -596,8 +596,9 @@ mod tests {
 
 		assert_eq!(pairs, iter_pairs);
 	}
+
 	#[test]
-	fn iterator_works_no_ext() {
+	fn iterator_works_without_extension() {
 		let pairs = vec![
 			(hex!("0103000000000000000464").to_vec(), hex!("fffffffffe").to_vec()),
 			(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
@@ -623,7 +624,6 @@ mod tests {
 
 		assert_eq!(pairs, iter_pairs);
 	}
-
 
 	#[test]
 	fn iterator_seek_works() {
@@ -669,7 +669,7 @@ mod tests {
 	}
 
 	#[test]
-	fn iterator_seek_works_no_ext() {
+	fn iterator_seek_works_without_extension() {
 		let pairs = vec![
 			(hex!("0103000000000000000464").to_vec(), hex!("fffffffffe").to_vec()),
 			(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
@@ -704,7 +704,6 @@ mod tests {
 		);
 	}
 
-
 	#[test]
 	fn iterator() {
 		let d = vec![
@@ -737,7 +736,7 @@ mod tests {
 	}
 
 	#[test]
-	fn iterator_no_ext() {
+	fn iterator_without_extension() {
 		let d = vec![
 			DBValue::from_slice(b"A"),
 			DBValue::from_slice(b"AA"),
@@ -761,7 +760,6 @@ mod tests {
 		);
 		assert_eq!(d, t.iter().unwrap().map(|x| x.unwrap().1).collect::<Vec<_>>());
 	}
-
 
 	#[test]
 	fn iterator_seek() {
@@ -810,7 +808,7 @@ mod tests {
 	}
 
 	#[test]
-	fn get_len_with_ext() {
+	fn get_length_with_extension() {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
@@ -826,7 +824,7 @@ mod tests {
 	}
 
 	#[test]
-	fn get_len_no_ext() {
+	fn get_length_without_extension() {
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{

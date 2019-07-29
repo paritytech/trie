@@ -68,8 +68,8 @@ fn empty_children<H, N: NibbleOps>() -> Vec<Option<NodeHandle<H>>> {
 	res
 }
 
-/// type alias to indicate the nible cover a full key,
-/// and left side therefore is a full prefix.
+/// Type alias to indicate the nible covers a full key,
+/// therefore its left side is a full prefix.
 type NibbleFullKey<'key, N> = NibbleSlice<'key, N>;
 
 /// Node types in the Trie.
@@ -88,7 +88,7 @@ enum Node<H> {
 	Extension(NodeKey, NodeHandle<H>),
 	/// A branch has up to 16 children and an optional value.
 	Branch(Vec<Option<NodeHandle<H>>>, Option<DBValue>),
-	/// Branch node with support for a nibble (to avoid extension node)
+	/// Branch node with support for a nibble (to avoid extension node).
 	NibbledBranch(NodeKey, Vec<Option<NodeHandle<H>>>, Option<DBValue>),
 }
 
@@ -116,7 +116,7 @@ where
 			})
 	}
 
-	// decode a node from encoded bytes without getting its children.
+	// Decode a node from encoded bytes.
 	fn from_encoded<'a, 'b, C, H, N>(
 		data: &'a[u8],
 		db: &dyn HashDB<H, DBValue>,
@@ -320,7 +320,9 @@ impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
 ///
 /// Use it as a `TrieMut` trait object. You can use `db()` to get the backing database object.
 /// Note that changes are not committed to the database until `commit` is called.
+///
 /// Querying the root or dropping the trie will commit automatically.
+///
 ///
 /// # Example
 /// ```
@@ -412,7 +414,7 @@ where
 		self.db
 	}
 
-	// cache a node by hash
+	// Cache a node by hash.
 	fn cache(
 		&mut self,
 		hash: TrieHash<L>,
@@ -428,8 +430,8 @@ where
 		Ok(self.storage.alloc(Stored::Cached(node, hash)))
 	}
 
-	// inspect a node, choosing either to replace, restore, or delete it.
-	// if restored or replaced, returns the new node along with a flag of whether it was changed.
+	// Inspect a node, choosing either to replace, restore, or delete it.
+	// If restored or replaced, returns the new node along with a flag of whether it was changed.
 	fn inspect<F>(
 		&mut self,
 		stored: Stored<TrieHash<L>>,
@@ -463,7 +465,7 @@ where
 		})
 	}
 
-	// walk the trie, attempting to find the key's node.
+	// Walk the trie, attempting to find the key's node.
 	fn lookup<'x, 'key>(
 		&'x self,
 		mut partial: NibbleSlice<'key, L::Nibble>,
@@ -529,7 +531,7 @@ where
 		}
 	}
 
-	/// insert a key-value pair into the trie, creating new nodes if necessary.
+	/// Insert a key-value pair into the trie, creating new nodes if necessary.
 	fn insert_at(
 		&mut self,
 		handle: NodeHandle<TrieHash<L>>,
@@ -550,7 +552,7 @@ where
 		Ok((self.storage.alloc(new_stored), changed))
 	}
 
-	/// the insertion inspector.
+	/// The insertion inspector.
 	fn insert_inspector(
 		&mut self,
 		node: Node<TrieHash<L>>,
@@ -896,7 +898,7 @@ where
 		})
 	}
 
-	/// Remove a node from the trie based on key.
+	/// Removes a node from the trie based on key.
 	fn remove_at(
 		&mut self,
 		handle: NodeHandle<TrieHash<L>>,
@@ -920,7 +922,7 @@ where
 		Ok(opt.map(|(new, changed)| (self.storage.alloc(new), changed)))
 	}
 
-	/// the removal inspector
+	/// The removal inspector.
 	fn remove_inspector(
 		&mut self,
 		node: Node<TrieHash<L>>,
@@ -1362,7 +1364,7 @@ where
 				let mut k = NibbleVec::new();
 				let encoded_root = node.into_encoded::<_, L::Codec, L::Hash, L::Nibble>(
 					|child, o_slice, o_index| {
-						let mov = k.append_slice_nibble(o_slice, o_index);
+						let mov = k.append_optional_slice_and_nibble(o_slice, o_index);
 						let cr = self.commit_child(child, &mut k);
 						k.drop_lasts(mov);
 						cr
@@ -1407,7 +1409,7 @@ where
 								o_slice: Option<&NibbleSlice<L::Nibble>>,
 								o_index: Option<u8>
 							| {
-								let mov = prefix.append_slice_nibble(o_slice, o_index);
+								let mov = prefix.append_optional_slice_and_nibble(o_slice, o_index);
 								let cr = self.commit_child(node_handle, prefix);
 								prefix.drop_lasts(mov);
 								cr
@@ -1751,7 +1753,6 @@ mod tests {
 		 (vec![0x01u8, 0x34], big_value.to_vec()),
 		])[..]);
 	}
-
 
 	#[test]
 	fn insert_replace_root() {
