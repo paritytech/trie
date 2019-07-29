@@ -33,7 +33,7 @@ where
 	/// Create a new trie with the backing database `db` and empty `root`
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
-	pub fn new(db: &'db mut dyn HashDB<L::H, DBValue>, root: &'db mut TrieHash<L>) -> Self {
+	pub fn new(db: &'db mut dyn HashDB<L::Hash, DBValue>, root: &'db mut TrieHash<L>) -> Self {
 		FatDBMut { raw: TrieDBMut::new(db, root) }
 	}
 
@@ -41,19 +41,19 @@ where
 	///
 	/// Returns an error if root does not exist.
 	pub fn from_existing(
-		db: &'db mut dyn HashDB<L::H, DBValue>,
+		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(FatDBMut { raw: TrieDBMut::from_existing(db, root)? })
 	}
 
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDB<L::H, DBValue> {
+	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue> {
 		self.raw.db()
 	}
 
 	/// Get the backing database.
-	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::H, DBValue> {
+	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue> {
 		self.raw.db_mut()
 	}
 }
@@ -67,13 +67,13 @@ where
 	fn is_empty(&self) -> bool { self.raw.is_empty() }
 
 	fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
-		self.raw.contains(L::H::hash(key).as_ref())
+		self.raw.contains(L::Hash::hash(key).as_ref())
 	}
 
 	fn get<'a, 'key>(&'a self, key: &'key [u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
 		where 'a: 'key
 	{
-		self.raw.get(L::H::hash(key).as_ref())
+		self.raw.get(L::Hash::hash(key).as_ref())
 	}
 
 	fn insert(
@@ -81,25 +81,25 @@ where
 		key: &[u8],
 		value: &[u8],
 	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
-		let hash = L::H::hash(key);
+		let hash = L::Hash::hash(key);
 		let out = self.raw.insert(hash.as_ref(), value)?;
 		let db = self.raw.db_mut();
 
 		// insert if it doesn't exist.
 		if out.is_none() {
-			let aux_hash = L::H::hash(hash.as_ref());
+			let aux_hash = L::Hash::hash(hash.as_ref());
 			db.emplace(aux_hash, EMPTY_PREFIX, DBValue::from_slice(key));
 		}
 		Ok(out)
 	}
 
 	fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
-		let hash = L::H::hash(key);
+		let hash = L::Hash::hash(key);
 		let out = self.raw.remove(hash.as_ref())?;
 
 		// remove if it already exists.
 		if out.is_some() {
-			let aux_hash = L::H::hash(hash.as_ref());
+			let aux_hash = L::Hash::hash(hash.as_ref());
 			self.raw.db_mut().remove(&aux_hash, EMPTY_PREFIX);
 		}
 

@@ -44,10 +44,10 @@ pub struct ExtensionLayout;
 
 impl TrieLayout for ExtensionLayout {
 	const USE_EXTENSION: bool = true;
-	type H = keccak_hasher::KeccakHasher;
-	type C = ReferenceNodeCodec<BitMap16>;
-	type N = NibbleHalf;
-	type CB = Cache16;
+	type Hash = keccak_hasher::KeccakHasher;
+	type Codec = ReferenceNodeCodec<BitMap16>;
+	type Nibble = NibbleHalf;
+	type Cache = Cache16;
 }
 
 impl TrieOps for ExtensionLayout { }
@@ -57,10 +57,10 @@ pub struct NoExtensionLayout;
 
 impl TrieLayout for NoExtensionLayout {
 	const USE_EXTENSION: bool = false;
-	type H = keccak_hasher::KeccakHasher;
-	type C = ReferenceNodeCodecNoExt<BitMap16>;
-	type N = NibbleHalf;
-	type CB = Cache16;
+	type Hash = keccak_hasher::KeccakHasher;
+	type Codec = ReferenceNodeCodecNoExt<BitMap16>;
+	type Nibble = NibbleHalf;
+	type Cache = Cache16;
 }
 
 /// trie layout similar to substrate one
@@ -68,10 +68,10 @@ pub struct SimpleNoExtensionLayout<H>(PhantomData<H>);
 
 impl<H: Hasher> TrieLayout for SimpleNoExtensionLayout<H> {
 	const USE_EXTENSION: bool = false;
-	type H = H;
-	type C = ReferenceNodeCodecNoExt<BitMap16>;
-	type N = NibbleHalf;
-	type CB = Cache16;
+	type Hash = H;
+	type Codec = ReferenceNodeCodecNoExt<BitMap16>;
+	type Nibble = NibbleHalf;
+	type Cache = Cache16;
 }
 
 impl<H: Hasher> TrieOps for SimpleNoExtensionLayout<H> { }
@@ -81,10 +81,10 @@ pub struct NoExtensionLayoutQuarter;
 
 impl TrieLayout for NoExtensionLayoutQuarter {
 	const USE_EXTENSION: bool = false;
-	type H = keccak_hasher::KeccakHasher;
-	type C = ReferenceNodeCodecNoExt<BitMap4>;
-	type N = NibbleQuarter;
-	type CB = Cache4;
+	type Hash = keccak_hasher::KeccakHasher;
+	type Codec = ReferenceNodeCodecNoExt<BitMap4>;
+	type Nibble = NibbleQuarter;
+	type Cache = Cache4;
 }
 
 impl TrieOps for NoExtensionLayoutQuarter { }

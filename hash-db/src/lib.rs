@@ -33,19 +33,21 @@ pub trait MaybeDebug {}
 impl<T> MaybeDebug for T {}
 
 
-/// An empty prefix constant. Mainly use for comparison
-/// and for root nodes.
-pub static EMPTY_PREFIX: Prefix<'static> = (&[], (0, 0));
-
-/// The prefix of a trie node, a prefix is the nibble path up to
-/// the node in the trie.
-/// For a value node, it is the node key with its node partial
-/// bytes removed (the node key can be split into prefix and node partial).
-/// As the leftmost portion of the node key, its internal representation
-/// is a byte slice followed by a padded byte.
-/// The padded byte is a pair of u8 containing the number of nibble first,
-/// and the left aligned padded value second.
+/// A trie node prefix, it is the nibble path from the trie root
+/// to the trie node.
+/// For a node containing no partial key value it is the full key.
+/// For a value node or node containing a partial key, it is the full key minus its node partial
+/// nibbles (the node key can be split into prefix and node partial).
+/// Therefore it is always the leftmost portion of the node key, so its internal representation
+/// is a non expanded byte slice followed by a last padded byte representation.
+/// The padded byte is a pair of u8 containing the number of nibble, followed by
+/// the left aligned padded value.
 pub type Prefix<'a> = (&'a[u8], (u8, u8));
+
+/// An empty prefix constant.
+/// Can be use when the prefix is not use internally
+/// or for root nodes.
+pub static EMPTY_PREFIX: Prefix<'static> = (&[], (0, 0));
 
 /// Trait describing an object that can hash a slice of bytes. Used to abstract
 /// other types over the hashing algorithm. Defines a single `hash` method and an
@@ -54,12 +56,12 @@ pub trait Hasher: Sync + Send {
 	/// The output type of the `Hasher`
 	type Out: AsRef<[u8]> + AsMut<[u8]> + Default + MaybeDebug + PartialEq + Eq
 		+ hash::Hash + Send + Sync + Clone + Copy;
-	/// What to use to build `HashMap`s with this `Hasher`
+	/// What to use to build `HashMap`s with this `Hasher`.
 	type StdHasher: Sync + Send + Default + hash::Hasher;
-	/// The length in bytes of the `Hasher` output
+	/// The length in bytes of the `Hasher` output.
 	const LENGTH: usize;
 
-	/// Compute the hash of the provided slice of bytes returning the `Out` type of the `Hasher`
+	/// Compute the hash of the provided slice of bytes returning the `Out` type of the `Hasher`.
 	fn hash(x: &[u8]) -> Self::Out;
 }
 

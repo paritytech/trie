@@ -24,9 +24,9 @@ use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash, Chi
 use alloc::boxed::Box;
 
 /// Trie lookup helper object.
-pub struct Lookup<'a, L: TrieLayout, Q: Query<L::H>> {
+pub struct Lookup<'a, L: TrieLayout, Q: Query<L::Hash>> {
 	/// database to query from.
-	pub db: &'a dyn HashDBRef<L::H, DBValue>,
+	pub db: &'a dyn HashDBRef<L::Hash, DBValue>,
 	/// Query object to record nodes and transform data.
 	pub query: Q,
 	/// Hash to start at
@@ -36,13 +36,13 @@ pub struct Lookup<'a, L: TrieLayout, Q: Query<L::H>> {
 impl<'a, L, Q> Lookup<'a, L, Q>
 where
 	L: TrieLayout,
-	Q: Query<L::H>,
+	Q: Query<L::Hash>,
 {
 	/// Look up the given key. If the value is found, it will be passed to the given
 	/// function to decode or copy.
 	pub fn look_up(
 		mut self,
-		key: NibbleSlice<L::N>,
+		key: NibbleSlice<L::Nibble>,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let mut partial = key;
 		let mut hash = self.hash;
@@ -64,7 +64,7 @@ where
 			// without incrementing the depth.
 			let mut node_data = &node_data[..];
 			loop {
-				let decoded = match L::C::decode(node_data) {
+				let decoded = match L::Codec::decode(node_data) {
 					Ok(node) => node,
 					Err(e) => {
 						return Err(Box::new(TrieError::DecoderError(hash, e)))
@@ -119,7 +119,7 @@ where
 				}
 
 				// check if new node data is inline or hash.
-				if let Some(h) = L::C::try_decode_hash(&node_data) {
+				if let Some(h) = L::Codec::try_decode_hash(&node_data) {
 					hash = h;
 					break
 				}

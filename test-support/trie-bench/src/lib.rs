@@ -39,14 +39,14 @@ impl ::std::fmt::Debug for TrieInsertionList {
 
 fn benchmark<L: TrieLayout, S: TrieStream>(b: &mut Criterion, name: &str, content: Vec<(Vec<u8>, Vec<u8>)>)
 where
-	<L::H as Hasher>::Out: 'static
+	<L::Hash as Hasher>::Out: 'static
 {
 	let funs = vec![
 		Fun::new("Closed", |b, d: &TrieInsertionList| b.iter(&mut ||{
-			trie_root::<L::H, S, _, _, _>(d.0.clone())
+			trie_root::<L::Hash, S, _, _, _>(d.0.clone())
 		})),
 		Fun::new("Fill", |b, d: &TrieInsertionList| b.iter(&mut ||{
-			let mut memdb = MemoryDB::<_, HashKey<L::H>, _>::new(&L::C::empty_node()[..]);
+			let mut memdb = MemoryDB::<_, HashKey<L::Hash>, _>::new(&L::Codec::empty_node()[..]);
 			let mut root = <TrieHash<L>>::default();
 			let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);
 			for i in d.0.iter() {
@@ -54,7 +54,7 @@ where
 			}
 		})),
 		Fun::new("Iter", |b, d: &TrieInsertionList| {
-			let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(&L::C::empty_node()[..]);
+			let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(&L::Codec::empty_node()[..]);
 			let mut root = <TrieHash<L>>::default();
 			{
 				let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);

@@ -20,7 +20,6 @@ use reference_trie::{
 	RefTrieDBMut,
 	reference_trie_root,
 	calc_root_no_extension,
-	calc_root,
 	compare_no_extension_insert_remove,
 };
 use trie_db::{TrieMut, DBValue};
@@ -72,7 +71,6 @@ fn fuzz_to_data(input: &[u8]) -> Vec<(Vec<u8>,Vec<u8>)> {
 fn fuzz_removal(data: Vec<(Vec<u8>,Vec<u8>)>) -> Vec<(bool, Vec<u8>,Vec<u8>)> {
 	let mut res = Vec::new();
 	let mut torem = None;
-	let mut a = 0;
 	for (a, d) in data.into_iter().enumerate() {
 		if a % 7 == 6	{
 			// a random removal some time

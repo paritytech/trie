@@ -39,7 +39,7 @@ where
 	/// This guarantees the trie is built correctly.
 	/// Returns an error if root does not exist.
 	pub fn new(
-		db: &'db dyn HashDBRef<L::H, DBValue>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(SecTrieDB { raw: TrieDB::new(db, root)? })
@@ -63,17 +63,17 @@ where
 	fn root(&self) -> &TrieHash<L> { self.raw.root() }
 
 	fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
-		self.raw.contains(L::H::hash(key).as_ref())
+		self.raw.contains(L::Hash::hash(key).as_ref())
 	}
 
-	fn get_with<'a, 'key, Q: Query<L::H>>(
+	fn get_with<'a, 'key, Q: Query<L::Hash>>(
 		&'a self,
 		key: &'key [u8],
 		query: Q,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
 		where 'a: 'key
 	{
-		self.raw.get_with(L::H::hash(key).as_ref(), query)
+		self.raw.get_with(L::Hash::hash(key).as_ref(), query)
 	}
 
 	fn iter<'a>(&'a self) -> Result<

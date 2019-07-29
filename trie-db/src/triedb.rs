@@ -67,7 +67,7 @@ pub struct TrieDB<'db, L>
 where
 	L: TrieLayout,
 {
-	db: &'db dyn HashDBRef<L::H, DBValue>,
+	db: &'db dyn HashDBRef<L::Hash, DBValue>,
 	root: &'db TrieHash<L>,
 	/// The number of hashes performed so far in operations on this trie.
 	hash_count: usize,
@@ -80,7 +80,7 @@ where
 	/// Create a new trie with the backing database `db` and `root`
 	/// Returns an error if `root` does not exist
 	pub fn new(
-		db: &'db dyn HashDBRef<L::H, DBValue>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
@@ -91,7 +91,7 @@ where
 	}
 
 	/// Get the backing database.
-	pub fn db(&'db self) -> &'db dyn HashDBRef<L::H, DBValue> { self.db }
+	pub fn db(&'db self) -> &'db dyn HashDBRef<L::Hash, DBValue> { self.db }
 
 	/// Get the data of the root node.
 	pub fn root_data(&self) -> Result<DBValue, TrieHash<L>, CError<L>> {
@@ -109,7 +109,7 @@ where
 		&'db self, node: &[u8],
 		partial_key: Prefix,
 	) -> Result<Cow<'db, DBValue>, TrieHash<L>, CError<L>> {
-		match (partial_key.0.is_empty() && (partial_key.1).0 == 0, L::C::try_decode_hash(node)) {
+		match (partial_key.0.is_empty() && (partial_key.1).0 == 0, L::Codec::try_decode_hash(node)) {
 			(false, Some(key)) => {
 				self.db
 					.get(&key, partial_key)
@@ -127,7 +127,7 @@ where
 {
 	fn root(&self) -> &TrieHash<L> { self.root }
 
-	fn get_with<'a, 'key, Q: Query<L::H>>(
+	fn get_with<'a, 'key, Q: Query<L::Hash>>(
 		&'a self,
 		key: &'key [u8],
 		query: Q,
@@ -159,7 +159,7 @@ where
 {
 	trie: &'db TrieDB<'db, L>,
 	node_key: &'a[u8],
-	partial_key: NibbleVec<L::N>,
+	partial_key: NibbleVec<L::Nibble>,
 	index: Option<u8>,
 }
 
@@ -170,7 +170,7 @@ where
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		if let Ok(node) = self.trie.get_raw_or_lookup(self.node_key, self.partial_key.as_prefix()) {
-			match L::C::decode(&node) {
+			match L::Codec::decode(&node) {
 				Ok(Node::Leaf(slice, value)) =>
 					match (f.debug_struct("Node::Leaf"), self.index) {
 						(ref mut d, Some(i)) => d.field("index", &i),
@@ -306,8 +306,8 @@ impl<N: NibbleOps> Crumb<N> {
 /// Iterator for going through all values in the trie.
 pub struct TrieDBIterator<'a, L: TrieLayout> {
 	db: &'a TrieDB<'a, L>,
-	trail: Vec<Crumb<L::N>>,
-	key_nibbles: NibbleVec<L::N>,
+	trail: Vec<Crumb<L::Nibble>>,
+	key_nibbles: NibbleVec<L::Nibble>,
 }
 
 impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
@@ -325,14 +325,14 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 	fn seek<'key>(
 		&mut self,
 		node_data: &DBValue,
-		key: NibbleSlice<'key, L::N>,
+		key: NibbleSlice<'key, L::Nibble>,
 	) -> Result<(), TrieHash<L>, CError<L>> {
 		let mut node_data = Cow::Borrowed(node_data);
 		let mut partial = key;
 		let mut full_key_nibbles = 0;
 		loop {
 			let data = {
-				let node = L::C::decode(&node_data)
+				let node = L::Codec::decode(&node_data)
 					.map_err(|e| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), e)))?;
 				match node {
 					Node::Leaf(slice, _) => {
@@ -439,13 +439,13 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 	/// Descend into a payload.
 	fn descend(&mut self, d: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		let node_data = &self.db.get_raw_or_lookup(d, self.key_nibbles.as_prefix())?;
-		let node = L::C::decode(&node_data)
+		let node = L::Codec::decode(&node_data)
 			.map_err(|e| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), e)))?;
 		Ok(self.descend_into_node(node.into()))
 	}
 
 	/// Descend into a payload.
-	fn descend_into_node(&mut self, node: OwnedNode<L::N>) {
+	fn descend_into_node(&mut self, node: OwnedNode<L::Nibble>) {
 		let trail = &mut self.trail;
 		let key_nibbles = &mut self.key_nibbles;
 		trail.push(Crumb { status: Status::Entering, node });
@@ -460,7 +460,7 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 
 	/// The present key. This can only be called on valued node (key is therefore
 	/// aligned to byte).
-	fn key(&self) -> NibbleSlice<L::N> {
+	fn key(&self) -> NibbleSlice<L::Nibble> {
 		self.key_nibbles.as_nibbleslice().expect("a key is aligned to byte;qed")
 	}
 
@@ -549,7 +549,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 					self.trail.pop();
 				},
 				IterStep::Descend::<TrieHash<L>, CError<L>>(Ok(d)) => {
-					let node = L::C::decode(&d).ok()?;
+					let node = L::Codec::decode(&d).ok()?;
 					self.descend_into_node(node.into())
 				},
 				IterStep::Descend::<TrieHash<L>, CError<L>>(Err(e)) => {

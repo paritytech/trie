@@ -197,7 +197,7 @@ pub trait Trie<L: TrieLayout> {
 	fn root(&self) -> &TrieHash<L>;
 
 	/// Is the trie empty?
-	fn is_empty(&self) -> bool { *self.root() == L::C::hashed_null_node() }
+	fn is_empty(&self) -> bool { *self.root() == L::Codec::hashed_null_node() }
 
 	/// Does the trie contain a given key?
 	fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
@@ -214,7 +214,7 @@ pub trait Trie<L: TrieLayout> {
 
 	/// Search for the key with the given query parameter. See the docs of the `Query`
 	/// trait for more details.
-	fn get_with<'a, 'key, Q: Query<L::H>>(
+	fn get_with<'a, 'key, Q: Query<L::Hash>>(
 		&'a self,
 		key: &'key [u8],
 		query: Q
@@ -326,7 +326,7 @@ impl<'db, L: TrieLayout> Trie<L> for TrieKinds<'db, L> {
 		wrapper!(self, contains, key)
 	}
 
-	fn get_with<'a, 'key, Q: Query<L::H>>(
+	fn get_with<'a, 'key, Q: Query<L::Hash>>(
 		&'a self, key: &'key [u8],
 		query: Q,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
@@ -356,7 +356,7 @@ where
 	/// Create new immutable instance of Trie.
 	pub fn readonly(
 		&self,
-		db: &'db dyn HashDBRef<L::H, DBValue>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>
 	) -> Result<TrieKinds<'db, L>, TrieHash<L>, CError<L>> {
 		match self.spec {
@@ -369,7 +369,7 @@ where
 	/// Create new mutable instance of Trie.
 	pub fn create(
 		&self,
-		db: &'db mut dyn HashDB<L::H, DBValue>,
+		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
 	) -> Box<dyn TrieMut<L> + 'db> {
 		match self.spec {
@@ -382,7 +382,7 @@ where
 	/// Create new mutable instance of trie and check for errors.
 	pub fn from_existing(
 		&self,
-		db: &'db mut dyn HashDB<L::H, DBValue>,
+		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
 	) -> Result<Box<dyn TrieMut<L> + 'db>, TrieHash<L>, CError<L>> {
 		match self.spec {
@@ -405,14 +405,14 @@ pub trait TrieLayout {
 	/// use branch and node with partials in both.
 	const USE_EXTENSION: bool;
 	/// Hasher to use for this trie.
-	type H: Hasher;
+	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
-	type C: NodeCodec<Self::H, Self::N>;
+	type Codec: NodeCodec<Self::Hash, Self::Nibble>;
 	/// Trie nibble constants. It defines trie radix.
-	type N: NibbleOps;
+	type Nibble: NibbleOps;
 	/// Technical trait for cache, it should match the radix
 	/// of `NibbleOps`.
-	type CB: CacheBuilder<<Self::H as Hasher>::Out>;
+	type Cache: CacheBuilder<<Self::Hash as Hasher>::Out>;
 }
 
 /// Trait with operation on key value iterator.
@@ -421,8 +421,8 @@ pub trait TrieLayout {
 /// and exists only to allow alternate algorithm usage.
 pub trait TrieOps: Sized + TrieLayout {
 	/// Operation to build a trie db from its ordered iterator over its key/values.
-	fn trie_build<DB, I, A, B>(db: &mut DB, input: I) -> <Self::H as Hasher>::Out where
-	DB: HashDB<Self::H, usize>,
+	fn trie_build<DB, I, A, B>(db: &mut DB, input: I) -> <Self::Hash as Hasher>::Out where
+	DB: HashDB<Self::Hash, usize>,
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
@@ -432,12 +432,12 @@ pub trait TrieOps: Sized + TrieLayout {
 		cb.root.unwrap_or(Default::default())
 	}
 	/// Determine a trie root given its ordered contents, closed form.
-	fn trie_root<I, A, B>(input: I) -> <Self::H as Hasher>::Out where
+	fn trie_root<I, A, B>(input: I) -> <Self::Hash as Hasher>::Out where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	{
-		let mut cb = TrieRoot::<Self::H, _>::default();
+		let mut cb = TrieRoot::<Self::Hash, _>::default();
 		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	}
@@ -447,7 +447,7 @@ pub trait TrieOps: Sized + TrieLayout {
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	{
-		let mut cb = TrieRootUnhashed::<Self::H>::default();
+		let mut cb = TrieRootUnhashed::<Self::Hash>::default();
 		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	}
@@ -459,7 +459,7 @@ pub trait TrieOps: Sized + TrieLayout {
 	}
 	/// A trie root formed from the items, with keys attached according to their
 	/// compact-encoded index (using `parity-codec` crate).
-	fn ordered_trie_root<I, A>(input: I) -> <Self::H as Hasher>::Out
+	fn ordered_trie_root<I, A>(input: I) -> <Self::Hash as Hasher>::Out
 	where
 		I: IntoIterator<Item = A>,
 		A: AsRef<[u8]>,
@@ -473,8 +473,8 @@ pub trait TrieOps: Sized + TrieLayout {
 }
 
 /// Alias accessor to hasher hash output type from a `TrieLayout`.
-pub type TrieHash<L> = <<L as TrieLayout>::H as Hasher>::Out;
+pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
 pub type CError<L> = <
-	<L as TrieLayout>::C as NodeCodec<<L as TrieLayout>::H, <L as TrieLayout>::N>
+	<L as TrieLayout>::Codec as NodeCodec<<L as TrieLayout>::Hash, <L as TrieLayout>::Nibble>
 >::Error;

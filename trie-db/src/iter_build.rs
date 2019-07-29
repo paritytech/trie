@@ -70,7 +70,7 @@ impl<HO> CacheBuilder<HO> for Cache4 {
 	}
 }
 
-type ArrayNode<T> = <<T as TrieLayout>::CB as CacheBuilder<TrieHash<T>>>::Cache;
+type ArrayNode<T> = <<T as TrieLayout>::Cache as CacheBuilder<TrieHash<T>>>::Cache;
 
 // (64 * 16) aka 2*byte size of key * nb nibble value, 2 being byte/nible (8/4)
 // first usize to get nb of added value, second usize last added index
@@ -99,7 +99,7 @@ impl<T, V> CacheAccum<T, V>
 	#[inline(always)]
 	fn set_cache_value(&mut self, depth:usize, value: Option<V>) {
 		if self.0.is_empty() || self.0[self.0.len() - 1].2 < depth {
-			self.0.push((T::CB::new_vec_slice_buffer(), None, depth));
+			self.0.push((T::Cache::new_vec_slice_buffer(), None, depth));
 		}
 		let last = self.0.len() - 1;
 		debug_assert!(self.0[last].2 <= depth);
@@ -109,7 +109,7 @@ impl<T, V> CacheAccum<T, V>
 	#[inline(always)]
 	fn set_node(&mut self, depth: usize, nibble_index: usize, node: CacheNode<TrieHash<T>>) {
 		if self.0.is_empty() || self.0[self.0.len() - 1].2 < depth {
-			self.0.push((T::CB::new_vec_slice_buffer(), None, depth));
+			self.0.push((T::Cache::new_vec_slice_buffer(), None, depth));
 		}
 
 		let last = self.0.len() - 1;
@@ -161,13 +161,13 @@ impl<T, V> CacheAccum<T, V>
 		target_depth: usize,
 		(k2, v2): &(impl AsRef<[u8]>, impl AsRef<[u8]>),
 	) {
-		let nibble_value = T::N::left_nibble_at(&k2.as_ref()[..], target_depth);
+		let nibble_value = T::Nibble::left_nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
-		let nkey = NibbleSlice::<T::N>::new_offset(&k2.as_ref()[..], target_depth + 1);
-		let encoded = T::C::leaf_node(nkey.right(), &v2.as_ref()[..]);
-		let pr = NibbleSlice::<T::N>::new_offset(
+		let nkey = NibbleSlice::<T::Nibble>::new_offset(&k2.as_ref()[..], target_depth + 1);
+		let encoded = T::Codec::leaf_node(nkey.right(), &v2.as_ref()[..]);
+		let pr = NibbleSlice::<T::Nibble>::new_offset(
 			&k2.as_ref()[..],
-			k2.as_ref().len() * T::N::NIBBLE_PER_BYTE - nkey.len(),
+			k2.as_ref().len() * T::Nibble::NIBBLE_PER_BYTE - nkey.len(),
 		);
 		let hash = cb_ext.process(pr.left(), encoded, false);
 
@@ -210,7 +210,7 @@ impl<T, V> CacheAccum<T, V>
 			};
 			if !is_root {
 				// put hash in parent
-				let nibble: u8 = T::N::left_nibble_at(&ref_branch.as_ref()[..], llix);
+				let nibble: u8 = T::Nibble::left_nibble_at(&ref_branch.as_ref()[..], llix);
 				self.set_node(llix, nibble as usize, Some(h));
 			}
 		}
@@ -230,18 +230,18 @@ impl<T, V> CacheAccum<T, V>
 
 		// encode branch
 		let v = self.0[last].1.take();
-		let encoded = T::C::branch_node(
+		let encoded = T::Codec::branch_node(
 			self.0[last].0.as_ref().iter(),
 			v.as_ref().map(|v| v.as_ref()),
 		);
 		self.reset_depth(branch_d);
-		let pr = NibbleSlice::<T::N>::new_offset(&key_branch.as_ref()[..], branch_d);
+		let pr = NibbleSlice::<T::Nibble>::new_offset(&key_branch.as_ref()[..], branch_d);
 		let branch_hash = cb_ext.process(pr.left(), encoded, is_root && nkey.is_none());
 
 		if let Some(nkeyix) = nkey {
-			let pr = NibbleSlice::<T::N>::new_offset(&key_branch.as_ref()[..], nkeyix.0);
+			let pr = NibbleSlice::<T::Nibble>::new_offset(&key_branch.as_ref()[..], nkeyix.0);
 			let nib = pr.right_range_iter(nkeyix.1);
-			let encoded = T::C::extension_node(nib, nkeyix.1, branch_hash);
+			let encoded = T::Codec::extension_node(nib, nkeyix.1, branch_hash);
 			let h = cb_ext.process(pr.left(), encoded, is_root);
 			h
 		} else {
@@ -263,14 +263,14 @@ impl<T, V> CacheAccum<T, V>
 		// encode branch
 		let v = self.0[last].1.take();
 		let nkeyix = nkey.unwrap_or((0, 0));
-		let pr = NibbleSlice::<T::N>::new_offset(&key_branch.as_ref()[..], nkeyix.0);
-		let encoded = T::C::branch_node_nibbled(
+		let pr = NibbleSlice::<T::Nibble>::new_offset(&key_branch.as_ref()[..], nkeyix.0);
+		let encoded = T::Codec::branch_node_nibbled(
 			pr.right_range_iter(nkeyix.1),
 			nkeyix.1,
 			self.0[last].0.as_ref().iter(), v.as_ref().map(|v| v.as_ref()));
 		self.reset_depth(branch_d);
 		let ext_length = nkey.as_ref().map(|nkeyix| nkeyix.0).unwrap_or(0);
-		let pr = NibbleSlice::<T::N>::new_offset(
+		let pr = NibbleSlice::<T::Nibble>::new_offset(
 			&key_branch.as_ref()[..],
 			branch_d - ext_length,
 		);
@@ -301,10 +301,10 @@ pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F)
 		let mut single = true;
 		for (k, v) in iter_input {
 			single = false;
-			let common_depth = T::N::biggest_depth(&previous_value.0.as_ref()[..], &k.as_ref()[..]);
+			let common_depth = T::Nibble::biggest_depth(&previous_value.0.as_ref()[..], &k.as_ref()[..]);
 			// 0 is a reserved value : could use option
 			let depth_item = common_depth;
-			if common_depth == previous_value.0.as_ref().len() * T::N::NIBBLE_PER_BYTE {
+			if common_depth == previous_value.0.as_ref().len() * T::Nibble::NIBBLE_PER_BYTE {
 				// the new key include the previous one : branch value case
 				// just stored value at branch depth
 				depth_queue.set_cache_value(common_depth, Some(previous_value.1));
@@ -325,11 +325,11 @@ pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F)
 		if single {
 			// one single element corner case
 			let (k2, v2) = previous_value;
-			let nkey = NibbleSlice::<T::N>::new_offset(&k2.as_ref()[..], last_depth);
-			let encoded = T::C::leaf_node(nkey.right(), &v2.as_ref()[..]);
-			let pr = NibbleSlice::<T::N>::new_offset(
+			let nkey = NibbleSlice::<T::Nibble>::new_offset(&k2.as_ref()[..], last_depth);
+			let encoded = T::Codec::leaf_node(nkey.right(), &v2.as_ref()[..]);
+			let pr = NibbleSlice::<T::Nibble>::new_offset(
 				&k2.as_ref()[..],
-				k2.as_ref().len() * T::N::NIBBLE_PER_BYTE - nkey.len(),
+				k2.as_ref().len() * T::Nibble::NIBBLE_PER_BYTE - nkey.len(),
 			);
 			cb_ext.process(pr.left(), encoded, true);
 		} else {
@@ -339,7 +339,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, cb_ext: &mut F)
 		}
 	} else {
 		// nothing null root corner case
-		cb_ext.process(hash_db::EMPTY_PREFIX, T::C::empty_node().to_vec(), true);
+		cb_ext.process(hash_db::EMPTY_PREFIX, T::Codec::empty_node().to_vec(), true);
 	}
 }
 
