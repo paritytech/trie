@@ -17,8 +17,6 @@
 //! This module should be used to generate trie root hash.
 
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(not(feature = "std"), feature(core_intrinsics))]
-#![cfg_attr(not(feature = "std"), feature(alloc))]
 
 extern crate hash_db;
 
