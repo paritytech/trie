@@ -17,7 +17,7 @@
 use std::fmt;
 use std::error::Error as StdError;
 use std::iter::once;
-use parity_scale_codec::{Decode, Input, Output, Encode, Compact};
+use parity_scale_codec::{Decode, Input, Output, Encode, Compact, Error as CodecError};
 use trie_root::Hasher;
 use trie_db::{node::Node, triedbmut::ChildReference, DBValue};
 use keccak_hasher::KeccakHasher;
@@ -148,8 +148,8 @@ impl Encode for NodeHeader {
 }
 
 impl Decode for NodeHeader {
-	fn decode<I: Input>(input: &mut I) -> Option<Self> {
-		Some(match input.read_byte()? {
+	fn decode<I: Input>(input: &mut I) -> Result<Self, CodecError> {
+		Ok(match input.read_byte()? {
 			EMPTY_TRIE => NodeHeader::Null,
 			BRANCH_NODE_NO_VALUE => NodeHeader::Branch(false),
 			BRANCH_NODE_WITH_VALUE => NodeHeader::Branch(true),
@@ -215,12 +215,12 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodec {
 
 	fn decode(data: &[u8]) -> ::std::result::Result<Node, Self::Error> {
 		let input = &mut &*data;
-		match NodeHeader::decode(input).ok_or(ReferenceError::BadFormat)? {
+		match NodeHeader::decode(input).map_err(|_| ReferenceError::BadFormat)? {
 			NodeHeader::Null => Ok(Node::Empty),
 			NodeHeader::Branch(has_value) => {
-				let bitmap = u16::decode(input).ok_or(ReferenceError::BadFormat)?;
+				let bitmap = u16::decode(input).map_err(|_| ReferenceError::BadFormat)?;
 				let value = if has_value {
-					let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
+					let count = <Compact<u32>>::decode(input).map_err(|_| ReferenceError::BadFormat)?.0 as usize;
 					Some(take(input, count).ok_or(ReferenceError::BadFormat)?)
 				} else {
 					None
@@ -229,7 +229,7 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodec {
 				let mut pot_cursor = 1;
 				for i in 0..16 {
 					if bitmap & pot_cursor != 0 {
-						let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
+						let count = <Compact<u32>>::decode(input).map_err(|_| ReferenceError::BadFormat)?.0 as usize;
 						children[i] = Some(take(input, count).ok_or(ReferenceError::BadFormat)?);
 					}
 					pot_cursor <<= 1;
@@ -239,13 +239,13 @@ impl NodeCodec<KeccakHasher> for ReferenceNodeCodec {
 			NodeHeader::Extension(nibble_count) => {
 				let nibble_data = take(input, (nibble_count + 1) / 2).ok_or(ReferenceError::BadFormat)?;
 				let nibble_slice = NibbleSlice::new_offset(nibble_data, nibble_count % 2);
-				let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
+				let count = <Compact<u32>>::decode(input).map_err(|_| ReferenceError::BadFormat)?.0 as usize;
 				Ok(Node::Extension(nibble_slice, take(input, count).ok_or(ReferenceError::BadFormat)?))
 			}
 			NodeHeader::Leaf(nibble_count) => {
 				let nibble_data = take(input, (nibble_count + 1) / 2).ok_or(ReferenceError::BadFormat)?;
 				let nibble_slice = NibbleSlice::new_offset(nibble_data, nibble_count % 2);
-				let count = <Compact<u32>>::decode(input).ok_or(ReferenceError::BadFormat)?.0 as usize;
+				let count = <Compact<u32>>::decode(input).map_err(|_| ReferenceError::BadFormat)?.0 as usize;
 				Ok(Node::Leaf(nibble_slice, take(input, count).ok_or(ReferenceError::BadFormat)?))
 			}
 		}
