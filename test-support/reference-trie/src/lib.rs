@@ -15,10 +15,9 @@
 //! Reference implementation of a streamer.
 
 use std::fmt;
-use std::error::Error as StdError;
 use std::iter::once;
 use std::marker::PhantomData;
-use parity_codec::{Decode, Input, Output, Encode, Compact};
+use parity_scale_codec::{Decode, Input, Output, Encode, Compact, Error as CodecError};
 use trie_root::Hasher;
 use trie_db::{
 	node::Node,
@@ -96,13 +95,12 @@ pub struct BitMap16(u16);
 
 impl BitMap for BitMap16 {
 	const ENCODED_LEN: usize = 2;
-	type Error = ReferenceError;
+	type Error = CodecError;
 	type Buffer = [u8;3]; // need a byte for header
 
 	fn decode(data: &[u8]) -> Result<Self, Self::Error> {
-		u16::decode(&mut &data[..])
-			.ok_or(ReferenceError::BadFormat)
-			.map(|v| BitMap16(v))
+		Ok(u16::decode(&mut &data[..])
+			.map(|v| BitMap16(v))?)
 	}
 
 	fn value_at(&self, i: usize) -> bool {
@@ -126,12 +124,12 @@ pub struct BitMap4(u8);
 
 impl BitMap for BitMap4 {
 	const ENCODED_LEN: usize = 1;
-	type Error = ReferenceError;
+	type Error = CodecError;
 	type Buffer = [u8;2]; // need a byte for header
 
 	fn decode(data: &[u8]) -> Result<Self, Self::Error> {
 		if data.len() == 0 || data[0] & 0xf0 != 0 {
-			Err(ReferenceError::BadFormat)
+			Err("Bad format".into())
 		} else {
 			Ok(BitMap4(data[0]))
 		}
@@ -476,20 +474,20 @@ fn encode_size_and_prefix(size: usize, prefix: u8, out: &mut impl Output) {
 	}
 }
 
-fn decode_size<I: Input>(first: u8, input: &mut I) -> Option<usize> {
+fn decode_size<I: Input>(first: u8, input: &mut I) -> Result<usize, CodecError> {
 	let mut result = (first & 255u8 >> 2) as usize;
 	if result < 63 {
-		return Some(result);
+		return Ok(result);
 	}
 	result -= 1;
 	while result <= NIBBLE_SIZE_BOUND_NO_EXT {
 		let n = input.read_byte()? as usize;
 		if n < 255 {
-			return Some(result + n + 1);
+			return Ok(result + n + 1);
 		}
 		result += 255;
 	}
-	None
+	Err("Size limit reached for a nibble slice".into())
 }
 
 #[test]
@@ -506,7 +504,7 @@ fn test_encoding_simple_trie() {
 			let first = input.read_byte().unwrap();
 			assert_eq!(first & (0b11 << 6), *prefix);
 			let v = decode_size(first, input);
-			assert_eq!(Some(std::cmp::min(i, NIBBLE_SIZE_BOUND_NO_EXT)), v);
+			assert_eq!(Ok(std::cmp::min(i, NIBBLE_SIZE_BOUND_NO_EXT)), v);
 		}
 
 	}
@@ -527,8 +525,8 @@ impl Encode for NodeHeaderNoExt {
 }
 
 impl Decode for NodeHeader {
-	fn decode<I: Input>(input: &mut I) -> Option<Self> {
-		Some(match input.read_byte()? {
+	fn decode<I: Input>(input: &mut I) -> Result<Self, CodecError> {
+		Ok(match input.read_byte()? {
 			EMPTY_TRIE => NodeHeader::Null,
 			BRANCH_NODE_NO_VALUE => NodeHeader::Branch(false),
 			BRANCH_NODE_WITH_VALUE => NodeHeader::Branch(true),
@@ -541,20 +539,20 @@ impl Decode for NodeHeader {
 }
 
 impl Decode for NodeHeaderNoExt {
-	fn decode<I: Input>(input: &mut I) -> Option<Self> {
+	fn decode<I: Input>(input: &mut I) -> Result<Self, CodecError> {
 		let i = input.read_byte()?;
 		if i == EMPTY_TRIE_NO_EXT {
-			return Some(NodeHeaderNoExt::Null);
+			return Ok(NodeHeaderNoExt::Null);
 		}
 		match i & (0b11 << 6) {
 			LEAF_PREFIX_MASK_NO_EXT =>
-				Some(NodeHeaderNoExt::Leaf(decode_size(i, input)?)),
+				Ok(NodeHeaderNoExt::Leaf(decode_size(i, input)?)),
 			BRANCH_WITHOUT_MASK_NO_EXT =>
-				Some(NodeHeaderNoExt::Branch(false, decode_size(i, input)?)),
+				Ok(NodeHeaderNoExt::Branch(false, decode_size(i, input)?)),
 			BRANCH_WITH_MASK_NO_EXT =>
-				Some(NodeHeaderNoExt::Branch(true, decode_size(i, input)?)),
+				Ok(NodeHeaderNoExt::Branch(true, decode_size(i, input)?)),
 			// do not allow any special encoding
-			_ => None,
+			_ => Err("Unknown type of node".into()),
 		}
 	}
 }
@@ -569,25 +567,6 @@ pub struct ReferenceNodeCodec<BM>(PhantomData<BM>);
 /// not follow it in the future, it is mainly the testing codec without extension node.
 #[derive(Default, Clone)]
 pub struct ReferenceNodeCodecNoExt<BM>(PhantomData<BM>);
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-/// Error concerning the Parity-Codec based decoder.
-pub enum ReferenceError {
-	/// Bad format.
-	BadFormat,
-}
-
-impl StdError for ReferenceError {
-	fn description(&self) -> &str {
-		"codec error"
-	}
-}
-
-impl fmt::Display for ReferenceError {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		fmt::Debug::fmt(&self, f)
-	}
-}
 
 fn take<'a>(input: &mut &'a[u8], count: usize) -> Option<&'a[u8]> {
 	if input.len() < count {
@@ -673,9 +652,9 @@ fn partial_encode<N: NibbleOps>(partial: Partial, node_kind: NodeKindNoExt) -> V
 impl<
 	H: Hasher,
 	N: NibbleOps,
-	BITMAP: BitMap<Error = ReferenceError>
+	BITMAP: BitMap<Error = CodecError>
 > NodeCodec<H, N> for ReferenceNodeCodec<BITMAP> {
-	type Error = ReferenceError;
+	type Error = CodecError;
 
 	fn hashed_null_node() -> <H as Hasher>::Out {
 		H::hash(<Self as NodeCodec<H, N>>::empty_node())
@@ -683,17 +662,16 @@ impl<
 
 	fn decode(data: &[u8]) -> ::std::result::Result<Node<N>, Self::Error> {
 		let input = &mut &*data;
-		match NodeHeader::decode(input).ok_or(ReferenceError::BadFormat)? {
+		match NodeHeader::decode(input)? {
 			NodeHeader::Null => Ok(Node::Empty),
 			NodeHeader::Branch(has_value) => {
 				let bitmap_slice = take(input, BITMAP::ENCODED_LEN)
-					.ok_or(ReferenceError::BadFormat)?;
+					.ok_or(CodecError::from("Bad format"))?;
 				let bitmap = BITMAP::decode(&bitmap_slice[..])?;
 
 				let value = if has_value {
-					let count = <Compact<u32>>::decode(input)
-						.ok_or(ReferenceError::BadFormat)?.0 as usize;
-					Some(take(input, count).ok_or(ReferenceError::BadFormat)?)
+					let count = <Compact<u32>>::decode(input)?.0 as usize;
+					Some(take(input, count).ok_or(CodecError::from("Bad format"))?)
 				} else {
 					None
 				};
@@ -703,8 +681,7 @@ impl<
 				children.as_mut()[0] = ix;
 				for i in 0..N::NIBBLE_LENGTH {
 					if bitmap.value_at(i) {
-						let count = <Compact<u32>>::decode(input)
-							.ok_or(ReferenceError::BadFormat)?.0 as usize;
+						let count = <Compact<u32>>::decode(input)?.0 as usize;
 						let _ = take(input, count);
 						ix += count + N::ChildSliceIndex::CONTENT_HEADER_SIZE;
 					}
@@ -716,27 +693,25 @@ impl<
 				let nibble_data = take(
 					input,
 					(nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE,
-				).ok_or(ReferenceError::BadFormat)?;
+				).ok_or(CodecError::from("Bad format"))?;
 				let nibble_slice = NibbleSlice::new_offset(nibble_data,
 					N::number_padding(nibble_count));
-				let count = <Compact<u32>>::decode(input)
-					.ok_or(ReferenceError::BadFormat)?.0 as usize;
+				let count = <Compact<u32>>::decode(input)?.0 as usize;
 				Ok(Node::Extension(nibble_slice, take(input, count)
-					.ok_or(ReferenceError::BadFormat)?))
+					.ok_or(CodecError::from("Bad format"))?))
 			}
 			NodeHeader::Leaf(nibble_count) => {
 				let nibble_data = take(
 					input,
 					(nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE,
-				).ok_or(ReferenceError::BadFormat)?;
+				).ok_or(CodecError::from("Bad format"))?;
 				let nibble_slice = NibbleSlice::new_offset(
 					nibble_data,
 					N::number_padding(nibble_count),
 				);
-				let count = <Compact<u32>>::decode(input)
-					.ok_or(ReferenceError::BadFormat)?.0 as usize;
+				let count = <Compact<u32>>::decode(input)?.0 as usize;
 				Ok(Node::Leaf(nibble_slice, take(input, count)
-					.ok_or(ReferenceError::BadFormat)?))
+					.ok_or(CodecError::from("Bad format"))?))
 			}
 		}
 	}
@@ -825,9 +800,9 @@ impl<
 impl<
 	H: Hasher,
 	N: NibbleOps,
-	BITMAP: BitMap<Error = ReferenceError>,
+	BITMAP: BitMap<Error = CodecError>,
 > NodeCodec<H, N> for ReferenceNodeCodecNoExt<BITMAP> {
-	type Error = ReferenceError;
+	type Error = CodecError;
 
 	fn hashed_null_node() -> <H as Hasher>::Out {
 		H::hash(<Self as NodeCodec<H, N>>::empty_node())
@@ -835,7 +810,7 @@ impl<
 
 	fn decode(data: &[u8]) -> ::std::result::Result<Node<N>, Self::Error> {
 		let input = &mut &*data;
-		let head = NodeHeaderNoExt::decode(input).ok_or(ReferenceError::BadFormat)?;
+		let head = NodeHeaderNoExt::decode(input)?;
 		match head {
 			NodeHeaderNoExt::Null => Ok(Node::Empty),
 			NodeHeaderNoExt::Branch(has_value, nibble_count) => {
@@ -843,23 +818,22 @@ impl<
 				let padding_length = N::NIBBLE_PER_BYTE - nibble_with_padding;
 				// check that the padding is valid (if any)
 				if nibble_with_padding > 0 && N::pad_left(padding_length as u8, input[0]) != 0 {
-					return Err(ReferenceError::BadFormat);
+					return Err(CodecError::from("Bad format"));
 				}
 				let nibble_data = take(
 					input,
 					(nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE,
-				).ok_or(ReferenceError::BadFormat)?;
+				).ok_or(CodecError::from("Bad format"))?;
 				let nibble_slice = NibbleSlice::new_offset(nibble_data,
 					N::number_padding(nibble_count));
 				let bitmap_slice = take(
 					input,
 					BITMAP::ENCODED_LEN,
-				).ok_or(ReferenceError::BadFormat)?;
+				).ok_or(CodecError::from("Bad format"))?;
 				let bitmap = BITMAP::decode(&bitmap_slice[..])?;
 				let value = if has_value {
-					let count = <Compact<u32>>::decode(input)
-						.ok_or(ReferenceError::BadFormat)?.0 as usize;
-					Some(take(input, count).ok_or(ReferenceError::BadFormat)?)
+					let count = <Compact<u32>>::decode(input)?.0 as usize;
+					Some(take(input, count).ok_or(CodecError::from("Bad format"))?)
 				} else {
 					None
 				};
@@ -869,8 +843,7 @@ impl<
 				children.as_mut()[0] = ix;
 				for i in 0..N::NIBBLE_LENGTH {
 					if bitmap.value_at(i) {
-						let count = <Compact<u32>>::decode(input)
-							.ok_or(ReferenceError::BadFormat)?.0 as usize;
+						let count = <Compact<u32>>::decode(input)?.0 as usize;
 						let _ = take(input, count);
 						ix += count + N::ChildSliceIndex::CONTENT_HEADER_SIZE;
 					}
@@ -883,17 +856,16 @@ impl<
 				let padding_length = N::NIBBLE_PER_BYTE - nibble_with_padding;
 				// check that the padding is valid (if any)
 				if nibble_with_padding > 0 && N::pad_left(padding_length as u8, input[0]) != 0 {
-					return Err(ReferenceError::BadFormat);
+					return Err(CodecError::from("Bad format"));
 				}
 				let nibble_data = take(
 					input,
 					(nibble_count + (N::NIBBLE_PER_BYTE - 1)) / N::NIBBLE_PER_BYTE,
-				).ok_or(ReferenceError::BadFormat)?;
+				).ok_or(CodecError::from("Bad format"))?;
 				let nibble_slice = NibbleSlice::new_offset(nibble_data,
 					N::number_padding(nibble_count));
-				let count = <Compact<u32>>::decode(input)
-					.ok_or(ReferenceError::BadFormat)?.0 as usize;
-				Ok(Node::Leaf(nibble_slice, take(input, count).ok_or(ReferenceError::BadFormat)?))
+				let count = <Compact<u32>>::decode(input)?.0 as usize;
+				Ok(Node::Leaf(nibble_slice, take(input, count).ok_or(CodecError::from("Bad format"))?))
 			}
 		}
 	}
@@ -1347,6 +1319,6 @@ fn size_encode_limit_values () {
 		encode_size_and_prefix(sizes[i], 0, &mut enc);
 		assert_eq!(enc, encs[i]);
 		let s_dec = decode_size(encs[i][0], &mut &encs[i][1..]);
-		assert_eq!(s_dec, Some(sizes[i]));
+		assert_eq!(s_dec, Ok(sizes[i]));
 	}
 }

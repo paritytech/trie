@@ -13,6 +13,7 @@
 // limitations under the License.
 
 //! Database of byte-slices keyed to their hash.
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(feature = "std")]

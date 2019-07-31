@@ -3,6 +3,7 @@ name = "trie-bench"
 description = "Standard benchmarking suite for tries"
 version = "0.15.0"
 authors = ["Parity Technologies <admin@parity.io>"]
+repository = "https://github.com/paritytech/trie/"
 license = "Apache-2.0"
 edition = "2018"
 
@@ -14,4 +15,4 @@ memory-db = { path = "../../memory-db", version = "0.15.0" }
 trie-root = { path = "../../trie-root", version = "0.15.0" }
 trie-db = { path = "../../trie-db", version = "0.15.0" }
 criterion = "0.2.8"
-parity-codec = "4.0"
+parity-scale-codec = { version = "1.0.3" }
