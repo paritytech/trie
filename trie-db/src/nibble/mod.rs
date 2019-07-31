@@ -90,9 +90,8 @@ pub mod nibble_ops {
 		i % NIBBLE_PER_BYTE
 	}
 
-	/// The nibble shifts needed
-	/// for alignment a given unaligned padding.
-	/// We use two value for one is a left shift and
+	/// The nibble shifts needed to align.
+	/// We use two value, one is a left shift and
 	/// the other is a right shift.
 	pub const SPLIT_SHIFTS: (usize, usize) = (4, 4);
 
