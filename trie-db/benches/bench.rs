@@ -39,7 +39,7 @@ extern crate trie_db;
 extern crate memory_db;
 extern crate rand;
 use trie_standardmap::{Alphabet, StandardMap, ValueMode};
-use trie_db::{NibbleSlice, NibbleHalf};
+use trie_db::NibbleSlice;
 
 fn nibble_common_prefix(b: &mut Criterion) {
 	let st = StandardMap {
@@ -52,7 +52,7 @@ fn nibble_common_prefix(b: &mut Criterion) {
 	let (keys, values): (Vec<_>, Vec<_>) = st.make().into_iter().unzip();
 	b.bench_function("nibble_common_prefix", move |b| {
 		let mixed: Vec<_> = keys.iter().zip(values.iter().rev()).map(|pair| {
-			(NibbleSlice::<NibbleHalf>::new(pair.0), NibbleSlice::<NibbleHalf>::new(pair.1))
+			(NibbleSlice::new(pair.0), NibbleSlice::new(pair.1))
 		}).collect();
 
 		b.iter(&mut || {

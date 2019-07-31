@@ -17,7 +17,6 @@
 
 use hash_db::Hasher;
 use node::Node;
-use nibble::NibbleOps;
 use ChildReference;
 #[cfg(feature = "std")]
 use std::borrow::Borrow;
@@ -45,7 +44,7 @@ impl<T> Error for T {}
 pub type Partial<'a> = ((u8, u8), &'a[u8]);
 
 /// Trait for trie node encoding/decoding.
-pub trait NodeCodec<H: Hasher, N: NibbleOps>: Sized {
+pub trait NodeCodec<H: Hasher>: Sized {
 	/// Codec error type.
 	type Error: Error;
 
@@ -53,7 +52,7 @@ pub trait NodeCodec<H: Hasher, N: NibbleOps>: Sized {
 	fn hashed_null_node() -> H::Out;
 
 	/// Decode bytes to a `Node`. Returns `Self::E` on failure.
-	fn decode(data: &[u8]) -> Result<Node<N>, Self::Error>;
+	fn decode(data: &[u8]) -> Result<Node, Self::Error>;
 
 	/// Decode bytes to the `Hasher`s output type. Returns `None` on failure.
 	fn try_decode_hash(data: &[u8]) -> Option<H::Out>;
@@ -109,7 +108,7 @@ pub trait BitMap: Sized {
 	fn decode(data: &[u8]) -> Result<Self, Self::Error>;
 
 	/// Return wether the bitmap registered a value for a branch
-  /// child index.
+	/// child index.
 	fn value_at(&self, i: usize) -> bool;
 
 	/// Encode bitmap, output slice must be of right length. 

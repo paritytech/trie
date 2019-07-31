@@ -94,8 +94,7 @@ pub use self::fatdb::{FatDB, FatDBIterator};
 pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
-pub use self::nibble::{NibbleSlice, NibbleOps, NibbleHalf, NibbleQuarter,
-	ChildSliceIndex};
+pub use self::nibble::{NibbleSlice, nibble_ops};
 pub use node_codec::{NodeCodec, Partial, BitMap};
 pub use iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed, CacheBuilder, Cache16, Cache4};
@@ -407,12 +406,7 @@ pub trait TrieLayout {
 	/// Hasher to use for this trie.
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
-	type Codec: NodeCodec<Self::Hash, Self::Nibble>;
-	/// Trie nibble constants. It defines trie radix.
-	type Nibble: NibbleOps;
-	/// Technical trait for cache, it should match the radix
-	/// of `NibbleOps`.
-	type Cache: CacheBuilder<<Self::Hash as Hasher>::Out>;
+	type Codec: NodeCodec<Self::Hash>;
 }
 
 /// This traits associates a trie definition with prefered methods.
@@ -475,5 +469,5 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
 pub type CError<L> = <
-	<L as TrieLayout>::Codec as NodeCodec<<L as TrieLayout>::Hash, <L as TrieLayout>::Nibble>
+	<L as TrieLayout>::Codec as NodeCodec<<L as TrieLayout>::Hash>
 >::Error;

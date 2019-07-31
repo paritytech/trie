@@ -16,14 +16,13 @@
 
 use ::core_::cmp::*;
 use ::core_::fmt;
-use ::core_::marker::PhantomData;
-use super::{NibbleOps, NibbleSlice, NibbleSliceIterator};
+use super::{nibble_ops, NibbleSlice, NibbleSliceIterator};
 use elastic_array::ElasticArray36;
 use node::NodeKey;
 use node_codec::Partial;
 use hash_db::Prefix;
 
-impl<'a, N: NibbleOps> Iterator for NibbleSliceIterator<'a, N> {
+impl<'a> Iterator for NibbleSliceIterator<'a> {
 	type Item = u8;
 	fn next(&mut self) -> Option<u8> {
 		self.i += 1;
@@ -34,7 +33,7 @@ impl<'a, N: NibbleOps> Iterator for NibbleSliceIterator<'a, N> {
 	}
 }
 
-impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
+impl<'a> NibbleSlice<'a> {
 	/// Create a new nibble slice with the given byte-slice.
 	pub fn new(data: &'a [u8]) -> Self { NibbleSlice::new_slice(data, 0) }
 
@@ -47,24 +46,23 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		NibbleSlice {
 			data,
 			offset,
-			marker: PhantomData,
 		}
 	}
 
 	/// Get an iterator for the series of nibbles.
-	pub fn iter(&'a self) -> NibbleSliceIterator<'a, N> {
+	pub fn iter(&'a self) -> NibbleSliceIterator<'a> {
 		NibbleSliceIterator { p: self, i: 0 }
 	}
 
 	/// Get nibble slice from a `NodeKey`.
-	pub fn from_stored(i: &NodeKey) -> NibbleSlice<N> {
-		NibbleSlice::<N>::new_offset(&i.1[..], i.0)
+	pub fn from_stored(i: &NodeKey) -> NibbleSlice {
+		NibbleSlice::new_offset(&i.1[..], i.0)
 	}
 
 	/// Helper function to create a owned `NodeKey` from this `NibbleSlice`.
 	pub fn to_stored(&self) -> NodeKey {
-		let split = self.offset / N::NIBBLE_PER_BYTE;
-		let offset = self.offset % N::NIBBLE_PER_BYTE;
+		let split = self.offset / nibble_ops::NIBBLE_PER_BYTE;
+		let offset = self.offset % nibble_ops::NIBBLE_PER_BYTE;
 		(offset, self.data[split..].into())
 	}
 
@@ -74,23 +72,23 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	/// original padding).
 	pub fn to_stored_range(&self, nb: usize) -> NodeKey {
 		if nb >= self.len() { return self.to_stored() }
-		if (self.offset + nb) % N::NIBBLE_PER_BYTE == 0 {
+		if (self.offset + nb) % nibble_ops::NIBBLE_PER_BYTE == 0 {
 			// aligned
-			let start = self.offset / N::NIBBLE_PER_BYTE;
-			let end = (self.offset + nb) / N::NIBBLE_PER_BYTE;
+			let start = self.offset / nibble_ops::NIBBLE_PER_BYTE;
+			let end = (self.offset + nb) / nibble_ops::NIBBLE_PER_BYTE;
 			(
-				self.offset % N::NIBBLE_PER_BYTE,
+				self.offset % nibble_ops::NIBBLE_PER_BYTE,
 				ElasticArray36::from_slice(&self.data[start..end]),
 			)
 		} else {
 			// unaligned
-			let start = self.offset / N::NIBBLE_PER_BYTE;
-			let end = (self.offset + nb) / N::NIBBLE_PER_BYTE;
+			let start = self.offset / nibble_ops::NIBBLE_PER_BYTE;
+			let end = (self.offset + nb) / nibble_ops::NIBBLE_PER_BYTE;
 			let ea = ElasticArray36::from_slice(&self.data[start..=end]);
-			let ea_offset = self.offset % N::NIBBLE_PER_BYTE;
-			let n_offset = N::number_padding(nb);
+			let ea_offset = self.offset % nibble_ops::NIBBLE_PER_BYTE;
+			let n_offset = nibble_ops::number_padding(nb);
 			let mut result = (ea_offset, ea);
-			N::shift_key(&mut result, n_offset);
+			nibble_ops::shift_key(&mut result, n_offset);
 			result.1.pop();
 			result
 		}
@@ -101,20 +99,19 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 
 	/// Get the length (in nibbles, naturally) of this slice.
 	#[inline]
-	pub fn len(&self) -> usize { self.data.len() * N::NIBBLE_PER_BYTE - self.offset }
+	pub fn len(&self) -> usize { self.data.len() * nibble_ops::NIBBLE_PER_BYTE - self.offset }
 
 	/// Get the nibble at position `i`.
 	#[inline(always)]
 	pub fn at(&self, i: usize) -> u8 {
-		N::at(&self, i)
+		nibble_ops::at(&self, i)
 	}
 
 	/// Return object which represents a view on to this slice (further) offset by `i` nibbles.
-	pub fn mid(&self, i: usize) -> NibbleSlice<'a, N> {
+	pub fn mid(&self, i: usize) -> NibbleSlice<'a> {
 		NibbleSlice {
 			data: self.data,
 			offset: self.offset + i,
-			marker: PhantomData,
 		}
 	}
 
@@ -125,11 +122,10 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	}
 
 	/// Move back to a previously valid fix offset position.
-	pub fn back(&self, i: usize) -> NibbleSlice<'a, N> {
+	pub fn back(&self, i: usize) -> NibbleSlice<'a> {
 		NibbleSlice {
 			data: self.data,
 			offset: i,
-			marker: PhantomData,
 		}
 	}
 
@@ -150,10 +146,10 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	/// Return `Partial` representation of this slice:
 	/// first encoded byte and following slice.
 	pub fn right(&'a self) -> Partial {
-		let split = self.offset / N::NIBBLE_PER_BYTE;
-		let nb = (self.len() % N::NIBBLE_PER_BYTE) as u8;
+		let split = self.offset / nibble_ops::NIBBLE_PER_BYTE;
+		let nb = (self.len() % nibble_ops::NIBBLE_PER_BYTE) as u8;
 		if nb > 0 {
-			((nb, N::pad_right(nb, self.data[split])), &self.data[split + 1 ..])
+			((nb, nibble_ops::pad_right(self.data[split])), &self.data[split + 1 ..])
 		} else {
 			((0, 0), &self.data[split..])
 		}
@@ -166,7 +162,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		::core_::iter::from_fn(move || {
 			if first.0 > 0 {
 				first.0 = 0;
-				Some(N::pad_right(first.0, first.1))
+				Some(nibble_ops::pad_right(first.1))
 			} else {
 				if ix < sl.len() {
 					ix += 1;
@@ -181,15 +177,15 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	/// Return `Partial` bytes iterator over a range of byte..
 	/// Warning can be slow when unaligned (similar to `to_stored_range`).
 	pub fn right_range_iter(&'a self, to: usize) -> impl Iterator<Item = u8> + 'a {
-		let mut nib_res = to % N::NIBBLE_PER_BYTE;
-		let aligned_i = (self.offset + to) % N::NIBBLE_PER_BYTE;
+		let mut nib_res = to % nibble_ops::NIBBLE_PER_BYTE;
+		let aligned_i = (self.offset + to) % nibble_ops::NIBBLE_PER_BYTE;
 		let aligned = aligned_i == 0;
-		let mut ix = self.offset / N::NIBBLE_PER_BYTE;
-		let ix_lim = (self.offset + to) / N::NIBBLE_PER_BYTE;
+		let mut ix = self.offset / nibble_ops::NIBBLE_PER_BYTE;
+		let ix_lim = (self.offset + to) / nibble_ops::NIBBLE_PER_BYTE;
 		::core_::iter::from_fn( move || {
 			if aligned {
 				if nib_res > 0 {
-					let v = N::pad_right(nib_res as u8, self.data[ix]);
+					let v = nibble_ops::pad_right(self.data[ix]);
 					nib_res = 0;
 					ix += 1;
 					Some(v)
@@ -200,11 +196,11 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 					None
 				}
 			} else {
-				let (s1, s2) = N::split_shifts(aligned_i);
+				let (s1, s2) = nibble_ops::SPLIT_SHIFTS;
 				// unaligned
 				if nib_res > 0 {
 					let v = self.data[ix] >> s1;
-					let v = N::pad_right(nib_res as u8, v);
+					let v = nibble_ops::pad_right(v);
 					nib_res = 0;
 					Some(v)
 				} else if ix < ix_lim {
@@ -223,43 +219,43 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	/// originates from a full key it will be the `Prefix of
 	/// the node`.
 	pub fn left(&'a self) -> Prefix {
-		let split = self.offset / N::NIBBLE_PER_BYTE;
-		let ix = (self.offset % N::NIBBLE_PER_BYTE) as u8;
+		let split = self.offset / nibble_ops::NIBBLE_PER_BYTE;
+		let ix = (self.offset % nibble_ops::NIBBLE_PER_BYTE) as u8;
 		if ix == 0 {
-			(&self.data[..split], (0, 0))
+			(&self.data[..split], None)
 		} else {
-			(&self.data[..split], (ix, N::pad_left(ix, self.data[split])))
+			(&self.data[..split], Some(nibble_ops::pad_left(self.data[split])))
 		}
 	}
 
 	/// Owned version of a `Prefix` from a `left` method call.
-	pub fn left_owned(&'a self) -> (ElasticArray36<u8>, (u8, u8)) {
+	pub fn left_owned(&'a self) -> (ElasticArray36<u8>, Option<u8>) {
 		let (a, b) = self.left();
 		(a.into(), b)
 	}
 }
 
-impl<'a, N: NibbleOps> Into<NodeKey> for NibbleSlice<'a, N> {
+impl<'a> Into<NodeKey> for NibbleSlice<'a> {
 	fn into(self) -> NodeKey {
 		(self.offset, self.data.into())
 	}
 }
 
-impl<'a, N: NibbleOps> PartialEq for NibbleSlice<'a, N> {
+impl<'a> PartialEq for NibbleSlice<'a> {
 	fn eq(&self, them: &Self) -> bool {
 		self.len() == them.len() && self.starts_with(them)
 	}
 }
 
-impl<'a, N: NibbleOps> Eq for NibbleSlice<'a, N> { }
+impl<'a> Eq for NibbleSlice<'a> { }
 
-impl<'a, N: NibbleOps> PartialOrd for NibbleSlice<'a, N> {
+impl<'a> PartialOrd for NibbleSlice<'a> {
 	fn partial_cmp(&self, them: &Self) -> Option<Ordering> {
 		Some(self.cmp(them))
 	}
 }
 
-impl<'a, N: NibbleOps> Ord for NibbleSlice<'a, N> {
+impl<'a> Ord for NibbleSlice<'a> {
 	fn cmp(&self, them: &Self) -> Ordering {
 		let s = min(self.len(), them.len());
 		let mut i = 0usize;
@@ -275,7 +271,7 @@ impl<'a, N: NibbleOps> Ord for NibbleSlice<'a, N> {
 }
 
 #[cfg(feature = "std")]
-impl<'a, N: NibbleOps> fmt::Debug for NibbleSlice<'a, N> {
+impl<'a> fmt::Debug for NibbleSlice<'a> {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		for i in 0..self.len() {
 			match i {
@@ -290,26 +286,19 @@ impl<'a, N: NibbleOps> fmt::Debug for NibbleSlice<'a, N> {
 #[cfg(test)]
 mod tests {
 	use crate::nibble::NibbleSlice;
-	use crate::nibble::NibbleHalf;
-	use crate::nibble::NibbleQuarter;
-	use crate::nibble::NibbleOps;
 	use elastic_array::ElasticArray36;
 	static D: &'static [u8;3] = &[0x01u8, 0x23, 0x45];
 
 	#[test]
 	fn basics() {
-		basics_inner::<NibbleHalf>();
-	}
-
-	fn basics_inner<N: NibbleOps>() {
-		let n = NibbleSlice::<N>::new(D);
+		let n = NibbleSlice::new(D);
 		assert_eq!(n.len(), 6);
 		assert!(!n.is_empty());
 
-		let n = NibbleSlice::<N>::new_offset(D, 6);
+		let n = NibbleSlice::new_offset(D, 6);
 		assert!(n.is_empty());
 
-		let n = NibbleSlice::<N>::new_offset(D, 3);
+		let n = NibbleSlice::new_offset(D, 3);
 		assert_eq!(n.len(), 3);
 		for i in 0..3 {
 			assert_eq!(n.at(i), i as u8 + 3);
@@ -318,11 +307,7 @@ mod tests {
 
 	#[test]
 	fn iterator() {
-		iterator_inner::<NibbleHalf>();
-	}
-
-	fn iterator_inner<N: NibbleOps>() {
-		let n = NibbleSlice::<N>::new(D);
+		let n = NibbleSlice::new(D);
 		let mut nibbles: Vec<u8> = vec![];
 		nibbles.extend(n.iter());
 		assert_eq!(nibbles, (0u8..6).collect::<Vec<_>>())
@@ -330,11 +315,7 @@ mod tests {
 
 	#[test]
 	fn mid() {
-		mid_inner::<NibbleHalf>();
-	}
-
-	fn mid_inner<N: NibbleOps>() {
-		let n = NibbleSlice::<N>::new(D);
+		let n = NibbleSlice::new(D);
 		let m = n.mid(2);
 		for i in 0..4 {
 			assert_eq!(m.at(i), i as u8 + 2);
@@ -347,7 +328,7 @@ mod tests {
 
 	#[test]
 	fn encoded_pre() {
-		let n = NibbleSlice::<NibbleHalf>::new(D);
+		let n = NibbleSlice::new(D);
 		assert_eq!(n.to_stored(), (0, ElasticArray36::from_slice(&[0x01, 0x23, 0x45])));
 		assert_eq!(n.mid(1).to_stored(), (1, ElasticArray36::from_slice(&[0x01, 0x23, 0x45])));
 		assert_eq!(n.mid(2).to_stored(), (0, ElasticArray36::from_slice(&[0x23, 0x45])));
@@ -356,7 +337,7 @@ mod tests {
 
 	#[test]
 	fn from_encoded_pre() {
-		let n = NibbleSlice::<NibbleHalf>::new(D);
+		let n = NibbleSlice::new(D);
 		let stored: ElasticArray36<u8> = [0x01, 0x23, 0x45][..].into();
 		assert_eq!(n, NibbleSlice::from_stored(&(0, stored.clone())));
 		assert_eq!(n.mid(1), NibbleSlice::from_stored(&(1, stored)));
@@ -364,8 +345,7 @@ mod tests {
 
 	#[test]
 	fn range_iter() {
-		let n = NibbleSlice::<NibbleHalf>::new(D);
-		let n2 = NibbleSlice::<NibbleQuarter>::new(D);
+		let n = NibbleSlice::new(D);
 		for i in [
 			vec![],
 			vec![0x00],
@@ -375,8 +355,7 @@ mod tests {
 			vec![0x00, 0x12, 0x34],
 			vec![0x01, 0x23, 0x45],
 		].iter().enumerate() {
-			range_iter_test::<NibbleHalf>(n, i.0, None, &i.1[..]);
-			range_iter_test::<NibbleQuarter>(n2, i.0 * 2, None, &i.1[..]);
+			range_iter_test(n, i.0, None, &i.1[..]);
 		}
 		for i in [
 			vec![],
@@ -386,8 +365,7 @@ mod tests {
 			vec![0x12, 0x34],
 			vec![0x01, 0x23, 0x45],
 		].iter().enumerate() {
-			range_iter_test::<NibbleHalf>(n, i.0, Some(1), &i.1[..]);
-			range_iter_test::<NibbleQuarter>(n2, i.0 * 2, Some(2), &i.1[..]);
+			range_iter_test(n, i.0, Some(1), &i.1[..]);
 		}
 		for i in [
 			vec![],
@@ -396,8 +374,7 @@ mod tests {
 			vec![0x02, 0x34],
 			vec![0x23, 0x45],
 		].iter().enumerate() {
-			range_iter_test::<NibbleHalf>(n, i.0, Some(2), &i.1[..]);
-			range_iter_test::<NibbleQuarter>(n2, i.0 * 2, Some(4), &i.1[..]);
+			range_iter_test(n, i.0, Some(2), &i.1[..]);
 		}
 		for i in [
 			vec![],
@@ -405,12 +382,11 @@ mod tests {
 			vec![0x34],
 			vec![0x03, 0x45],
 		].iter().enumerate() {
-			range_iter_test::<NibbleHalf>(n, i.0, Some(3), &i.1[..]);
-			range_iter_test::<NibbleQuarter>(n2, i.0 * 2, Some(6), &i.1[..]);
+			range_iter_test(n, i.0, Some(3), &i.1[..]);
 		}
 	}
 
-	fn range_iter_test<N: NibbleOps>(n: NibbleSlice<N>, nb: usize, mid: Option<usize>, res: &[u8]) {
+	fn range_iter_test(n: NibbleSlice, nb: usize, mid: Option<usize>, res: &[u8]) {
 		let n = if let Some(i) = mid {
 			n.mid(i)
 		} else { n };
@@ -419,10 +395,7 @@ mod tests {
 
 	#[test]
 	fn shared() {
-		shared_inner::<NibbleHalf>();
-	}
-	fn shared_inner<N: NibbleOps>() {
-		let n = NibbleSlice::<N>::new(D);
+		let n = NibbleSlice::new(D);
 
 		let other = &[0x01u8, 0x23, 0x01, 0x23, 0x45, 0x67];
 		let m = NibbleSlice::new(other);
@@ -438,11 +411,8 @@ mod tests {
 
 	#[test]
 	fn compare() {
-		compare_inner::<NibbleHalf>();
-	}
-	fn compare_inner<N: NibbleOps>() {
 		let other = &[0x01u8, 0x23, 0x01, 0x23, 0x45];
-		let n = NibbleSlice::<N>::new(D);
+		let n = NibbleSlice::new(D);
 		let m = NibbleSlice::new(other);
 
 		assert!(n != m);

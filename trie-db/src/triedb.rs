@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
-use nibble::{NibbleSlice, NibbleOps, ChildSliceIndex};
+use nibble::{NibbleSlice, nibble_ops};
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
 use super::lookup::Lookup;
@@ -109,7 +109,7 @@ where
 		&'db self, node: &[u8],
 		partial_key: Prefix,
 	) -> Result<Cow<'db, DBValue>, TrieHash<L>, CError<L>> {
-		match (partial_key.0.is_empty() && (partial_key.1).0 == 0, L::Codec::try_decode_hash(node)) {
+		match (partial_key.0.is_empty() && partial_key.1.is_none(), L::Codec::try_decode_hash(node)) {
 			(false, Some(key)) => {
 				self.db
 					.get(&key, partial_key)
@@ -159,7 +159,7 @@ where
 {
 	trie: &'db TrieDB<'db, L>,
 	node_key: &'a[u8],
-	partial_key: NibbleVec<L::Nibble>,
+	partial_key: NibbleVec,
 	index: Option<u8>,
 }
 
@@ -194,7 +194,7 @@ where
 						})
 						.finish(),
 				Ok(Node::Branch(ref nodes, ref value)) => {
-					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.0.iter(nodes.1)
+					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.into_iter()
 						.enumerate()
 						.filter_map(|(i, n)| n.map(|n| (i, n)))
 						.map(|(i, n)| TrieAwareDebugNode {
@@ -214,7 +214,7 @@ where
 						.finish()
 				},
 				Ok(Node::NibbledBranch(slice, nodes, value)) => {
-					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.0.iter(nodes.1)
+					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.into_iter()
 						.enumerate()
 						.filter_map(|(i, n)| n.map(|n| (i, n)))
 						.map(|(i, n)| TrieAwareDebugNode {
@@ -282,12 +282,12 @@ enum Status {
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Eq, PartialEq)]
-struct Crumb<N> {
-	node: OwnedNode<N>,
+struct Crumb {
+	node: OwnedNode,
 	status: Status,
 }
 
-impl<N: NibbleOps> Crumb<N> {
+impl Crumb {
 	/// Move on to next status in the node's sequence.
 	fn increment(&mut self) {
 		self.status = match (&self.status, &self.node) {
@@ -297,7 +297,7 @@ impl<N: NibbleOps> Crumb<N> {
 				| (&Status::At, &OwnedNode::NibbledBranch(..)) => Status::AtChild(0),
 			(&Status::AtChild(x), &OwnedNode::Branch(_))
 				| (&Status::AtChild(x), &OwnedNode::NibbledBranch(..))
-				if x < N::NIBBLE_LENGTH => Status::AtChild(x + 1),
+				if x < (nibble_ops::NIBBLE_LENGTH - 1) => Status::AtChild(x + 1),
 			_ => Status::Exiting,
 		}
 	}
@@ -306,8 +306,8 @@ impl<N: NibbleOps> Crumb<N> {
 /// Iterator for going through all values in the trie.
 pub struct TrieDBIterator<'a, L: TrieLayout> {
 	db: &'a TrieDB<'a, L>,
-	trail: Vec<Crumb<L::Nibble>>,
-	key_nibbles: NibbleVec<L::Nibble>,
+	trail: Vec<Crumb>,
+	key_nibbles: NibbleVec,
 }
 
 impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
@@ -325,7 +325,7 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 	fn seek<'key>(
 		&mut self,
 		node_data: &DBValue,
-		key: NibbleSlice<'key, L::Nibble>,
+		key: NibbleSlice<'key>,
 	) -> Result<(), TrieHash<L>, CError<L>> {
 		let mut node_data = Cow::Borrowed(node_data);
 		let mut partial = key;
@@ -384,7 +384,7 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 								node: node.clone().into(),
 							});
 							self.key_nibbles.push(i);
-							if let Some(ref child) = nodes.0.slice_at(i as usize, nodes.1) {
+							if let Some(ref child) = nodes[i as usize] {
 								full_key_nibbles += 1;
 								partial = partial.mid(1);
 								let child = self.db
@@ -416,7 +416,7 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 							});
 							self.key_nibbles.append_partial(slice.right());
 							self.key_nibbles.push(i);
-							if let Some(ref child) = nodes.0.slice_at(i as usize, nodes.1) {
+							if let Some(ref child) = nodes[i as usize] {
 								full_key_nibbles += slice.len() + 1;
 								partial = partial.mid(slice.len() + 1);
 								let child = self.db
@@ -445,7 +445,7 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 	}
 
 	/// Descend into a payload.
-	fn descend_into_node(&mut self, node: OwnedNode<L::Nibble>) {
+	fn descend_into_node(&mut self, node: OwnedNode) {
 		let trail = &mut self.trail;
 		let key_nibbles = &mut self.key_nibbles;
 		trail.push(Crumb { status: Status::Entering, node });
@@ -460,7 +460,7 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 
 	/// The present key. This can only be called on valued node (key is therefore
 	/// aligned to byte).
-	fn key(&self) -> NibbleSlice<L::Nibble> {
+	fn key(&self) -> NibbleSlice {
 		self.key_nibbles.as_nibbleslice().expect("a key is aligned to byte;qed")
 	}
 

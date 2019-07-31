@@ -18,7 +18,7 @@ use hash_db::HashDBRef;
 use nibble::NibbleSlice;
 use node::Node;
 use node_codec::NodeCodec;
-use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash, ChildSliceIndex};
+use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash};
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
@@ -42,7 +42,7 @@ where
 	/// function to decode or copy.
 	pub fn look_up(
 		mut self,
-		key: NibbleSlice<L::Nibble>,
+		key: NibbleSlice,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let mut partial = key;
 		let mut hash = self.hash;
@@ -88,7 +88,7 @@ where
 					}
 					Node::Branch(children, value) => match partial.is_empty() {
 						true => return Ok(value.map(move |val| self.query.decode(val))),
-						false => match children.0.slice_at(partial.at(0) as usize, children.1) {
+						false => match children[partial.at(0) as usize] {
 							Some(x) => {
 								node_data = x;
 								partial = partial.mid(1);
@@ -104,8 +104,7 @@ where
 
 						match partial.len() == slice.len() {
 							true => return Ok(value.map(move |val| self.query.decode(val))),
-							false => match children.0
-								.slice_at(partial.at(slice.len()) as usize, children.1) {
+							false => match children[partial.at(slice.len()) as usize] {
 								Some(x) => {
 									node_data = x;
 									partial = partial.mid(slice.len() + 1);
