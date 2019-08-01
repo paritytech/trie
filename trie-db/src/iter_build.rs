@@ -259,7 +259,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F)
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,
 		F: ProcessEncodedNode<TrieHash<T>>,
-	{
+{
 	let no_extension = !T::USE_EXTENSION;
 	let mut depth_queue = CacheAccum::<T, B>::new();
 	// compare iter ordering

@@ -18,6 +18,7 @@ mod nibblevec;
 mod nibbleslice;
 use elastic_array::ElasticArray36;
 use crate::node::NodeKey;
+use core_::cmp;
 
 /// Utility methods to work on radix 16 nibble.
 pub mod nibble_ops {
@@ -97,8 +98,7 @@ pub mod nibble_ops {
 
 	/// Count the biggest common depth between two left aligned packed nibble slice.
 	pub fn biggest_depth(v1: &[u8], v2: &[u8]) -> usize {
-		// sorted assertion preventing out of bound
-		for a in 0..v1.len() {
+		for a in 0 .. cmp::min(v1.len(), v2.len()) {
 			if v1[a] == v2[a] {
 			} else {
 				return a * NIBBLE_PER_BYTE + left_common(v1[a], v2[a]);
