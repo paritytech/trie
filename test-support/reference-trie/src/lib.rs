@@ -59,13 +59,7 @@ impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 impl<H: Hasher> TrieConfiguration for GenericNoExtensionLayout<H> { }
 
 /// Trie layout without extension nodes.
-pub struct NoExtensionLayout;
-
-impl TrieLayout for NoExtensionLayout {
-	const USE_EXTENSION: bool = false;
-	type Hash = keccak_hasher::KeccakHasher;
-	type Codec = ReferenceNodeCodecNoExt;
-}
+pub type NoExtensionLayout = GenericNoExtensionLayout<keccak_hasher::KeccakHasher>;
 
 /// Children bitmap codec for radix 16 trie.
 pub struct Bitmap(u16);

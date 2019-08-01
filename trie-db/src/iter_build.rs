@@ -37,21 +37,6 @@ macro_rules! exponential_out {
 
 type CacheNode<HO> = Option<ChildReference<HO>>;
 
-/// A builder for fix constant length cache, should match `NibbleOps` `NIBBLE_LENGTH`.
-pub trait CacheBuilder<HO> {
-	/// Size of cache.
-	const SIZE: usize;
-	/// The type of the cache.
-	type Cache: AsRef<[CacheNode<HO>]> + AsMut<[CacheNode<HO>]>;
-	/// Create a new cache.
-	fn new_vec_slice_buffer() -> Self::Cache;
-}
-
-/// Cache builder for radix 16 trie.
-pub struct Cache16;
-/// Cache builder for radix 4 trie.
-pub struct Cache4;
-
 #[inline(always)]
 fn new_vec_slice_buffer<HO>() -> [CacheNode<HO>; 16] {
 	exponential_out!(@3, [None, None])
