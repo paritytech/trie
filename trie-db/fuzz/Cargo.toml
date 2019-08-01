@@ -1,0 +1,54 @@
+[package]
+name = "trie-db-fuzz"
+version = "0.0.1"
+authors = []
+publish = false
+edition = "2018"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+memory-db = { path = "../../memory-db", version = "0.15.0" }
+reference-trie = { path = "../../test-support/reference-trie", version = "0.15.0" }
+keccak-hasher = { path = "../../test-support/keccak-hasher", version = "0.15.0" }
+honggfuzz = "0.5"
+
+[dependencies.trie-db]
+path = ".."
+
+[dependencies.libfuzzer-sys]
+git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "trie_root_new"
+path = "fuzz_targets/trie_root_new.rs"
+
+[[bin]]
+name = "trie_unhashed_no_ext"
+path = "fuzz_targets/trie_unhashed_no_ext.rs"
+
+
+[[bin]]
+name = "trie_root"
+path = "fuzz_targets/trie_root.rs"
+
+[[bin]]
+name = "trie_root_fix_len"
+path = "fuzz_targets/trie_root_fix_len.rs"
+
+[[bin]]
+name = "no_ext_insert"
+path = "fuzz_targets/no_ext_insert.rs"
+
+[[bin]]
+name = "no_ext_insert_rem"
+path = "fuzz_targets/no_ext_insert_rem.rs"
+
+[[bin]]
+name = "hfuzz_trie_root_new"
+path = "hongfuzz_targets/trie_root_new.rs"

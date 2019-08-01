@@ -24,8 +24,7 @@ extern crate trie_bench;
 
 fn benchmark(c: &mut Criterion) {
 	trie_bench::standard_benchmark::<
-		keccak_hasher::KeccakHasher,
-		reference_trie::ReferenceNodeCodec,
+		reference_trie::ExtensionLayout,
 		reference_trie::ReferenceTrieStream,
 	>(c, "ref");
 }

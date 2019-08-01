@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use hash_db::{HashDBRef, Hasher};
-use super::{Result, DBValue, TrieDB, Trie, TrieDBIterator, TrieItem, TrieIterator, Query};
-use node_codec::NodeCodec;
+use super::{Result, DBValue, TrieDB, Trie, TrieDBIterator, TrieItem, TrieIterator, Query,
+	TrieLayout, CError, TrieHash};
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
@@ -23,76 +23,72 @@ use alloc::boxed::Box;
 /// Additionaly it stores inserted hash-key mappings for later retrieval.
 ///
 /// Use it as a `Trie` or `TrieMut` trait object.
-pub struct FatDB<'db, H, C>
+pub struct FatDB<'db, L>
 where
-	H: Hasher + 'db,
-	C: NodeCodec<H>
+	L: TrieLayout,
 {
-	raw: TrieDB<'db, H, C>,
+	raw: TrieDB<'db, L>,
 }
 
-impl<'db, H, C> FatDB<'db, H, C>
+impl<'db, L> FatDB<'db, L>
 where
-	H: Hasher,
-	C: NodeCodec<H>
+	L: TrieLayout,
 {
 	/// Create a new trie with the backing database `db` and empty `root`
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
 	pub fn new(
-		db: &'db dyn HashDBRef<H, DBValue>,
-		root: &'db H::Out,
-	) -> Result<Self, H::Out, C::Error> {
+		db: &'db dyn HashDBRef<L::Hash, DBValue>,
+		root: &'db TrieHash<L>,
+	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(FatDB { raw: TrieDB::new(db, root)? })
 	}
 
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDBRef<H, DBValue> { self.raw.db() }
+	pub fn db(&self) -> &dyn HashDBRef<L::Hash, DBValue> { self.raw.db() }
 }
 
-impl<'db, H, C> Trie<H, C> for FatDB<'db, H, C>
+impl<'db, L> Trie<L> for FatDB<'db, L>
 where
-	H: Hasher,
-	C: NodeCodec<H>
+	L: TrieLayout,
 {
-	fn root(&self) -> &H::Out { self.raw.root() }
+	fn root(&self) -> &TrieHash<L> { self.raw.root() }
 
-	fn contains(&self, key: &[u8]) -> Result<bool, H::Out, C::Error> {
-		self.raw.contains(H::hash(key).as_ref())
+	fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
+		self.raw.contains(L::Hash::hash(key).as_ref())
 	}
 
-	fn get_with<'a, 'key, Q: Query<H>>(&'a self, key: &'key [u8], query: Q) -> Result<Option<Q::Item>, H::Out, C::Error>
+	fn get_with<'a, 'key, Q: Query<L::Hash>>(&'a self, key: &'key [u8], query: Q)
+		-> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
 		where 'a: 'key
 	{
-		self.raw.get_with(H::hash(key).as_ref(), query)
+		self.raw.get_with(L::Hash::hash(key).as_ref(), query)
 	}
 
 	fn iter<'a>(&'a self) -> Result<
-		Box<dyn TrieIterator<H, C, Item = TrieItem<H::Out, C::Error>> + 'a>,
-		<H as Hasher>::Out,
-		C::Error,
+		Box<dyn TrieIterator<L, Item = TrieItem<TrieHash<L>, CError<L>>> + 'a>,
+		TrieHash<L>,
+		CError<L>,
 	> {
-		FatDBIterator::<H, C>::new(&self.raw).map(|iter| Box::new(iter) as Box<_>)
+		FatDBIterator::<L>::new(&self.raw).map(|iter| Box::new(iter) as Box<_>)
 	}
 }
 
 /// Itarator over inserted pairs of key values.
-pub struct FatDBIterator<'db, H, C>
+pub struct FatDBIterator<'db, L>
 where
-	H: Hasher + 'db,
-	C: NodeCodec<H> + 'db
+	L: TrieLayout,
 {
-	trie_iterator: TrieDBIterator<'db, H, C>,
-	trie: &'db TrieDB<'db, H, C>,
+	trie_iterator: TrieDBIterator<'db, L>,
+	trie: &'db TrieDB<'db, L>,
 }
 
-impl<'db, H, C> FatDBIterator<'db, H, C>
+impl<'db, L> FatDBIterator<'db, L>
 where
-	H: Hasher,
-	C: NodeCodec<H>
+	L: TrieLayout,
 {
 	/// Creates new iterator.
-	pub fn new(trie: &'db TrieDB<H, C>) -> Result<Self, H::Out, C::Error> {
+	pub fn new(trie: &'db TrieDB<L>) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(FatDBIterator {
 			trie_iterator: TrieDBIterator::new(trie)?,
 			trie: trie,
@@ -100,30 +96,33 @@ where
 	}
 }
 
-impl<'db, H, C> TrieIterator<H, C> for FatDBIterator<'db, H, C>
+impl<'db, L> TrieIterator<L> for FatDBIterator<'db, L>
 where
-	H: Hasher,
-	C: NodeCodec<H>
+	L: TrieLayout,
 {
-	fn seek(&mut self, key: &[u8]) -> Result<(), H::Out, C::Error> {
-		let hashed_key = H::hash(key);
+	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+		let hashed_key = L::Hash::hash(key);
 		self.trie_iterator.seek(hashed_key.as_ref())
 	}
 }
 
-impl<'db, H, C> Iterator for FatDBIterator<'db, H, C>
+impl<'db, L> Iterator for FatDBIterator<'db, L>
 where
-	H: Hasher,
-	C: NodeCodec<H>
+	L: TrieLayout,
 {
-	type Item = TrieItem<'db, H::Out, C::Error>;
+	type Item = TrieItem<'db, TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.trie_iterator.next()
 			.map(|res| {
 				res.map(|(hash, value)| {
-					let aux_hash = H::hash(&hash);
-					(self.trie.db().get(&aux_hash, &[]).expect("Missing fatdb hash").into_vec(), value)
+					let aux_hash = L::Hash::hash(&hash);
+					(
+						self.trie.db().get(&aux_hash, Default::default())
+							.expect("Missing fatdb hash")
+							.into_vec(),
+						value,
+					)
 				})
 			})
 	}

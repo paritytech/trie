@@ -1,10 +1,10 @@
 [package]
 name = "trie-standardmap"
 description = "Standard test map for profiling tries"
-version = "0.14.0"
+version = "0.15.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 license = "Apache-2.0"
 
 [dependencies]
-keccak-hasher = { path = "../keccak-hasher", version = "0.14.0"}
-hash-db = { path = "../../hash-db" , version = "0.14.0"}
+keccak-hasher = { path = "../keccak-hasher", version = "0.15.0"}
+hash-db = { path = "../../hash-db" , version = "0.15.0"}

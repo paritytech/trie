@@ -19,7 +19,8 @@ use criterion::{Criterion, black_box, Fun};
 use keccak_hasher::KeccakHasher;
 use hash_db::Hasher;
 use memory_db::{MemoryDB, HashKey};
-use trie_db::{NodeCodec, TrieDB, TrieDBMut, Trie, TrieMut};
+use trie_db::{NodeCodec, TrieDB, TrieDBMut, Trie, TrieMut, TrieLayout, TrieHash};
+use std::default::Default;
 use trie_root::{TrieStream, trie_root};
 use trie_standardmap::*;
 
@@ -36,33 +37,33 @@ impl ::std::fmt::Debug for TrieInsertionList {
 	}
 }
 
-fn benchmark<H: 'static +  Hasher, N: NodeCodec<H>, S: TrieStream>(b: &mut Criterion, name: &str, content: Vec<(Vec<u8>, Vec<u8>)>)
+fn benchmark<L: TrieLayout, S: TrieStream>(b: &mut Criterion, name: &str, content: Vec<(Vec<u8>, Vec<u8>)>)
 where
-	<H as Hasher>::Out: 'static
+	<L::Hash as Hasher>::Out: 'static
 {
 	let funs = vec![
 		Fun::new("Closed", |b, d: &TrieInsertionList| b.iter(&mut ||{
-			trie_root::<H, S, _, _, _>(d.0.clone())
+			trie_root::<L::Hash, S, _, _, _>(d.0.clone())
 		})),
 		Fun::new("Fill", |b, d: &TrieInsertionList| b.iter(&mut ||{
-			let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(&N::empty_node()[..]);
-			let mut root = H::Out::default();
-			let mut t = TrieDBMut::<H, N>::new(&mut memdb, &mut root);
+			let mut memdb = MemoryDB::<_, HashKey<L::Hash>, _>::new(&L::Codec::empty_node()[..]);
+			let mut root = <TrieHash<L>>::default();
+			let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);
 			for i in d.0.iter() {
 				t.insert(&i.0, &i.1).unwrap();
 			}
 		})),
 		Fun::new("Iter", |b, d: &TrieInsertionList| {
-			let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(&N::empty_node()[..]);
-			let mut root = H::Out::default();
+			let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(&L::Codec::empty_node()[..]);
+			let mut root = <TrieHash<L>>::default();
 			{
-				let mut t = TrieDBMut::<H, N>::new(&mut memdb, &mut root);
+				let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);
 				for i in d.0.iter() {
 					t.insert(&i.0, &i.1).unwrap();
 				}
 			}
 			b.iter(&mut ||{
-				let t = TrieDB::<H, N>::new(&memdb, &root).unwrap();
+				let t = TrieDB::<L>::new(&memdb, &root).unwrap();
 				for n in t.iter().unwrap() {
 					black_box(n).unwrap();
 				}
@@ -99,7 +100,7 @@ fn random_value(seed: &mut <KeccakHasher as Hasher>::Out) -> Vec<u8> {
 	}
 }
 
-pub fn standard_benchmark<H: 'static +  Hasher, N: NodeCodec<H>, S: TrieStream>(b: &mut Criterion, name: &str) {
+pub fn standard_benchmark<L: TrieLayout + 'static, S: TrieStream>(b: &mut Criterion, name: &str) {
 
 	// Typical ethereum transaction payload passing through `verify_block_integrity()` close to block #6317032;
 	// 140 iteams, avg length 157bytes, total 22033bytes payload (expected root: 0xc1382bbef81d10a41d325e2873894b61162fb1e6167cafc663589283194acfda)
@@ -250,7 +251,7 @@ pub fn standard_benchmark<H: 'static +  Hasher, N: NodeCodec<H>, S: TrieStream>(
 		.enumerate()
 		.map(|(i, v)| (Compact(i as u32).encode(), v) )
 		.collect::<Vec<_>>();
-	benchmark::<H, N, S>(b, &format!("{}.typical_txs", name), d);
+	benchmark::<L, S>(b, &format!("{}.typical_txs", name), d);
 
 	let st = StandardMap {
 		alphabet: Alphabet::All,
@@ -259,7 +260,7 @@ pub fn standard_benchmark<H: 'static +  Hasher, N: NodeCodec<H>, S: TrieStream>(
 		value_mode: ValueMode::Mirror,
 		count: 1000,
 	};
-	benchmark::<H, N, S>(b, &format!("{}.32_mir_1k", name), st.make());
+	benchmark::<L, S>(b, &format!("{}.32_mir_1k", name), st.make());
 
 	let st = StandardMap {
 		alphabet: Alphabet::All,
@@ -268,7 +269,7 @@ pub fn standard_benchmark<H: 'static +  Hasher, N: NodeCodec<H>, S: TrieStream>(
 		value_mode: ValueMode::Random,
 		count: 1000,
 	};
-	benchmark::<H, N, S>(b, &format!("{}.32_ran_1k", name), st.make());
+	benchmark::<L, S>(b, &format!("{}.32_ran_1k", name), st.make());
 
 	let mut d: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
 	let mut seed = <KeccakHasher as Hasher>::Out::default();
@@ -278,7 +279,7 @@ pub fn standard_benchmark<H: 'static +  Hasher, N: NodeCodec<H>, S: TrieStream>(
 		d.push((k, v))
 	}
 
-	benchmark::<H, N, S>(b, &format!("{}.six_high_1k", name), d);
+	benchmark::<L, S>(b, &format!("{}.six_high_1k", name), d);
 
 	let alphabet = b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_";
 	let mut d: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
@@ -288,7 +289,7 @@ pub fn standard_benchmark<H: 'static +  Hasher, N: NodeCodec<H>, S: TrieStream>(
 		let v = random_value(&mut seed);
 		d.push((k, v))
 	}
-	benchmark::<H, N, S>(b, &format!("{}.six_mid_1k", name), d);
+	benchmark::<L, S>(b, &format!("{}.six_mid_1k", name), d);
 
 	let alphabet = b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_";
 	let mut d: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
@@ -299,7 +300,7 @@ pub fn standard_benchmark<H: 'static +  Hasher, N: NodeCodec<H>, S: TrieStream>(
 		d.push((k, v))
 	}
 
-	benchmark::<H, N, S>(b, &format!("{}.random_mid_1k", name), d);
+	benchmark::<L, S>(b, &format!("{}.random_mid_1k", name), d);
 
 	let alphabet = b"abcdef";
 	let mut d: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
@@ -310,5 +311,5 @@ pub fn standard_benchmark<H: 'static +  Hasher, N: NodeCodec<H>, S: TrieStream>(
 		d.push((k, v))
 	}
 
-	benchmark::<H, N, S>(b, &format!("{}.six_low_1k", name), d);
+	benchmark::<L, S>(b, &format!("{}.six_low_1k", name), d);
 }

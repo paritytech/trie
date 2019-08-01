@@ -12,31 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use hash_db::{HashDB, Hasher};
-use super::{Result, DBValue, TrieDBMut, TrieMut};
-use node_codec::NodeCodec;
+use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
+use super::{Result, DBValue, TrieDBMut, TrieMut, TrieLayout, TrieHash, CError};
 
 /// A mutable `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 /// Additionaly it stores inserted hash-key mappings for later retrieval.
 ///
 /// Use it as a `Trie` or `TrieMut` trait object.
-pub struct FatDBMut<'db, H, C>
+pub struct FatDBMut<'db, L>
 where
-	H: Hasher + 'db,
-	C: NodeCodec<H>
+	L: TrieLayout,
 {
-	raw: TrieDBMut<'db, H, C>,
+	raw: TrieDBMut<'db, L>,
 }
 
-impl<'db, H, C> FatDBMut<'db, H, C>
+impl<'db, L> FatDBMut<'db, L>
 where
-	H: Hasher,
-	C: NodeCodec<H>
+	L: TrieLayout,
 {
 	/// Create a new trie with the backing database `db` and empty `root`
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
-	pub fn new(db: &'db mut dyn HashDB<H, DBValue>, root: &'db mut H::Out) -> Self {
+	pub fn new(db: &'db mut dyn HashDB<L::Hash, DBValue>, root: &'db mut TrieHash<L>) -> Self {
 		FatDBMut { raw: TrieDBMut::new(db, root) }
 	}
 
@@ -44,63 +41,66 @@ where
 	///
 	/// Returns an error if root does not exist.
 	pub fn from_existing(
-		db: &'db mut dyn HashDB<H, DBValue>,
-		root: &'db mut H::Out,
-	) -> Result<Self, H::Out, C::Error> {
+		db: &'db mut dyn HashDB<L::Hash, DBValue>,
+		root: &'db mut TrieHash<L>
+	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(FatDBMut { raw: TrieDBMut::from_existing(db, root)? })
 	}
 
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDB<H, DBValue> {
+	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue> {
 		self.raw.db()
 	}
 
 	/// Get the backing database.
-	pub fn db_mut(&mut self) -> &mut dyn HashDB<H, DBValue> {
+	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue> {
 		self.raw.db_mut()
 	}
 }
 
-impl<'db, H, C> TrieMut<H, C> for FatDBMut<'db, H, C>
+impl<'db, L> TrieMut<L> for FatDBMut<'db, L>
 where
-	H: Hasher,
-	C: NodeCodec<H>
+	L: TrieLayout,
 {
-	fn root(&mut self) -> &H::Out { self.raw.root() }
+	fn root(&mut self) -> &TrieHash<L> { self.raw.root() }
 
 	fn is_empty(&self) -> bool { self.raw.is_empty() }
 
-	fn contains(&self, key: &[u8]) -> Result<bool, H::Out, C::Error> {
-		self.raw.contains(H::hash(key).as_ref())
+	fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
+		self.raw.contains(L::Hash::hash(key).as_ref())
 	}
 
-	fn get<'a, 'key>(&'a self, key: &'key [u8]) -> Result<Option<DBValue>, H::Out, C::Error>
+	fn get<'a, 'key>(&'a self, key: &'key [u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
 		where 'a: 'key
 	{
-		self.raw.get(H::hash(key).as_ref())
+		self.raw.get(L::Hash::hash(key).as_ref())
 	}
 
-	fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<Option<DBValue>, H::Out, C::Error> {
-		let hash = H::hash(key);
+	fn insert(
+		&mut self,
+		key: &[u8],
+		value: &[u8],
+	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+		let hash = L::Hash::hash(key);
 		let out = self.raw.insert(hash.as_ref(), value)?;
 		let db = self.raw.db_mut();
 
 		// insert if it doesn't exist.
 		if out.is_none() {
-			let aux_hash = H::hash(hash.as_ref());
-			db.emplace(aux_hash, &[], DBValue::from_slice(key));
+			let aux_hash = L::Hash::hash(hash.as_ref());
+			db.emplace(aux_hash, EMPTY_PREFIX, DBValue::from_slice(key));
 		}
 		Ok(out)
 	}
 
-	fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, H::Out, C::Error> {
-		let hash = H::hash(key);
+	fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+		let hash = L::Hash::hash(key);
 		let out = self.raw.remove(hash.as_ref())?;
 
 		// remove if it already exists.
 		if out.is_some() {
-			let aux_hash = H::hash(hash.as_ref());
-			self.raw.db_mut().remove(&aux_hash, &[]);
+			let aux_hash = L::Hash::hash(hash.as_ref());
+			self.raw.db_mut().remove(&aux_hash, EMPTY_PREFIX);
 		}
 
 		Ok(out)
@@ -111,7 +111,7 @@ where
 mod test {
 	use DBValue;
 	use memory_db::{MemoryDB, HashKey};
-	use hash_db::Hasher;
+	use hash_db::{Hasher, EMPTY_PREFIX};
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefFatDBMut, RefTrieDB, Trie, TrieMut};
 
@@ -124,7 +124,10 @@ mod test {
 			t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		}
 		let t = RefTrieDB::new(&memdb, &root).unwrap();
-		assert_eq!(t.get(&KeccakHasher::hash(&[0x01u8, 0x23])), Ok(Some(DBValue::from_slice(&[0x01u8, 0x23]))));
+		assert_eq!(
+			t.get(&KeccakHasher::hash(&[0x01u8, 0x23])),
+			Ok(Some(DBValue::from_slice(&[0x01u8, 0x23]))),
+		);
 	}
 
 	#[test]
@@ -138,8 +141,8 @@ mod test {
 		let mut t = RefFatDBMut::new(&mut memdb, &mut root);
 		t.insert(&key, &val).unwrap();
 		assert_eq!(t.get(&key), Ok(Some(DBValue::from_slice(&val))));
-		assert_eq!(t.db().get(&aux_hash, &[]), Some(DBValue::from_slice(&key)));
+		assert_eq!(t.db().get(&aux_hash, EMPTY_PREFIX), Some(DBValue::from_slice(&key)));
 		t.remove(&key).unwrap();
-		assert_eq!(t.db().get(&aux_hash, &[]), None);
+		assert_eq!(t.db().get(&aux_hash, EMPTY_PREFIX), None);
 	}
 }

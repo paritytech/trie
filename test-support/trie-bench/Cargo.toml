@@ -8,11 +8,11 @@ license = "Apache-2.0"
 edition = "2018"
 
 [dependencies]
-keccak-hasher = { path = "../keccak-hasher", version = "0.14.0" }
-trie-standardmap = { path = "../trie-standardmap", version  = "0.14.0" }
-hash-db = { path = "../../hash-db" , version = "0.14.0"}
-memory-db = { path = "../../memory-db", version = "0.14.0" }
-trie-root = { path = "../../trie-root", version = "0.14.0" }
-trie-db = { path = "../../trie-db", version = "0.14.0" }
+keccak-hasher = { path = "../keccak-hasher", version = "0.15.0" }
+trie-standardmap = { path = "../trie-standardmap", version = "0.15.0" }
+hash-db = { path = "../../hash-db" , version = "0.15.0"}
+memory-db = { path = "../../memory-db", version = "0.15.0" }
+trie-root = { path = "../../trie-root", version = "0.15.0" }
+trie-db = { path = "../../trie-db", version = "0.15.0" }
 criterion = "0.2.8"
 parity-scale-codec = { version = "1.0.3" }

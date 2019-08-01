@@ -14,43 +14,43 @@
 
 //! Trie lookup via HashDB.
 
-use hash_db::{HashDBRef, Hasher};
-use nibbleslice::NibbleSlice;
+use hash_db::HashDBRef;
+use nibble::NibbleSlice;
 use node::Node;
 use node_codec::NodeCodec;
-use super::{DBValue, Result, TrieError, Query};
-use ::core_::marker::PhantomData;
+use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash};
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 
 /// Trie lookup helper object.
-pub struct Lookup<'a, H: Hasher + 'a, C: NodeCodec<H>, Q: Query<H>> {
+pub struct Lookup<'a, L: TrieLayout, Q: Query<L::Hash>> {
 	/// database to query from.
-	pub db: &'a dyn HashDBRef<H, DBValue>,
+	pub db: &'a dyn HashDBRef<L::Hash, DBValue>,
 	/// Query object to record nodes and transform data.
 	pub query: Q,
 	/// Hash to start at
-	pub hash: H::Out,
-	pub marker: PhantomData<C>, // TODO: probably not needed when all is said and done? When Query is made generic?
+	pub hash: TrieHash<L>,
 }
 
-impl<'a, H, C, Q> Lookup<'a, H, C, Q>
+impl<'a, L, Q> Lookup<'a, L, Q>
 where
-	H: Hasher,
-	C: NodeCodec<H>,
-	Q: Query<H>,
+	L: TrieLayout,
+	Q: Query<L::Hash>,
 {
 	/// Look up the given key. If the value is found, it will be passed to the given
 	/// function to decode or copy.
-	pub fn look_up(mut self, key: NibbleSlice) -> Result<Option<Q::Item>, H::Out, C::Error> {
+	pub fn look_up(
+		mut self,
+		key: NibbleSlice,
+	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let mut partial = key;
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
-			let node_data = match self.db.get(&hash, &key.encoded_leftmost(key_nibbles, false)) {
+			let node_data = match self.db.get(&hash, key.mid(key_nibbles).left()) {
 				Some(value) => value,
 				None => return Err(Box::new(match depth {
 					0 => TrieError::InvalidStateRoot(hash),
@@ -64,7 +64,7 @@ where
 			// without incrementing the depth.
 			let mut node_data = &node_data[..];
 			loop {
-				let decoded = match C::decode(node_data) {
+				let decoded = match L::Codec::decode(node_data) {
 					Ok(node) => node,
 					Err(e) => {
 						return Err(Box::new(TrieError::DecoderError(hash, e)))
@@ -97,11 +97,28 @@ where
 							None => return Ok(None)
 						}
 					},
-					_ => return Ok(None),
+					Node::NibbledBranch(slice, children, value) => {
+						if !partial.starts_with(&slice) {
+							return Ok(None)
+						}
+
+						match partial.len() == slice.len() {
+							true => return Ok(value.map(move |val| self.query.decode(val))),
+							false => match children[partial.at(slice.len()) as usize] {
+								Some(x) => {
+									node_data = x;
+									partial = partial.mid(slice.len() + 1);
+									key_nibbles += slice.len() + 1;
+								}
+								None => return Ok(None)
+							}
+						}
+					},
+					Node::Empty => return Ok(None),
 				}
 
 				// check if new node data is inline or hash.
-				if let Some(h) = C::try_decode_hash(&node_data) {
+				if let Some(h) = L::Codec::try_decode_hash(&node_data) {
 					hash = h;
 					break
 				}
