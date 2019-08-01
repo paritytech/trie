@@ -93,24 +93,3 @@ pub trait NodeCodec<H: Hasher>: Sized {
 	) -> Vec<u8>;
 }
 
-/// Bitmap encoder for the number of children nodes.
-/// This would be useless with https://github.com/rust-lang/rust/issues/43408.
-pub trait BitMap: Sized {
-	/// length to encode the bitmap
-	const ENCODED_LEN: usize;
-	/// Codec error type.
-	type Error: Error;
-
-	/// Codec buffer to use.	
-	type Buffer: AsRef<[u8]> + AsMut<[u8]> + Default;
-
-	/// Decode bitmap from its encoded full slice.
-	fn decode(data: &[u8]) -> Result<Self, Self::Error>;
-
-	/// Return wether the bitmap registered a value for a branch
-	/// child index.
-	fn value_at(&self, i: usize) -> bool;
-
-	/// Encode bitmap, output slice must be of right length. 
-	fn encode<I: Iterator<Item = bool>>(has_children: I , output: &mut [u8]);
-}

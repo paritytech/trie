@@ -752,8 +752,10 @@ impl<H: Hasher> NodeCodec<H> for ReferenceNodeCodecNoExt {
 					input,
 					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE,
 				).ok_or(CodecError::from("Bad format"))?;
-				let nibble_slice = NibbleSlice::new_offset(nibble_data,
-					nibble_ops::number_padding(nibble_count));
+				let nibble_slice = NibbleSlice::new_offset(
+					nibble_data,
+					nibble_ops::number_padding(nibble_count),
+				);
 				let bitmap_slice = take(
 					input,
 					BITMAP_LENGTH,
@@ -785,8 +787,10 @@ impl<H: Hasher> NodeCodec<H> for ReferenceNodeCodecNoExt {
 					input,
 					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE,
 				).ok_or(CodecError::from("Bad format"))?;
-				let nibble_slice = NibbleSlice::new_offset(nibble_data,
-					nibble_ops::number_padding(nibble_count));
+				let nibble_slice = NibbleSlice::new_offset(
+					nibble_data,
+					nibble_ops::number_padding(nibble_count),
+				);
 				let count = <Compact<u32>>::decode(input)?.0 as usize;
 				Ok(Node::Leaf(nibble_slice, take(input, count).ok_or(CodecError::from("Bad format"))?))
 			}
