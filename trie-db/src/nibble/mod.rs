@@ -98,13 +98,13 @@ pub mod nibble_ops {
 
 	/// Count the biggest common depth between two left aligned packed nibble slice.
 	pub fn biggest_depth(v1: &[u8], v2: &[u8]) -> usize {
-		for a in 0 .. cmp::min(v1.len(), v2.len()) {
-			if v1[a] == v2[a] {
-			} else {
+		let upper_bound = cmp::min(v1.len(), v2.len());
+		for a in 0 .. upper_bound {
+			if v1[a] != v2[a] {
 				return a * NIBBLE_PER_BYTE + left_common(v1[a], v2[a]);
 			}
 		}
-		return v1.len() * NIBBLE_PER_BYTE;
+		upper_bound * NIBBLE_PER_BYTE
 	}
 
 	/// Calculate the number of common nibble between two left aligned bytes.
