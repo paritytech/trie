@@ -22,7 +22,7 @@ extern crate parity_util_mem;
 #[cfg(feature = "std")]
 extern crate heapsize;
 #[cfg(not(feature = "std"))]
-extern crate hashmap_core;
+extern crate hashbrown;
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(test)] extern crate keccak_hasher;
@@ -45,9 +45,9 @@ use std::{
 };
 
 #[cfg(not(feature = "std"))]
-use hashmap_core::{
+use hashbrown::{
 	HashMap,
-	map::Entry,
+	hash_map::Entry,
 };
 
 #[cfg(not(feature = "std"))]
