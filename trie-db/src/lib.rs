@@ -41,7 +41,7 @@ extern crate keccak_hasher;
 extern crate reference_trie;
 
 #[cfg(not(feature = "std"))]
-extern crate hashmap_core;
+extern crate hashbrown;
 
 #[cfg(feature = "std")]
 use std as core_;
