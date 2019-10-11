@@ -9,6 +9,7 @@ edition = "2018"
 cargo-fuzz = true
 
 [dependencies]
+hash-db = { path = "../../hash-db", version = "0.15.2" }
 memory-db = { path = "../../memory-db", version = "0.15.2" }
 reference-trie = { path = "../../test-support/reference-trie", version = "0.16.0" }
 keccak-hasher = { path = "../../test-support/keccak-hasher", version = "0.15.2" }
@@ -47,3 +48,11 @@ path = "fuzz_targets/no_ext_insert.rs"
 [[bin]]
 name = "no_ext_insert_rem"
 path = "fuzz_targets/no_ext_insert_rem.rs"
+
+[[bin]]
+name = "trie_proof_valid"
+path = "fuzz_targets/trie_proof_valid.rs"
+
+[[bin]]
+name = "trie_proof_invalid"
+path = "fuzz_targets/trie_proof_invalid.rs"

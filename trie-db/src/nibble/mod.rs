@@ -14,15 +14,20 @@
 
 //! Nibble oriented methods.
 
+use core_::cmp;
+
+use elastic_array::ElasticArray36;
+
+use crate::node::NodeKey;
+
+pub use self::leftnibbleslice::LeftNibbleSlice;
+
 mod nibblevec;
 mod nibbleslice;
-use elastic_array::ElasticArray36;
-use crate::node::NodeKey;
-use core_::cmp;
+mod leftnibbleslice;
 
 /// Utility methods to work on radix 16 nibble.
 pub mod nibble_ops {
-
 	use super::*;
 
 	/// Single nibble length in bit.

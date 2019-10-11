@@ -72,6 +72,7 @@ impl<T> MaybeDebug for T {}
 
 
 pub mod node;
+pub mod proof;
 pub mod triedb;
 pub mod triedbmut;
 pub mod sectriedb;
