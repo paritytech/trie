@@ -303,7 +303,7 @@ impl Crumb {
 	}
 }
 
-/// Iterator for going through all values in the trie.
+/// Iterator for going through all values in the trie in pre-order traversal order.
 pub struct TrieDBIterator<'a, L: TrieLayout> {
 	db: &'a TrieDB<'a, L>,
 	trail: Vec<Crumb>,

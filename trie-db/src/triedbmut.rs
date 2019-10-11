@@ -270,7 +270,8 @@ enum Stored<H> {
 }
 
 /// Used to build a collection of child nodes from a collection of `NodeHandle`s
-pub enum ChildReference<HO> { // `HO` is e.g. `H256`, i.e. the output of a `Hasher`
+#[derive(Clone, Copy)]
+pub enum ChildReference<HO: Copy> { // `HO` is e.g. `H256`, i.e. the output of a `Hasher`
 	Hash(HO),
 	Inline(HO, usize), // usize is the length of the node data we store in the `H::Out`
 }

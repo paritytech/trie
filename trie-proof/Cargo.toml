@@ -1,0 +1,27 @@
+[package]
+name = "trie-proof"
+version = "0.15.2"
+authors = ["Parity Technologies <admin@parity.io>"]
+description = "Compact proof generation and verification for Merkle-Patricia trie"
+repository = "https://github.com/paritytech/trie"
+license = "Apache-2.0"
+edition = "2018"
+
+[dependencies]
+hash-db = { path = "../hash-db", default-features = false, version = "0.15.2" }
+memory-db = { path = "../memory-db", default-features = false, version = "0.15.2" }
+parity-scale-codec = { version = "1.0.3", features = ["derive"] }
+trie-db = { path = "../trie-db", default-features = false, version = "0.15.2" }
+
+[dev-dependencies]
+keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.15.2" }
+reference-trie = { path = "../test-support/reference-trie", version = "0.15.2" }
+
+[features]
+default = ["std"]
+std = [
+  "hash-db/std",
+  "memory-db/std",
+  "parity-scale-codec/std",
+  "trie-db/std",
+]
