@@ -25,14 +25,12 @@ use std::borrow::Borrow;
 use core::borrow::Borrow;
 
 #[cfg(feature = "std")]
-use std::error::Error;
-
+pub use std::error::Error;
+#[cfg(not(feature = "std"))]
+pub trait Error {}
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-
-#[cfg(not(feature = "std"))]
-pub trait Error {}
 
 #[cfg(not(feature = "std"))]
 impl<T> Error for T {}

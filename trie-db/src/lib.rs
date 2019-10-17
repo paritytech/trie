@@ -55,9 +55,6 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 #[cfg(feature = "std")]
-use std::error::Error;
-
-#[cfg(feature = "std")]
 use std::fmt;
 #[cfg(feature = "std")]
 pub trait MaybeDebug: fmt::Debug {}
@@ -95,7 +92,7 @@ pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
 pub use self::nibble::{NibbleSlice, nibble_ops};
-pub use node_codec::{NodeCodec, Partial};
+pub use node_codec::{NodeCodec, Partial, Error};
 pub use iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed};
 
