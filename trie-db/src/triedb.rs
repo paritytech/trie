@@ -297,7 +297,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 	fn next(&mut self) -> Option<Self::Item> {
 		while let Some(item) = self.inner.next() {
 			match item {
-				Ok((mut prefix, node)) => {
+				Ok((mut prefix, _, node)) => {
 					let maybe_value = match node.as_ref() {
 						&OwnedNode::Leaf(ref partial, ref value) => {
 						prefix.append(partial);
