@@ -23,10 +23,6 @@ use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query,
 use super::nibble::NibbleVec;
 #[cfg(feature = "std")]
 use ::std::fmt;
-#[cfg(feature = "std")]
-use ::std::borrow::Cow;
-#[cfg(not(feature = "std"))]
-use ::alloc::borrow::Cow;
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
@@ -105,19 +101,23 @@ where
 	/// This could be a simple identity operation in the case that the node is sufficiently small,
 	/// but may require a database lookup. If `is_root_data` then this is root-data and
 	/// is known to be literal.
+	///
+	/// Return value is the node data and a boolean which is false if the value was looked up in
+	/// the database and true if it was returned raw.
+	///
 	/// `partial_key` is encoded nibble slice that addresses the node.
 	pub(crate) fn get_raw_or_lookup(
-		&'db self, node: &[u8],
+		&self, node: &[u8],
 		partial_key: Prefix,
-	) -> Result<Cow<'db, DBValue>, TrieHash<L>, CError<L>> {
+	) -> Result<(DBValue, bool), TrieHash<L>, CError<L>> {
 		match (partial_key.0.is_empty() && partial_key.1.is_none(), L::Codec::try_decode_hash(node)) {
 			(false, Some(key)) => {
-				self.db
+				let data = self.db
 					.get(&key, partial_key)
-					.map(|v| Cow::Owned(v))
-					.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(key)))
+					.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(key)))?;
+				Ok((data, false))
 			}
-			_ => Ok(Cow::Owned(DBValue::from_slice(node)))
+			_ => Ok((DBValue::from_slice(node), true)),
 		}
 	}
 }
@@ -170,7 +170,7 @@ where
 	L: TrieLayout,
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		if let Ok(node) = self.trie.get_raw_or_lookup(self.node_key, self.partial_key.as_prefix()) {
+		if let Ok((node, _inline)) = self.trie.get_raw_or_lookup(self.node_key, self.partial_key.as_prefix()) {
 			match L::Codec::decode(&node) {
 				Ok(Node::Leaf(slice, value)) =>
 					match (f.debug_struct("Node::Leaf"), self.index) {

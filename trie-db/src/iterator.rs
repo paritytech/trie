@@ -20,10 +20,6 @@ use node_codec::NodeCodec;
 use nibble::{NibbleSlice, NibbleVec, nibble_ops};
 
 #[cfg(feature = "std")]
-use ::std::borrow::Cow;
-#[cfg(not(feature = "std"))]
-use ::alloc::borrow::Cow;
-#[cfg(feature = "std")]
 use ::std::rc::Rc;
 #[cfg(not(feature = "std"))]
 use ::alloc::rc::Rc;
@@ -43,12 +39,13 @@ enum Status {
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Eq, PartialEq)]
-struct Crumb {
+struct Crumb<H: Hasher> {
+    hash: Option<H::Out>,
     node: Rc<OwnedNode>,
     status: Status,
 }
 
-impl Crumb {
+impl<H: Hasher> Crumb<H> {
     /// Move on to next status in the node's sequence.
     fn increment(&mut self) {
         self.status = match (&self.status, self.node.as_ref()) {
@@ -68,7 +65,7 @@ impl Crumb {
 /// Iterator for going through all nodes in the trie in pre-order traversal order.
 pub struct TrieDBNodeIterator<'a, L: TrieLayout> {
     db: &'a TrieDB<'a, L>,
-    trail: Vec<Crumb>,
+    trail: Vec<Crumb<L::Hash>>,
     key_nibbles: NibbleVec,
 }
 
@@ -80,26 +77,23 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
             trail: Vec::with_capacity(8),
             key_nibbles: NibbleVec::new(),
         };
-        db.root_data().and_then(|root_data| r.descend(&root_data))?;
+        db.root_data().and_then(|root_data| {
+            r.descend(&root_data, false).map(|_| ())
+        })?;
         Ok(r)
     }
 
-    fn seek<'key>(
+    fn seek(
         &mut self,
-        node_data: &DBValue,
-        key: NibbleSlice<'key>,
+        mut node_data: DBValue,
+        mut inline: bool,
+        key: NibbleSlice,
     ) -> Result<(), TrieHash<L>, CError<L>> {
-        let mut node_data = Cow::Borrowed(node_data);
         let mut partial = key;
         let mut full_key_nibbles = 0;
         loop {
-            let data = {
-                let node = L::Codec::decode(node_data.as_ref())
-                    .map_err(|e| {
-                        let node_hash = L::Hash::hash(node_data.as_ref());
-                        Box::new(TrieError::DecoderError(node_hash, e))
-                    })?;
-                self.descend_into_node(node.clone().into());
+            let (next_node_data, next_inline) = {
+                let node = self.descend(&node_data, inline)?;
                 let crumb = self.trail.last_mut()
                     .expect(
                         "descend_into_node pushes a crumb onto the trial; \
@@ -190,24 +184,28 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
                 }
             };
 
-            node_data = data;
+            node_data = next_node_data;
+            inline = next_inline;
         }
     }
 
     /// Descend into a payload.
-    fn descend(&mut self, d: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
-        let node_data = &self.db.get_raw_or_lookup(d, self.key_nibbles.as_prefix())?;
+    fn descend<'b, 'c>(&'b mut self, node_data: &'c [u8], inline: bool)
+        -> Result<Node<'c>, TrieHash<L>, CError<L>>
+    {
+        let node_hash = if inline {
+            None
+        } else {
+            Some(L::Hash::hash(node_data))
+        };
         let node = L::Codec::decode(&node_data)
-            .map_err(|e| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), e)))?;
-        Ok(self.descend_into_node(node.into()))
-    }
-
-    /// Descend into a payload.
-    fn descend_into_node(&mut self, node: OwnedNode) {
+            .map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or_default(), e)))?;
         self.trail.push(Crumb {
+            hash: node_hash,
             status: Status::Entering,
-            node: Rc::new(node),
+            node: Rc::new(node.clone().into()),
         });
+        Ok(node)
     }
 }
 
@@ -216,7 +214,7 @@ impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
         self.trail.clear();
         self.key_nibbles.clear();
         let root_node = self.db.root_data()?;
-        self.seek(&root_node, NibbleSlice::new(key.as_ref()))
+        self.seek(root_node, false, NibbleSlice::new(key.as_ref()))
     }
 }
 
@@ -224,11 +222,11 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
     type Item = Result<(NibbleVec, Rc<OwnedNode>), TrieHash<L>, CError<L>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        enum IterStep<'b, O, E> {
+        enum IterStep<O, E> {
             YieldNode,
             Continue,
             PopTrail,
-            Descend(Result<Cow<'b, DBValue>, O, E>),
+            Descend(Result<(DBValue, bool), O, E>),
         }
         loop {
             let iter_step = {
@@ -303,17 +301,11 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
                         .increment();
                 },
                 IterStep::Descend::<TrieHash<L>, CError<L>>(next) => {
-                    let node_result = next.and_then(|encoded|
-                        L::Codec::decode(encoded.as_ref())
-                            .map(Into::<OwnedNode>::into)
-                            .map_err(|err| {
-                                let node_hash = L::Hash::hash(encoded.as_ref());
-                                Box::new(TrieError::DecoderError(node_hash, err))
-                            })
-                    );
-                    match node_result {
-                        Ok(node) => self.descend_into_node(node),
-                        Err(err) => return Some(Err(err)),
+                    let node_result = next.and_then(|(encoded, inline)| {
+                        self.descend(&encoded, inline).map(|_| ())
+                    });
+                    if let Err(err) = node_result {
+                        return Some(Err(err));
                     }
                 },
                 IterStep::Continue => {
