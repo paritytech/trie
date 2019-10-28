@@ -104,6 +104,11 @@ where
 		let hashed_key = L::Hash::hash(key);
 		self.trie_iterator.seek(hashed_key.as_ref())
 	}
+
+	fn prefix(&mut self, prefix: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+		self.trie_iterator.prefix(prefix)
+	}
+
 }
 
 impl<'db, L> Iterator for FatDBIterator<'db, L>

@@ -216,6 +216,15 @@ impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
         let root_node = self.db.root_data()?;
         self.seek(root_node, false, NibbleSlice::new(key.as_ref()))
     }
+
+    fn prefix(&mut self, prefix: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+				<Self as TrieIterator<L>>::seek(self, prefix)?;
+				if let Some(v) = self.trail.pop() {
+					self.trail[0] = v;
+					self.trail.truncate(1);
+				}
+				Ok(())
+    }
 }
 
 impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
@@ -376,6 +385,88 @@ mod tests {
         }
         v
     }
+
+    #[test]
+    fn prefix_works_with_extension() {
+        let pairs = vec![
+            (hex!("01").to_vec(), b"aaaa".to_vec()),
+            (hex!("0123").to_vec(), b"bbbb".to_vec()),
+            (hex!("02").to_vec(), vec![1; 32]),
+        ];
+
+        let (memdb, root) = build_trie_db_with_extension(&pairs);
+        let trie = RefTrieDB::new(&memdb, &root).unwrap();
+        let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
+
+				iter.prefix(&hex!("01").to_vec()[..]).unwrap();
+
+        match iter.next() {
+            Some(Ok((prefix, None, node))) => {
+                assert_eq!(prefix, nibble_vec(hex!("01"), 2));
+                match node.as_ref() {
+                    OwnedNode::Branch(_) => {},
+                    _ => panic!("unexpected node"),
+                }
+            }
+            _ => panic!("unexpected item"),
+        }
+
+        match iter.next() {
+            Some(Ok((prefix, None, node))) => {
+                assert_eq!(prefix, nibble_vec(hex!("0120"), 3));
+                match node.as_ref() {
+                    OwnedNode::Leaf(partial, _) =>
+                        assert_eq!(*partial, nibble_vec(hex!("30"), 1)),
+                    _ => panic!("unexpected node"),
+                }
+            }
+            _ => panic!("unexpected item"),
+        }
+
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn prefix_works_without_extension() {
+        let pairs = vec![
+            (hex!("01").to_vec(), b"aaaa".to_vec()),
+            (hex!("0123").to_vec(), b"bbbb".to_vec()),
+            (hex!("02").to_vec(), vec![1; 32]),
+        ];
+
+        let (memdb, root) = build_trie_db_without_extension(&pairs);
+        let trie = RefTrieDBNoExt::new(&memdb, &root).unwrap();
+        let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
+
+				iter.prefix(&hex!("01").to_vec()[..]).unwrap();
+
+        match iter.next() {
+            Some(Ok((prefix, None, node))) => {
+                assert_eq!(prefix, nibble_vec(hex!("01"), 2));
+                match node.as_ref() {
+                    OwnedNode::NibbledBranch(partial, _) =>
+                        assert_eq!(*partial, nibble_vec(hex!(""), 0)),
+                    _ => panic!("unexpected node"),
+                }
+            }
+            _ => panic!("unexpected item"),
+        }
+
+        match iter.next() {
+            Some(Ok((prefix, None, node))) => {
+                assert_eq!(prefix, nibble_vec(hex!("0120"), 3));
+                match node.as_ref() {
+                    OwnedNode::Leaf(partial, _) =>
+                        assert_eq!(*partial, nibble_vec(hex!("30"), 1)),
+                    _ => panic!("unexpected node"),
+                }
+            }
+            _ => panic!("unexpected item"),
+        }
+
+        assert!(iter.next().is_none());
+    }
+
 
     #[test]
     fn iterator_works_with_extension() {

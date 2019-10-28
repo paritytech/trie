@@ -289,6 +289,11 @@ impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBIterator<'a, L> {
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		TrieIterator::seek(&mut self.inner, key)
 	}
+
+	fn prefix(&mut self, prefix: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+		TrieIterator::seek(&mut self.inner, prefix)
+	}
+
 }
 
 impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
