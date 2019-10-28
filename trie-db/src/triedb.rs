@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
-use nibble::{NibbleSlice, nibble_ops};
+use nibble::NibbleSlice;
+use iterator::TrieDBNodeIterator;
 use super::node::{Node, OwnedNode};
 use node_codec::NodeCodec;
 use super::lookup::Lookup;
@@ -105,7 +106,7 @@ where
 	/// but may require a database lookup. If `is_root_data` then this is root-data and
 	/// is known to be literal.
 	/// `partial_key` is encoded nibble slice that addresses the node.
-	fn get_raw_or_lookup(
+	pub(crate) fn get_raw_or_lookup(
 		&'db self, node: &[u8],
 		partial_key: Prefix,
 	) -> Result<Cow<'db, DBValue>, TrieHash<L>, CError<L>> {
@@ -270,209 +271,23 @@ where
 	}
 }
 
-
-#[cfg_attr(feature = "std", derive(Debug))]
-#[derive(Clone, Eq, PartialEq)]
-enum Status {
-	Entering,
-	At,
-	AtChild(usize),
-	Exiting,
-}
-
-#[cfg_attr(feature = "std", derive(Debug))]
-#[derive(Eq, PartialEq)]
-struct Crumb {
-	node: OwnedNode,
-	status: Status,
-}
-
-impl Crumb {
-	/// Move on to next status in the node's sequence.
-	fn increment(&mut self) {
-		self.status = match (&self.status, &self.node) {
-			(_, &OwnedNode::Empty) => Status::Exiting,
-			(&Status::Entering, _) => Status::At,
-			(&Status::At, &OwnedNode::Branch(_))
-				| (&Status::At, &OwnedNode::NibbledBranch(..)) => Status::AtChild(0),
-			(&Status::AtChild(x), &OwnedNode::Branch(_))
-				| (&Status::AtChild(x), &OwnedNode::NibbledBranch(..))
-				if x < (nibble_ops::NIBBLE_LENGTH - 1) => Status::AtChild(x + 1),
-			_ => Status::Exiting,
-		}
-	}
-}
-
-/// Iterator for going through all values in the trie.
+/// Iterator for going through all values in the trie in pre-order traversal order.
 pub struct TrieDBIterator<'a, L: TrieLayout> {
-	db: &'a TrieDB<'a, L>,
-	trail: Vec<Crumb>,
-	key_nibbles: NibbleVec,
+	inner: TrieDBNodeIterator<'a, L>,
 }
 
 impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 	/// Create a new iterator.
 	pub fn new(db: &'a TrieDB<L>) -> Result<TrieDBIterator<'a, L>, TrieHash<L>, CError<L>> {
-		let mut r = TrieDBIterator {
-			db,
-			trail: Vec::with_capacity(8),
-			key_nibbles: NibbleVec::new(),
-		};
-		db.root_data().and_then(|root_data| r.descend(&root_data))?;
-		Ok(r)
+		let inner = TrieDBNodeIterator::new(db)?;
+		Ok(TrieDBIterator { inner })
 	}
-
-	fn seek<'key>(
-		&mut self,
-		node_data: &DBValue,
-		key: NibbleSlice<'key>,
-	) -> Result<(), TrieHash<L>, CError<L>> {
-		let mut node_data = Cow::Borrowed(node_data);
-		let mut partial = key;
-		let mut full_key_nibbles = 0;
-		loop {
-			let data = {
-				let node = L::Codec::decode(&node_data)
-					.map_err(|e| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), e)))?;
-				match node {
-					Node::Leaf(slice, _) => {
-						if slice >= partial {
-							self.trail.push(Crumb {
-								status: Status::Entering,
-								node: node.clone().into(),
-							});
-						} else {
-							self.trail.push(Crumb {
-								status: Status::Exiting,
-								node: node.clone().into(),
-							});
-						}
-
-						self.key_nibbles.append_partial(slice.right());
-						return Ok(())
-					},
-					Node::Extension(ref slice, ref item) => {
-						if partial.starts_with(slice) {
-							self.trail.push(Crumb {
-								status: Status::At,
-								node: node.clone().into(),
-							});
-							self.key_nibbles.append_partial(slice.right());
-							full_key_nibbles += slice.len();
-							partial = partial.mid(slice.len());
-							let data = self.db
-								.get_raw_or_lookup(&*item, key.back(full_key_nibbles)
-								.left())?;
-							data
-						} else {
-							self.descend(&node_data)?;
-							return Ok(())
-						}
-					},
-					Node::Branch(ref nodes, _) => match partial.is_empty() {
-						true => {
-							self.trail.push(Crumb {
-								status: Status::Entering,
-								node: node.clone().into(),
-							});
-							return Ok(())
-						},
-						false => {
-							let i = partial.at(0);
-							self.trail.push(Crumb {
-								status: Status::AtChild(i as usize),
-								node: node.clone().into(),
-							});
-							self.key_nibbles.push(i);
-							if let Some(ref child) = nodes[i as usize] {
-								full_key_nibbles += 1;
-								partial = partial.mid(1);
-								let child = self.db
-									.get_raw_or_lookup(&*child, key.back(full_key_nibbles)
-									.left())?;
-								child
-							} else {
-								return Ok(())
-							}
-						}
-					},
-					Node::NibbledBranch(ref slice, ref nodes, _) => {
-						if !partial.starts_with(slice) {
-							self.descend(&node_data)?;
-							return Ok(())
-						}
-						if partial.len() == slice.len() {
-							self.trail.push(Crumb {
-								status: Status::Entering,
-								node: node.clone().into(),
-							});
-							return Ok(())
-						} else {
-
-							let i = partial.at(slice.len());
-							self.trail.push(Crumb {
-								status: Status::AtChild(i as usize),
-								node: node.clone().into(),
-							});
-							self.key_nibbles.append_partial(slice.right());
-							self.key_nibbles.push(i);
-							if let Some(ref child) = nodes[i as usize] {
-								full_key_nibbles += slice.len() + 1;
-								partial = partial.mid(slice.len() + 1);
-								let child = self.db
-									.get_raw_or_lookup(&*child, key.back(full_key_nibbles)
-									.left())?;
-								child
-							} else {
-								return Ok(())
-							}
-						}
-					},
-					Node::Empty => return Ok(()),
-				}
-			};
-
-			node_data = data;
-		}
-	}
-
-	/// Descend into a payload.
-	fn descend(&mut self, d: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
-		let node_data = &self.db.get_raw_or_lookup(d, self.key_nibbles.as_prefix())?;
-		let node = L::Codec::decode(&node_data)
-			.map_err(|e| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), e)))?;
-		Ok(self.descend_into_node(node.into()))
-	}
-
-	/// Descend into a payload.
-	fn descend_into_node(&mut self, node: OwnedNode) {
-		let trail = &mut self.trail;
-		let key_nibbles = &mut self.key_nibbles;
-		trail.push(Crumb { status: Status::Entering, node });
-		match &trail.last().expect("just pushed item; qed").node {
-			&OwnedNode::Leaf(ref n, _)
-				| &OwnedNode::Extension(ref n, _)
-				| &OwnedNode::NibbledBranch(ref n, _)
-				=> key_nibbles.append(n),
-			_ => {}
-		}
-	}
-
-	/// The present key. This can only be called on valued node (key is therefore
-	/// aligned to byte).
-	fn key(&self) -> NibbleSlice {
-		self.key_nibbles.as_nibbleslice().expect("a key is aligned to byte;qed")
-	}
-
 }
 
 impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBIterator<'a, L> {
 	/// Position the iterator on the first element with key >= `key`
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
-		self.trail.clear();
-		self.key_nibbles.clear();
-		let root_node = self.db.root_data()?;
-		self.seek(&root_node, NibbleSlice::new(key.as_ref()))
+		TrieIterator::seek(&mut self.inner, key)
 	}
 }
 
@@ -480,84 +295,37 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 	type Item = TrieItem<'a, TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		enum IterStep<'b, O, E> {
-			Continue,
-			PopTrail,
-			Descend(Result<Cow<'b, DBValue>, O, E>),
-		}
-		loop {
-			let iter_step = {
-				self.trail.last_mut()?.increment();
-				let b = self.trail.last().expect("trail.last_mut().is_some(); qed");
-
-				match (b.status.clone(), &b.node) {
-					(Status::Exiting, n) => {
-						match *n {
-							OwnedNode::Leaf(ref n, _) | OwnedNode::Extension(ref n, _) => {
-								self.key_nibbles.drop_lasts(n.len());
-							},
-							OwnedNode::Branch(_) => { self.key_nibbles.pop(); },
-							OwnedNode::NibbledBranch(ref n, _) => {
-								self.key_nibbles.drop_lasts(n.len() + 1);
-							},
-							OwnedNode::Empty => {},
+		while let Some(item) = self.inner.next() {
+			match item {
+				Ok((mut prefix, node)) => {
+					let maybe_value = match node.as_ref() {
+						&OwnedNode::Leaf(ref partial, ref value) => {
+						prefix.append(partial);
+							Some(value.as_ref())
 						}
-						IterStep::PopTrail
-					},
-					(Status::At, &OwnedNode::NibbledBranch(_, ref branch))
-						| (Status::At, &OwnedNode::Branch(ref branch)) if branch.has_value() => {
-						let value = branch.get_value().expect("already checked `has_value`");
-						return Some(Ok((self.key().right().1.into(), DBValue::from_slice(value))));
-					},
-					(Status::At, &OwnedNode::Leaf(_, ref v)) => {
-						return Some(Ok((self.key().right().1.into(), v.clone())));
-					},
-					(Status::At, &OwnedNode::Extension(_, ref d)) => {
-						IterStep::Descend::<TrieHash<L>, CError<L>>(
-							self.db.get_raw_or_lookup(&*d, self.key_nibbles.as_prefix())
-						)
-					},
-					(Status::At, &OwnedNode::Branch(_))
-						| (Status::At, &OwnedNode::NibbledBranch(_, _)) => IterStep::Continue,
-					(Status::AtChild(i), &OwnedNode::Branch(ref branch))
-						| (Status::AtChild(i), &OwnedNode::NibbledBranch(_, ref branch)) 
-						if branch.index(i).is_some() => {
-						match i {
-							0 => self.key_nibbles.push(0),
-							i => {
-								self.key_nibbles.pop();
-								self.key_nibbles.push(i as u8);
-							},
+						&OwnedNode::Branch(ref branch) =>
+							branch.get_value(),
+						&OwnedNode::NibbledBranch(ref partial, ref branch) => {
+							prefix.append(partial);
+							branch.get_value()
 						}
-						IterStep::Descend::<TrieHash<L>, CError<L>>(self.db.get_raw_or_lookup(
-							&branch.index(i).expect("this arm guarded by branch[i].is_some(); qed"),
-							self.key_nibbles.as_prefix()))
-					},
-					(Status::AtChild(i), &OwnedNode::Branch(_))
-						| (Status::AtChild(i), &OwnedNode::NibbledBranch(_, _)) => {
-						if i == 0 {
-							self.key_nibbles.push(0);
+						_ => None,
+					};
+					if let Some(value) = maybe_value {
+						let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
+						let key = key_slice.to_vec();
+						if let Some(extra_nibble) = maybe_extra_nibble {
+							return Some(Err(Box::new(
+								TrieError::ValueAtIncompleteKey(key, extra_nibble)
+							)));
 						}
-						IterStep::Continue
-					},
-					_ => panic!() // Should never see Entering or AtChild without a Branch here.
-				}
-			};
-
-			match iter_step {
-				IterStep::PopTrail => {
-					self.trail.pop();
+						return Some(Ok((key, DBValue::from_slice(value))));
+					}
 				},
-				IterStep::Descend::<TrieHash<L>, CError<L>>(Ok(d)) => {
-					let node = L::Codec::decode(&d).ok()?;
-					self.descend_into_node(node.into())
-				},
-				IterStep::Descend::<TrieHash<L>, CError<L>>(Err(e)) => {
-					return Some(Err(e))
-				}
-				IterStep::Continue => {},
+				Err(err) => return Some(Err(err)),
 			}
 		}
+		None
 	}
 }
 

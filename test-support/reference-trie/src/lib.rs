@@ -31,9 +31,14 @@ use trie_db::{
 use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
 
-pub use trie_db::{Trie, TrieMut, NibbleSlice, Recorder, NodeCodec};
+pub use trie_db::{
+	Trie, TrieMut, TrieIterator, TrieDBNodeIterator, NibbleSlice, NibbleVec, Recorder, NodeCodec,
+};
 pub use trie_db::{Record, TrieLayout, TrieConfiguration, nibble_ops};
 pub use trie_root::TrieStream;
+pub mod node {
+	pub use trie_db::node::OwnedNode;
+}
 
 /// Trie layout using extension nodes.
 pub struct ExtensionLayout;
