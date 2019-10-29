@@ -88,7 +88,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
         mut node_data: DBValue,
         mut inline: bool,
         key: NibbleSlice,
-    ) -> Result<(), TrieHash<L>, CError<L>> {
+    ) -> Result<bool, TrieHash<L>, CError<L>> {
         let mut partial = key;
         let mut full_key_nibbles = 0;
         loop {
@@ -104,16 +104,18 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
                     Node::Leaf(slice, _) => {
                         if slice < partial {
                             crumb.status = Status::Exiting;
+														return Ok(false)
                         }
-                        return Ok(())
+												return Ok(true)
                     },
                     Node::Extension(slice, item) => {
                         if !partial.starts_with(&slice) {
                             if slice < partial {
-                                crumb.status = Status::Exiting;
-                                self.key_nibbles.append_partial(slice.right());
-                            }
-                            return Ok(());
+                              crumb.status = Status::Exiting;
+                              self.key_nibbles.append_partial(slice.right());
+															return Ok(false);
+                          }
+                          return Ok(true);
                         }
 
                         full_key_nibbles += slice.len();
@@ -126,7 +128,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
                     },
                     Node::Branch(nodes, _) => {
                         if partial.is_empty() {
-                            return Ok(())
+                            return Ok(true)
                         }
 
                         let i = partial.at(0);
@@ -140,7 +142,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
                             let prefix = key.back(full_key_nibbles);
                             self.db.get_raw_or_lookup(child, prefix.left())?
                         } else {
-                            return Ok(())
+                            return Ok(false)
                         }
                     },
                     Node::NibbledBranch(slice, nodes, _) => {
@@ -149,15 +151,16 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
                                 crumb.status = Status::Exiting;
                                 self.key_nibbles.append_partial(slice.right());
                                 self.key_nibbles.push((nibble_ops::NIBBLE_LENGTH - 1) as u8);
+																return Ok(false);
                             }
-                            return Ok(());
+                            return Ok(true);
                         }
 
                         full_key_nibbles += slice.len();
                         partial = partial.mid(slice.len());
 
                         if partial.is_empty() {
-                            return Ok(())
+                            return Ok(true)
                         }
 
                         let i = partial.at(0);
@@ -172,14 +175,15 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
                             let prefix = key.back(full_key_nibbles);
                             self.db.get_raw_or_lookup(child, prefix.left())?
                         } else {
-                            return Ok(())
+                            return Ok(false)
                         }
                     },
                     Node::Empty => {
                         if !partial.is_empty() {
                             crumb.status = Status::Exiting;
+														return Ok(false)
                         }
-                        return Ok(())
+                        return Ok(true)
                     },
                 }
             };
@@ -215,14 +219,26 @@ impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
         self.key_nibbles.clear();
         let root_node = self.db.root_data()?;
         self.seek(root_node, false, NibbleSlice::new(key.as_ref()))
+					.map(|_| ())
     }
 
     fn prefix(&mut self, prefix: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
-				<Self as TrieIterator<L>>::seek(self, prefix)?;
-				if let Some(v) = self.trail.pop() {
-					self.trail[0] = v;
-					self.trail.truncate(1);
+        self.trail.clear();
+        self.key_nibbles.clear();
+        let root_node = self.db.root_data()?;
+        if self.seek(root_node, false, NibbleSlice::new(prefix.as_ref()))? {
+					if let Some(v) = self.trail.pop() {
+						if self.trail.len() > 0 {         
+							self.trail[0] = v;
+							self.trail.truncate(1);   
+						} else {
+							self.trail.push(v);
+						}
+					}
+				} else {
+          self.trail.clear();
 				}
+
 				Ok(())
     }
 }
@@ -424,6 +440,14 @@ mod tests {
         }
 
         assert!(iter.next().is_none());
+
+        let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
+				iter.prefix(&hex!("0010").to_vec()[..]).unwrap();
+        assert!(iter.next().is_none());
+        let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
+				iter.prefix(&hex!("10").to_vec()[..]).unwrap();
+        assert!(iter.next().is_none());
+ 
     }
 
     #[test]
@@ -465,6 +489,14 @@ mod tests {
         }
 
         assert!(iter.next().is_none());
+
+        let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
+				iter.prefix(&hex!("0010").to_vec()[..]).unwrap();
+        assert!(iter.next().is_none());
+        let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
+				iter.prefix(&hex!("10").to_vec()[..]).unwrap();
+        assert!(iter.next().is_none());
+
     }
 
 
@@ -621,6 +653,30 @@ mod tests {
             _ => panic!("unexpected item"),
         }
 
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn prefix_over_empty_works() {
+        let (memdb, root) = build_trie_db_with_extension(&[]);
+        let trie = RefTrieDB::new(&memdb, &root).unwrap();
+        let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
+				iter.prefix(&hex!("")[..]).unwrap();
+        match iter.next() {
+            Some(Ok((prefix, Some(_), node))) => {
+                assert_eq!(prefix, nibble_vec(hex!(""), 0));
+                match node.as_ref() {
+                    OwnedNode::Empty => {},
+                    _ => panic!("unexpected node"),
+                }
+            }
+            _ => panic!("unexpected item"),
+        }
+
+        assert!(iter.next().is_none());
+
+        let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
+				iter.prefix(&hex!("00")[..]).unwrap();
         assert!(iter.next().is_none());
     }
 
