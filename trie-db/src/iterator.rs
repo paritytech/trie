@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{CError, DBValue, Result, TrieError, TrieHash, TrieIterator, TrieLayout};
+use super::{CError, DBValue, Result, Trie, TrieError, TrieHash, TrieIterator, TrieLayout};
 use hash_db::Hasher;
 use triedb::TrieDB;
 use node::{Node, OwnedNode};
@@ -78,7 +78,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 			key_nibbles: NibbleVec::new(),
 		};
 		db.root_data().and_then(|root_data| {
-			r.descend(&root_data, false).map(|_| ())
+			r.descend(&root_data, Some(db.root().clone())).map(|_| ())
 		})?;
 		Ok(r)
 	}
@@ -86,14 +86,14 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 	fn seek(
 		&mut self,
 		mut node_data: DBValue,
-		mut inline: bool,
+		mut node_hash: Option<TrieHash<L>>,
 		key: NibbleSlice,
 	) -> Result<(), TrieHash<L>, CError<L>> {
 		let mut partial = key;
 		let mut full_key_nibbles = 0;
 		loop {
-			let (next_node_data, next_inline) = {
-				let node = self.descend(&node_data, inline)?;
+			let (next_node_data, next_node_hash) = {
+				let node = self.descend(&node_data, node_hash)?;
 				let crumb = self.trail.last_mut()
 					.expect(
 						"descend_into_node pushes a crumb onto the trial; \
@@ -185,19 +185,14 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 			};
 
 			node_data = next_node_data;
-			inline = next_inline;
+			node_hash = next_node_hash;
 		}
 	}
 
 	/// Descend into a payload.
-	fn descend<'b, 'c>(&'b mut self, node_data: &'c [u8], inline: bool)
+	fn descend<'b, 'c>(&'b mut self, node_data: &'c [u8], node_hash: Option<TrieHash<L>>)
 		-> Result<Node<'c>, TrieHash<L>, CError<L>>
 	{
-		let node_hash = if inline {
-			None
-		} else {
-			Some(L::Hash::hash(node_data))
-		};
 		let node = L::Codec::decode(&node_data)
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or_default(), e)))?;
 		self.trail.push(Crumb {
@@ -214,7 +209,8 @@ impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
 		self.trail.clear();
 		self.key_nibbles.clear();
 		let root_node = self.db.root_data()?;
-		self.seek(root_node, false, NibbleSlice::new(key.as_ref()))
+		let root_hash = self.db.root().clone();
+		self.seek(root_node, Some(root_hash), NibbleSlice::new(key.as_ref()))
 	}
 }
 
@@ -226,7 +222,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 			YieldNode,
 			Continue,
 			PopTrail,
-			Descend(Result<(DBValue, bool), O, E>),
+			Descend(Result<(DBValue, Option<O>), O, E>),
 		}
 		loop {
 			let iter_step = {
@@ -305,8 +301,8 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 						.increment();
 				},
 				IterStep::Descend::<TrieHash<L>, CError<L>>(next) => {
-					let node_result = next.and_then(|(encoded, inline)| {
-						self.descend(&encoded, inline).map(|_| ())
+					let node_result = next.and_then(|(node_data, node_hash)| {
+						self.descend(&node_data, node_hash).map(|_| ())
 					});
 					if let Err(err) = node_result {
 						// Increment here as there is an implicit PopTrail.

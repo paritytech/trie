@@ -102,22 +102,22 @@ where
 	/// but may require a database lookup. If `is_root_data` then this is root-data and
 	/// is known to be literal.
 	///
-	/// Return value is the node data and a boolean which is false if the value was looked up in
-	/// the database and true if it was returned raw.
+	/// Return value is the node data and the node hash if the value was looked up in the database
+	/// or None if it was returned raw.
 	///
 	/// `partial_key` is encoded nibble slice that addresses the node.
 	pub(crate) fn get_raw_or_lookup(
 		&self, node: &[u8],
 		partial_key: Prefix,
-	) -> Result<(DBValue, bool), TrieHash<L>, CError<L>> {
+	) -> Result<(DBValue, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
 		match (partial_key.0.is_empty() && partial_key.1.is_none(), L::Codec::try_decode_hash(node)) {
 			(false, Some(key)) => {
 				let data = self.db
 					.get(&key, partial_key)
 					.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(key)))?;
-				Ok((data, false))
+				Ok((data, Some(key)))
 			}
-			_ => Ok((DBValue::from_slice(node), true)),
+			_ => Ok((DBValue::from_slice(node), None)),
 		}
 	}
 }
