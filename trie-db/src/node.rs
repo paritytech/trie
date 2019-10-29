@@ -18,6 +18,7 @@ use nibble::nibble_ops;
 use nibble::NibbleVec;
 use super::DBValue;
 
+use core_::ops::Range;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
@@ -91,6 +92,84 @@ impl Branch {
 			None
 		} else {
 			Some(&self.data[self.ubounds[index]..self.ubounds[index + 1]])
+		}
+	}
+}
+
+#[derive(Eq, PartialEq, Clone)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub struct NibbleSlicePlan {
+	bytes: Range<usize>,
+	offset: usize,
+}
+
+impl NibbleSlicePlan {
+	pub fn new(bytes: Range<usize>, offset: usize) -> Self {
+		NibbleSlicePlan {
+			bytes,
+			offset
+		}
+	}
+
+	pub fn build<'a, 'b>(&'a self, data: &'b [u8]) -> NibbleSlice<'b> {
+		NibbleSlice::new_offset(&data[self.bytes.clone()], self.offset)
+	}
+}
+
+/// Type of node in the trie and essential information thereof.
+#[derive(Eq, PartialEq, Clone)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub enum NodePlan {
+	/// Null trie node; could be an empty root or an empty branch entry.
+	Empty,
+	/// Leaf node; has key slice and value. Value may not be empty.
+	Leaf {
+		partial: NibbleSlicePlan,
+		value: Range<usize>,
+	},
+	/// Extension node; has key slice and node data. Data may not be null.
+	Extension {
+		partial: NibbleSlicePlan,
+		child: Range<usize>,
+	},
+	/// Branch node; has slice of child nodes (each possibly null)
+	/// and an optional immediate node data.
+	Branch {
+		value: Option<Range<usize>>,
+		children: [Option<Range<usize>>; nibble_ops::NIBBLE_LENGTH],
+	},
+	/// Branch node with support for a nibble (when extension nodes are not used).
+	NibbledBranch {
+		partial: NibbleSlicePlan,
+		value: Option<Range<usize>>,
+		children: [Option<Range<usize>>; nibble_ops::NIBBLE_LENGTH],
+	},
+}
+
+impl NodePlan {
+	pub fn build<'a, 'b>(&'a self, data: &'b [u8]) -> Node<'b> {
+		match self {
+			NodePlan::Empty => Node::Empty,
+			NodePlan::Leaf { partial, value } =>
+				Node::Leaf(partial.build(data), &data[value.clone()]),
+			NodePlan::Extension { partial, child } =>
+				Node::Extension(partial.build(data), &data[child.clone()]),
+			NodePlan::Branch { value, children } => {
+				let mut child_slices = [None; nibble_ops::NIBBLE_LENGTH];
+				for i in 0..nibble_ops::NIBBLE_LENGTH {
+					child_slices[i] = children[i].clone().map(|child| &data[child]);
+				}
+				let value_slice = value.clone().map(|value| &data[value]);
+				Node::Branch(child_slices, value_slice)
+			},
+			NodePlan::NibbledBranch { partial, value, children } => {
+				let mut child_slices = [None; nibble_ops::NIBBLE_LENGTH];
+				for i in 0..nibble_ops::NIBBLE_LENGTH {
+					child_slices[i] = children[i].clone().map(|child| &data[child]);
+				}
+				let value_slice = value.clone().map(|value| &data[value]);
+				Node::NibbledBranch(partial.build(data), child_slices, value_slice)
+			},
 		}
 	}
 }

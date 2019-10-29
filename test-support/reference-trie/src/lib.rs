@@ -17,10 +17,11 @@
 use std::fmt;
 use std::iter::once;
 use std::marker::PhantomData;
+use std::ops::Range;
 use parity_scale_codec::{Decode, Input, Output, Encode, Compact, Error as CodecError};
 use trie_root::Hasher;
 use trie_db::{
-	node::Node,
+	node::{NibbleSlicePlan, NodePlan, Node},
 	triedbmut::ChildReference,
 	DBValue,
 	trie_visit,
@@ -509,15 +510,6 @@ pub struct ReferenceNodeCodec;
 #[derive(Default, Clone)]
 pub struct ReferenceNodeCodecNoExt;
 
-fn take<'a>(input: &mut &'a[u8], count: usize) -> Option<&'a[u8]> {
-	if input.len() < count {
-		return None
-	}
-	let r = &(*input)[..count];
-	*input = &(*input)[count..];
-	Some(r)
-}
-
 fn partial_to_key(partial: Partial, offset: u8, over: u8) -> Vec<u8> {
 	let number_nibble_encoded = (partial.0).0 as usize;
 	let nibble_count = partial.1.len() * nibble_ops::NIBBLE_PER_BYTE + number_nibble_encoded;
@@ -585,6 +577,57 @@ fn partial_encode(partial: Partial, node_kind: NodeKindNoExt) -> Vec<u8> {
 	output
 }
 
+struct ByteSliceInput<'a> {
+	data: &'a [u8],
+	offset: usize,
+}
+
+impl<'a> ByteSliceInput<'a> {
+	fn new(data: &'a [u8]) -> Self {
+		ByteSliceInput {
+			data,
+			offset: 0,
+		}
+	}
+
+	fn take(&mut self, count: usize) -> Result<Range<usize>, CodecError> {
+		if self.offset + count > self.data.len() {
+			return Err("out of data".into());
+		}
+
+		let range = self.offset..(self.offset + count);
+		self.offset += count;
+		Ok(range)
+	}
+}
+
+impl<'a> Input for ByteSliceInput<'a> {
+	fn remaining_len(&mut self) -> Result<Option<usize>, CodecError> {
+		let remaining = if self.offset <= self.data.len() {
+			Some(self.data.len() - self.offset)
+		} else {
+			None
+		};
+		Ok(remaining)
+	}
+
+	fn read(&mut self, into: &mut [u8]) -> Result<(), CodecError> {
+		let range = self.take(into.len())?;
+		into.copy_from_slice(&self.data[range]);
+		Ok(())
+	}
+
+	fn read_byte(&mut self) -> Result<u8, CodecError> {
+		if self.offset + 1 > self.data.len() {
+			return Err("out of data".into());
+		}
+
+		let byte = self.data[self.offset];
+		self.offset += 1;
+		Ok(byte)
+	}
+}
+
 // NOTE: what we'd really like here is:
 // `impl<H: Hasher> NodeCodec<H> for RlpNodeCodec<H> where <KeccakHasher as Hasher>::Out: Decodable`
 // but due to the current limitations of Rust const evaluation we can't do
@@ -597,54 +640,55 @@ impl<H: Hasher> NodeCodec<H> for ReferenceNodeCodec {
 		H::hash(<Self as NodeCodec<H>>::empty_node())
 	}
 
-	fn decode(data: &[u8]) -> ::std::result::Result<Node, Self::Error> {
-		let input = &mut &*data;
-		match NodeHeader::decode(input)? {
-			NodeHeader::Null => Ok(Node::Empty),
+	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
+		let mut input = ByteSliceInput::new(data);
+		match NodeHeader::decode(&mut input)? {
+			NodeHeader::Null => Ok(NodePlan::Empty),
 			NodeHeader::Branch(has_value) => {
-				let bitmap_slice = take(input, BITMAP_LENGTH)
-					.ok_or(CodecError::from("Bad format"))?;
-				let bitmap = Bitmap::decode(&bitmap_slice[..])?;
+				let bitmap_range = input.take(BITMAP_LENGTH)?;
+				let bitmap = Bitmap::decode(&data[bitmap_range])?;
 
 				let value = if has_value {
-					let count = <Compact<u32>>::decode(input)?.0 as usize;
-					Some(take(input, count).ok_or(CodecError::from("Bad format"))?)
+					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
+					Some(input.take(count)?)
 				} else {
 					None
 				};
-				let mut children = [None; 16];
-
+				let mut children = [
+					None, None, None, None, None, None, None, None,
+					None, None, None, None, None, None, None, None,
+				];
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
 					if bitmap.value_at(i) {
-						let count = <Compact<u32>>::decode(input)?.0 as usize;
-						children[i] = Some(take(input, count).ok_or(CodecError::from("Bad format"))?);
+						let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
+						children[i] = Some(input.take(count)?);
 					}
 				}
-				Ok(Node::Branch(children, value))
+				Ok(NodePlan::Branch { value, children })
 			}
 			NodeHeader::Extension(nibble_count) => {
-				let nibble_data = take(
-					input,
-					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE,
-				).ok_or(CodecError::from("Bad format"))?;
-				let nibble_slice = NibbleSlice::new_offset(nibble_data,
-					nibble_ops::number_padding(nibble_count));
-				let count = <Compact<u32>>::decode(input)?.0 as usize;
-				Ok(Node::Extension(nibble_slice, take(input, count)
-					.ok_or(CodecError::from("Bad format"))?))
+				let partial = input.take(
+					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE
+				)?;
+				let partial_padding = nibble_ops::number_padding(nibble_count);
+				let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
+				let child = input.take(count)?;
+				Ok(NodePlan::Extension {
+					partial: NibbleSlicePlan::new(partial, partial_padding),
+					child
+				})
 			}
 			NodeHeader::Leaf(nibble_count) => {
-				let nibble_data = take(
-					input,
-					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE,
-				).ok_or(CodecError::from("Bad format"))?;
-				let nibble_slice = NibbleSlice::new_offset(
-					nibble_data,
-					nibble_ops::number_padding(nibble_count),
-				);
-				let count = <Compact<u32>>::decode(input)?.0 as usize;
-				Ok(Node::Leaf(nibble_slice, take(input, count)
-					.ok_or(CodecError::from("Bad format"))?))
+				let partial = input.take(
+					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE
+				)?;
+				let partial_padding = nibble_ops::number_padding(nibble_count);
+				let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
+				let value = input.take(count)?;
+				Ok(NodePlan::Leaf {
+					partial: NibbleSlicePlan::new(partial, partial_padding),
+					value,
+				})
 			}
 		}
 	}
@@ -737,62 +781,60 @@ impl<H: Hasher> NodeCodec<H> for ReferenceNodeCodecNoExt {
 		H::hash(<Self as NodeCodec<H>>::empty_node())
 	}
 
-	fn decode(data: &[u8]) -> ::std::result::Result<Node, Self::Error> {
-		let input = &mut &*data;
-		let head = NodeHeaderNoExt::decode(input)?;
-		match head {
-			NodeHeaderNoExt::Null => Ok(Node::Empty),
+	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
+		let mut input = ByteSliceInput::new(data);
+		match NodeHeaderNoExt::decode(&mut input)? {
+			NodeHeaderNoExt::Null => Ok(NodePlan::Empty),
 			NodeHeaderNoExt::Branch(has_value, nibble_count) => {
 				let padding = nibble_count % nibble_ops::NIBBLE_PER_BYTE != 0;
 				// check that the padding is valid (if any)
-				if padding && nibble_ops::pad_left(input[0]) != 0 {
+				if padding && nibble_ops::pad_left(data[input.offset]) != 0 {
 					return Err(CodecError::from("Bad format"));
 				}
-				let nibble_data = take(
-					input,
-					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE,
-				).ok_or(CodecError::from("Bad format"))?;
-				let nibble_slice = NibbleSlice::new_offset(
-					nibble_data,
-					nibble_ops::number_padding(nibble_count),
-				);
-				let bitmap_slice = take(
-					input,
-					BITMAP_LENGTH,
-				).ok_or(CodecError::from("Bad format"))?;
-				let bitmap = Bitmap::decode(&bitmap_slice[..])?;
+				let partial = input.take(
+					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE
+				)?;
+				let partial_padding = nibble_ops::number_padding(nibble_count);
+				let bitmap_range = input.take(BITMAP_LENGTH)?;
+				let bitmap = Bitmap::decode(&data[bitmap_range])?;
 				let value = if has_value {
-					let count = <Compact<u32>>::decode(input)?.0 as usize;
-					Some(take(input, count).ok_or(CodecError::from("Bad format"))?)
+					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
+					Some(input.take(count)?)
 				} else {
 					None
 				};
-				let mut children = [None; 16];
-
+				let mut children = [
+					None, None, None, None, None, None, None, None,
+					None, None, None, None, None, None, None, None,
+				];
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
 					if bitmap.value_at(i) {
-						let count = <Compact<u32>>::decode(input)?.0 as usize;
-						children[i] = Some(take(input, count).ok_or(CodecError::from("Bad format"))?);
+						let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
+						children[i] = Some(input.take(count)?);
 					}
 				}
-				Ok(Node::NibbledBranch(nibble_slice, children, value))
+				Ok(NodePlan::NibbledBranch {
+					partial: NibbleSlicePlan::new(partial, partial_padding),
+					value,
+					children,
+				})
 			}
 			NodeHeaderNoExt::Leaf(nibble_count) => {
 				let padding = nibble_count % nibble_ops::NIBBLE_PER_BYTE != 0;
 				// check that the padding is valid (if any)
-				if padding && nibble_ops::pad_left(input[0]) != 0 {
+				if padding && nibble_ops::pad_left(data[input.offset]) != 0 {
 					return Err(CodecError::from("Bad format"));
 				}
-				let nibble_data = take(
-					input,
-					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE,
-				).ok_or(CodecError::from("Bad format"))?;
-				let nibble_slice = NibbleSlice::new_offset(
-					nibble_data,
-					nibble_ops::number_padding(nibble_count),
-				);
-				let count = <Compact<u32>>::decode(input)?.0 as usize;
-				Ok(Node::Leaf(nibble_slice, take(input, count).ok_or(CodecError::from("Bad format"))?))
+				let partial = input.take(
+					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE
+				)?;
+				let partial_padding = nibble_ops::number_padding(nibble_count);
+				let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
+				let value = input.take(count)?;
+				Ok(NodePlan::Leaf {
+					partial: NibbleSlicePlan::new(partial, partial_padding),
+					value,
+				})
 			}
 		}
 	}
