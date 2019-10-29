@@ -309,6 +309,14 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 						self.descend(&encoded, inline).map(|_| ())
 					});
 					if let Err(err) = node_result {
+						// Increment here as there is an implicit PopTrail.
+						self.trail.last_mut()
+							.expect(
+								"method would have exited at top of previous block if trial were empty;\
+								trial could not have been modified within the block since it was immutably borrowed;\
+								qed"
+							)
+							.increment();
 						return Some(Err(err));
 					}
 				},
@@ -329,11 +337,12 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 #[cfg(test)]
 mod tests {
 	use crate::DBValue;
-	use hash_db::Hasher;
+	use hash_db::{HashDB, Hasher};
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{
 		RefTrieDB, RefTrieDBMut,
-		TrieMut, TrieIterator, TrieDBNodeIterator, NibbleSlice, NibbleVec, node::OwnedNode,
+		TrieError, TrieMut, TrieIterator, TrieDBNodeIterator, NibbleSlice, NibbleVec,
+		node::OwnedNode,
 	};
 	use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt};
 
@@ -642,6 +651,63 @@ mod tests {
 
 		TrieIterator::seek(&mut iter, &hex!("00")[..]).unwrap();
 		assert!(iter.next().is_none());
+	}
+
+	#[test]
+	fn iterate_over_incomplete_db() {
+		let pairs = vec![
+			(hex!("01").to_vec(), b"aaaa".to_vec()),
+			(hex!("0123").to_vec(), b"bbbb".to_vec()),
+			(hex!("02").to_vec(), vec![1; 32]),
+		];
+
+		let (mut memdb, root) = build_trie_db_with_extension(&pairs);
+
+		// Look up the leaf node with prefix "02".
+		let leaf_hash = {
+			let trie = RefTrieDB::new(&memdb, &root).unwrap();
+			let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
+
+			TrieIterator::seek(&mut iter, &hex!("02")[..]).unwrap();
+			match iter.next() {
+				Some(Ok((_, Some(hash), node))) => {
+					match node.as_ref() {
+						OwnedNode::Leaf(_, _) => hash,
+						_ => panic!("unexpected node"),
+					}
+				}
+				_ => panic!("unexpected item"),
+			}
+		};
+
+		// Remove the leaf node from the DB.
+		let prefix = (&hex!("02")[..], None);
+		memdb.remove(&leaf_hash, prefix);
+
+		// Seek to missing node returns error.
+		{
+			let trie = RefTrieDB::new(&memdb, &root).unwrap();
+			let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
+
+			match TrieIterator::seek(&mut iter, &hex!("02")[..]) {
+				Err(ref err) if **err == TrieError::IncompleteDatabase(leaf_hash) => {},
+				_ => panic!("expected IncompleteDatabase error"),
+			}
+		}
+
+		// Iterate over missing node works.
+		{
+			let trie = RefTrieDB::new(&memdb, &root).unwrap();
+			let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
+
+			TrieIterator::seek(&mut iter, &hex!("0130")[..]).unwrap();
+			match iter.next() {
+				Some(Err(ref err)) if **err == TrieError::IncompleteDatabase(leaf_hash) => {},
+				_ => panic!("expected IncompleteDatabase error"),
+			}
+
+			assert!(iter.next().is_none());
+		}
 	}
 }
 
