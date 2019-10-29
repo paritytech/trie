@@ -39,7 +39,7 @@ pub use trie_db::{
 pub use trie_db::{Record, TrieLayout, TrieConfiguration, nibble_ops};
 pub use trie_root::TrieStream;
 pub mod node {
-	pub use trie_db::node::OwnedNode;
+	pub use trie_db::node::Node;
 }
 
 /// Trie layout using extension nodes.

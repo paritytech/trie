@@ -13,11 +13,12 @@
 // limitations under the License.
 
 use elastic_array::ElasticArray36;
+use hash_db::Hasher;
 use nibble::NibbleSlice;
 use nibble::nibble_ops;
-use nibble::NibbleVec;
-use super::DBValue;
+use node_codec::NodeCodec;
 
+use core_::borrow::Borrow;
 use core_::ops::Range;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
@@ -41,59 +42,6 @@ pub enum Node<'a> {
 	Branch([Option<&'a [u8]>; nibble_ops::NIBBLE_LENGTH], Option<&'a [u8]>),
 	/// Branch node with support for a nibble (when extension nodes are not used).
 	NibbledBranch(NibbleSlice<'a>, [Option<&'a [u8]>; nibble_ops::NIBBLE_LENGTH], Option<&'a [u8]>),
-}
-/// A Sparse (non mutable) owned vector struct to hold branch keys and value
-#[cfg_attr(feature = "std", derive(Debug))]
-#[derive(Eq, PartialEq, Clone)]
-pub struct Branch {
-	data: Vec<u8>,
-	ubounds: [usize; 18],
-	has_value: bool,
-}
-
-impl Branch {
-	fn new(children: [Option<&[u8]>; 16], maybe_value: Option<&[u8]>) -> Self {
-		let mut data = Vec::with_capacity(children.iter()
-			.filter_map(|n| n.clone())
-			.map(|child| child.len())
-			.sum()
-		);
-		let mut ubounds = [0; 18];
-		for (maybe_child, ub) in children.iter().zip(ubounds.iter_mut().skip(1)) {
-			if let Some(child) = maybe_child {
-				data.extend_from_slice(child);
-			}
-			*ub = data.len();
-		}
-		if let Some(value) = maybe_value {
-			data.extend_from_slice(value);
-			ubounds[17] = data.len();
-		}
-		Branch { data, ubounds, has_value: maybe_value.is_some() }
-	}
-
-	/// Get the node value, if any.
-	pub fn get_value(&self) -> Option<&[u8]> {
-		if self.has_value {
-			Some(&self.data[self.ubounds[16]..self.ubounds[17]])
-		} else {
-			None
-		}
-	}
-
-	/// Test if the node has a value.
-	pub fn has_value(&self) -> bool {
-		self.has_value
-	}
-
-	pub fn index(&self, index: usize) -> Option<&[u8]> {
-		assert!(index < 16);
-		if self.ubounds[index] == self.ubounds[index + 1] {
-			None
-		} else {
-			Some(&self.data[self.ubounds[index]..self.ubounds[index + 1]])
-		}
-	}
 }
 
 #[derive(Eq, PartialEq, Clone)]
@@ -177,31 +125,18 @@ impl NodePlan {
 /// An owning node type. Useful for trie iterators.
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(PartialEq, Eq)]
-pub enum OwnedNode {
-	/// Empty trie node.
-	Empty,
-	/// Leaf node: partial key and value.
-	Leaf(NibbleVec, DBValue),
-	/// Extension node: partial key and child node.
-	Extension(NibbleVec, DBValue),
-	/// Branch node: children and an optional value.
-	Branch(Branch),
-	/// Branch node: children and an optional value.
-	NibbledBranch(NibbleVec, Branch),
+pub struct OwnedNode<D: Borrow<[u8]>> {
+	data: D,
+	plan: NodePlan,
 }
 
-impl<'a> From<Node<'a>> for OwnedNode {
-	fn from(node: Node<'a>) -> Self {
-		match node {
-			Node::Empty => OwnedNode::Empty,
-			Node::Leaf(k, v) =>
-				OwnedNode::Leaf(k.into(), DBValue::from_slice(v)),
-			Node::Extension(k, child) =>
-				OwnedNode::Extension(k.into(), DBValue::from_slice(child)),
-			Node::Branch(c, val) =>
-				OwnedNode::Branch(Branch::new(c, val)),
-			Node::NibbledBranch(k, c, val) =>
-				OwnedNode::NibbledBranch(k.into(), Branch::new(c, val)),
-		}
+impl<D: Borrow<[u8]>> OwnedNode<D> {
+	pub fn new<H: Hasher, C: NodeCodec<H>>(data: D) -> Result<Self, C::Error> {
+		let plan = C::decode_plan(data.borrow())?;
+		Ok(OwnedNode { data, plan })
+	}
+
+	pub fn node(&self) -> Node {
+		self.plan.build(self.data.borrow())
 	}
 }
