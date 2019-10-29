@@ -13,10 +13,9 @@
 // limitations under the License.
 
 use super::{CError, DBValue, Result, Trie, TrieError, TrieHash, TrieIterator, TrieLayout};
-use hash_db::Hasher;
+use hash_db::{Hasher, EMPTY_PREFIX};
 use triedb::TrieDB;
 use node::{Node, OwnedNode};
-use node_codec::NodeCodec;
 use nibble::{NibbleSlice, NibbleVec, nibble_ops};
 
 #[cfg(feature = "std")]
@@ -41,21 +40,21 @@ enum Status {
 #[derive(Eq, PartialEq)]
 struct Crumb<H: Hasher> {
 	hash: Option<H::Out>,
-	node: Rc<OwnedNode>,
+	node: Rc<OwnedNode<DBValue>>,
 	status: Status,
 }
 
 impl<H: Hasher> Crumb<H> {
 	/// Move on to next status in the node's sequence.
 	fn increment(&mut self) {
-		self.status = match (&self.status, self.node.as_ref()) {
-			(&Status::Entering, &OwnedNode::Extension(..)) => Status::At,
-			(&Status::Entering, &OwnedNode::Branch(..))
-			| (&Status::Entering, &OwnedNode::NibbledBranch(..)) => Status::At,
-			(&Status::At, &OwnedNode::Branch(..))
-			| (&Status::At, &OwnedNode::NibbledBranch(..)) => Status::AtChild(0),
-			(&Status::AtChild(x), &OwnedNode::Branch(..))
-			| (&Status::AtChild(x), &OwnedNode::NibbledBranch(..))
+		self.status = match (&self.status, self.node.node()) {
+			(&Status::Entering, Node::Extension(..)) => Status::At,
+			(&Status::Entering, Node::Branch(..))
+			| (&Status::Entering, Node::NibbledBranch(..)) => Status::At,
+			(&Status::At, Node::Branch(..))
+			| (&Status::At, Node::NibbledBranch(..)) => Status::AtChild(0),
+			(&Status::AtChild(x), Node::Branch(..))
+			| (&Status::AtChild(x), Node::NibbledBranch(..))
 			if x < (nibble_ops::NIBBLE_LENGTH - 1) => Status::AtChild(x + 1),
 			_ => Status::Exiting,
 		}
@@ -77,30 +76,31 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 			trail: Vec::with_capacity(8),
 			key_nibbles: NibbleVec::new(),
 		};
-		db.root_data().and_then(|root_data| {
-			r.descend(&root_data, Some(db.root().clone())).map(|_| ())
-		})?;
+		let (root_node, root_hash) = db.get_raw_or_lookup(db.root().as_ref(), EMPTY_PREFIX)?;
+		r.descend(root_node, root_hash);
 		Ok(r)
 	}
 
 	fn seek(
 		&mut self,
-		mut node_data: DBValue,
+		node_data: DBValue,
 		mut node_hash: Option<TrieHash<L>>,
 		key: NibbleSlice,
 	) -> Result<(), TrieHash<L>, CError<L>> {
+		let mut node = OwnedNode::new::<L::Hash, L::Codec>(node_data)
+			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or_default(), e)))?;
 		let mut partial = key;
 		let mut full_key_nibbles = 0;
 		loop {
-			let (next_node_data, next_node_hash) = {
-				let node = self.descend(&node_data, node_hash)?;
+			let (next_node, next_node_hash) = {
+				self.descend(node, node_hash);
 				let crumb = self.trail.last_mut()
 					.expect(
 						"descend_into_node pushes a crumb onto the trial; \
 						thus the trail is non-empty; qed"
 					);
 
-				match node {
+				match crumb.node.node() {
 					Node::Leaf(slice, _) => {
 						if slice < partial {
 							crumb.status = Status::Exiting;
@@ -184,23 +184,18 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 				}
 			};
 
-			node_data = next_node_data;
+			node = next_node;
 			node_hash = next_node_hash;
 		}
 	}
 
 	/// Descend into a payload.
-	fn descend<'b, 'c>(&'b mut self, node_data: &'c [u8], node_hash: Option<TrieHash<L>>)
-		-> Result<Node<'c>, TrieHash<L>, CError<L>>
-	{
-		let node = L::Codec::decode(&node_data)
-			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or_default(), e)))?;
+	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<TrieHash<L>>) {
 		self.trail.push(Crumb {
 			hash: node_hash,
 			status: Status::Entering,
-			node: Rc::new(node.clone().into()),
+			node: Rc::new(node),
 		});
-		Ok(node)
 	}
 }
 
@@ -215,50 +210,50 @@ impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
 }
 
 impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
-	type Item = Result<(NibbleVec, Option<TrieHash<L>>, Rc<OwnedNode>), TrieHash<L>, CError<L>>;
+	type Item = Result<(NibbleVec, Option<TrieHash<L>>, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		enum IterStep<O, E> {
 			YieldNode,
 			Continue,
 			PopTrail,
-			Descend(Result<(DBValue, Option<O>), O, E>),
+			Descend(Result<(OwnedNode<DBValue>, Option<O>), O, E>),
 		}
 		loop {
 			let iter_step = {
 				let b = self.trail.last()?;
 
-				match (b.status.clone(), b.node.as_ref()) {
+				match (b.status.clone(), b.node.node()) {
 					(Status::Entering, _) => IterStep::YieldNode,
-					(Status::Exiting, n) => {
-						match *n {
-							OwnedNode::Empty | OwnedNode::Leaf(_, _) => {},
-							OwnedNode::Extension(ref n, _) =>
+					(Status::Exiting, node) => {
+						match node {
+							Node::Empty | Node::Leaf(_, _) => {},
+							Node::Extension(n, _) =>
 								self.key_nibbles.drop_lasts(n.len()),
-							OwnedNode::Branch(_) => { self.key_nibbles.pop(); },
-							OwnedNode::NibbledBranch(ref n, _) =>
+							Node::Branch(_, _) => { self.key_nibbles.pop(); },
+							Node::NibbledBranch(n, _, _) =>
 								self.key_nibbles.drop_lasts(n.len() + 1),
 						}
 						IterStep::PopTrail
 					},
-					(Status::At, &OwnedNode::Extension(ref partial, ref d)) => {
-						self.key_nibbles.append(partial);
+					(Status::At, Node::Extension(partial, d)) => {
+						self.key_nibbles.append_partial(partial.right());
 						IterStep::Descend::<TrieHash<L>, CError<L>>(
-							self.db.get_raw_or_lookup(&*d, self.key_nibbles.as_prefix())
+							self.db.get_raw_or_lookup(d, self.key_nibbles.as_prefix())
 						)
 					},
-					(Status::At, &OwnedNode::Branch(_)) => {
+					(Status::At, Node::Branch(_, _)) => {
 						self.key_nibbles.push(0);
 						IterStep::Continue
 					},
-					(Status::At, &OwnedNode::NibbledBranch(ref partial, _)) => {
-						self.key_nibbles.append(partial);
+					(Status::At, Node::NibbledBranch(partial, _, _)) => {
+						self.key_nibbles.append_partial(partial.right());
 						self.key_nibbles.push(0);
 						IterStep::Continue
 					},
-					(Status::AtChild(i), &OwnedNode::Branch(ref branch))
-					| (Status::AtChild(i), &OwnedNode::NibbledBranch(_, ref branch)) => {
-						if let Some(child) = branch.index(i) {
+					(Status::AtChild(i), Node::Branch(children, _))
+					| (Status::AtChild(i), Node::NibbledBranch(_, children, _)) => {
+						if let Some(child) = children[i] {
 							self.key_nibbles.pop();
 							self.key_nibbles.push(i as u8);
 							IterStep::Descend::<TrieHash<L>, CError<L>>(
@@ -300,21 +295,19 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 					self.trail.last_mut()?
 						.increment();
 				},
-				IterStep::Descend::<TrieHash<L>, CError<L>>(next) => {
-					let node_result = next.and_then(|(node_data, node_hash)| {
-						self.descend(&node_data, node_hash).map(|_| ())
-					});
-					if let Err(err) = node_result {
-						// Increment here as there is an implicit PopTrail.
-						self.trail.last_mut()
-							.expect(
-								"method would have exited at top of previous block if trial were empty;\
+				IterStep::Descend::<TrieHash<L>, CError<L>>(Ok((node, node_hash))) => {
+					self.descend(node, node_hash);
+				},
+				IterStep::Descend::<TrieHash<L>, CError<L>>(Err(err)) => {
+					// Increment here as there is an implicit PopTrail.
+					self.trail.last_mut()
+						.expect(
+							"method would have exited at top of previous block if trial were empty;\
 								trial could not have been modified within the block since it was immutably borrowed;\
 								qed"
-							)
-							.increment();
-						return Some(Err(err));
-					}
+						)
+						.increment();
+					return Some(Err(err));
 				},
 				IterStep::Continue => {
 					self.trail.last_mut()
@@ -338,7 +331,7 @@ mod tests {
 	use reference_trie::{
 		RefTrieDB, RefTrieDBMut,
 		TrieError, TrieMut, TrieIterator, TrieDBNodeIterator, NibbleSlice, NibbleVec,
-		node::OwnedNode,
+		node::Node,
 	};
 	use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt};
 
@@ -397,9 +390,9 @@ mod tests {
 		match iter.next() {
 			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!(""), 0));
-				match node.as_ref() {
-					OwnedNode::Extension(partial, _) =>
-						assert_eq!(*partial, nibble_vec(hex!("00"), 1)),
+				match node.node() {
+					Node::Extension(partial, _) =>
+						assert_eq!(partial, NibbleSlice::new_offset(&hex!("00")[..], 1)),
 					_ => panic!("unexpected node"),
 				}
 			}
@@ -409,8 +402,8 @@ mod tests {
 		match iter.next() {
 			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("00"), 1));
-				match node.as_ref() {
-					OwnedNode::Branch(_) => {},
+				match node.node() {
+					Node::Branch(_, _) => {},
 					_ => panic!("unexpected node"),
 				}
 			}
@@ -420,8 +413,8 @@ mod tests {
 		match iter.next() {
 			Some(Ok((prefix, None, node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("01"), 2));
-				match node.as_ref() {
-					OwnedNode::Branch(_) => {},
+				match node.node() {
+					Node::Branch(_, _) => {},
 					_ => panic!("unexpected node"),
 				}
 			}
@@ -431,9 +424,9 @@ mod tests {
 		match iter.next() {
 			Some(Ok((prefix, None, node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("0120"), 3));
-				match node.as_ref() {
-					OwnedNode::Leaf(partial, _) =>
-						assert_eq!(*partial, nibble_vec(hex!("30"), 1)),
+				match node.node() {
+					Node::Leaf(partial, _) =>
+						assert_eq!(partial, NibbleSlice::new_offset(&hex!("03")[..], 1)),
 					_ => panic!("unexpected node"),
 				}
 			}
@@ -443,9 +436,9 @@ mod tests {
 		match iter.next() {
 			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("02"), 2));
-				match node.as_ref() {
-					OwnedNode::Leaf(partial, _) =>
-						assert_eq!(*partial, nibble_vec(hex!(""), 0)),
+				match node.node() {
+					Node::Leaf(partial, _) =>
+						assert_eq!(partial, NibbleSlice::new(&hex!("")[..])),
 					_ => panic!("unexpected node"),
 				}
 			}
@@ -470,9 +463,9 @@ mod tests {
 		match iter.next() {
 			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!(""), 0));
-				match node.as_ref() {
-					OwnedNode::NibbledBranch(partial, _) =>
-						assert_eq!(*partial, nibble_vec(hex!("00"), 1)),
+				match node.node() {
+					Node::NibbledBranch(partial, _, _) =>
+						assert_eq!(partial, NibbleSlice::new_offset(&hex!("00")[..], 1)),
 					_ => panic!("unexpected node"),
 				}
 			}
@@ -482,9 +475,9 @@ mod tests {
 		match iter.next() {
 			Some(Ok((prefix, None, node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("01"), 2));
-				match node.as_ref() {
-					OwnedNode::NibbledBranch(partial, _) =>
-						assert_eq!(*partial, nibble_vec(hex!(""), 0)),
+				match node.node() {
+					Node::NibbledBranch(partial, _, _) =>
+						assert_eq!(partial, NibbleSlice::new(&hex!("")[..])),
 					_ => panic!("unexpected node"),
 				}
 			}
@@ -494,21 +487,22 @@ mod tests {
 		match iter.next() {
 			Some(Ok((prefix, None, node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("0120"), 3));
-				match node.as_ref() {
-					OwnedNode::Leaf(partial, _) =>
-						assert_eq!(*partial, nibble_vec(hex!("30"), 1)),
+				match node.node() {
+					Node::Leaf(partial, _) =>
+						assert_eq!(partial, NibbleSlice::new_offset(&hex!("03")[..], 1)),
 					_ => panic!("unexpected node"),
 				}
 			}
+
 			_ => panic!("unexpected item"),
 		}
 
 		match iter.next() {
 			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("02"), 2));
-				match node.as_ref() {
-					OwnedNode::Leaf(partial, _) =>
-						assert_eq!(*partial, nibble_vec(hex!(""), 0)),
+				match node.node() {
+					Node::Leaf(partial, _) =>
+						assert_eq!(partial, NibbleSlice::new(&hex!("")[..])),
 					_ => panic!("unexpected node"),
 				}
 			}
@@ -527,8 +521,8 @@ mod tests {
 		match iter.next() {
 			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!(""), 0));
-				match node.as_ref() {
-					OwnedNode::Empty => {},
+				match node.node() {
+					Node::Empty => {},
 					_ => panic!("unexpected node"),
 				}
 			}
@@ -637,8 +631,8 @@ mod tests {
 		match iter.next() {
 			Some(Ok((prefix, _, node))) => {
 				assert_eq!(prefix, nibble_vec(hex!(""), 0));
-				match node.as_ref() {
-					OwnedNode::Empty => {},
+				match node.node() {
+					Node::Empty => {},
 					_ => panic!("unexpected node"),
 				}
 			}
@@ -667,8 +661,8 @@ mod tests {
 			TrieIterator::seek(&mut iter, &hex!("02")[..]).unwrap();
 			match iter.next() {
 				Some(Ok((_, Some(hash), node))) => {
-					match node.as_ref() {
-						OwnedNode::Leaf(_, _) => hash,
+					match node.node() {
+						Node::Leaf(_, _) => hash,
 						_ => panic!("unexpected node"),
 					}
 				}
