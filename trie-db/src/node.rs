@@ -44,6 +44,8 @@ pub enum Node<'a> {
 	NibbledBranch(NibbleSlice<'a>, [Option<&'a [u8]>; nibble_ops::NIBBLE_LENGTH], Option<&'a [u8]>),
 }
 
+/// A `NibbleSlicePlan` is a blueprint for decoding a nibble slice from a byte slice. The
+/// `NibbleSlicePlan` is created by parsing a byte slice and can be reused multiple times.
 #[derive(Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct NibbleSlicePlan {
@@ -52,6 +54,7 @@ pub struct NibbleSlicePlan {
 }
 
 impl NibbleSlicePlan {
+	/// Construct a nibble slice decode plan.
 	pub fn new(bytes: Range<usize>, offset: usize) -> Self {
 		NibbleSlicePlan {
 			bytes,
@@ -59,23 +62,31 @@ impl NibbleSlicePlan {
 		}
 	}
 
+	/// Build a nibble slice by decoding a byte slice according to the plan. It is the
+	/// responsibility of the caller to ensure that the node plan was created for the argument
+	/// data, otherwise the call decode incorrectly or panic.
 	pub fn build<'a, 'b>(&'a self, data: &'b [u8]) -> NibbleSlice<'b> {
 		NibbleSlice::new_offset(&data[self.bytes.clone()], self.offset)
 	}
 }
 
-/// Type of node in the trie and essential information thereof.
+/// A `NodePlan` is a blueprint for decoding a node from a byte slice. The `NodePlan` is created
+/// by parsing an encoded node and can be reused multiple times. This is useful as a `Node` borrows
+/// from a byte slice and this struct does not.
+///
+/// The enum values mirror those of `Node` except that instead of byte slices, this struct stores
+/// ranges that can be used to index into a large byte slice.
 #[derive(Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub enum NodePlan {
 	/// Null trie node; could be an empty root or an empty branch entry.
 	Empty,
-	/// Leaf node; has key slice and value. Value may not be empty.
+	/// Leaf node; has a partial key plan and value.
 	Leaf {
 		partial: NibbleSlicePlan,
 		value: Range<usize>,
 	},
-	/// Extension node; has key slice and node data. Data may not be null.
+	/// Extension node; has a partial key plan and child data.
 	Extension {
 		partial: NibbleSlicePlan,
 		child: Range<usize>,
@@ -95,6 +106,9 @@ pub enum NodePlan {
 }
 
 impl NodePlan {
+	/// Build a node by decoding a byte slice according to the node plan. It is the responsibility
+	/// of the caller to ensure that the node plan was created for the argument data, otherwise the
+	/// call decode incorrectly or panic.
 	pub fn build<'a, 'b>(&'a self, data: &'b [u8]) -> Node<'b> {
 		match self {
 			NodePlan::Empty => Node::Empty,
@@ -122,7 +136,8 @@ impl NodePlan {
 	}
 }
 
-/// An owning node type. Useful for trie iterators.
+/// An `OwnedNode` is an owned type from which a `Node` can be constructed which borrows data from
+/// the `OwnedNode`. This is useful for trie iterators.
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(PartialEq, Eq)]
 pub struct OwnedNode<D: Borrow<[u8]>> {
@@ -131,11 +146,13 @@ pub struct OwnedNode<D: Borrow<[u8]>> {
 }
 
 impl<D: Borrow<[u8]>> OwnedNode<D> {
+	/// Construct an `OwnedNode` by decoding an owned data source according to some codec.
 	pub fn new<H: Hasher, C: NodeCodec<H>>(data: D) -> Result<Self, C::Error> {
 		let plan = C::decode_plan(data.borrow())?;
 		Ok(OwnedNode { data, plan })
 	}
 
+	/// Construct a `Node` by borrowing data from this struct.
 	pub fn node(&self) -> Node {
 		self.plan.build(self.data.borrow())
 	}
