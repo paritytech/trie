@@ -21,7 +21,7 @@ use std::ops::Range;
 use parity_scale_codec::{Decode, Input, Output, Encode, Compact, Error as CodecError};
 use trie_root::Hasher;
 use trie_db::{
-	node::{NibbleSlicePlan, NodePlan, Node},
+	node::{NibbleSlicePlan, NodePlan},
 	triedbmut::ChildReference,
 	DBValue,
 	trie_visit,
@@ -430,26 +430,6 @@ fn decode_size<I: Input>(first: u8, input: &mut I) -> Result<usize, CodecError> 
 		result += 255;
 	}
 	Err("Size limit reached for a nibble slice".into())
-}
-
-#[test]
-fn test_encoding_simple_trie() {
-	for prefix in [
-		LEAF_PREFIX_MASK_NO_EXT,
-		BRANCH_WITHOUT_MASK_NO_EXT,
-		BRANCH_WITH_MASK_NO_EXT,
-	].iter() {
-		for i in (0..1000).chain(NIBBLE_SIZE_BOUND_NO_EXT - 2..NIBBLE_SIZE_BOUND_NO_EXT + 2) {
-			let mut output = Vec::new();
-			encode_size_and_prefix(i, *prefix, &mut output);
-			let input	= &mut &output[..];
-			let first = input.read_byte().unwrap();
-			assert_eq!(first & (0b11 << 6), *prefix);
-			let v = decode_size(first, input);
-			assert_eq!(Ok(std::cmp::min(i, NIBBLE_SIZE_BOUND_NO_EXT)), v);
-		}
-
-	}
 }
 
 impl Encode for NodeHeaderNoExt {
@@ -1203,41 +1183,66 @@ pub fn compare_no_extension_insert_remove(
 	assert_eq!(*t.root(), calc_root_no_extension(data2));
 }
 
-#[test]
-fn too_big_nibble_length () {
-	// + 1 for 0 added byte of nibble encode
-	let input = vec![0u8; (NIBBLE_SIZE_BOUND_NO_EXT as usize + 1) / 2 + 1];
-	let enc = <ReferenceNodeCodecNoExt as NodeCodec<KeccakHasher>>
-		::leaf_node(((0, 0), &input), &[1]);
-	let dec = <ReferenceNodeCodecNoExt as NodeCodec<KeccakHasher>>
-		::decode(&enc).unwrap();
-	let o_sl = if let Node::Leaf(sl, _) = dec {
-		Some(sl)
-	} else { None };
-	assert!(o_sl.is_some());
-}
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use trie_db::node::Node;
 
-#[test]
-fn size_encode_limit_values () {
-	let sizes = [0, 1, 62, 63, 64, 317, 318, 319, 572, 573, 574];
-	let encs = [
-		vec![0],
-		vec![1],
-		vec![0x3e],
-		vec![0x3f, 0],
-		vec![0x3f, 1],
-		vec![0x3f, 0xfe],
-		vec![0x3f, 0xff, 0],
-		vec![0x3f, 0xff, 1],
-		vec![0x3f, 0xff, 0xfe],
-		vec![0x3f, 0xff, 0xff, 0],
-		vec![0x3f, 0xff, 0xff, 1],
-	];
-	for i in 0..sizes.len() {
-		let mut enc = Vec::new();
-		encode_size_and_prefix(sizes[i], 0, &mut enc);
-		assert_eq!(enc, encs[i]);
-		let s_dec = decode_size(encs[i][0], &mut &encs[i][1..]);
-		assert_eq!(s_dec, Ok(sizes[i]));
+	#[test]
+	fn test_encoding_simple_trie() {
+		for prefix in [
+			LEAF_PREFIX_MASK_NO_EXT,
+			BRANCH_WITHOUT_MASK_NO_EXT,
+			BRANCH_WITH_MASK_NO_EXT,
+		].iter() {
+			for i in (0..1000).chain(NIBBLE_SIZE_BOUND_NO_EXT - 2..NIBBLE_SIZE_BOUND_NO_EXT + 2) {
+				let mut output = Vec::new();
+				encode_size_and_prefix(i, *prefix, &mut output);
+				let input = &mut &output[..];
+				let first = input.read_byte().unwrap();
+				assert_eq!(first & (0b11 << 6), *prefix);
+				let v = decode_size(first, input);
+				assert_eq!(Ok(std::cmp::min(i, NIBBLE_SIZE_BOUND_NO_EXT)), v);
+			}
+		}
+	}
+
+	#[test]
+	fn too_big_nibble_length() {
+		// + 1 for 0 added byte of nibble encode
+		let input = vec![0u8; (NIBBLE_SIZE_BOUND_NO_EXT as usize + 1) / 2 + 1];
+		let enc = <ReferenceNodeCodecNoExt as NodeCodec<KeccakHasher>>
+		::leaf_node(((0, 0), &input), &[1]);
+		let dec = <ReferenceNodeCodecNoExt as NodeCodec<KeccakHasher>>
+		::decode(&enc).unwrap();
+		let o_sl = if let Node::Leaf(sl, _) = dec {
+			Some(sl)
+		} else { None };
+		assert!(o_sl.is_some());
+	}
+
+	#[test]
+	fn size_encode_limit_values() {
+		let sizes = [0, 1, 62, 63, 64, 317, 318, 319, 572, 573, 574];
+		let encs = [
+			vec![0],
+			vec![1],
+			vec![0x3e],
+			vec![0x3f, 0],
+			vec![0x3f, 1],
+			vec![0x3f, 0xfe],
+			vec![0x3f, 0xff, 0],
+			vec![0x3f, 0xff, 1],
+			vec![0x3f, 0xff, 0xfe],
+			vec![0x3f, 0xff, 0xff, 0],
+			vec![0x3f, 0xff, 0xff, 1],
+		];
+		for i in 0..sizes.len() {
+			let mut enc = Vec::new();
+			encode_size_and_prefix(sizes[i], 0, &mut enc);
+			assert_eq!(enc, encs[i]);
+			let s_dec = decode_size(encs[i][0], &mut &encs[i][1..]);
+			assert_eq!(s_dec, Ok(sizes[i]));
+		}
 	}
 }
