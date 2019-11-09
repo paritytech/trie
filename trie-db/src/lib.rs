@@ -80,10 +80,11 @@ pub mod recorder;
 
 mod fatdb;
 mod fatdbmut;
+mod iter_build;
+mod iterator;
 mod lookup;
 mod nibble;
 mod node_codec;
-mod iter_build;
 
 pub use hash_db::{HashDB, HashDBRef, Hasher};
 pub use self::triedb::{TrieDB, TrieDBIterator};
@@ -94,10 +95,11 @@ pub use self::fatdb::{FatDB, FatDBIterator};
 pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
-pub use self::nibble::{NibbleSlice, nibble_ops};
+pub use self::nibble::{NibbleSlice, NibbleVec, nibble_ops};
 pub use node_codec::{NodeCodec, Partial};
 pub use iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed};
+pub use iterator::TrieDBNodeIterator;
 
 #[cfg(feature = "std")]
 pub use iter_build::TrieRootPrint;
@@ -115,6 +117,10 @@ pub enum TrieError<T, E> {
 	InvalidStateRoot(T),
 	/// Trie item not found in the database,
 	IncompleteDatabase(T),
+	/// A value was found in the trie with a nibble key that was not byte-aligned.
+	/// The first parameter is the byte-aligned part of the prefix and the second parameter is the
+	/// remaining nibble.
+	ValueAtIncompleteKey(Vec<u8>, u8),
 	/// Corrupt Trie item
 	DecoderError(T, E),
 }
@@ -127,6 +133,8 @@ impl<T, E> fmt::Display for TrieError<T, E> where T: MaybeDebug, E: MaybeDebug {
 				write!(f, "Invalid state root: {:?}", root),
 			TrieError::IncompleteDatabase(ref missing) =>
 				write!(f, "Database missing expected key: {:?}", missing),
+			TrieError::ValueAtIncompleteKey(ref bytes, ref extra) =>
+				write!(f, "Value found in trie at incomplete key {:?} + {:?}", bytes, extra),
 			TrieError::DecoderError(ref hash, ref decoder_err) => {
 				write!(f, "Decoding failed for hash {:?}; err: {:?}", hash, decoder_err)
 			}
@@ -140,6 +148,7 @@ impl<T, E> Error for TrieError<T, E> where T: fmt::Debug, E: Error {
 		match *self {
 			TrieError::InvalidStateRoot(_) => "Invalid state root",
 			TrieError::IncompleteDatabase(_) => "Incomplete database",
+			TrieError::ValueAtIncompleteKey(_, _) => "Value at incomplete key",
 			TrieError::DecoderError(_, ref err) => err.description(),
 		}
 	}
