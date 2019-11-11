@@ -15,8 +15,7 @@
 use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
 use nibble::NibbleSlice;
 use iterator::TrieDBNodeIterator;
-use super::node::{Node, OwnedNode};
-use node_codec::NodeCodec;
+use super::node::{NodeHandle, Node, OwnedNode, decode_hash};
 use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query,
 	TrieLayout, CError, TrieHash};
@@ -99,25 +98,31 @@ where
 	///
 	/// `partial_key` is encoded nibble slice that addresses the node.
 	pub(crate) fn get_raw_or_lookup(
-		&self, node: &[u8],
+		&self,
+		parent_hash: TrieHash<L>,
+		node_handle: NodeHandle,
 		partial_key: Prefix,
 	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
-		let node_hash = L::Codec::try_decode_hash(node);
-		let node_data = if let Some(key) = node_hash {
-			self.db
-				.get(&key, partial_key)
-				.ok_or_else(|| {
-					if partial_key == EMPTY_PREFIX {
-						Box::new(TrieError::InvalidStateRoot(key))
-					} else {
-						Box::new(TrieError::IncompleteDatabase(key))
-					}
-				})?
-		} else {
-			DBValue::from_slice(node)
+		let (node_hash, node_data) = match node_handle {
+			NodeHandle::Hash(data) => {
+				let node_hash = decode_hash::<L::Hash>(data)
+					.ok_or_else(|| Box::new(TrieError::InvalidHash(parent_hash, data.to_vec())))?;
+				let node_data = self.db
+					.get(&node_hash, partial_key)
+					.ok_or_else(|| {
+						if partial_key == EMPTY_PREFIX {
+							Box::new(TrieError::InvalidStateRoot(node_hash))
+						} else {
+							Box::new(TrieError::IncompleteDatabase(node_hash))
+						}
+					})?;
+
+				(Some(node_hash), node_data)
+			}
+			NodeHandle::Inline(data) => (None, DBValue::from_slice(data)),
 		};
 		let owned_node = OwnedNode::new::<L::Hash, L::Codec>(node_data)
-			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or_default(), e)))?;
+			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or(parent_hash), e)))?;
 		Ok((owned_node, node_hash))
 	}
 }
@@ -159,7 +164,7 @@ where
 	L: TrieLayout,
 {
 	trie: &'db TrieDB<'db, L>,
-	node_key: &'a[u8],
+	node_key: NodeHandle<'a>,
 	partial_key: NibbleVec,
 	index: Option<u8>,
 }
@@ -170,7 +175,11 @@ where
 	L: TrieLayout,
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		match self.trie.get_raw_or_lookup(self.node_key, self.partial_key.as_prefix()) {
+		match self.trie.get_raw_or_lookup(
+			<TrieHash<L>>::default(),
+			self.node_key,
+			self.partial_key.as_prefix()
+		) {
 			Ok((owned_node, _node_hash)) => match owned_node.node() {
 				Node::Leaf(slice, value) =>
 					match (f.debug_struct("Node::Leaf"), self.index) {
@@ -180,7 +189,7 @@ where
 						.field("slice", &slice)
 						.field("value", &value)
 						.finish(),
-				Node::Extension(slice, item) =>
+				Node::Extension(slice, item) => {
 					match (f.debug_struct("Node::Extension"), self.index) {
 						(ref mut d, Some(i)) => d.field("index", &i),
 						(ref mut d, _) => d,
@@ -193,7 +202,8 @@ where
 								.clone_append_optional_slice_and_nibble(Some(&slice), None),
 							index: None,
 						})
-						.finish(),
+						.finish()
+				},
 				Node::Branch(ref nodes, ref value) => {
 					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.into_iter()
 						.enumerate()
@@ -255,7 +265,7 @@ where
 			.field("hash_count", &self.hash_count)
 			.field("root", &TrieAwareDebugNode {
 				trie: self,
-				node_key: self.root().as_ref(),
+				node_key: NodeHandle::Hash(self.root().as_ref()),
 				partial_key: NibbleVec::new(),
 				index: None,
 			})

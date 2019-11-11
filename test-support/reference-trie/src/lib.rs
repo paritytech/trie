@@ -21,7 +21,7 @@ use std::ops::Range;
 use parity_scale_codec::{Decode, Input, Output, Encode, Compact, Error as CodecError};
 use trie_root::Hasher;
 use trie_db::{
-	node::{NibbleSlicePlan, NodePlan},
+	node::{NibbleSlicePlan, NodePlan, NodeHandlePlan},
 	triedbmut::ChildReference,
 	DBValue,
 	trie_visit,
@@ -641,7 +641,12 @@ impl<H: Hasher> NodeCodec<H> for ReferenceNodeCodec {
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
 					if bitmap.value_at(i) {
 						let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-						children[i] = Some(input.take(count)?);
+						let range = input.take(count)?;
+						children[i] = Some(if count == H::LENGTH {
+							NodeHandlePlan::Hash(range)
+						} else {
+							NodeHandlePlan::Inline(range)
+						});
 					}
 				}
 				Ok(NodePlan::Branch { value, children })
@@ -652,7 +657,12 @@ impl<H: Hasher> NodeCodec<H> for ReferenceNodeCodec {
 				)?;
 				let partial_padding = nibble_ops::number_padding(nibble_count);
 				let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-				let child = input.take(count)?;
+				let range = input.take(count)?;
+				let child = if count == H::LENGTH {
+					NodeHandlePlan::Hash(range)
+				} else {
+					NodeHandlePlan::Inline(range)
+				};
 				Ok(NodePlan::Extension {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
 					child
@@ -790,7 +800,12 @@ impl<H: Hasher> NodeCodec<H> for ReferenceNodeCodecNoExt {
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
 					if bitmap.value_at(i) {
 						let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-						children[i] = Some(input.take(count)?);
+						let range = input.take(count)?;
+						children[i] = Some(if count == H::LENGTH {
+							NodeHandlePlan::Hash(range)
+						} else {
+							NodeHandlePlan::Inline(range)
+						});
 					}
 				}
 				Ok(NodePlan::NibbledBranch {
