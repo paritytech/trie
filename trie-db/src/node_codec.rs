@@ -59,9 +59,6 @@ pub trait NodeCodec<H: Hasher>: Sized {
 		Ok(Self::decode_plan(data)?.build(data))
 	}
 
-	/// Decode bytes to the `Hasher`s output type. Returns `None` on failure.
-	fn try_decode_hash(data: &[u8]) -> Option<H::Out>;
-
 	/// Check if the provided bytes correspond to the codecs "empty" node.
 	fn is_empty_node(data: &[u8]) -> bool;
 

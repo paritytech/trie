@@ -683,16 +683,6 @@ impl<H: Hasher> NodeCodec<H> for ReferenceNodeCodec {
 		}
 	}
 
-	fn try_decode_hash(data: &[u8]) -> Option<<H as Hasher>::Out> {
-		if data.len() == H::LENGTH {
-			let mut r = <H as Hasher>::Out::default();
-			r.as_mut().copy_from_slice(data);
-			Some(r)
-		} else {
-			None
-		}
-	}
-
 	fn is_empty_node(data: &[u8]) -> bool {
 		data == <Self as NodeCodec<H>>::empty_node()
 	}
@@ -832,10 +822,6 @@ impl<H: Hasher> NodeCodec<H> for ReferenceNodeCodecNoExt {
 				})
 			}
 		}
-	}
-
-	fn try_decode_hash(data: &[u8]) -> Option<<H as Hasher>::Out> {
-		<ReferenceNodeCodec as NodeCodec<H>>::try_decode_hash(data)
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
