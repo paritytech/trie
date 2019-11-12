@@ -62,6 +62,11 @@ impl NibbleSlicePlan {
 		}
 	}
 
+	/// Returns the nibble length of the slice.
+	pub fn len(&self) -> usize {
+		(self.bytes.end - self.bytes.start) * nibble_ops::NIBBLE_PER_BYTE - self.offset
+	}
+
 	/// Build a nibble slice by decoding a byte slice according to the plan. It is the
 	/// responsibility of the caller to ensure that the node plan was created for the argument
 	/// data, otherwise the call decode incorrectly or panic.
@@ -150,6 +155,16 @@ impl<D: Borrow<[u8]>> OwnedNode<D> {
 	pub fn new<H: Hasher, C: NodeCodec<H>>(data: D) -> Result<Self, C::Error> {
 		let plan = C::decode_plan(data.borrow())?;
 		Ok(OwnedNode { data, plan })
+	}
+
+	/// Returns a reference to the backing data.
+	pub fn data(&self) -> &[u8] {
+		self.data.borrow()
+	}
+
+	/// Returns a reference to the node decode plan.
+	pub fn node_plan(&self) -> &NodePlan {
+		&self.plan
 	}
 
 	/// Construct a `Node` by borrowing data from this struct.

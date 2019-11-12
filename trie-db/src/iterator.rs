@@ -15,7 +15,7 @@
 use super::{CError, DBValue, Result, Trie, TrieError, TrieHash, TrieIterator, TrieLayout};
 use hash_db::{Hasher, EMPTY_PREFIX};
 use triedb::TrieDB;
-use node::{Node, OwnedNode};
+use node::{NodePlan, OwnedNode};
 use nibble::{NibbleSlice, NibbleVec, nibble_ops};
 
 #[cfg(feature = "std")]
@@ -28,7 +28,7 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 #[cfg_attr(feature = "std", derive(Debug))]
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum Status {
 	Entering,
 	At,
@@ -47,14 +47,14 @@ struct Crumb<H: Hasher> {
 impl<H: Hasher> Crumb<H> {
 	/// Move on to next status in the node's sequence.
 	fn increment(&mut self) {
-		self.status = match (&self.status, self.node.node()) {
-			(&Status::Entering, Node::Extension(..)) => Status::At,
-			(&Status::Entering, Node::Branch(..))
-			| (&Status::Entering, Node::NibbledBranch(..)) => Status::At,
-			(&Status::At, Node::Branch(..))
-			| (&Status::At, Node::NibbledBranch(..)) => Status::AtChild(0),
-			(&Status::AtChild(x), Node::Branch(..))
-			| (&Status::AtChild(x), Node::NibbledBranch(..))
+		self.status = match (self.status, self.node.node_plan()) {
+			(Status::Entering, NodePlan::Extension { .. }) => Status::At,
+			(Status::Entering, NodePlan::Branch { .. })
+			| (Status::Entering, NodePlan::NibbledBranch { .. }) => Status::At,
+			(Status::At, NodePlan::Branch { .. })
+			| (Status::At, NodePlan::NibbledBranch { .. }) => Status::AtChild(0),
+			(Status::AtChild(x), NodePlan::Branch { .. })
+			| (Status::AtChild(x), NodePlan::NibbledBranch { .. })
 			if x < (nibble_ops::NIBBLE_LENGTH - 1) => Status::AtChild(x + 1),
 			_ => Status::Exiting,
 		}
@@ -99,15 +99,18 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 						"descend_into_node pushes a crumb onto the trial; \
 						thus the trail is non-empty; qed"
 					);
+				let node_data = crumb.node.data();
 
-				match crumb.node.node() {
-					Node::Leaf(slice, _) => {
+				match crumb.node.node_plan() {
+					NodePlan::Leaf { partial: partial_plan, .. } => {
+						let slice = partial_plan.build(node_data);
 						if slice < partial {
 							crumb.status = Status::Exiting;
 						}
 						return Ok(())
 					},
-					Node::Extension(slice, item) => {
+					NodePlan::Extension { partial: partial_plan, child } => {
+						let slice = partial_plan.build(node_data);
 						if !partial.starts_with(&slice) {
 							if slice < partial {
 								crumb.status = Status::Exiting;
@@ -122,9 +125,9 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 						self.key_nibbles.append_partial(slice.right());
 
 						let prefix = key.back(full_key_nibbles);
-						self.db.get_raw_or_lookup(item, prefix.left())?
+						self.db.get_raw_or_lookup(&node_data[child.clone()], prefix.left())?
 					},
-					Node::Branch(nodes, _) => {
+					NodePlan::Branch { value: _, children } => {
 						if partial.is_empty() {
 							return Ok(())
 						}
@@ -133,17 +136,18 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 						crumb.status = Status::AtChild(i as usize);
 						self.key_nibbles.push(i);
 
-						if let Some(child) = nodes[i as usize] {
+						if let Some(child) = &children[i as usize] {
 							full_key_nibbles += 1;
 							partial = partial.mid(1);
 
 							let prefix = key.back(full_key_nibbles);
-							self.db.get_raw_or_lookup(child, prefix.left())?
+							self.db.get_raw_or_lookup(&node_data[child.clone()], prefix.left())?
 						} else {
 							return Ok(())
 						}
 					},
-					Node::NibbledBranch(slice, nodes, _) => {
+					NodePlan::NibbledBranch { partial: partial_plan, value: _, children } => {
+						let slice = partial_plan.build(node_data);
 						if !partial.starts_with(&slice) {
 							if slice < partial {
 								crumb.status = Status::Exiting;
@@ -165,17 +169,17 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 						self.key_nibbles.append_partial(slice.right());
 						self.key_nibbles.push(i);
 
-						if let Some(child) = nodes[i as usize] {
+						if let Some(child) = &children[i as usize] {
 							full_key_nibbles += 1;
 							partial = partial.mid(1);
 
 							let prefix = key.back(full_key_nibbles);
-							self.db.get_raw_or_lookup(child, prefix.left())?
+							self.db.get_raw_or_lookup(&node_data[child.clone()], prefix.left())?
 						} else {
 							return Ok(())
 						}
 					},
-					Node::Empty => {
+					NodePlan::Empty => {
 						if !partial.is_empty() {
 							crumb.status = Status::Exiting;
 						}
@@ -215,57 +219,68 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 	fn next(&mut self) -> Option<Self::Item> {
 		enum IterStep<O, E> {
 			YieldNode,
-			Continue,
 			PopTrail,
+			Continue,
 			Descend(Result<(OwnedNode<DBValue>, Option<O>), O, E>),
 		}
 		loop {
 			let iter_step = {
-				let b = self.trail.last()?;
+				let b = self.trail.last_mut()?;
+				let node_data = b.node.data();
 
-				match (b.status.clone(), b.node.node()) {
+				match (b.status, b.node.node_plan()) {
 					(Status::Entering, _) => IterStep::YieldNode,
 					(Status::Exiting, node) => {
 						match node {
-							Node::Empty | Node::Leaf(_, _) => {},
-							Node::Extension(n, _) =>
-								self.key_nibbles.drop_lasts(n.len()),
-							Node::Branch(_, _) => { self.key_nibbles.pop(); },
-							Node::NibbledBranch(n, _, _) =>
-								self.key_nibbles.drop_lasts(n.len() + 1),
+							NodePlan::Empty | NodePlan::Leaf { .. } => {},
+							NodePlan::Extension { partial, .. } => {
+								self.key_nibbles.drop_lasts(partial.len());
+							},
+							NodePlan::Branch { .. } => { self.key_nibbles.pop(); },
+							NodePlan::NibbledBranch { partial, .. } => {
+								self.key_nibbles.drop_lasts(partial.len() + 1);
+							},
 						}
 						IterStep::PopTrail
 					},
-					(Status::At, Node::Extension(partial, d)) => {
+					(Status::At, NodePlan::Extension { partial: partial_plan, child }) => {
+						let partial = partial_plan.build(node_data);
 						self.key_nibbles.append_partial(partial.right());
 						IterStep::Descend::<TrieHash<L>, CError<L>>(
-							self.db.get_raw_or_lookup(d, self.key_nibbles.as_prefix())
+							self.db.get_raw_or_lookup(
+								&node_data[child.clone()],
+								self.key_nibbles.as_prefix()
+							)
 						)
 					},
-					(Status::At, Node::Branch(_, _)) => {
+					(Status::At, NodePlan::Branch { .. }) => {
 						self.key_nibbles.push(0);
 						IterStep::Continue
 					},
-					(Status::At, Node::NibbledBranch(partial, _, _)) => {
+					(Status::At, NodePlan::NibbledBranch { partial: partial_plan, .. }) => {
+						let partial = partial_plan.build(node_data);
 						self.key_nibbles.append_partial(partial.right());
 						self.key_nibbles.push(0);
 						IterStep::Continue
 					},
-					(Status::AtChild(i), Node::Branch(children, _))
-					| (Status::AtChild(i), Node::NibbledBranch(_, children, _)) => {
-						if let Some(child) = children[i] {
+					(Status::AtChild(i), NodePlan::Branch { children, .. })
+					| (Status::AtChild(i), NodePlan::NibbledBranch { children, .. }) => {
+						if let Some(child) = &children[i] {
 							self.key_nibbles.pop();
 							self.key_nibbles.push(i as u8);
 							IterStep::Descend::<TrieHash<L>, CError<L>>(
-								self.db.get_raw_or_lookup(child, self.key_nibbles.as_prefix())
+								self.db.get_raw_or_lookup(
+									&node_data[child.clone()],
+									self.key_nibbles.as_prefix()
+								)
 							)
 						} else {
 							IterStep::Continue
 						}
 					},
 					_ => panic!(
-						"Crumb::increment and TrieDBNodeIterator are implemented so that the above \
-						arms are the only possible states"
+						"Crumb::increment and TrieDBNodeIterator are implemented so that \
+						the above arms are the only possible states"
 					),
 				}
 			};
