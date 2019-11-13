@@ -121,7 +121,7 @@ where
 			}
 			NodeHandle::Inline(data) => (None, DBValue::from_slice(data)),
 		};
-		let owned_node = OwnedNode::new::<L::Hash, L::Codec>(node_data)
+		let owned_node = OwnedNode::new::<L::Codec>(node_data)
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or(parent_hash), e)))?;
 		Ok((owned_node, node_hash))
 	}

@@ -423,7 +423,7 @@ pub trait TrieLayout {
 	/// Hasher to use for this trie.
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
-	type Codec: NodeCodec<Self::Hash>;
+	type Codec: NodeCodec<HashOut=<Self::Hash as Hasher>::Out>;
 }
 
 /// This traits associates a trie definition with prefered methods.
@@ -485,6 +485,4 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 /// Alias accessor to hasher hash output type from a `TrieLayout`.
 pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
-pub type CError<L> = <
-	<L as TrieLayout>::Codec as NodeCodec<<L as TrieLayout>::Hash>
->::Error;
+pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;

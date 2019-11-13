@@ -15,14 +15,17 @@
 //! Generic trait for trie node encoding/decoding. Takes a `hash_db::Hasher`
 //! to parametrize the hashes used in the codec.
 
-use hash_db::Hasher;
+use hash_db::MaybeDebug;
 use node::{Node, NodePlan};
 use ChildReference;
 #[cfg(feature = "std")]
 use std::borrow::Borrow;
-
 #[cfg(not(feature = "std"))]
 use core::borrow::Borrow;
+#[cfg(feature = "std")]
+use std::hash;
+#[cfg(not(feature = "std"))]
+use core::hash;
 
 #[cfg(feature = "std")]
 use std::error::Error;
@@ -44,12 +47,16 @@ impl<T> Error for T {}
 pub type Partial<'a> = ((u8, u8), &'a[u8]);
 
 /// Trait for trie node encoding/decoding.
-pub trait NodeCodec<H: Hasher>: Sized {
+pub trait NodeCodec: Sized {
 	/// Codec error type.
 	type Error: Error;
 
+	/// Output type of encoded node hasher.
+	type HashOut: AsRef<[u8]> + AsMut<[u8]> + Default + MaybeDebug + PartialEq + Eq
+		+ hash::Hash + Send + Sync + Clone + Copy;
+
 	/// Get the hashed null node.
-	fn hashed_null_node() -> H::Out;
+	fn hashed_null_node() -> Self::HashOut;
 
 	/// Decode bytes to a `NodePlan`. Returns `Self::E` on failure.
 	fn decode_plan(data: &[u8]) -> Result<NodePlan, Self::Error>;
@@ -75,13 +82,13 @@ pub trait NodeCodec<H: Hasher>: Sized {
 	fn extension_node(
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
-		child_ref: ChildReference<H::Out>,
+		child_ref: ChildReference<Self::HashOut>,
 	) -> Vec<u8>;
 
 	/// Returns an encoded branch node.
-	/// Takes an iterator yielding `ChildReference<H::Out>` and an optional value.
+	/// Takes an iterator yielding `ChildReference<Self::HashOut>` and an optional value.
 	fn branch_node(
-		children: impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>,
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Option<&[u8]>,
 	) -> Vec<u8>;
 
@@ -90,8 +97,7 @@ pub trait NodeCodec<H: Hasher>: Sized {
 	fn branch_node_nibbled(
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
-		children: impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>,
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Option<&[u8]>
 	) -> Vec<u8>;
 }
-

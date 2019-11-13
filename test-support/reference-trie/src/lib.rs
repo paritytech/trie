@@ -47,8 +47,8 @@ pub struct ExtensionLayout;
 
 impl TrieLayout for ExtensionLayout {
 	const USE_EXTENSION: bool = true;
-	type Hash = keccak_hasher::KeccakHasher;
-	type Codec = ReferenceNodeCodec;
+	type Hash = KeccakHasher;
+	type Codec = ReferenceNodeCodec<KeccakHasher>;
 }
 
 impl TrieConfiguration for ExtensionLayout { }
@@ -60,7 +60,7 @@ pub struct GenericNoExtensionLayout<H>(PhantomData<H>);
 impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	const USE_EXTENSION: bool = false;
 	type Hash = H;
-	type Codec = ReferenceNodeCodecNoExt;
+	type Codec = ReferenceNodeCodecNoExt<H>;
 }
 
 impl<H: Hasher> TrieConfiguration for GenericNoExtensionLayout<H> { }
@@ -481,14 +481,14 @@ impl Decode for NodeHeaderNoExt {
 
 /// Simple reference implementation of a `NodeCodec`.
 #[derive(Default, Clone)]
-pub struct ReferenceNodeCodec;
+pub struct ReferenceNodeCodec<H>(PhantomData<H>);
 
 /// Simple reference implementation of a `NodeCodec`.
 /// Even if implementation follows initial specification of
 /// https://github.com/w3f/polkadot-re-spec/issues/8, this may
 /// not follow it in the future, it is mainly the testing codec without extension node.
 #[derive(Default, Clone)]
-pub struct ReferenceNodeCodecNoExt;
+pub struct ReferenceNodeCodecNoExt<H>(PhantomData<H>);
 
 fn partial_to_key(partial: Partial, offset: u8, over: u8) -> Vec<u8> {
 	let number_nibble_encoded = (partial.0).0 as usize;
@@ -613,11 +613,12 @@ impl<'a> Input for ByteSliceInput<'a> {
 // but due to the current limitations of Rust const evaluation we can't do
 // `const HASHED_NULL_NODE: <KeccakHasher as Hasher>::Out = <KeccakHasher as Hasher>::Out( … … )`.
 // Perhaps one day soon?
-impl<H: Hasher> NodeCodec<H> for ReferenceNodeCodec {
+impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 	type Error = CodecError;
+	type HashOut = H::Out;
 
 	fn hashed_null_node() -> <H as Hasher>::Out {
-		H::hash(<Self as NodeCodec<H>>::empty_node())
+		H::hash(<Self as NodeCodec>::empty_node())
 	}
 
 	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
@@ -684,7 +685,7 @@ impl<H: Hasher> NodeCodec<H> for ReferenceNodeCodec {
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
-		data == <Self as NodeCodec<H>>::empty_node()
+		data == <Self as NodeCodec>::empty_node()
 	}
 
 	fn empty_node() -> &'static[u8] {
@@ -700,7 +701,7 @@ impl<H: Hasher> NodeCodec<H> for ReferenceNodeCodec {
 	fn extension_node(
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
-		child: ChildReference<<H as Hasher>::Out>,
+		child: ChildReference<Self::HashOut>,
 	) -> Vec<u8> {
 		let mut output = partial_from_iterator_to_key(
 			partial,
@@ -717,7 +718,7 @@ impl<H: Hasher> NodeCodec<H> for ReferenceNodeCodec {
 	}
 
 	fn branch_node(
-		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
 	) -> Vec<u8> {
 		let mut output = vec![0; BITMAP_LENGTH + 1];
@@ -747,18 +748,19 @@ impl<H: Hasher> NodeCodec<H> for ReferenceNodeCodec {
 	fn branch_node_nibbled(
 		_partial:	impl Iterator<Item = u8>,
 		_number_nibble: usize,
-		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
+		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		_maybe_value: Option<&[u8]>) -> Vec<u8> {
 		unreachable!()
 	}
 
 }
 
-impl<H: Hasher> NodeCodec<H> for ReferenceNodeCodecNoExt {
+impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 	type Error = CodecError;
+	type HashOut = <H as Hasher>::Out;
 
 	fn hashed_null_node() -> <H as Hasher>::Out {
-		H::hash(<Self as NodeCodec<H>>::empty_node())
+		H::hash(<Self as NodeCodec>::empty_node())
 	}
 
 	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
@@ -825,7 +827,7 @@ impl<H: Hasher> NodeCodec<H> for ReferenceNodeCodecNoExt {
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
-		data == <Self as NodeCodec<H>>::empty_node()
+		data == <Self as NodeCodec>::empty_node()
 	}
 
 	fn empty_node() -> &'static [u8] {
@@ -856,7 +858,7 @@ impl<H: Hasher> NodeCodec<H> for ReferenceNodeCodecNoExt {
 	fn branch_node_nibbled(
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
-		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
 	) -> Vec<u8> {
 		let mut output = if maybe_value.is_some() {
@@ -1212,9 +1214,9 @@ mod tests {
 	fn too_big_nibble_length() {
 		// + 1 for 0 added byte of nibble encode
 		let input = vec![0u8; (NIBBLE_SIZE_BOUND_NO_EXT as usize + 1) / 2 + 1];
-		let enc = <ReferenceNodeCodecNoExt as NodeCodec<KeccakHasher>>
+		let enc = <ReferenceNodeCodecNoExt<KeccakHasher> as NodeCodec>
 		::leaf_node(((0, 0), &input), &[1]);
-		let dec = <ReferenceNodeCodecNoExt as NodeCodec<KeccakHasher>>
+		let dec = <ReferenceNodeCodecNoExt<KeccakHasher> as NodeCodec>
 		::decode(&enc).unwrap();
 		let o_sl = if let Node::Leaf(sl, _) = dec {
 			Some(sl)

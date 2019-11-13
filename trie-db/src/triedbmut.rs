@@ -106,8 +106,8 @@ where
 		storage: &mut NodeStorage<H::Out>
 	) -> Result<NodeHandle<H::Out>, H::Out, C::Error>
 	where
-		C: NodeCodec<H>,
-		H: Hasher<Out = O>,
+		C: NodeCodec<HashOut=O>,
+		H: Hasher<Out=O>,
 	{
 		let handle = match child {
 			EncodedNodeHandle::Hash(data) => {
@@ -131,7 +131,7 @@ where
 		storage: &'b mut NodeStorage<H::Out>,
 	) -> Result<Self, H::Out, C::Error>
 		where
-			C: NodeCodec<H>, H: Hasher<Out = O>,
+			C: NodeCodec<HashOut = O>, H: Hasher<Out = O>,
 	{
 		let encoded_node = C::decode(data)
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash, e)))?;
@@ -183,7 +183,7 @@ where
 	// TODO: parallelize
 	fn into_encoded<F, C, H>(self, mut child_cb: F) -> Vec<u8>
 	where
-		C: NodeCodec<H>,
+		C: NodeCodec<HashOut=O>,
 		F: FnMut(NodeHandle<H::Out>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
 		H: Hasher<Out = O>,
 	{
@@ -1618,7 +1618,7 @@ mod tests {
 	}
 
 	fn reference_hashed_null_node() -> <KeccakHasher as Hasher>::Out {
-		<ReferenceNodeCodec	as NodeCodec<KeccakHasher>>::hashed_null_node()
+		<ReferenceNodeCodec<KeccakHasher> as NodeCodec>::hashed_null_node()
 	}
 
 	#[test]
