@@ -90,13 +90,6 @@ where
 	/// Get the backing database.
 	pub fn db(&'db self) -> &'db dyn HashDBRef<L::Hash, DBValue> { self.db }
 
-	/// Get the data of the root node.
-	pub fn root_data(&self) -> Result<DBValue, TrieHash<L>, CError<L>> {
-		self.db
-			.get(self.root, EMPTY_PREFIX)
-			.ok_or_else(|| Box::new(TrieError::InvalidStateRoot(*self.root)))
-	}
-
 	/// Given some node-describing data `node`, and node key return the actual node RLP.
 	/// This could be a simple identity operation in the case that the node is sufficiently small,
 	/// but may require a database lookup.

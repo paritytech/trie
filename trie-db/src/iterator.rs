@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{CError, DBValue, Result, Trie, TrieError, TrieHash, TrieIterator, TrieLayout};
+use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout};
 use hash_db::{Hasher, EMPTY_PREFIX};
 use triedb::TrieDB;
 use node::{NodePlan, OwnedNode};
@@ -81,14 +81,24 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 		Ok(r)
 	}
 
-	fn seek(
-		&mut self,
-		node_data: DBValue,
-		mut node_hash: Option<TrieHash<L>>,
-		key: NibbleSlice,
-	) -> Result<(), TrieHash<L>, CError<L>> {
-		let mut node = OwnedNode::new::<L::Hash, L::Codec>(node_data)
-			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or_default(), e)))?;
+	/// Descend into a payload.
+	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<TrieHash<L>>) {
+		self.trail.push(Crumb {
+			hash: node_hash,
+			status: Status::Entering,
+			node: Rc::new(node),
+		});
+	}
+}
+
+impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
+	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+		self.trail.clear();
+		self.key_nibbles.clear();
+		let key = NibbleSlice::new(key);
+
+		let (mut node, mut node_hash) =
+			self.db.get_raw_or_lookup(self.db.root().as_ref(), EMPTY_PREFIX)?;
 		let mut partial = key;
 		let mut full_key_nibbles = 0;
 		loop {
@@ -191,25 +201,6 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 			node = next_node;
 			node_hash = next_node_hash;
 		}
-	}
-
-	/// Descend into a payload.
-	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<TrieHash<L>>) {
-		self.trail.push(Crumb {
-			hash: node_hash,
-			status: Status::Entering,
-			node: Rc::new(node),
-		});
-	}
-}
-
-impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
-	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
-		self.trail.clear();
-		self.key_nibbles.clear();
-		let root_node = self.db.root_data()?;
-		let root_hash = self.db.root().clone();
-		self.seek(root_node, Some(root_hash), NibbleSlice::new(key.as_ref()))
 	}
 }
 
