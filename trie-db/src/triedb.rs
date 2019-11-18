@@ -90,17 +90,9 @@ where
 	/// Get the backing database.
 	pub fn db(&'db self) -> &'db dyn HashDBRef<L::Hash, DBValue> { self.db }
 
-	/// Get the data of the root node.
-	pub fn root_data(&self) -> Result<DBValue, TrieHash<L>, CError<L>> {
-		self.db
-			.get(self.root, EMPTY_PREFIX)
-			.ok_or_else(|| Box::new(TrieError::InvalidStateRoot(*self.root)))
-	}
-
 	/// Given some node-describing data `node`, and node key return the actual node RLP.
 	/// This could be a simple identity operation in the case that the node is sufficiently small,
-	/// but may require a database lookup. If `is_root_data` then this is root-data and
-	/// is known to be literal.
+	/// but may require a database lookup.
 	///
 	/// Return value is the node data and the node hash if the value was looked up in the database
 	/// or None if it was returned raw.
@@ -109,16 +101,24 @@ where
 	pub(crate) fn get_raw_or_lookup(
 		&self, node: &[u8],
 		partial_key: Prefix,
-	) -> Result<(DBValue, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
-		match (partial_key.0.is_empty() && partial_key.1.is_none(), L::Codec::try_decode_hash(node)) {
-			(false, Some(key)) => {
-				let data = self.db
-					.get(&key, partial_key)
-					.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(key)))?;
-				Ok((data, Some(key)))
-			}
-			_ => Ok((DBValue::from_slice(node), None)),
-		}
+	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
+		let node_hash = L::Codec::try_decode_hash(node);
+		let node_data = if let Some(key) = node_hash {
+			self.db
+				.get(&key, partial_key)
+				.ok_or_else(|| {
+					if partial_key == EMPTY_PREFIX {
+						Box::new(TrieError::InvalidStateRoot(key))
+					} else {
+						Box::new(TrieError::IncompleteDatabase(key))
+					}
+				})?
+		} else {
+			DBValue::from_slice(node)
+		};
+		let owned_node = OwnedNode::new::<L::Hash, L::Codec>(node_data)
+			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or_default(), e)))?;
+		Ok((owned_node, node_hash))
 	}
 }
 
@@ -170,9 +170,9 @@ where
 	L: TrieLayout,
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		if let Ok((node, _inline)) = self.trie.get_raw_or_lookup(self.node_key, self.partial_key.as_prefix()) {
-			match L::Codec::decode(&node) {
-				Ok(Node::Leaf(slice, value)) =>
+		match self.trie.get_raw_or_lookup(self.node_key, self.partial_key.as_prefix()) {
+			Ok((owned_node, _node_hash)) => match owned_node.node() {
+				Node::Leaf(slice, value) =>
 					match (f.debug_struct("Node::Leaf"), self.index) {
 						(ref mut d, Some(i)) => d.field("index", &i),
 						(ref mut d, _) => d,
@@ -180,13 +180,13 @@ where
 						.field("slice", &slice)
 						.field("value", &value)
 						.finish(),
-				Ok(Node::Extension(slice, item)) =>
+				Node::Extension(slice, item) =>
 					match (f.debug_struct("Node::Extension"), self.index) {
 						(ref mut d, Some(i)) => d.field("index", &i),
 						(ref mut d, _) => d,
 					}
 						.field("slice", &slice)
-						.field("item", &TrieAwareDebugNode{
+						.field("item", &TrieAwareDebugNode {
 							trie: self.trie,
 							node_key: item,
 							partial_key: self.partial_key
@@ -194,7 +194,7 @@ where
 							index: None,
 						})
 						.finish(),
-				Ok(Node::Branch(ref nodes, ref value)) => {
+				Node::Branch(ref nodes, ref value) => {
 					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.into_iter()
 						.enumerate()
 						.filter_map(|(i, n)| n.map(|n| (i, n)))
@@ -214,7 +214,7 @@ where
 						.field("value", &value)
 						.finish()
 				},
-				Ok(Node::NibbledBranch(slice, nodes, value)) => {
+				Node::NibbledBranch(slice, nodes, value) => {
 					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.into_iter()
 						.enumerate()
 						.filter_map(|(i, n)| n.map(|n| (i, n)))
@@ -234,20 +234,13 @@ where
 						.field("value", &value)
 						.finish()
 				},
-				Ok(Node::Empty) => f.debug_struct("Node::Empty").finish(),
-
-				Err(e) => f.debug_struct("BROKEN_NODE")
-					.field("index", &self.index)
-					.field("key", &self.node_key)
-					.field("error", &format!("ERROR decoding node branch Rlp: {}", e))
-					.finish()
-			}
-		} else {
-			f.debug_struct("BROKEN_NODE")
+				Node::Empty => f.debug_struct("Node::Empty").finish(),
+			},
+			Err(e) => f.debug_struct("BROKEN_NODE")
 				.field("index", &self.index)
 				.field("key", &self.node_key)
-				.field("error", &"Not found")
-				.finish()
+				.field("error", &format!("ERROR fetching node: {}", e))
+				.finish(),
 		}
 	}
 }
@@ -258,12 +251,11 @@ where
 	L: TrieLayout,
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		let root_rlp = self.root_data().unwrap();
 		f.debug_struct("TrieDB")
 			.field("hash_count", &self.hash_count)
 			.field("root", &TrieAwareDebugNode {
 				trie: self,
-				node_key: &root_rlp[..],
+				node_key: self.root().as_ref(),
 				partial_key: NibbleVec::new(),
 				index: None,
 			})
@@ -298,16 +290,15 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 		while let Some(item) = self.inner.next() {
 			match item {
 				Ok((mut prefix, _, node)) => {
-					let maybe_value = match node.as_ref() {
-						&OwnedNode::Leaf(ref partial, ref value) => {
-						prefix.append(partial);
-							Some(value.as_ref())
+					let maybe_value = match node.node() {
+						Node::Leaf(partial, value) => {
+							prefix.append_partial(partial.right());
+							Some(value)
 						}
-						&OwnedNode::Branch(ref branch) =>
-							branch.get_value(),
-						&OwnedNode::NibbledBranch(ref partial, ref branch) => {
-							prefix.append(partial);
-							branch.get_value()
+						Node::Branch(_, value) => value,
+						Node::NibbledBranch(partial, _, value) => {
+							prefix.append_partial(partial.right());
+							value
 						}
 						_ => None,
 					};

@@ -16,7 +16,7 @@
 //! to parametrize the hashes used in the codec.
 
 use hash_db::Hasher;
-use node::Node;
+use node::{Node, NodePlan};
 use ChildReference;
 #[cfg(feature = "std")]
 use std::borrow::Borrow;
@@ -51,8 +51,13 @@ pub trait NodeCodec<H: Hasher>: Sized {
 	/// Get the hashed null node.
 	fn hashed_null_node() -> H::Out;
 
+	/// Decode bytes to a `NodePlan`. Returns `Self::E` on failure.
+	fn decode_plan(data: &[u8]) -> Result<NodePlan, Self::Error>;
+
 	/// Decode bytes to a `Node`. Returns `Self::E` on failure.
-	fn decode(data: &[u8]) -> Result<Node, Self::Error>;
+	fn decode(data: &[u8]) -> Result<Node, Self::Error> {
+		Ok(Self::decode_plan(data)?.build(data))
+	}
 
 	/// Decode bytes to the `Hasher`s output type. Returns `None` on failure.
 	fn try_decode_hash(data: &[u8]) -> Option<H::Out>;
