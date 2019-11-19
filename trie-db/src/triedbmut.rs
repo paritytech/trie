@@ -16,7 +16,7 @@
 
 use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
 use super::lookup::Lookup;
-use super::node::Node as EncodedNode;
+use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_hash};
 use node_codec::NodeCodec;
 use super::{DBValue, node::NodeKey};
 
@@ -100,78 +100,90 @@ where
 {
 	// load an inline node into memory or get the hash to do the lookup later.
 	fn inline_or_hash<C, H>(
-		node: &[u8],
+		parent_hash: H::Out,
+		child: EncodedNodeHandle,
 		db: &dyn HashDB<H, DBValue>,
 		storage: &mut NodeStorage<H::Out>
-	) -> NodeHandle<H::Out>
+	) -> Result<NodeHandle<H::Out>, H::Out, C::Error>
 	where
-		C: NodeCodec<H>,
-		H: Hasher<Out = O>,
+		C: NodeCodec<HashOut=O>,
+		H: Hasher<Out=O>,
 	{
-		C::try_decode_hash(&node)
-			.map(NodeHandle::Hash)
-			.unwrap_or_else(|| {
-				let child = Node::from_encoded::<C, H>(node, db, storage);
+		let handle = match child {
+			EncodedNodeHandle::Hash(data) => {
+				let hash = decode_hash::<H>(data)
+					.ok_or_else(|| Box::new(TrieError::InvalidHash(parent_hash, data.to_vec())))?;
+				NodeHandle::Hash(hash)
+			},
+			EncodedNodeHandle::Inline(data) => {
+				let child = Node::from_encoded::<C, H>(parent_hash, data, db, storage)?;
 				NodeHandle::InMemory(storage.alloc(Stored::New(child)))
-			})
+			},
+		};
+		Ok(handle)
 	}
 
 	// Decode a node from encoded bytes.
 	fn from_encoded<'a, 'b, C, H>(
+		node_hash: H::Out,
 		data: &'a[u8],
 		db: &dyn HashDB<H, DBValue>,
 		storage: &'b mut NodeStorage<H::Out>,
-	) -> Self
+	) -> Result<Self, H::Out, C::Error>
 		where
-			C: NodeCodec<H>, H: Hasher<Out = O>,
+			C: NodeCodec<HashOut = O>, H: Hasher<Out = O>,
 	{
-		match C::decode(data).unwrap_or(EncodedNode::Empty) {
+		let encoded_node = C::decode(data)
+			.map_err(|e| Box::new(TrieError::DecoderError(node_hash, e)))?;
+		let node = match encoded_node {
 			EncodedNode::Empty => Node::Empty,
 			EncodedNode::Leaf(k, v) => Node::Leaf(k.into(), DBValue::from_slice(&v)),
 			EncodedNode::Extension(key, cb) => {
 				Node::Extension(
 					key.into(),
-					Self::inline_or_hash::<C, H>(cb, db, storage))
-				},
+					Self::inline_or_hash::<C, H>(node_hash, cb, db, storage)?
+				)
+			},
 			EncodedNode::Branch(encoded_children, val) => {
-				let mut child = |i:usize| {
-					encoded_children[i].map(|data|
-						Self::inline_or_hash::<C, H>(data, db, storage)
-					)
+				let mut child = |i:usize| match encoded_children[i] {
+					Some(child) => Self::inline_or_hash::<C, H>(node_hash, child, db, storage)
+						.map(Some),
+					None => Ok(None),
 				};
 
 				let children = Box::new([
-					child(0), child(1), child(2), child(3),
-					child(4), child(5), child(6), child(7),
-					child(8), child(9), child(10), child(11),
-					child(12), child(13), child(14), child(15),
+					child(0)?, child(1)?, child(2)?, child(3)?,
+					child(4)?, child(5)?, child(6)?, child(7)?,
+					child(8)?, child(9)?, child(10)?, child(11)?,
+					child(12)?, child(13)?, child(14)?, child(15)?,
 				]);
 
 				Node::Branch(children, val.map(DBValue::from_slice))
 			},
 			EncodedNode::NibbledBranch(k, encoded_children, val) => {
-				let mut child = |i:usize| {
-					encoded_children[i].map(|data|
-						Self::inline_or_hash::<C, H>(data, db, storage)
-					)
+				let mut child = |i:usize| match encoded_children[i] {
+					Some(child) => Self::inline_or_hash::<C, H>(node_hash, child, db, storage)
+						.map(Some),
+					None => Ok(None),
 				};
 
 				let children = Box::new([
-					child(0), child(1), child(2), child(3),
-					child(4), child(5), child(6), child(7),
-					child(8), child(9), child(10), child(11),
-					child(12), child(13), child(14), child(15),
+					child(0)?, child(1)?, child(2)?, child(3)?,
+					child(4)?, child(5)?, child(6)?, child(7)?,
+					child(8)?, child(9)?, child(10)?, child(11)?,
+					child(12)?, child(13)?, child(14)?, child(15)?,
 				]);
 
 				Node::NibbledBranch(k.into(), children, val.map(DBValue::from_slice))
 			},
-		}
+		};
+		Ok(node)
 	}
 
 	// TODO: parallelize
 	fn into_encoded<F, C, H>(self, mut child_cb: F) -> Vec<u8>
 	where
-		C: NodeCodec<H>,
+		C: NodeCodec<HashOut=O>,
 		F: FnMut(NodeHandle<H::Out>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
 		H: Hasher<Out = O>,
 	{
@@ -428,10 +440,11 @@ where
 		let node_encoded = self.db.get(&hash, key)
 			.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
 		let node = Node::from_encoded::<L::Codec, L::Hash>(
+			hash,
 			&node_encoded,
 			&*self.db,
 			&mut self.storage
-		);
+		)?;
 		Ok(self.storage.alloc(Stored::Cached(node, hash)))
 	}
 
@@ -1605,7 +1618,7 @@ mod tests {
 	}
 
 	fn reference_hashed_null_node() -> <KeccakHasher as Hasher>::Out {
-		<ReferenceNodeCodec	as NodeCodec<KeccakHasher>>::hashed_null_node()
+		<ReferenceNodeCodec<KeccakHasher> as NodeCodec>::hashed_null_node()
 	}
 
 	#[test]
