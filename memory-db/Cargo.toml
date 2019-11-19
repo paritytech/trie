@@ -10,7 +10,7 @@ license = "Apache-2.0"
 heapsize = { version = "0.4", optional = true }
 parity-util-mem = { version = "0.2", default-features = false }
 hash-db = { path = "../hash-db", default-features = false, version = "0.15.2"}
-hashbrown = { version = "0.6.0" }
+hashbrown = { version = "0.6.3", default-features = false, features = [ "ahash" ] }
 
 [dev-dependencies]
 keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.15.2"}

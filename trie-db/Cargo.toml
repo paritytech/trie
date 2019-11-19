@@ -11,7 +11,7 @@ log = "0.4"
 rand = { version = "0.6", default-features = false }
 elastic-array = { version = "0.10", default-features = false }
 hash-db = { path = "../hash-db", default-features = false, version = "0.15.2"}
-hashbrown = { version = "0.6" }
+hashbrown = { version = "0.6.3", default-features = false }
 
 [dev-dependencies]
 env_logger = "0.6"
