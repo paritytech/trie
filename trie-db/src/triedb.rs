@@ -102,7 +102,7 @@ where
 		parent_hash: TrieHash<L>,
 		node_handle: NodeHandle,
 		partial_key: Prefix,
-	) -> Result<(DBValue, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
+	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
 		let (node_hash, node_data) = match node_handle {
 			NodeHandle::Hash(data) => {
 				let node_hash = decode_hash::<L::Hash>(data)
@@ -121,7 +121,9 @@ where
 			}
 			NodeHandle::Inline(data) => (None, DBValue::from_slice(data)),
 		};
-		Ok((node_data, node_hash))
+		let owned_node = OwnedNode::new::<L::Codec>(node_data)
+			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or(parent_hash), e)))?;
+		Ok((owned_node, node_hash))
 	}
 }
 
@@ -177,11 +179,7 @@ where
 			<TrieHash<L>>::default(),
 			self.node_key,
 			self.partial_key.as_prefix()
-		)
-		.and_then(|n| match OwnedNode::new::<L::Codec>(n.0) {
-			Ok(owned) => Ok((owned, n.1)),
-			Err(e) => Err(Box::new(TrieError::DecoderError(n.1.unwrap_or(Default::default()), e))),
-		}) {
+		) {
 			Ok((owned_node, _node_hash)) => match owned_node.node() {
 				Node::Leaf(slice, value) =>
 					match (f.debug_struct("Node::Leaf"), self.index) {

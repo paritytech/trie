@@ -81,32 +81,17 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 			NodeHandle::Hash(db.root().as_ref()),
 			EMPTY_PREFIX
 		)?;
-		r.descend(root_node, root_hash)?;
+		r.descend(root_node, root_hash);
 		Ok(r)
 	}
 
-	fn trail_latest_hash(&self) -> TrieHash<L> {
-		for crumb in self.trail.iter().rev() {
-			if let Some(hash) = crumb.hash.clone() {
-				return hash;
-			}
-		}
-		Default::default()
-	}
-
 	/// Descend into a payload.
-	fn descend(&mut self, node_data: DBValue, node_hash: Option<TrieHash<L>>)
-		-> Result<(), TrieHash<L>, CError<L>> {
-		let node = OwnedNode::new::<L::Codec>(node_data)
-			.map_err(|e| Box::new(
-				TrieError::DecoderError(node_hash.unwrap_or_else(|| self.trail_latest_hash()), e)
-			))?;
+	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<TrieHash<L>>) {
 		self.trail.push(Crumb {
 			hash: node_hash,
 			status: Status::Entering,
 			node: Rc::new(node),
 		});
-		Ok(())
 	}
 }
 
@@ -128,7 +113,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 		let mut full_key_nibbles = 0;
 		loop {
 			let (next_node, next_node_hash) = {
-				self.descend(node, node_hash)?;
+				self.descend(node, node_hash);
 				let crumb = self.trail.last_mut()
 					.expect(
 						"descend_into_node pushes a crumb onto the trial; \
@@ -282,7 +267,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 			YieldNode,
 			PopTrail,
 			Continue,
-			Descend(Result<(DBValue, Option<O>), O, E>),
+			Descend(Result<(OwnedNode<DBValue>, Option<O>), O, E>),
 		}
 		loop {
 			let iter_step = {
@@ -374,9 +359,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 						.increment();
 				},
 				IterStep::Descend::<TrieHash<L>, CError<L>>(Ok((node, node_hash))) => {
-					if self.descend(node, node_hash).is_err() {
-						return None;
-					};
+					self.descend(node, node_hash);
 				},
 				IterStep::Descend::<TrieHash<L>, CError<L>>(Err(err)) => {
 					// Increment here as there is an implicit PopTrail.
