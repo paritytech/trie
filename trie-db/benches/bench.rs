@@ -30,6 +30,7 @@ criterion_group!(benches,
 	trie_mut_b,
 	trie_mut_build_a,
 	trie_mut_build_b,
+	trie_iteration,
 	nibble_common_prefix,
 );
 criterion_main!(benches);
@@ -444,4 +445,21 @@ fn trie_mut_build_b(c: &mut Criterion) {
 			reference_trie::calc_root_build(inputc, &mut mdb);
 		}),
 		data);
+}
+
+fn trie_iteration(c: &mut Criterion) {
+	use memory_db::HashKey;
+
+	let input = input2(29, 204800, 32);
+
+	let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
+	let root = reference_trie::calc_root_build(input, &mut mdb);
+
+	c.bench_function("trie_iteration", move |b: &mut Bencher|
+		b.iter(|| {
+			let trie = reference_trie::RefTrieDB::new(&mdb, &root).unwrap();
+			let mut iter = trie_db::TrieDBNodeIterator::new(&trie).unwrap();
+			assert!(iter.all(|result| result.is_ok()));
+		})
+	);
 }
