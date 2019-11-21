@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{CError, DBValue, Result, Trie, TrieError, TrieHash, TrieIterator, TrieLayout};
+use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout};
 use hash_db::{Hasher, EMPTY_PREFIX};
 use triedb::TrieDB;
 use node::{NodePlan, NodeHandle, OwnedNode};
