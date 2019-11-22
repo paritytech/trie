@@ -16,7 +16,7 @@
 
 use hash_db::HashDBRef;
 use nibble::NibbleSlice;
-use node::Node;
+use node::{Node, NodeHandle, decode_hash};
 use node_codec::NodeCodec;
 use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash};
 
@@ -70,7 +70,7 @@ where
 						return Err(Box::new(TrieError::DecoderError(hash, e)))
 					}
 				};
-				match decoded {
+				let next_node = match decoded {
 					Node::Leaf(slice, value) => {
 						return Ok(match slice == partial {
 							true => Some(self.query.decode(value)),
@@ -79,9 +79,9 @@ where
 					}
 					Node::Extension(slice, item) => {
 						if partial.starts_with(&slice) {
-							node_data = item;
 							partial = partial.mid(slice.len());
 							key_nibbles += slice.len();
+							item
 						} else {
 							return Ok(None)
 						}
@@ -90,9 +90,9 @@ where
 						true => return Ok(value.map(move |val| self.query.decode(val))),
 						false => match children[partial.at(0) as usize] {
 							Some(x) => {
-								node_data = x;
 								partial = partial.mid(1);
 								key_nibbles += 1;
+								x
 							}
 							None => return Ok(None)
 						}
@@ -106,21 +106,27 @@ where
 							true => return Ok(value.map(move |val| self.query.decode(val))),
 							false => match children[partial.at(slice.len()) as usize] {
 								Some(x) => {
-									node_data = x;
 									partial = partial.mid(slice.len() + 1);
 									key_nibbles += slice.len() + 1;
+									x
 								}
 								None => return Ok(None)
 							}
 						}
 					},
 					Node::Empty => return Ok(None),
-				}
+				};
 
 				// check if new node data is inline or hash.
-				if let Some(h) = L::Codec::try_decode_hash(&node_data) {
-					hash = h;
-					break
+				match next_node {
+					NodeHandle::Hash(data) => {
+						hash = decode_hash::<L::Hash>(data)
+							.ok_or_else(|| Box::new(TrieError::InvalidHash(hash, data.to_vec())))?;
+						break;
+					},
+					NodeHandle::Inline(data) => {
+						node_data = data;
+					},
 				}
 			}
 		}

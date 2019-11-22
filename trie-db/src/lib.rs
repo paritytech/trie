@@ -123,6 +123,7 @@ pub enum TrieError<T, E> {
 	ValueAtIncompleteKey(Vec<u8>, u8),
 	/// Corrupt Trie item
 	DecoderError(T, E),
+	InvalidHash(T, Vec<u8>),
 }
 
 #[cfg(feature = "std")]
@@ -138,6 +139,12 @@ impl<T, E> fmt::Display for TrieError<T, E> where T: MaybeDebug, E: MaybeDebug {
 			TrieError::DecoderError(ref hash, ref decoder_err) => {
 				write!(f, "Decoding failed for hash {:?}; err: {:?}", hash, decoder_err)
 			}
+			TrieError::InvalidHash(ref hash, ref data) =>
+				write!(
+					f,
+					"Encoded node {:?} contains invalid hash reference with length: {}",
+					hash, data.len()
+				),
 		}
 	}
 }
@@ -150,6 +157,7 @@ impl<T, E> Error for TrieError<T, E> where T: fmt::Debug, E: Error {
 			TrieError::IncompleteDatabase(_) => "Incomplete database",
 			TrieError::ValueAtIncompleteKey(_, _) => "Value at incomplete key",
 			TrieError::DecoderError(_, ref err) => err.description(),
+			TrieError::InvalidHash(_, _) => "Encoded node contains invalid hash reference",
 		}
 	}
 }
@@ -415,7 +423,7 @@ pub trait TrieLayout {
 	/// Hasher to use for this trie.
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
-	type Codec: NodeCodec<Self::Hash>;
+	type Codec: NodeCodec<HashOut=<Self::Hash as Hasher>::Out>;
 }
 
 /// This traits associates a trie definition with prefered methods.
@@ -477,6 +485,4 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 /// Alias accessor to hasher hash output type from a `TrieLayout`.
 pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
-pub type CError<L> = <
-	<L as TrieLayout>::Codec as NodeCodec<<L as TrieLayout>::Hash>
->::Error;
+pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;
