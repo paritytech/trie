@@ -208,4 +208,28 @@ impl<D: Borrow<[u8]>> OwnedNode<D> {
 	pub fn node(&self) -> Node {
 		self.plan.build(self.data.borrow())
 	}
+
+	/// Get extension part of the node (partial) if any.
+	pub fn partial(&self) -> Option<NibbleSlice> {
+		match &self.plan {
+			NodePlan::Branch { .. }
+			| NodePlan::Empty => None,
+			NodePlan::Leaf { partial, .. }
+			| NodePlan::NibbledBranch { partial, .. }
+			| NodePlan::Extension { partial, .. } =>
+				Some(partial.build(self.data.borrow())),
+		}
+	}
+
+	/// Try to access child.
+	pub fn child(&self, ix: u8) -> Option<NodeHandle> {
+		match &self.plan {
+			NodePlan::Leaf { .. }
+			| NodePlan::Extension { .. }
+			| NodePlan::Empty => None,
+			NodePlan::NibbledBranch { children, .. }
+			| NodePlan::Branch { children, .. } =>
+				children[ix as usize].as_ref().map(|child| child.build(self.data.borrow())),
+		}
+	}
 }

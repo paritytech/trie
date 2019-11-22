@@ -45,24 +45,34 @@ use alloc::vec::Vec;
 // For lookups into the Node storage buffer.
 // This is deliberately non-copyable.
 #[cfg_attr(feature = "std", derive(Debug))]
-struct StorageHandle(usize);
+pub(crate) struct StorageHandle(usize);
 
 // Handles to nodes in the trie.
 #[cfg_attr(feature = "std", derive(Debug))]
-enum NodeHandle<H> {
+pub(crate) enum NodeHandle<H, SH> {
 	/// Loaded into memory.
-	InMemory(StorageHandle),
+	InMemory(SH),
 	/// Either a hash or an inline node
 	Hash(H),
 }
 
-impl<H> From<StorageHandle> for NodeHandle<H> {
+impl<H: AsRef<[u8]>, SH: AsRef<[u8]>> NodeHandle<H, SH> {
+	/// Get a node handle ref to this handle.
+	fn as_ref(&self) -> crate::node::NodeHandle {
+		match self {
+			NodeHandle::InMemory(sh) => crate::node::NodeHandle::Inline(sh.as_ref()), 
+			NodeHandle::Hash(h) => crate::node::NodeHandle::Hash(h.as_ref()), 
+		}
+	}
+}
+
+impl<H> From<StorageHandle> for NodeHandle<H, StorageHandle> {
 	fn from(handle: StorageHandle) -> Self {
 		NodeHandle::InMemory(handle)
 	}
 }
 
-fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; 16]> {
+fn empty_children<H>() -> Box<[Option<NodeHandle<H, StorageHandle>>; 16]> {
 	Box::new([
 		None, None, None, None, None, None, None, None,
 		None, None, None, None, None, None, None, None,
@@ -71,11 +81,12 @@ fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; 16]> {
 
 /// Type alias to indicate the nible covers a full key,
 /// therefore its left side is a full prefix.
-type NibbleFullKey<'key> = NibbleSlice<'key>;
+pub(crate) type NibbleFullKey<'key> = NibbleSlice<'key>;
 
+// TODO EMCH make a local type alias with only H!!
 /// Node types in the Trie.
 #[cfg_attr(feature = "std", derive(Debug))]
-enum Node<H> {
+pub(crate) enum Node<H, SH> {
 	/// Empty node.
 	Empty,
 	/// A leaf node contains the end of a key and a value.
@@ -86,14 +97,43 @@ enum Node<H> {
 	/// The shared portion is encoded from a `NibbleSlice` meaning it contains
 	/// a flag indicating it is an extension.
 	/// The child node is always a branch.
-	Extension(NodeKey, NodeHandle<H>),
+	Extension(NodeKey, NodeHandle<H, SH>),
 	/// A branch has up to 16 children and an optional value.
-	Branch(Box<[Option<NodeHandle<H>>; 16]>, Option<DBValue>),
+	Branch(Box<[Option<NodeHandle<H, SH>>; 16]>, Option<DBValue>),
 	/// Branch node with support for a nibble (to avoid extension node).
-	NibbledBranch(NodeKey, Box<[Option<NodeHandle<H>>; 16]>, Option<DBValue>),
+	NibbledBranch(NodeKey, Box<[Option<NodeHandle<H, SH>>; 16]>, Option<DBValue>),
 }
 
-impl<O> Node<O>
+impl<H, SH> Node<H, SH> {
+	/// Get extension part of the node (partial) if any.
+	pub fn partial(&self) -> Option<NibbleSlice> {
+		match self {
+			Node::Branch { .. }
+			| Node::Empty => None,
+			Node::NibbledBranch(partial, ..)
+			| Node::Extension(partial, ..)
+			| Node::Leaf(partial, ..)
+				=> Some(NibbleSlice::new_offset(&partial.1[..], partial.0)),
+		}
+	}
+}
+
+impl<H: AsRef<[u8]>, SH: AsRef<[u8]>> Node<H, SH> {
+	/// Try to access child.
+	pub fn child(&self, ix: u8) -> Option<crate::node::NodeHandle> {
+		match self {
+			Node::Leaf { .. }
+			| Node::Extension { .. }
+			| Node::Empty => None,
+			Node::NibbledBranch ( _, children, _ )
+			| Node::Branch ( children, .. ) =>
+				children[ix as usize].as_ref().map(|child| child.as_ref()),
+		}
+	}
+}
+
+
+impl<O> Node<O, StorageHandle>
 where
 	O: AsRef<[u8]> + AsMut<[u8]> + Default + crate::MaybeDebug
 		+ PartialEq + Eq + Hash + Send + Sync + Clone + Copy
@@ -104,7 +144,7 @@ where
 		child: EncodedNodeHandle,
 		db: &dyn HashDB<H, DBValue>,
 		storage: &mut NodeStorage<H::Out>
-	) -> Result<NodeHandle<H::Out>, H::Out, C::Error>
+	) -> Result<NodeHandle<H::Out, StorageHandle>, H::Out, C::Error>
 	where
 		C: NodeCodec<HashOut=O>,
 		H: Hasher<Out=O>,
@@ -184,7 +224,7 @@ where
 	fn into_encoded<F, C, H>(self, mut child_cb: F) -> Vec<u8>
 	where
 		C: NodeCodec<HashOut=O>,
-		F: FnMut(NodeHandle<H::Out>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
+		F: FnMut(NodeHandle<H::Out, StorageHandle>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
 		H: Hasher<Out = O>,
 	{
 		match self {
@@ -242,9 +282,9 @@ where
 // post-inspect action.
 enum Action<H> {
 	// Replace a node with a new one.
-	Replace(Node<H>),
+	Replace(Node<H, StorageHandle>),
 	// Restore the original node. This trusts that the node is actually the original.
-	Restore(Node<H>),
+	Restore(Node<H,StorageHandle>),
 	// if it is a new node, just clears the storage.
 	Delete,
 }
@@ -252,9 +292,9 @@ enum Action<H> {
 // post-insert action. Same as action without delete
 enum InsertAction<H> {
 	// Replace a node with a new one.
-	Replace(Node<H>),
+	Replace(Node<H, StorageHandle>),
 	// Restore the original node.
-	Restore(Node<H>),
+	Restore(Node<H, StorageHandle>),
 }
 
 impl<H> InsertAction<H> {
@@ -266,7 +306,7 @@ impl<H> InsertAction<H> {
 	}
 
 	// unwrap the node, disregarding replace or restore state.
-	fn unwrap_node(self) -> Node<H> {
+	fn unwrap_node(self) -> Node<H, StorageHandle> {
 		match self {
 			InsertAction::Replace(n) | InsertAction::Restore(n) => n,
 		}
@@ -276,9 +316,9 @@ impl<H> InsertAction<H> {
 // What kind of node is stored here.
 enum Stored<H> {
 	// A new node.
-	New(Node<H>),
+	New(Node<H, StorageHandle>),
 	// A cached node, loaded from the DB.
-	Cached(Node<H>, H),
+	Cached(Node<H, StorageHandle>, H),
 }
 
 /// Used to build a collection of child nodes from a collection of `NodeHandle`s
@@ -323,9 +363,9 @@ impl<H> NodeStorage<H> {
 }
 
 impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
-	type Output = Node<H>;
+	type Output = Node<H, StorageHandle>;
 
-	fn index(&self, handle: &'a StorageHandle) -> &Node<H> {
+	fn index(&self, handle: &'a StorageHandle) -> &Node<H, StorageHandle> {
 		match self.nodes[handle.0] {
 			Stored::New(ref node) => node,
 			Stored::Cached(ref node, _) => node,
@@ -375,7 +415,7 @@ where
 	storage: NodeStorage<TrieHash<L>>,
 	db: &'a mut dyn HashDB<L::Hash, DBValue>,
 	root: &'a mut TrieHash<L>,
-	root_handle: NodeHandle<TrieHash<L>>,
+	root_handle: NodeHandle<TrieHash<L>, StorageHandle>,
 	death_row: HashSet<(TrieHash<L>, (ElasticArray36<u8>, Option<u8>))>,
 	/// The number of hash operations this trie has performed.
 	/// Note that none are performed until changes are committed.
@@ -459,7 +499,7 @@ where
 		where
 			F: FnOnce(
 				&mut Self,
-				Node<TrieHash<L>>,
+				Node<TrieHash<L>, StorageHandle>,
 				&mut NibbleFullKey,
 			) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>>,
 	{
@@ -487,7 +527,7 @@ where
 	fn lookup<'x, 'key>(
 		&'x self,
 		mut partial: NibbleSlice<'key>,
-		handle: &NodeHandle<TrieHash<L>>,
+		handle: &NodeHandle<TrieHash<L>, StorageHandle>,
 	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
 		where 'x: 'key
 	{
@@ -552,7 +592,7 @@ where
 	/// Insert a key-value pair into the trie, creating new nodes if necessary.
 	fn insert_at(
 		&mut self,
-		handle: NodeHandle<TrieHash<L>>,
+		handle: NodeHandle<TrieHash<L>, StorageHandle>,
 		key: &mut NibbleFullKey,
 		value: DBValue,
 		old_val: &mut Option<DBValue>,
@@ -573,7 +613,7 @@ where
 	/// The insertion inspector.
 	fn insert_inspector(
 		&mut self,
-		node: Node<TrieHash<L>>,
+		node: Node<TrieHash<L>, StorageHandle>,
 		key: &mut NibbleFullKey,
 		value: DBValue,
 		old_val: &mut Option<DBValue>,
@@ -919,7 +959,7 @@ where
 	/// Removes a node from the trie based on key.
 	fn remove_at(
 		&mut self,
-		handle: NodeHandle<TrieHash<L>>,
+		handle: NodeHandle<TrieHash<L>, StorageHandle>,
 		key: &mut NibbleFullKey,
 		old_val: &mut Option<DBValue>,
 	) -> Result<Option<(StorageHandle, bool)>, TrieHash<L>, CError<L>> {
@@ -943,7 +983,7 @@ where
 	/// The removal inspector.
 	fn remove_inspector(
 		&mut self,
-		node: Node<TrieHash<L>>,
+		node: Node<TrieHash<L>, StorageHandle>,
 		key: &mut NibbleFullKey,
 		old_val: &mut Option<DBValue>,
 	) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>> {
@@ -1124,9 +1164,9 @@ where
 	/// - Extension node followed by anything other than a Branch node.
 	fn fix(
 		&mut self,
-		node: Node<TrieHash<L>>,
+		node: Node<TrieHash<L>, StorageHandle>,
 		key: NibbleSlice,
-	) -> Result<Node<TrieHash<L>>, TrieHash<L>, CError<L>> {
+	) -> Result<Node<TrieHash<L>, StorageHandle>, TrieHash<L>, CError<L>> {
 		match node {
 			Node::Branch(mut children, value) => {
 				// if only a single value, transmute to leaf/extension and feed through fixed.
@@ -1410,7 +1450,7 @@ where
 	/// `into_encoded` method of `Node`.
 	fn commit_child(
 		&mut self,
-		handle: NodeHandle<TrieHash<L>>,
+		handle: NodeHandle<TrieHash<L>, StorageHandle>,
 		prefix: &mut NibbleVec,
 	) -> ChildReference<TrieHash<L>> {
 		match handle {
@@ -1451,7 +1491,7 @@ where
 	}
 
 	// a hack to get the root node's handle
-	fn root_handle(&self) -> NodeHandle<TrieHash<L>> {
+	fn root_handle(&self) -> NodeHandle<TrieHash<L>, StorageHandle> {
 		match self.root_handle {
 			NodeHandle::Hash(h) => NodeHandle::Hash(h),
 			NodeHandle::InMemory(StorageHandle(x)) => NodeHandle::InMemory(StorageHandle(x)),
