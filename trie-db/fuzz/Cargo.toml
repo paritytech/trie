@@ -11,6 +11,7 @@ cargo-fuzz = true
 [dependencies]
 memory-db = { path = "../../memory-db", version = "0.15.2" }
 reference-trie = { path = "../../test-support/reference-trie", version = "0.16.0" }
+reference-trie-old = { package = "reference-trie", version = "0.15.2" }
 keccak-hasher = { path = "../../test-support/keccak-hasher", version = "0.15.2" }
 honggfuzz = "0.5"
 

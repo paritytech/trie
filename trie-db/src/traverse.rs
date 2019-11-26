@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Traverse a trie, given a set of key.
+//! Traverse a trie.
 //!
 //! The traversal stack is updatable, and is therefore usable for
 //! batch update of ordered key values.
@@ -35,20 +35,21 @@ type StorageHandle = Vec<u8>;
 
 /// StackedNode can be updated.
 /// A state can be use.
-pub(crate) enum StackedNode<B, H, S>
+pub(crate) enum StackedNode<B, T, S>
 	where
 		B: Borrow<[u8]>,
+		T: TrieLayout,
 {
 	/// Read node.
 	Unchanged(OwnedNode<B>, S),
 	/// Modified node.
-	Changed(Node<H, B>, S),
+	Changed(Node<T::Hash, B>, S),
 }
 
-impl<B, H, S> StackedNode<B, H, S>
+impl<B, T, S> StackedNode<B, T, S>
 	where
 		B: Borrow<[u8]> + AsRef<[u8]>,
-		H: AsRef<[u8]>,
+		T: TrieLayout,
 {
 	/// Get extension part of the node (partial) if any.
 	pub fn partial(&self) -> Option<NibbleSlice> {
@@ -65,30 +66,50 @@ impl<B, H, S> StackedNode<B, H, S>
 			StackedNode::Changed(node, ..) => node.child(ix),
 		}
 	}
+}
+
+impl<B, T, S> StackedNode<B, T, S>
+	where
+		B: AsRef<[u8]> + AsMut<[u8]> + Default + crate::MaybeDebug
+		+ PartialEq + Eq + ::core_::hash::Hash + Send + Sync + Clone + Copy + Borrow<[u8]>,
+		T: TrieLayout,
+{
+
+	/// Encode node
+	/// TODO EMCH can optimize unchange to their backed data by consuming.
+	pub fn into_encoded(&self) -> Vec<u8> {
+		match self {
+			StackedNode::Unchanged(node, ..) => node.data().to_vec(),
+			StackedNode::Changed(node, ..) => node.into_encoded::<_, T::Codec, T::Hash>(
+				|child, o_slice, o_index| {
+					child.as_ref().data().to_vec()
+				}),
+		}
+	}
 
 }
 
 /// Visitor trait to implement when using `trie_traverse_key`.
-pub(crate) trait ProcessStack<B, H, K, V, S>
+pub(crate) trait ProcessStack<B, T, K, V, S>
 	where
+		T: TrieLayout,
 		B: Borrow<[u8]>,
 		K: AsRef<[u8]> + Ord,
 		V: AsRef<[u8]> + Into<DBValue>,
 {
 	/// Callback on enter a node, change can be applied here.
-	fn enter(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, H, S>);
+	fn enter(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, T, S>);
 	/// Same as `enter` but at terminal node element (terminal considering next key so branch is
 	/// possible here).
-	fn enter_terminal(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, H, S>)
-		-> Option<(Node<H, B>, S)>;
+	fn enter_terminal(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, T, S>)
+		-> Option<(Node<T::Hash, B>, S)>;
 	/// Callback on exit a node, commit action on change node should be applied here.
-	fn exit(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, H, S>);
-	//fn exit(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, H, S>, parent: &mut StackedNode<B, H, S>);
+	fn exit(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, T, S>);
 	/// Same as `exit` but for root (very last exit call).
-	fn exit_root(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, H, S>);
+	fn exit_root(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, T, S>);
 }
 
-/// The main entry point for traversing a trie by key.
+/// The main entry point for traversing a trie by a set of keys.
 pub(crate) fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 	db: &'a mut dyn HashDB<T::Hash, B>,
 	root: &'a TrieHash<T>,
@@ -102,10 +123,10 @@ pub(crate) fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 		V: AsRef<[u8]> + Into<DBValue>,
 		S: Default,
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
-		F: ProcessStack<B, TrieHash<T>, K, V, S>,
+		F: ProcessStack<B, T, K, V, S>,
 {
 	// stack of traversed nodes
-	let mut stack: Vec<(StackedNode<B, TrieHash<T>, S>, usize)> = Vec::with_capacity(32);
+	let mut stack: Vec<(StackedNode<B, T, S>, usize)> = Vec::with_capacity(32);
 
 	// TODO EMCH do following update (used for error only)
 	let mut last_hash = root;
@@ -118,7 +139,7 @@ pub(crate) fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 //	stack.push(StackedNode::Unchanged(root, Default::default()));
 
 	let mut prefix = NibbleVec::new();
-	let mut current = StackedNode::<B, TrieHash<T>, S>::Unchanged(root, Default::default());
+	let mut current = StackedNode::<B, T, S>::Unchanged(root, Default::default());
 	let mut common_depth = 0;
 	current.partial().map(|p| {
 		common_depth += p.len();
@@ -205,4 +226,31 @@ fn fetch<T: TrieLayout, B: Borrow<[u8]>>(
 		OwnedNode::new::<T::Codec>(node_encoded)
 			.map_err(|e| Box::new(TrieError::DecoderError(*hash, e)))?
 	)
+}
+
+/// Contains ordered node change for this iteration.
+pub struct BatchUpdate(pub Vec<Vec<u8>>);
+
+impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate
+	where
+		T: TrieLayout,
+		B: Borrow<[u8]>,
+		K: AsRef<[u8]> + Ord,
+		V: AsRef<[u8]> + Into<DBValue>,
+{
+	fn enter(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, T, S>) {
+	}
+
+	fn enter_terminal(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, T, S>)
+		-> Option<(Node<T::Hash, B>, S)> {
+			None
+	}
+
+	fn exit(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, T, S>) {
+		self.0.push(stacked.into_encoded());
+	}
+	
+	fn exit_root(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, T, S>) {
+		self.0.push(stacked.into_encoded());
+	}
 }

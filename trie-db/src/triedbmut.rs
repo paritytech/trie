@@ -221,7 +221,7 @@ where
 	}
 
 	// TODO: parallelize
-	fn into_encoded<F, C, H>(self, mut child_cb: F) -> Vec<u8>
+	pub(crate) fn into_encoded<F, C, H>(self, mut child_cb: F) -> Vec<u8>
 	where
 		C: NodeCodec<HashOut=O>,
 		F: FnMut(NodeHandle<H::Out, StorageHandle>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,

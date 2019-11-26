@@ -34,6 +34,16 @@ pub enum NodeHandle<'a> {
 	Inline(&'a [u8]),
 }
 
+impl<'a> NodeHandle<'a> {
+	/// Get underlying data.
+	fn data(&self) -> &[u8] {
+		match self {
+			NodeHandle::Hash(d)
+			| NodeHandle::Inline(d) => d,
+		}
+	}
+}
+
 /// Read a hash from a slice into a Hasher output. Returns None if the slice is the wrong length.
 pub fn decode_hash<H: Hasher>(data: &[u8]) -> Option<H::Out> {
 	if data.len() != H::LENGTH {
