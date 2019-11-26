@@ -326,8 +326,17 @@ where
 		}
 	}
 
+	/// Create a new instance of `Self`.
 	pub fn new(data: &'a [u8]) -> Self {
 		Self::from_null_node(data, data.into())
+	}
+
+	/// Create a new default instance of `Self` and returns `Self` and the root hash.
+	pub fn default_with_root() -> (Self, H::Out) {
+		let db = Self::default();
+		let root = db.hashed_null_node;
+
+		(db, root)
 	}
 
 	/// Clear all data from the database.
@@ -695,5 +704,9 @@ mod tests {
 		let mut db = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default();
 		let hashed_null_node = KeccakHasher::hash(&[0u8][..]);
 		assert_eq!(db.insert(EMPTY_PREFIX, &[0u8][..]), hashed_null_node);
+
+		let (db2, root) = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default_with_root();
+		assert!(db2.contains(&root, EMPTY_PREFIX));
+		assert!(db.contains(&root, EMPTY_PREFIX));
 	}
 }
