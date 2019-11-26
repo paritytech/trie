@@ -118,7 +118,6 @@ impl<T> MaybeDebug for T {}
 ///   assert!(!m.contains(&k, EMPTY_PREFIX));
 /// }
 /// ```
-#[derive(Clone)]
 pub struct MemoryDB<H, KF, T>
 	where
 	H: KeyHasher,
@@ -130,8 +129,19 @@ pub struct MemoryDB<H, KF, T>
 	_kf: PhantomData<KF>,
 }
 
+impl<H: KeyHasher, KF: KeyFunction<H>, T: Clone> Clone for MemoryDB<H, KF, T> {
+	fn clone(&self) -> Self {
+		Self {
+			data: self.data.clone(),
+			hashed_null_node: self.hashed_null_node.clone(),
+			null_node_data: self.null_node_data.clone(),
+			_kf: Default::default(),
+		}
+	}
+}
+
 impl<H, KF, T> PartialEq<MemoryDB<H, KF, T>> for MemoryDB<H, KF, T>
-	where 
+	where
 	H: KeyHasher,
 	KF: KeyFunction<H>,
 	<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
@@ -150,22 +160,33 @@ impl<H, KF, T> PartialEq<MemoryDB<H, KF, T>> for MemoryDB<H, KF, T>
 }
 
 impl<H, KF, T> Eq for MemoryDB<H, KF, T>
-	where 
-	H: KeyHasher,
-	KF: KeyFunction<H>,
-	<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
-				T: Eq + MaybeDebug,
+	where
+		H: KeyHasher,
+		KF: KeyFunction<H>,
+		<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
+		T: Eq + MaybeDebug,
 {}
- 
+
 pub trait KeyFunction<H: KeyHasher> {
 	type Key: Send + Sync + Clone + hash::Hash + Eq;
 
 	fn key(hash: &H::Out, prefix: Prefix) -> Self::Key;
 }
 
-#[derive(Clone, Debug)]
 /// Key function that only uses the hash
-pub struct HashKey<H: KeyHasher>(PhantomData<H>);
+pub struct HashKey<H>(PhantomData<H>);
+
+impl<H> Clone for HashKey<H> {
+	fn clone(&self) -> Self {
+		Self(Default::default())
+	}
+}
+
+impl<H> core::fmt::Debug for HashKey<H> {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		core::write!(f, "HashKey")
+	}
+}
 
 impl<H: KeyHasher> KeyFunction<H> for HashKey<H> {
 	type Key = H::Out;
@@ -180,9 +201,20 @@ pub fn hash_key<H: KeyHasher>(key: &H::Out, _prefix: Prefix) -> H::Out {
 	key.clone()
 }
 
-#[derive(Clone, Debug)]
 /// Key function that concatenates prefix and hash.
-pub struct PrefixedKey<H: KeyHasher>(PhantomData<H>);
+pub struct PrefixedKey<H>(PhantomData<H>);
+
+impl<H> Clone for PrefixedKey<H> {
+	fn clone(&self) -> Self {
+		Self(Default::default())
+	}
+}
+
+impl<H> core::fmt::Debug for PrefixedKey<H> {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		core::write!(f, "PrefixedKey")
+	}
+}
 
 impl<H: KeyHasher> KeyFunction<H> for PrefixedKey<H> {
 	type Key = Vec<u8>;
@@ -294,8 +326,17 @@ where
 		}
 	}
 
+	/// Create a new instance of `Self`.
 	pub fn new(data: &'a [u8]) -> Self {
 		Self::from_null_node(data, data.into())
+	}
+
+	/// Create a new default instance of `Self` and returns `Self` and the root hash.
+	pub fn default_with_root() -> (Self, H::Out) {
+		let db = Self::default();
+		let root = db.hashed_null_node;
+
+		(db, root)
 	}
 
 	/// Clear all data from the database.
@@ -663,5 +704,9 @@ mod tests {
 		let mut db = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default();
 		let hashed_null_node = KeccakHasher::hash(&[0u8][..]);
 		assert_eq!(db.insert(EMPTY_PREFIX, &[0u8][..]), hashed_null_node);
+
+		let (db2, root) = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default_with_root();
+		assert!(db2.contains(&root, EMPTY_PREFIX));
+		assert!(db.contains(&root, EMPTY_PREFIX));
 	}
 }

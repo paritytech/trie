@@ -1,6 +1,6 @@
 [package]
 name = "memory-db"
-version = "0.15.2"
+version = "0.15.3"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "In-memory implementation of hash-db, useful for tests"
 repository = "https://github.com/paritytech/trie"
