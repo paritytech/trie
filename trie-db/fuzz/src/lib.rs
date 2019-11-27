@@ -173,3 +173,57 @@ pub fn fuzz_that_no_extension_insert_remove(input: &[u8]) {
 	let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 	compare_no_extension_insert_remove(data, memdb);
 }
+
+
+pub fn fuzz_prefix_iter(input: &[u8]) {
+	let data = data_sorted_unique(fuzz_to_data_fix_length(input));
+	
+	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
+	let mut root = Default::default();
+	{
+		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+		for a in 0..data.len() {
+			t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
+		}
+	}
+
+	// fuzzing around a fix prefix of 6 nibble.
+	let prefix = &b"012"[..];
+
+	let mut iter_res2 = Vec::new();
+	for a in data {
+		if a.0.starts_with(prefix) {
+			iter_res2.push(a.0);
+		}
+	}
+
+	let mut iter_res = Vec::new();
+	let mut error = 0;
+	{
+			use trie_db::TrieIterator;
+			let trie = RefTrieDBNoExt::new(&memdb, &root).unwrap();
+			let mut iter =  trie.iter().unwrap();
+			if let Ok(_) = iter.prefix(prefix) {
+			} else {
+				error += 1;
+			}
+
+			for x in iter {
+				if let Ok((key, _)) = x {
+				if key.starts_with(prefix) {
+					iter_res.push(key);
+				} else {
+					error +=1;
+				}
+				} else {
+					error +=1;
+				}
+
+			}
+
+	}
+
+	assert_eq!(iter_res, iter_res2);
+	assert_eq!(error, 0);
+}
+
