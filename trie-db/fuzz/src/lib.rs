@@ -175,7 +175,6 @@ pub fn fuzz_that_no_extension_insert_remove(input: &[u8]) {
 	compare_no_extension_insert_remove(data, memdb);
 }
 
-
 pub fn fuzz_prefix_iter(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data_fix_length(input));
 	
@@ -225,3 +224,58 @@ pub fn fuzz_prefix_iter(input: &[u8]) {
 	assert_eq!(error, 0);
 }
 
+pub fn fuzz_prefix_iter2(input: &[u8]) {
+	let data = data_sorted_unique(fuzz_to_data_fix_length(input));
+	
+	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
+	let mut root = Default::default();
+	{
+		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+		for a in 0..data.len() {
+			t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
+		}
+	}
+
+	// fuzzing around a fix prefix of 6 nibble.
+	let prefix = &b"012"[..];
+
+	let mut iter_res2 = Vec::new();
+	for a in data {
+		if a.0.starts_with(prefix) {
+			iter_res2.push(a.0);
+		}
+	}
+
+	let mut iter_res = Vec::new();
+	let mut error = 0;
+	{
+			let trie = RefTrieDBNoExt::new(&memdb, &root).unwrap();
+			let mut iter =  trie.iter().unwrap();
+			if let Ok(_) = iter.prefix(prefix) {
+			} else {
+				println!("error calling prefix");
+				error += 1;
+			}
+
+			for x in iter {
+				if let Ok((key, _)) = x {
+				if key.starts_with(prefix) {
+					iter_res.push(key);
+				} else {
+					println!("error out of range");
+					error +=1;
+				}
+				} else {
+					error +=1;
+				}
+			}
+	}
+
+	assert_eq!(iter_res, iter_res2);
+	assert_eq!(error, 0);
+}
+
+#[test]
+fn fuzz_test() {
+	fuzz_prefix_iter2(&[0x30,0x33,0x37,0xe3,0x1,0x0,0x1,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x27,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xa,0x28,0xc5,0x85,0xa,0x85,0xa,][..]);
+}
