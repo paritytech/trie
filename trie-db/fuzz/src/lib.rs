@@ -203,7 +203,7 @@ pub fn fuzz_prefix_iter(input: &[u8]) {
 	{
 			let trie = RefTrieDBNoExt::new(&memdb, &root).unwrap();
 			let mut iter =  trie.iter().unwrap();
-			if let Ok(_) = iter.prefix(prefix) {
+			if let Ok(_) = iter.seek(prefix) {
 			} else {
 				error += 1;
 			}
@@ -213,14 +213,12 @@ pub fn fuzz_prefix_iter(input: &[u8]) {
 				if key.starts_with(prefix) {
 					iter_res.push(key);
 				} else {
-					error +=1;
+					break;
 				}
 				} else {
 					error +=1;
 				}
-
 			}
-
 	}
 
 	assert_eq!(iter_res, iter_res2);
