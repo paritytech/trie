@@ -18,11 +18,12 @@ use memory_db::{MemoryDB, HashKey, PrefixedKey};
 use reference_trie::{
 	RefTrieDBMutNoExt,
 	RefTrieDBMut,
+	RefTrieDBNoExt,
 	reference_trie_root,
 	calc_root_no_extension,
 	compare_no_extension_insert_remove,
 };
-use trie_db::{TrieMut, DBValue};
+use trie_db::{TrieMut, DBValue, Trie};
 use keccak_hasher::KeccakHasher;
 
 
@@ -200,7 +201,6 @@ pub fn fuzz_prefix_iter(input: &[u8]) {
 	let mut iter_res = Vec::new();
 	let mut error = 0;
 	{
-			use trie_db::TrieIterator;
 			let trie = RefTrieDBNoExt::new(&memdb, &root).unwrap();
 			let mut iter =  trie.iter().unwrap();
 			if let Ok(_) = iter.prefix(prefix) {
