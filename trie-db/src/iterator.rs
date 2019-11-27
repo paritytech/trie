@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout};
+use super::{
+	CError, DBValue, Result, Trie, TrieError, TrieHash, TrieItem, TrieIterator, TrieLayout,
+};
 use hash_db::{Hasher, EMPTY_PREFIX};
 use triedb::TrieDB;
 use node::{NodePlan, NodeHandle, OwnedNode};
@@ -85,18 +87,16 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 		Ok(r)
 	}
 
-	/// Descend into a payload.
-	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<TrieHash<L>>) {
-		self.trail.push(Crumb {
-			hash: node_hash,
-			status: Status::Entering,
-			node: Rc::new(node),
-		});
-	}
-}
-
-impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
-	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+	/// Position the iterator on the first element with a key greater than or equal to the given
+	/// key.
+	///
+	/// In versions <0.16.0 of trie-db, a bug in `TrieDBIterator` would cause `seek` to position
+	/// the cursor incorrectly in some cases. In particular, the cursor would be positioned at the
+	/// beginning of a branch or extension node even if the key parameter follows it. This bug has
+	/// become part of the consensus logic on certain deployed blockchains including Kusama.
+	///
+	/// If the `broken` parameter is true, the buggy behavior is invoked.
+	pub(crate) fn seek(&mut self, key: &[u8], broken: bool) -> Result<(), TrieHash<L>, CError<L>> {
 		self.trail.clear();
 		self.key_nibbles.clear();
 		let key = NibbleSlice::new(key);
@@ -129,7 +129,7 @@ impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
 					NodePlan::Extension { partial: partial_plan, child } => {
 						let slice = partial_plan.build(node_data);
 						if !partial.starts_with(&slice) {
-							if slice < partial {
+							if !broken && slice < partial {
 								crumb.status = Status::Exiting;
 								self.key_nibbles.append_partial(slice.right());
 							}
@@ -174,7 +174,7 @@ impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
 					NodePlan::NibbledBranch { partial: partial_plan, value: _, children } => {
 						let slice = partial_plan.build(node_data);
 						if !partial.starts_with(&slice) {
-							if slice < partial {
+							if !broken && slice < partial {
 								crumb.status = Status::Exiting;
 								self.key_nibbles.append_partial(slice.right());
 								self.key_nibbles.push((nibble_ops::NIBBLE_LENGTH - 1) as u8);
@@ -220,6 +220,59 @@ impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
 			node = next_node;
 			node_hash = next_node_hash;
 		}
+	}
+
+	/// Returns the next value in the trie after the current position and advances to that
+	/// position. This can be used to implement the `next()` method for trie value iterators.
+	pub(crate) fn next_value(&mut self) -> Option<TrieItem<'a, TrieHash<L>, CError<L>>> {
+		while let Some(item) = self.next() {
+			match item {
+				Ok((mut prefix, _, node)) => {
+					let node_data = node.data();
+					let maybe_value = match node.node_plan() {
+						NodePlan::Leaf { partial, value } => {
+							prefix.append_partial(partial.build(node_data).right());
+							Some(&node_data[value.clone()])
+						}
+						NodePlan::Branch { value, children: _ } => {
+							value.clone().map(|range| &node_data[range])
+						}
+						NodePlan::NibbledBranch { partial, value, children: _ } => {
+							prefix.append_partial(partial.build(node_data).right());
+							value.clone().map(|range| &node_data[range])
+						}
+						_ => None,
+					};
+					if let Some(value) = maybe_value {
+						let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
+						let key = key_slice.to_vec();
+						if let Some(extra_nibble) = maybe_extra_nibble {
+							return Some(Err(Box::new(
+								TrieError::ValueAtIncompleteKey(key, extra_nibble)
+							)));
+						}
+						return Some(Ok((key, DBValue::from_slice(value))));
+					}
+				},
+				Err(err) => return Some(Err(err)),
+			}
+		}
+		None
+	}
+
+	/// Descend into a payload.
+	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<TrieHash<L>>) {
+		self.trail.push(Crumb {
+			hash: node_hash,
+			status: Status::Entering,
+			node: Rc::new(node),
+		});
+	}
+}
+
+impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
+	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+		self.seek(key, false)
 	}
 }
 
@@ -601,6 +654,9 @@ mod tests {
 
 		TrieIterator::seek(&mut iter, &hex!("03")[..]).unwrap();
 		assert!(iter.next().is_none());
+
+		TrieIterator::seek(&mut iter, &hex!("10")[..]).unwrap();
+		assert!(iter.next().is_none());
 	}
 
 
@@ -645,6 +701,9 @@ mod tests {
 		}
 
 		TrieIterator::seek(&mut iter, &hex!("03")[..]).unwrap();
+		assert!(iter.next().is_none());
+
+		TrieIterator::seek(&mut iter, &hex!("10")[..]).unwrap();
 		assert!(iter.next().is_none());
 	}
 

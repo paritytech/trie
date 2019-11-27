@@ -289,7 +289,7 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBIterator<'a, L> {
 	/// Position the iterator on the first element with key >= `key`
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
-		TrieIterator::seek(&mut self.inner, key)
+		self.inner.seek(key, false)
 	}
 }
 
@@ -297,36 +297,42 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 	type Item = TrieItem<'a, TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		while let Some(item) = self.inner.next() {
-			match item {
-				Ok((mut prefix, _, node)) => {
-					let maybe_value = match node.node() {
-						Node::Leaf(partial, value) => {
-							prefix.append_partial(partial.right());
-							Some(value)
-						}
-						Node::Branch(_, value) => value,
-						Node::NibbledBranch(partial, _, value) => {
-							prefix.append_partial(partial.right());
-							value
-						}
-						_ => None,
-					};
-					if let Some(value) = maybe_value {
-						let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
-						let key = key_slice.to_vec();
-						if let Some(extra_nibble) = maybe_extra_nibble {
-							return Some(Err(Box::new(
-								TrieError::ValueAtIncompleteKey(key, extra_nibble)
-							)));
-						}
-						return Some(Ok((key, DBValue::from_slice(value))));
-					}
-				},
-				Err(err) => return Some(Err(err)),
-			}
-		}
-		None
+		self.inner.next_value()
+	}
+}
+
+/// Iterator for going through all values in the trie in pre-order traversal order.
+///
+/// In versions <0.16.0 of trie-db, a bug in `TrieDBIterator` would cause `seek` to position the
+/// cursor incorrectly in some cases. In particular, the cursor would be positioned at the
+/// beginning of a branch or extension node even if the key parameter follows it. This bug has
+/// become part of the consensus logic on certain deployed blockchains including Kusama.
+///
+/// This behaves like the buggy version <0.16.0 of TrieDBIterator.
+pub struct TrieDBBrokenIterator<'a, L: TrieLayout> {
+	inner: TrieDBNodeIterator<'a, L>,
+}
+
+impl<'a, L: TrieLayout> TrieDBBrokenIterator<'a, L> {
+	/// Create a new iterator.
+	pub fn new(db: &'a TrieDB<L>) -> Result<TrieDBBrokenIterator<'a, L>, TrieHash<L>, CError<L>> {
+		let inner = TrieDBNodeIterator::new(db)?;
+		Ok(TrieDBBrokenIterator { inner })
+	}
+}
+
+impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBBrokenIterator<'a, L> {
+	/// Position the iterator on the first element with key >= `key`
+	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+		self.inner.seek(key, true)
+	}
+}
+
+impl<'a, L: TrieLayout> Iterator for TrieDBBrokenIterator<'a, L> {
+	type Item = TrieItem<'a, TrieHash<L>, CError<L>>;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		self.inner.next_value()
 	}
 }
 
@@ -335,8 +341,10 @@ mod tests {
 	use memory_db::{MemoryDB, PrefixedKey};
 	use keccak_hasher::KeccakHasher;
 	use DBValue;
-	use reference_trie::{RefTrieDB, RefTrieDBMut, RefLookup, Trie, TrieMut, NibbleSlice};
-	use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt};
+	use reference_trie::{
+		RefTrieDB, RefTrieDBMut, RefTrieDBNoExt, RefTrieDBMutNoExt, RefLookup,
+		Trie, TrieDBBrokenIterator, TrieIterator, TrieMut, NibbleSlice
+	};
 
 	#[test]
 	fn iterator_works() {
@@ -435,6 +443,12 @@ mod tests {
 				.map(|(k, v)| (k, v[..].to_vec()))
 				.collect::<Vec<_>>()[..]
 		);
+		let mut iter = t.iter().unwrap();
+		iter.seek(&hex!("02")[..]).unwrap();
+		assert_eq!(
+			0,
+			iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).count()
+		);
 	}
 
 	#[test]
@@ -470,6 +484,105 @@ mod tests {
 		assert_eq!(
 			&pairs[1..],
 			&iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>()[..],
+		);
+		let mut iter = t.iter().unwrap();
+		iter.seek(&hex!("02")[..]).unwrap();
+		assert_eq!(
+			0,
+			iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).count()
+		);
+	}
+
+	#[test]
+	fn broken_iterator_seek_works() {
+		let pairs = vec![
+			(hex!("0103000000000000000464").to_vec(), hex!("fffffffffe").to_vec()),
+			(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
+		];
+
+		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut root = Default::default();
+		{
+			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+			for (x, y) in &pairs {
+				t.insert(x, y).unwrap();
+			}
+		}
+
+		let t = RefTrieDB::new(&memdb, &root).unwrap();
+
+		let mut iter = TrieDBBrokenIterator::new(&t).unwrap();
+		assert_eq!(
+			iter.next().unwrap().unwrap(),
+			(
+				hex!("0103000000000000000464").to_vec(),
+				DBValue::from_slice(&hex!("fffffffffe")[..]),
+			)
+		);
+		iter.seek(&hex!("00")[..]).unwrap();
+		assert_eq!(
+			pairs,
+			iter.map(|x| x.unwrap())
+				.map(|(k, v)| (k, v[..].to_vec()))
+				.collect::<Vec<_>>()
+		);
+		let mut iter = TrieDBBrokenIterator::new(&t).unwrap();
+		iter.seek(&hex!("0103000000000000000465")[..]).unwrap();
+		assert_eq!(
+			&pairs[1..],
+			&iter.map(|x| x.unwrap())
+				.map(|(k, v)| (k, v[..].to_vec()))
+				.collect::<Vec<_>>()[..]
+		);
+		let mut iter = TrieDBBrokenIterator::new(&t).unwrap();
+		iter.seek(&hex!("02")[..]).unwrap();
+		assert_eq!(
+			pairs,
+			iter.map(|x| x.unwrap())
+				.map(|(k, v)| (k, v[..].to_vec()))
+				.collect::<Vec<_>>()
+		);
+	}
+
+	#[test]
+	fn broken_iterator_seek_works_without_extension() {
+		let pairs = vec![
+			(hex!("0103000000000000000464").to_vec(), hex!("fffffffffe").to_vec()),
+			(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
+		];
+
+		let mut memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
+		let mut root = Default::default();
+		{
+			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+			for (x, y) in &pairs {
+				t.insert(x, y).unwrap();
+			}
+		}
+
+		let t = RefTrieDBNoExt::new(&memdb, &root).unwrap();
+
+		let mut iter = TrieDBBrokenIterator::new(&t).unwrap();
+		assert_eq!(
+			iter.next().unwrap().unwrap(),
+			(hex!("0103000000000000000464").to_vec(), DBValue::from_slice(&hex!("fffffffffe")[..]))
+		);
+		iter.seek(&hex!("00")[..]).unwrap();
+		assert_eq!(
+			pairs,
+			iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>(),
+		);
+		let mut iter = TrieDBBrokenIterator::new(&t).unwrap();
+		iter.seek(&hex!("0103000000000000000465")[..]).unwrap();
+		assert_eq!(
+			&pairs[1..],
+			&iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>()[..],
+		);
+		let mut iter = TrieDBBrokenIterator::new(&t).unwrap();
+		iter.seek(&hex!("02")[..]).unwrap();
+		assert_eq!(
+			pairs,
+			iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>(),
 		);
 	}
 
