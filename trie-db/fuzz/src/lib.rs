@@ -175,7 +175,7 @@ pub fn fuzz_that_no_extension_insert_remove(input: &[u8]) {
 	compare_no_extension_insert_remove(data, memdb);
 }
 
-pub fn fuzz_prefix_iter(input: &[u8]) {
+pub fn fuzz_seek_iter(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data_fix_length(input));
 	
 	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
@@ -224,7 +224,7 @@ pub fn fuzz_prefix_iter(input: &[u8]) {
 	assert_eq!(error, 0);
 }
 
-pub fn fuzz_prefix_iter2(input: &[u8]) {
+pub fn fuzz_prefix_iter(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data_fix_length(input));
 	
 	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
@@ -273,9 +273,4 @@ pub fn fuzz_prefix_iter2(input: &[u8]) {
 
 	assert_eq!(iter_res, iter_res2);
 	assert_eq!(error, 0);
-}
-
-#[test]
-fn fuzz_test() {
-	fuzz_prefix_iter2(&[0x30,0x33,0x37,0xe3,0x1,0x0,0x1,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x27,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0xa,0x28,0xc5,0x85,0xa,0x85,0xa,][..]);
 }

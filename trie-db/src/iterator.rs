@@ -128,7 +128,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 							crumb.status = Status::Exiting;
 							return Ok(false);
 						}
-						return Ok(true);
+						return Ok(slice.starts_with(&partial));
 					},
 					NodePlan::Extension { partial: partial_plan, child } => {
 						let slice = partial_plan.build(node_data);
@@ -138,7 +138,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 								self.key_nibbles.append_partial(slice.right());
 								return Ok(false);
 							}
-							return Ok(true);
+							return Ok(slice.starts_with(&partial));
 						}
 
 						full_key_nibbles += slice.len();
@@ -185,7 +185,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 								self.key_nibbles.push((nibble_ops::NIBBLE_LENGTH - 1) as u8);
 								return Ok(false);
 							}
-							return Ok(true);
+							return Ok(slice.starts_with(&partial));
 						}
 
 						full_key_nibbles += slice.len();

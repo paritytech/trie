@@ -51,3 +51,7 @@ path = "fuzz_targets/no_ext_insert_rem.rs"
 [[bin]]
 name = "prefix_iter"
 path = "fuzz_targets/prefix_iter.rs"
+
+[[bin]]
+name = "seek_iter"
+path = "fuzz_targets/seek_iter.rs"
