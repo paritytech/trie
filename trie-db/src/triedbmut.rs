@@ -58,12 +58,40 @@ pub(crate) enum NodeHandle<H, SH> {
 
 impl<H: AsRef<[u8]>, SH: AsRef<[u8]>> NodeHandle<H, SH> {
 	/// Get a node handle ref to this handle.
-	fn as_ref(&self) -> crate::node::NodeHandle {
+	pub(crate) fn as_ref(&self) -> crate::node::NodeHandle {
 		match self {
 			NodeHandle::InMemory(sh) => crate::node::NodeHandle::Inline(sh.as_ref()), 
 			NodeHandle::Hash(h) => crate::node::NodeHandle::Hash(h.as_ref()), 
 		}
 	}
+}
+
+impl<H: AsRef<[u8]> + Send + Copy, SH: AsRef<[u8]>> NodeHandle<H, SH>
+where
+	H: AsRef<[u8]> + AsMut<[u8]> + Default + crate::MaybeDebug
+		+ PartialEq + Eq + Hash + Send + Sync + Clone + Copy,
+	SH: AsRef<[u8]>,
+{
+	/// Get a child reference (this has a cost but doing
+	/// otherwhise requires changing codec trait).
+	pub(crate) fn as_child_ref<H2>(self) -> ChildReference<H>
+		where
+				H2: Hasher<Out = H>
+	{
+		match self {
+			NodeHandle::InMemory(sh) => {
+				let sh_ref = sh.as_ref();
+				// TODO EMCH consider keeping the encoded buffer
+				// of node handle (need to apply everywhere).
+				let mut h = H2::Out::default();
+				let len = sh_ref.len();
+				h.as_mut()[..len].copy_from_slice(&sh_ref[..len]);
+				ChildReference::Inline(h, len)
+			}, 
+			NodeHandle::Hash(h) => ChildReference::Hash(h), 
+		}
+	}
+
 }
 
 impl<H> From<StorageHandle> for NodeHandle<H, StorageHandle> {
@@ -105,6 +133,7 @@ pub(crate) enum Node<H, SH> {
 }
 
 impl<H, SH> Node<H, SH> {
+
 	/// Get extension part of the node (partial) if any.
 	pub fn partial(&self) -> Option<NibbleSlice> {
 		match self {
@@ -219,12 +248,19 @@ where
 		};
 		Ok(node)
 	}
+}
+
+impl<O, SH> Node<O, SH>
+where
+	O: AsRef<[u8]> + AsMut<[u8]> + Default + crate::MaybeDebug
+		+ PartialEq + Eq + Hash + Send + Sync + Clone + Copy
+{
 
 	// TODO: parallelize
 	pub(crate) fn into_encoded<F, C, H>(self, mut child_cb: F) -> Vec<u8>
 	where
-		C: NodeCodec<HashOut=O>,
-		F: FnMut(NodeHandle<H::Out, StorageHandle>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
+		C: NodeCodec<HashOut = O>,
+		F: FnMut(NodeHandle<H::Out, SH>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
 		H: Hasher<Out = O>,
 	{
 		match self {

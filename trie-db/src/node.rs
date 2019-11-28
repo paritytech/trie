@@ -36,7 +36,7 @@ pub enum NodeHandle<'a> {
 
 impl<'a> NodeHandle<'a> {
 	/// Get underlying data.
-	fn data(&self) -> &[u8] {
+	pub(crate) fn data(&self) -> &[u8] {
 		match self {
 			NodeHandle::Hash(d)
 			| NodeHandle::Inline(d) => d,
