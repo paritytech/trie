@@ -35,7 +35,7 @@ type StorageHandle = Vec<u8>;
 
 /// StackedNode can be updated.
 /// A state can be use.
-pub(crate) enum StackedNode<B, T, S>
+pub enum StackedNode<B, T, S>
 	where
 		B: Borrow<[u8]>,
 		T: TrieLayout,
@@ -88,12 +88,12 @@ impl<B, T, S> StackedNode<B, T, S>
 }
 
 /// Visitor trait to implement when using `trie_traverse_key`.
-pub(crate) trait ProcessStack<B, T, K, V, S>
+pub trait ProcessStack<B, T, K, V, S>
 	where
 		T: TrieLayout,
 		B: Borrow<[u8]>,
 		K: AsRef<[u8]> + Ord,
-		V: AsRef<[u8]> + Into<DBValue>,
+		V: AsRef<[u8]>,
 {
 	/// Callback on enter a node, change can be applied here.
 	fn enter(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, T, S>);
@@ -108,7 +108,7 @@ pub(crate) trait ProcessStack<B, T, K, V, S>
 }
 
 /// The main entry point for traversing a trie by a set of keys.
-pub(crate) fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
+pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 	db: &'a mut dyn HashDB<T::Hash, B>,
 	root: &'a TrieHash<T>,
 	elements: I,
@@ -118,7 +118,7 @@ pub(crate) fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 		T: TrieLayout,
 		I: IntoIterator<Item = (K, Option<V>)>,
 		K: AsRef<[u8]> + Ord,
-		V: AsRef<[u8]> + Into<DBValue>,
+		V: AsRef<[u8]>,
 		S: Default,
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
 		F: ProcessStack<B, T, K, V, S>,
@@ -234,7 +234,7 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate
 		T: TrieLayout,
 		B: Borrow<[u8]> + AsRef<[u8]>,
 		K: AsRef<[u8]> + Ord,
-		V: AsRef<[u8]> + Into<DBValue>,
+		V: AsRef<[u8]>,
 {
 	fn enter(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, T, S>) {
 	}
@@ -250,5 +250,76 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate
 	
 	fn exit_root(&mut self, prefix: &NibbleVec, stacked: StackedNode<B, T, S>) {
 		self.0.push(stacked.into_encoded());
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBNoExt, TrieMut, NodeCodec,
+		ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension,
+		NoExtensionLayout, TrieLayout, trie_traverse_key_no_extension_build, BatchUpdate,
+	};
+
+	use memory_db::{MemoryDB, PrefixedKey};
+	use keccak_hasher::KeccakHasher;
+	use DBValue;
+	use crate::triedbmut::tests::populate_trie_no_extension;
+
+	fn compare_with_triedbmut(
+		x: &[(Vec<u8>, Vec<u8>)],
+		v: &[(Vec<u8>, Option<Vec<u8>>)],
+	) {
+		let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut root = Default::default();
+		populate_trie_no_extension(&mut db, &mut root, x).commit();
+		{
+			let t = RefTrieDBNoExt::new(&db, &root);
+			println!("bef {:?}", t);
+		}
+
+		let initial_root = root.clone();
+		let initial_db = db.clone();
+		// reference
+		{
+			let mut t = RefTrieDBMutNoExt::new(&mut db, &mut root);
+			for i in 0..v.len() {
+				let key: &[u8]= &v[i].0;
+				if let Some(val) = v[i].1.as_ref() {
+					t.insert(key, val.as_ref()).unwrap();
+				} else {
+					t.remove(key).unwrap();
+				}
+			}
+		}
+		{
+			let t = RefTrieDBNoExt::new(&db, &root);
+			println!("aft {:?}", t);
+		}
+
+
+		let reference_root = root.clone();
+	
+		let mut batch_update = BatchUpdate(Default::default());
+		trie_traverse_key_no_extension_build(
+		&mut db, &initial_root, v.iter().map(|(a, b)| (a, b.as_ref())), &mut batch_update);
+
+		panic!("end {:?}", batch_update.0);
+
+	}
+
+	#[test]
+	fn dummy1() {
+		compare_with_triedbmut(
+			&[
+				(vec![0x01u8, 0x23], vec![0x01u8, 0x23]),
+				(vec![0xf1u8, 0x23], vec![0x01u8, 0x23]),
+				(vec![0x81u8, 0x23], vec![0x01u8, 0x23]),
+			],
+			&[
+				(vec![0x01u8, 0x23], Some(vec![0xffu8, 0x23])),
+				(vec![0xf1u8, 0x23], Some(vec![0xffu8, 0x23])),
+				(vec![0x81u8, 0x23], None),
+			],
+		);
 	}
 }

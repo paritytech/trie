@@ -49,7 +49,7 @@ pub(crate) struct StorageHandle(usize);
 
 // Handles to nodes in the trie.
 #[cfg_attr(feature = "std", derive(Debug))]
-pub(crate) enum NodeHandle<H, SH> {
+pub enum NodeHandle<H, SH> {
 	/// Loaded into memory.
 	InMemory(SH),
 	/// Either a hash or an inline node
@@ -114,7 +114,7 @@ pub(crate) type NibbleFullKey<'key> = NibbleSlice<'key>;
 // TODO EMCH make a local type alias with only H!!
 /// Node types in the Trie.
 #[cfg_attr(feature = "std", derive(Debug))]
-pub(crate) enum Node<H, SH> {
+pub enum Node<H, SH> {
 	/// Empty node.
 	Empty,
 	/// A leaf node contains the end of a key and a value.
@@ -1640,7 +1640,7 @@ fn combine_key(start: &mut NodeKey, end: (usize, &[u8])) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
 	use env_logger;
 	use standardmap::*;
 	use DBValue;
@@ -1672,7 +1672,7 @@ mod tests {
 		}
 	}
 
-	fn populate_trie_no_extension<'db>(
+	pub(crate) fn populate_trie_no_extension<'db>(
 		db: &'db mut dyn HashDB<KeccakHasher, DBValue>,
 		root: &'db mut <KeccakHasher as Hasher>::Out,
 		v: &[(Vec<u8>, Vec<u8>)]

@@ -81,7 +81,7 @@ pub mod recorder;
 mod fatdb;
 mod fatdbmut;
 mod iter_build;
-mod traverse;
+pub mod traverse;
 mod iterator;
 mod lookup;
 mod nibble;

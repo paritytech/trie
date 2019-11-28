@@ -37,6 +37,7 @@ pub use trie_db::{
 	NodeCodec,
 };
 pub use trie_db::{Record, TrieLayout, TrieConfiguration, nibble_ops};
+pub use trie_db::traverse::{BatchUpdate, trie_traverse_key};
 pub use trie_root::TrieStream;
 pub mod node {
 	pub use trie_db::node::Node;
@@ -1185,6 +1186,24 @@ pub fn compare_no_extension_insert_remove(
 	// before.
 	assert_eq!(*t.root(), calc_root_no_extension(data2));
 }
+
+pub fn trie_traverse_key_no_extension_build<'a, I, K, V, B>(
+	db: &'a mut dyn hash_db::HashDB<keccak_hasher::KeccakHasher, B>,
+	root: &'a [u8; 32],
+	elements: I,
+	batch_update: &'a mut BatchUpdate, 
+)
+	where
+		I: IntoIterator<Item = (K, Option<V>)>,
+		K: AsRef<[u8]> + Ord,
+		V: AsRef<[u8]>,
+		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
+{
+	// TODO return type ?? EMCH generally this need redesign as it expose to many internal types:
+	// probably expose a function from traverse
+	trie_traverse_key::<NoExtensionLayout, _, _, _, (), _, _>(db, root, elements, batch_update).unwrap();
+}
+	
 
 #[cfg(test)]
 mod tests {
