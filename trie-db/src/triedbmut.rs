@@ -145,6 +145,36 @@ impl<H, SH> Node<H, SH> {
 				=> Some(NibbleSlice::new_offset(&partial.1[..], partial.0)),
 		}
 	}
+
+	/// Get extension part of the node (partial) if any.
+	pub fn set_value(&mut self, value: &[u8]) {
+		match self {
+			Node::Extension(..)
+			| Node::Empty => (),
+			Node::Branch ( _, val )
+			| Node::NibbledBranch(_, _, val)
+				=> *val = Some(value.into()),
+			Node::Leaf(_, val)
+				=> *val = value.into(),
+		}
+	}
+
+	/// Return true if the node can be removed to.
+	pub fn remove_value(&mut self) -> bool {
+		match self {
+			Node::Extension(..)
+			| Node::Empty => false,
+			Node::Branch(encoded_children, val)
+			| Node::NibbledBranch(_, encoded_children, val)
+				=> {
+					*val = None;
+					!encoded_children.iter().any(Option::is_some)
+				},
+			Node::Leaf(..)
+				=> true,
+		}
+	}
+
 }
 
 impl<H: AsRef<[u8]>, SH: AsRef<[u8]>> Node<H, SH> {

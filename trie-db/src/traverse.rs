@@ -43,13 +43,16 @@ pub enum StackedNode<B, T, S>
 	/// Read node.
 	Unchanged(OwnedNode<B>, S),
 	/// Modified node.
-	Changed(Node<TrieHash<T>, B>, S),
+	Changed(Node<TrieHash<T>, Vec<u8>>, S),
+	/// Deleted node.
+	Deleted(S),
 }
 
 impl<B, T, S> StackedNode<B, T, S>
 	where
 		B: Borrow<[u8]> + AsRef<[u8]>,
 		T: TrieLayout,
+		S: Clone,
 //		TrieHash<T>: AsRef<[u8]>,
 {
 	/// Get extension part of the node (partial) if any.
@@ -57,6 +60,7 @@ impl<B, T, S> StackedNode<B, T, S>
 		match self {
 			StackedNode::Unchanged(node, ..) => node.partial(),
 			StackedNode::Changed(node, ..) => node.partial(),
+			StackedNode::Deleted(..) => None,
 		}
 	}
 
@@ -65,6 +69,41 @@ impl<B, T, S> StackedNode<B, T, S>
 		match self {
 			StackedNode::Unchanged(node, ..) => node.child(ix),
 			StackedNode::Changed(node, ..) => node.child(ix),
+			StackedNode::Deleted(..) => None,
+		}
+	}
+
+	/// Set a value if the node can contain one.
+	pub fn set_value(&mut self, value: &[u8]) {
+		match self {
+			StackedNode::Unchanged(node, state) => {
+				if let Some(new) = node.set_value(value) {
+					*self = StackedNode::Changed(new, state.clone());
+				}
+			},
+			StackedNode::Changed(node, ..) => node.set_value(value),
+			StackedNode::Deleted(..) => (),
+		}
+	}
+
+	/// Remove a value if the node contains one.
+	pub fn remove_value(&mut self) {
+		match self {
+			StackedNode::Unchanged(node, state) => {
+				match node.remove_value() {
+					Some(Some(new)) =>
+						*self = StackedNode::Changed(new, state.clone()),
+					Some(None) =>
+						*self = StackedNode::Deleted(state.clone()),
+					None => (),
+				}
+			},
+			StackedNode::Changed(node, state) => {
+				if node.remove_value() {
+					*self = StackedNode::Deleted(state.clone());
+				}
+			},
+			StackedNode::Deleted(..) => (),
 		}
 	}
 }
@@ -73,6 +112,7 @@ impl<B, T, S> StackedNode<B, T, S>
 	where
 		B: Borrow<[u8]> + AsRef<[u8]>,
 		T: TrieLayout,
+		S: Clone,
 {
 
 	/// Encode node
@@ -83,6 +123,7 @@ impl<B, T, S> StackedNode<B, T, S>
 				|child, o_slice, o_index| {
 					child.as_child_ref::<T::Hash>()
 				}),
+			StackedNode::Deleted(..) => T::Codec::empty_node().to_vec(),
 		}
 	}
 }
@@ -91,6 +132,7 @@ impl<B, T, S> StackedNode<B, T, S>
 pub trait ProcessStack<B, T, K, V, S>
 	where
 		T: TrieLayout,
+		S: Clone,
 		B: Borrow<[u8]>,
 		K: AsRef<[u8]> + Ord,
 		V: AsRef<[u8]>,
@@ -99,8 +141,14 @@ pub trait ProcessStack<B, T, K, V, S>
 	fn enter(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, T, S>);
 	/// Same as `enter` but at terminal node element (terminal considering next key so branch is
 	/// possible here).
-	fn enter_terminal(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, T, S>)
-		-> Option<(Node<TrieHash<T>, B>, S)>;
+	fn enter_terminal(
+		&mut self,
+		prefix: &NibbleVec,
+		stacked: &mut StackedNode<B, T, S>,
+		index_element: usize,
+		key_element: &[u8],
+		value_element: Option<&[u8]>,
+	) -> Option<(Node<TrieHash<T>, Vec<u8>>, S)>;
 	/// Callback on exit a node, commit action on change node should be applied here.
 	fn exit(&mut self, prefix: &NibbleVec, stacked: StackedNode<B, T, S>);
 	/// Same as `exit` but for root (very last exit call).
@@ -119,7 +167,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 		I: IntoIterator<Item = (K, Option<V>)>,
 		K: AsRef<[u8]> + Ord,
 		V: AsRef<[u8]>,
-		S: Default,
+		S: Default + Clone,
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
 		F: ProcessStack<B, T, K, V, S>,
 {
@@ -129,7 +177,6 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 	// TODO EMCH do following update (used for error only)
 	let mut last_hash = root;
 	let root = if let Ok(root) = fetch::<T, B>(db, root, EMPTY_PREFIX) {
-
 		root
 	} else {
 		return Err(Box::new(TrieError::InvalidStateRoot(*root)));
@@ -139,74 +186,127 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 	let mut prefix = NibbleVec::new();
 	let mut current = StackedNode::<B, T, S>::Unchanged(root, Default::default());
 	let mut common_depth = 0;
+	callback.enter(&prefix, &mut current);
 	current.partial().map(|p| {
 		common_depth += p.len();
 		prefix.append_partial(p.right())
 	});
 
-	for (k, v) in elements {
-		let dest  = NibbleFullKey::new(k.as_ref());
-		let dest_depth = k.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
+	let mut switch_iter: bool;
+	for (el_index, (k, v)) in elements.into_iter().enumerate() {
+		let mut switch_iter = true;
 		loop {
+			let mut common_depth = nibble_ops::biggest_depth(prefix.inner(), k.as_ref());
+			common_depth = min(prefix.len(), common_depth);
+
+			if common_depth < prefix.len() {
+				while common_depth < prefix.len() {
+					// go up
+					if let Some((c, d)) = stack.pop() {
+						callback.exit(&prefix, current);
+						current = c;
+						prefix.drop_lasts(d);
+					} else {
+						callback.exit_root(&prefix, current);
+						return Ok(());
+					}
+					//common_depth = nibble_ops::biggest_depth(prefix.inner(), k.as_ref());
+					common_depth = min(prefix.len(), common_depth);
+				}
+				if !switch_iter {
+					// going up not on a new key means we need to switch to next one
+					break;
+				}
+			}
+
+			switch_iter = false;
+			let dest  = NibbleFullKey::new(k.as_ref());
+			let dest_depth = k.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
+
 			// TODO EMCH go down extension here
-			if common_depth >= dest_depth {
-				if let Some((new, s)) = callback.enter_terminal(&prefix, &mut current) {
+			debug_assert!(common_depth <= dest_depth);
+			if common_depth == dest_depth {
+				if let Some((new, s)) = callback.enter_terminal(
+					&prefix,
+					&mut current,
+					el_index,
+					k.as_ref(),
+					v.as_ref().map(|v| v.as_ref()),
+				) {
 					stack.push((current, common_depth));
 					new.partial().map(|p| {
 						common_depth += p.len();
 						prefix.append_partial(p.right())
 					});
 					current = StackedNode::Changed(new, s);
-				};
-				// go next key
-				break;
+				} else {
+					// go next key
+					break;
+				}
 			} else {
 
 				// try go down
-				let next_index = dest.at(common_depth + 1);
+				let next_index = dest.at(common_depth);
 				let next_node = match current.child(next_index) {
 					Some(NodeHandle::Hash(handle_hash)) => {
 						let mut hash = <TrieHash<T> as Default>::default();
 						hash.as_mut()[..].copy_from_slice(handle_hash.as_ref());
-						fetch::<T, B>(db, &hash, prefix.as_prefix())?
+						StackedNode::Unchanged(
+							fetch::<T, B>(db, &hash, prefix.as_prefix())?,
+							Default::default(),
+						)
 					},
 					Some(NodeHandle::Inline(node_encoded)) => {
-						// Instantiating B is only for inline node, still costy.
-						OwnedNode::new::<T::Codec>(B::from(node_encoded))
-								.map_err(|e| Box::new(TrieError::DecoderError(*last_hash, e)))?
+
+						StackedNode::Unchanged(
+							// Instantiating B is only for inline node, still costy.
+							OwnedNode::new::<T::Codec>(B::from(node_encoded))
+								.map_err(|e| Box::new(TrieError::DecoderError(*last_hash, e)))?,
+							Default::default(),
+						)
 					},
 					None => {
-						// advance key by breaking loop
-						break;
+						// this is a terminal node
+						if let Some((new, s)) = callback.enter_terminal(
+							&prefix,
+							&mut current,
+							el_index,
+							k.as_ref(),
+							v.as_ref().map(|v| v.as_ref()),
+						) {
+							new.partial().map(|p| {
+								common_depth += p.len();
+								prefix.append_partial(p.right())
+							});
+							StackedNode::Changed(new, s)
+						} else {
+							// go next key
+							break;
+						}
 					},
 				};
 
 				callback.enter(&prefix, &mut current);
-				stack.push((current, common_depth));
-				current = StackedNode::Unchanged(next_node, Default::default());
-				current.partial().map(|p| {
-					common_depth += p.len();
-					prefix.append_partial(p.right())
-				});
+				prefix.push(next_index);
+				let add_levels = next_node.partial().map(|p| {
+					prefix.append_partial(p.right());
+					p.len()
+				}).unwrap_or(0) + 1;
+				common_depth += add_levels;
+				stack.push((current, add_levels));
+				current = next_node;
 			}
-		}
-		let mut common_depth = nibble_ops::biggest_depth(prefix.inner(), k.as_ref());
-		common_depth = min(prefix.len(), common_depth);
-		while common_depth < prefix.len() {
-			// go up
-			if let Some((c, d)) = stack.pop() {
-				callback.exit(&prefix, current);
-				current = c;
-				prefix.drop_lasts(prefix.len() - d);
-			} else {
-				callback.exit_root(&prefix, current);
-				return Ok(());
-			}
-			common_depth = nibble_ops::biggest_depth(prefix.inner(), k.as_ref());
-			common_depth = min(prefix.len(), common_depth);
 		}
 
 	}
+
+	// empty stack
+	while let Some((c, d)) = stack.pop() {
+			callback.exit(&prefix, current);
+			current = c;
+			prefix.drop_lasts(d);
+	}
+	callback.exit_root(&prefix, current);
 
 	Ok(())
 }
@@ -232,6 +332,7 @@ pub struct BatchUpdate(pub Vec<Vec<u8>>);
 impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate
 	where
 		T: TrieLayout,
+		S: Clone,
 		B: Borrow<[u8]> + AsRef<[u8]>,
 		K: AsRef<[u8]> + Ord,
 		V: AsRef<[u8]>,
@@ -239,9 +340,24 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate
 	fn enter(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, T, S>) {
 	}
 
-	fn enter_terminal(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, T, S>)
-		-> Option<(Node<TrieHash<T>, B>, S)> {
+	fn enter_terminal(
+		&mut self,
+		prefix: &NibbleVec,
+		stacked: &mut StackedNode<B, T, S>,
+		index_element: usize,
+		key_element: &[u8],
+		value_element: Option<&[u8]>,
+	) -> Option<(Node<TrieHash<T>, Vec<u8>>, S)> {
+		if key_element.len() * nibble_ops::NIBBLE_PER_BYTE == prefix.len() {
+			if let Some(value) = value_element {
+				stacked.set_value(value);
+			} else {
+				stacked.remove_value();
+			}
 			None
+		} else {
+			Some(unimplemented!())
+		}
 	}
 
 	fn exit(&mut self, prefix: &NibbleVec, stacked: StackedNode<B, T, S>) {
@@ -311,14 +427,14 @@ mod tests {
 	fn dummy1() {
 		compare_with_triedbmut(
 			&[
-				(vec![0x01u8, 0x23], vec![0x01u8, 0x23]),
-				(vec![0xf1u8, 0x23], vec![0x01u8, 0x23]),
-				(vec![0x81u8, 0x23], vec![0x01u8, 0x23]),
+				(vec![0x01u8, 0x01u8, 0x23], vec![0x01u8, 0x23]),
+				(vec![0x01u8, 0xf1u8, 0x23], vec![0x01u8, 0x24]),
+				(vec![0x01u8, 0x81u8, 0x23], vec![0x01u8, 0x25]),
 			],
 			&[
-				(vec![0x01u8, 0x23], Some(vec![0xffu8, 0x23])),
-				(vec![0xf1u8, 0x23], Some(vec![0xffu8, 0x23])),
-				(vec![0x81u8, 0x23], None),
+				(vec![0x01u8, 0x01u8, 0x24], Some(vec![0xffu8, 0x33])),
+				(vec![0x01u8, 0x81u8, 0x23], None),
+				(vec![0x01u8, 0xf1u8, 0x23], Some(vec![0xffu8, 0x34])),
 			],
 		);
 	}

@@ -17,7 +17,7 @@ use hash_db::Hasher;
 use nibble::NibbleSlice;
 use nibble::nibble_ops;
 use node_codec::NodeCodec;
-
+use crate::triedbmut::Node as TNode;
 use core_::borrow::Borrow;
 use core_::ops::Range;
 #[cfg(not(feature = "std"))]
@@ -89,6 +89,19 @@ impl NodeHandlePlan {
 			NodeHandlePlan::Inline(range) => NodeHandle::Inline(&data[range.clone()]),
 		}
 	}
+
+	/// TODO
+	pub fn build_thandle<H: AsMut<[u8]> + Default>(&self, data: &[u8]) -> crate::triedbmut::NodeHandle<H, Vec<u8>> {
+		match self {
+			NodeHandlePlan::Hash(range) => {
+				let mut hash = H::default();
+				hash.as_mut().copy_from_slice(&data[range.clone()]);
+				crate::triedbmut::NodeHandle::Hash(hash)
+			},
+			NodeHandlePlan::Inline(range) => crate::triedbmut::NodeHandle::InMemory((&data[range.clone()]).into()),
+		}
+	}
+
 }
 
 /// A `NibbleSlicePlan` is a blueprint for decoding a nibble slice from a byte slice. The
@@ -242,4 +255,80 @@ impl<D: Borrow<[u8]>> OwnedNode<D> {
 				children[ix as usize].as_ref().map(|child| child.build(self.data.borrow())),
 		}
 	}
+}
+
+impl<B: Borrow<[u8]>> OwnedNode<B> {
+	/// Set a value.
+	pub fn set_value<H: AsMut<[u8]> + Default>(&mut self, new_value: &[u8]) -> Option<TNode<H, Vec<u8>>> {
+		let data = &self.data.borrow();
+		match &self.plan {
+			NodePlan::Leaf { partial, value } => {
+				if &data[value.clone()] == new_value {
+					return None;
+				}
+				Some(TNode::Leaf(
+					partial.build(data).into(),
+					new_value.into(),
+				))
+			},
+			NodePlan::Extension { .. } // TODO Extension
+			| NodePlan::Branch { .. } // TODO branch
+			| NodePlan::Empty => None,
+			NodePlan::NibbledBranch { partial, value, children } => {
+				if let Some(value) = value {
+					if &data[value.clone()] == new_value {
+						return None;
+					}
+				}
+				let mut child_slices = [
+					None, None, None, None,
+					None, None, None, None,
+					None, None, None, None,
+					None, None, None, None,
+				];
+				for i in 0..nibble_ops::NIBBLE_LENGTH {
+					child_slices[i] = children[i].as_ref().map(|child| child.build_thandle(data));
+				}
+
+				Some(TNode::NibbledBranch(
+					partial.build(data).into(),
+					Box::new(child_slices),
+					Some(new_value.into()),
+				))
+
+			},
+		}
+	}
+	/// Remove a value.
+	pub fn remove_value<H: AsMut<[u8]> + Default>(&mut self) -> Option<Option<TNode<H, Vec<u8>>>> {
+		let data = &self.data.borrow();
+		match &self.plan {
+			NodePlan::Leaf { partial, value } => Some(None),
+			NodePlan::Extension { .. } // TODO Extension
+			| NodePlan::Branch { .. } // TODO branch
+			| NodePlan::Empty => None,
+			NodePlan::NibbledBranch { partial, value, children } => {
+				if value.is_none() {
+					return None;
+				}
+				let mut child_slices = [
+					None, None, None, None,
+					None, None, None, None,
+					None, None, None, None,
+					None, None, None, None,
+				];
+				for i in 0..nibble_ops::NIBBLE_LENGTH {
+					child_slices[i] = children[i].as_ref().map(|child| child.build_thandle(data));
+				}
+
+				Some(Some(TNode::NibbledBranch(
+					partial.build(data).into(),
+					Box::new(child_slices),
+					None,
+				)))
+			},
+		}
+	}
+
+
 }
