@@ -394,10 +394,10 @@ mod tests {
 		}
 
 		let initial_root = root.clone();
-		let initial_db = db.clone();
+		let mut initial_db = db.clone();
 		// reference
 		{
-			let mut t = RefTrieDBMutNoExt::new(&mut db, &mut root);
+			let mut t = RefTrieDBMutNoExt::from_existing(&mut db, &mut root).unwrap();
 			for i in 0..v.len() {
 				let key: &[u8]= &v[i].0;
 				if let Some(val) = v[i].1.as_ref() {
@@ -412,13 +412,15 @@ mod tests {
 			println!("aft {:?}", t);
 		}
 
-
+		for a in db.drain() {
+			println!("{:?}", a);
+		}
 		let reference_root = root.clone();
 	
 		let mut batch_update = BatchUpdate(Default::default());
 		trie_traverse_key_no_extension_build(
-		&mut db, &initial_root, v.iter().map(|(a, b)| (a, b.as_ref())), &mut batch_update);
-
+		&mut initial_db, &initial_root, v.iter().map(|(a, b)| (a, b.as_ref())), &mut batch_update);
+		
 		panic!("end {:?}", batch_update.0);
 
 	}
@@ -428,12 +430,13 @@ mod tests {
 		compare_with_triedbmut(
 			&[
 				(vec![0x01u8, 0x01u8, 0x23], vec![0x01u8, 0x23]),
-				(vec![0x01u8, 0xf1u8, 0x23], vec![0x01u8, 0x24]),
 				(vec![0x01u8, 0x81u8, 0x23], vec![0x01u8, 0x25]),
+				(vec![0x01u8, 0xf1u8, 0x23], vec![0x01u8, 0x24]),
 			],
 			&[
-				(vec![0x01u8, 0x01u8, 0x24], Some(vec![0xffu8, 0x33])),
-				(vec![0x01u8, 0x81u8, 0x23], None),
+				(vec![0x01u8, 0x01u8, 0x23], Some(vec![0xffu8, 0x33])),
+//				(vec![0x01u8, 0x81u8, 0x23], Some(vec![0x01u8, 0x35])),
+//				(vec![0x01u8, 0x81u8, 0x23], None),
 				(vec![0x01u8, 0xf1u8, 0x23], Some(vec![0xffu8, 0x34])),
 			],
 		);
