@@ -18,6 +18,7 @@ use nibble::NibbleSlice;
 use nibble::nibble_ops;
 use node_codec::NodeCodec;
 use crate::triedbmut::Node as TNode;
+use crate::triedbmut::NodeHandle as TNodeHandle;
 use core_::borrow::Borrow;
 use core_::ops::Range;
 #[cfg(not(feature = "std"))]
@@ -330,5 +331,79 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 		}
 	}
 
+	/// Set a handle to a child node or remove it if handle is none.
+	/// Return possibly updated or removed node.
+	pub fn set_handle<H: AsMut<[u8]> + Default>(&mut self, handle: Option<TNodeHandle<H, Vec<u8>>>, index: u8)
+		-> Option<Option<TNode<H, Vec<u8>>>> {
 
+		let index = index as usize;
+		let data = &self.data.borrow();
+		match &mut self.plan {
+			NodePlan::Empty => unreachable!("corner case cannot be handle in this function"),
+			NodePlan::Extension { .. } // TODO Extension
+			| NodePlan::Branch { .. } => unreachable!("function only for no extension trie"),
+			NodePlan::Leaf { partial, value } => {
+				if handle.is_some() {
+					let mut child_slices = Box::new([
+						None, None, None, None,
+						None, None, None, None,
+						None, None, None, None,
+						None, None, None, None,
+					]);
+					child_slices[index] = handle;
+
+					Some(Some(TNode::NibbledBranch(
+						partial.build(data).into(),
+						child_slices,
+						Some(data[value.clone()].into())),
+					))
+				} else {
+					None
+				}
+			},
+			NodePlan::NibbledBranch { partial, value, children } => {
+				if handle.is_none() && children[index].is_none() {
+					None
+				} else {
+					let del = handle.is_none() && children[index].is_some();
+					let value = if let Some(value) = value.clone() {
+						Some(data[value.clone()].into())
+					} else {
+						None
+					};
+
+					if handle.is_none() {
+						children[index] = None;
+					}
+					if del && !children.iter().any(Option::is_some) {
+						if let Some(value) = value {
+							Some(Some(TNode::Leaf(
+								partial.build(data).into(),
+								value,
+							)))
+						} else {
+							Some(None)
+						}
+					} else {
+	
+						let mut child_slices = Box::new([
+							None, None, None, None,
+							None, None, None, None,
+							None, None, None, None,
+							None, None, None, None,
+						]);
+						for i in 0..nibble_ops::NIBBLE_LENGTH {
+							child_slices[i] = children[i].as_ref().map(|child| child.build_thandle(data));
+						}
+						child_slices[index] = handle;
+						Some(Some(TNode::NibbledBranch(
+							partial.build(data).into(),
+							child_slices,
+							value,
+						)))
+					}
+				}
+			}
+		}
+	}
 }

@@ -1192,7 +1192,7 @@ pub fn trie_traverse_key_no_extension_build<'a, I, K, V, B>(
 	db: &'a mut dyn hash_db::HashDB<keccak_hasher::KeccakHasher, B>,
 	root: &'a [u8; 32],
 	elements: I,
-	batch_update: &'a mut BatchUpdate, 
+	batch_update: &'a mut BatchUpdate<<KeccakHasher as Hasher>::Out>,
 )
 	where
 		I: IntoIterator<Item = (K, Option<V>)>,

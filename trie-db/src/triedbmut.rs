@@ -168,6 +168,8 @@ impl<H, SH> Node<H, SH> {
 			| Node::NibbledBranch(_, encoded_children, val)
 				=> {
 					*val = None;
+					// TODO store a boolean state to indicate the current
+					// number of set children
 					!encoded_children.iter().any(Option::is_some)
 				},
 			Node::Leaf(..)
@@ -175,6 +177,65 @@ impl<H, SH> Node<H, SH> {
 		}
 	}
 
+	/// Return true if the node can be removed.
+	/// This is only for no extension trie (a variant would be
+	/// needed for trie with extension).
+	pub fn set_handle(
+		&mut self,
+		handle: Option<NodeHandle<H, SH>>,
+		index: u8,
+	) -> bool {
+		let index = index as usize;
+		let node = mem::replace(self, Node::Empty); 
+		let node = match node {
+			Node::Extension(..)
+			| Node::Branch(..) => unreachable!("Only for no extension trie"),
+			// need to replace value before creating handle
+			// so it is a corner case TODO test case it
+			// (may be unreachable since changing to empty means
+			// we end the root process)
+			Node::Empty => unreachable!(),
+			Node::NibbledBranch(partial, mut encoded_children, val) => {
+				if handle.is_none() && encoded_children[index].is_some() {
+					Node::NibbledBranch(partial, encoded_children, val)
+				} else {
+					let del = handle.is_none() && encoded_children[index].is_some();
+					encoded_children[index] = handle;
+					if del && !encoded_children.iter().any(Option::is_some) {
+						if let Some(val) = val {
+							// transform to leaf
+							Node::Leaf(partial, val)
+						} else {
+							Node::Empty
+						}
+					} else {
+						Node::NibbledBranch(partial, encoded_children, val)
+					}
+				}
+			},
+			Node::Leaf(partial, val) => {
+				if handle.is_some() {
+					let mut children = Box::new([
+						None, None, None, None,
+						None, None, None, None,
+						None, None, None, None,
+						None, None, None, None,
+					]);
+					children[index] = handle;
+
+					Node::NibbledBranch(partial, children, Some(val))
+				} else {
+					Node::Leaf(partial, val)
+				}
+			},
+		};
+		*self = node;
+		if let Node::Empty = self {
+			true
+		} else {
+			false
+		}
+	}
 }
 
 impl<H: AsRef<[u8]>, SH: AsRef<[u8]>> Node<H, SH> {
