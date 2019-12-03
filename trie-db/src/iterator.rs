@@ -228,18 +228,10 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 			node_hash = next_node_hash;
 		}
 	}
-}
 
-impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
-	fn seek(
-		&mut self,
-		key: &[u8],
-	) -> Result<(), TrieHash<L>, CError<L>> {
-		self.seek_prefix(key)
-			.map(|_| ())
-	}
-	
-	fn prefix(&mut self, prefix: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+	/// Advance the iterator into a prefix, no value out of the prefix will be accessed
+	/// or returned after this operation.
+	pub fn prefix(&mut self, prefix: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		self.trail.clear();
 		self.key_nibbles.clear();
 		if self.seek_prefix(prefix)? {
@@ -256,6 +248,17 @@ impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
 		}
 
 		Ok(())
+	}
+
+}
+
+impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
+	fn seek(
+		&mut self,
+		key: &[u8],
+	) -> Result<(), TrieHash<L>, CError<L>> {
+		self.seek_prefix(key)
+			.map(|_| ())
 	}
 }
 
@@ -786,7 +789,7 @@ mod tests {
 		let trie = RefTrieDB::new(&memdb, &root).unwrap();
 		let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 
-				iter.prefix(&hex!("01").to_vec()[..]).unwrap();
+		iter.prefix(&hex!("01").to_vec()[..]).unwrap();
 
 		match iter.next() {
 			Some(Ok((prefix, None, node))) => {

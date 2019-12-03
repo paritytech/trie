@@ -280,10 +280,6 @@ pub trait TrieMut<L: TrieLayout> {
 pub trait TrieIterator<L: TrieLayout>: Iterator {
 	/// Position the iterator on the first element with key >= `key`
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>>;
-
-	/// Position the iterator on the first element with key >= `prefix`
-	/// and limit iteration to this prefix
-	fn prefix(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>>;
 }
 
 /// Trie types
