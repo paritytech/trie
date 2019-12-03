@@ -204,7 +204,7 @@ impl<T, V> CacheAccum<T, V>
 			v.as_ref().map(|v| v.as_ref()),
 		);
 		self.reset_depth(branch_d);
-		let pr = NibbleSlice::new_offset(&key_branch.as_ref()[..], branch_d);
+		let pr = NibbleSlice::new_offset(key_branch, branch_d);
 		let branch_hash = callback.process(pr.left(), encoded, is_root && nkey.is_none());
 
 		if let Some(nkeyix) = nkey {

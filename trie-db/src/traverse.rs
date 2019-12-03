@@ -327,7 +327,7 @@ fn fetch<T: TrieLayout, B: Borrow<[u8]>>(
 }
 
 /// Contains ordered node change for this iteration.
-pub struct BatchUpdate(pub Vec<Vec<u8>>);
+pub struct BatchUpdate(pub Vec<(NibbleVec, Vec<u8>)>);
 
 impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate
 	where
@@ -361,11 +361,21 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate
 	}
 
 	fn exit(&mut self, prefix: &NibbleVec, stacked: StackedNode<B, T, S>) {
-		self.0.push(stacked.into_encoded());
+		match stacked {
+			s@StackedNode::Changed(..) => {
+				self.0.push((prefix.clone(), s.into_encoded()));
+			},
+			_ => (),
+		}
 	}
 	
 	fn exit_root(&mut self, prefix: &NibbleVec, stacked: StackedNode<B, T, S>) {
-		self.0.push(stacked.into_encoded());
+		match stacked {
+			s@StackedNode::Changed(..) => {
+				self.0.push((prefix.clone(), s.into_encoded()));
+			},
+			_ => (),
+		}
 	}
 }
 
@@ -374,12 +384,25 @@ mod tests {
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBNoExt, TrieMut, NodeCodec,
 		ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension,
 		NoExtensionLayout, TrieLayout, trie_traverse_key_no_extension_build, BatchUpdate,
+		NibbleVec,
 	};
 
 	use memory_db::{MemoryDB, PrefixedKey};
 	use keccak_hasher::KeccakHasher;
 	use DBValue;
+	use hash_db::{EMPTY_PREFIX, Prefix, HashDB};
 	use crate::triedbmut::tests::populate_trie_no_extension;
+
+	type H256 = <KeccakHasher as hash_db::Hasher>::Out;
+
+	fn memory_db_from_delta(
+		delta: Vec<(NibbleVec, Vec<u8>)>,
+		mdb: &mut MemoryDB<KeccakHasher, PrefixedKey<KeccakHasher>, DBValue>,
+	) {
+		for (p, v) in delta {
+			mdb.insert(p.as_prefix(), v.as_slice());
+		}
+	}
 
 	fn compare_with_triedbmut(
 		x: &[(Vec<u8>, Vec<u8>)],
@@ -412,16 +435,20 @@ mod tests {
 			println!("aft {:?}", t);
 		}
 
-		for a in db.drain() {
-			println!("{:?}", a);
-		}
+		let mut reference_delta = db;
+
 		let reference_root = root.clone();
 	
 		let mut batch_update = BatchUpdate(Default::default());
 		trie_traverse_key_no_extension_build(
 		&mut initial_db, &initial_root, v.iter().map(|(a, b)| (a, b.as_ref())), &mut batch_update);
 		
-		panic!("end {:?}", batch_update.0);
+		let mut batch_delta = initial_db;
+		memory_db_from_delta(batch_update.0, &mut batch_delta);
+
+		assert_eq!(reference_delta.drain(), batch_delta.drain());
+
+		panic!("end");
 
 	}
 
@@ -437,7 +464,7 @@ mod tests {
 				(vec![0x01u8, 0x01u8, 0x23], Some(vec![0xffu8, 0x33])),
 //				(vec![0x01u8, 0x81u8, 0x23], Some(vec![0x01u8, 0x35])),
 //				(vec![0x01u8, 0x81u8, 0x23], None),
-				(vec![0x01u8, 0xf1u8, 0x23], Some(vec![0xffu8, 0x34])),
+//				(vec![0x01u8, 0xf1u8, 0x23], Some(vec![0xffu8, 0x34])),
 			],
 		);
 	}

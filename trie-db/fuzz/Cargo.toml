@@ -11,9 +11,7 @@ cargo-fuzz = true
 [dependencies]
 memory-db = { path = "../../memory-db", version = "0.15.2" }
 reference-trie = { path = "../../test-support/reference-trie", version = "0.16.0" }
-reference-trie-old = { package = "reference-trie", version = "0.15.2" }
 keccak-hasher = { path = "../../test-support/keccak-hasher", version = "0.15.2" }
-honggfuzz = "0.5"
 
 [dependencies.trie-db]
 path = ".."
@@ -49,7 +47,3 @@ path = "fuzz_targets/no_ext_insert.rs"
 [[bin]]
 name = "no_ext_insert_rem"
 path = "fuzz_targets/no_ext_insert_rem.rs"
-
-[[bin]]
-name = "hfuzz_trie_root_new"
-path = "hongfuzz_targets/trie_root_new.rs"
