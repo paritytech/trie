@@ -19,6 +19,7 @@ use reference_trie::{
 	RefTrieDBMutNoExt,
 	RefTrieDBMut,
 	RefTrieDBNoExt,
+	TrieDBIterator,
 	reference_trie_root,
 	calc_root_no_extension,
 	compare_no_extension_insert_remove,
@@ -29,7 +30,7 @@ use keccak_hasher::KeccakHasher;
 
 
 fn fuzz_to_data(input: &[u8]) -> Vec<(Vec<u8>,Vec<u8>)> {
- let mut result = Vec::new();
+	let mut result = Vec::new();
 	// enc = (minkeylen, maxkeylen (min max up to 32), datas)
 	// fix data len 2 bytes
 	let mut minkeylen = if let Some(v) = input.get(0) {
@@ -177,7 +178,7 @@ pub fn fuzz_that_no_extension_insert_remove(input: &[u8]) {
 
 pub fn fuzz_seek_iter(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data_fix_length(input));
-	
+
 	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
 	let mut root = Default::default();
 	{
@@ -226,7 +227,7 @@ pub fn fuzz_seek_iter(input: &[u8]) {
 
 pub fn fuzz_prefix_iter(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data_fix_length(input));
-	
+
 	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
 	let mut root = Default::default();
 	{
@@ -250,12 +251,7 @@ pub fn fuzz_prefix_iter(input: &[u8]) {
 	let mut error = 0;
 	{
 			let trie = RefTrieDBNoExt::new(&memdb, &root).unwrap();
-			let mut iter =  trie.iter().unwrap();
-			if let Ok(_) = iter.prefix(prefix) {
-			} else {
-				println!("error calling prefix");
-				error += 1;
-			}
+			let iter = TrieDBIterator::new_prefixed(&trie, prefix).unwrap();
 
 			for x in iter {
 				if let Ok((key, _)) = x {

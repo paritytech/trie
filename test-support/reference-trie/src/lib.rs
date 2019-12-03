@@ -34,7 +34,7 @@ use keccak_hasher::KeccakHasher;
 
 pub use trie_db::{
 	Trie, TrieError, TrieMut, TrieIterator, TrieDBNodeIterator, NibbleSlice, NibbleVec, Recorder,
-	NodeCodec,
+	NodeCodec, TrieDBIterator,
 };
 pub use trie_db::{Record, TrieLayout, TrieConfiguration, nibble_ops};
 pub use trie_root::TrieStream;

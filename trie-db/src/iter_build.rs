@@ -367,7 +367,7 @@ impl<'a, H: Hasher, V, DB: HashDB<H, V>> ProcessEncodedNode<<H as Hasher>::Out>
 pub struct TrieRoot<H, HO> {
 	/// The resulting root.
 	pub root: Option<HO>,
-	_ph: PhantomData<(H)>,
+	_ph: PhantomData<H>,
 }
 
 impl<H, HO> Default for TrieRoot<H, HO> {
@@ -402,7 +402,7 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRoot<H, <H as Has
 pub struct TrieRootUnhashed<H> {
 	/// The resulting encoded root.
 	pub root: Option<Vec<u8>>,
-	_ph: PhantomData<(H)>,
+	_ph: PhantomData<H>,
 }
 
 impl<H> Default for TrieRootUnhashed<H> {
@@ -417,7 +417,7 @@ impl<H> Default for TrieRootUnhashed<H> {
 pub struct TrieRootPrint<H, HO> {
 	/// The resulting root.
 	pub root: Option<HO>,
-	_ph: PhantomData<(H)>,
+	_ph: PhantomData<H>,
 }
 
 #[cfg(feature = "std")]

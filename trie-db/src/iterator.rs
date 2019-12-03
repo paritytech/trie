@@ -822,7 +822,7 @@ mod tests {
 		let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 		iter.prefix(&hex!("10").to_vec()[..]).unwrap();
 		assert!(iter.next().is_none());
- 
+
 	}
 
 	#[test]
