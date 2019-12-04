@@ -228,6 +228,13 @@ impl<'a> NibbleSlice<'a> {
 		}
 	}
 
+	/// Return length of left portion of `NibbleSlice`, if the slice
+	/// originates from a full key it will be the length of th `Prefix of
+	/// the node`.
+	pub fn left_len(&'a self) -> usize {
+		self.offset
+	}
+
 	/// Owned version of a `Prefix` from a `left` method call.
 	pub fn left_owned(&'a self) -> (ElasticArray36<u8>, Option<u8>) {
 		let (a, b) = self.left();

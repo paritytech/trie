@@ -30,6 +30,7 @@ use crate::DBValue;
 use hash_db::{HashDB, Prefix, EMPTY_PREFIX, Hasher};
 use crate::NodeCodec;
 use ::core_::cmp::*;
+use elastic_array::ElasticArray36;
 
 // TODO make it deletion aware : do not stack unchanged key and pass them
 // to exit when not needed.
@@ -164,27 +165,31 @@ pub trait ProcessStack<B, T, K, V, S>
 		V: AsRef<[u8]>,
 {
 	/// Callback on enter a node, change can be applied here.
-	fn enter(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, T, S>);
+	fn enter(&mut self, prefix: NibbleSlice, stacked: &mut StackedNode<B, T, S>);
 	/// Same as `enter` but at terminal node element (terminal considering next key so branch is
 	/// possible here).
+	/// TODO prefix semantic here is strange: it is prefix of child.
 	fn enter_terminal(
 		&mut self,
-		prefix: &NibbleVec,
+		prefix: NibbleSlice,
 		stacked: &mut StackedNode<B, T, S>,
 		index_element: usize,
 		key_element: &[u8],
 		value_element: Option<&[u8]>,
 	) -> Option<(Node<TrieHash<T>, Vec<u8>>, S)>;
 	/// Callback on exit a node, commit action on change node should be applied here.
-	fn exit(&mut self, prefix: &NibbleVec, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>)
+	fn exit(&mut self, prefix: NibbleSlice, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>)
 		-> Option<Option<OwnedNodeHandle<TrieHash<T>>>>;
 	/// Same as `exit` but for root (very last exit call).
-	fn exit_root(&mut self, prefix: &NibbleVec, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>);
+	fn exit_root(&mut self, prefix: NibbleSlice, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>);
 }
 
 struct StackItem<B: Borrow<[u8]>, T: TrieLayout, S> {
 	node: StackedNode<B, T, S>,
+	// depth of stack aka prefix size
 	depth: usize,
+	// depth after item
+	depth_child: usize,
 	parent_index: u8,
 	hash: Option<TrieHash<T>>,
 }
@@ -219,55 +224,58 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 	let root_hash = Some(root_hash);
 //	stack.push(StackedNode::Unchanged(root, Default::default()));
 
-	let mut prefix = NibbleVec::new();
 	let mut current = StackedNode::<B, T, S>::Unchanged(root, Default::default());
 	let mut common_depth = 0;
-	callback.enter(&prefix, &mut current);
-	current.partial().map(|p| {
-		common_depth += p.len();
-		prefix.append_partial(p.right())
-	});
+	let mut common_depth_child = current.partial().map(|p| {
+		p.len() + 1
+	}).unwrap_or(1);
 
-	let mut switch_iter: bool;
+	let mut k: Option<K> = None;
+	callback.enter(NibbleSlice::new(&[]), &mut current);
+
 	let mut next_index: u8 = 0;
-	for (el_index, (k, v)) in elements.into_iter().enumerate() {
-		let mut switch_iter = true;
-		loop {
-			let mut common_depth = nibble_ops::biggest_depth(prefix.inner(), k.as_ref());
-			common_depth = min(prefix.len(), common_depth);
+	for (el_index, (next_k, v)) in elements.into_iter().enumerate() {
+		if let Some(k) = k.as_ref() {
 
-			if common_depth < prefix.len() {
-				while common_depth < prefix.len() {
+			let mut previous_common_depth_child = common_depth_child - 1;
+			let mut target_common_depth =
+				nibble_ops::biggest_depth(&k.as_ref()[..previous_common_depth_child / 2], next_k.as_ref());
+			target_common_depth = min(common_depth, target_common_depth);
+	
+			if target_common_depth < previous_common_depth_child {
+				while target_common_depth < previous_common_depth_child {
 					// go up
-					if let Some(StackItem{mut node, depth, parent_index, hash}) = stack.pop() {
-						prefix.drop_lasts(depth);
-						if let Some(handle) = callback.exit(&prefix, current, hash.as_ref()) {
+					if let Some(StackItem{mut node, depth, depth_child, parent_index, hash}) = stack.pop() {
+						target_common_depth = depth_child;
+						common_depth = depth;
+						previous_common_depth_child = depth_child - 1;
+						if let Some(handle) = callback.exit(
+							NibbleSlice::new_offset(k.as_ref(), depth_child),
+							current, hash.as_ref(),
+						) {
 							node.set_handle(handle, parent_index);
 						}
 						current = node;
 					} else {
-						prefix.clear();
-						callback.exit_root(&prefix, current, root_hash);
+						callback.exit_root(NibbleSlice::new(&[]), current, root_hash);
 						return Ok(());
 					}
-					//common_depth = nibble_ops::biggest_depth(prefix.inner(), k.as_ref());
-					common_depth = min(prefix.len(), common_depth);
-				}
-				if !switch_iter {
-					// going up not on a new key means we need to switch to next one
-					break;
 				}
 			}
+			
+		}
+		
+		k = Some(next_k);
+		if let Some(k) = k.as_ref() {
+		let dest = NibbleFullKey::new(k.as_ref());
+		let dest_depth = k.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
 
-			switch_iter = false;
-			let dest  = NibbleFullKey::new(k.as_ref());
-			let dest_depth = k.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
-
+		loop {
 			// TODO EMCH go down extension here
 			debug_assert!(common_depth <= dest_depth);
-			if common_depth == dest_depth {
+			if common_depth_child - 1 == dest_depth {
 				if let Some((new, s)) = callback.enter_terminal(
-					&prefix,
+					NibbleSlice::new_offset(k.as_ref(), common_depth_child - 1),
 					&mut current,
 					el_index,
 					k.as_ref(),
@@ -276,12 +284,13 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 					stack.push(StackItem {
 						node: current,
 						depth: common_depth,
+						depth_child: common_depth_child,
 						parent_index: next_index,
 						hash: last_hash,
 					});
+					common_depth = common_depth_child;
 					new.partial().map(|p| {
-						common_depth += p.len();
-						prefix.append_partial(p.right())
+						common_depth_child += p.len() + 1;
 					});
 					current = StackedNode::Changed(new, s);
 				} else {
@@ -289,7 +298,6 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 					break;
 				}
 			} else {
-
 				// try go down
 				next_index = dest.at(common_depth);
 				let next_node = match current.child(next_index) {
@@ -297,7 +305,10 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 						let mut hash = <TrieHash<T> as Default>::default();
 						hash.as_mut()[..].copy_from_slice(handle_hash.as_ref());
 						let n = StackedNode::Unchanged(
-							fetch::<T, B>(db, &hash, prefix.as_prefix())?,
+							fetch::<T, B>(
+								db, &hash,
+								NibbleSlice::new_offset(k.as_ref(), common_depth_child).left(),
+							)?,
 							Default::default(),
 						);
 						last_hash = Some(hash);
@@ -305,7 +316,6 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 					},
 					Some(NodeHandle::Inline(node_encoded)) => {
 						last_hash = None; 
-
 						StackedNode::Unchanged(
 							// Instantiating B is only for inline node, still costy.
 							OwnedNode::new::<T::Codec>(B::from(node_encoded))
@@ -319,16 +329,12 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 					None => {
 						// this is a terminal node
 						if let Some((new, s)) = callback.enter_terminal(
-							&prefix,
+							NibbleSlice::new_offset(k.as_ref(), common_depth_child - 1),
 							&mut current,
 							el_index,
 							k.as_ref(),
 							v.as_ref().map(|v| v.as_ref()),
 						) {
-							new.partial().map(|p| {
-								common_depth += p.len();
-								prefix.append_partial(p.right())
-							});
 							StackedNode::Changed(new, s)
 						} else {
 							// go next key
@@ -337,35 +343,41 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 					},
 				};
 
-				callback.enter(&prefix, &mut current);
-				prefix.push(next_index);
+				callback.enter(
+					NibbleSlice::new_offset(k.as_ref(), common_depth_child - 1),
+					&mut current,
+				);
+
 				let add_levels = next_node.partial().map(|p| {
-					prefix.append_partial(p.right());
-					p.len()
-				}).unwrap_or(0) + 1;
-				common_depth += add_levels;
-					stack.push(StackItem {
-						node: current,
-						depth: add_levels,
-						parent_index: next_index,
-						hash: last_hash,
-					});
+					p.len() + 1
+				}).unwrap_or(1);
+				stack.push(StackItem {
+					node: current,
+					depth: common_depth,
+					depth_child: common_depth_child,
+					parent_index: next_index,
+					hash: last_hash,
+				});
+				common_depth = common_depth_child;
+				common_depth_child += add_levels;
 				current = next_node;
 			}
-		}
+		}}
 
 	}
 
 	// empty stack
-	while let Some(StackItem{mut node, depth, parent_index, hash}) = stack.pop() {
-		prefix.drop_lasts(depth);
-		if let Some(handle) = callback.exit(&prefix, current, hash.as_ref()) {
+	while let Some(StackItem{mut node, depth, depth_child, parent_index, hash}) = stack.pop() {
+		if let Some(k) = k.as_ref() {
+		if let Some(handle) = callback.exit(
+			NibbleSlice::new_offset(k.as_ref(), depth_child),
+			current, hash.as_ref(),
+		) {
 			node.set_handle(handle, parent_index);
 		}
 		current = node;
-	}
-	prefix.clear();
-	callback.exit_root(&prefix, current, root_hash);
+	}}
+	callback.exit_root(NibbleSlice::new(&[]), current, root_hash);
 
 	Ok(())
 }
@@ -376,9 +388,11 @@ fn fetch<T: TrieLayout, B: Borrow<[u8]>>(
 	hash: &TrieHash<T>,
 	key: Prefix,
 ) -> Result<OwnedNode<B>, TrieHash<T>, CError<T>> {
+	println!("a {:?}", key);
 	let node_encoded = db.get(hash, key)
 		.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(*hash)))?;
 
+	println!("b");
 	Ok(
 		OwnedNode::new::<T::Codec>(node_encoded)
 			.map_err(|e| Box::new(TrieError::DecoderError(*hash, e)))?
@@ -386,7 +400,7 @@ fn fetch<T: TrieLayout, B: Borrow<[u8]>>(
 }
 
 /// Contains ordered node change for this iteration.
-pub struct BatchUpdate<H>(pub Vec<(NibbleVec, H, Option<Vec<u8>>)>);
+pub struct BatchUpdate<H>(pub Vec<((ElasticArray36<u8>, Option<u8>), H, Option<Vec<u8>>)>);
 
 impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 	where
@@ -396,18 +410,18 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 		K: AsRef<[u8]> + Ord,
 		V: AsRef<[u8]>,
 {
-	fn enter(&mut self, prefix: &NibbleVec, stacked: &mut StackedNode<B, T, S>) {
+	fn enter(&mut self, prefix: NibbleSlice, stacked: &mut StackedNode<B, T, S>) {
 	}
 
 	fn enter_terminal(
 		&mut self,
-		prefix: &NibbleVec,
+		prefix: NibbleSlice, 
 		stacked: &mut StackedNode<B, T, S>,
 		index_element: usize,
 		key_element: &[u8],
 		value_element: Option<&[u8]>,
 	) -> Option<(Node<TrieHash<T>, Vec<u8>>, S)> {
-		if key_element.len() * nibble_ops::NIBBLE_PER_BYTE == prefix.len() {
+		if key_element.len() * nibble_ops::NIBBLE_PER_BYTE == prefix.left_len() {
 			if let Some(value) = value_element {
 				stacked.set_value(value);
 			} else {
@@ -419,7 +433,7 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 		}
 	}
 
-	fn exit(&mut self, prefix: &NibbleVec, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>)
+	fn exit(&mut self, prefix: NibbleSlice, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>)
 		-> Option<Option<OwnedNodeHandle<TrieHash<T>>>> {
 		println!("exit prefix: {:?}", prefix);
 		match stacked {
@@ -432,10 +446,10 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 					let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
 					println!("push one");
 					// costy clone (could get read from here)
-					self.0.push((prefix.clone(), hash.clone(), Some(encoded)));
+					self.0.push((prefix.left_owned(), hash.clone(), Some(encoded)));
 					if let Some(h) = prev_hash {
 						println!("rem one");
-						self.0.push((prefix.clone(), h.clone(), None));
+						self.0.push((prefix.left_owned(), h.clone(), None));
 					}
 					OwnedNodeHandle::Hash(hash)
 				}
@@ -443,7 +457,7 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 			StackedNode::Deleted(..) => {
 				if let Some(h) = prev_hash {
 						println!("remd one");
-					self.0.push((prefix.clone(), h.clone(), None));
+					self.0.push((prefix.left_owned(), h.clone(), None));
 				}
 				Some(None)
 			},
@@ -451,18 +465,16 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 		}
 	}
 	
-	fn exit_root(&mut self, prefix: &NibbleVec, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>) {
+	fn exit_root(&mut self, prefix: NibbleSlice, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>) {
 		println!("exit prefix r: {:?}", prefix);
 		match stacked {
 			s@StackedNode::Changed(..) => {
 				let encoded = s.into_encoded();
 				let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
 					println!("pushr one");
-				self.0.push((prefix.clone(), hash, Some(encoded)));
+				self.0.push((prefix.left_owned(), hash, Some(encoded)));
 				if let Some(h) = prev_hash {
-					// TODO this have been commented because it seems like triedbmut
-					// do not delete old root nodes.
-					//self.0.push((prefix.clone(), h.clone(), None));
+					self.0.push((prefix.left_owned(), h.clone(), None));
 				}
 			},
 			_ => (),
@@ -483,20 +495,22 @@ mod tests {
 	use DBValue;
 	use hash_db::{EMPTY_PREFIX, Prefix, HashDB};
 	use crate::triedbmut::tests::populate_trie_no_extension;
+	use elastic_array::ElasticArray36;
 
 	type H256 = <KeccakHasher as hash_db::Hasher>::Out;
 
 	fn memory_db_from_delta(
-		delta: Vec<(NibbleVec, H256, Option<Vec<u8>>)>,
+		delta: Vec<((ElasticArray36<u8>, Option<u8>), H256, Option<Vec<u8>>)>,
 		mdb: &mut MemoryDB<KeccakHasher, PrefixedKey<KeccakHasher>, DBValue>,
 	) {
 		for (p, h, v) in delta {
 			if let Some(v) = v {
+				let prefix = (p.0.as_ref(), p.1);
 				// damn elastic array in value looks costy
-				mdb.emplace(h, p.as_prefix(), v[..].into());
+				mdb.emplace(h, prefix, v[..].into());
 			} else {
-				println!("a remov: {:?}", h);
-				mdb.remove(&h, p.as_prefix());
+				let prefix = (p.0.as_ref(), p.1);
+				mdb.remove(&h, prefix);
 			}
 		}
 	}
@@ -513,6 +527,7 @@ mod tests {
 			println!("bef {:?}", t);
 		}
 
+		println!("AB {:?}",  db.clone().drain());
 		let initial_root = root.clone();
 		let mut initial_db = db.clone();
 		// reference
@@ -533,7 +548,7 @@ mod tests {
 			println!("aft {:?}", t);
 		}
 
-		let mut reference_delta = db;
+//		let mut reference_delta = db;
 
 		let reference_root = root.clone();
 	
@@ -543,9 +558,11 @@ mod tests {
 		
 		let mut batch_delta = initial_db;
 		memory_db_from_delta(batch_update.0, &mut batch_delta);
-
+/*
 		// sort
 		let batch_delta: std::collections::BTreeMap<_, _> = batch_delta.drain().into_iter().collect();
+		// TODO this revel an issue with triedbmut implementation (some incorrect RC and therefore
+		// node being kept).
 		assert_eq!(
 			batch_delta,
 			reference_delta.drain().into_iter()
@@ -553,9 +570,16 @@ mod tests {
 				// triedbmut: nodes getting removed more than once
 				// and hash comming from nowhere
 				// from now simply skip -1 counted
-				.filter(|(_, (_, rc))| rc >= &0)
+//				.filter(|(_, (_, rc))| rc >= &0)
 				.collect(),
 		);
+*/
+
+		// test by checking both triedb only
+		let t1 = RefTrieDBNoExt::new(&batch_delta, &root).unwrap();
+		let t2 = RefTrieDBNoExt::new(&db, &root).unwrap();
+		assert_eq!(format!("{:?}", t1), format!("{:?}", t2));
+
 
 		panic!("end");
 
@@ -577,4 +601,21 @@ mod tests {
 			],
 		);
 	}
+	#[test]
+	fn dummy2() {
+		compare_with_triedbmut(
+			&[
+				(vec![0x01u8, 0x01u8, 0x23], vec![0x01u8; 32]),
+				(vec![0x01u8, 0x81u8, 0x23], vec![0x02u8; 32]),
+//				(vec![0x01u8, 0xf1u8, 0x23], vec![0x01u8, 0x24]),
+			],
+			&[
+				(vec![0x01u8, 0x01u8, 0x23], Some(vec![0xffu8; 32])),
+//				(vec![0x01u8, 0x81u8, 0x23], Some(vec![0x01u8, 0x35])),
+//				(vec![0x01u8, 0x81u8, 0x23], None),
+//				(vec![0x01u8, 0xf1u8, 0x23], Some(vec![0xffu8, 0x34])),
+			],
+		);
+	}
+
 }

@@ -636,8 +636,7 @@ where
 				Action::Replace(node) => Some((Stored::New(node), true)),
 				Action::Delete => None,
 			},
-			Stored::Cached(node, hash) => {
-				match inspector(self, node, key)? {
+			Stored::Cached(node, hash) => match inspector(self, node, key)? {
 				Action::Restore(node) => Some((Stored::Cached(node, hash), false)),
 				Action::Replace(node) => {
 					self.death_row.insert((hash, key.left_owned()));
@@ -647,7 +646,6 @@ where
 					self.death_row.insert((hash, key.left_owned()));
 					None
 				}
-			}
 			},
 		})
 	}
@@ -1536,7 +1534,6 @@ where
 		#[cfg(feature = "std")]
 		trace!(target: "trie", "{:?} nodes to remove from db", self.death_row.len());
 		for (hash, prefix) in self.death_row.drain() {
-			println!("dr {:?}", &hash);
 			self.db.remove(&hash, (&prefix.0[..], prefix.1));
 		}
 
@@ -1745,7 +1742,7 @@ pub(crate) mod tests {
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, NodeCodec,
 		ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension};
 
-	fn populate_trie<'db>(
+	pub(crate) fn populate_trie<'db>(
 		db: &'db mut dyn HashDB<KeccakHasher, DBValue>,
 		root: &'db mut <KeccakHasher as Hasher>::Out,
 		v: &[(Vec<u8>, Vec<u8>)]
