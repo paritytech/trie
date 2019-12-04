@@ -636,7 +636,8 @@ where
 				Action::Replace(node) => Some((Stored::New(node), true)),
 				Action::Delete => None,
 			},
-			Stored::Cached(node, hash) => match inspector(self, node, key)? {
+			Stored::Cached(node, hash) => {
+				match inspector(self, node, key)? {
 				Action::Restore(node) => Some((Stored::Cached(node, hash), false)),
 				Action::Replace(node) => {
 					self.death_row.insert((hash, key.left_owned()));
@@ -646,6 +647,7 @@ where
 					self.death_row.insert((hash, key.left_owned()));
 					None
 				}
+			}
 			},
 		})
 	}
@@ -1534,6 +1536,7 @@ where
 		#[cfg(feature = "std")]
 		trace!(target: "trie", "{:?} nodes to remove from db", self.death_row.len());
 		for (hash, prefix) in self.death_row.drain() {
+			println!("dr {:?}", &hash);
 			self.db.remove(&hash, (&prefix.0[..], prefix.1));
 		}
 
