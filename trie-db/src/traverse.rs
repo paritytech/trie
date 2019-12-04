@@ -246,8 +246,8 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 				while target_common_depth < previous_common_depth_child {
 					// go up
 					if let Some(StackItem{mut node, depth, depth_child, parent_index, hash}) = stack.pop() {
-						target_common_depth = depth_child;
 						common_depth = depth;
+						common_depth_child = depth_child;
 						previous_common_depth_child = depth_child - 1;
 						if let Some(handle) = callback.exit(
 							NibbleSlice::new_offset(k.as_ref(), depth_child),
@@ -299,7 +299,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 				}
 			} else {
 				// try go down
-				next_index = dest.at(common_depth);
+				next_index = dest.at(common_depth_child - 1);
 				let next_node = match current.child(next_index) {
 					Some(NodeHandle::Hash(handle_hash)) => {
 						let mut hash = <TrieHash<T> as Default>::default();
@@ -595,7 +595,7 @@ mod tests {
 			],
 			&[
 				(vec![0x01u8, 0x01u8, 0x23], Some(vec![0xffu8, 0x33])),
-//				(vec![0x01u8, 0x81u8, 0x23], Some(vec![0x01u8, 0x35])),
+				(vec![0x01u8, 0x81u8, 0x23], Some(vec![0x01u8, 0x35])),
 //				(vec![0x01u8, 0x81u8, 0x23], None),
 //				(vec![0x01u8, 0xf1u8, 0x23], Some(vec![0xffu8, 0x34])),
 			],
@@ -611,7 +611,7 @@ mod tests {
 			],
 			&[
 				(vec![0x01u8, 0x01u8, 0x23], Some(vec![0xffu8; 32])),
-//				(vec![0x01u8, 0x81u8, 0x23], Some(vec![0x01u8, 0x35])),
+				(vec![0x01u8, 0x81u8, 0x23], Some(vec![0xfeu8; 32])),
 //				(vec![0x01u8, 0x81u8, 0x23], None),
 //				(vec![0x01u8, 0xf1u8, 0x23], Some(vec![0xffu8, 0x34])),
 			],
