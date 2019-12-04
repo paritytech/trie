@@ -96,6 +96,13 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 }
 
 impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
+
+	/// Seek a node position at 'key' for iterator.
+	/// Returns true if the cursor is at or after the key, but still shares
+	/// a common prefix with the key, return false if the key do not
+	/// share its prefix with the node.
+	/// This indicates if there is still nodes to iterate over in the case
+	/// where we limit iteration to 'key' as a prefix.
 	fn seek_prefix(
 		&mut self,
 		key: &[u8],
@@ -232,16 +239,10 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 	/// Advance the iterator into a prefix, no value out of the prefix will be accessed
 	/// or returned after this operation.
 	pub fn prefix(&mut self, prefix: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
-		self.trail.clear();
-		self.key_nibbles.clear();
 		if self.seek_prefix(prefix)? {
 			if let Some(v) = self.trail.pop() {
-				if self.trail.len() > 0 {
-					self.trail[0] = v;
-					self.trail.truncate(1);
-				} else {
-					self.trail.push(v);
-				}
+				self.trail.clear();
+				self.trail.push(v);
 			}
 		} else {
 			self.trail.clear();
