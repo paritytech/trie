@@ -32,6 +32,8 @@ criterion_group!(benches,
 	trie_mut_build_b,
 	trie_iteration,
 	nibble_common_prefix,
+	trie_mut_same_key_single,
+	trie_mut_same_key_batch,
 );
 criterion_main!(benches);
 
@@ -463,3 +465,69 @@ fn trie_iteration(c: &mut Criterion) {
 		})
 	);
 }
+
+fn trie_mut_same_key_single(c: &mut Criterion) {
+	use memory_db::PrefixedKey;
+	use trie_db::TrieMut;
+	let data : Vec<(Vec<u8>, Vec<u8>)> = input_unsorted(29, 204800, 32);
+
+	let mut db = memory_db::MemoryDB::<_, PrefixedKey<_>, _>::default();
+	let mut root = Default::default();
+	{
+		let mut t = reference_trie::RefTrieDBMutNoExt::new(&mut db, &mut root);
+		for i in 0..data.len() {
+			let key: &[u8]= &data[i].0;
+			let val: &[u8] = &data[i].1;
+			t.insert(key, val).unwrap();
+		}
+	}
+
+	
+	c.bench_function("trie_mut_same_key_single", move |b: &mut Bencher|
+		b.iter(|| {
+			let mut mdb = db.clone();
+			let mut n_root = root.clone();
+			{
+				let mut t = reference_trie::RefTrieDBMutNoExt::from_existing(&mut mdb, &mut n_root).unwrap();
+				for i in 0..data.len() {
+					let key: &[u8]= &data[i].0;
+					// change val to key
+					t.insert(key, key).unwrap();
+				}
+			}
+			assert!(n_root != root);
+		}));
+}
+
+fn trie_mut_same_key_batch(c: &mut Criterion) {
+	use memory_db::PrefixedKey;
+	use trie_db::TrieMut;
+	let data : Vec<(Vec<u8>, Vec<u8>)> = input_unsorted(29, 204800, 32);
+
+	let mut db = memory_db::MemoryDB::<_, PrefixedKey<_>, _>::default();
+	let mut root = Default::default();
+	{
+		let mut t = reference_trie::RefTrieDBMutNoExt::new(&mut db, &mut root);
+		for i in 0..data.len() {
+			let key: &[u8]= &data[i].0;
+			let val: &[u8] = &data[i].1;
+			t.insert(key, val).unwrap();
+		}
+	}
+
+	
+	c.bench_function("trie_mut_same_key_batch", move |b: &mut Bencher|
+		b.iter(|| {
+			let mut mdb = db.clone();
+			// sort
+			let data: std::collections::BTreeSet<Vec<u8>> = data.iter().map(|(a, _b)| a.clone()).collect();
+			let mut batch_update = reference_trie::BatchUpdate(Default::default());
+			reference_trie::trie_traverse_key_no_extension_build(
+			&mut mdb, &root, data.iter().map(|a| (a, Some(&a[..]))), &mut batch_update);
+			// rem root del
+			batch_update.0.pop();
+			assert!(batch_update.0.last().unwrap().1 != root);
+		}));
+}
+
+

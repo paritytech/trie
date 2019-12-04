@@ -388,11 +388,9 @@ fn fetch<T: TrieLayout, B: Borrow<[u8]>>(
 	hash: &TrieHash<T>,
 	key: Prefix,
 ) -> Result<OwnedNode<B>, TrieHash<T>, CError<T>> {
-	println!("a {:?}", key);
 	let node_encoded = db.get(hash, key)
 		.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(*hash)))?;
 
-	println!("b");
 	Ok(
 		OwnedNode::new::<T::Codec>(node_encoded)
 			.map_err(|e| Box::new(TrieError::DecoderError(*hash, e)))?
@@ -435,20 +433,16 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 
 	fn exit(&mut self, prefix: NibbleSlice, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>)
 		-> Option<Option<OwnedNodeHandle<TrieHash<T>>>> {
-		println!("exit prefix: {:?}", prefix);
 		match stacked {
 			s@StackedNode::Changed(..) => Some(Some({
-				println!("push exit");
 				let encoded = s.into_encoded();
 				if encoded.len() < 32 {
 					OwnedNodeHandle::InMemory(encoded)
 				} else {
 					let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
-					println!("push one");
 					// costy clone (could get read from here)
 					self.0.push((prefix.left_owned(), hash.clone(), Some(encoded)));
 					if let Some(h) = prev_hash {
-						println!("rem one");
 						self.0.push((prefix.left_owned(), h.clone(), None));
 					}
 					OwnedNodeHandle::Hash(hash)
@@ -456,7 +450,6 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 			})),
 			StackedNode::Deleted(..) => {
 				if let Some(h) = prev_hash {
-						println!("remd one");
 					self.0.push((prefix.left_owned(), h.clone(), None));
 				}
 				Some(None)
@@ -466,12 +459,10 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 	}
 	
 	fn exit_root(&mut self, prefix: NibbleSlice, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>) {
-		println!("exit prefix r: {:?}", prefix);
 		match stacked {
 			s@StackedNode::Changed(..) => {
 				let encoded = s.into_encoded();
 				let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
-					println!("pushr one");
 				self.0.push((prefix.left_owned(), hash, Some(encoded)));
 				if let Some(h) = prev_hash {
 					self.0.push((prefix.left_owned(), h.clone(), None));
