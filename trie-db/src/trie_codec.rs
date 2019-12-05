@@ -56,7 +56,7 @@ struct EncoderStackEntry<C: NodeCodec> {
 	omit_children: Vec<bool>,
 	/// The encoding of the subtrie nodes rooted at this entry, which is built up in
 	/// `encode_compact`.
-	encoded_nodes: Vec<Vec<u8>>,
+	output_index: usize,
 	_marker: PhantomData<C>,
 }
 
@@ -104,20 +104,10 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 		Ok(())
 	}
 
-	/// Marks a child entry as the child at the current index.
-	fn omit_child(&mut self, child_entry: Self)
-		-> Result<(), C::HashOut, C::Error>
-	{
-		self.encoded_nodes.extend(child_entry.encode_subtrie()?);
-		self.omit_children[self.child_index] = true;
-		self.child_index += 1;
-		Ok(())
-	}
-
 	/// Generates the encoding of the subtrie rooted at this entry.
-	fn encode_subtrie(mut self) -> Result<Vec<Vec<u8>>, C::HashOut, C::Error> {
+	fn encode_node(&self) -> Result<Vec<u8>, C::HashOut, C::Error> {
 		let node_data = self.node.data();
-		let encoded_node = match self.node.node_plan() {
+		Ok(match self.node.node_plan() {
 			NodePlan::Empty | NodePlan::Leaf { .. } => node_data.to_vec(),
 			NodePlan::Extension { partial, child: _ } => {
 				if !self.omit_children[0] {
@@ -143,10 +133,7 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 					value.clone().map(|range| &node_data[range])
 				)
 			}
-		};
-
-		self.encoded_nodes.insert(0, encoded_node);
-		Ok(self.encoded_nodes)
+		})
 	}
 
 	/// Generate the list of child references for a branch node with certain children omitted.
@@ -192,6 +179,8 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 	where
 		L: TrieLayout
 {
+	let mut output = Vec::new();
+
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
 	let mut stack: Vec<EncoderStackEntry<L::Codec>> = Vec::new();
@@ -228,18 +217,12 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 								"all errors from advance_child_index indicate bugs with \
 								TrieDBNodeIterator or this function"
 							);
+						last_entry.omit_children[last_entry.child_index] = true;
+						last_entry.child_index += 1;
 						stack.push(last_entry);
 						break;
 					} else {
-						stack.last_mut()
-							.expect(
-								"the first entry on the stack is the root node from the iterator; \
-								the prefix of root node is an empty nibble vec; \
-								an empty nibble vec is a prefix of all other nibble slices; \
-								thus the root node entry must still be on the stack; \
-								qed"
-							)
-							.omit_child(last_entry)?;
+						output[last_entry.output_index] = last_entry.encode_node()?;
 					}
 				}
 
@@ -253,9 +236,12 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 					node,
 					child_index: 0,
 					omit_children: vec![false; children_len],
-					encoded_nodes: Vec::new(),
+					output_index: output.len(),
 					_marker: PhantomData::default(),
 				});
+				// Insert a placeholder into output which will be replaced when this new entry is
+				// popped from the stack.
+				output.push(Vec::new());
 			}
 			Err(err) => match *err {
 				// If we hit an IncompleteDatabaseError, just ignore it and continue encoding the
@@ -266,13 +252,11 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 		}
 	}
 
-	let mut entry = stack.pop()
-		.expect("the above loop guarantees that the stack is non-empty; qed");
-	while let Some(mut next_entry) = stack.pop() {
-		next_entry.omit_child(entry)?;
-		entry = next_entry;
+	while let Some(entry) = stack.pop() {
+		output[entry.output_index] = entry.encode_node()?;
 	}
-	entry.encode_subtrie()
+
+	Ok(output)
 }
 
 struct DecoderStackEntry<'a, C: NodeCodec> {
