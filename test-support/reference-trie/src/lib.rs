@@ -33,8 +33,9 @@ use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
 
 pub use trie_db::{
-	Trie, TrieError, TrieMut, TrieIterator, TrieDBNodeIterator, NibbleSlice, NibbleVec, Recorder,
-	NodeCodec,
+	Trie, TrieMut, TrieDB, TrieDBMut, TrieError, TrieIterator, TrieDBNodeIterator,
+	NibbleSlice, NibbleVec, NodeCodec, Recorder,
+	encode_compact, decode_compact,
 };
 pub use trie_db::{Record, TrieLayout, TrieConfiguration, nibble_ops};
 pub use trie_root::TrieStream;

@@ -38,7 +38,7 @@ macro_rules! exponential_out {
 type CacheNode<HO> = Option<ChildReference<HO>>;
 
 #[inline(always)]
-fn new_vec_slice_buffer<HO>() -> [CacheNode<HO>; 16] {
+fn new_vec_slice_buffer<HO: Copy>() -> [CacheNode<HO>; 16] {
 	exponential_out!(@3, [None, None])
 }
 
@@ -314,7 +314,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F)
 }
 
 /// Visitor trait to implement when using `trie_visit`.
-pub trait ProcessEncodedNode<HO> {
+pub trait ProcessEncodedNode<HO: Copy> {
 	/// Function call with prefix, encoded value and a boolean indicating if the
 	/// node is the root for each node of the trie.
 	///
