@@ -245,7 +245,8 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 			}
 			Err(err) => match *err {
 				// If we hit an IncompleteDatabaseError, just ignore it and continue encoding the
-				// incomplete trie.
+				// incomplete trie. This encoding must support partial tries, which can be used for
+				// space-efficient storage proofs.
 				TrieError::IncompleteDatabase(_) => {},
 				_ => return Err(err),
 			}
