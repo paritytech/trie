@@ -60,12 +60,13 @@ impl<B, T, S> StackedNode<B, T, S>
 		S: Clone,
 //		TrieHash<T>: AsRef<[u8]>,
 {
-	/// Get extension part of the node (partial) if any.
-	pub fn partial(&self) -> Option<NibbleSlice> {
+	/// Get trie length of node (eg branch is partial len plus child index,
+	/// a leaf is the size of its partial).
+	pub fn thickness(&self) -> usize {
 		match self {
-			StackedNode::Unchanged(node, ..) => node.partial(),
-			StackedNode::Changed(node, ..) => node.partial(),
-			StackedNode::Deleted(..) => None,
+			StackedNode::Unchanged(node, ..) => node.thickness(),
+			StackedNode::Changed(node, ..) => node.thickness(),
+			StackedNode::Deleted(..) => 0,
 		}
 	}
 
@@ -226,9 +227,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 
 	let mut current = StackedNode::<B, T, S>::Unchanged(root, Default::default());
 	let mut common_depth = 0;
-	let mut common_depth_child = current.partial().map(|p| {
-		p.len() + 1
-	}).unwrap_or(1);
+	let mut common_depth_child = current.thickness();
 
 	let mut k: Option<K> = None;
 	callback.enter(NibbleSlice::new(&[]), &mut current);
@@ -273,9 +272,9 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 		loop {
 			// TODO EMCH go down extension here
 			debug_assert!(common_depth <= dest_depth);
-			if common_depth_child - 1 == dest_depth {
+			if common_depth_child == dest_depth {
 				if let Some((new, s)) = callback.enter_terminal(
-					NibbleSlice::new_offset(k.as_ref(), common_depth_child - 1),
+					NibbleSlice::new_offset(k.as_ref(), common_depth_child),
 					&mut current,
 					el_index,
 					k.as_ref(),
@@ -289,9 +288,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 						hash: last_hash,
 					});
 					common_depth = common_depth_child;
-					new.partial().map(|p| {
-						common_depth_child += p.len() + 1;
-					});
+					common_depth_child += new.thickness();
 					current = StackedNode::Changed(new, s);
 				} else {
 					// go next key
@@ -348,9 +345,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 					&mut current,
 				);
 
-				let add_levels = next_node.partial().map(|p| {
-					p.len() + 1
-				}).unwrap_or(1);
+				let add_levels = next_node.thickness();
 				stack.push(StackItem {
 					node: current,
 					depth: common_depth,
@@ -403,7 +398,7 @@ pub struct BatchUpdate<H>(pub Vec<((ElasticArray36<u8>, Option<u8>), H, Option<V
 impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 	where
 		T: TrieLayout,
-		S: Clone,
+		S: Clone + Default,
 		B: Borrow<[u8]> + AsRef<[u8]>,
 		K: AsRef<[u8]> + Ord,
 		V: AsRef<[u8]>,
@@ -427,7 +422,26 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 			}
 			None
 		} else {
-			Some(unimplemented!())
+			if key_element.len() * nibble_ops::NIBBLE_PER_BYTE > prefix.left_len() {
+				if let Some(val) = value_element {
+					// dest is a leaf appended to terminal
+					let dest_leaf = (
+						Node::new_leaf(
+							NibbleSlice::new_offset(key_element, prefix.left_len()),
+							val,
+						),
+						Default::default(),
+					);
+					// append to parent is done on exit through changed nature of the new leaf.
+					return Some(dest_leaf);
+				} else {
+					// nothing to delete.
+					return None;
+				}
+				panic!("TODO");
+			} else {
+				Some(unimplemented!())
+			}
 		}
 	}
 
@@ -585,8 +599,9 @@ mod tests {
 				(vec![0x01u8, 0xf1u8, 0x23], vec![0x01u8, 0x24]),
 			],
 			&[
+//				(vec![0x01u8, 0x01u8, 0x23, 0x45], Some(vec![0xffu8, 0x33])),
 				(vec![0x01u8, 0x01u8, 0x23], Some(vec![0xffu8, 0x33])),
-				(vec![0x01u8, 0x81u8, 0x23], Some(vec![0x01u8, 0x35])),
+//				(vec![0x01u8, 0x81u8, 0x23], Some(vec![0x01u8, 0x35])),
 //				(vec![0x01u8, 0x81u8, 0x23], None),
 //				(vec![0x01u8, 0xf1u8, 0x23], Some(vec![0xffu8, 0x34])),
 			],

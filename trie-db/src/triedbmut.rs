@@ -134,15 +134,16 @@ pub enum Node<H, SH> {
 
 impl<H, SH> Node<H, SH> {
 
-	/// Get extension part of the node (partial) if any.
-	pub fn partial(&self) -> Option<NibbleSlice> {
+	/// Get the depth of the node.
+	pub fn thickness(&self) -> usize {
 		match self {
 			Node::Branch { .. }
-			| Node::Empty => None,
+			| Node::Empty => unimplemented!(),
 			Node::NibbledBranch(partial, ..)
 			| Node::Extension(partial, ..)
+				=> 1 + (partial.1.len() * nibble_ops::NIBBLE_PER_BYTE) - partial.0,
 			| Node::Leaf(partial, ..)
-				=> Some(NibbleSlice::new_offset(&partial.1[..], partial.0)),
+				=> (partial.1.len() * nibble_ops::NIBBLE_PER_BYTE) - partial.0,
 		}
 	}
 
@@ -235,6 +236,11 @@ impl<H, SH> Node<H, SH> {
 		} else {
 			false
 		}
+	}
+
+
+	pub fn new_leaf(prefix: NibbleSlice, value: &[u8]) -> Self {
+		Node::Leaf(prefix.to_stored(), value.into())
 	}
 }
 
