@@ -287,6 +287,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 						parent_index: next_index,
 						hash: last_hash,
 					});
+					next_index = dest.at(common_depth_child);
 					common_depth = common_depth_child;
 					common_depth_child += new.thickness();
 					current = StackedNode::Changed(new, s);
@@ -297,7 +298,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 			} else {
 				// try go down
 				next_index = dest.at(common_depth_child - 1);
-				let next_node = match current.child(next_index) {
+				let (next_node, new_node) = match current.child(next_index) {
 					Some(NodeHandle::Hash(handle_hash)) => {
 						let mut hash = <TrieHash<T> as Default>::default();
 						hash.as_mut()[..].copy_from_slice(handle_hash.as_ref());
@@ -309,11 +310,11 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 							Default::default(),
 						);
 						last_hash = Some(hash);
-						n
+						(n, false)
 					},
 					Some(NodeHandle::Inline(node_encoded)) => {
 						last_hash = None; 
-						StackedNode::Unchanged(
+						(StackedNode::Unchanged(
 							// Instantiating B is only for inline node, still costy.
 							OwnedNode::new::<T::Codec>(B::from(node_encoded))
 								.map_err(|e| Box::new(TrieError::DecoderError(
@@ -321,18 +322,18 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 									e,
 								)))?,
 							Default::default(),
-						)
+						), false)
 					},
 					None => {
 						// this is a terminal node
 						if let Some((new, s)) = callback.enter_terminal(
-							NibbleSlice::new_offset(k.as_ref(), common_depth_child - 1),
+							NibbleSlice::new_offset(k.as_ref(), common_depth_child),
 							&mut current,
 							el_index,
 							k.as_ref(),
 							v.as_ref().map(|v| v.as_ref()),
 						) {
-							StackedNode::Changed(new, s)
+							(StackedNode::Changed(new, s), true)
 						} else {
 							// go next key
 							break;
@@ -341,7 +342,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 				};
 
 				callback.enter(
-					NibbleSlice::new_offset(k.as_ref(), common_depth_child - 1),
+					NibbleSlice::new_offset(k.as_ref(), common_depth_child),
 					&mut current,
 				);
 
@@ -353,6 +354,9 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 					parent_index: next_index,
 					hash: last_hash,
 				});
+				if new_node {
+					next_index = dest.at(common_depth_child);
+				}
 				common_depth = common_depth_child;
 				common_depth_child += add_levels;
 				current = next_node;
@@ -562,6 +566,10 @@ mod tests {
 		&mut initial_db, &initial_root, v.iter().map(|(a, b)| (a, b.as_ref())), &mut batch_update);
 		
 		let mut batch_delta = initial_db;
+
+		batch_update.0.pop();
+		let r2 = batch_update.0.last().unwrap().1;
+//
 		memory_db_from_delta(batch_update.0, &mut batch_delta);
 /*
 		// sort
@@ -580,10 +588,16 @@ mod tests {
 		);
 */
 
+//		println!("{:?}", batch_delta.drain());
+//		println!("{:?}", db.drain());
 		// test by checking both triedb only
-		let t1 = RefTrieDBNoExt::new(&batch_delta, &root).unwrap();
 		let t2 = RefTrieDBNoExt::new(&db, &root).unwrap();
-		assert_eq!(format!("{:?}", t1), format!("{:?}", t2));
+		println!("{:?}", t2);
+		let t2b = RefTrieDBNoExt::new(&batch_delta, &r2).unwrap();
+		println!("{:?}", t2b);
+	
+//		let t1 = RefTrieDBNoExt::new(&batch_delta, &root).unwrap();
+//		assert_eq!(format!("{:?}", t1), format!("{:?}", t2));
 
 
 		panic!("end");
@@ -599,8 +613,8 @@ mod tests {
 				(vec![0x01u8, 0xf1u8, 0x23], vec![0x01u8, 0x24]),
 			],
 			&[
-//				(vec![0x01u8, 0x01u8, 0x23, 0x45], Some(vec![0xffu8, 0x33])),
-				(vec![0x01u8, 0x01u8, 0x23], Some(vec![0xffu8, 0x33])),
+				(vec![0x01u8, 0x01u8, 0x23, 0x45], Some(vec![0xffu8, 0x33])),
+//				(vec![0x01u8, 0x01u8, 0x23], Some(vec![0xffu8, 0x33])),
 //				(vec![0x01u8, 0x81u8, 0x23], Some(vec![0x01u8, 0x35])),
 //				(vec![0x01u8, 0x81u8, 0x23], None),
 //				(vec![0x01u8, 0xf1u8, 0x23], Some(vec![0xffu8, 0x34])),
