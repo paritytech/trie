@@ -233,14 +233,15 @@ impl<D: Borrow<[u8]>> OwnedNode<D> {
 		self.plan.build(self.data.borrow())
 	}
 
-	/// Get the depth of the node.
-	pub fn thickness(&self) -> usize {
+	/// Get extension part of the node (partial) if any.
+	pub fn partial(&self) -> Option<NibbleSlice> {
 		match &self.plan {
 			NodePlan::Branch { .. }
-			| NodePlan::Empty => unimplemented!(),
-			NodePlan::Leaf { partial, .. } => partial.len(),
+			| NodePlan::Empty => None,
+			NodePlan::Leaf { partial, .. }
 			| NodePlan::NibbledBranch { partial, .. }
-			| NodePlan::Extension { partial, .. } => partial.len() + 1,
+			| NodePlan::Extension { partial, .. } =>
+				Some(partial.build(self.data.borrow())),
 		}
 	}
 
