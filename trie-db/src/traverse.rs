@@ -212,7 +212,7 @@ pub enum TraverseState {
 /// (and change existing one).
 /// It also returns a boolean indicating if we need to switch to a
 /// different targetted key.
-fn descend<T, K, V, S, B, F>(
+fn descend_terminal<T, K, V, S, B, F>(
 	item: &mut StackedItem<B, T, S>,
 	key: &K,
 	value: Option<&V>,
@@ -227,9 +227,7 @@ fn descend<T, K, V, S, B, F>(
 		B: Borrow<[u8]>,
 		F: ProcessStack<B, T, K, V, S>,
 {
-	if target_common_depth < item.depth_prefix {
-		debug_assert!(false, "Descend should not be call in this state");
-	}
+	debug_assert!(!(target_common_depth < item.depth_prefix), "Descend should not be call in this state");
 	if target_common_depth < item.depth {
 		// insert into prefix
 		(callback.enter_terminal(
@@ -311,7 +309,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 	};
 
 	let mut k: Option<K> = None;
-	let mut common_depth = 0;
+	let mut previous_common_depth = 0;
 
 	for (next_k, v) in elements.into_iter() {
 		if let Some(previous_key) = k {
@@ -319,13 +317,13 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 				&previous_key.as_ref()[..current.depth / nibble_ops::NIBBLE_PER_BYTE],
 				next_k.as_ref(),
 			);
-			target_common_depth = min(common_depth, target_common_depth);
+			target_common_depth = min(previous_common_depth, target_common_depth);
 		
 			while target_common_depth < current.depth {
 				// go up
 				if let Some(mut last) = stack.pop() {
 					if let Some(handle) = callback.exit(
-						NibbleSlice::new_offset(previous_key.as_ref(), last.depth_prefix),
+						NibbleSlice::new_offset(previous_key.as_ref(), current.depth_prefix),
 						current.node, current.hash.as_ref(),
 					) {
 						let child_index = NibbleSlice::new_offset(previous_key.as_ref(), 0)
@@ -338,20 +336,25 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 					return Ok(());
 				}
 			}
-			k = Some(next_k);
-			common_depth = target_common_depth;
+			previous_common_depth = target_common_depth;
 		}
+		k = Some(next_k);
 		
 		if let Some(k) = k.as_ref() {
 			let dest = NibbleFullKey::new(k.as_ref());
 			let dest_depth = k.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
 
 			loop {
-				if dest_depth < current.depth_prefix {
+				let child = if dest_depth > current.depth {
+					let next_index = dest.at(current.depth);
+					current.node.child(next_index)
+				} else {
+					None
+				};
+				if dest_depth > current.depth && child.is_some() {
 					// non terminal
-					let next_index = dest.at(current.depth + 1);
 					let depth_prefix = current.depth + 1;
-					let (node, hash) = match current.node.child(next_index) {
+					let (node, hash) = match child {
 						Some(NodeHandle::Hash(handle_hash)) => {
 							let mut hash = <TrieHash<T> as Default>::default();
 							hash.as_mut()[..].copy_from_slice(handle_hash.as_ref());
@@ -388,7 +391,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 					};
 				} else {
 					// terminal case
-					match descend(&mut current, k, v.as_ref(), dest_depth, callback) {
+					match descend_terminal(&mut current, k, v.as_ref(), dest_depth, callback) {
 						(Some(new), next) => {
 							stack.push(current);
 							current = new;
@@ -410,21 +413,19 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 	if let Some(previous_key) = k {
 		// go up
 		while let Some(mut last) = stack.pop() {
-			if stack.len() > 0 {
-				if let Some(handle) = callback.exit(
-					NibbleSlice::new_offset(previous_key.as_ref(), last.depth_prefix),
-					current.node, current.hash.as_ref(),
-				) {
-					let child_index = NibbleSlice::new_offset(previous_key.as_ref(), 0)
-						.at(last.depth + 1);
-					last.node.set_handle(handle, child_index);
-				}
-				current = last;
-			} else {
-				callback.exit_root(NibbleSlice::new(&[]), current.node, current.hash.as_ref());
-				return Ok(());
+			if let Some(handle) = callback.exit(
+				NibbleSlice::new_offset(previous_key.as_ref(), current.depth_prefix),
+				current.node, current.hash.as_ref(),
+			) {
+				let child_index = NibbleSlice::new_offset(previous_key.as_ref(), 0)
+					.at(last.depth);
+				last.node.set_handle(handle, child_index);
 			}
+			current = last;
+
 		}
+		callback.exit_root(NibbleSlice::new(&[]), current.node, current.hash.as_ref());
+		return Ok(());
 	}
 
 	Ok(())
@@ -646,7 +647,7 @@ mod tests {
 //		assert_eq!(format!("{:?}", t1), format!("{:?}", t2));
 
 
-		panic!("end");
+		panic!("!!END!!");
 
 	}
 
@@ -659,9 +660,9 @@ mod tests {
 				(vec![0x01u8, 0xf1u8, 0x23], vec![0x01u8, 0x24]),
 			],
 			&[
-				(vec![0x01u8, 0x01u8, 0x23, 0x45], Some(vec![0xffu8, 0x33])),
-//				(vec![0x01u8, 0x01u8, 0x23], Some(vec![0xffu8, 0x33])),
-//				(vec![0x01u8, 0x81u8, 0x23], Some(vec![0x01u8, 0x35])),
+//				(vec![0x01u8, 0x01u8, 0x23, 0x45], Some(vec![0xffu8, 0x33])),
+				(vec![0x01u8, 0x01u8, 0x23], Some(vec![0xffu8, 0x33])),
+				(vec![0x01u8, 0x81u8, 0x23], Some(vec![0x01u8, 0x35])),
 //				(vec![0x01u8, 0x81u8, 0x23], None),
 //				(vec![0x01u8, 0xf1u8, 0x23], Some(vec![0xffu8, 0x34])),
 			],
@@ -673,12 +674,12 @@ mod tests {
 			&[
 				(vec![0x01u8, 0x01u8, 0x23], vec![0x01u8; 32]),
 				(vec![0x01u8, 0x81u8, 0x23], vec![0x02u8; 32]),
-//				(vec![0x01u8, 0xf1u8, 0x23], vec![0x01u8, 0x24]),
+				(vec![0x01u8, 0xf1u8, 0x23], vec![0x01u8, 0x24]),
 			],
 			&[
 				(vec![0x01u8, 0x01u8, 0x23], Some(vec![0xffu8; 32])),
 				(vec![0x01u8, 0x81u8, 0x23], Some(vec![0xfeu8; 32])),
-//				(vec![0x01u8, 0x81u8, 0x23], None),
+				(vec![0x01u8, 0x81u8, 0x23], None),
 //				(vec![0x01u8, 0xf1u8, 0x23], Some(vec![0xffu8, 0x34])),
 			],
 		);
