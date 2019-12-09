@@ -252,9 +252,10 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 							NibbleSlice::new_offset(k.as_ref(), depth_child),
 							current, hash.as_ref(),
 						) {
-							node.set_handle(handle, parent_index);
+							node.set_handle(handle, next_index);
 						}
 						current = node;
+						next_index = parent_index;
 					} else {
 						callback.exit_root(NibbleSlice::new(&[]), current, root_hash);
 						return Ok(());
@@ -346,7 +347,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 					&mut current,
 				);
 
-				let add_levels = next_node.thickness();
+				let mut add_levels = next_node.thickness();
 				stack.push(StackItem {
 					node: current,
 					depth: common_depth,
@@ -356,6 +357,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 				});
 				if new_node {
 					next_index = dest.at(common_depth_child);
+					add_levels += 1; // needed for leaf into leaf (might not be needed for leaf into branch).
 				}
 				common_depth = common_depth_child;
 				common_depth_child += add_levels;
@@ -372,8 +374,9 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 			NibbleSlice::new_offset(k.as_ref(), depth_child),
 			current, hash.as_ref(),
 		) {
-			node.set_handle(handle, parent_index);
+			node.set_handle(handle, next_index);
 		}
+		next_index = parent_index;
 		current = node;
 	}}
 	callback.exit_root(NibbleSlice::new(&[]), current, root_hash);
@@ -431,7 +434,7 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 					// dest is a leaf appended to terminal
 					let dest_leaf = (
 						Node::new_leaf(
-							NibbleSlice::new_offset(key_element, prefix.left_len()),
+							NibbleSlice::new_offset(key_element, prefix.left_len() + 1),
 							val,
 						),
 						Default::default(),
