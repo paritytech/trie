@@ -256,9 +256,59 @@ impl<D: Borrow<[u8]>> OwnedNode<D> {
 				children[ix as usize].as_ref().map(|child| child.build(self.data.borrow())),
 		}
 	}
+
+	/// Tell if it is the empty node.
+	pub fn is_empty(&self) -> bool {
+		if let NodePlan::Empty = &self.plan {
+			true
+		} else {
+			false
+		}
+	}
+
 }
 
 impl<B: Borrow<[u8]>> OwnedNode<B> {
+	/// Set a partial TODO EMCH factor new node from existing on all those methods.
+	pub fn advance_partial<H: AsMut<[u8]> + Default>(&mut self, nb: usize) -> Option<TNode<H, Vec<u8>>> {
+		if nb == 0 {
+			return None;
+		}
+		let data = &self.data.borrow();
+		match &self.plan {
+			NodePlan::Leaf { partial, value } => {
+				let mut partial = partial.build(data);
+				partial.advance(nb);
+				Some(TNode::Leaf(
+					partial.into(),
+					data[value.clone()].into(),
+				))
+			},
+			NodePlan::Extension { .. } // TODO Extension
+			| NodePlan::Branch { .. } // TODO branch
+			| NodePlan::Empty => None,
+			NodePlan::NibbledBranch { partial, value, children } => {
+				let mut partial = partial.build(data);
+				partial.advance(nb);
+				let mut child_slices = [
+					None, None, None, None,
+					None, None, None, None,
+					None, None, None, None,
+					None, None, None, None,
+				];
+				for i in 0..nibble_ops::NIBBLE_LENGTH {
+					child_slices[i] = children[i].as_ref().map(|child| child.build_thandle(data));
+				}
+
+				Some(TNode::NibbledBranch(
+					partial.into(),
+					Box::new(child_slices),
+					value.as_ref().map(|value| data[value.clone()].into()),
+				))
+			},
+		}
+	}
+
 	/// Set a value.
 	pub fn set_value<H: AsMut<[u8]> + Default>(&mut self, new_value: &[u8]) -> Option<TNode<H, Vec<u8>>> {
 		let data = &self.data.borrow();
@@ -300,6 +350,7 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 			},
 		}
 	}
+
 	/// Remove a value.
 	pub fn remove_value<H: AsMut<[u8]> + Default>(&mut self) -> Option<Option<TNode<H, Vec<u8>>>> {
 		let data = &self.data.borrow();

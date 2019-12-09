@@ -30,6 +30,7 @@ use crate::DBValue;
 use hash_db::{HashDB, Prefix, EMPTY_PREFIX, Hasher};
 use crate::NodeCodec;
 use ::core_::cmp::*;
+use ::core_::mem;
 use elastic_array::ElasticArray36;
 
 // TODO make it deletion aware : do not stack unchanged key and pass them
@@ -68,6 +69,8 @@ pub struct StackedItem<B, T, S>
 	pub depth_prefix: usize,
 	/// Depth of node, it is prefix depth and partial depth.
 	pub depth: usize,
+	/// parent index (only relevant when parent is a branch).
+	pub parent_index: u8,
 }
 
 impl<B, T, S> StackedNode<B, T, S>
@@ -77,6 +80,15 @@ impl<B, T, S> StackedNode<B, T, S>
 		S: Clone,
 //		TrieHash<T>: AsRef<[u8]>,
 {
+	/// Get extension part of the node (partial) if any.
+	pub fn is_empty(&self) -> bool {
+		match self {
+			StackedNode::Unchanged(node, ..) => node.is_empty(),
+			StackedNode::Changed(node, ..) => node.is_empty(),
+			StackedNode::Deleted(..) => true,
+		}
+	}
+
 	/// Get extension part of the node (partial) if any.
 	pub fn partial(&self) -> Option<NibbleSlice> {
 		match self {
@@ -107,6 +119,20 @@ impl<B, T, S> StackedNode<B, T, S>
 			StackedNode::Deleted(..) => (),
 		}
 	}
+
+	/// Change a partial if the node contains one.
+	pub fn advance_partial(&mut self, nb: usize) {
+		match self {
+			StackedNode::Unchanged(node, state) => {
+				if let Some(new) = node.advance_partial(nb) {
+					*self = StackedNode::Changed(new, state.clone());
+				}
+			},
+			StackedNode::Changed(node, ..) => node.advance_partial(nb),
+			StackedNode::Deleted(..) => (),
+		}
+	}
+
 
 	/// Remove a value if the node contains one.
 	pub fn remove_value(&mut self) {
@@ -176,7 +202,7 @@ pub trait ProcessStack<B, T, K, V, S>
 	where
 		T: TrieLayout,
 		S: Clone,
-		B: Borrow<[u8]>,
+		B: Borrow<[u8]> + AsRef<[u8]>,
 		K: AsRef<[u8]> + Ord,
 		V: AsRef<[u8]>,
 {
@@ -191,7 +217,7 @@ pub trait ProcessStack<B, T, K, V, S>
 		key_element: &[u8],
 		value_element: Option<&[u8]>,
 		state: TraverseState,
-	) -> Option<Node<TrieHash<T>, Vec<u8>>>;
+	) -> Option<StackedItem<B, T, S>>;
 	/// Callback on exit a node, commit action on change node should be applied here.
 	fn exit(&mut self, prefix: NibbleSlice, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>)
 		-> Option<Option<OwnedNodeHandle<TrieHash<T>>>>;
@@ -208,41 +234,38 @@ pub enum TraverseState {
 	/// Mid partial and index
 	MidPartial(usize),
 }
+
 /// Descend into a node, depending on callback it can produce a new node
 /// (and change existing one).
-/// It also returns a boolean indicating if we need to switch to a
-/// different targetted key.
 fn descend_terminal<T, K, V, S, B, F>(
 	item: &mut StackedItem<B, T, S>,
 	key: &K,
 	value: Option<&V>,
-	target_common_depth: usize,
+	dest_depth: usize,
 	callback: &mut F,
-) -> (Option<StackedItem<B, T, S>>, bool)
+) -> Option<StackedItem<B, T, S>>
 	where
 		T: TrieLayout,
 		K: AsRef<[u8]> + Ord,
 		V: AsRef<[u8]>,
 		S: Default + Clone,
-		B: Borrow<[u8]>,
+		B: Borrow<[u8]> + AsRef<[u8]>,
 		F: ProcessStack<B, T, K, V, S>,
 {
+	let slice_dest = NibbleSlice::new_offset(key.as_ref(), item.depth_prefix);
+	// TODO optimize common_prefix function ??
+	let target_common_depth = item.node.partial()
+		.map(|p| item.depth_prefix + p.common_prefix(&slice_dest))
+		.unwrap_or(item.depth);
 	debug_assert!(!(target_common_depth < item.depth_prefix), "Descend should not be call in this state");
 	if target_common_depth < item.depth {
 		// insert into prefix
-		(callback.enter_terminal(
+		callback.enter_terminal(
 			item,
 			key.as_ref(),
 			value.as_ref().map(|v| v.as_ref()),
 			TraverseState::MidPartial(target_common_depth),
-		).map(|new_node| {
-			StackedItem {
-				node: StackedNode::Changed(new_node, Default::default()),
-				hash: None,
-				depth_prefix: item.depth_prefix,
-				depth: target_common_depth,
-			}
-		}), false)
+		)
 	} else if target_common_depth == item.depth {
 		// set value
 		let n = callback.enter_terminal(
@@ -252,22 +275,15 @@ fn descend_terminal<T, K, V, S, B, F>(
 			TraverseState::ValueMatch,
 		);
 		debug_assert!(n.is_none());
-		(None, true)
+		None
 	} else {
 		// extend
-		(callback.enter_terminal(
+		callback.enter_terminal(
 			item,
 			key.as_ref(),
 			value.as_ref().map(|v| v.as_ref()),
 			TraverseState::AfterNode,
-		).map(|new_node| {
-			StackedItem {
-				node: StackedNode::Changed(new_node, Default::default()),
-				hash: None,
-				depth_prefix: item.depth + 1,
-				depth: key.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
-			}
-		}), true)
+		)
 	}
 }
 
@@ -306,10 +322,10 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 		hash: Some(*root_hash),
 		depth_prefix: 0,
 		depth,
+		parent_index: 0,
 	};
 
 	let mut k: Option<K> = None;
-	let mut previous_common_depth = 0;
 
 	for (next_k, v) in elements.into_iter() {
 		if let Some(previous_key) = k {
@@ -317,26 +333,25 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 				&previous_key.as_ref()[..current.depth / nibble_ops::NIBBLE_PER_BYTE],
 				next_k.as_ref(),
 			);
-			target_common_depth = min(previous_common_depth, target_common_depth);
+			target_common_depth = min(current.depth, target_common_depth);
 		
 			while target_common_depth < current.depth {
 				// go up
 				if let Some(mut last) = stack.pop() {
-					if let Some(handle) = callback.exit(
-						NibbleSlice::new_offset(previous_key.as_ref(), current.depth_prefix),
-						current.node, current.hash.as_ref(),
-					) {
-						let child_index = NibbleSlice::new_offset(previous_key.as_ref(), 0)
-							.at(last.depth + 1);
-						last.node.set_handle(handle, child_index);
+					if !last.node.is_empty() {
+						if let Some(handle) = callback.exit(
+							NibbleSlice::new_offset(previous_key.as_ref(), current.depth_prefix),
+							current.node, current.hash.as_ref(),
+						) {
+							last.node.set_handle(handle, current.parent_index);
+						}
+						current = last;
 					}
-					current = last;
 				} else {
 					callback.exit_root(NibbleSlice::new(&[]), current.node, current.hash.as_ref());
 					return Ok(());
 				}
 			}
-			previous_common_depth = target_common_depth;
 		}
 		k = Some(next_k);
 		
@@ -345,11 +360,11 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 			let dest_depth = k.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
 
 			loop {
-				let child = if dest_depth > current.depth {
+				let (child, parent_index) = if dest_depth > current.depth {
 					let next_index = dest.at(current.depth);
-					current.node.child(next_index)
+					(current.node.child(next_index), next_index)
 				} else {
-					None
+					(None, 0)
 				};
 				if dest_depth > current.depth && child.is_some() {
 					// non terminal
@@ -388,23 +403,22 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 						hash,
 						depth_prefix,
 						depth,
+						parent_index,
 					};
 				} else {
-					// terminal case
-					match descend_terminal(&mut current, k, v.as_ref(), dest_depth, callback) {
-						(Some(new), next) => {
-							stack.push(current);
-							current = new;
-							if next {
-								break;
-							}
-						},
-						(None, next) => {
-							debug_assert!(next);
-							// go next key
-							break;
-						},
+					// remove empties
+					while current.node.is_empty() && stack.len() > 0 {
+						if let Some(prev) = stack.pop() {
+							current = prev;
+						}
 					}
+					// terminal case
+					if let Some(new) = descend_terminal(&mut current, k, v.as_ref(), dest_depth, callback) {
+						stack.push(current);
+						current = new;
+					};
+					// go next key
+					break;
 				}
 			}
 		}
@@ -413,16 +427,15 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 	if let Some(previous_key) = k {
 		// go up
 		while let Some(mut last) = stack.pop() {
-			if let Some(handle) = callback.exit(
-				NibbleSlice::new_offset(previous_key.as_ref(), current.depth_prefix),
-				current.node, current.hash.as_ref(),
-			) {
-				let child_index = NibbleSlice::new_offset(previous_key.as_ref(), 0)
-					.at(last.depth);
-				last.node.set_handle(handle, child_index);
+			if !last.node.is_empty() {
+				if let Some(handle) = callback.exit(
+					NibbleSlice::new_offset(previous_key.as_ref(), current.depth_prefix),
+					current.node, current.hash.as_ref(),
+				) {
+					last.node.set_handle(handle, current.parent_index);
+				}
+				current = last;
 			}
-			current = last;
-
 		}
 		callback.exit_root(NibbleSlice::new(&[]), current.node, current.hash.as_ref());
 		return Ok(());
@@ -447,7 +460,7 @@ fn fetch<T: TrieLayout, B: Borrow<[u8]>>(
 }
 
 /// Contains ordered node change for this iteration.
-pub struct BatchUpdate<H>(pub Vec<((ElasticArray36<u8>, Option<u8>), H, Option<Vec<u8>>)>);
+pub struct BatchUpdate<H>(pub Vec<((ElasticArray36<u8>, Option<u8>), H, Option<Vec<u8>>)>, pub H);
 
 impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 	where
@@ -466,7 +479,7 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 		key_element: &[u8],
 		value_element: Option<&[u8]>,
 		state: TraverseState,
-	) -> Option<Node<TrieHash<T>, Vec<u8>>> {
+	) -> Option<StackedItem<B, T, S>> {
 		match state {
 			TraverseState::ValueMatch => {
 				if let Some(value) = value_element {
@@ -478,20 +491,72 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 			},
 			TraverseState::AfterNode => {
 				if let Some(val) = value_element {
+					// corner case of empty trie.
+					let offset = if stacked.node.is_empty() {
+						0
+					} else {
+						1
+					};
 					// dest is a leaf appended to terminal
 					let dest_leaf = Node::new_leaf(
-						NibbleSlice::new_offset(key_element, stacked.depth + 1),
+						NibbleSlice::new_offset(key_element, stacked.depth + offset),
 						val,
 					);
 					// append to parent is done on exit through changed nature of the new leaf.
-					return Some(dest_leaf);
+					return Some(StackedItem {
+						node: StackedNode::Changed(dest_leaf, Default::default()),
+						hash: None,
+						depth_prefix: stacked.depth + offset,
+						depth: key_element.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
+						parent_index: key_element.as_ref()[stacked.depth],
+					});
 				} else {
 					// nothing to delete.
 					return None;
 				}
 			},
 			TraverseState::MidPartial(mid_index) => {
-				unimplemented!();
+				if let Some(val) = value_element {
+					// here we could create branch but this way we use valid node
+					let dest_branch = if mid_index % nibble_ops::NIBBLE_PER_BYTE == 0 {
+						let new_slice = NibbleSlice::new_offset(
+							&key_element[..mid_index / nibble_ops::NIBBLE_PER_BYTE],
+							stacked.depth_prefix,
+						);
+						Node::new_leaf(new_slice, val)
+					} else {
+						let new_slice = NibbleSlice::new_offset(
+							&key_element[..],
+							stacked.depth_prefix,
+						);
+						let owned = new_slice.to_stored_range(mid_index - stacked.depth_prefix);
+						// TODO EMCH refactor new_leaf to take NodeKey (stored) as input
+						Node::new_leaf(NibbleSlice::from_stored(&owned), val)
+					};
+					let old_depth = stacked.depth;
+					stacked.depth = mid_index;
+					let mut child = mem::replace(
+						&mut stacked.node,
+						StackedNode::Changed(dest_branch, Default::default()),
+					);
+
+					let parent_index = child.partial()
+						.map(|p| p.at(mid_index - stacked.depth_prefix)).unwrap_or(0);
+
+					child.advance_partial(1 + mid_index - stacked.depth_prefix);
+					// not setting child relation (will be set on exit)
+					let child = StackedItem {
+						node: child,
+						hash: None,
+						depth_prefix: 1 + mid_index,
+						depth: old_depth,
+						parent_index,
+					};
+					return Some(child);
+				} else {
+					// nothing to delete.
+					return None;
+				}
 			},
 		}
 	}
@@ -525,9 +590,11 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 	
 	fn exit_root(&mut self, prefix: NibbleSlice, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>) {
 		match stacked {
-			s@StackedNode::Changed(..) => {
+			s@StackedNode::Deleted(..)
+			| s@StackedNode::Changed(..) => {
 				let encoded = s.into_encoded();
 				let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
+				self.1 = hash.clone();
 				self.0.push((prefix.left_owned(), hash, Some(encoded)));
 				if let Some(h) = prev_hash {
 					self.0.push((prefix.left_owned(), h.clone(), None));
@@ -608,10 +675,16 @@ mod tests {
 
 		let reference_root = root.clone();
 	
-		let mut batch_update = BatchUpdate(Default::default());
+		let mut batch_update = BatchUpdate(Default::default(), initial_root.clone());
 		trie_traverse_key_no_extension_build(
-		&mut initial_db, &initial_root, v.iter().map(|(a, b)| (a, b.as_ref())), &mut batch_update);
+			&mut initial_db,
+			&initial_root,
+			v.iter().map(|(a, b)| (a, b.as_ref())),
+			&mut batch_update,
+		);
 		
+//		assert_eq!(batch_update.1, reference_root);
+
 		let mut batch_delta = initial_db;
 
 		batch_update.0.pop();
@@ -656,13 +729,14 @@ mod tests {
 		compare_with_triedbmut(
 			&[
 				(vec![0x01u8, 0x01u8, 0x23], vec![0x01u8, 0x23]),
+				(vec![0x01u8, 0x01u8, 0x23, 0x45, 0x67], vec![0xafu8, 0x33]),
 				(vec![0x01u8, 0x81u8, 0x23], vec![0x01u8, 0x25]),
 				(vec![0x01u8, 0xf1u8, 0x23], vec![0x01u8, 0x24]),
 			],
 			&[
-//				(vec![0x01u8, 0x01u8, 0x23, 0x45], Some(vec![0xffu8, 0x33])),
-				(vec![0x01u8, 0x01u8, 0x23], Some(vec![0xffu8, 0x33])),
-				(vec![0x01u8, 0x81u8, 0x23], Some(vec![0x01u8, 0x35])),
+				(vec![0x01u8, 0x01u8, 0x23, 0x45], Some(vec![0xffu8, 0x33])),
+//				(vec![0x01u8, 0x01u8, 0x23], Some(vec![0xffu8, 0x33])),
+//				(vec![0x01u8, 0x81u8, 0x23], Some(vec![0x01u8, 0x35])),
 //				(vec![0x01u8, 0x81u8, 0x23], None),
 //				(vec![0x01u8, 0xf1u8, 0x23], Some(vec![0xffu8, 0x34])),
 			],
@@ -684,5 +758,18 @@ mod tests {
 			],
 		);
 	}
+	#[test]
+	fn dummy3() {
+		compare_with_triedbmut(
+			&[
+				(vec![0x00u8], vec![0x00u8, 0]),
+			],
+			&[
+				(vec![0x04u8], Some(vec![0x01u8, 0x24])),
+//				(vec![0x32u8], Some(vec![0x01u8, 0x24])),
+			],
+		);
+	}
+
 
 }

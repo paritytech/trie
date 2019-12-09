@@ -173,3 +173,60 @@ pub fn fuzz_that_no_extension_insert_remove(input: &[u8]) {
 	let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 	compare_no_extension_insert_remove(data, memdb);
 }
+
+pub fn fuzz_batch_update(input: &[u8]) {
+	let data = fuzz_to_data(input);
+	let data = fuzz_removal(data);
+println!("{:?}", data);
+	let mut db = memory_db::MemoryDB::<_, PrefixedKey<_>, _>::default();
+	let mut root = Default::default();
+	{
+		let mut t = reference_trie::RefTrieDBMutNoExt::new(&mut db, &mut root);
+		for i in 0..data.len() / 2 {
+			let key: &[u8]= &data[i].1;
+			let val: &[u8] = &data[i].2;
+			t.insert(key, val).unwrap();
+		}
+	}
+
+	let initial_root = root.clone();
+	let mut initial_db = db.clone();
+
+	let mut sorted_data = std::collections::BTreeMap::new();
+	{
+		let mut t = reference_trie::RefTrieDBMutNoExt::new(&mut db, &mut root);
+		for i in data.len() / 2..data.len() {
+			let key: &[u8]= &data[i].1;
+			let val: &[u8] = &data[i].2;
+			if !data[i].0 {
+				sorted_data.insert(key, Some(val));
+				t.insert(key, val).unwrap();
+			} else {
+				sorted_data.insert(key, None);
+				// remove overwrite insert from fuzz_removal ordering,
+				// that is important
+				t.remove(key).unwrap();
+			}
+		}
+	}
+	let mut batch_update = reference_trie::BatchUpdate(
+		Default::default(),
+		initial_root.clone(),
+	);
+	reference_trie::trie_traverse_key_no_extension_build(
+		&mut initial_db,
+		&initial_root, sorted_data.into_iter(), &mut batch_update);
+	assert!(batch_update.1 == root);
+}
+
+#[test]
+fn test() {
+	let tests = [
+		//vec![0xa,0x0,0x0,0x0,0x0,0x4,0x0,0x0],
+		//vec![0x0,0x0,0x4,0x8d,0x8d,0x4],
+		vec![0x0,0x0,0x0,0x4,0x20,0x1a,0x0,0x0],
+	];
+	for v in tests.iter() {
+		fuzz_batch_update(&v[..])
+	}
+}

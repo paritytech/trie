@@ -134,6 +134,15 @@ pub enum Node<H, SH> {
 
 impl<H, SH> Node<H, SH> {
 
+	/// Tell if it is the empty node.
+	pub fn is_empty(&self) -> bool {
+		if let Node::Empty = &self {
+			true
+		} else {
+			false
+		}
+	}
+
 	/// Get extension part of the node (partial) if any.
 	pub fn partial(&self) -> Option<NibbleSlice> {
 		match self {
@@ -146,7 +155,23 @@ impl<H, SH> Node<H, SH> {
 		}
 	}
 
-	/// Get extension part of the node (partial) if any.
+	/// Advance partial offset if there is a partial.
+	pub fn advance_partial(&mut self, nb: usize) {
+		match self {
+			Node::Extension(..)
+			| Node::Branch ( .. )
+			| Node::Empty => (),
+			Node::NibbledBranch(partial, ..)
+			| Node::Leaf(partial, ..) => {
+				let mut new_partial: NibbleSlice = NibbleSlice::new_offset(partial.1.as_ref(), partial.0);
+				new_partial.advance(nb);
+				*partial = new_partial.into();
+			},
+		}
+	}
+
+
+	/// Set value to node if possible.
 	pub fn set_value(&mut self, value: &[u8]) {
 		match self {
 			Node::Extension(..)
@@ -196,7 +221,7 @@ impl<H, SH> Node<H, SH> {
 			// we end the root process)
 			Node::Empty => unreachable!(),
 			Node::NibbledBranch(partial, mut encoded_children, val) => {
-				if handle.is_none() && encoded_children[index].is_some() {
+				if handle.is_none() && encoded_children[index].is_none() {
 					Node::NibbledBranch(partial, encoded_children, val)
 				} else {
 					let del = handle.is_none() && encoded_children[index].is_some();
@@ -363,6 +388,7 @@ where
 			Node::Empty => C::empty_node().to_vec(),
 			Node::Leaf(partial, value) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
+				println!("d{:?} {:?}", pr.right(), value);
 				C::leaf_node(pr.right(), &value)
 			},
 			Node::Extension(partial, child) => {

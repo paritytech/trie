@@ -529,5 +529,3 @@ fn trie_mut_same_key_batch(c: &mut Criterion) {
 			assert!(batch_update.0.last().unwrap().1 != root);
 		}));
 }
-
-
