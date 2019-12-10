@@ -262,6 +262,31 @@ impl<H, SH> Node<H, SH> {
 		}
 	}
 
+	/// Set handle to a mid branch, changing self element to this
+	/// new branch and returning the old element (new child).
+	pub fn set_mid_handle(
+		&mut self,
+		handle: NodeHandle<H, SH>,
+		index: u8,
+		common: usize,
+	) -> Self {
+		let prev_partial = self.partial()
+			.expect("This function is only call on node with partial");
+		let mut children = Box::new([
+			None, None, None, None,
+			None, None, None, None,
+			None, None, None, None,
+			None, None, None, None,
+		]);
+		children[index as usize] = Some(handle);
+		let mid_branch = Node::NibbledBranch(
+			prev_partial.to_stored_range(common),
+			children,
+			None,
+		);
+		self.advance_partial(common + 1);
+		mem::replace(self, mid_branch)
+	}
 
 	pub fn new_leaf(prefix: NibbleSlice, value: &[u8]) -> Self {
 		Node::Leaf(prefix.to_stored(), value.into())
