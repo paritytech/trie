@@ -85,6 +85,7 @@ mod iterator;
 mod lookup;
 mod nibble;
 mod node_codec;
+mod trie_codec;
 
 pub use hash_db::{HashDB, HashDBRef, Hasher};
 pub use self::triedb::{TrieDB, TrieDBIterator};
@@ -100,6 +101,7 @@ pub use node_codec::{NodeCodec, Partial};
 pub use iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed};
 pub use iterator::TrieDBNodeIterator;
+pub use trie_codec::{decode_compact, encode_compact};
 
 #[cfg(feature = "std")]
 pub use iter_build::TrieRootPrint;

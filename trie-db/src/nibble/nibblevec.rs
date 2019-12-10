@@ -204,6 +204,24 @@ impl NibbleVec {
 		}
 	}
 
+	/// Do we start with the same nibbles as the whole of `them`?
+	pub fn starts_with(&self, other: &Self) -> bool {
+		if self.len() < other.len() {
+			return false;
+		}
+		let byte_len = other.len() / nibble_ops::NIBBLE_PER_BYTE;
+		if &self.inner[..byte_len] != &other.inner[..byte_len] {
+			return false;
+		}
+		for pad in 0..(other.len() - byte_len * nibble_ops::NIBBLE_PER_BYTE) {
+			let self_nibble = nibble_ops::at_left(pad as u8, self.inner[byte_len]);
+			let other_nibble = nibble_ops::at_left(pad as u8, other.inner[byte_len]);
+			if self_nibble != other_nibble {
+				return false;
+			}
+		}
+		true
+	}
 }
 
 impl<'a> From<NibbleSlice<'a>> for NibbleVec {

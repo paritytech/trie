@@ -23,9 +23,11 @@ use super::{DBValue, node::NodeKey};
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use nibble::{NibbleVec, NibbleSlice, nibble_ops};
 use elastic_array::ElasticArray36;
+use ::core_::convert::TryFrom;
 use ::core_::mem;
 use ::core_::ops::Index;
 use ::core_::hash::Hash;
+use ::core_::result;
 
 #[cfg(feature = "std")]
 use ::std::collections::{HashSet, VecDeque};
@@ -282,9 +284,37 @@ enum Stored<H> {
 }
 
 /// Used to build a collection of child nodes from a collection of `NodeHandle`s
+#[derive(Clone, Copy)]
 pub enum ChildReference<HO> { // `HO` is e.g. `H256`, i.e. the output of a `Hasher`
 	Hash(HO),
 	Inline(HO, usize), // usize is the length of the node data we store in the `H::Out`
+}
+
+impl<'a, HO> TryFrom<EncodedNodeHandle<'a>> for ChildReference<HO>
+	where HO: AsRef<[u8]> + AsMut<[u8]> + Default + Clone + Copy
+{
+	type Error = Vec<u8>;
+
+	fn try_from(handle: EncodedNodeHandle<'a>) -> result::Result<Self, Vec<u8>> {
+		match handle {
+			EncodedNodeHandle::Hash(data) => {
+				let mut hash = HO::default();
+				if data.len() != hash.as_ref().len() {
+					return Err(data.to_vec());
+				}
+				hash.as_mut().copy_from_slice(data);
+				Ok(ChildReference::Hash(hash))
+			}
+			EncodedNodeHandle::Inline(data) => {
+				let mut hash = HO::default();
+				if data.len() > hash.as_ref().len() {
+					return Err(data.to_vec());
+				}
+				&mut hash.as_mut()[..data.len()].copy_from_slice(data);
+				Ok(ChildReference::Inline(hash, data.len()))
+			}
+		}
+	}
 }
 
 /// Compact and cache-friendly storage for Trie nodes.
