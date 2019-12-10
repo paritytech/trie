@@ -349,6 +349,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 
 	let mut k: Option<K> = None;
 
+	let mut limit_common = usize::max_value();
 	for (next_k, v) in elements.into_iter() {
 		if let Some(previous_key) = k {
 			let mut target_common_depth = nibble_ops::biggest_depth(
@@ -356,6 +357,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 				next_k.as_ref(),
 			);
 			target_common_depth = min(current.depth, target_common_depth);
+			target_common_depth = min(limit_common, target_common_depth);
 		
 			while target_common_depth < current.depth_prefix {
 				// go up
@@ -405,6 +407,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 			loop {
 				let slice_dest = NibbleSlice::new_offset(k.as_ref(), current.depth_prefix);
 			
+				limit_common = usize::max_value();
 				let target_common_depth = current.node.partial()
 					.map(|p| current.depth_prefix + p.common_prefix(&slice_dest))
 					.unwrap_or(current.depth_prefix);
@@ -485,6 +488,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 						if let Some(new) = descend_terminal(&mut current, k, v.as_ref(), dest_depth, callback) {
 							stack.push(current);
 							current = new;
+							limit_common = target_common_depth;
 						};
 					}
 					// go next key
