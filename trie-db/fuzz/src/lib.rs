@@ -213,10 +213,12 @@ println!("{:?}", data);
 		Default::default(),
 		initial_root.clone(),
 	);
-//	println!("{}", sorted_data.len());
+	println!("{}", sorted_data.len());
 	reference_trie::trie_traverse_key_no_extension_build(
 		&mut initial_db,
 		&initial_root, sorted_data.into_iter(), &mut batch_update);
+	println!("{:?}", batch_update.1);
+	println!("{:?}", root);
 	assert!(batch_update.1 == root);
 }
 

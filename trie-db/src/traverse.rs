@@ -274,7 +274,7 @@ fn descend_terminal<T, K, V, S, B, F>(
 		F: ProcessStack<B, T, K, V, S>,
 {
 	let slice_dest = NibbleSlice::new_offset(key.as_ref(), item.depth_prefix);
-	// TODO optimize common_prefix function ??
+	// TODO optimize common_prefix function ?? totally since needed in loop
 	let target_common_depth = item.node.partial()
 		.map(|p| item.depth_prefix + p.common_prefix(&slice_dest))
 		.unwrap_or(item.depth);
@@ -399,12 +399,22 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 		if let Some(k) = k.as_ref() {
 			let dest = NibbleFullKey::new(k.as_ref());
 			let dest_depth = k.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
-
+			
 			loop {
-				let (child, parent_index) = if dest_depth > current.depth {
-					let next_index = dest.at(current.depth);
-					(current.node.child(next_index), next_index)
+				let slice_dest = NibbleSlice::new_offset(k.as_ref(), current.depth_prefix);
+			
+				let target_common_depth = current.node.partial()
+					.map(|p| current.depth_prefix + p.common_prefix(&slice_dest))
+					.unwrap_or(current.depth_prefix);
+				let (child, parent_index) = if target_common_depth == current.depth {
+					if dest_depth > current.depth {
+						let next_index = dest.at(current.depth);
+						(current.node.child(next_index), next_index)
+					} else {
+						(None, 0)
+					}
 				} else {
+					// TODO here we could use this common depth to avoid double calc in descend!!
 					(None, 0)
 				};
 				if dest_depth > current.depth && child.is_some() {
@@ -453,11 +463,28 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 							current = prev;
 						}
 					}
-					// terminal case
-					if let Some(new) = descend_terminal(&mut current, k, v.as_ref(), dest_depth, callback) {
-						stack.push(current);
-						current = new;
-					};
+					if current.node.is_empty() {
+						// corner case of empty trie
+						if let Some(v) = v.as_ref() {
+							let leaf = Node::new_leaf(
+								NibbleSlice::new_offset(k.as_ref(), current.depth_prefix),
+								v.as_ref(),
+							);
+							current = StackedItem {
+								node: StackedNode::Changed(leaf, Default::default()),
+								hash: current.hash,
+								depth_prefix: current.depth_prefix,
+								depth: k.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE - current.depth_prefix,
+								parent_index: current.parent_index,
+							}
+						}
+					} else {
+						// terminal case
+						if let Some(new) = descend_terminal(&mut current, k, v.as_ref(), dest_depth, callback) {
+							stack.push(current);
+							current = new;
+						};
+					}
 					// go next key
 					break;
 				}
@@ -747,7 +774,7 @@ mod tests {
 			&mut batch_update,
 		);
 		
-//		assert_eq!(batch_update.1, reference_root);
+		assert_eq!(batch_update.1, reference_root);
 
 		let mut batch_delta = initial_db;
 
@@ -825,12 +852,15 @@ mod tests {
 	fn dummy3() {
 		compare_with_triedbmut(
 			&[
-				(vec![0x00u8], vec![0x00u8, 0]),
+				//(vec![0x00u8], vec![0x00u8, 0]),
+				(vec![0x00u8], vec![4u8, 32]),
 			],
 			&[
-				(vec![0x00u8], Some(vec![0x00u8, 0])),
-				(vec![0x04u8], Some(vec![0x01u8, 0x24])),
-				(vec![0x32u8], Some(vec![0x01u8, 0x24])),
+//				(vec![0x00u8], Some(vec![0x00u8, 0])),
+				(vec![0x04u8], Some(vec![32u8, 26])),
+				(vec![0x20u8], Some(vec![26u8, 0])),
+				//(vec![0x04u8], Some(vec![0x01u8, 0x24])),
+				//(vec![0x32u8], Some(vec![0x01u8, 0x24])),
 			],
 		);
 	}
