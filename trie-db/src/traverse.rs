@@ -353,10 +353,9 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 	for (next_k, v) in elements.into_iter() {
 		if let Some(previous_key) = k {
 			let mut target_common_depth = nibble_ops::biggest_depth(
-				&previous_key.as_ref()[..current.depth / nibble_ops::NIBBLE_PER_BYTE],
+				previous_key.as_ref(),
 				next_k.as_ref(),
 			);
-			target_common_depth = min(current.depth, target_common_depth);
 			target_common_depth = min(limit_common, target_common_depth);
 		
 			while target_common_depth < current.depth_prefix {
@@ -862,16 +861,15 @@ mod tests {
 		compare_with_triedbmut(
 			&[
 				//(vec![0x00u8], vec![0x00u8, 0]),
-				(vec![0x00u8], vec![4u8, 248]),
+				(vec![254u8], vec![4u8, 248]),
+//				(vec![0u8], vec![4u8, 248]),
+				(vec![255u8], vec![4u8, 248]),
 			],
 			&[
-				(vec![0xfeu8], Some(vec![248u8, 0])),
-				(vec![0xffu8], Some(vec![0u8, 0])),
+//				(vec![255u8], Some(vec![248u8, 0])),
+//				(vec![209u8], Some(vec![0u8, 0])),
+				(vec![254u8], None),
 //				(vec![0x00u8], Some(vec![0x00u8, 0])),
-//				(vec![0x04u8], Some(vec![32u8, 26])),
-//				(vec![0x20u8], Some(vec![26u8, 0])),
-				//(vec![0x04u8], Some(vec![0x01u8, 0x24])),
-				//(vec![0x32u8], Some(vec![0x01u8, 0x24])),
 			],
 		);
 	}

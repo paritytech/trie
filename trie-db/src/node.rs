@@ -426,6 +426,9 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 					if handle.is_none() {
 						children[index] = None;
 					}
+					// TODO also if del && value.is_none && children .count some
+					// is one -> then fuse a leaf with value of children and partial
+					// fusing branch and child. -> need a special return
 					if del && !children.iter().any(Option::is_some) {
 						if let Some(value) = value {
 							Some(Some(TNode::Leaf(
