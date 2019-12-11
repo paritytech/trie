@@ -215,6 +215,11 @@ impl<'a> NibbleSlice<'a> {
 		})
 	}
 
+	/// Return nibble as a tuple representation.
+	pub fn right_ref(self) -> (usize, &'a [u8]) {
+		(self.offset, self.data)
+	}
+
 	/// Return left portion of `NibbleSlice`, if the slice
 	/// originates from a full key it will be the `Prefix of
 	/// the node`.

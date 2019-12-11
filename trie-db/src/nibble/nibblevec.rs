@@ -35,6 +35,15 @@ impl NibbleVec {
 		}
 	}
 
+	/// Make a new `NibbleVec`.
+	pub fn from(d: &[u8], l: usize) -> Self {
+		let mut v = Self::default();
+		(0..d.len()).for_each(|i| v.inner.push(d[i]));
+		v.len = l;
+		v
+	}
+
+
 	/// Length of the `NibbleVec`.
 	#[inline(always)]
 	pub fn len(&self) -> usize { self.len }

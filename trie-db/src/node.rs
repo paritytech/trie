@@ -245,6 +245,21 @@ impl<D: Borrow<[u8]>> OwnedNode<D> {
 		}
 	}
 
+	/// Get value part of the node (partial) if any.
+	pub fn value(&self) -> Option<super::DBValue> {
+		let data = &self.data.borrow();
+		match &self.plan {
+			NodePlan::Branch { .. }
+			| NodePlan::Extension { .. }
+			| NodePlan::Empty => None,
+			NodePlan::Leaf { value, .. }
+				=> Some(data[value.clone()].into()),
+			| NodePlan::NibbledBranch { value, .. }
+				=> value.as_ref().map(|v| data[v.clone()].into()),
+		}
+	}
+
+
 	/// Try to access child.
 	pub fn child(&self, ix: u8) -> Option<NodeHandle> {
 		match &self.plan {
@@ -383,11 +398,9 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 	}
 
 	/// Set a handle to a child node or remove it if handle is none.
-	/// Return possibly updated or removed node, and index of node to
-	/// fuse with in case after removal of handle a branch with a single
-	/// child and no value remain.
+	/// Return possibly updated node.
 	pub fn set_handle<H: AsMut<[u8]> + Default>(&mut self, handle: Option<TNodeHandle<H, Vec<u8>>>, index: u8)
-		-> (Option<Option<TNode<H, Vec<u8>>>>, Option<u8>) {
+		-> Option<TNode<H, Vec<u8>>> {
 
 		let index = index as usize;
 		let data = &self.data.borrow();
@@ -405,98 +418,43 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 					]);
 					child_slices[index] = handle;
 
-					(Some(Some(TNode::NibbledBranch(
+					Some(TNode::NibbledBranch(
 						partial.build(data).into(),
 						child_slices,
 						Some(data[value.clone()].into())),
-					)), None)
+					)
 				} else {
-					(None, None)
+					None
 				}
 			},
 			NodePlan::NibbledBranch { partial, value, children } => {
 				if handle.is_none() && children[index].is_none() {
-					(None, None)
+					None
 				} else {
-					let del = handle.is_none() && children[index].is_some();
 					let value = if let Some(value) = value.clone() {
 						Some(data[value.clone()].into())
 					} else {
 						None
 					};
-
-					if handle.is_none() {
-						children[index] = None;
+					let mut child_slices = Box::new([
+						None, None, None, None,
+						None, None, None, None,
+						None, None, None, None,
+						None, None, None, None,
+					]);
+					for i in 0..nibble_ops::NIBBLE_LENGTH {
+						child_slices[i] = children[i].as_ref().map(|child| child.build_thandle(data));
 					}
 
-					if del {
-						let mut count = 0;
-						for c in children.iter() {
-							if c.is_some() {
-								count += 1;
-							}
-							if count > 1 {
-								break;
-							}
-						}
-						debug_assert!(!(count == 0 && value.is_none()));
-						if value.is_some() && count == 0 {
-							// transform to leaf
-							(Some(Some(TNode::Leaf(
-								partial.build(data).into(),
-								value.expect("Tested above"),
-							))), None)
-						} else if value.is_none() && count == 1 {
-							let child_ix = children.iter().position(Option::is_some)
-								.expect("counted above");
-							let mut child_slices = Box::new([
-								None, None, None, None,
-								None, None, None, None,
-								None, None, None, None,
-								None, None, None, None,
-							]);
-							child_slices[child_ix] = children[child_ix].as_ref()
-								.map(|child| child.build_thandle(data));
-							(Some(Some(TNode::NibbledBranch(
-								partial.build(data).into(),
-								child_slices,
-								value,
-							))), Some(child_ix as u8))
-						} else {
-							let mut child_slices = Box::new([
-								None, None, None, None,
-								None, None, None, None,
-								None, None, None, None,
-								None, None, None, None,
-							]);
-							for i in 0..nibble_ops::NIBBLE_LENGTH {
-								child_slices[i] = children[i].as_ref().map(|child| child.build_thandle(data));
-							}
-							(Some(Some(TNode::NibbledBranch(
-								partial.build(data).into(),
-								child_slices,
-								value,
-							))), None)
-						}
-					} else {
-						let mut child_slices = Box::new([
-							None, None, None, None,
-							None, None, None, None,
-							None, None, None, None,
-							None, None, None, None,
-						]);
-						for i in 0..nibble_ops::NIBBLE_LENGTH {
-							child_slices[i] = children[i].as_ref().map(|child| child.build_thandle(data));
-						}
-						child_slices[index] = handle;
-						(Some(Some(TNode::NibbledBranch(
-							partial.build(data).into(),
-							child_slices,
-							value,
-						))), None)
-					}
+					child_slices[index] = handle;
+
+					Some(TNode::NibbledBranch(
+						partial.build(data).into(),
+						child_slices,
+						value,
+					))
 				}
-			}
+			},
 		}
 	}
 

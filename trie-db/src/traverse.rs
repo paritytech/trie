@@ -177,38 +177,46 @@ impl<B, T, S> StackedNode<B, T, S>
 	}
 
 	/// Set a handle to a child node or remove it if handle is none.
-	/// Returns index of node to fuse with in case after removal of handle
-	/// a branch with a single child and no value remain.
-	pub fn set_handle(&mut self, handle: Option<OwnedNodeHandle<TrieHash<T>>>, index: u8) -> Option<u8> {
+	pub fn set_handle(&mut self, handle: Option<OwnedNodeHandle<TrieHash<T>>>, index: u8) {
 		match self {
 			StackedNode::Unchanged(node, state) => {
-				let (change, fuse) = node.set_handle(handle, index);
+				let change = node.set_handle(handle, index);
 				match change {
-					Some(Some(new)) =>
+					Some(new) =>
 						*self = StackedNode::Changed(new, state.clone()),
-					Some(None) =>
-						*self = StackedNode::Deleted(state.clone()),
 					None => (),
 				}
-				fuse
 			},
 			StackedNode::Changed(node, state) => {
-				let (deleted, fuse) = node.set_handle(handle, index);
-				if deleted {
-					*self = StackedNode::Deleted(state.clone());
-				}
-				fuse
+				node.set_handle(handle, index);
 			},
 			StackedNode::Deleted(..) => unreachable!(),
 		}
 	}
 
-	/// Fuse changed node that need to be reduce to a child node
-	pub fn fuse_child(&mut self, child: OwnedNode<B>, child_ix: u8) {
+	/// Returns index of node to fuse with in case after removal of handle
+	/// a branch with a single child and no value remain.
+	pub fn fix_node(&mut self) -> Option<u8> {
+		match self {
+			StackedNode::Deleted(..)
+			| StackedNode::Unchanged(..) => None,
+			StackedNode::Changed(node, state) => {
+				let (deleted, fuse) = node.fix_node();
+				if deleted {
+					*self = StackedNode::Deleted(state.clone());
+				}
+				fuse
+			},
+		}
+	}
+
+	/// Fuse changed node that need to be reduce to a child node,
+	/// returns additional length to prefix.
+	pub fn fuse_child(&mut self, child: OwnedNode<B>, child_ix: u8) -> usize {
 		match self {
 			StackedNode::Unchanged(node, state) => unreachable!(),
 			StackedNode::Changed(node, state) => {
-				unimplemented!()
+				node.fuse_child(child, child_ix)
 			},
 			StackedNode::Deleted(..) => unreachable!(),
 		}
@@ -380,6 +388,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 				// go up
 				if let Some(mut last) = stack.pop() {
 					if !last.node.is_empty() {
+						align_node(db, callback, &mut current, previous_key.as_ref())?;
 						if let Some(handle) = callback.exit(
 							NibbleSlice::new_offset(previous_key.as_ref(), current.depth_prefix),
 							current.node, current.hash.as_ref(),
@@ -410,6 +419,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 						current = last;
 					}
 				} else {
+					align_node(db, callback, &mut current, previous_key.as_ref())?;
 					callback.exit_root(NibbleSlice::new(&[]), current.node, current.hash.as_ref());
 					return Ok(());
 				}
@@ -519,6 +529,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 		// go up
 		while let Some(mut last) = stack.pop() {
 			if !last.node.is_empty() {
+				align_node(db, callback, &mut current, previous_key.as_ref())?;
 				if let Some(handle) = callback.exit(
 					NibbleSlice::new_offset(previous_key.as_ref(), current.depth_prefix),
 					current.node, current.hash.as_ref(),
@@ -543,44 +554,69 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 							continue;
 						}
 					} else {
-						if let Some(fuse_index) = last.node.set_handle(handle, current.parent_index) {
-							let (child, hash) = match last.node.child(fuse_index) {
-								Some(NodeHandle::Hash(handle_hash)) => {
-									let mut hash = <TrieHash<T> as Default>::default();
-									hash.as_mut()[..].copy_from_slice(handle_hash.as_ref());
-									(fetch::<T, B>(
-										db, &hash,
-										NibbleSlice::new_offset(previous_key.as_ref(), last.depth).left(),
-									)?, Some(hash))
-								},
-								Some(NodeHandle::Inline(node_encoded)) => {
-									(OwnedNode::new::<T::Codec>(B::from(node_encoded))
-										.map_err(|e| Box::new(TrieError::DecoderError(
-											last.hash.clone().unwrap_or_else(Default::default),
-											e,
-										)))?, None)
-								},
-								None => unreachable!("correct index used"),
-							};
-							// register delete
-							callback.exit(
-								NibbleSlice::new_offset(previous_key.as_ref(), last.depth),
-								StackedNode::Deleted(Default::default()),
-								hash.as_ref(),
-							).expect("No new node on deleted allowed");
-							last.node.fuse_child(child, fuse_index);
-						}
+						last.node.set_handle(handle, current.parent_index);
 					}
 				}
 				current = last;
 			}
 		}
+		align_node(db, callback, &mut current, previous_key.as_ref())?;
 		callback.exit_root(NibbleSlice::new(&[]), current.node, current.hash.as_ref());
 		return Ok(());
 	}
 
 	Ok(())
 }
+
+fn align_node<'a, T, K, V, S, B, F>(
+	db: &'a mut dyn HashDB<T::Hash, B>,
+	callback: &mut F,
+	branch: &mut StackedItem<B, T, S>,
+	key: &[u8],
+) -> Result<(), TrieHash<T>, CError<T>>
+	where
+		T: TrieLayout,
+		K: AsRef<[u8]> + Ord,
+		V: AsRef<[u8]>,
+		S: Default + Clone,
+		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
+		F: ProcessStack<B, T, K, V, S>,
+{
+	if let Some(fuse_index) = branch.node.fix_node() {
+		let (child, hash) = match branch.node.child(fuse_index) {
+			Some(NodeHandle::Hash(handle_hash)) => {
+				let mut hash = <TrieHash<T> as Default>::default();
+				hash.as_mut()[..].copy_from_slice(handle_hash.as_ref());
+				// TODO conversion to NibbleVec is slow
+				let mut prefix: NibbleVec = NibbleVec::from(key, branch.depth);
+				prefix.push(fuse_index);
+				(fetch::<T, B>(
+					db,
+					&hash,
+					prefix.as_prefix(),
+				)?, Some(hash))
+			},
+			Some(NodeHandle::Inline(node_encoded)) => {
+				(OwnedNode::new::<T::Codec>(B::from(node_encoded))
+					.map_err(|e| Box::new(TrieError::DecoderError(
+						branch.hash.clone().unwrap_or_else(Default::default),
+						e,
+				)))?, None)
+			},
+			None => unreachable!("correct index used"),
+		};
+		// register delete
+		callback.exit(
+			NibbleSlice::new_offset(key, branch.depth),
+			StackedNode::Deleted(Default::default()),
+			hash.as_ref(),
+		).expect("No new node on deleted allowed");
+		branch.depth += branch.node.fuse_child(child, fuse_index);
+	}
+
+	Ok(())
+}
+
 
 /// Fetch a node by hash, do not cache it.
 fn fetch<T: TrieLayout, B: Borrow<[u8]>>(
@@ -904,16 +940,12 @@ mod tests {
 	fn dummy3() {
 		compare_with_triedbmut(
 			&[
-				//(vec![0x00u8], vec![0x00u8, 0]),
-				(vec![254u8], vec![4u8, 248]),
-//				(vec![0u8], vec![4u8, 248]),
-				(vec![255u8], vec![4u8, 248]),
+				(vec![2, 254u8], vec![4u8; 33]),
+				(vec![1, 254u8], vec![4u8; 33]),
+				(vec![1, 255u8], vec![5u8; 36]),
 			],
 			&[
-//				(vec![255u8], Some(vec![248u8, 0])),
-//				(vec![209u8], Some(vec![0u8, 0])),
-				(vec![254u8], None),
-//				(vec![0x00u8], Some(vec![0x00u8, 0])),
+				(vec![1, 254u8], None),
 			],
 		);
 	}

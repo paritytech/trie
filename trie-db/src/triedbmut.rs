@@ -20,9 +20,11 @@ use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_h
 use node_codec::NodeCodec;
 use super::{DBValue, node::NodeKey};
 
+use crate::node::OwnedNode;
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use nibble::{NibbleVec, NibbleSlice, nibble_ops};
 use elastic_array::ElasticArray36;
+use ::core_::borrow::Borrow;
 use ::core_::mem;
 use ::core_::ops::Index;
 use ::core_::hash::Hash;
@@ -202,19 +204,16 @@ impl<H, SH> Node<H, SH> {
 		}
 	}
 
-	/// Return true if the node can be removed,
-	/// and index of node to fuse with in case after removal of handle
-	/// a branch with a single child and no value remain.
 	/// This is only for no extension trie (a variant would be
 	/// needed for trie with extension).
 	pub fn set_handle(
 		&mut self,
 		handle: Option<NodeHandle<H, SH>>,
 		index: u8,
-	) -> (bool, Option<u8>) {
+	)  {
 		let index = index as usize;
 		let node = mem::replace(self, Node::Empty); 
-		let (node, fuse) = match node {
+		*self = match node {
 			Node::Extension(..)
 			| Node::Branch(..) => unreachable!("Only for no extension trie"),
 			// need to replace value before creating handle
@@ -222,42 +221,15 @@ impl<H, SH> Node<H, SH> {
 			// (may be unreachable since changing to empty means
 			// we end the root process)
 			Node::Empty => unreachable!(),
-			Node::NibbledBranch(partial, mut encoded_children, val) => {
-				if handle.is_none() && encoded_children[index].is_none() {
-					// unchanged
-					(Node::NibbledBranch(partial, encoded_children, val), None)
-				} else {
-					let del = handle.is_none() && encoded_children[index].is_some();
-					encoded_children[index] = handle;
-					if del {
-						let mut count = 0;
-						for c in encoded_children.iter() {
-							if c.is_some() {
-								count += 1;
-							}
-							if count > 1 {
-								break;
-							}
-						}
-
-						debug_assert!(!(count == 0 && val.is_none()));
-						if val.is_some() && count == 0 {
-							// transform to leaf
-							(Node::Leaf(partial, val.expect("Test in above condition")), None)
-						} else if val.is_none() && count == 1 {
-							let child_ix = encoded_children.iter().position(Option::is_some)
-								.expect("counted above");
-							(Node::NibbledBranch(partial, encoded_children, val), Some(child_ix as u8))
-						} else {
-							(Node::NibbledBranch(partial, encoded_children, val), None)
-						}
-					} else {
-						(Node::NibbledBranch(partial, encoded_children, val), None)
-					}
-				}
+			Node::NibbledBranch(partial, encoded_children, val)
+				if handle.is_none() && encoded_children[index].is_none() => {
+				Node::NibbledBranch(partial, encoded_children, val)
 			},
-			Node::Leaf(partial, val) => {
-				if handle.is_some() {
+			Node::NibbledBranch(partial, mut encoded_children, val) => {
+				encoded_children[index] = handle;
+				Node::NibbledBranch(partial, encoded_children, val)
+			},
+			Node::Leaf(partial, val) if handle.is_some() => {
 					let mut children = Box::new([
 						None, None, None, None,
 						None, None, None, None,
@@ -266,9 +238,54 @@ impl<H, SH> Node<H, SH> {
 					]);
 					children[index] = handle;
 
-					(Node::NibbledBranch(partial, children, Some(val)), None)
+					Node::NibbledBranch(partial, children, Some(val))
+			},
+			n@Node::Leaf(..) => {
+				n
+			},
+		};
+	}
+
+	/// Branch in invalid state should only be updated before write
+	/// to avoid multiple change of state.
+	/// Return true if the node can be removed,
+	/// and index of node to fuse with in case after removal of handle
+	/// a branch with a single child and no value remain.
+	/// This is only for no extension trie (a variant would be
+	/// needed for trie with extension).
+	pub fn fix_node(
+		&mut self,
+	) -> (bool, Option<u8>) {
+		let node = mem::replace(self, Node::Empty); 
+		let (node, fuse) = match node {
+			Node::Extension(..)
+			| Node::Branch(..) => unreachable!("Only for no extension trie"),
+			// need to replace value before creating handle
+			// so it is a corner case TODO test case it
+			// (may be unreachable since changing to empty means
+			// we end the root process)
+			n@Node::Empty
+			| n@Node::Leaf(..) => (n, None),
+			Node::NibbledBranch(partial, encoded_children, val) => {
+				let mut count = 0;
+				for c in encoded_children.iter() {
+					if c.is_some() {
+						count += 1;
+					}
+					if count > 1 {
+						break;
+					}
+				}
+				if val.is_some() && count == 0 {
+					(Node::Leaf(partial, val.expect("Tested above")), None)
+				} else if val.is_none() && count == 0 {
+					(Node::Empty, None)
+				} else if val.is_none() && count == 1 {
+					let child_ix = encoded_children.iter().position(Option::is_some)
+						.expect("counted above");
+					(Node::NibbledBranch(partial, encoded_children, val), Some(child_ix as u8))
 				} else {
-					(Node::Leaf(partial, val), None)
+					(Node::NibbledBranch(partial, encoded_children, val), None)
 				}
 			},
 		};
@@ -278,6 +295,34 @@ impl<H, SH> Node<H, SH> {
 		} else {
 			false
 		}, fuse)
+	}
+
+	/// Fuse changed node that need to be reduce to a child node,
+	/// return additional length to prefix.
+	pub fn fuse_child<B: Borrow<[u8]>>(&mut self, child: OwnedNode<B>, child_ix: u8) -> usize {
+		let node = mem::replace(self, Node::Empty); 
+		let (node, result) = match node {
+			Node::Extension(..)
+			| Node::Branch(..) => unreachable!("Only for no extension trie"),
+			// need to replace value before creating handle
+			// so it is a corner case TODO test case it
+			// (may be unreachable since changing to empty means
+			// we end the root process)
+			n@Node::Empty
+			| n@Node::Leaf(..) => unreachable!("method only for nodes resulting from fix node"),
+			Node::NibbledBranch(mut partial, _children, _val) => {
+				// TODO could use owned nibble slice or optimize this
+				combine_key(&mut partial, (nibble_ops::NIBBLE_PER_BYTE - 1, &[child_ix][..]));
+				let child_partial = child.partial();
+				let result = child_partial.as_ref().map(|p| p.len()).unwrap_or(0) + 1;
+				combine_key(&mut partial, child_partial
+					.map(|n| n.right_ref()).unwrap_or((0,&[])));
+		
+				(Node::Leaf(partial, child.value().expect("fuse child is resulting from fix node which check that")), result)
+			}
+		};
+		*self = node;
+		result
 	}
 
 	/// Set handle to a mid branch, changing self element to this
