@@ -949,6 +949,22 @@ mod tests {
 			],
 		);
 	}
-
+//	(false, [255], [255, 0]), (false, [255], [0, 0]), (false, [0], [0, 4]), (false, [0], [4, 141]), (false, [4], [141, 135]), (true, [255], [255, 0])
+	#[test]
+	fn dummy4() {
+		compare_with_triedbmut(
+			&[
+				(vec![255u8], vec![255, 0]),
+//				(vec![4u8], vec![0, 255]),
+				(vec![0u8], vec![255, 209]),
+				(vec![4u8], vec![0, 4]),
+			],
+			&[
+				(vec![255u8], None),
+//				(vec![209u8], Some(vec![0, 0])),
+//				(vec![255u8], Some(vec![209, 0])),
+			],
+		);
+	}
 
 }

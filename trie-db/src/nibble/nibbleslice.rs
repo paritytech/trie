@@ -249,7 +249,9 @@ impl<'a> NibbleSlice<'a> {
 
 impl<'a> Into<NodeKey> for NibbleSlice<'a> {
 	fn into(self) -> NodeKey {
-		(self.offset, self.data.into())
+		let new_offset = self.offset % nibble_ops::NIBBLE_PER_BYTE;
+		let start = self.offset / nibble_ops::NIBBLE_PER_BYTE;
+		(new_offset, self.data[start..].into())
 	}
 }
 
