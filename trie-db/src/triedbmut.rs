@@ -202,17 +202,19 @@ impl<H, SH> Node<H, SH> {
 		}
 	}
 
-	/// Return true if the node can be removed.
+	/// Return true if the node can be removed,
+	/// and index of node to fuse with in case after removal of handle
+	/// a branch with a single child and no value remain.
 	/// This is only for no extension trie (a variant would be
 	/// needed for trie with extension).
 	pub fn set_handle(
 		&mut self,
 		handle: Option<NodeHandle<H, SH>>,
 		index: u8,
-	) -> bool {
+	) -> (bool, Option<u8>) {
 		let index = index as usize;
 		let node = mem::replace(self, Node::Empty); 
-		let node = match node {
+		let (node, fuse) = match node {
 			Node::Extension(..)
 			| Node::Branch(..) => unreachable!("Only for no extension trie"),
 			// need to replace value before creating handle
@@ -222,19 +224,35 @@ impl<H, SH> Node<H, SH> {
 			Node::Empty => unreachable!(),
 			Node::NibbledBranch(partial, mut encoded_children, val) => {
 				if handle.is_none() && encoded_children[index].is_none() {
-					Node::NibbledBranch(partial, encoded_children, val)
+					// unchanged
+					(Node::NibbledBranch(partial, encoded_children, val), None)
 				} else {
 					let del = handle.is_none() && encoded_children[index].is_some();
 					encoded_children[index] = handle;
-					if del && !encoded_children.iter().any(Option::is_some) {
-						if let Some(val) = val {
+					if del {
+						let mut count = 0;
+						for c in encoded_children.iter() {
+							if c.is_some() {
+								count += 1;
+							}
+							if count > 1 {
+								break;
+							}
+						}
+
+						debug_assert!(!(count == 0 && val.is_none()));
+						if val.is_some() && count == 0 {
 							// transform to leaf
-							Node::Leaf(partial, val)
+							(Node::Leaf(partial, val.expect("Test in above condition")), None)
+						} else if val.is_none() && count == 1 {
+							let child_ix = encoded_children.iter().position(Option::is_some)
+								.expect("counted above");
+							(Node::NibbledBranch(partial, encoded_children, val), Some(child_ix as u8))
 						} else {
-							Node::Empty
+							(Node::NibbledBranch(partial, encoded_children, val), None)
 						}
 					} else {
-						Node::NibbledBranch(partial, encoded_children, val)
+						(Node::NibbledBranch(partial, encoded_children, val), None)
 					}
 				}
 			},
@@ -248,18 +266,18 @@ impl<H, SH> Node<H, SH> {
 					]);
 					children[index] = handle;
 
-					Node::NibbledBranch(partial, children, Some(val))
+					(Node::NibbledBranch(partial, children, Some(val)), None)
 				} else {
-					Node::Leaf(partial, val)
+					(Node::Leaf(partial, val), None)
 				}
 			},
 		};
 		*self = node;
-		if let Node::Empty = self {
+		(if let Node::Empty = self {
 			true
 		} else {
 			false
-		}
+		}, fuse)
 	}
 
 	/// Set handle to a mid branch, changing self element to this

@@ -177,25 +177,43 @@ impl<B, T, S> StackedNode<B, T, S>
 	}
 
 	/// Set a handle to a child node or remove it if handle is none.
-	pub fn set_handle(&mut self, handle: Option<OwnedNodeHandle<TrieHash<T>>>, index: u8) {
+	/// Returns index of node to fuse with in case after removal of handle
+	/// a branch with a single child and no value remain.
+	pub fn set_handle(&mut self, handle: Option<OwnedNodeHandle<TrieHash<T>>>, index: u8) -> Option<u8> {
 		match self {
 			StackedNode::Unchanged(node, state) => {
-				match node.set_handle(handle, index) {
+				let (change, fuse) = node.set_handle(handle, index);
+				match change {
 					Some(Some(new)) =>
 						*self = StackedNode::Changed(new, state.clone()),
 					Some(None) =>
 						*self = StackedNode::Deleted(state.clone()),
 					None => (),
 				}
+				fuse
 			},
 			StackedNode::Changed(node, state) => {
-				if node.set_handle(handle, index) {
+				let (deleted, fuse) = node.set_handle(handle, index);
+				if deleted {
 					*self = StackedNode::Deleted(state.clone());
 				}
+				fuse
 			},
 			StackedNode::Deleted(..) => unreachable!(),
 		}
 	}
+
+	/// Fuse changed node that need to be reduce to a child node
+	pub fn fuse_child(&mut self, child: OwnedNode<B>, child_ix: u8) {
+		match self {
+			StackedNode::Unchanged(node, state) => unreachable!(),
+			StackedNode::Changed(node, state) => {
+				unimplemented!()
+			},
+			StackedNode::Deleted(..) => unreachable!(),
+		}
+	}
+
 }
 
 impl<B, T, S> StackedNode<B, T, S>
@@ -525,7 +543,33 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 							continue;
 						}
 					} else {
-						last.node.set_handle(handle, current.parent_index);
+						if let Some(fuse_index) = last.node.set_handle(handle, current.parent_index) {
+							let (child, hash) = match last.node.child(fuse_index) {
+								Some(NodeHandle::Hash(handle_hash)) => {
+									let mut hash = <TrieHash<T> as Default>::default();
+									hash.as_mut()[..].copy_from_slice(handle_hash.as_ref());
+									(fetch::<T, B>(
+										db, &hash,
+										NibbleSlice::new_offset(previous_key.as_ref(), last.depth).left(),
+									)?, Some(hash))
+								},
+								Some(NodeHandle::Inline(node_encoded)) => {
+									(OwnedNode::new::<T::Codec>(B::from(node_encoded))
+										.map_err(|e| Box::new(TrieError::DecoderError(
+											last.hash.clone().unwrap_or_else(Default::default),
+											e,
+										)))?, None)
+								},
+								None => unreachable!("correct index used"),
+							};
+							// register delete
+							callback.exit(
+								NibbleSlice::new_offset(previous_key.as_ref(), last.depth),
+								StackedNode::Deleted(Default::default()),
+								hash.as_ref(),
+							).expect("No new node on deleted allowed");
+							last.node.fuse_child(child, fuse_index);
+						}
 					}
 				}
 				current = last;
