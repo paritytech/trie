@@ -278,7 +278,7 @@ pub trait ProcessStack<B, T, K, V, S>
 	/// This is only needed if changes are made by process stack.
 	/// Access to this method means that the node need to be remove or invalidate (this is handled
 	/// by this method (no call to exit on it)).
-	fn fuse_latest_changed(&mut self, prefix: NibbleSlice, hash: &TrieHash<T>) -> Option<&[u8]>;
+	fn fuse_latest_changed(&mut self, prefix: Prefix, hash: &TrieHash<T>) -> Option<&[u8]>;
 }
 
 /// State when descending
@@ -602,11 +602,14 @@ fn align_node<'a, T, K, V, S, B, F>(
 			Some(NodeHandle::Hash(handle_hash)) => {
 				let mut hash = <TrieHash<T> as Default>::default();
 				hash.as_mut()[..].copy_from_slice(handle_hash.as_ref());
+				// TODO conversion to NibbleVec is slow
+				let mut prefix: NibbleVec = NibbleVec::from(key, branch.depth);
+				prefix.push(fuse_index);
+				let prefix = prefix.as_prefix();
 				if let Some(node_encoded) = callback.fuse_latest_changed(
-					NibbleSlice::new_offset(key, branch.depth + 1),
+					prefix,
 					&hash,
 				) {
-					println!("LL");
 					// costy encode decode round trip, but this is a corner case.
 					(OwnedNode::new::<T::Codec>(B::from(node_encoded))
 						.map_err(|e| Box::new(TrieError::DecoderError(
@@ -614,13 +617,10 @@ fn align_node<'a, T, K, V, S, B, F>(
 							e,
 					)))?, None)
 				} else {
-					// TODO conversion to NibbleVec is slow
-					let mut prefix: NibbleVec = NibbleVec::from(key, branch.depth);
-					prefix.push(fuse_index);
 					(fetch::<T, B>(
 						db,
 						&hash,
-						prefix.as_prefix(),
+						prefix,
 					)?, Some(hash))
 				}
 			},
@@ -822,12 +822,12 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 		}
 	}
 
-	fn fuse_latest_changed(&mut self, prefix: NibbleSlice, hash: &TrieHash<T>) -> Option<&[u8]> {
+	fn fuse_latest_changed(&mut self, prefix: Prefix, hash: &TrieHash<T>) -> Option<&[u8]> {
 		// consume anyway.
 		let last = self.2.take();
 		if let Some(latest) = last {
 			let stored_slice = (&(self.0[latest].0).0[..], (self.0[latest].0).1);
-			if hash == &self.0[latest].1 && prefix.left() == stored_slice {
+			if hash == &self.0[latest].1 && prefix == stored_slice {
 				self.0[latest].3 = false;
 				self.0[latest].2.as_ref().map(|s| &s[..])
 			} else {
@@ -1012,20 +1012,21 @@ mod tests {
 			&[
 //				(vec![212u8], vec![255, 209]),
 				(vec![0u8], vec![1; 32]),
-//				(vec![1u8], vec![0, 4]),
+				(vec![1u8], vec![0, 4]),
 				(vec![212u8], vec![2; 32]),
-/*				(vec![212u8], vec![0, 4]),
+				(vec![212u8], vec![0, 4]),
 				(vec![13u8], vec![0, 4]),
 				(vec![2u8], vec![0, 4]),
 				(vec![9u8], vec![0, 4]),
-				(vec![8u8], vec![1, 2]),*/
+				(vec![8u8], vec![1, 2]),
 			],
 			&[
 //				(vec![0u8], Some(vec![1, 2])),
-//				(vec![1u8], Some(vec![1, 2])),
-//				(vec![8u8], Some(vec![1, 2])),
-				(vec![0u8], None),
-				(vec![212u8], Some(vec![3; 32])),
+				(vec![0u8], Some(vec![0,8])),
+				(vec![1u8], Some(vec![1, 2])),
+				(vec![8u8], Some(vec![1, 2])),
+				(vec![12u8], None),
+				(vec![212u8], None),
 //				(vec![154u8], Some(vec![209, 0])),
 			],
 		);
