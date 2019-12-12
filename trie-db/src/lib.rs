@@ -19,6 +19,7 @@
 extern crate alloc;
 
 extern crate elastic_array;
+extern crate smallvec;
 extern crate hash_db;
 extern crate rand;
 #[macro_use]
@@ -106,7 +107,7 @@ pub use trie_codec::{decode_compact, encode_compact};
 #[cfg(feature = "std")]
 pub use iter_build::TrieRootPrint;
 
-pub type DBValue = elastic_array::ElasticArray128<u8>;
+pub type DBValue = smallvec::SmallVec<[u8; 128]>;
 
 /// Trie Errors.
 ///

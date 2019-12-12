@@ -521,7 +521,7 @@ mod test {
 			let key: &[u8]= &data[i].0;
 			let value: &[u8] = &data[i].1;
 			assert_eq!(k, key);
-			assert_eq!(v, value);
+			assert_eq!(v.as_ref(), value);
 		}
 		for (k, v) in data.into_iter() {
 			assert_eq!(&t.get(&k[..]).unwrap().unwrap()[..], &v[..]);
@@ -547,7 +547,7 @@ mod test {
 			let key: &[u8]= &data[i].0;
 			let value: &[u8] = &data[i].1;
 			assert_eq!(k, key);
-			assert_eq!(v, value);
+			assert_eq!(v.as_ref(), value);
 		}
 		for (k, v) in data.into_iter() {
 			assert_eq!(&t.get(&k[..]).unwrap().unwrap()[..], &v[..]);
