@@ -22,7 +22,7 @@ use super::{DBValue, node::NodeKey};
 
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use nibble::{NibbleVec, NibbleSlice, nibble_ops};
-use elastic_array::ElasticArray36;
+use smallvec::SmallVec;
 use ::core_::convert::TryFrom;
 use ::core_::mem;
 use ::core_::ops::Index;
@@ -406,7 +406,7 @@ where
 	db: &'a mut dyn HashDB<L::Hash, DBValue>,
 	root: &'a mut TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
-	death_row: HashSet<(TrieHash<L>, (ElasticArray36<u8>, Option<u8>))>,
+	death_row: HashSet<(TrieHash<L>, (SmallVec<[u8; 36]>, Option<u8>))>,
 	/// The number of hash operations this trie has performed.
 	/// Note that none are performed until changes are committed.
 	hash_count: usize,
@@ -1236,7 +1236,7 @@ where
 						let (start, alloc_start, prefix_end) = match key2.left() {
 							(start, None) => (start, None, Some(nibble_ops::push_at_left(0, a, 0))),
 							(start, Some(v)) => {
-								let mut so: ElasticArray36<u8> = start.into();
+								let mut so: SmallVec<[u8; 36]> = start.into();
 								so.push(nibble_ops::pad_left(v) | a);
 								(start, Some(so), None)
 							},
@@ -1310,7 +1310,7 @@ where
 				let (start, alloc_start, prefix_end) = match key2.left() {
 					(start, None) => (start, None, Some(nibble_ops::push_at_left(0, last, 0))),
 					(start, Some(v)) => {
-						let mut so: ElasticArray36<u8> = start.into();
+						let mut so: SmallVec<[u8; 36]> = start.into();
 						// Complete last byte with `last`.
 						so.push(nibble_ops::pad_left(v) | last);
 						(start, Some(so), None)
@@ -1601,7 +1601,7 @@ mod tests {
 	use memory_db::{MemoryDB, PrefixedKey};
 	use hash_db::{Hasher, HashDB};
 	use keccak_hasher::KeccakHasher;
-	use elastic_array::ElasticArray36;
+	use smallvec::SmallVec;
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, NodeCodec,
 		ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension};
 
@@ -2056,9 +2056,9 @@ mod tests {
 
 	#[test]
 	fn combine_test() {
-		let a: ElasticArray36<u8> = [0x12, 0x34][..].into();
+		let a: SmallVec<[u8; 36]> = [0x12, 0x34][..].into();
 		let b: &[u8] = [0x56, 0x78][..].into();
-		let test_comb = |a: (_, &ElasticArray36<_>), b, c| { 
+		let test_comb = |a: (_, &SmallVec<_>), b, c| {
 			let mut a = (a.0, a.1.clone());
 			super::combine_key(&mut a, b);
 			assert_eq!((a.0, &a.1[..]), c);

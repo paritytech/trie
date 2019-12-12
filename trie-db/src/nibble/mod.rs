@@ -16,7 +16,7 @@
 
 mod nibblevec;
 mod nibbleslice;
-use elastic_array::ElasticArray36;
+use smallvec::SmallVec;
 use crate::node::NodeKey;
 use core_::cmp;
 
@@ -152,7 +152,7 @@ pub mod nibble_ops {
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Clone, PartialEq, Eq)]
 pub struct NibbleVec {
-	inner: ElasticArray36<u8>,
+	inner: SmallVec<[u8; 36]>,
 	len: usize,
 }
 

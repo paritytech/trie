@@ -18,7 +18,6 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-extern crate elastic_array;
 extern crate smallvec;
 extern crate hash_db;
 extern crate rand;
