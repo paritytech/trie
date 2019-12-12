@@ -177,7 +177,7 @@ pub fn fuzz_that_no_extension_insert_remove(input: &[u8]) {
 pub fn fuzz_batch_update(input: &[u8]) {
 	let data = fuzz_to_data(input);
 	let data = fuzz_removal(data);
-println!("{}: {:?}", data.len(), data);
+//println!("{}: {:?}", data.len(), data);
 	let mut db = memory_db::MemoryDB::<_, PrefixedKey<_>, _>::default();
 	let mut root = Default::default();
 	{
@@ -215,7 +215,7 @@ println!("{}: {:?}", data.len(), data);
 		initial_root.clone(),
 		None,
 	);
-	println!("{:?}", sorted_data);
+//println!("{:?}", sorted_data);
 	reference_trie::trie_traverse_key_no_extension_build(
 		&mut initial_db,
 		&initial_root, sorted_data.into_iter(), &mut batch_update);
