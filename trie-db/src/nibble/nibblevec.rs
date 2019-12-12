@@ -38,7 +38,12 @@ impl NibbleVec {
 	/// Make a new `NibbleVec`.
 	pub fn from(d: &[u8], l: usize) -> Self {
 		let mut v = Self::default();
-		(0..d.len()).for_each(|i| v.inner.push(d[i]));
+		let ix = l / nibble_ops::NIBBLE_PER_BYTE;
+		let pad = l % nibble_ops::NIBBLE_PER_BYTE;
+		(0..ix).for_each(|i| v.inner.push(d[i]));
+		if pad == 1 {
+			v.inner.push(nibble_ops::pad_left(d[ix]));
+		}
 		v.len = l;
 		v
 	}

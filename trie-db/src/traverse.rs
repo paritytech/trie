@@ -270,6 +270,15 @@ pub trait ProcessStack<B, T, K, V, S>
 		-> Option<Option<OwnedNodeHandle<TrieHash<T>>>>;
 	/// Same as `exit` but for root (very last exit call).
 	fn exit_root(&mut self, prefix: NibbleSlice, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>);
+
+
+	/// Fetching a fuse latest, that is the latest changed value of a branch.
+	/// This is called once per level in case of removal/fusion of a branch with
+	/// a child
+	/// This is only needed if changes are made by process stack.
+	/// Access to this method means that the node need to be remove or invalidate (this is handled
+	/// by this method (no call to exit on it)).
+	fn fuse_latest_changed(&mut self, prefix: NibbleSlice, hash: &TrieHash<T>) -> Option<&[u8]>;
 }
 
 /// State when descending
@@ -491,7 +500,13 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 				} else {
 					// remove empties
 					while current.node.is_empty() && stack.len() > 0 {
-						if let Some(prev) = stack.pop() {
+						// TODO runing into this is not expected
+						if let Some(mut prev) = stack.pop() {
+							callback.exit(
+								NibbleSlice::new_offset(k.as_ref(), current.depth_prefix),
+								current.node, current.hash.as_ref(),
+							).expect("no new node on empty");
+							prev.node.set_handle(None, current.parent_index);
 							current = prev;
 						}
 					}
@@ -587,14 +602,27 @@ fn align_node<'a, T, K, V, S, B, F>(
 			Some(NodeHandle::Hash(handle_hash)) => {
 				let mut hash = <TrieHash<T> as Default>::default();
 				hash.as_mut()[..].copy_from_slice(handle_hash.as_ref());
-				// TODO conversion to NibbleVec is slow
-				let mut prefix: NibbleVec = NibbleVec::from(key, branch.depth);
-				prefix.push(fuse_index);
-				(fetch::<T, B>(
-					db,
+				if let Some(node_encoded) = callback.fuse_latest_changed(
+					NibbleSlice::new_offset(key, branch.depth + 1),
 					&hash,
-					prefix.as_prefix(),
-				)?, Some(hash))
+				) {
+					println!("LL");
+					// costy encode decode round trip, but this is a corner case.
+					(OwnedNode::new::<T::Codec>(B::from(node_encoded))
+						.map_err(|e| Box::new(TrieError::DecoderError(
+							branch.hash.clone().unwrap_or_else(Default::default),
+							e,
+					)))?, None)
+				} else {
+					// TODO conversion to NibbleVec is slow
+					let mut prefix: NibbleVec = NibbleVec::from(key, branch.depth);
+					prefix.push(fuse_index);
+					(fetch::<T, B>(
+						db,
+						&hash,
+						prefix.as_prefix(),
+					)?, Some(hash))
+				}
 			},
 			Some(NodeHandle::Inline(node_encoded)) => {
 				(OwnedNode::new::<T::Codec>(B::from(node_encoded))
@@ -634,7 +662,13 @@ fn fetch<T: TrieLayout, B: Borrow<[u8]>>(
 }
 
 /// Contains ordered node change for this iteration.
-pub struct BatchUpdate<H>(pub Vec<((ElasticArray36<u8>, Option<u8>), H, Option<Vec<u8>>)>, pub H);
+/// The resulting root hash.
+/// The latest changed node.
+pub struct BatchUpdate<H>(
+	pub Vec<((ElasticArray36<u8>, Option<u8>), H, Option<Vec<u8>>, bool)>,
+	pub H,
+	pub Option<usize>,
+);
 
 impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 	where
@@ -742,23 +776,29 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 	fn exit(&mut self, prefix: NibbleSlice, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>)
 		-> Option<Option<OwnedNodeHandle<TrieHash<T>>>> {
 		match stacked {
-			s@StackedNode::Changed(..) => Some(Some({
-				let encoded = s.into_encoded();
+			StackedNode::Changed(node, _) => Some(Some({
+				let encoded = node.into_encoded::<_, T::Codec, T::Hash>(
+					|child, o_slice, o_index| {
+						child.as_child_ref::<T::Hash>()
+					}
+				);
 				if encoded.len() < 32 {
 					OwnedNodeHandle::InMemory(encoded)
 				} else {
 					let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
+					// register latest change
+					self.2 = Some(self.0.len());
 					// costy clone (could get read from here)
-					self.0.push((prefix.left_owned(), hash.clone(), Some(encoded)));
+					self.0.push((prefix.left_owned(), hash.clone(), Some(encoded), true));
 					if let Some(h) = prev_hash {
-						self.0.push((prefix.left_owned(), h.clone(), None));
+						self.0.push((prefix.left_owned(), h.clone(), None, true));
 					}
 					OwnedNodeHandle::Hash(hash)
 				}
 			})),
 			StackedNode::Deleted(..) => {
 				if let Some(h) = prev_hash {
-					self.0.push((prefix.left_owned(), h.clone(), None));
+					self.0.push((prefix.left_owned(), h.clone(), None, true));
 				}
 				Some(None)
 			},
@@ -773,13 +813,27 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 				let encoded = s.into_encoded();
 				let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
 				self.1 = hash.clone();
-				self.0.push((prefix.left_owned(), hash, Some(encoded)));
+				self.0.push((prefix.left_owned(), hash, Some(encoded), true));
 				if let Some(h) = prev_hash {
-					self.0.push((prefix.left_owned(), h.clone(), None));
+					self.0.push((prefix.left_owned(), h.clone(), None, true));
 				}
 			},
 			_ => (),
 		}
+	}
+
+	fn fuse_latest_changed(&mut self, prefix: NibbleSlice, hash: &TrieHash<T>) -> Option<&[u8]> {
+		// consume anyway.
+		let last = self.2.take();
+		if let Some(latest) = last {
+			let stored_slice = (&(self.0[latest].0).0[..], (self.0[latest].0).1);
+			if hash == &self.0[latest].1 && prefix.left() == stored_slice {
+				self.0[latest].3 = false;
+				self.0[latest].2.as_ref().map(|s| &s[..])
+			} else {
+				None
+			}
+		} else { None }
 	}
 }
 
@@ -801,10 +855,11 @@ mod tests {
 	type H256 = <KeccakHasher as hash_db::Hasher>::Out;
 
 	fn memory_db_from_delta(
-		delta: Vec<((ElasticArray36<u8>, Option<u8>), H256, Option<Vec<u8>>)>,
+		delta: Vec<((ElasticArray36<u8>, Option<u8>), H256, Option<Vec<u8>>, bool)>,
 		mdb: &mut MemoryDB<KeccakHasher, PrefixedKey<KeccakHasher>, DBValue>,
 	) {
-		for (p, h, v) in delta {
+		for (p, h, v, d) in delta {
+			if d {
 			if let Some(v) = v {
 				let prefix = (p.0.as_ref(), p.1);
 				// damn elastic array in value looks costy
@@ -812,6 +867,7 @@ mod tests {
 			} else {
 				let prefix = (p.0.as_ref(), p.1);
 				mdb.remove(&h, prefix);
+			}
 			}
 		}
 	}
@@ -853,7 +909,7 @@ mod tests {
 
 		let reference_root = root.clone();
 	
-		let mut batch_update = BatchUpdate(Default::default(), initial_root.clone());
+		let mut batch_update = BatchUpdate(Default::default(), initial_root.clone(), None);
 		trie_traverse_key_no_extension_build(
 			&mut initial_db,
 			&initial_root,
@@ -949,22 +1005,49 @@ mod tests {
 			],
 		);
 	}
-//	(false, [255], [255, 0]), (false, [255], [0, 0]), (false, [0], [0, 4]), (false, [0], [4, 141]), (false, [4], [141, 135]), (true, [255], [255, 0])
+
 	#[test]
 	fn dummy4() {
 		compare_with_triedbmut(
 			&[
-				(vec![255u8], vec![255, 0]),
-//				(vec![4u8], vec![0, 255]),
-				(vec![0u8], vec![255, 209]),
-				(vec![4u8], vec![0, 4]),
+//				(vec![212u8], vec![255, 209]),
+				(vec![0u8], vec![1; 32]),
+//				(vec![1u8], vec![0, 4]),
+				(vec![212u8], vec![2; 32]),
+/*				(vec![212u8], vec![0, 4]),
+				(vec![13u8], vec![0, 4]),
+				(vec![2u8], vec![0, 4]),
+				(vec![9u8], vec![0, 4]),
+				(vec![8u8], vec![1, 2]),*/
 			],
 			&[
-				(vec![255u8], None),
-//				(vec![209u8], Some(vec![0, 0])),
-//				(vec![255u8], Some(vec![209, 0])),
+//				(vec![0u8], Some(vec![1, 2])),
+//				(vec![1u8], Some(vec![1, 2])),
+//				(vec![8u8], Some(vec![1, 2])),
+				(vec![0u8], None),
+				(vec![212u8], Some(vec![3; 32])),
+//				(vec![154u8], Some(vec![209, 0])),
 			],
 		);
 	}
+
+	#[test]
+	fn chained_fuse() {
+		compare_with_triedbmut(
+			&[
+				(vec![0u8], vec![1; 32]),
+				(vec![0, 212], vec![2; 32]),
+				(vec![0, 212, 96], vec![3; 32]),
+				(vec![0, 212, 96, 88], vec![3; 32]),
+			],
+			&[
+				(vec![0u8], None),
+				(vec![0, 212], None),
+				(vec![0, 212, 96], None),
+				(vec![0, 212, 96, 88], Some(vec![3; 32])),
+			],
+		);
+	}
+
 
 }

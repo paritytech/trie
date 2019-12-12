@@ -76,7 +76,7 @@ where
 {
 	/// Get a child reference (this has a cost but doing
 	/// otherwhise requires changing codec trait).
-	pub(crate) fn as_child_ref<H2>(self) -> ChildReference<H>
+	pub(crate) fn as_child_ref<H2>(&self) -> ChildReference<H>
 		where
 				H2: Hasher<Out = H>
 	{
@@ -90,7 +90,7 @@ where
 				h.as_mut()[..len].copy_from_slice(&sh_ref[..len]);
 				ChildReference::Inline(h, len)
 			}, 
-			NodeHandle::Hash(h) => ChildReference::Hash(h), 
+			NodeHandle::Hash(h) => ChildReference::Hash(h.clone()),
 		}
 	}
 
@@ -468,6 +468,61 @@ where
 	O: AsRef<[u8]> + AsMut<[u8]> + Default + crate::MaybeDebug
 		+ PartialEq + Eq + Hash + Send + Sync + Clone + Copy
 {
+/*	pub(crate) fn into_encoded_ref<F, C, H>(&self, mut child_cb: F) -> Vec<u8>
+	where
+		C: NodeCodec<HashOut = O>,
+		F: FnMut(&NodeHandle<H::Out, SH>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
+		H: Hasher<Out = O>,
+	{
+		match self {
+			Node::Empty => C::empty_node().to_vec(),
+			Node::Leaf(partial, value) => {
+				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
+//				println!("d{:?} {:?}", pr.right(), value);
+				C::leaf_node(pr.right(), &value)
+			},
+			Node::Extension(partial, child) => {
+				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
+				let it = pr.right_iter();
+				let c = child_cb(child, Some(&pr), None);
+				C::extension_node(
+					it,
+					pr.len(),
+					c,
+				)
+			},
+			Node::Branch(children, value) => {
+				C::branch_node(
+					// map the `NodeHandle`s from the Branch to `ChildReferences`
+					children.iter()
+						.enumerate()
+						.map(|(i, maybe_child)| {
+							maybe_child.as_ref().map(|child| child_cb(&child, None, Some(i as u8)))
+						}),
+					value.as_ref().map(|v| &v[..])
+				)
+			},
+			Node::NibbledBranch(partial, children, value) => {
+				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
+				let it = pr.right_iter();
+				C::branch_node_nibbled(
+					it,
+					pr.len(),
+					// map the `NodeHandle`s from the Branch to `ChildReferences`
+					children.iter()
+						.enumerate()
+						.map(|(i, maybe_child)| {
+							//let branch_index = [i as u8];
+							maybe_child.as_ref().map(|child| {
+								let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
+								child_cb(&child, Some(&pr), Some(i as u8))
+							})
+						}),
+					value.as_ref().map(|v| &v[..])
+				)
+			},
+		}
+	}*/
 
 	// TODO: parallelize
 	pub(crate) fn into_encoded<F, C, H>(self, mut child_cb: F) -> Vec<u8>
