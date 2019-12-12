@@ -32,6 +32,10 @@ use crate::NodeCodec;
 use ::core_::cmp::*;
 use ::core_::mem;
 use elastic_array::ElasticArray36;
+//#[cfg(feature = "std")]
+//use std::collections::VecDeque;
+//#[cfg(not(feature = "std"))]
+//use alloc::collections::vec_deque::VecDeque;
 
 // TODO make it deletion aware : do not stack unchanged key and pass them
 // to exit when not needed.
@@ -387,7 +391,8 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 
 	let mut k: Option<K> = None;
 
-	let mut split_child: Option<StackedItem<B, T, S>> = None;
+	// TODO smal child that ?
+	let mut split_child: Vec<StackedItem<B, T, S>> = Default::default();
 	let mut limit_common = usize::max_value();
 	for (next_k, v) in elements.into_iter() {
 		if let Some(previous_key) = k {
@@ -443,11 +448,11 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 					if dest_depth > current.depth {
 						let next_index = dest.at(current.depth);
 						if current.split_child {
-							if next_index == split_child.as_ref().map(|c| c.parent_index)
+							if next_index == split_child.last().map(|c| c.parent_index)
 								.expect("split child set before") {
 								current.split_child = false;
 								stack.push(current);
-								current = split_child.take()
+								current = split_child.pop()
 									.expect("split child set before");
 								continue;
 							}
@@ -538,8 +543,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 								limit_common = target_common_depth;
 							},
 							(_, Some(split)) => {
-								assert!(split_child.is_none()); // TODO change to debug assert later or stack it
-								split_child = Some(split);
+								split_child.push(split);
 								continue;
 							},
 							_ => (),
@@ -579,7 +583,7 @@ fn align_node<'a, T, K, V, S, B, F>(
 	callback: &mut F,
 	branch: &mut StackedItem<B, T, S>,
 	key: &[u8],
-	split_child: &mut Option<StackedItem<B, T, S>>,
+	split_child: &mut Vec<StackedItem<B, T, S>>,
 ) -> Result<(), TrieHash<T>, CError<T>>
 	where
 		T: TrieLayout,
@@ -591,7 +595,7 @@ fn align_node<'a, T, K, V, S, B, F>(
 {
 	if branch.split_child {
 		branch.split_child = false;
-		let mut child = split_child.take()
+		let mut child = split_child.pop()
 			.expect("trie correct parsing ensure it is set");
 		align_node(db, callback, &mut child, key, split_child)?;
 		let handle = callback.exit(
