@@ -358,6 +358,19 @@ impl<H, SH> Node<H, SH> {
 	pub fn new_leaf(prefix: NibbleSlice, value: &[u8]) -> Self {
 		Node::Leaf(prefix.to_stored(), value.into())
 	}
+
+	// TODO rename to empty branch, branch placeholder or something
+	pub fn new_branch(prefix: NibbleSlice) -> Self {
+		let children = Box::new([
+			None, None, None, None,
+			None, None, None, None,
+			None, None, None, None,
+			None, None, None, None,
+		]);
+
+		Node::NibbledBranch(prefix.to_stored(), children, None)
+	}
+
 }
 
 impl<H: AsRef<[u8]>, SH: AsRef<[u8]>> Node<H, SH> {
