@@ -1010,24 +1010,13 @@ mod tests {
 	fn dummy4() {
 		compare_with_triedbmut(
 			&[
-//				(vec![212u8], vec![255, 209]),
-				(vec![0u8], vec![1; 32]),
-				(vec![1u8], vec![0, 4]),
-				(vec![212u8], vec![2; 32]),
-				(vec![212u8], vec![0, 4]),
-				(vec![13u8], vec![0, 4]),
-				(vec![2u8], vec![0, 4]),
-				(vec![9u8], vec![0, 4]),
-				(vec![8u8], vec![1, 2]),
+				(vec![255u8, 251, 127, 255, 255], vec![255, 255]),
+				(vec![255, 255, 127, 112, 255], vec![0, 4]),
+				(vec![255, 127, 114, 253, 195], vec![1, 2]),
 			],
 			&[
-//				(vec![0u8], Some(vec![1, 2])),
-				(vec![0u8], Some(vec![0,8])),
-				(vec![1u8], Some(vec![1, 2])),
-				(vec![8u8], Some(vec![1, 2])),
-				(vec![12u8], None),
-				(vec![212u8], None),
-//				(vec![154u8], Some(vec![209, 0])),
+				(vec![0u8], Some(vec![4; 251])),
+				(vec![255, 251, 127, 255, 255], Some(vec![1, 2])),
 			],
 		);
 	}
