@@ -615,9 +615,9 @@ fn align_node<'a, T, K, V, S, B, F>(
 			prefix.append_partial(p.right());
 		});
 		prefix.push(child.parent_index);
-		child.node.partial().map(|p| {
+/*		child.node.partial().map(|p| {
 			prefix.append_partial(p.right());
-		});
+		});*/
 		let len_prefix = prefix.len();
 		align_node(db, callback, &mut child, key, Some(prefix), split_child)?;
 		prefix.drop_lasts(prefix.len() - len_prefix);
@@ -648,6 +648,7 @@ fn align_node<'a, T, K, V, S, B, F>(
 				branch.node.partial().map(|p| {
 					prefix.append_partial(p.right());
 				});
+			
 				// TODO conversion to NibbleVec is slow
 				prefix.push(fuse_index);
 				let prefix = prefix.as_prefix();
@@ -1062,6 +1063,23 @@ println!("{:?}", batch_update.0);
 			&[
 				(vec![0u8], Some(vec![4; 251])),
 				(vec![255, 251, 127, 255, 255], Some(vec![1, 2])),
+			],
+		);
+	}
+
+	#[test]
+	fn dummy5() {
+		compare_with_triedbmut(
+			&[
+				(vec![0, 144, 64, 212, 141, 1, 0, 0, 255, 144, 64, 212, 141, 1, 0, 141, 206, 0], vec![255, 255]),
+				(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], vec![0, 4]),
+				(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 208, 208, 208, 208, 208, 208, 208], vec![1, 2]),
+			],
+			&[
+				(vec![0, 6, 8, 21, 1, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 35, 199, 215], Some(vec![4, 251])),
+				(vec![0, 144, 64, 212, 141, 1, 0, 0, 255, 144, 64, 212, 141, 1, 0, 141, 206, 0], None),
+				(vec![141, 135, 207, 0, 63, 203, 216, 185, 162, 77, 154, 214, 210, 0, 0, 0, 0, 128], Some(vec![49, 251])),
+				(vec![208, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 6, 8, 21, 1, 4, 0], Some(vec![4, 21])),
 			],
 		);
 	}
