@@ -174,9 +174,13 @@ pub fn fuzz_that_no_extension_insert_remove(input: &[u8]) {
 	compare_no_extension_insert_remove(data, memdb);
 }
 
-pub fn fuzz_batch_update(input: &[u8]) {
+pub fn fuzz_batch_update(input: &[u8], build_val: fn(&mut Vec<u8>)) {
 	let data = fuzz_to_data(input);
-	let data = fuzz_removal(data);
+	let mut data = fuzz_removal(data);
+	for i in data.iter_mut() {
+		build_val(&mut i.2);
+	}
+	let data = data;
 println!("{}: {:?}", data.len(), data);
 	let mut db = memory_db::MemoryDB::<_, PrefixedKey<_>, _>::default();
 	let mut root = Default::default();
@@ -243,6 +247,7 @@ fn test() {
 		vec![0x0,0x0,0x4,0x8d,0x8d,0x4],
 	];
 	for v in tests.iter() {
-		fuzz_batch_update(&v[..])
+		fuzz_batch_update(&v[..], |_v| ());
+		fuzz_batch_update(&v[..], |v| v.extend(&[4u8; 32]));
 	}
 }
