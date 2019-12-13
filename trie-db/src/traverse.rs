@@ -630,11 +630,11 @@ fn align_node<'a, T, K, V, S, B, F>(
 		branch.node.set_handle(handle, child.parent_index);
 	}
 	if let Some(fuse_index) = branch.node.fix_node() {
+		let mut build_prefix: NibbleVec;
 		let (child, hash) = match branch.node.child(fuse_index) {
 			Some(NodeHandle::Hash(handle_hash)) => {
 				let mut hash = <TrieHash<T> as Default>::default();
 				hash.as_mut()[..].copy_from_slice(handle_hash.as_ref());
-				let mut build_prefix: NibbleVec;
 				let prefix: &mut NibbleVec = if let Some(prefix) = prefix.as_mut() {
 					let len_prefix = prefix.len();
 					if len_prefix > init_prefix_len {
@@ -667,7 +667,7 @@ fn align_node<'a, T, K, V, S, B, F>(
 						db,
 						&hash,
 						prefix,
-					)?, Some(hash))
+					)?, Some((hash, prefix)))
 				}
 			},
 			Some(NodeHandle::Inline(node_encoded)) => {
@@ -679,12 +679,14 @@ fn align_node<'a, T, K, V, S, B, F>(
 			},
 			None => unreachable!("correct index used"),
 		};
-		// register delete
-		callback.exit(
-			NibbleSlice::new_offset(key, branch.depth).left(),
-			StackedNode::Deleted(Default::default()),
-			hash.as_ref(),
-		).expect("No new node on deleted allowed");
+		if let Some((hash, prefix)) = hash {
+			// register delete
+			callback.exit(
+				NibbleSlice::new_offset(key, branch.depth).left(),
+				StackedNode::Deleted(Default::default()),
+				Some(&hash),
+			).expect("No new node on deleted allowed");
+		}
 		branch.depth += branch.node.fuse_child(child, fuse_index);
 	}
 
@@ -1068,7 +1070,7 @@ println!("{:?}", batch_update.0);
 	}
 
 	#[test]
-	fn dummy5() {
+	fn dummy6() {
 		compare_with_triedbmut(
 			&[
 				(vec![0, 144, 64, 212, 141, 1, 0, 0, 255, 144, 64, 212, 141, 1, 0, 141, 206, 0], vec![255, 255]),
@@ -1080,6 +1082,20 @@ println!("{:?}", batch_update.0);
 				(vec![0, 144, 64, 212, 141, 1, 0, 0, 255, 144, 64, 212, 141, 1, 0, 141, 206, 0], None),
 				(vec![141, 135, 207, 0, 63, 203, 216, 185, 162, 77, 154, 214, 210, 0, 0, 0, 0, 128], Some(vec![49, 251])),
 				(vec![208, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 6, 8, 21, 1, 4, 0], Some(vec![4, 21])),
+			],
+		);
+	}
+
+	#[test]
+	fn dummy5() {
+		compare_with_triedbmut(
+			&[
+				(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], vec![1, 2]),
+			],
+			&[
+				(vec![9, 1, 141, 44, 212, 0, 0, 51, 138, 32], Some(vec![4, 251])),
+				(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], None),
+				(vec![128], Some(vec![49, 251])),
 			],
 		);
 	}
