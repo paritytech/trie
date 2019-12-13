@@ -272,10 +272,10 @@ pub trait ProcessStack<B, T, K, V, S>
 		state: TraverseState,
 	) -> Option<StackedItem<B, T, S>>;
 	/// Callback on exit a node, commit action on change node should be applied here.
-	fn exit(&mut self, prefix: NibbleSlice, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>)
+	fn exit(&mut self, prefix: Prefix, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>)
 		-> Option<Option<OwnedNodeHandle<TrieHash<T>>>>;
 	/// Same as `exit` but for root (very last exit call).
-	fn exit_root(&mut self, prefix: NibbleSlice, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>);
+	fn exit_root(&mut self, prefix: Prefix, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>);
 
 
 	/// Fetching a fuse latest, that is the latest changed value of a branch.
@@ -415,9 +415,9 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 				// go up
 				if let Some(mut last) = stack.pop() {
 					if !last.node.is_empty() {
-						align_node(db, callback, &mut current, previous_key.as_ref(), &mut split_child)?;
+						align_node(db, callback, &mut current, previous_key.as_ref(), None, &mut split_child)?;
 						if let Some(handle) = callback.exit(
-							NibbleSlice::new_offset(previous_key.as_ref(), current.depth_prefix),
+							NibbleSlice::new_offset(previous_key.as_ref(), current.depth_prefix).left(),
 							current.node, current.hash.as_ref(),
 						) {
 							last.node.set_handle(handle, current.parent_index);
@@ -425,8 +425,8 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 						current = last;
 					}
 				} else {
-					align_node(db, callback, &mut current, previous_key.as_ref(), &mut split_child)?;
-					callback.exit_root(NibbleSlice::new(&[]), current.node, current.hash.as_ref());
+					align_node(db, callback, &mut current, previous_key.as_ref(), None, &mut split_child)?;
+					callback.exit_root(EMPTY_PREFIX, current.node, current.hash.as_ref());
 					return Ok(());
 				}
 			}
@@ -512,7 +512,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 						// TODO runing into this is not expected
 						if let Some(mut prev) = stack.pop() {
 							callback.exit(
-								NibbleSlice::new_offset(k.as_ref(), current.depth_prefix),
+								NibbleSlice::new_offset(k.as_ref(), current.depth_prefix).left(),
 								current.node, current.hash.as_ref(),
 							).expect("no new node on empty");
 							prev.node.set_handle(None, current.parent_index);
@@ -561,9 +561,9 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 		// go up
 		while let Some(mut last) = stack.pop() {
 			if !last.node.is_empty() {
-				align_node(db, callback, &mut current, previous_key.as_ref(), &mut split_child)?;
+				align_node(db, callback, &mut current, previous_key.as_ref(), None, &mut split_child)?;
 				if let Some(handle) = callback.exit(
-					NibbleSlice::new_offset(previous_key.as_ref(), current.depth_prefix),
+					NibbleSlice::new_offset(previous_key.as_ref(), current.depth_prefix).left(),
 					current.node, current.hash.as_ref(),
 				) {
 					last.node.set_handle(handle, current.parent_index);
@@ -571,8 +571,8 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 				current = last;
 			}
 		}
-		align_node(db, callback, &mut current, previous_key.as_ref(), &mut split_child)?;
-		callback.exit_root(NibbleSlice::new(&[]), current.node, current.hash.as_ref());
+		align_node(db, callback, &mut current, previous_key.as_ref(), None, &mut split_child)?;
+		callback.exit_root(EMPTY_PREFIX, current.node, current.hash.as_ref());
 		return Ok(());
 	}
 
@@ -584,6 +584,7 @@ fn align_node<'a, T, K, V, S, B, F>(
 	callback: &mut F,
 	branch: &mut StackedItem<B, T, S>,
 	key: &[u8],
+	mut prefix: Option<&mut NibbleVec>,
 	split_child: &mut Vec<(StackedItem<B, T, S>, Vec<u8>)>,
 ) -> Result<(), TrieHash<T>, CError<T>>
 	where
@@ -594,15 +595,33 @@ fn align_node<'a, T, K, V, S, B, F>(
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
 		F: ProcessStack<B, T, K, V, S>,
 {
+	let init_prefix_len = prefix.as_ref().map(|p| p.len())
+		.unwrap_or(0);
 	if branch.split_child {
 		branch.split_child = false;
 		let (mut child, check) = split_child.pop()
 			.expect("trie correct parsing ensure it is set");
-		align_node(db, callback, &mut child, key, split_child)?;
+		let mut build_prefix: NibbleVec;
+		// Rebuild the right prefix by removing last nibble and adding parent child.
+		let prefix: &mut NibbleVec = if let Some(prefix) = prefix.as_mut() {
+			child.node.partial().map(|p| {
+				prefix.append_partial(p.right());
+			});
+			prefix
+		} else {
+			build_prefix = NibbleVec::from(key, child.depth_prefix - 1);
+			&mut build_prefix
+		};
+		prefix.push(child.parent_index);
+		let len_prefix = prefix.len();
+		align_node(db, callback, &mut child, key, Some(prefix), split_child)?;
+		prefix.drop_lasts(prefix.len() - len_prefix);
 		let handle = callback.exit(
-			NibbleSlice::new_offset(key, child.depth_prefix),
+			prefix.as_prefix(),
 			child.node, child.hash.as_ref(),
 		).expect("split child is always a changed node");
+		// TODO if it is single handle, then fix node will reaccess that:
+		// that is one hash creation here and one access then deletion afterward.
 		branch.node.set_handle(handle, child.parent_index);
 	}
 	if let Some(fuse_index) = branch.node.fix_node() {
@@ -610,8 +629,22 @@ fn align_node<'a, T, K, V, S, B, F>(
 			Some(NodeHandle::Hash(handle_hash)) => {
 				let mut hash = <TrieHash<T> as Default>::default();
 				hash.as_mut()[..].copy_from_slice(handle_hash.as_ref());
+				let mut build_prefix: NibbleVec;
+				let prefix: &mut NibbleVec = if let Some(prefix) = prefix.as_mut() {
+					let len_prefix = prefix.len();
+					if len_prefix > init_prefix_len {
+						prefix.drop_lasts(len_prefix - init_prefix_len);
+					}
+					branch.node.partial().map(|p| {
+						prefix.append_partial(p.right());
+					});
+					prefix
+				} else {
+					build_prefix = NibbleVec::from(key, branch.depth);
+					&mut build_prefix
+				};
+
 				// TODO conversion to NibbleVec is slow
-				let mut prefix: NibbleVec = NibbleVec::from(key, branch.depth);
 				prefix.push(fuse_index);
 				let prefix = prefix.as_prefix();
 				if let Some(node_encoded) = callback.fuse_latest_changed(
@@ -643,7 +676,7 @@ fn align_node<'a, T, K, V, S, B, F>(
 		};
 		// register delete
 		callback.exit(
-			NibbleSlice::new_offset(key, branch.depth),
+			NibbleSlice::new_offset(key, branch.depth).left(),
 			StackedNode::Deleted(Default::default()),
 			hash.as_ref(),
 		).expect("No new node on deleted allowed");
@@ -780,7 +813,7 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 		}
 	}
 
-	fn exit(&mut self, prefix: NibbleSlice, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>)
+	fn exit(&mut self, prefix: Prefix, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>)
 		-> Option<Option<OwnedNodeHandle<TrieHash<T>>>> {
 		match stacked {
 			StackedNode::Changed(node, _) => Some(Some({
@@ -796,16 +829,16 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 					// register latest change
 					self.2 = Some(self.0.len());
 					// costy clone (could get read from here)
-					self.0.push((prefix.left_owned(), hash.clone(), Some(encoded), true));
+					self.0.push((owned_prefix(&prefix), hash.clone(), Some(encoded), true));
 					if let Some(h) = prev_hash {
-						self.0.push((prefix.left_owned(), h.clone(), None, true));
+						self.0.push((owned_prefix(&prefix), h.clone(), None, true));
 					}
 					OwnedNodeHandle::Hash(hash)
 				}
 			})),
 			StackedNode::Deleted(..) => {
 				if let Some(h) = prev_hash {
-					self.0.push((prefix.left_owned(), h.clone(), None, true));
+					self.0.push((owned_prefix(&prefix), h.clone(), None, true));
 				}
 				Some(None)
 			},
@@ -813,16 +846,16 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 		}
 	}
 	
-	fn exit_root(&mut self, prefix: NibbleSlice, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>) {
+	fn exit_root(&mut self, prefix: Prefix, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>) {
 		match stacked {
 			s@StackedNode::Deleted(..)
 			| s@StackedNode::Changed(..) => {
 				let encoded = s.into_encoded();
 				let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
 				self.1 = hash.clone();
-				self.0.push((prefix.left_owned(), hash, Some(encoded), true));
+				self.0.push((owned_prefix(&prefix), hash, Some(encoded), true));
 				if let Some(h) = prev_hash {
-					self.0.push((prefix.left_owned(), h.clone(), None, true));
+					self.0.push((owned_prefix(&prefix), h.clone(), None, true));
 				}
 			},
 			_ => (),
@@ -842,6 +875,15 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 			}
 		} else { None }
 	}
+}
+
+
+fn owned_prefix(prefix: &Prefix) -> (ElasticArray36<u8>, Option<u8>) { 
+	(prefix.0.into(), prefix.1)
+}
+
+fn from_owned_prefix(prefix: &(ElasticArray36<u8>, Option<u8>)) -> Prefix { 
+	(&prefix.0[..], prefix.1)
 }
 
 #[cfg(test)]
@@ -1032,7 +1074,7 @@ println!("{:?}", batch_update.0);
 				(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], vec![0, 255]),
 			],
 			&[
-//				(vec![4, 58, 137, 251, 0, 46, 112, 0, 0, 46, 2, 0], None),
+				(vec![4, 58, 137, 251, 0, 46, 112, 0, 0, 46, 2, 0], None),
 				(vec![114, 251, 127, 255, 0, 0, 0, 0, 0, 130, 130, 129, 129, 41, 143, 125, 66, 18, 247], Some(vec![0, 0])),
 //				(vec![128, 255, 205, 114, 251, 127, 195, 0, 154, 255, 255, 255], Some(vec![0, 0])),
 //				(vec![180, 119, 214, 101, 145, 255, 150, 169, 224, 100, 188, 201, 138, 112, 12, 4, 0, 0, 195, 0, 0], Some(vec![0, 0])),
