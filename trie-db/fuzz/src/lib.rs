@@ -181,7 +181,7 @@ pub fn fuzz_batch_update(input: &[u8], build_val: fn(&mut Vec<u8>)) {
 		build_val(&mut i.2);
 	}
 	let data = data;
-//println!("{}: {:?}", data.len(), data);
+println!("{}: {:?}", data.len(), data);
 	let mut db = memory_db::MemoryDB::<_, PrefixedKey<_>, _>::default();
 	let mut root = Default::default();
 	{
@@ -219,7 +219,7 @@ pub fn fuzz_batch_update(input: &[u8], build_val: fn(&mut Vec<u8>)) {
 		initial_root.clone(),
 		None,
 	);
-//println!("{:?}", sorted_data);
+println!("{:?}", sorted_data);
 	reference_trie::trie_traverse_key_no_extension_build(
 		&mut initial_db,
 		&initial_root, sorted_data.into_iter(), &mut batch_update);

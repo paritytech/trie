@@ -284,6 +284,8 @@ pub trait ProcessStack<B, T, K, V, S>
 	/// This is only needed if changes are made by process stack.
 	/// Access to this method means that the node need to be remove or invalidate (this is handled
 	/// by this method (no call to exit on it)).
+	/// TODO EMCH this method should be removed, by only calling exit for child of branch when going
+	/// up (keeping a reference to each child instead of current only!!).
 	fn fuse_latest_changed(&mut self, prefix: Prefix, hash: &TrieHash<T>) -> Option<&[u8]>;
 }
 
@@ -604,15 +606,18 @@ fn align_node<'a, T, K, V, S, B, F>(
 		let mut build_prefix: NibbleVec;
 		// Rebuild the right prefix by removing last nibble and adding parent child.
 		let prefix: &mut NibbleVec = if let Some(prefix) = prefix.as_mut() {
-			child.node.partial().map(|p| {
-				prefix.append_partial(p.right());
-			});
 			prefix
 		} else {
-			build_prefix = NibbleVec::from(key, child.depth_prefix - 1);
+			build_prefix = NibbleVec::from(key, branch.depth_prefix);
 			&mut build_prefix
 		};
+		branch.node.partial().map(|p| {
+			prefix.append_partial(p.right());
+		});
 		prefix.push(child.parent_index);
+		child.node.partial().map(|p| {
+			prefix.append_partial(p.right());
+		});
 		let len_prefix = prefix.len();
 		align_node(db, callback, &mut child, key, Some(prefix), split_child)?;
 		prefix.drop_lasts(prefix.len() - len_prefix);
@@ -635,7 +640,6 @@ fn align_node<'a, T, K, V, S, B, F>(
 					if len_prefix > init_prefix_len {
 						prefix.drop_lasts(len_prefix - init_prefix_len);
 					}
-					
 					prefix
 				} else {
 					build_prefix = NibbleVec::from(key, branch.depth_prefix);
@@ -863,17 +867,14 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 	}
 
 	fn fuse_latest_changed(&mut self, prefix: Prefix, hash: &TrieHash<T>) -> Option<&[u8]> {
-		// consume anyway.
-		let last = self.2.take();
-		if let Some(latest) = last {
-			let stored_slice = (&(self.0[latest].0).0[..], (self.0[latest].0).1);
+		for latest in 0..self.0.len() {
+			let stored_slice = from_owned_prefix(&self.0[latest].0);
 			if hash == &self.0[latest].1 && prefix == stored_slice {
 				self.0[latest].3 = false;
-				self.0[latest].2.as_ref().map(|s| &s[..])
-			} else {
-				None
+				return self.0[latest].2.as_ref().map(|s| &s[..]);
 			}
-		} else { None }
+		}
+		None
 	}
 }
 
@@ -1066,18 +1067,23 @@ println!("{:?}", batch_update.0);
 	}
 
 	#[test]
-	fn dummy5() {
+	fn single_latest_change_value_does_not_work() {
 		compare_with_triedbmut(
 			&[
-				(vec![4, 58, 137, 251, 0, 46, 112, 0, 0, 46, 2, 0], vec![255, 209]),
-				(vec![0, 0, 65, 209, 46, 0, 0, 0, 0, 0, 0, 0], vec![0, 255]),
-				(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], vec![0, 255]),
+				(vec![0, 0, 0, 0], vec![255;32]),
+				(vec![0, 0, 0, 3], vec![5; 32]),
+				(vec![0, 0, 6, 0], vec![6; 32]),
+				(vec![0, 0, 0, 170], vec![1; 32]),
+				(vec![0, 0, 73, 0], vec![2; 32]),
+				(vec![0, 0, 0, 0], vec![3; 32]),
+				(vec![0, 199, 141, 0], vec![4; 32]),
 			],
 			&[
-				(vec![4, 58, 137, 251, 0, 46, 112, 0, 0, 46, 2, 0], None),
-				(vec![114, 251, 127, 255, 0, 0, 0, 0, 0, 130, 130, 129, 129, 41, 143, 125, 66, 18, 247], Some(vec![0, 0])),
-//				(vec![128, 255, 205, 114, 251, 127, 195, 0, 154, 255, 255, 255], Some(vec![0, 0])),
-//				(vec![180, 119, 214, 101, 145, 255, 150, 169, 224, 100, 188, 201, 138, 112, 12, 4, 0, 0, 195, 0, 0], Some(vec![0, 0])),
+				(vec![0, 0, 0, 0], Some(vec![0; 32])),
+				(vec![0, 0, 199, 141], Some(vec![0; 32])),
+				(vec![0, 199, 141, 0], None),
+				(vec![12, 0, 128, 0, 0, 0, 0, 0, 0, 4, 64, 2, 4], Some(vec![0; 32])),
+				(vec![91], None),
 			],
 		);
 	}
