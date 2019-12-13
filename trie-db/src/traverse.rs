@@ -25,6 +25,10 @@ use crate::nibble::{NibbleVec, nibble_ops, NibbleSlice};
 use std::borrow::Borrow;
 #[cfg(not(feature = "std"))]
 use core::borrow::Borrow;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
 use crate::{TrieLayout, TrieHash, CError, Result, TrieError};
 use crate::DBValue;
 use hash_db::{HashDB, Prefix, EMPTY_PREFIX, Hasher};
