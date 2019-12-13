@@ -392,7 +392,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 	let mut k: Option<K> = None;
 
 	// TODO smal child that ?
-	let mut split_child: Vec<StackedItem<B, T, S>> = Default::default();
+	let mut split_child: Vec<(StackedItem<B, T, S>, Vec<u8>)> = Default::default();
 	let mut limit_common = usize::max_value();
 	for (next_k, v) in elements.into_iter() {
 		if let Some(previous_key) = k {
@@ -448,12 +448,13 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 					if dest_depth > current.depth {
 						let next_index = dest.at(current.depth);
 						if current.split_child {
-							if next_index == split_child.last().map(|c| c.parent_index)
+							if next_index == split_child.last().map(|(c, _)| c.parent_index)
 								.expect("split child set before") {
 								current.split_child = false;
 								stack.push(current);
-								current = split_child.pop()
+								let (ch, v) = split_child.pop()
 									.expect("split child set before");
+								current = ch;
 								continue;
 							}
 						}
@@ -543,7 +544,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 								limit_common = target_common_depth;
 							},
 							(_, Some(split)) => {
-								split_child.push(split);
+								split_child.push((split, k.as_ref().to_vec()));
 								continue;
 							},
 							_ => (),
@@ -583,7 +584,7 @@ fn align_node<'a, T, K, V, S, B, F>(
 	callback: &mut F,
 	branch: &mut StackedItem<B, T, S>,
 	key: &[u8],
-	split_child: &mut Vec<StackedItem<B, T, S>>,
+	split_child: &mut Vec<(StackedItem<B, T, S>, Vec<u8>)>,
 ) -> Result<(), TrieHash<T>, CError<T>>
 	where
 		T: TrieLayout,
@@ -595,7 +596,7 @@ fn align_node<'a, T, K, V, S, B, F>(
 {
 	if branch.split_child {
 		branch.split_child = false;
-		let mut child = split_child.pop()
+		let (mut child, check) = split_child.pop()
 			.expect("trie correct parsing ensure it is set");
 		align_node(db, callback, &mut child, key, split_child)?;
 		let handle = callback.exit(
@@ -923,8 +924,8 @@ mod tests {
 			&mut batch_update,
 		);
 		
-		//assert_eq!(batch_update.1, reference_root);
-
+		assert_eq!(batch_update.1, reference_root);
+println!("{:?}", batch_update.0);
 		let mut batch_delta = initial_db;
 
 		let r2 = batch_update.1.clone();
@@ -1026,12 +1027,15 @@ mod tests {
 	fn dummy5() {
 		compare_with_triedbmut(
 			&[
-				(vec![0u8], vec![255, 209]),
-				(vec![4u8], vec![0, 255]),
+				(vec![4, 58, 137, 251, 0, 46, 112, 0, 0, 46, 2, 0], vec![255, 209]),
+				(vec![0, 0, 65, 209, 46, 0, 0, 0, 0, 0, 0, 0], vec![0, 255]),
+				(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], vec![0, 255]),
 			],
 			&[
-				(vec![0u8], None),
-				(vec![209], Some(vec![0, 0])),
+//				(vec![4, 58, 137, 251, 0, 46, 112, 0, 0, 46, 2, 0], None),
+				(vec![114, 251, 127, 255, 0, 0, 0, 0, 0, 130, 130, 129, 129, 41, 143, 125, 66, 18, 247], Some(vec![0, 0])),
+//				(vec![128, 255, 205, 114, 251, 127, 195, 0, 154, 255, 255, 255], Some(vec![0, 0])),
+//				(vec![180, 119, 214, 101, 145, 255, 150, 169, 224, 100, 188, 201, 138, 112, 12, 4, 0, 0, 195, 0, 0], Some(vec![0, 0])),
 			],
 		);
 	}
