@@ -13,8 +13,8 @@
 // limitations under the License.
 
 //! An owning, nibble-oriented byte vector.
-use smallvec::SmallVec;
-use nibble::NibbleSlice;
+
+use nibble::{NibbleSlice, BackingByteVec};
 use nibble::nibble_ops;
 use hash_db::Prefix;
 use node_codec::Partial;
@@ -30,7 +30,7 @@ impl NibbleVec {
 	/// Make a new `NibbleVec`.
 	pub fn new() -> Self {
 		NibbleVec {
-			inner: SmallVec::<[u8; 36]>::new(),
+			inner: BackingByteVec::new(),
 			len: 0,
 		}
 	}

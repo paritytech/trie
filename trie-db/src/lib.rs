@@ -106,6 +106,7 @@ pub use trie_codec::{decode_compact, encode_compact};
 #[cfg(feature = "std")]
 pub use iter_build::TrieRootPrint;
 
+/// Database value
 pub type DBValue = smallvec::SmallVec<[u8; 128]>;
 
 /// Trie Errors.
