@@ -521,10 +521,10 @@ fn trie_mut_same_key_batch(c: &mut Criterion) {
 			let mut mdb = db.clone();
 			// sort
 			let data: std::collections::BTreeSet<Vec<u8>> = data.iter().map(|(a, _b)| a.clone()).collect();
-			let mut batch_update = reference_trie::BatchUpdate(Default::default());
+			let mut batch_update = reference_trie::BatchUpdate(Default::default(), root.clone(), None);
 			reference_trie::trie_traverse_key_no_extension_build(
 			&mut mdb, &root, data.iter().map(|a| (a, Some(&a[..]))), &mut batch_update);
-			// rem root del
+			// rem root del TODO use returned root.
 			batch_update.0.pop();
 			assert!(batch_update.0.last().unwrap().1 != root);
 		}));
