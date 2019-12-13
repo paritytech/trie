@@ -635,15 +635,15 @@ fn align_node<'a, T, K, V, S, B, F>(
 					if len_prefix > init_prefix_len {
 						prefix.drop_lasts(len_prefix - init_prefix_len);
 					}
-					branch.node.partial().map(|p| {
-						prefix.append_partial(p.right());
-					});
+					
 					prefix
 				} else {
-					build_prefix = NibbleVec::from(key, branch.depth);
+					build_prefix = NibbleVec::from(key, branch.depth_prefix);
 					&mut build_prefix
 				};
-
+				branch.node.partial().map(|p| {
+					prefix.append_partial(p.right());
+				});
 				// TODO conversion to NibbleVec is slow
 				prefix.push(fuse_index);
 				let prefix = prefix.as_prefix();
