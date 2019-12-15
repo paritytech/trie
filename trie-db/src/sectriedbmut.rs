@@ -107,7 +107,7 @@ mod test {
 		let t = RefTrieDB::new(&memdb, &root).unwrap();
 		assert_eq!(
 			t.get(&KeccakHasher::hash(&[0x01u8, 0x23])).unwrap().unwrap(),
-			DBValue::from_slice(&[0x01u8, 0x23]),
+			vec![0x01u8, 0x23],
 		);
 	}
 }

@@ -138,7 +138,7 @@ where
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash, e)))?;
 		let node = match encoded_node {
 			EncodedNode::Empty => Node::Empty,
-			EncodedNode::Leaf(k, v) => Node::Leaf(k.into(), DBValue::from_slice(&v)),
+			EncodedNode::Leaf(k, v) => Node::Leaf(k.into(), v.to_vec()),
 			EncodedNode::Extension(key, cb) => {
 				Node::Extension(
 					key.into(),
@@ -159,7 +159,7 @@ where
 					child(12)?, child(13)?, child(14)?, child(15)?,
 				]);
 
-				Node::Branch(children, val.map(DBValue::from_slice))
+				Node::Branch(children, val.map(|v| v.to_vec()))
 			},
 			EncodedNode::NibbledBranch(k, encoded_children, val) => {
 				let mut child = |i:usize| match encoded_children[i] {
@@ -175,7 +175,7 @@ where
 					child(12)?, child(13)?, child(14)?, child(15)?,
 				]);
 
-				Node::NibbledBranch(k.into(), children, val.map(DBValue::from_slice))
+				Node::NibbledBranch(k.into(), children, val.map(|v| v.to_vec()))
 			},
 		};
 		Ok(node)
@@ -392,7 +392,7 @@ impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
 ///   assert_eq!(*t.root(), KeccakHasher::hash(&[0u8][..]));
 ///   t.insert(b"foo", b"bar").unwrap();
 ///   assert!(t.contains(b"foo").unwrap());
-///   assert_eq!(t.get(b"foo").unwrap().unwrap(), DBValue::from_slice(b"bar"));
+///   assert_eq!(t.get(b"foo").unwrap().unwrap(), b"bar".to_vec());
 ///   t.remove(b"foo").unwrap();
 ///   assert!(!t.contains(b"foo").unwrap());
 /// }
@@ -525,14 +525,14 @@ where
 			let (mid, child) = match *handle {
 				NodeHandle::Hash(ref hash) => return Lookup::<L, _> {
 					db: &self.db,
-					query: DBValue::from_slice,
+					query: |v: &[u8]| v.to_vec(),
 					hash: hash.clone(),
 				}.look_up(partial),
 				NodeHandle::InMemory(ref handle) => match self.storage[handle] {
 					Node::Empty => return Ok(None),
 					Node::Leaf(ref key, ref value) => {
 						if NibbleSlice::from_stored(key) == partial {
-							return Ok(Some(DBValue::from_slice(value)));
+							return Ok(Some(value.to_vec()));
 						} else {
 							return Ok(None);
 						}
@@ -547,7 +547,7 @@ where
 					},
 					Node::Branch(ref children, ref value) => {
 						if partial.is_empty() {
-							return Ok(value.as_ref().map(|v| DBValue::from_slice(v)));
+							return Ok(value.as_ref().map(|v| v.to_vec()));
 						} else {
 							let idx = partial.at(0);
 							match children[idx as usize].as_ref() {
@@ -559,7 +559,7 @@ where
 					Node::NibbledBranch(ref slice, ref children, ref value) => {
 						let slice = NibbleSlice::from_stored(slice);
 						if partial.is_empty() {
-							return Ok(value.as_ref().map(|v| DBValue::from_slice(v)));
+							return Ok(value.as_ref().map(|v| v.to_vec()));
 						} else if partial.starts_with(&slice) {
 							let idx = partial.at(0);
 							match children[idx as usize].as_ref() {
@@ -1530,7 +1530,7 @@ where
 		let (new_handle, changed) = self.insert_at(
 			root_handle,
 			&mut NibbleSlice::new(key),
-			DBValue::from_slice(value),
+			value.to_vec(),
 			&mut old_val,
 		)?;
 
@@ -1924,9 +1924,9 @@ mod tests {
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
-		assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0x1u8, 0x23]));
+		assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), vec![0x1u8, 0x23]);
 		t.commit();
-		assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0x1u8, 0x23]));
+		assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), vec![0x1u8, 0x23]);
 	}
 
 	#[test]
@@ -1937,14 +1937,14 @@ mod tests {
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[0xf1u8, 0x23], &[0xf1u8, 0x23]).unwrap();
 		t.insert(&[0x81u8, 0x23], &[0x81u8, 0x23]).unwrap();
-		assert_eq!(t.get(&[0x01, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0x01u8, 0x23]));
-		assert_eq!(t.get(&[0xf1, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0xf1u8, 0x23]));
-		assert_eq!(t.get(&[0x81, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0x81u8, 0x23]));
+		assert_eq!(t.get(&[0x01, 0x23]).unwrap().unwrap(), vec![0x01u8, 0x23]);
+		assert_eq!(t.get(&[0xf1, 0x23]).unwrap().unwrap(), vec![0xf1u8, 0x23]);
+		assert_eq!(t.get(&[0x81, 0x23]).unwrap().unwrap(), vec![0x81u8, 0x23]);
 		assert_eq!(t.get(&[0x82, 0x23]).unwrap(), None);
 		t.commit();
-		assert_eq!(t.get(&[0x01, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0x01u8, 0x23]));
-		assert_eq!(t.get(&[0xf1, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0xf1u8, 0x23]));
-		assert_eq!(t.get(&[0x81, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0x81u8, 0x23]));
+		assert_eq!(t.get(&[0x01, 0x23]).unwrap().unwrap(), vec![0x01u8, 0x23]);
+		assert_eq!(t.get(&[0xf1, 0x23]).unwrap().unwrap(), vec![0xf1u8, 0x23]);
+		assert_eq!(t.get(&[0x81, 0x23]).unwrap().unwrap(), vec![0x81u8, 0x23]);
 		assert_eq!(t.get(&[0x82, 0x23]).unwrap(), None);
 	}
 
@@ -2045,10 +2045,10 @@ mod tests {
 		let mut t = RefTrieDBMut::new(&mut db, &mut root);
 		for &(ref key, ref value) in &x {
 			assert!(t.insert(key, value).unwrap().is_none());
-			assert_eq!(t.insert(key, value).unwrap(), Some(DBValue::from_slice(value)));
+			assert_eq!(t.insert(key, value).unwrap(), Some(value.clone()));
 		}
 		for (key, value) in x {
-			assert_eq!(t.remove(&key).unwrap(), Some(DBValue::from_slice(&value)));
+			assert_eq!(t.remove(&key).unwrap(), Some(value));
 			assert!(t.remove(&key).unwrap().is_none());
 		}
 	}
