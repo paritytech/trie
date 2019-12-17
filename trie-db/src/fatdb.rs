@@ -119,8 +119,7 @@ where
 					let aux_hash = L::Hash::hash(&hash);
 					(
 						self.trie.db().get(&aux_hash, Default::default())
-							.expect("Missing fatdb hash")
-							.into_vec(),
+							.expect("Missing fatdb hash"),
 						value,
 					)
 				})
@@ -144,9 +143,10 @@ mod test {
 			t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		}
 		let t = RefFatDB::new(&memdb, &root).unwrap();
-		assert_eq!(t.get(&[0x01u8, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0x01u8, 0x23]));
+		assert_eq!(t.get(&[0x01u8, 0x23]).unwrap().unwrap(), vec![0x01u8, 0x23]);
 		assert_eq!(
 			t.iter().unwrap().map(Result::unwrap).collect::<Vec<_>>(),
-			vec![(vec![0x01u8, 0x23], DBValue::from_slice(&[0x01u8, 0x23] as &[u8]))]);
+			vec![(vec![0x01u8, 0x23], vec![0x01u8, 0x23])]
+		);
 	}
 }

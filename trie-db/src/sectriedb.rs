@@ -102,6 +102,6 @@ mod test {
 			t.insert(&KeccakHasher::hash(&[0x01u8, 0x23]), &[0x01u8, 0x23]).unwrap();
 		}
 		let t = RefSecTrieDB::new(&db, &root).unwrap();
-		assert_eq!(t.get(&[0x01u8, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0x01u8, 0x23]));
+		assert_eq!(t.get(&[0x01u8, 0x23]).unwrap().unwrap(), vec![0x01u8, 0x23]);
 	}
 }

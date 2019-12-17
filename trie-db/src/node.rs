@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use elastic_array::ElasticArray36;
 use hash_db::Hasher;
-use nibble::NibbleSlice;
+use nibble::{self, NibbleSlice};
 use nibble::nibble_ops;
 use node_codec::NodeCodec;
 
@@ -25,7 +24,7 @@ use alloc::vec::Vec;
 
 /// Partial node key type: offset and owned value of a nibbleslice.
 /// Offset is applied on first byte of array (bytes are right aligned).
-pub type NodeKey = (usize, ElasticArray36<u8>);
+pub type NodeKey = (usize, nibble::BackingByteVec);
 
 /// A reference to a trie node which may be stored within another trie node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

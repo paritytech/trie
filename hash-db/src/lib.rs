@@ -72,7 +72,7 @@ pub trait PlainDB<K, V>: Send + Sync + AsPlainDB<K, V> {
 	/// hash is not known.
 	fn get(&self, key: &K) -> Option<V>;
 
-	/// Check for the existance of a hash-key.
+	/// Check for the existence of a hash-key.
 	fn contains(&self, key: &K) -> bool;
 
 	/// Insert a datum item into the DB. Insertions are counted and the equivalent
@@ -113,7 +113,7 @@ pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 	/// hash is not known.
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
 
-	/// Check for the existance of a hash-key.
+	/// Check for the existence of a hash-key.
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool;
 
 	/// Insert a datum item into the DB and return the datum's hash for a later lookup. Insertions

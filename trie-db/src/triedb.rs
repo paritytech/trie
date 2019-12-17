@@ -56,7 +56,7 @@ use alloc::vec::Vec;
 ///   RefTrieDBMut::new(&mut memdb, &mut root).insert(b"foo", b"bar").unwrap();
 ///   let t = RefTrieDB::new(&memdb, &root).unwrap();
 ///   assert!(t.contains(b"foo").unwrap());
-///   assert_eq!(t.get(b"foo").unwrap().unwrap(), DBValue::from_slice(b"bar"));
+///   assert_eq!(t.get(b"foo").unwrap().unwrap(), b"bar".to_vec());
 /// }
 /// ```
 pub struct TrieDB<'db, L>
@@ -119,7 +119,7 @@ where
 
 				(Some(node_hash), node_data)
 			}
-			NodeHandle::Inline(data) => (None, DBValue::from_slice(data)),
+			NodeHandle::Inline(data) => (None, data.to_vec()),
 		};
 		let owned_node = OwnedNode::new::<L::Codec>(node_data)
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or(parent_hash), e)))?;
@@ -320,7 +320,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 								TrieError::ValueAtIncompleteKey(key, extra_nibble)
 							)));
 						}
-						return Some(Ok((key, DBValue::from_slice(value))));
+						return Some(Ok((key, value.to_vec())));
 					}
 				},
 				Err(err) => return Some(Err(err)),
@@ -417,7 +417,7 @@ mod tests {
 			iter.next().unwrap().unwrap(),
 			(
 				hex!("0103000000000000000464").to_vec(),
-				DBValue::from_slice(&hex!("fffffffffe")[..]),
+				hex!("fffffffffe").to_vec(),
 			)
 		);
 		iter.seek(&hex!("00")[..]).unwrap();
@@ -458,7 +458,7 @@ mod tests {
 		let mut iter = t.iter().unwrap();
 		assert_eq!(
 			iter.next().unwrap().unwrap(),
-			(hex!("0103000000000000000464").to_vec(), DBValue::from_slice(&hex!("fffffffffe")[..]))
+			(hex!("0103000000000000000464").to_vec(), hex!("fffffffffe").to_vec())
 		);
 		iter.seek(&hex!("00")[..]).unwrap();
 		assert_eq!(
@@ -476,10 +476,10 @@ mod tests {
 	#[test]
 	fn iterator() {
 		let d = vec![
-			DBValue::from_slice(b"A"),
-			DBValue::from_slice(b"AA"),
-			DBValue::from_slice(b"AB"),
-			DBValue::from_slice(b"B"),
+			b"A".to_vec(),
+			b"AA".to_vec(),
+			b"AB".to_vec(),
+			b"B".to_vec(),
 		];
 
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
@@ -494,7 +494,7 @@ mod tests {
 		let t = RefTrieDB::new(&memdb, &root).unwrap();
 		assert_eq!(
 			d.iter()
-				.map(|i| i.clone().into_vec())
+				.map(|i| i.clone())
 				.collect::<Vec<_>>(),
 			t.iter()
 				.unwrap()
@@ -507,10 +507,10 @@ mod tests {
 	#[test]
 	fn iterator_without_extension() {
 		let d = vec![
-			DBValue::from_slice(b"A"),
-			DBValue::from_slice(b"AA"),
-			DBValue::from_slice(b"AB"),
-			DBValue::from_slice(b"B"),
+			b"A".to_vec(),
+			b"AA".to_vec(),
+			b"AB".to_vec(),
+			b"B".to_vec(),
 		];
 
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
@@ -524,7 +524,7 @@ mod tests {
 
 		let t = RefTrieDBNoExt::new(&memdb, &root).unwrap();
 		assert_eq!(
-			d.iter().map(|i| i.clone().into_vec()).collect::<Vec<_>>(),
+			d.iter().map(|i| i.clone()).collect::<Vec<_>>(),
 			t.iter().unwrap().map(|x| x.unwrap().0).collect::<Vec<_>>(),
 		);
 		assert_eq!(d, t.iter().unwrap().map(|x| x.unwrap().1).collect::<Vec<_>>());
@@ -533,10 +533,10 @@ mod tests {
 	#[test]
 	fn iterator_seek() {
 		let d = vec![
-			DBValue::from_slice(b"A"),
-			DBValue::from_slice(b"AA"),
-			DBValue::from_slice(b"AB"),
-			DBValue::from_slice(b"B"),
+			b"A".to_vec(),
+			b"AA".to_vec(),
+			b"AB".to_vec(),
+			b"B".to_vec(),
 		];
 
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
@@ -550,7 +550,7 @@ mod tests {
 
 		let t = RefTrieDBNoExt::new(&memdb, &root).unwrap();
 		let mut iter = t.iter().unwrap();
-		assert_eq!(iter.next().unwrap().unwrap(), (b"A".to_vec(), DBValue::from_slice(b"A")));
+		assert_eq!(iter.next().unwrap().unwrap(), (b"A".to_vec(), b"A".to_vec()));
 		iter.seek(b"!").unwrap();
 		assert_eq!(d, iter.map(|x| x.unwrap().1).collect::<Vec<_>>());
 		let mut iter = t.iter().unwrap();
@@ -611,10 +611,10 @@ mod tests {
 	#[test]
 	fn debug_output_supports_pretty_print() {
 		let d = vec![
-			DBValue::from_slice(b"A"),
-			DBValue::from_slice(b"AA"),
-			DBValue::from_slice(b"AB"),
-			DBValue::from_slice(b"B"),
+			b"A".to_vec(),
+			b"AA".to_vec(),
+			b"AB".to_vec(),
+			b"B".to_vec(),
 		];
 
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
