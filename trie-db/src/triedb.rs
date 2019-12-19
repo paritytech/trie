@@ -225,7 +225,7 @@ where
 						.finish()
 				},
 				Node::NibbledBranch(slice, nodes, value) => {
-					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.into_iter()
+					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.iter()
 						.enumerate()
 						.filter_map(|(i, n)| n.map(|n| (i, n)))
 						.map(|(i, n)| TrieAwareDebugNode {

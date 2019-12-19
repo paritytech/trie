@@ -109,7 +109,6 @@ where
 
 #[cfg(test)]
 mod test {
-	use DBValue;
 	use memory_db::{MemoryDB, HashKey};
 	use hash_db::{Hasher, EMPTY_PREFIX};
 	use keccak_hasher::KeccakHasher;
