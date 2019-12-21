@@ -16,6 +16,8 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+extern crate parity_util_mem;
+
 #[cfg(feature = "std")]
 use std::fmt::Debug;
 #[cfg(feature = "std")]
@@ -32,6 +34,14 @@ pub trait MaybeDebug {}
 #[cfg(not(feature = "std"))]
 impl<T> MaybeDebug for T {}
 
+#[cfg(feature = "std")]
+pub trait MaybeMallocSizeOf: parity_util_mem::MallocSizeOf {}
+#[cfg(feature = "std")]
+impl<T: parity_util_mem::MallocSizeOf> MaybeMallocSizeOf for T {}
+#[cfg(not(feature = "std"))]
+pub trait MaybeMallocSizeOf {}
+#[cfg(not(feature = "std"))]
+impl<T> MaybeMallocSizeOf for T {}
 
 /// A trie node prefix, it is the nibble path from the trie root
 /// to the trie node.
@@ -54,7 +64,7 @@ pub static EMPTY_PREFIX: Prefix<'static> = (&[], None);
 pub trait Hasher: Sync + Send {
 	/// The output type of the `Hasher`
 	type Out: AsRef<[u8]> + AsMut<[u8]> + Default + MaybeDebug + PartialEq + Eq
-		+ hash::Hash + Send + Sync + Clone + Copy;
+		+ hash::Hash + Send + Sync + Clone + Copy + MaybeMallocSizeOf;
 	/// What to use to build `HashMap`s with this `Hasher`.
 	type StdHasher: Sync + Send + Default + hash::Hasher;
 	/// The length in bytes of the `Hasher` output.

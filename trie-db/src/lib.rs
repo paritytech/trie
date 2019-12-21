@@ -70,6 +70,15 @@ pub trait MaybeDebug {}
 #[cfg(not(feature = "std"))]
 impl<T> MaybeDebug for T {}
 
+#[cfg(feature = "std")]
+pub trait MaybeMallocSizeOf: parity_util_mem::MallocSizeOf {}
+#[cfg(feature = "std")]
+impl<T: parity_util_mem::MallocSizeOf> MaybeMallocSizeOf for T {}
+#[cfg(not(feature = "std"))]
+pub trait MaybeMallocSizeOf {}
+#[cfg(not(feature = "std"))]
+impl<T> MaybeMallocSizeOf for T {}
+
 
 pub mod node;
 pub mod triedb;

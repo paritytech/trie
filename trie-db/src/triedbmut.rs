@@ -96,7 +96,7 @@ enum Node<H> {
 
 impl<O> Node<O>
 where
-	O: AsRef<[u8]> + AsMut<[u8]> + Default + crate::MaybeDebug
+	O: AsRef<[u8]> + AsMut<[u8]> + Default + crate::MaybeDebug + crate::MaybeMallocSizeOf
 		+ PartialEq + Eq + Hash + Send + Sync + Clone + Copy
 {
 	// load an inline node into memory or get the hash to do the lookup later.

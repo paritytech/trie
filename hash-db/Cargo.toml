@@ -7,7 +7,9 @@ license = "Apache-2.0"
 categories = [ "no-std" ]
 repository = "https://github.com/paritytech/trie"
 
+[dependencies]
+parity-util-mem = { version = "0.3", optional = true }
+
 [features]
 default = ["std"]
-std = [
-]
+std = ["parity-util-mem"]
