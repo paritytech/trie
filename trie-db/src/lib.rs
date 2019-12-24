@@ -16,7 +16,7 @@
 //! Trie interface and implementation.
 
 #[cfg(not(feature = "std"))]
-extern crate alloc;
+#[macro_use] extern crate alloc;
 
 extern crate smallvec;
 extern crate hash_db;
