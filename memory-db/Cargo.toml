@@ -5,6 +5,7 @@ authors = ["Parity Technologies <admin@parity.io>"]
 description = "In-memory implementation of hash-db, useful for tests"
 repository = "https://github.com/paritytech/trie"
 license = "Apache-2.0"
+edition = "2018"
 
 [dependencies]
 heapsize = { version = "0.4", optional = true }

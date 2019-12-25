@@ -17,16 +17,16 @@
 use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_hash};
-use node_codec::NodeCodec;
+use crate::node_codec::NodeCodec;
 use super::{DBValue, node::NodeKey};
 
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
-use nibble::{NibbleVec, NibbleSlice, nibble_ops, BackingByteVec};
-use ::core_::convert::TryFrom;
-use ::core_::mem;
-use ::core_::ops::Index;
-use ::core_::hash::Hash;
-use ::core_::result;
+use crate::nibble::{NibbleVec, NibbleSlice, nibble_ops, BackingByteVec};
+use crate::core_::convert::TryFrom;
+use crate::core_::mem;
+use crate::core_::ops::Index;
+use crate::core_::hash::Hash;
+use crate::core_::result;
 
 #[cfg(feature = "std")]
 use ::std::collections::{HashSet, VecDeque};
@@ -1595,14 +1595,14 @@ fn combine_key(start: &mut NodeKey, end: (usize, &[u8])) {
 #[cfg(test)]
 mod tests {
 	use env_logger;
-	use standardmap::*;
-	use DBValue;
+	use crate::standardmap::*;
+	use crate::DBValue;
 	use memory_db::{MemoryDB, PrefixedKey};
 	use hash_db::{Hasher, HashDB};
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, NodeCodec,
 		ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension};
-	use nibble::BackingByteVec;
+	use crate::nibble::BackingByteVec;
 
 	fn populate_trie<'db>(
 		db: &'db mut dyn HashDB<KeccakHasher, DBValue>,

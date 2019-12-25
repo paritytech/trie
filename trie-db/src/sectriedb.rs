@@ -91,7 +91,7 @@ mod test {
 	use hash_db::Hasher;
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefTrieDBMut, RefSecTrieDB, Trie, TrieMut};
-	use DBValue;
+	use crate::DBValue;
 
 	#[test]
 	fn trie_to_sectrie() {

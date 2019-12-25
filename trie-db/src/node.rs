@@ -13,12 +13,12 @@
 // limitations under the License.
 
 use hash_db::Hasher;
-use nibble::{self, NibbleSlice};
-use nibble::nibble_ops;
-use node_codec::NodeCodec;
+use crate::nibble::{self, NibbleSlice};
+use crate::nibble::nibble_ops;
+use crate::node_codec::NodeCodec;
 
-use core_::borrow::Borrow;
-use core_::ops::Range;
+use crate::core_::borrow::Borrow;
+use crate::core_::ops::Range;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
