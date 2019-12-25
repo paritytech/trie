@@ -16,8 +16,8 @@
 //! to parametrize the hashes used in the codec.
 
 use hash_db::MaybeDebug;
-use node::{Node, NodePlan};
-use ChildReference;
+use crate::node::{Node, NodePlan};
+use crate::ChildReference;
 #[cfg(feature = "std")]
 use std::borrow::Borrow;
 #[cfg(not(feature = "std"))]

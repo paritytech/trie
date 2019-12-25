@@ -97,14 +97,14 @@ pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
 pub use self::nibble::{NibbleSlice, NibbleVec, nibble_ops};
-pub use node_codec::{NodeCodec, Partial};
-pub use iter_build::{trie_visit, ProcessEncodedNode,
+pub use crate::node_codec::{NodeCodec, Partial};
+pub use crate::iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed};
-pub use iterator::TrieDBNodeIterator;
-pub use trie_codec::{decode_compact, encode_compact};
+pub use crate::iterator::TrieDBNodeIterator;
+pub use crate::trie_codec::{decode_compact, encode_compact};
 
 #[cfg(feature = "std")]
-pub use iter_build::TrieRootPrint;
+pub use crate::iter_build::TrieRootPrint;
 
 /// Database value
 pub type DBValue = Vec<u8>;
@@ -167,7 +167,7 @@ impl<T, E> Error for TrieError<T, E> where T: fmt::Debug, E: Error {
 
 /// Trie result type.
 /// Boxed to avoid copying around extra space for the `Hasher`s `Out` on successful queries.
-pub type Result<T, H, E> = ::core_::result::Result<T, Box<TrieError<H, E>>>;
+pub type Result<T, H, E> = crate::core_::result::Result<T, Box<TrieError<H, E>>>;
 
 
 /// Trie-Item type used for iterators over trie data.
