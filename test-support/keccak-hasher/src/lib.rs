@@ -14,47 +14,51 @@
 
 //! Hasher implementation for the Keccak-256 hash
 
+extern crate hash256_std_hasher;
 extern crate hash_db;
 extern crate tiny_keccak;
-extern crate hash256_std_hasher;
 
+use hash256_std_hasher::Hash256StdHasher;
 use hash_db::Hasher;
 use tiny_keccak::Keccak;
-use hash256_std_hasher::Hash256StdHasher;
 
 /// Concrete `Hasher` impl for the Keccak-256 hash
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct KeccakHasher;
 impl Hasher for KeccakHasher {
-	type Out = [u8; 32];
+    type Out = [u8; 32];
 
-	type StdHasher = Hash256StdHasher;
+    type StdHasher = Hash256StdHasher;
 
-	const LENGTH: usize = 32;
+    const LENGTH: usize = 32;
 
-	fn hash(x: &[u8]) -> Self::Out {
-		let mut out = [0u8; 32];
-		Keccak::keccak256(x, &mut out);
-		out
-	}
+    fn hash(x: &[u8]) -> Self::Out {
+        let mut out = [0u8; 32];
+        Keccak::keccak256(x, &mut out);
+        out
+    }
 }
 
 #[cfg(test)]
 mod tests {
-	use super::*;
-	use std::collections::HashMap;
+    use super::*;
+    use std::collections::HashMap;
 
-	#[test]
-	fn hash256_std_hasher_works() {
-		let hello_bytes = b"Hello world!";
-		let hello_key = KeccakHasher::hash(hello_bytes);
+    #[test]
+    fn hash256_std_hasher_works() {
+        let hello_bytes = b"Hello world!";
+        let hello_key = KeccakHasher::hash(hello_bytes);
 
-		let mut h: HashMap<<KeccakHasher as Hasher>::Out, Vec<u8>> = Default::default();
-		h.insert(hello_key, hello_bytes.to_vec());
-		h.remove(&hello_key);
+        let mut h: HashMap<<KeccakHasher as Hasher>::Out, Vec<u8>> = Default::default();
+        h.insert(hello_key, hello_bytes.to_vec());
+        h.remove(&hello_key);
 
-		let mut h: HashMap<<KeccakHasher as Hasher>::Out, Vec<u8>, std::hash::BuildHasherDefault<Hash256StdHasher>> = Default::default();
-		h.insert(hello_key, hello_bytes.to_vec());
-		h.remove(&hello_key);
-	}
+        let mut h: HashMap<
+            <KeccakHasher as Hasher>::Out,
+            Vec<u8>,
+            std::hash::BuildHasherDefault<Hash256StdHasher>,
+        > = Default::default();
+        h.insert(hello_key, hello_bytes.to_vec());
+        h.remove(&hello_key);
+    }
 }

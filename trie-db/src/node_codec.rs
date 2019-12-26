@@ -15,21 +15,20 @@
 //! Generic trait for trie node encoding/decoding. Takes a `hash_db::Hasher`
 //! to parametrize the hashes used in the codec.
 
-use hash_db::MaybeDebug;
 use crate::node::{Node, NodePlan};
 use crate::ChildReference;
-#[cfg(feature = "std")]
-use std::borrow::Borrow;
 #[cfg(not(feature = "std"))]
 use core::borrow::Borrow;
-#[cfg(feature = "std")]
-use std::hash;
 #[cfg(not(feature = "std"))]
 use core::hash;
+use hash_db::MaybeDebug;
+#[cfg(feature = "std")]
+use std::borrow::Borrow;
+#[cfg(feature = "std")]
+use std::hash;
 
 #[cfg(feature = "std")]
 use std::error::Error;
-
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
@@ -44,60 +43,69 @@ impl<T> Error for T {}
 /// It contains a right aligned padded first byte (first pair element is the number of nibbles
 /// (0 to max nb nibble - 1), second pair element is the padded nibble), and a slice over
 /// the remaining bytes.
-pub type Partial<'a> = ((u8, u8), &'a[u8]);
+pub type Partial<'a> = ((u8, u8), &'a [u8]);
 
 /// Trait for trie node encoding/decoding.
 pub trait NodeCodec: Sized {
-	/// Codec error type.
-	type Error: Error;
+    /// Codec error type.
+    type Error: Error;
 
-	/// Output type of encoded node hasher.
-	type HashOut: AsRef<[u8]> + AsMut<[u8]> + Default + MaybeDebug + PartialEq + Eq
-		+ hash::Hash + Send + Sync + Clone + Copy;
+    /// Output type of encoded node hasher.
+    type HashOut: AsRef<[u8]>
+        + AsMut<[u8]>
+        + Default
+        + MaybeDebug
+        + PartialEq
+        + Eq
+        + hash::Hash
+        + Send
+        + Sync
+        + Clone
+        + Copy;
 
-	/// Get the hashed null node.
-	fn hashed_null_node() -> Self::HashOut;
+    /// Get the hashed null node.
+    fn hashed_null_node() -> Self::HashOut;
 
-	/// Decode bytes to a `NodePlan`. Returns `Self::E` on failure.
-	fn decode_plan(data: &[u8]) -> Result<NodePlan, Self::Error>;
+    /// Decode bytes to a `NodePlan`. Returns `Self::E` on failure.
+    fn decode_plan(data: &[u8]) -> Result<NodePlan, Self::Error>;
 
-	/// Decode bytes to a `Node`. Returns `Self::E` on failure.
-	fn decode(data: &[u8]) -> Result<Node, Self::Error> {
-		Ok(Self::decode_plan(data)?.build(data))
-	}
+    /// Decode bytes to a `Node`. Returns `Self::E` on failure.
+    fn decode(data: &[u8]) -> Result<Node, Self::Error> {
+        Ok(Self::decode_plan(data)?.build(data))
+    }
 
-	/// Check if the provided bytes correspond to the codecs "empty" node.
-	fn is_empty_node(data: &[u8]) -> bool;
+    /// Check if the provided bytes correspond to the codecs "empty" node.
+    fn is_empty_node(data: &[u8]) -> bool;
 
-	/// Returns an encoded empty node.
-	fn empty_node() -> &'static [u8];
+    /// Returns an encoded empty node.
+    fn empty_node() -> &'static [u8];
 
-	/// Returns an encoded leaf node
-	fn leaf_node(partial: Partial, value: &[u8]) -> Vec<u8>;
+    /// Returns an encoded leaf node
+    fn leaf_node(partial: Partial, value: &[u8]) -> Vec<u8>;
 
-	/// Returns an encoded extension node
-	/// Note that number_nibble is the number of element of the iterator
-	/// it can possibly be obtain by `Iterator` `size_hint`, but
-	/// for simplicity it is used directly as a parameter.
-	fn extension_node(
-		partial: impl Iterator<Item = u8>,
-		number_nibble: usize,
-		child_ref: ChildReference<Self::HashOut>,
-	) -> Vec<u8>;
+    /// Returns an encoded extension node
+    /// Note that number_nibble is the number of element of the iterator
+    /// it can possibly be obtain by `Iterator` `size_hint`, but
+    /// for simplicity it is used directly as a parameter.
+    fn extension_node(
+        partial: impl Iterator<Item = u8>,
+        number_nibble: usize,
+        child_ref: ChildReference<Self::HashOut>,
+    ) -> Vec<u8>;
 
-	/// Returns an encoded branch node.
-	/// Takes an iterator yielding `ChildReference<Self::HashOut>` and an optional value.
-	fn branch_node(
-		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		value: Option<&[u8]>,
-	) -> Vec<u8>;
+    /// Returns an encoded branch node.
+    /// Takes an iterator yielding `ChildReference<Self::HashOut>` and an optional value.
+    fn branch_node(
+        children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+        value: Option<&[u8]>,
+    ) -> Vec<u8>;
 
-	/// Returns an encoded branch node with a possible partial path.
-	/// `number_nibble` is the partial path length as in `extension_node`.
-	fn branch_node_nibbled(
-		partial: impl Iterator<Item = u8>,
-		number_nibble: usize,
-		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		value: Option<&[u8]>
-	) -> Vec<u8>;
+    /// Returns an encoded branch node with a possible partial path.
+    /// `number_nibble` is the partial path length as in `extension_node`.
+    fn branch_node_nibbled(
+        partial: impl Iterator<Item = u8>,
+        number_nibble: usize,
+        children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+        value: Option<&[u8]>,
+    ) -> Vec<u8>;
 }
