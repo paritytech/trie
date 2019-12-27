@@ -17,7 +17,7 @@
 mod nibblevec;
 mod nibbleslice;
 use crate::node::NodeKey;
-use core_::cmp;
+use crate::core_::cmp;
 
 /// Utility methods to work on radix 16 nibble.
 pub mod nibble_ops {

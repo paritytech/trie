@@ -15,9 +15,9 @@
 //! Trie lookup via HashDB.
 
 use hash_db::HashDBRef;
-use nibble::NibbleSlice;
-use node::{Node, NodeHandle, decode_hash};
-use node_codec::NodeCodec;
+use crate::nibble::NibbleSlice;
+use crate::node::{Node, NodeHandle, decode_hash};
+use crate::node_codec::NodeCodec;
 use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash};
 
 #[cfg(not(feature = "std"))]

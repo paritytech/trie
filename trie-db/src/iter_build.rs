@@ -18,12 +18,12 @@
 //! See `trie_visit` function.
 
 use hash_db::{Hasher, HashDB, Prefix};
-use core_::marker::PhantomData;
-use core_::cmp::max;
+use crate::core_::marker::PhantomData;
+use crate::core_::cmp::max;
 use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
 use crate::nibble::nibble_ops;
-use node_codec::NodeCodec;
+use crate::node_codec::NodeCodec;
 use crate::{TrieLayout, TrieHash};
 
 #[cfg(not(feature = "std"))]
@@ -478,7 +478,7 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashed<H> {
 
 #[cfg(test)]
 mod test {
-	use DBValue;
+	use crate::DBValue;
 	use memory_db::{MemoryDB, HashKey, PrefixedKey};
 	use keccak_hasher::KeccakHasher;
 

@@ -14,11 +14,11 @@
 
 //! Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
 
-use ::core_::cmp::*;
-use ::core_::fmt;
+use crate::core_::cmp::*;
+use crate::core_::fmt;
 use super::{nibble_ops, NibbleSlice, NibbleSliceIterator, BackingByteVec};
-use node::NodeKey;
-use node_codec::Partial;
+use crate::node::NodeKey;
+use crate::node_codec::Partial;
 use hash_db::Prefix;
 
 impl<'a> Iterator for NibbleSliceIterator<'a> {
@@ -158,7 +158,7 @@ impl<'a> NibbleSlice<'a> {
 	pub fn right_iter(&'a self) -> impl Iterator<Item = u8> + 'a {
 		let (mut first, sl) = self.right();
 		let mut ix = 0;
-		::core_::iter::from_fn(move || {
+		crate::core_::iter::from_fn(move || {
 			if first.0 > 0 {
 				first.0 = 0;
 				Some(nibble_ops::pad_right(first.1))
@@ -181,7 +181,7 @@ impl<'a> NibbleSlice<'a> {
 		let aligned = aligned_i == 0;
 		let mut ix = self.offset / nibble_ops::NIBBLE_PER_BYTE;
 		let ix_lim = (self.offset + to) / nibble_ops::NIBBLE_PER_BYTE;
-		::core_::iter::from_fn( move || {
+		crate::core_::iter::from_fn( move || {
 			if aligned {
 				if nib_res > 0 {
 					let v = nibble_ops::pad_right(self.data[ix]);

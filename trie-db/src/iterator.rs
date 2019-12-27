@@ -14,9 +14,9 @@
 
 use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout};
 use hash_db::{Hasher, EMPTY_PREFIX};
-use triedb::TrieDB;
-use node::{NodePlan, NodeHandle, OwnedNode};
-use nibble::{NibbleSlice, NibbleVec, nibble_ops};
+use crate::triedb::TrieDB;
+use crate::node::{NodePlan, NodeHandle, OwnedNode};
+use crate::nibble::{NibbleSlice, NibbleVec, nibble_ops};
 
 #[cfg(feature = "std")]
 use ::std::rc::Rc;

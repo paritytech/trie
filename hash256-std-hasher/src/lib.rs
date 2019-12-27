@@ -14,14 +14,13 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-#[macro_use]
-extern crate crunchy;
-
 #[cfg(feature = "std")]
 use std::hash;
 
 #[cfg(not(feature = "std"))]
 use core::hash;
+
+use crunchy::unroll;
 
 /// Hasher that just takes 8 bytes of the provided value.
 /// May only be used for keys which are 32 bytes.
@@ -61,7 +60,7 @@ impl hash::Hasher for Hash256StdHasher {
 
 #[cfg(test)]
 mod tests {
-	use hash::Hasher;
+	use std::hash::Hasher;
 	use super::Hash256StdHasher;
 
 	#[test]
