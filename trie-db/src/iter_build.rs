@@ -204,11 +204,11 @@ impl<T, V> CacheAccum<T, V>
 			v.as_ref().map(|v| v.as_ref()),
 		);
 		self.reset_depth(branch_d);
-		let pr = NibbleSlice::new_offset(&key_branch.as_ref()[..], branch_d);
+		let pr = NibbleSlice::new_offset(&key_branch, branch_d);
 		let branch_hash = callback.process(pr.left(), encoded, is_root && nkey.is_none());
 
 		if let Some(nkeyix) = nkey {
-			let pr = NibbleSlice::new_offset(&key_branch.as_ref()[..], nkeyix.0);
+			let pr = NibbleSlice::new_offset(&key_branch, nkeyix.0);
 			let nib = pr.right_range_iter(nkeyix.1);
 			let encoded = T::Codec::extension_node(nib, nkeyix.1, branch_hash);
 			let h = callback.process(pr.left(), encoded, is_root);
@@ -232,7 +232,7 @@ impl<T, V> CacheAccum<T, V>
 		// encode branch
 		let v = self.0[last].1.take();
 		let nkeyix = nkey.unwrap_or((0, 0));
-		let pr = NibbleSlice::new_offset(&key_branch.as_ref()[..], nkeyix.0);
+		let pr = NibbleSlice::new_offset(&key_branch, nkeyix.0);
 		let encoded = T::Codec::branch_node_nibbled(
 			pr.right_range_iter(nkeyix.1),
 			nkeyix.1,
@@ -240,7 +240,7 @@ impl<T, V> CacheAccum<T, V>
 		self.reset_depth(branch_d);
 		let ext_length = nkey.as_ref().map(|nkeyix| nkeyix.0).unwrap_or(0);
 		let pr = NibbleSlice::new_offset(
-			&key_branch.as_ref()[..],
+			&key_branch,
 			branch_d - ext_length,
 		);
 		callback.process(pr.left(), encoded, is_root)
