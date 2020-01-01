@@ -44,6 +44,8 @@ use std::rc::Rc;
 use alloc::rc::Rc;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
 
 struct EncoderStackEntry<C: NodeCodec> {
 	/// The prefix is the nibble path to the node in the trie.
