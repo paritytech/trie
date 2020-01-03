@@ -94,7 +94,7 @@ mod test {
 	use hash_db::Hasher;
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefTrieDB, RefSecTrieDBMut, Trie, TrieMut};
-	use DBValue;
+	use crate::DBValue;
 
 	#[test]
 	fn sectrie_to_trie() {
@@ -107,7 +107,7 @@ mod test {
 		let t = RefTrieDB::new(&memdb, &root).unwrap();
 		assert_eq!(
 			t.get(&KeccakHasher::hash(&[0x01u8, 0x23])).unwrap().unwrap(),
-			DBValue::from_slice(&[0x01u8, 0x23]),
+			vec![0x01u8, 0x23],
 		);
 	}
 }

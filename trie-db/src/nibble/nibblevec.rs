@@ -13,11 +13,11 @@
 // limitations under the License.
 
 //! An owning, nibble-oriented byte vector.
-use elastic_array::ElasticArray36;
-use nibble::NibbleSlice;
-use nibble::nibble_ops;
+
+use crate::nibble::{NibbleSlice, BackingByteVec};
+use crate::nibble::nibble_ops;
 use hash_db::Prefix;
-use node_codec::Partial;
+use crate::node_codec::Partial;
 use super::NibbleVec;
 
 impl Default for NibbleVec {
@@ -30,7 +30,7 @@ impl NibbleVec {
 	/// Make a new `NibbleVec`.
 	pub fn new() -> Self {
 		NibbleVec {
-			inner: ElasticArray36::new(),
+			inner: BackingByteVec::new(),
 			len: 0,
 		}
 	}
@@ -152,7 +152,7 @@ impl NibbleVec {
 		}
 		let pad = self.inner.len() * nibble_ops::NIBBLE_PER_BYTE - self.len;
 		if pad == 0 {
-			self.inner.append_slice(&sl[..]);
+			self.inner.extend_from_slice(&sl[..]);
 		} else {
 			let kend = self.inner.len() - 1;
 			if sl.len() > 0 {
@@ -218,6 +218,24 @@ impl NibbleVec {
 		}
 	}
 
+	/// Do we start with the same nibbles as the whole of `them`?
+	pub fn starts_with(&self, other: &Self) -> bool {
+		if self.len() < other.len() {
+			return false;
+		}
+		let byte_len = other.len() / nibble_ops::NIBBLE_PER_BYTE;
+		if &self.inner[..byte_len] != &other.inner[..byte_len] {
+			return false;
+		}
+		for pad in 0..(other.len() - byte_len * nibble_ops::NIBBLE_PER_BYTE) {
+			let self_nibble = nibble_ops::at_left(pad as u8, self.inner[byte_len]);
+			let other_nibble = nibble_ops::at_left(pad as u8, other.inner[byte_len]);
+			if self_nibble != other_nibble {
+				return false;
+			}
+		}
+		true
+	}
 }
 
 impl<'a> From<NibbleSlice<'a>> for NibbleVec {

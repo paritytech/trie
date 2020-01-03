@@ -17,17 +17,18 @@
 use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_hash};
-use node_codec::NodeCodec;
+use crate::node_codec::NodeCodec;
 use super::{DBValue, node::NodeKey};
 
 use crate::node::OwnedNode;
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
-use nibble::{NibbleVec, NibbleSlice, nibble_ops};
-use elastic_array::ElasticArray36;
-use ::core_::borrow::Borrow;
-use ::core_::mem;
-use ::core_::ops::Index;
-use ::core_::hash::Hash;
+use crate::nibble::{NibbleVec, NibbleSlice, nibble_ops, BackingByteVec};
+use crate::core_::convert::TryFrom;
+use crate::core_::mem;
+use crate::core_::ops::Index;
+use crate::core_::borrow::Borrow;
+use crate::core_::hash::Hash;
+use crate::core_::result;
 
 #[cfg(feature = "std")]
 use ::std::collections::{HashSet, VecDeque};
@@ -432,7 +433,7 @@ where
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash, e)))?;
 		let node = match encoded_node {
 			EncodedNode::Empty => Node::Empty,
-			EncodedNode::Leaf(k, v) => Node::Leaf(k.into(), DBValue::from_slice(&v)),
+			EncodedNode::Leaf(k, v) => Node::Leaf(k.into(), v.to_vec()),
 			EncodedNode::Extension(key, cb) => {
 				Node::Extension(
 					key.into(),
@@ -453,7 +454,7 @@ where
 					child(12)?, child(13)?, child(14)?, child(15)?,
 				]);
 
-				Node::Branch(children, val.map(DBValue::from_slice))
+				Node::Branch(children, val.map(|v| v.to_vec()))
 			},
 			EncodedNode::NibbledBranch(k, encoded_children, val) => {
 				let mut child = |i:usize| match encoded_children[i] {
@@ -469,7 +470,7 @@ where
 					child(12)?, child(13)?, child(14)?, child(15)?,
 				]);
 
-				Node::NibbledBranch(k.into(), children, val.map(DBValue::from_slice))
+				Node::NibbledBranch(k.into(), children, val.map(|v| v.to_vec()))
 			},
 		};
 		Ok(node)
@@ -640,9 +641,37 @@ enum Stored<H> {
 }
 
 /// Used to build a collection of child nodes from a collection of `NodeHandle`s
+#[derive(Clone, Copy)]
 pub enum ChildReference<HO> { // `HO` is e.g. `H256`, i.e. the output of a `Hasher`
 	Hash(HO),
 	Inline(HO, usize), // usize is the length of the node data we store in the `H::Out`
+}
+
+impl<'a, HO> TryFrom<EncodedNodeHandle<'a>> for ChildReference<HO>
+	where HO: AsRef<[u8]> + AsMut<[u8]> + Default + Clone + Copy
+{
+	type Error = Vec<u8>;
+
+	fn try_from(handle: EncodedNodeHandle<'a>) -> result::Result<Self, Vec<u8>> {
+		match handle {
+			EncodedNodeHandle::Hash(data) => {
+				let mut hash = HO::default();
+				if data.len() != hash.as_ref().len() {
+					return Err(data.to_vec());
+				}
+				hash.as_mut().copy_from_slice(data);
+				Ok(ChildReference::Hash(hash))
+			}
+			EncodedNodeHandle::Inline(data) => {
+				let mut hash = HO::default();
+				if data.len() > hash.as_ref().len() {
+					return Err(data.to_vec());
+				}
+				&mut hash.as_mut()[..data.len()].copy_from_slice(data);
+				Ok(ChildReference::Inline(hash, data.len()))
+			}
+		}
+	}
 }
 
 /// Compact and cache-friendly storage for Trie nodes.
@@ -721,7 +750,7 @@ impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
 ///   assert_eq!(*t.root(), KeccakHasher::hash(&[0u8][..]));
 ///   t.insert(b"foo", b"bar").unwrap();
 ///   assert!(t.contains(b"foo").unwrap());
-///   assert_eq!(t.get(b"foo").unwrap().unwrap(), DBValue::from_slice(b"bar"));
+///   assert_eq!(t.get(b"foo").unwrap().unwrap(), b"bar".to_vec());
 ///   t.remove(b"foo").unwrap();
 ///   assert!(!t.contains(b"foo").unwrap());
 /// }
@@ -734,7 +763,7 @@ where
 	db: &'a mut dyn HashDB<L::Hash, DBValue>,
 	root: &'a mut TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>, StorageHandle>,
-	death_row: HashSet<(TrieHash<L>, (ElasticArray36<u8>, Option<u8>))>,
+	death_row: HashSet<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
 	/// The number of hash operations this trie has performed.
 	/// Note that none are performed until changes are committed.
 	hash_count: usize,
@@ -854,14 +883,14 @@ where
 			let (mid, child) = match *handle {
 				NodeHandle::Hash(ref hash) => return Lookup::<L, _> {
 					db: &self.db,
-					query: DBValue::from_slice,
+					query: |v: &[u8]| v.to_vec(),
 					hash: hash.clone(),
 				}.look_up(partial),
 				NodeHandle::InMemory(ref handle) => match self.storage[handle] {
 					Node::Empty => return Ok(None),
 					Node::Leaf(ref key, ref value) => {
 						if NibbleSlice::from_stored(key) == partial {
-							return Ok(Some(DBValue::from_slice(value)));
+							return Ok(Some(value.to_vec()));
 						} else {
 							return Ok(None);
 						}
@@ -876,7 +905,7 @@ where
 					},
 					Node::Branch(ref children, ref value) => {
 						if partial.is_empty() {
-							return Ok(value.as_ref().map(|v| DBValue::from_slice(v)));
+							return Ok(value.as_ref().map(|v| v.to_vec()));
 						} else {
 							let idx = partial.at(0);
 							match children[idx as usize].as_ref() {
@@ -888,7 +917,7 @@ where
 					Node::NibbledBranch(ref slice, ref children, ref value) => {
 						let slice = NibbleSlice::from_stored(slice);
 						if partial.is_empty() {
-							return Ok(value.as_ref().map(|v| DBValue::from_slice(v)));
+							return Ok(value.as_ref().map(|v| v.to_vec()));
 						} else if partial.starts_with(&slice) {
 							let idx = partial.at(0);
 							match children[idx as usize].as_ref() {
@@ -1564,7 +1593,7 @@ where
 						let (start, alloc_start, prefix_end) = match key2.left() {
 							(start, None) => (start, None, Some(nibble_ops::push_at_left(0, a, 0))),
 							(start, Some(v)) => {
-								let mut so: ElasticArray36<u8> = start.into();
+								let mut so: BackingByteVec = start.into();
 								so.push(nibble_ops::pad_left(v) | a);
 								(start, Some(so), None)
 							},
@@ -1638,7 +1667,7 @@ where
 				let (start, alloc_start, prefix_end) = match key2.left() {
 					(start, None) => (start, None, Some(nibble_ops::push_at_left(0, last, 0))),
 					(start, Some(v)) => {
-						let mut so: ElasticArray36<u8> = start.into();
+						let mut so: BackingByteVec = start.into();
 						// Complete last byte with `last`.
 						so.push(nibble_ops::pad_left(v) | last);
 						(start, Some(so), None)
@@ -1859,7 +1888,7 @@ where
 		let (new_handle, changed) = self.insert_at(
 			root_handle,
 			&mut NibbleSlice::new(key),
-			DBValue::from_slice(value),
+			value.to_vec(),
 			&mut old_val,
 		)?;
 
@@ -1924,14 +1953,14 @@ fn combine_key(start: &mut NodeKey, end: (usize, &[u8])) {
 #[cfg(test)]
 pub(crate) mod tests {
 	use env_logger;
-	use standardmap::*;
-	use DBValue;
+	use crate::standardmap::*;
+	use crate::DBValue;
 	use memory_db::{MemoryDB, PrefixedKey};
 	use hash_db::{Hasher, HashDB};
 	use keccak_hasher::KeccakHasher;
-	use elastic_array::ElasticArray36;
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, NodeCodec,
 		ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension};
+	use crate::nibble::BackingByteVec;
 
 	pub(crate) fn populate_trie<'db>(
 		db: &'db mut dyn HashDB<KeccakHasher, DBValue>,
@@ -2253,9 +2282,9 @@ pub(crate) mod tests {
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
-		assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0x1u8, 0x23]));
+		assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), vec![0x1u8, 0x23]);
 		t.commit();
-		assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0x1u8, 0x23]));
+		assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), vec![0x1u8, 0x23]);
 	}
 
 	#[test]
@@ -2266,14 +2295,14 @@ pub(crate) mod tests {
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[0xf1u8, 0x23], &[0xf1u8, 0x23]).unwrap();
 		t.insert(&[0x81u8, 0x23], &[0x81u8, 0x23]).unwrap();
-		assert_eq!(t.get(&[0x01, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0x01u8, 0x23]));
-		assert_eq!(t.get(&[0xf1, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0xf1u8, 0x23]));
-		assert_eq!(t.get(&[0x81, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0x81u8, 0x23]));
+		assert_eq!(t.get(&[0x01, 0x23]).unwrap().unwrap(), vec![0x01u8, 0x23]);
+		assert_eq!(t.get(&[0xf1, 0x23]).unwrap().unwrap(), vec![0xf1u8, 0x23]);
+		assert_eq!(t.get(&[0x81, 0x23]).unwrap().unwrap(), vec![0x81u8, 0x23]);
 		assert_eq!(t.get(&[0x82, 0x23]).unwrap(), None);
 		t.commit();
-		assert_eq!(t.get(&[0x01, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0x01u8, 0x23]));
-		assert_eq!(t.get(&[0xf1, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0xf1u8, 0x23]));
-		assert_eq!(t.get(&[0x81, 0x23]).unwrap().unwrap(), DBValue::from_slice(&[0x81u8, 0x23]));
+		assert_eq!(t.get(&[0x01, 0x23]).unwrap().unwrap(), vec![0x01u8, 0x23]);
+		assert_eq!(t.get(&[0xf1, 0x23]).unwrap().unwrap(), vec![0xf1u8, 0x23]);
+		assert_eq!(t.get(&[0x81, 0x23]).unwrap().unwrap(), vec![0x81u8, 0x23]);
 		assert_eq!(t.get(&[0x82, 0x23]).unwrap(), None);
 	}
 
@@ -2374,19 +2403,19 @@ pub(crate) mod tests {
 		let mut t = RefTrieDBMut::new(&mut db, &mut root);
 		for &(ref key, ref value) in &x {
 			assert!(t.insert(key, value).unwrap().is_none());
-			assert_eq!(t.insert(key, value).unwrap(), Some(DBValue::from_slice(value)));
+			assert_eq!(t.insert(key, value).unwrap(), Some(value.clone()));
 		}
 		for (key, value) in x {
-			assert_eq!(t.remove(&key).unwrap(), Some(DBValue::from_slice(&value)));
+			assert_eq!(t.remove(&key).unwrap(), Some(value));
 			assert!(t.remove(&key).unwrap().is_none());
 		}
 	}
 
 	#[test]
 	fn combine_test() {
-		let a: ElasticArray36<u8> = [0x12, 0x34][..].into();
+		let a: BackingByteVec = [0x12, 0x34][..].into();
 		let b: &[u8] = [0x56, 0x78][..].into();
-		let test_comb = |a: (_, &ElasticArray36<_>), b, c| { 
+		let test_comb = |a: (_, &BackingByteVec), b, c| {
 			let mut a = (a.0, a.1.clone());
 			super::combine_key(&mut a, b);
 			assert_eq!((a.0, &a.1[..]), c);

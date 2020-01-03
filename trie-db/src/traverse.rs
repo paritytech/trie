@@ -30,12 +30,11 @@ use alloc::vec::Vec;
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 use crate::{TrieLayout, TrieHash, CError, Result, TrieError};
-use crate::DBValue;
+use crate::{DBValue, nibble::BackingByteVec};
 use hash_db::{HashDB, Prefix, EMPTY_PREFIX, Hasher};
 use crate::NodeCodec;
 use ::core_::cmp::*;
 use ::core_::mem;
-use elastic_array::ElasticArray36;
 //#[cfg(feature = "std")]
 //use std::collections::VecDeque;
 //#[cfg(not(feature = "std"))]
@@ -717,7 +716,7 @@ fn fetch<T: TrieLayout, B: Borrow<[u8]>>(
 /// The resulting root hash.
 /// The latest changed node.
 pub struct BatchUpdate<H>(
-	pub Vec<((ElasticArray36<u8>, Option<u8>), H, Option<Vec<u8>>, bool)>,
+	pub Vec<((BackingByteVec, Option<u8>), H, Option<Vec<u8>>, bool)>,
 	pub H,
 	pub Option<usize>,
 );
@@ -791,7 +790,7 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 							stacked.depth_prefix,
 						);
 						let owned = new_slice.to_stored_range(mid_index - stacked.depth_prefix);
-						// TODO EMCH refactor new_leaf to take NodeKey (stored) as input
+						// TODO EMCH refactor new_leaf to take BackingByteVec (stored) as input
 						Node::new_branch(NibbleSlice::from_stored(&owned))
 					};
 					let old_depth = stacked.depth;
@@ -886,11 +885,11 @@ impl<B, T, K, V, S> ProcessStack<B, T, K, V, S> for BatchUpdate<TrieHash<T>>
 }
 
 
-fn owned_prefix(prefix: &Prefix) -> (ElasticArray36<u8>, Option<u8>) { 
+fn owned_prefix(prefix: &Prefix) -> (BackingByteVec, Option<u8>) { 
 	(prefix.0.into(), prefix.1)
 }
 
-fn from_owned_prefix(prefix: &(ElasticArray36<u8>, Option<u8>)) -> Prefix { 
+fn from_owned_prefix(prefix: &(BackingByteVec, Option<u8>)) -> Prefix { 
 	(&prefix.0[..], prefix.1)
 }
 
@@ -904,15 +903,14 @@ mod tests {
 
 	use memory_db::{MemoryDB, PrefixedKey};
 	use keccak_hasher::KeccakHasher;
-	use DBValue;
+	use crate::{DBValue, nibble::BackingByteVec};
 	use hash_db::{EMPTY_PREFIX, Prefix, HashDB};
 	use crate::triedbmut::tests::populate_trie_no_extension;
-	use elastic_array::ElasticArray36;
 
 	type H256 = <KeccakHasher as hash_db::Hasher>::Out;
 
 	fn memory_db_from_delta(
-		delta: Vec<((ElasticArray36<u8>, Option<u8>), H256, Option<Vec<u8>>, bool)>,
+		delta: Vec<((BackingByteVec, Option<u8>), H256, Option<Vec<u8>>, bool)>,
 		mdb: &mut MemoryDB<KeccakHasher, PrefixedKey<KeccakHasher>, DBValue>,
 	) {
 		for (p, h, v, d) in delta {
@@ -1143,6 +1141,4 @@ println!("{:?}", batch_update.0);
 			],
 		);
 	}
-
-
 }
