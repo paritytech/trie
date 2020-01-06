@@ -31,7 +31,7 @@ use alloc::vec::Vec;
 use alloc::boxed::Box;
 use crate::{TrieLayout, TrieHash, CError, Result, TrieError};
 use crate::{DBValue, nibble::BackingByteVec};
-use hash_db::{HashDB, Prefix, EMPTY_PREFIX, Hasher};
+use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX, Hasher};
 use crate::NodeCodec;
 use ::core_::cmp::*;
 use ::core_::mem;
@@ -357,7 +357,7 @@ fn descend_terminal<T, K, V, S, B, F>(
 
 /// The main entry point for traversing a trie by a set of keys.
 pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
-	db: &'a dyn HashDB<T::Hash, B>,
+	db: &'a dyn HashDBRef<T::Hash, B>,
 	root_hash: &'a TrieHash<T>,
 	elements: I,
 	callback: &mut F,
@@ -585,7 +585,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 }
 
 fn align_node<'a, T, K, V, S, B, F>(
-	db: &'a dyn HashDB<T::Hash, B>,
+	db: &'a dyn HashDBRef<T::Hash, B>,
 	callback: &mut F,
 	branch: &mut StackedItem<B, T, S>,
 	key: &[u8],
@@ -699,7 +699,7 @@ fn align_node<'a, T, K, V, S, B, F>(
 
 /// Fetch a node by hash, do not cache it.
 fn fetch<T: TrieLayout, B: Borrow<[u8]>>(
-	db: &dyn HashDB<T::Hash, B>,
+	db: &dyn HashDBRef<T::Hash, B>,
 	hash: &TrieHash<T>,
 	key: Prefix,
 ) -> Result<OwnedNode<B>, TrieHash<T>, CError<T>> {
@@ -904,7 +904,7 @@ mod tests {
 	use memory_db::{MemoryDB, PrefixedKey};
 	use keccak_hasher::KeccakHasher;
 	use crate::{DBValue, nibble::BackingByteVec};
-	use hash_db::{EMPTY_PREFIX, Prefix, HashDB};
+	use hash_db::{EMPTY_PREFIX, Prefix, HashDBRef, HashDB};
 	use crate::triedbmut::tests::populate_trie_no_extension;
 
 	type H256 = <KeccakHasher as hash_db::Hasher>::Out;
@@ -1008,7 +1008,7 @@ println!("{:?}", batch_update.0);
 //		assert_eq!(format!("{:?}", t1), format!("{:?}", t2));
 
 
-		panic!("!!END!!");
+//		panic!("!!END!!");
 
 	}
 

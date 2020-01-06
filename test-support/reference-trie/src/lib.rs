@@ -1190,7 +1190,7 @@ pub fn compare_no_extension_insert_remove(
 
 pub fn trie_traverse_key_no_extension_build<'a, I, K, V, B>(
 	// TODO db to non mutable
-	db: &'a mut dyn hash_db::HashDB<keccak_hasher::KeccakHasher, B>,
+	db: &'a mut dyn hash_db::HashDBRef<keccak_hasher::KeccakHasher, B>,
 	root: &'a [u8; 32],
 	elements: I,
 	batch_update: &'a mut BatchUpdate<<KeccakHasher as Hasher>::Out>,
