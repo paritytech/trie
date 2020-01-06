@@ -699,7 +699,7 @@ fn align_node<'a, T, K, V, S, B, F>(
 
 /// Fetch a node by hash, do not cache it.
 fn fetch<T: TrieLayout, B: Borrow<[u8]>>(
-	db: &mut dyn HashDB<T::Hash, B>,
+	db: &dyn HashDB<T::Hash, B>,
 	hash: &TrieHash<T>,
 	key: Prefix,
 ) -> Result<OwnedNode<B>, TrieHash<T>, CError<T>> {
