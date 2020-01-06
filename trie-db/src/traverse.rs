@@ -357,7 +357,7 @@ fn descend_terminal<T, K, V, S, B, F>(
 
 /// The main entry point for traversing a trie by a set of keys.
 pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
-	db: &'a mut dyn HashDB<T::Hash, B>,
+	db: &'a dyn HashDB<T::Hash, B>,
 	root_hash: &'a TrieHash<T>,
 	elements: I,
 	callback: &mut F,
@@ -585,7 +585,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 }
 
 fn align_node<'a, T, K, V, S, B, F>(
-	db: &'a mut dyn HashDB<T::Hash, B>,
+	db: &'a dyn HashDB<T::Hash, B>,
 	callback: &mut F,
 	branch: &mut StackedItem<B, T, S>,
 	key: &[u8],
