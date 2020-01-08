@@ -14,11 +14,8 @@
 
 //! Nibble oriented methods.
 
-use core_::cmp;
-
-use elastic_array::ElasticArray36;
-
 use crate::node::NodeKey;
+use crate::core_::cmp;
 
 pub use self::leftnibbleslice::LeftNibbleSlice;
 
@@ -151,13 +148,16 @@ pub mod nibble_ops {
 
 }
 
+/// Backing storage for `NibbleVec`s.
+pub(crate) type BackingByteVec = smallvec::SmallVec<[u8; 36]>;
+
 /// Owning, nibble-oriented byte vector. Counterpart to `NibbleSlice`.
 /// Nibbles are always left aligned, so making a `NibbleVec` from
 /// a `NibbleSlice` can get costy.
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Clone, PartialEq, Eq)]
 pub struct NibbleVec {
-	inner: ElasticArray36<u8>,
+	inner: BackingByteVec,
 	len: usize,
 }
 

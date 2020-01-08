@@ -16,9 +16,9 @@
 //! Trie interface and implementation.
 
 #[cfg(not(feature = "std"))]
-extern crate alloc;
+#[macro_use] extern crate alloc;
 
-extern crate elastic_array;
+extern crate smallvec;
 extern crate hash_db;
 extern crate rand;
 #[macro_use]
@@ -98,16 +98,17 @@ pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
 pub use self::nibble::{NibbleSlice, NibbleVec, nibble_ops};
-pub use node_codec::{NodeCodec, Partial};
-pub use iter_build::{trie_visit, ProcessEncodedNode,
+pub use crate::node_codec::{NodeCodec, Partial};
+pub use crate::iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed};
-pub use iterator::TrieDBNodeIterator;
-pub use trie_codec::{decode_compact, encode_compact};
+pub use crate::iterator::TrieDBNodeIterator;
+pub use crate::trie_codec::{decode_compact, encode_compact};
 
 #[cfg(feature = "std")]
-pub use iter_build::TrieRootPrint;
+pub use crate::iter_build::TrieRootPrint;
 
-pub type DBValue = elastic_array::ElasticArray128<u8>;
+/// Database value
+pub type DBValue = Vec<u8>;
 
 /// Trie Errors.
 ///
@@ -167,7 +168,7 @@ impl<T, E> Error for TrieError<T, E> where T: fmt::Debug, E: Error {
 
 /// Trie result type.
 /// Boxed to avoid copying around extra space for the `Hasher`s `Out` on successful queries.
-pub type Result<T, H, E> = ::core_::result::Result<T, Box<TrieError<H, E>>>;
+pub type Result<T, H, E> = crate::core_::result::Result<T, Box<TrieError<H, E>>>;
 
 
 /// Trie-Item type used for iterators over trie data.
@@ -191,7 +192,7 @@ pub trait Query<H: Hasher> {
 
 impl<'a, H: Hasher> Query<H> for &'a mut Recorder<H::Out> {
 	type Item = DBValue;
-	fn decode(self, value: &[u8]) -> DBValue { DBValue::from_slice(value) }
+	fn decode(self, value: &[u8]) -> DBValue { value.to_vec() }
 	fn record(&mut self, hash: &H::Out, data: &[u8], depth: u32) {
 		(&mut **self).record(hash, data, depth);
 	}
@@ -228,7 +229,7 @@ pub trait Trie<L: TrieLayout> {
 		&'a self,
 		key: &'key [u8],
 	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> where 'a: 'key {
-		self.get_with(key, DBValue::from_slice)
+		self.get_with(key, |v: &[u8]| v.to_vec() )
 	}
 
 	/// Search for the key with the given query parameter. See the docs of the `Query`
@@ -429,9 +430,9 @@ pub trait TrieLayout {
 	type Codec: NodeCodec<HashOut=<Self::Hash as Hasher>::Out>;
 }
 
-/// This traits associates a trie definition with prefered methods.
+/// This trait associates a trie definition with preferred methods.
 /// It also contains own default implementations and can be
-/// use to allow switching implementation.
+/// used to allow switching implementation.
 pub trait TrieConfiguration: Sized + TrieLayout {
 	/// Operation to build a trie db from its ordered iterator over its key/values.
 	fn trie_build<DB, I, A, B>(db: &mut DB, input: I) -> <Self::Hash as Hasher>::Out where

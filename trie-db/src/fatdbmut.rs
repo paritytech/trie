@@ -88,7 +88,7 @@ where
 		// insert if it doesn't exist.
 		if out.is_none() {
 			let aux_hash = L::Hash::hash(hash.as_ref());
-			db.emplace(aux_hash, EMPTY_PREFIX, DBValue::from_slice(key));
+			db.emplace(aux_hash, EMPTY_PREFIX, key.to_vec());
 		}
 		Ok(out)
 	}
@@ -109,7 +109,6 @@ where
 
 #[cfg(test)]
 mod test {
-	use DBValue;
 	use memory_db::{MemoryDB, HashKey};
 	use hash_db::{Hasher, EMPTY_PREFIX};
 	use keccak_hasher::KeccakHasher;
@@ -126,7 +125,7 @@ mod test {
 		let t = RefTrieDB::new(&memdb, &root).unwrap();
 		assert_eq!(
 			t.get(&KeccakHasher::hash(&[0x01u8, 0x23])),
-			Ok(Some(DBValue::from_slice(&[0x01u8, 0x23]))),
+			Ok(Some(vec![0x01u8, 0x23])),
 		);
 	}
 
@@ -140,8 +139,8 @@ mod test {
 		let aux_hash = KeccakHasher::hash(&key_hash);
 		let mut t = RefFatDBMut::new(&mut memdb, &mut root);
 		t.insert(&key, &val).unwrap();
-		assert_eq!(t.get(&key), Ok(Some(DBValue::from_slice(&val))));
-		assert_eq!(t.db().get(&aux_hash, EMPTY_PREFIX), Some(DBValue::from_slice(&key)));
+		assert_eq!(t.get(&key), Ok(Some(val.to_vec())));
+		assert_eq!(t.db().get(&aux_hash, EMPTY_PREFIX), Some(key.to_vec()));
 		t.remove(&key).unwrap();
 		assert_eq!(t.db().get(&aux_hash, EMPTY_PREFIX), None);
 	}

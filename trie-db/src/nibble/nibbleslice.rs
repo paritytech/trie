@@ -14,12 +14,11 @@
 
 //! Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
 
-use ::core_::cmp::*;
-use ::core_::fmt;
-use super::{nibble_ops, NibbleSlice, NibbleSliceIterator};
-use elastic_array::ElasticArray36;
-use node::NodeKey;
-use node_codec::Partial;
+use crate::core_::cmp::*;
+use crate::core_::fmt;
+use super::{nibble_ops, NibbleSlice, NibbleSliceIterator, BackingByteVec};
+use crate::node::NodeKey;
+use crate::node_codec::Partial;
 use hash_db::Prefix;
 
 impl<'a> Iterator for NibbleSliceIterator<'a> {
@@ -78,13 +77,13 @@ impl<'a> NibbleSlice<'a> {
 			let end = (self.offset + nb) / nibble_ops::NIBBLE_PER_BYTE;
 			(
 				self.offset % nibble_ops::NIBBLE_PER_BYTE,
-				ElasticArray36::from_slice(&self.data[start..end]),
+				BackingByteVec::from_slice(&self.data[start..end]),
 			)
 		} else {
 			// unaligned
 			let start = self.offset / nibble_ops::NIBBLE_PER_BYTE;
 			let end = (self.offset + nb) / nibble_ops::NIBBLE_PER_BYTE;
-			let ea = ElasticArray36::from_slice(&self.data[start..=end]);
+			let ea = BackingByteVec::from_slice(&self.data[start..=end]);
 			let ea_offset = self.offset % nibble_ops::NIBBLE_PER_BYTE;
 			let n_offset = nibble_ops::number_padding(nb);
 			let mut result = (ea_offset, ea);
@@ -159,7 +158,7 @@ impl<'a> NibbleSlice<'a> {
 	pub fn right_iter(&'a self) -> impl Iterator<Item = u8> + 'a {
 		let (mut first, sl) = self.right();
 		let mut ix = 0;
-		::core_::iter::from_fn(move || {
+		crate::core_::iter::from_fn(move || {
 			if first.0 > 0 {
 				first.0 = 0;
 				Some(nibble_ops::pad_right(first.1))
@@ -182,7 +181,7 @@ impl<'a> NibbleSlice<'a> {
 		let aligned = aligned_i == 0;
 		let mut ix = self.offset / nibble_ops::NIBBLE_PER_BYTE;
 		let ix_lim = (self.offset + to) / nibble_ops::NIBBLE_PER_BYTE;
-		::core_::iter::from_fn( move || {
+		crate::core_::iter::from_fn( move || {
 			if aligned {
 				if nib_res > 0 {
 					let v = nibble_ops::pad_right(self.data[ix]);
@@ -229,7 +228,7 @@ impl<'a> NibbleSlice<'a> {
 	}
 
 	/// Owned version of a `Prefix` from a `left` method call.
-	pub fn left_owned(&'a self) -> (ElasticArray36<u8>, Option<u8>) {
+	pub fn left_owned(&'a self) -> (BackingByteVec, Option<u8>) {
 		let (a, b) = self.left();
 		(a.into(), b)
 	}
@@ -285,8 +284,7 @@ impl<'a> fmt::Debug for NibbleSlice<'a> {
 
 #[cfg(test)]
 mod tests {
-	use crate::nibble::NibbleSlice;
-	use elastic_array::ElasticArray36;
+	use crate::nibble::{NibbleSlice, BackingByteVec};
 	static D: &'static [u8;3] = &[0x01u8, 0x23, 0x45];
 
 	#[test]
@@ -329,16 +327,16 @@ mod tests {
 	#[test]
 	fn encoded_pre() {
 		let n = NibbleSlice::new(D);
-		assert_eq!(n.to_stored(), (0, ElasticArray36::from_slice(&[0x01, 0x23, 0x45])));
-		assert_eq!(n.mid(1).to_stored(), (1, ElasticArray36::from_slice(&[0x01, 0x23, 0x45])));
-		assert_eq!(n.mid(2).to_stored(), (0, ElasticArray36::from_slice(&[0x23, 0x45])));
-		assert_eq!(n.mid(3).to_stored(), (1, ElasticArray36::from_slice(&[0x23, 0x45])));
+		assert_eq!(n.to_stored(), (0, BackingByteVec::from_slice(&[0x01, 0x23, 0x45])));
+		assert_eq!(n.mid(1).to_stored(), (1, BackingByteVec::from_slice(&[0x01, 0x23, 0x45])));
+		assert_eq!(n.mid(2).to_stored(), (0, BackingByteVec::from_slice(&[0x23, 0x45])));
+		assert_eq!(n.mid(3).to_stored(), (1, BackingByteVec::from_slice(&[0x23, 0x45])));
 	}
 
 	#[test]
 	fn from_encoded_pre() {
 		let n = NibbleSlice::new(D);
-		let stored: ElasticArray36<u8> = [0x01, 0x23, 0x45][..].into();
+		let stored: BackingByteVec = [0x01, 0x23, 0x45][..].into();
 		assert_eq!(n, NibbleSlice::from_stored(&(0, stored.clone())));
 		assert_eq!(n.mid(1), NibbleSlice::from_stored(&(1, stored)));
 	}
