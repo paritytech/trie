@@ -205,6 +205,18 @@ impl<H, SH> Node<H, SH> {
 		}
 	}
 
+	/// Set partial if possible.
+	pub fn set_partial(&mut self, new_partial: NodeKey) {
+		match self {
+			Node::Branch ( .. )
+			| Node::Empty => (),
+			Node::Extension(partial, ..)
+			| Node::NibbledBranch(partial, ..)
+			| Node::Leaf(partial, ..) => {
+				*partial = new_partial;
+			},
+		}
+	}
 
 	/// Set value to node if possible.
 	pub fn set_value(&mut self, value: &[u8]) {
@@ -286,8 +298,11 @@ impl<H, SH> Node<H, SH> {
 	/// a branch with a single child and no value remain.
 	/// This is only for no extension trie (a variant would be
 	/// needed for trie with extension).
+	/// Pending parameter indicates a node to be added or modified due to buffered
+	/// addition or split child).
 	pub fn fix_node(
 		&mut self,
+		pending: (Option<u8>, Option<u8>),
 	) -> (bool, Option<u8>) {
 		let node = mem::replace(self, Node::Empty); 
 		let (node, fuse) = match node {
@@ -301,6 +316,16 @@ impl<H, SH> Node<H, SH> {
 			| n@Node::Leaf(..) => (n, None),
 			Node::NibbledBranch(partial, encoded_children, val) => {
 				let mut count = 0;
+				if let Some(pending) = pending.0 {
+					if encoded_children[pending as usize].is_none() {
+						count += 1;
+					}
+				}
+				if let Some(pending) = pending.1 {
+					if encoded_children[pending as usize].is_none() {
+						count += 1;
+					}
+				}
 				for c in encoded_children.iter() {
 					if c.is_some() {
 						count += 1;

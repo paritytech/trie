@@ -261,7 +261,6 @@ impl<D: Borrow<[u8]>> OwnedNode<D> {
 		}
 	}
 
-
 	/// Try to access child.
 	pub fn child(&self, ix: u8) -> Option<NodeHandle> {
 		match &self.plan {
@@ -283,6 +282,16 @@ impl<D: Borrow<[u8]>> OwnedNode<D> {
 		}
 	}
 
+	/// Return number of children for this node.
+	pub fn number_child(&self) -> usize {
+		match &self.plan {
+			NodePlan::Leaf { .. }
+			| NodePlan::Empty => 0,
+			NodePlan::Extension { .. } => 1,
+			NodePlan::NibbledBranch { children, .. }
+			| NodePlan::Branch { children, .. } => children.len(),
+		}
+	}
 }
 
 impl<B: Borrow<[u8]>> OwnedNode<B> {
