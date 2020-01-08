@@ -14,7 +14,16 @@
 
 #[macro_use]
 extern crate criterion;
-use criterion::{Criterion, black_box, Bencher};
+extern crate memory_db;
+extern crate rand;
+extern crate trie_db;
+extern crate trie_standardmap;
+
+use criterion::{Bencher, black_box, Criterion};
+
+use trie_db::{NibbleSlice, proof::{generate_proof, verify_proof}, Trie};
+use trie_standardmap::{Alphabet, StandardMap, ValueMode};
+
 criterion_group!(benches,
 	root_old,
 	root_new,
@@ -32,15 +41,9 @@ criterion_group!(benches,
 	trie_mut_build_b,
 	trie_iteration,
 	nibble_common_prefix,
+	trie_proof_verification,
 );
 criterion_main!(benches);
-
-extern crate trie_standardmap;
-extern crate trie_db;
-extern crate memory_db;
-extern crate rand;
-use trie_standardmap::{Alphabet, StandardMap, ValueMode};
-use trie_db::NibbleSlice;
 
 fn nibble_common_prefix(b: &mut Criterion) {
 	let st = StandardMap {
@@ -460,6 +463,43 @@ fn trie_iteration(c: &mut Criterion) {
 			let trie = reference_trie::RefTrieDB::new(&mdb, &root).unwrap();
 			let mut iter = trie_db::TrieDBNodeIterator::new(&trie).unwrap();
 			assert!(iter.all(|result| result.is_ok()));
+		})
+	);
+}
+
+fn trie_proof_verification(c: &mut Criterion) {
+	use memory_db::HashKey;
+
+	let mut data = input_unsorted(29, 204800, 32);
+	let mut keys = data[(data.len() / 3)..]
+		.iter()
+		.map(|(key, _)| key.clone())
+		.collect::<Vec<_>>();
+	data.truncate(data.len() * 2 / 3);
+
+	let data = data_sorted_unique(data);
+	keys.sort();
+	keys.dedup();
+
+	let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
+	let root = reference_trie::calc_root_build(data, &mut mdb);
+
+	let trie = reference_trie::RefTrieDB::new(&mdb, &root).unwrap();
+	let proof = generate_proof(&trie, keys.iter()).unwrap();
+	let items = keys.into_iter()
+		.map(|key| {
+			let value = trie.get(&key).unwrap();
+			(key, value)
+		})
+		.collect::<Vec<_>>();
+
+	c.bench_function("trie_proof_verification", move |b: &mut Bencher|
+		b.iter(|| {
+			verify_proof::<reference_trie::ExtensionLayout, _, _, _>(
+				&root,
+				&proof,
+				items.iter()
+			).unwrap();
 		})
 	);
 }
