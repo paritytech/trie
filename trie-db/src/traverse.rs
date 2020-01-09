@@ -199,7 +199,7 @@ impl<B, T, S> StackedItem2<B, T, S>
 	}
 
 	fn is_first_child(&self, index: u8) -> bool {
-		self.first_child.map(|child| child.parent_index == index).unwrap_or(false)
+		self.first_child.as_ref().map(|child| child.0.parent_index == index).unwrap_or(false)
 	}
 
 	// take first child (used for fusing, otherwhise process_first_child is probably what you want)
@@ -767,7 +767,7 @@ pub fn trie_traverse_key2<'a, T, I, K, V, S, B, F>(
 							prefix.push(fuse_index);
 							let child = current.descend_child(fuse_index, db, prefix.as_prefix())?
 								.expect("result of first child is define if consistent db");
-							child.node.partial().map(|p| prefix.append_partial(p));
+							child.node.partial().map(|p| prefix.append_partial(p.right()));
 							current.fuse_branch(child, prefix.inner(), callback);
 						}
 						// fuse child opteration did switch current context.
