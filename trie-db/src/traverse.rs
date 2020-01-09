@@ -198,7 +198,38 @@ impl<B, T, S> StackedItem2<B, T, S>
 		self.split_child_index().map(|child_index| child_index == index).unwrap_or(false)
 	}
 
-	fn descend_child(&mut self, index: u8, db: &dyn HashDBRef<T::Hash, B>, key: &[u8]) -> Result<
+	fn is_first_child(&self, index: u8) -> bool {
+		self.first_child.map(|child| child.parent_index == index).unwrap_or(false)
+	}
+
+	// take first child (used for fusing, otherwhise process_first_child is probably what you want)
+	fn take_first_child(&mut self) -> Option<(StackedItem2<B, T, S>, Vec<u8>)> {
+		// descending in first child is only for fusizg node
+		// so we do not update self first child status (will be deleted).
+		if let Some((StackedItemChild {
+			node,
+			depth,
+			depth_prefix,
+			hash,
+			parent_index,
+			..
+		}, child_key)) = self.first_child.take() {
+				Some((StackedItem2 {
+				node,
+				depth,
+				depth_prefix,
+				first_child: None,
+				split_child: None,
+				hash,
+				parent_index,
+				did_first_child: false,
+			}, child_key))
+		} else {
+			None
+		}
+	}
+	
+	fn descend_child(&mut self, index: u8, db: &dyn HashDBRef<T::Hash, B>, prefix: Prefix) -> Result<
 		Option<StackedItem2<B, T, S>>,
 		TrieHash<T>,
 		CError<T>
@@ -236,8 +267,8 @@ impl<B, T, S> StackedItem2<B, T, S>
 						hash.as_mut()[..].copy_from_slice(handle_hash.as_ref());
 						(StackedNode::Unchanged(
 							fetch::<T, B>(
-								db, &hash,
-								NibbleSlice::new_offset(key, self.depth_prefix).left(),
+								db, &hash, prefix,
+//								NibbleSlice::new_offset(key, self.depth_prefix).left(),
 							)?,
 							Default::default(),
 						), Some(hash))
@@ -723,76 +754,24 @@ pub fn trie_traverse_key2<'a, T, I, K, V, S, B, F>(
 				// TODO check if fuse (num child is 1).
 				// child change or addition
 				if let Some(mut parent) = stack.pop() {
-					let first_child_index = (current.first_child.as_ref().map(|c| c.0.parent_index), current.split_child_index());
+					let first_child_index = current.first_child.as_ref().map(|c| c.0.parent_index);
 					// needed also to resolve
-					if let Some(fuse_index) = current.node.fix_node(first_child_index) {
-						let (child, hash, child_key) = if Some(fuse_index) == first_child_index.0 {
-							let (child, child_key) = current.first_child.take().expect("first_child_index is some");
-							(child.node, child.hash, Some(child_key))
-						} else { match current.node.child(fuse_index) {
-							Some(NodeHandle::Hash(handle_hash)) => {
-								let mut hash = <TrieHash<T> as Default>::default();
-								hash.as_mut()[..].copy_from_slice(handle_hash.as_ref());
-								(StackedNode::Unchanged(
-									fetch::<T, B>(
-										db, &hash,
-										NibbleSlice::new_offset(key.as_ref(), current.depth_prefix).left(),
-									)?,
-									Default::default(),
-								), Some(hash), None)
-							},
-							Some(NodeHandle::Inline(node_encoded)) => {
-								// Instantiating B is only for inline node, still costy.
-								(StackedNode::Unchanged(
-									OwnedNode::new::<T::Codec>(B::from(node_encoded))
-										.map_err(|e| Box::new(TrieError::DecoderError(
-											current.hash.clone().unwrap_or_else(Default::default),
-											e,
-										)))?,
-									Default::default(),
-									), None, None)
-							},
-							None => unreachable!("fix_node call only return existing index"),
-						}};
-						// delete current
-						callback.exit(
-							NibbleSlice::new_offset(key.as_ref(), current.depth_prefix).left(),
-							current.node, current.hash.as_ref(),
-						).expect("no new node on empty");
-
-						let child_depth = current.depth + child.partial().map(|p| p.len()).unwrap_or(0);
-						if !current.did_first_child {
-							let child_key = child_key.as_ref().map(|k| k.as_ref()).unwrap_or(key.as_ref());
-							let partial = NibbleSlice::new_offset(child_key, current.depth_prefix)
-								.to_stored_range(child_depth - current.depth_prefix);
-							let mut child = child;
-							child.set_partial(partial);
-							// second child, just update current and process as a standard node.
-							current = StackedItem2 {
-								node: child,
-								depth_prefix: current.depth_prefix,
-								depth: child_depth,
-								hash,
-								parent_index: current.parent_index,
-								did_first_child: current.did_first_child,
-								first_child: current.first_child,
-								split_child: current.split_child,
-							};
+					if let Some(fuse_index) = current.node.fix_node((first_child_index, current.split_child_index())) {
+						// try first child
+						if let Some((child, child_key)) = current.take_first_child() {
+							debug_assert!(child.parent_index == fuse_index);
+							//
+							current.fuse_branch(child, child_key.as_ref(), callback);
 						} else {
-							// set first child
-							parent.first_child = Some((StackedItemChild {
-								node: child,
-								depth_prefix: current.depth_prefix,
-								depth: child_depth,
-								hash,
-								parent_index: current.parent_index,
-							}, key.as_ref().to_vec()));
-							
-							current = parent;
-							// TODO should we avoid this early exit by setting current to delete (and don't
-							// delete current before).
-							continue;
+							let mut prefix = NibbleVec::from(key.as_ref(), current.depth);
+							prefix.push(fuse_index);
+							let child = current.descend_child(fuse_index, db, prefix.as_prefix())?
+								.expect("result of first child is define if consistent db");
+							child.node.partial().map(|p| prefix.append_partial(p));
+							current.fuse_branch(child, prefix.inner(), callback);
 						}
+						// fuse child opteration did switch current context.
+						continue;
 					}
 					if let Some((parent_first, key_first)) = parent.first_child.take() {
 						// parent first from split is replaced when going down in this case.
