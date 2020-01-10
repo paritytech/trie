@@ -101,10 +101,8 @@ struct ToHex<'a>(&'a [u8]);
 #[cfg(feature = "std")]
 impl<'a> Debug for ToHex<'a> {
 	fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-		// TODO [ToDr] Avoid allocating here:
-		// https://github.com/debris/rustc-hex/pull/3
-		let hex = rustc_hex::ToHex::to_hex::<String>(self.0);
-		for b in hex.chars() {
+		let hex = rustc_hex::ToHexIter::new(self.0.iter());
+		for b in hex {
 			write!(fmt, "{}", b)?;
 		}
 		Ok(())
