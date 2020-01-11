@@ -120,6 +120,7 @@ pub struct StackedItem2<B, T, S>
 	pub depth: usize,
 	/// parent index (only relevant when parent is a branch).
 	pub parent_index: u8,
+	// TODO rational for keeping index is very border line
 	pub split_child: Option<(Option<StackedItemChild<B, T, S>>, Option<u8>)>,
 	/// Store first child, until `exit` get call, this is needed
 	/// to be able to fuse branch containing a single child (delay
@@ -185,13 +186,25 @@ impl<B, T, S> StackedItem2<B, T, S>
 		T: TrieLayout,
 		S: Clone + Default,
 {
-	fn split_child_index(&self) -> Option<u8> {
+	fn split_child_fuse_index(&self) -> Option<u8> {
 		match self.split_child.as_ref() {
 			Some((Some(child), _)) => Some(child.parent_index),
 			Some((_, Some(parent_index))) => Some(*parent_index),
 			None => None,
 			_ => unreachable!("This pair is Either, TODO swith to enum"),
 		}
+	}
+
+
+	fn split_child_index(&self) -> Option<u8> {
+		match self.split_child.as_ref() {
+			Some((Some(child), _)) => Some(child.parent_index),
+			_ => None,
+		}
+	}
+
+	fn first_child_index(&self) -> Option<u8> {
+		self.first_child.as_ref().map(|c| c.0.parent_index)
 	}
 
 	fn is_split_child(&self, index: u8) -> bool {
@@ -385,9 +398,37 @@ impl<B, T, S> StackedItem2<B, T, S>
 
 	fn process_child<
 		F: ProcessStack<B, T, S>,
-	>(&mut self, child: StackedItemChild<B, T, S>, key: &[u8], callback: &mut F) {
+	>(&mut self, mut child: StackedItem2<B, T, S>, key: &[u8], callback: &mut F) {
+		// TODO switch to debug assert if correct asumption or call process first
+		// child ordered with split child.
+		assert!(child.first_child.is_none(), "guaranted by call to fix_node");
+		// split child can be unprocessed (when going up it is kept after second node
+		// in expectation of other children process.
+		child.process_split_child(key, callback);
 		let nibble_slice = NibbleSlice::new_offset(key.as_ref(), child.depth_prefix);
 		self.append_child(child.into(), nibble_slice.left(), callback);
+	}
+
+	fn process_root<
+		F: ProcessStack<B, T, S>,
+	>(mut self, key: &[u8], callback: &mut F) {
+		if let Some(first_child_index) = self.first_child_index() {
+			if let Some(split_child_index) = self.split_child_index() {
+				if split_child_index > first_child_index {
+					self.process_first_child(callback);
+					self.process_split_child(key, callback);
+				} else {
+					self.process_split_child(key, callback);
+					self.process_first_child(callback);
+				}
+			} else {
+				self.process_first_child(callback);
+			}
+		}
+		callback.exit_root(
+			self.node,
+			self.hash.as_ref(),
+		)
 	}
 
 	// consume branch and return item to attach to parent
@@ -619,7 +660,7 @@ pub trait ProcessStack<B, T, S>
 	fn exit(&mut self, prefix: Prefix, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>)
 		-> Option<Option<OwnedNodeHandle<TrieHash<T>>>>;
 	/// Same as `exit` but for root (very last exit call).
-	fn exit_root(&mut self, prefix: Prefix, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>);
+	fn exit_root(&mut self, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>);
 
 
 	/// Fetching a fuse latest, that is the latest changed value of a branch.
@@ -756,7 +797,7 @@ pub fn trie_traverse_key2<'a, T, I, K, V, S, B, F>(
 				if let Some(mut parent) = stack.pop() {
 					let first_child_index = current.first_child.as_ref().map(|c| c.0.parent_index);
 					// needed also to resolve
-					if let Some(fuse_index) = current.node.fix_node((first_child_index, current.split_child_index())) {
+					if let Some(fuse_index) = current.node.fix_node((first_child_index, current.split_child_fuse_index())) {
 						// try first child
 						if let Some((child, child_key)) = current.take_first_child() {
 							debug_assert!(child.parent_index == fuse_index);
@@ -810,19 +851,40 @@ pub fn trie_traverse_key2<'a, T, I, K, V, S, B, F>(
 					} else if parent.did_first_child || current.node.is_deleted() {
 						// process exit, as we already assert two child, no need to store in case of parent
 						// fusing.
+						// Deletion case is guaranted by ordering of input (fix delete only if no first
+						// and no split).
 						if let Some(handle) = callback.exit(
 							NibbleSlice::new_offset(key.as_ref(), current.depth_prefix).left(),
 							current.node, current.hash.as_ref(),
 						) {
 							parent.node.set_handle(handle, current.parent_index);
 						}
+					} else if let Some(first_child_index) = parent.first_child_index() {
+						debug_assert!(first_child_index < current.parent_index);
+						parent.did_first_child = true;
+						// process both first child and current.
+						if let Some(split_child_index) = parent.split_child_index() {
+							debug_assert!(split_child_index != first_child_index);
+							debug_assert!(split_child_index != current.parent_index);
+							if split_child_index < first_child_index {
+								parent.process_split_child(key.as_ref(), callback);
+							}
+							parent.process_first_child(callback);
+							if split_child_index < current.parent_index {
+								parent.process_split_child(key.as_ref(), callback);
+							}
+							parent.process_child(current, key.as_ref(), callback);
+						} else {
+							parent.process_first_child(callback);
+							parent.process_child(current, key.as_ref(), callback);
+						}
 					} else {
-						// store in parent first child and process later.
+						// first node visited, store in parent first child and process later.
 						parent.first_child = Some((current.into(), key.as_ref().to_vec()));
 					}
 					current = parent;
 				} else {
-					unimplemented!("root case");
+					current.process_root(key.as_ref(), callback);
 					return Ok(());
 				}
 			}
@@ -910,7 +972,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 					}
 				} else {
 					align_node(db, callback, &mut current, previous_key.as_ref(), None, &mut split_child)?;
-					callback.exit_root(EMPTY_PREFIX, current.node, current.hash.as_ref());
+					callback.exit_root(current.node, current.hash.as_ref());
 					return Ok(());
 				}
 			}
@@ -1056,7 +1118,7 @@ pub fn trie_traverse_key<'a, T, I, K, V, S, B, F>(
 			}
 		}
 		align_node(db, callback, &mut current, previous_key.as_ref(), None, &mut split_child)?;
-		callback.exit_root(EMPTY_PREFIX, current.node, current.hash.as_ref());
+		callback.exit_root(current.node, current.hash.as_ref());
 		return Ok(());
 	}
 
@@ -1331,7 +1393,8 @@ impl<B, T, S> ProcessStack<B, T, S> for BatchUpdate<TrieHash<T>>
 		}
 	}
 	
-	fn exit_root(&mut self, prefix: Prefix, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>) {
+	fn exit_root(&mut self, stacked: StackedNode<B, T, S>, prev_hash: Option<&TrieHash<T>>) {
+		let prefix = EMPTY_PREFIX;
 		match stacked {
 			s@StackedNode::Deleted(..)
 			| s@StackedNode::Changed(..) => {
