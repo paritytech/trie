@@ -13,19 +13,21 @@
 // limitations under the License.
 
 
-
-use memory_db::{MemoryDB, HashKey, PrefixedKey};
+use hash_db::Hasher;
+use keccak_hasher::KeccakHasher;
+use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
-	RefTrieDBMutNoExt,
-	RefTrieDBMut,
-	reference_trie_root,
 	calc_root_no_extension,
 	compare_no_extension_insert_remove,
+	ExtensionLayout,
+	//NoExtensionLayout,
+	proof::{generate_proof, verify_proof},
+	reference_trie_root,
+	RefTrieDBMut,
+	RefTrieDBMutNoExt,
 };
-use trie_db::{TrieMut, DBValue};
-use keccak_hasher::KeccakHasher;
-
-
+use std::convert::TryInto;
+use trie_db::{DBValue, Trie, TrieDB, TrieDBMut, TrieLayout, TrieMut};
 
 fn fuzz_to_data(input: &[u8]) -> Vec<(Vec<u8>,Vec<u8>)> {
  let mut result = Vec::new();
@@ -174,6 +176,97 @@ pub fn fuzz_that_no_extension_insert_remove(input: &[u8]) {
 	compare_no_extension_insert_remove(data, memdb);
 }
 
+pub fn fuzz_that_verify_accepts_valid_proofs(input: &[u8]) {
+	let mut data = fuzz_to_data(input);
+	// Split data into 3 parts:
+	// - the first 1/3 is added to the trie and not included in the proof
+	// - the second 1/3 is added to the trie and included in the proof
+	// - the last 1/3 is not added to the trie and the proof proves non-inclusion of them
+	let mut keys = data[(data.len() / 3)..]
+		.iter()
+		.map(|(key, _)| key.clone())
+		.collect::<Vec<_>>();
+	data.truncate(data.len() * 2 / 3);
+
+	let data = data_sorted_unique(data);
+	keys.sort();
+	keys.dedup();
+
+	let (root, proof, items) = test_generate_proof::<ExtensionLayout>(data, keys);
+	assert!(verify_proof::<ExtensionLayout, _, _, _>(&root, &proof, items.iter()).is_ok());
+}
+
+pub fn fuzz_that_verify_rejects_invalid_proofs(input: &[u8]) {
+	if input.len() < 4 {
+		return;
+	}
+
+	let random_int = u32::from_le_bytes(
+		input[0..4].try_into().expect("slice is 4 bytes")
+	) as usize;
+
+	let mut data = fuzz_to_data(&input[4..]);
+	// Split data into 3 parts:
+	// - the first 1/3 is added to the trie and not included in the proof
+	// - the second 1/3 is added to the trie and included in the proof
+	// - the last 1/3 is not added to the trie and the proof proves non-inclusion of them
+	let mut keys = data[(data.len() / 3)..]
+		.iter()
+		.map(|(key, _)| key.clone())
+		.collect::<Vec<_>>();
+	data.truncate(data.len() * 2 / 3);
+
+	let data = data_sorted_unique(data);
+	keys.sort();
+	keys.dedup();
+
+	if keys.is_empty() {
+		return;
+	}
+
+	let (root, proof, mut items) = test_generate_proof::<ExtensionLayout>(data, keys);
+
+	// Make one item at random incorrect.
+	let items_idx = random_int % items.len();
+	match &mut items[items_idx] {
+		(_, Some(value)) if random_int % 2 == 0 => value.push(0),
+		(_, value) if value.is_some() => *value = None,
+		(_, value) => *value = Some(DBValue::new()),
+	}
+	assert!(verify_proof::<ExtensionLayout, _, _, _>(&root, &proof, items.iter()).is_err());
+}
+
+fn test_generate_proof<L: TrieLayout>(
+	entries: Vec<(Vec<u8>, Vec<u8>)>,
+	keys: Vec<Vec<u8>>,
+) -> (<L::Hash as Hasher>::Out, Vec<Vec<u8>>, Vec<(Vec<u8>, Option<DBValue>)>)
+{
+	// Populate DB with full trie from entries.
+	let (db, root) = {
+		let mut db = <MemoryDB<L::Hash, HashKey<_>, _>>::default();
+		let mut root = Default::default();
+		{
+			let mut trie = <TrieDBMut<L>>::new(&mut db, &mut root);
+			for (key, value) in entries {
+				trie.insert(&key, &value).unwrap();
+			}
+		}
+		(db, root)
+	};
+
+	// Generate proof for the given keys..
+	let trie = <TrieDB<L>>::new(&db, &root).unwrap();
+	let proof = generate_proof::<_, L, _, _>(&trie, keys.iter()).unwrap();
+	let items = keys.into_iter()
+		.map(|key| {
+			let value = trie.get(&key).unwrap();
+			(key,value)
+		})
+		.collect();
+
+	(root, proof, items)
+}
+
 pub fn fuzz_batch_update(input: &[u8], build_val: fn(&mut Vec<u8>)) {
 	let data = fuzz_to_data(input);
 	let mut data = fuzz_removal(data);
@@ -251,3 +344,4 @@ fn test() {
 		fuzz_batch_update(&v[..], |v| v.extend(&[4u8; 32]));
 	}
 }
+
