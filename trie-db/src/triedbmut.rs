@@ -20,13 +20,11 @@ use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_h
 use crate::node_codec::NodeCodec;
 use super::{DBValue, node::NodeKey};
 
-use crate::node::OwnedNode;
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use crate::nibble::{NibbleVec, NibbleSlice, nibble_ops, BackingByteVec};
 use crate::core_::convert::TryFrom;
 use crate::core_::mem;
 use crate::core_::ops::Index;
-use crate::core_::borrow::Borrow;
 use crate::core_::hash::Hash;
 use crate::core_::result;
 
@@ -133,38 +131,6 @@ pub enum Node<H, SH> {
 	Branch(Box<[Option<NodeHandle<H, SH>>; 16]>, Option<DBValue>),
 	/// Branch node with support for a nibble (to avoid extension node).
 	NibbledBranch(NodeKey, Box<[Option<NodeHandle<H, SH>>; 16]>, Option<DBValue>),
-}
-
-impl<H: AsMut<[u8]> + Default> Node<H, Vec<u8>> {
-	/// Fuse changed node that need to be reduce to a child node,
-	/// return additional length to prefix.
-	pub fn fuse_child<B: Borrow<[u8]>>(&mut self, mut child: OwnedNode<B>, child_ix: u8) -> usize {
-		let node = mem::replace(self, Node::Empty); 
-		let (node, result) = match node {
-			Node::Extension(..)
-			| Node::Branch(..) => unreachable!("Only for no extension trie"),
-			// need to replace value before creating handle
-			// so it is a corner case TODO test case it
-			// (may be unreachable since changing to empty means
-			// we end the root process)
-			Node::Empty
-			| Node::Leaf(..) => unreachable!("method only for nodes resulting from fix node"),
-			Node::NibbledBranch(mut partial, _children, _val) => {
-				// TODO could use owned nibble slice or optimize this
-				combine_key(&mut partial, (nibble_ops::NIBBLE_PER_BYTE - 1, &[child_ix][..]));
-				let child_partial = child.partial();
-				let result = child_partial.as_ref().map(|p| p.len()).unwrap_or(0) + 1;
-				combine_key(&mut partial, child_partial
-					.map(|n| n.right_ref()).unwrap_or((0,&[])));
-
-				(child.set_partial(partial)
-					.expect("checked child node before call is expected"),
-					result)
-			}
-		};
-		*self = node;
-		result
-	}
 }
 
 impl<H, SH> Node<H, SH> {

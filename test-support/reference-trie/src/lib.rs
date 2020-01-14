@@ -28,6 +28,7 @@ use trie_db::{
 	TrieBuilder,
 	TrieRoot,
 	Partial,
+	OwnedPrefix,
 };
 use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
@@ -38,7 +39,7 @@ pub use trie_db::{
 	encode_compact, decode_compact,
 };
 pub use trie_db::{Record, TrieLayout, TrieConfiguration, nibble_ops};
-pub use trie_db::traverse::{BatchUpdate, trie_traverse_key};
+pub use trie_db::traverse::batch_update;
 pub use trie_root::TrieStream;
 pub mod node {
 	pub use trie_db::node::Node;
@@ -1191,21 +1192,17 @@ pub fn compare_no_extension_insert_remove(
 pub fn trie_traverse_key_no_extension_build<'a, I, K, V, B>(
 	// TODO db to non mutable
 	db: &'a mut dyn hash_db::HashDBRef<keccak_hasher::KeccakHasher, B>,
-	root: &'a [u8; 32],
+	root: &'a <KeccakHasher as Hasher>::Out,
 	elements: I,
-	batch_update: &'a mut BatchUpdate<<KeccakHasher as Hasher>::Out>,
-)
+) -> (<KeccakHasher as Hasher>::Out, impl Iterator<Item = (OwnedPrefix, <KeccakHasher as Hasher>::Out, Option<Vec<u8>>)>)
 	where
 		I: IntoIterator<Item = (K, Option<V>)>,
 		K: AsRef<[u8]> + Ord,
 		V: AsRef<[u8]>,
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
 {
-	// TODO return type ?? EMCH generally this need redesign as it expose to many internal types:
-	// probably expose a function from traverse
-	trie_traverse_key::<NoExtensionLayout, _, _, _, (), _, _>(db, root, elements, batch_update).unwrap();
+	batch_update::<NoExtensionLayout, _, _, _, _>(db, root, elements).unwrap()
 }
-	
 
 #[cfg(test)]
 mod tests {

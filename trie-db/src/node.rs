@@ -37,16 +37,6 @@ pub enum NodeHandle<'a> {
 	Inline(&'a [u8]),
 }
 
-impl<'a> NodeHandle<'a> {
-	/// Get underlying data.
-	pub(crate) fn data(&self) -> &[u8] {
-		match self {
-			NodeHandle::Hash(d)
-			| NodeHandle::Inline(d) => d,
-		}
-	}
-}
-
 /// Read a hash from a slice into a Hasher output. Returns None if the slice is the wrong length.
 pub fn decode_hash<H: Hasher>(data: &[u8]) -> Option<H::Out> {
 	if data.len() != H::LENGTH {
@@ -413,7 +403,7 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 	pub fn remove_value<H: AsMut<[u8]> + Default>(&mut self) -> Option<Option<TNode<H, Vec<u8>>>> {
 		let data = &self.data.borrow();
 		match &self.plan {
-			NodePlan::Leaf { partial, value } => Some(None),
+			NodePlan::Leaf { .. } => Some(None),
 			NodePlan::Extension { .. } // TODO Extension
 			| NodePlan::Branch { .. } // TODO branch
 			| NodePlan::Empty => None,
@@ -499,32 +489,5 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 				}
 			},
 		}
-	}
-
-	/// Set handle to a mid branch, return changed self element
-	/// (new branch) and the old element (new child).
-	pub fn set_mid_handle<H: AsMut<[u8]> + Default>(
-		&mut self,
-		handle: TNodeHandle<H, Vec<u8>>,
-		index: u8,
-		common: usize,
-	) -> (TNode<H, Vec<u8>>, TNode<H, Vec<u8>>) {
-		let prev_partial = self.partial()
-			.expect("This function is only call on node with partial");
-		let mut children = Box::new([
-			None, None, None, None,
-			None, None, None, None,
-			None, None, None, None,
-			None, None, None, None,
-		]);
-		children[index as usize] = Some(handle);
-		let mid_branch = TNode::NibbledBranch(
-			prev_partial.to_stored_range(common),
-			children,
-			None,
-		);
-		let child = self.advance_partial(common + 1)
-			.expect("This function is only call with common value");
-		(mid_branch, child)
 	}
 }

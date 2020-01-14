@@ -214,18 +214,15 @@ pub fn fuzz_batch_update(input: &[u8], build_val: fn(&mut Vec<u8>)) {
 			}
 		}
 	}
-	let mut batch_update = reference_trie::BatchUpdate(
-		Default::default(),
-		initial_root.clone(),
-		None,
-	);
 //println!("{:?}", sorted_data);
-	reference_trie::trie_traverse_key_no_extension_build(
+	let (calc_root, _payload) = reference_trie::trie_traverse_key_no_extension_build(
 		&mut initial_db,
-		&initial_root, sorted_data.into_iter(), &mut batch_update);
+		&initial_root,
+		sorted_data.into_iter(),
+	);
 //	println!("{:?}", batch_update.1);
 //	println!("{:?}", root);
-	assert!(batch_update.1 == root);
+	assert!(calc_root == root);
 }
 
 #[test]

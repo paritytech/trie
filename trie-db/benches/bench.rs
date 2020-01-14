@@ -108,7 +108,6 @@ fn root_b_big_v(c: &mut Criterion) {
 	);
 }
 
-
 fn root_a_small_v(c: &mut Criterion) {
 	let data : Vec<Vec<(Vec<u8>, Vec<u8>)>> = vec![
 		input2(29, 204800, 32),
@@ -171,7 +170,6 @@ fn root_old(c: &mut Criterion) {
 		data,
 	);
 }
-
 
 fn root_new(c: &mut Criterion) {
 	let data : Vec<Vec<(Vec<u8>, Vec<u8>)>> = vec![
@@ -357,8 +355,6 @@ fn trie_mut_ref_root_b(c: &mut Criterion) {
 		data);
 }
 
-
-
 fn trie_mut_a(c: &mut Criterion) {
 	use trie_db::TrieMut;
 	use memory_db::HashKey;
@@ -482,7 +478,6 @@ fn trie_mut_same_key_single(c: &mut Criterion) {
 		}
 	}
 
-	
 	c.bench_function("trie_mut_same_key_single", move |b: &mut Bencher|
 		b.iter(|| {
 			let mut mdb = db.clone();
@@ -515,17 +510,14 @@ fn trie_mut_same_key_batch(c: &mut Criterion) {
 		}
 	}
 
-	
 	c.bench_function("trie_mut_same_key_batch", move |b: &mut Bencher|
 		b.iter(|| {
 			let mut mdb = db.clone();
 			// sort
 			let data: std::collections::BTreeSet<Vec<u8>> = data.iter().map(|(a, _b)| a.clone()).collect();
-			let mut batch_update = reference_trie::BatchUpdate(Default::default(), root.clone(), None);
-			reference_trie::trie_traverse_key_no_extension_build(
-			&mut mdb, &root, data.iter().map(|a| (a, Some(&a[..]))), &mut batch_update);
-			// rem root del TODO use returned root.
-			batch_update.0.pop();
-			assert!(batch_update.0.last().unwrap().1 != root);
+			let (calc_root, _payload) = reference_trie::trie_traverse_key_no_extension_build(
+				&mut mdb, &root, data.iter().map(|a| (a, Some(&a[..])))
+			);
+			assert!(calc_root != root);
 		}));
 }

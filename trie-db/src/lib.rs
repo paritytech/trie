@@ -97,7 +97,7 @@ pub use self::fatdb::{FatDB, FatDBIterator};
 pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
-pub use self::nibble::{NibbleSlice, NibbleVec, nibble_ops};
+pub use self::nibble::{NibbleSlice, NibbleVec, nibble_ops, OwnedPrefix};
 pub use crate::node_codec::{NodeCodec, Partial};
 pub use crate::iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed};
