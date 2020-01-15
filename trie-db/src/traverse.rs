@@ -637,30 +637,33 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 
 	let mut previous_key: Option<K> = None;
 
-	for next_query in elements.into_iter().map(|e| Some(e)).chain(None) {
+	for next_query in elements.into_iter().map(|e| Some(e)).chain(Some(None)) {
 		let mut next_key = None;
+		let last = next_query.is_none();
 		// PATH DOWN descending in next_query.
 		if let Some((key, value)) = next_query {
 			let dest_slice = NibbleFullKey::new(key.as_ref());
 			let dest_depth = key.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
-
-			loop {
-				let common_index = current.node.partial()
-					.map(|current_partial| {
-						let target_partial = NibbleSlice::new_offset(key.as_ref(), current.depth_prefix);
-						current.depth_prefix + current_partial.common_prefix(&target_partial)
-					}).unwrap_or(current.depth_prefix);
-				// TODO not sure >= or just >.
-				if common_index == current.depth_prefix && dest_depth >= current.depth {
-					let next_index = dest_slice.at(current.depth);
-					let prefix = NibbleSlice::new_offset(key.as_ref(), current.depth);
-					if let Some(child) = current.descend_child(next_index, db, prefix.left())? {
-						current = child;
+			if !current.node.is_empty() {
+				// corner case do not descend in empty node
+				loop {
+					let common_index = current.node.partial()
+						.map(|current_partial| {
+							let target_partial = NibbleSlice::new_offset(key.as_ref(), current.depth_prefix);
+							current.depth_prefix + current_partial.common_prefix(&target_partial)
+						}).unwrap_or(current.depth_prefix);
+					// TODO not sure >= or just >.
+					if common_index == current.depth_prefix && dest_depth >= current.depth {
+						let next_index = dest_slice.at(current.depth);
+						let prefix = NibbleSlice::new_offset(key.as_ref(), current.depth + 1);
+						if let Some(child) = current.descend_child(next_index, db, prefix.left())? {
+							current = child;
+						} else {
+							break;
+						}
 					} else {
 						break;
 					}
-				} else {
-					break;
 				}
 			}
 			let traverse_state = if dest_depth < current.depth {
@@ -678,12 +681,15 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 				// value replace callback
 				TraverseState::ValueMatch
 			};
-			callback.enter_terminal(
+			if let Some(new_child) = callback.enter_terminal(
 				&mut current,
 				key.as_ref(),
 				value.as_ref().map(|v| v.as_ref()),
 				traverse_state,
-			);
+			) {
+				stack.push(current);
+				current = new_child;
+			}
 			next_key = Some(key)
 		}
 		// PATH UP over the previous key and value
@@ -694,7 +700,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 			)).unwrap_or(0); // last element goes up to root
 
 			// unstack nodes if needed
-			while target_common_depth < current.depth_prefix {
+			while last || target_common_depth < current.depth_prefix {
 	
 				// TODO check if fuse (num child is 1).
 				// child change or addition
@@ -792,7 +798,6 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 					return Ok(());
 				}
 			}
-
 		}
 		previous_key = next_key;
 	}
@@ -846,6 +851,7 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 				None
 			},
 			TraverseState::AfterNode => {
+				
 				if let Some(val) = value_element {
 					// corner case of empty trie.
 					let offset = if stacked.node.is_empty() {
@@ -859,8 +865,7 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 						val,
 					);
 					let parent_index = NibbleSlice::new(key_element).at(stacked.depth);
-					// append to parent is done on exit through changed nature of the new leaf.
-					return Some(StackedItem {
+					let mut new_child = StackedItem {
 						node: StackedNode::Changed(dest_leaf),
 						hash: None,
 						depth_prefix: stacked.depth + offset,
@@ -869,7 +874,16 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 						split_child: None,
 						first_child: None,
 						did_first_child: false,
-					});
+					};
+					return if stacked.node.is_empty() {
+						// replace empty.
+						new_child.hash = stacked.hash;
+						*stacked = new_child;
+						None
+					} else {
+						// append to parent is done on exit through changed nature of the new leaf.
+						Some(new_child)
+					};
 				} else {
 					// nothing to delete.
 					return None;
@@ -1102,7 +1116,24 @@ mod tests {
 //		panic!("!!END!!");
 
 	}
-
+	#[test]
+	fn empty_node_null_key() {
+		compare_with_triedbmut(
+			&[],
+			&[
+				(vec![], Some(vec![0xffu8, 0x33])),
+			],
+		);
+	}
+	#[test]
+	fn empty_node_with_key() {
+		compare_with_triedbmut(
+			&[],
+			&[
+				(vec![0x04u8], Some(vec![0xffu8, 0x33])),
+			],
+		);
+	}
 	#[test]
 	fn dummy1() {
 		compare_with_triedbmut(
@@ -1111,7 +1142,7 @@ mod tests {
 			],
 			&[
 				(vec![0x04u8], Some(vec![0xffu8, 0x33])),
-				(vec![32u8], Some(vec![0xffu8, 0x33])),
+				//(vec![32u8], Some(vec![0xffu8, 0x33])),
 			],
 		);
 	}

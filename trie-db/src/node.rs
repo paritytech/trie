@@ -361,6 +361,12 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 	pub fn set_value<H: AsMut<[u8]> + Default>(&mut self, new_value: &[u8]) -> Option<TNode<H, Vec<u8>>> {
 		let data = &self.data.borrow();
 		match &self.plan {
+			NodePlan::Empty => {
+				Some(TNode::Leaf(
+					Default::default(),
+					new_value.into(),
+				))
+			},
 			NodePlan::Leaf { partial, value } => {
 				if &data[value.clone()] == new_value {
 					return None;
@@ -371,8 +377,8 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 				))
 			},
 			NodePlan::Extension { .. } // TODO Extension
-			| NodePlan::Branch { .. } // TODO branch
-			| NodePlan::Empty => None,
+			// TODO branch
+			| NodePlan::Branch { .. } => None,
 			NodePlan::NibbledBranch { partial, value, children } => {
 				if let Some(value) = value {
 					if &data[value.clone()] == new_value {
