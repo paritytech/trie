@@ -31,6 +31,9 @@ use crate::core_::result;
 #[cfg(feature = "std")]
 use ::std::collections::{HashSet, VecDeque};
 
+#[cfg(feature = "std")]
+use std::fmt::{self, Debug};
+
 #[cfg(not(feature = "std"))]
 use ::alloc::collections::vec_deque::VecDeque;
 
@@ -75,7 +78,6 @@ fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; 16]> {
 type NibbleFullKey<'key> = NibbleSlice<'key>;
 
 /// Node types in the Trie.
-#[cfg_attr(feature = "std", derive(Debug))]
 enum Node<H> {
 	/// Empty node.
 	Empty,
@@ -92,6 +94,36 @@ enum Node<H> {
 	Branch(Box<[Option<NodeHandle<H>>; 16]>, Option<DBValue>),
 	/// Branch node with support for a nibble (to avoid extension node).
 	NibbledBranch(NodeKey, Box<[Option<NodeHandle<H>>; 16]>, Option<DBValue>),
+}
+
+#[cfg(feature = "std")]
+struct ToHex<'a>(&'a [u8]);
+#[cfg(feature = "std")]
+impl<'a> Debug for ToHex<'a> {
+	fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+		let hex = rustc_hex::ToHexIter::new(self.0.iter());
+		for b in hex {
+			write!(fmt, "{}", b)?;
+		}
+		Ok(())
+	}
+}
+
+#[cfg(feature = "std")]
+impl<H: Debug> Debug for Node<H> {
+	fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+		match *self {
+			Self::Empty => write!(fmt, "Empty"),
+			Self::Leaf((ref a, ref b), ref c) =>
+				write!(fmt, "Leaf({:?}, {:?})", (a, ToHex(&*b)), ToHex(&*c)),
+			Self::Extension((ref a, ref b), ref c) =>
+				write!(fmt, "Extension({:?}, {:?})", (a, ToHex(&*b)), c),
+			Self::Branch(ref a, ref b) =>
+				write!(fmt, "Branch({:?}, {:?}", a, b.as_ref().map(Vec::as_slice).map(ToHex)),
+			Self::NibbledBranch((ref a, ref b), ref c, ref d) =>
+				write!(fmt, "NibbledBranch({:?}, {:?}, {:?})", (a, ToHex(&*b)), c, d.as_ref().map(Vec::as_slice).map(ToHex)),
+		}
+	}
 }
 
 impl<O> Node<O>
@@ -611,7 +643,7 @@ where
 		let partial = key.clone();
 
 		#[cfg(feature = "std")]
-		trace!(target: "trie", "augmented (partial: {:?}, value: {:#x?})", partial, value);
+		trace!(target: "trie", "augmented (partial: {:?}, value: {:?})", partial, ToHex(&value));
 
 		Ok(match node {
 			Node::Empty => {
@@ -1317,7 +1349,7 @@ where
 					},
 				};
 				let child_prefix = (alloc_start.as_ref().map(|start| &start[..]).unwrap_or(start), prefix_end);
-	
+
 				let stored = match child {
 					NodeHandle::InMemory(h) => self.storage.destroy(h),
 					NodeHandle::Hash(h) => {
@@ -1525,7 +1557,7 @@ where
 		let mut old_val = None;
 
 		#[cfg(feature = "std")]
-		trace!(target: "trie", "insert: key={:#x?}, value={:#x?}", key, value);
+		trace!(target: "trie", "insert: key={:#x?}, value={:?}", key, ToHex(&value));
 
 		let root_handle = self.root_handle();
 		let (new_handle, changed) = self.insert_at(
@@ -2067,6 +2099,13 @@ mod tests {
 		test_comb((1, &a), (0, &b), (1, &[0x12, 0x34, 0x56, 0x78][..]));
 		test_comb((0, &a), (1, &b), (1, &[0x01, 0x23, 0x46, 0x78][..]));
 		test_comb((1, &a), (1, &b), (0, &[0x23, 0x46, 0x78][..]));
+	}
+
+	#[test]
+	fn nice_debug_for_node() {
+		use super::Node;
+		let e: Node<u32> = Node::Leaf((1, vec![1, 2, 3].into()), vec![4, 5, 6]);
+		assert_eq!(format!("{:?}", e), "Leaf((1, 010203), 040506)");
 	}
 
 }
