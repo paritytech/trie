@@ -386,6 +386,8 @@ impl<B, T> StackedItem<B, T>
 			} else {
 				self.process_first_child(callback);
 			}
+		} else {
+			self.process_split_child(key, callback);
 		}
 		callback.exit_root(
 			self.node,
@@ -644,6 +646,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 		if let Some((key, value)) = next_query {
 			let dest_slice = NibbleFullKey::new(key.as_ref());
 			let dest_depth = key.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
+			let mut descend_mid_index = None;
 			if !current.node.is_empty() {
 				// corner case do not descend in empty node
 				loop {
@@ -658,15 +661,19 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						let prefix = NibbleSlice::new_offset(key.as_ref(), current.depth + 1);
 						if let Some(child) = current.descend_child(next_index, db, prefix.left())? {
 							current = child;
-						} else {
-							break;
 						}
 					} else {
+						if common_index < current.depth {
+							descend_mid_index = Some(common_index);
+						}
 						break;
 					}
 				}
 			}
-			let traverse_state = if dest_depth < current.depth {
+			let traverse_state = if let Some(mid_index) = descend_mid_index {
+				TraverseState::MidPartial(mid_index)
+			} else if dest_depth < current.depth {
+				// TODO this might be unreachable from previous loop
 				// split child (insert in current prefix
 				let mid_index = current.node.partial()
 					.map(|current_partial| {
@@ -892,24 +899,35 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 			TraverseState::MidPartial(mid_index) => {
 				if let Some(value) = value_element {
 					stacked.split_child(mid_index, key_element);
-					// TODO not sure on index
-					let parent_index = NibbleSlice::new(key_element).at(mid_index);
+					let (offset, parent_index) = if key_element.len() == 0 {
+						// corner case of adding at top of trie
+						(0, 0)
+					} else {
+						// TODO not sure on index
+						(1, NibbleSlice::new(key_element).at(mid_index))
+					};
 					let child = Node::new_leaf(
 						// TODO not sure on '1 +'
-						NibbleSlice::new_offset(key_element, 1 + mid_index),
+						NibbleSlice::new_offset(key_element, offset + mid_index),
 						value.as_ref(),
 					);
-					let child = StackedItem {
-						node: StackedNode::Changed(child),
-						hash: None,
-						depth_prefix: 1 + mid_index,
-						depth: key_element.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
-						parent_index,
-						split_child: None,
-						first_child: None,
-						did_first_child: false,
-					};
-					return Some(child);
+					return if mid_index == key_element.len() * nibble_ops::NIBBLE_PER_BYTE {
+						// set value in new branch
+						stacked.node.set_value(value);
+						None
+					} else {
+						let child = StackedItem {
+							node: StackedNode::Changed(child),
+							hash: None,
+							depth_prefix: offset + mid_index,
+							depth: key_element.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
+							parent_index,
+							split_child: None,
+							first_child: None,
+							did_first_child: false,
+						};
+						Some(child)
+					}
 				} else {
 					// nothing to delete.
 					return None;
@@ -1120,6 +1138,17 @@ mod tests {
 	fn empty_node_null_key() {
 		compare_with_triedbmut(
 			&[],
+			&[
+				(vec![], Some(vec![0xffu8, 0x33])),
+			],
+		);
+	}
+	#[test]
+	fn non_empty_node_null_key() {
+		compare_with_triedbmut(
+			&[
+				(vec![0x0u8], vec![4, 32]),
+			],
 			&[
 				(vec![], Some(vec![0xffu8, 0x33])),
 			],
