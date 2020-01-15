@@ -114,8 +114,7 @@ pub type DBValue = Vec<u8>;
 ///
 /// These borrow the data within them to avoid excessive copying on every
 /// trie operation.
-#[derive(PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "std", derive(Debug))]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum TrieError<T, E> {
 	/// Attempted to create a trie with a state root not in the DB.
 	InvalidStateRoot(T),
