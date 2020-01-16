@@ -1171,7 +1171,7 @@ mod tests {
 			],
 			&[
 				(vec![0x04u8], Some(vec![0xffu8, 0x33])),
-				//(vec![32u8], Some(vec![0xffu8, 0x33])),
+				(vec![32u8], Some(vec![0xffu8, 0x33])),
 			],
 		);
 	}
