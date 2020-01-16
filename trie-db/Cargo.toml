@@ -15,8 +15,8 @@ rustc-hex = { version = "2.1.0", default-features = false, optional = true }
 
 [dev-dependencies]
 env_logger = "0.6"
-memory-db = { path = "../memory-db", version = "0.18.0" }
-rand = { version = "0.7", default-features = false, features = ["small_rng"] }
+memory-db = { path = "../memory-db", version = "0.18.1" }
+rand = { version = "0.7", default-features = false, features = ["small_rng", "std"] }
 trie-root = { path = "../trie-root", version = "0.15.2"}
 trie-standardmap = { path = "../test-support/trie-standardmap", version = "0.15.2" }
 keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.15.2" }
@@ -31,7 +31,6 @@ parity-codec-derive = "3.0"
 default = ["std"]
 std = [
   "hash-db/std",
-  "rand/std",
   "rustc-hex",
 ]
 

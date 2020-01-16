@@ -284,6 +284,17 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 		let inner = TrieDBNodeIterator::new(db)?;
 		Ok(TrieDBIterator { inner })
 	}
+
+	/// Create a new iterator, but limited to a given prefix.
+	pub fn new_prefixed(db: &'a TrieDB<L>, prefix: &[u8]) -> Result<TrieDBIterator<'a, L>, TrieHash<L>, CError<L>> {
+		let mut inner = TrieDBNodeIterator::new(db)?;
+		inner.prefix(prefix)?;
+
+		Ok(TrieDBIterator {
+			inner,
+		})
+	}
+
 }
 
 impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBIterator<'a, L> {
