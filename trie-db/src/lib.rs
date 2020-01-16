@@ -58,17 +58,8 @@ use std::error::Error;
 
 #[cfg(feature = "std")]
 use std::fmt;
-#[cfg(feature = "std")]
-pub trait MaybeDebug: fmt::Debug {}
-#[cfg(feature = "std")]
-impl<T: fmt::Debug> MaybeDebug for T {}
 
-
-#[cfg(not(feature = "std"))]
-pub trait MaybeDebug {}
-#[cfg(not(feature = "std"))]
-impl<T> MaybeDebug for T {}
-
+use hash_db::MaybeDebug;
 
 pub mod node;
 pub mod proof;
