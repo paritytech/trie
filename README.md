@@ -1,5 +1,4 @@
-[![Build Status](https://travis-ci.org/paritytech/trie.svg?branch=master)](https://travis-ci.org/paritytech/trie)
-
+[![Build Status](https://travis-ci.com/paritytech/trie.svg?branch=master)](https://travis-ci.com/paritytech/trie)
 # Trie
 
 A generic implementation of the Base-16 Modified Merkle Tree ("Trie") data structure,

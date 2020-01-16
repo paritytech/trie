@@ -20,6 +20,7 @@ use std::marker::PhantomData;
 use std::ops::Range;
 use parity_scale_codec::{Decode, Input, Output, Encode, Compact, Error as CodecError};
 use trie_root::Hasher;
+
 use trie_db::{
 	node::{NibbleSlicePlan, NodePlan, NodeHandlePlan},
 	triedbmut::ChildReference,
@@ -33,11 +34,11 @@ use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
 
 pub use trie_db::{
-	Trie, TrieMut, TrieDB, TrieDBMut, TrieError, TrieIterator, TrieDBNodeIterator,
-	NibbleSlice, NibbleVec, NodeCodec, Recorder, TrieDBIterator,
-	encode_compact, decode_compact,
+	decode_compact, encode_compact,
+	nibble_ops, NibbleSlice, NibbleVec, NodeCodec, proof, Record, Recorder,
+	Trie, TrieConfiguration, TrieDB, TrieDBIterator, TrieDBMut, TrieDBNodeIterator, TrieError,
+	TrieIterator, TrieLayout, TrieMut,
 };
-pub use trie_db::{Record, TrieLayout, TrieConfiguration, nibble_ops};
 pub use trie_root::TrieStream;
 pub mod node {
 	pub use trie_db::node::Node;

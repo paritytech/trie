@@ -130,7 +130,7 @@ where
 #[cfg(test)]
 mod test {
 	use memory_db::{MemoryDB, HashKey};
-	use DBValue;
+	use crate::DBValue;
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefFatDBMut, RefFatDB, Trie, TrieMut};
 

@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
-use nibble::NibbleSlice;
-use iterator::TrieDBNodeIterator;
+use crate::nibble::NibbleSlice;
+use crate::iterator::TrieDBNodeIterator;
 use super::node::{NodeHandle, Node, OwnedNode, decode_hash};
 use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query,
@@ -345,7 +345,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 mod tests {
 	use memory_db::{MemoryDB, PrefixedKey};
 	use keccak_hasher::KeccakHasher;
-	use DBValue;
+	use crate::DBValue;
 	use reference_trie::{RefTrieDB, RefTrieDBMut, RefLookup, Trie, TrieMut, NibbleSlice};
 	use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt};
 

@@ -16,11 +16,10 @@
 //! Trie interface and implementation.
 
 #[cfg(not(feature = "std"))]
-extern crate alloc;
+#[macro_use] extern crate alloc;
 
 extern crate smallvec;
 extern crate hash_db;
-extern crate rand;
 #[macro_use]
 extern crate log;
 
@@ -59,19 +58,11 @@ use std::error::Error;
 
 #[cfg(feature = "std")]
 use std::fmt;
-#[cfg(feature = "std")]
-pub trait MaybeDebug: fmt::Debug {}
-#[cfg(feature = "std")]
-impl<T: fmt::Debug> MaybeDebug for T {}
 
-
-#[cfg(not(feature = "std"))]
-pub trait MaybeDebug {}
-#[cfg(not(feature = "std"))]
-impl<T> MaybeDebug for T {}
-
+use hash_db::MaybeDebug;
 
 pub mod node;
+pub mod proof;
 pub mod triedb;
 pub mod triedbmut;
 pub mod sectriedb;
@@ -97,14 +88,14 @@ pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
 pub use self::nibble::{NibbleSlice, NibbleVec, nibble_ops};
-pub use node_codec::{NodeCodec, Partial};
-pub use iter_build::{trie_visit, ProcessEncodedNode,
+pub use crate::node_codec::{NodeCodec, Partial};
+pub use crate::iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed};
-pub use iterator::TrieDBNodeIterator;
-pub use trie_codec::{decode_compact, encode_compact};
+pub use crate::iterator::TrieDBNodeIterator;
+pub use crate::trie_codec::{decode_compact, encode_compact};
 
 #[cfg(feature = "std")]
-pub use iter_build::TrieRootPrint;
+pub use crate::iter_build::TrieRootPrint;
 
 /// Database value
 pub type DBValue = Vec<u8>;
@@ -113,8 +104,7 @@ pub type DBValue = Vec<u8>;
 ///
 /// These borrow the data within them to avoid excessive copying on every
 /// trie operation.
-#[derive(PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "std", derive(Debug))]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum TrieError<T, E> {
 	/// Attempted to create a trie with a state root not in the DB.
 	InvalidStateRoot(T),
@@ -167,7 +157,7 @@ impl<T, E> Error for TrieError<T, E> where T: fmt::Debug, E: Error {
 
 /// Trie result type.
 /// Boxed to avoid copying around extra space for the `Hasher`s `Out` on successful queries.
-pub type Result<T, H, E> = ::core_::result::Result<T, Box<TrieError<H, E>>>;
+pub type Result<T, H, E> = crate::core_::result::Result<T, Box<TrieError<H, E>>>;
 
 
 /// Trie-Item type used for iterators over trie data.

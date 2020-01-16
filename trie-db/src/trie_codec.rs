@@ -32,7 +32,7 @@ use crate::{
 	nibble_ops::NIBBLE_LENGTH, node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode},
 };
 
-use	::core_::{
+use crate::core_::{
 	convert::TryInto,
 	marker::PhantomData,
 	result,
@@ -44,6 +44,8 @@ use std::rc::Rc;
 use alloc::rc::Rc;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
 
 struct EncoderStackEntry<C: NodeCodec> {
 	/// The prefix is the nibble path to the node in the trie.

@@ -22,3 +22,6 @@
 
 core/trie/.criterion/
 **/.criterion/
+
+**/fuzz/artifacts/
+**/fuzz/corpus/

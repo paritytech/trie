@@ -9,8 +9,9 @@ edition = "2018"
 cargo-fuzz = true
 
 [dependencies]
-memory-db = { path = "../../memory-db", version = "0.15.2" }
-reference-trie = { path = "../../test-support/reference-trie", version = "0.16.0" }
+hash-db = { path = "../../hash-db", version = "0.15.2" }
+memory-db = { path = "../../memory-db", version = "0.18.1" }
+reference-trie = { path = "../../test-support/reference-trie", version = "0.19.0" }
 keccak-hasher = { path = "../../test-support/keccak-hasher", version = "0.15.2" }
 
 [dependencies.trie-db]
@@ -55,3 +56,11 @@ path = "fuzz_targets/prefix_iter.rs"
 [[bin]]
 name = "seek_iter"
 path = "fuzz_targets/seek_iter.rs"
+
+[[bin]]
+name = "trie_proof_valid"
+path = "fuzz_targets/trie_proof_valid.rs"
+
+[[bin]]
+name = "trie_proof_invalid"
+path = "fuzz_targets/trie_proof_invalid.rs"

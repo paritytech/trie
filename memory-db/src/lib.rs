@@ -16,16 +16,8 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-extern crate hash_db;
-extern crate parity_util_mem;
-#[cfg(feature = "deprecated")]
-#[cfg(feature = "std")]
-extern crate heapsize;
-#[cfg(not(feature = "std"))]
-extern crate hashbrown;
 #[cfg(not(feature = "std"))]
 extern crate alloc;
-#[cfg(test)] extern crate keccak_hasher;
 
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher,
 	AsHashDB, AsPlainDB, Prefix};
@@ -80,9 +72,6 @@ impl<T> MaybeDebug for T {}
 ///
 /// # Example
 /// ```rust
-/// extern crate hash_db;
-/// extern crate keccak_hasher;
-/// extern crate memory_db;
 ///
 /// use hash_db::{Hasher, HashDB, EMPTY_PREFIX};
 /// use keccak_hasher::KeccakHasher;

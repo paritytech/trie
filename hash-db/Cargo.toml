@@ -6,6 +6,7 @@ description = "Trait for hash-keyed databases."
 license = "Apache-2.0"
 categories = [ "no-std" ]
 repository = "https://github.com/paritytech/trie"
+edition = "2018"
 
 [features]
 default = ["std"]
