@@ -1,4 +1,7 @@
 language: rust
+branches:
+  only:
+    - master
 rust:
   - stable
   - nightly
