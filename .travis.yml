@@ -6,6 +6,6 @@ matrix:
   allow_failures:
     - rust: nightly
 script:
-  - cargo build
+  - cargo check --all --tests --benches
   - cargo test --all
-  
+ 

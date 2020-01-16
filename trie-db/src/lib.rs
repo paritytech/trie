@@ -20,7 +20,6 @@
 
 extern crate smallvec;
 extern crate hash_db;
-extern crate rand;
 #[macro_use]
 extern crate log;
 
