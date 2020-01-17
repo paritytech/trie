@@ -22,11 +22,11 @@ use super::{DBValue, node::NodeKey};
 
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use crate::nibble::{NibbleVec, NibbleSlice, nibble_ops, BackingByteVec};
-use crate::core_::convert::TryFrom;
-use crate::core_::mem;
-use crate::core_::ops::Index;
-use crate::core_::hash::Hash;
-use crate::core_::result;
+use crate::rstd::convert::TryFrom;
+use crate::rstd::mem;
+use crate::rstd::ops::Index;
+use crate::rstd::hash::Hash;
+use crate::rstd::result;
 
 #[cfg(feature = "std")]
 use log::trace;

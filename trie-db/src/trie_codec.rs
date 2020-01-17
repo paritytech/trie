@@ -32,7 +32,7 @@ use crate::{
 	nibble_ops::NIBBLE_LENGTH, node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode},
 };
 
-use crate::core_::{
+use crate::rstd::{
 	convert::TryInto,
 	marker::PhantomData,
 	result,

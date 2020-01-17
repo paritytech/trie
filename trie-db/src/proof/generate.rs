@@ -16,9 +16,9 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec::Vec};
-use crate::core_::convert::TryInto;
-use crate::core_::marker::PhantomData;
-use crate::core_::ops::Range;
+use crate::rstd::convert::TryInto;
+use crate::rstd::marker::PhantomData;
+use crate::rstd::ops::Range;
 
 use hash_db::Hasher;
 

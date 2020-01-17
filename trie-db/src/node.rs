@@ -17,8 +17,8 @@ use crate::nibble::{self, NibbleSlice};
 use crate::nibble::nibble_ops;
 use crate::node_codec::NodeCodec;
 
-use crate::core_::borrow::Borrow;
-use crate::core_::ops::Range;
+use crate::rstd::borrow::Borrow;
+use crate::rstd::ops::Range;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 

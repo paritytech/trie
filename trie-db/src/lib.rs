@@ -19,9 +19,9 @@
 #[macro_use] extern crate alloc;
 
 #[cfg(feature = "std")]
-use std as core_;
+use std as rstd;
 #[cfg(not(feature = "std"))]
-use core as core_;
+use core as rstd;
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
@@ -133,7 +133,7 @@ impl<T, E> Error for TrieError<T, E> where T: fmt::Debug, E: Error {
 
 /// Trie result type.
 /// Boxed to avoid copying around extra space for the `Hasher`s `Out` on successful queries.
-pub type Result<T, H, E> = crate::core_::result::Result<T, Box<TrieError<H, E>>>;
+pub type Result<T, H, E> = crate::rstd::result::Result<T, Box<TrieError<H, E>>>;
 
 
 /// Trie-Item type used for iterators over trie data.

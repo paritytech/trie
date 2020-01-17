@@ -18,8 +18,8 @@
 //! See `trie_visit` function.
 
 use hash_db::{Hasher, HashDB, Prefix};
-use crate::core_::marker::PhantomData;
-use crate::core_::cmp::max;
+use crate::rstd::marker::PhantomData;
+use crate::rstd::cmp::max;
 use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
 use crate::nibble::nibble_ops;
