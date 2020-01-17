@@ -237,6 +237,18 @@ impl<D: Borrow<[u8]>> OwnedNode<D> {
 		}
 	}
 
+	/// Tell if there is a value defined at this node position.
+	pub fn has_value(&self) -> bool {
+		match &self.plan {
+			NodePlan::Extension { .. }
+			| NodePlan::Empty => false,
+			NodePlan::Leaf { .. }	=> true,
+			NodePlan::Branch { value, .. }
+			| NodePlan::NibbledBranch { value, .. }	=> value.is_some(),
+		}
+	}
+
+
 	/// Get value part of the node (partial) if any.
 	pub fn value(&self) -> Option<super::DBValue> {
 		let data = &self.data.borrow();

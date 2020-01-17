@@ -186,6 +186,17 @@ impl<H, SH> Node<H, SH> {
 	}
 
 	/// Set value to node if possible.
+	pub(crate) fn has_value(&self) -> bool {
+		match self {
+			Node::Extension(..)
+			| Node::Empty => false,
+			Node::Branch (_, val )
+			| Node::NibbledBranch(_, _, val) => val.is_some(),
+			Node::Leaf(_, _) => true,
+		}
+	}
+
+	/// Set value to node if possible.
 	pub(crate) fn set_value(&mut self, value: &[u8]) {
 		match self {
 			Node::Extension(..)

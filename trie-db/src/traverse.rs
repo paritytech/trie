@@ -310,9 +310,9 @@ impl<B, T> StackedItem<B, T>
 
 		// split occurs before visiting a single child
 		debug_assert!(self.first_child.is_none());
-		debug_assert!(!self.did_first_child);
+		// debug_assert!(!self.did_first_child);
 		// ordering key also ensure
-		debug_assert!(self.split_child.is_none());
+		debug_assert!(self.split_child_index().is_none());
 
 		// not setting child relation (will be set on exit)
 		let child = StackedItemChild {
@@ -447,6 +447,15 @@ impl<B, T> StackedNode<B, T>
 			StackedNode::Unchanged(node) => node.child(ix),
 			StackedNode::Changed(node) => node.child(ix),
 			StackedNode::Deleted => None,
+		}
+	}
+
+	/// Tell if there is a value defined at this node position.
+	fn has_value(&self) -> bool {
+		match self {
+			StackedNode::Unchanged(node) => node.has_value(),
+			StackedNode::Changed(node) => node.has_value(),
+			StackedNode::Deleted => false,
 		}
 	}
 
@@ -640,72 +649,15 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 	let mut previous_key: Option<K> = None;
 
 	for next_query in elements.into_iter().map(|e| Some(e)).chain(Some(None)) {
-		let mut next_key = None;
-		let last = next_query.is_none();
-		// PATH DOWN descending in next_query.
-		if let Some((key, value)) = next_query {
-			let dest_slice = NibbleFullKey::new(key.as_ref());
-			let dest_depth = key.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
-			let mut descend_mid_index = None;
-			if !current.node.is_empty() {
-				// corner case do not descend in empty node
-				loop {
-					let common_index = current.node.partial()
-						.map(|current_partial| {
-							let target_partial = NibbleSlice::new_offset(key.as_ref(), current.depth_prefix);
-							current.depth_prefix + current_partial.common_prefix(&target_partial)
-						}).unwrap_or(current.depth_prefix);
-					// TODO not sure >= or just >.
-					if common_index == current.depth_prefix && dest_depth >= current.depth {
-						let next_index = dest_slice.at(current.depth);
-						let prefix = NibbleSlice::new_offset(key.as_ref(), current.depth + 1);
-						if let Some(child) = current.descend_child(next_index, db, prefix.left())? {
-							current = child;
-						}
-					} else {
-						if common_index < current.depth {
-							descend_mid_index = Some(common_index);
-						}
-						break;
-					}
-				}
-			}
-			let traverse_state = if let Some(mid_index) = descend_mid_index {
-				TraverseState::MidPartial(mid_index)
-			} else if dest_depth < current.depth {
-				// TODO this might be unreachable from previous loop
-				// split child (insert in current prefix
-				let mid_index = current.node.partial()
-					.map(|current_partial| {
-						let target_partial = NibbleSlice::new_offset(key.as_ref(), current.depth_prefix);
-						current.depth_prefix + current_partial.common_prefix(&target_partial)
-					}).expect("Covered by previous iteration for well formed trie");
-				TraverseState::MidPartial(mid_index)
-			} else if dest_depth > current.depth {
-				// over callback
-				TraverseState::AfterNode
-			} else {
-				// value replace callback
-				TraverseState::ValueMatch
-			};
-			if let Some(new_child) = callback.enter_terminal(
-				&mut current,
-				key.as_ref(),
-				value.as_ref().map(|v| v.as_ref()),
-				traverse_state,
-			) {
-				stack.push(current);
-				current = new_child;
-			}
-			next_key = Some(key)
-		}
+
 		// PATH UP over the previous key and value
-		if let Some(key) = previous_key {
-			let target_common_depth = next_key.as_ref().map(|next| nibble_ops::biggest_depth(
+		if let Some(key) = previous_key.as_ref() {
+			let target_common_depth = next_query.as_ref().map(|(next, _)| nibble_ops::biggest_depth(
 				key.as_ref(),
 				next.as_ref(),
 			)).unwrap_or(0); // last element goes up to root
 
+			let last = next_query.is_none();
 			// unstack nodes if needed
 			while last || target_common_depth < current.depth_prefix {
 	
@@ -731,41 +683,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						// fuse child opteration did switch current context.
 						continue;
 					}
-					if let Some((parent_first, key_first)) = parent.first_child.take() {
-						// parent first from split is replaced when going down in this case.
-						debug_assert!(parent_first.parent_index != current.parent_index);
-						// parent got two changed child we can apply exit (no way to fuse this with
-						// top or 
-						if parent_first.parent_index < current.parent_index {
-							if let Some(handle) = callback.exit(
-								NibbleSlice::new_offset(&key_first[..], parent.depth + 1).left(),
-								parent_first.node, parent_first.hash.as_ref(),
-							) {
-								parent.node.set_handle(handle, parent_first.parent_index);
-							}
-							if let Some(handle) = callback.exit(
-								NibbleSlice::new_offset(key.as_ref(), current.depth_prefix).left(),
-								current.node, current.hash.as_ref(),
-							) {
-								parent.node.set_handle(handle, current.parent_index);
-							}
-						} else if parent_first.parent_index > current.parent_index {
-							if let Some(handle) = callback.exit(
-								NibbleSlice::new_offset(key.as_ref(), current.depth_prefix).left(),
-								current.node, current.hash.as_ref(),
-							) {
-								parent.node.set_handle(handle, current.parent_index);
-							}
-							// parent_first is from a split
-							if let Some(handle) = callback.exit(
-								NibbleSlice::new_offset(&key_first[..], parent.depth + 1).left(),
-								parent_first.node, parent_first.hash.as_ref(),
-							) {
-								parent.node.set_handle(handle, parent_first.parent_index);
-							}
-						}
-						parent.did_first_child = true;
-					} else if parent.did_first_child || current.node.is_deleted() {
+					if parent.did_first_child || current.node.is_deleted() {
 						// process exit, as we already assert two child, no need to store in case of parent
 						// fusing.
 						// Deletion case is guaranted by ordering of input (fix delete only if no first
@@ -796,8 +714,27 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 							parent.process_child(current, key.as_ref(), callback);
 						}
 					} else {
-						// first node visited, store in parent first child and process later.
-						parent.first_child = Some((current.into(), key.as_ref().to_vec()));
+						if let Some(split_child_index) = parent.split_child_index() {
+							if split_child_index < current.parent_index {
+								// this could not be fuse (split cannot be deleted),
+								// no stacking of first child
+								if split_child_index < current.parent_index {
+									parent.process_split_child(key.as_ref(), callback);
+								}
+								parent.did_first_child = true;
+							}
+						}
+						if !parent.did_first_child && parent.node.has_value() {
+							// this could not be fuse (delete value occurs before),
+							// no stacking of first child
+							parent.did_first_child = true;
+						}
+						if parent.did_first_child {
+							parent.process_child(current, key.as_ref(), callback);
+						} else {
+							// first node visited on a fusable element, store in parent first child and process later.
+							parent.first_child = Some((current.into(), key.as_ref().to_vec()));
+						}
 					}
 					current = parent;
 				} else {
@@ -806,7 +743,66 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 				}
 			}
 		}
-		previous_key = next_key;
+
+		// PATH DOWN descending in next_query.
+		if let Some((key, value)) = next_query {
+			let dest_slice = NibbleFullKey::new(key.as_ref());
+			let dest_depth = key.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
+			let mut descend_mid_index = None;
+			if !current.node.is_empty() {
+				// corner case do not descend in empty node (else condition)
+				loop {
+					let common_index = current.node.partial()
+						.map(|current_partial| {
+							let target_partial = NibbleSlice::new_offset(key.as_ref(), current.depth_prefix);
+							current.depth_prefix + current_partial.common_prefix(&target_partial)
+						}).unwrap_or(current.depth_prefix);
+					// TODO not sure >= or just >.
+					if common_index == current.depth && dest_depth > current.depth {
+						let next_index = dest_slice.at(current.depth);
+						let prefix = NibbleSlice::new_offset(key.as_ref(), current.depth + 1);
+						if let Some(child) = current.descend_child(next_index, db, prefix.left())? {
+							current = child;
+						} else {
+							break;
+						}
+					} else {
+						if common_index < current.depth {
+							descend_mid_index = Some(common_index);
+						}
+						break;
+					}
+				}
+			}
+			let traverse_state = if let Some(mid_index) = descend_mid_index {
+				TraverseState::MidPartial(mid_index)
+			} else if dest_depth < current.depth {
+				// TODO this might be unreachable from previous loop
+				// split child (insert in current prefix -> try fuzzing on unreachable
+				let mid_index = current.node.partial()
+					.map(|current_partial| {
+						let target_partial = NibbleSlice::new_offset(key.as_ref(), current.depth_prefix);
+						current.depth_prefix + current_partial.common_prefix(&target_partial)
+					}).expect("Covered by previous iteration for well formed trie");
+				TraverseState::MidPartial(mid_index)
+			} else if dest_depth > current.depth {
+				// over callback
+				TraverseState::AfterNode
+			} else {
+				// value replace callback
+				TraverseState::ValueMatch
+			};
+			if let Some(new_child) = callback.enter_terminal(
+				&mut current,
+				key.as_ref(),
+				value.as_ref().map(|v| v.as_ref()),
+				traverse_state,
+			) {
+				stack.push(current);
+				current = new_child;
+			}
+			previous_key = Some(key);
+		}
 	}
 
 	Ok(())
@@ -1167,15 +1163,27 @@ mod tests {
 	fn dummy1() {
 		compare_with_triedbmut(
 			&[
+				(vec![0x04u8], vec![4, 32]),
+			],
+			&[
+				(vec![0x06u8], Some(vec![0xffu8, 0x33])),
+				(vec![0x08u8], Some(vec![0xffu8, 0x33])),
+			],
+		);
+	}
+	#[test]
+	fn two_recursive_mid_insert() {
+		compare_with_triedbmut(
+			&[
 				(vec![0x0u8], vec![4, 32]),
 			],
 			&[
 				(vec![0x04u8], Some(vec![0xffu8, 0x33])),
-				(vec![32u8], Some(vec![0xffu8, 0x33])),
+				(vec![0x20u8], Some(vec![0xffu8, 0x33])),
+				//(vec![0x06u8], Some(vec![0xffu8, 0x33])),
 			],
 		);
 	}
-
 	#[test]
 	fn dummy2() {
 		compare_with_triedbmut(
