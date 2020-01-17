@@ -353,6 +353,11 @@ impl<B, T> StackedItem<B, T>
 		F: ProcessStack<B, T>,
 	>(&mut self, callback: &mut F) {
 		if let Some((child, key)) = self.first_child.take() {
+			if let Some(split_child_index) = self.split_child_index() {
+				if split_child_index < child.parent_index {
+					self.process_split_child(key.as_ref(), callback);
+				}
+			}
 			let nibble_slice = NibbleSlice::new_offset(key.as_ref(), child.depth_prefix);
 			self.append_child(child, nibble_slice.left(), callback);
 		}
@@ -364,6 +369,17 @@ impl<B, T> StackedItem<B, T>
 		// TODO switch to debug assert if correct asumption or call process first
 		// child ordered with split child.
 		assert!(child.first_child.is_none(), "guaranted by call to fix_node");
+
+		if let Some(first_child_index) = self.first_child_index() {
+			if first_child_index < child.parent_index {
+				self.process_first_child(callback);
+			}
+		}
+		if let Some(split_child_index) = self.split_child_index() {
+			if split_child_index < child.parent_index {
+				self.process_split_child(key.as_ref(), callback);
+			}
+		}
 		// split child can be unprocessed (when going up it is kept after second node
 		// in expectation of other children process.
 		child.process_split_child(key, callback);
@@ -374,21 +390,8 @@ impl<B, T> StackedItem<B, T>
 	fn process_root<
 		F: ProcessStack<B, T>,
 	>(mut self, key: &[u8], callback: &mut F) {
-		if let Some(first_child_index) = self.first_child_index() {
-			if let Some(split_child_index) = self.split_child_index() {
-				if split_child_index > first_child_index {
-					self.process_first_child(callback);
-					self.process_split_child(key, callback);
-				} else {
-					self.process_split_child(key, callback);
-					self.process_first_child(callback);
-				}
-			} else {
-				self.process_first_child(callback);
-			}
-		} else {
-			self.process_split_child(key, callback);
-		}
+		self.process_first_child(callback);
+		self.process_split_child(key.as_ref(), callback);
 		callback.exit_root(
 			self.node,
 			self.hash.as_ref(),
@@ -697,30 +700,10 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 					} else if let Some(first_child_index) = parent.first_child_index() {
 						debug_assert!(first_child_index < current.parent_index);
 						parent.did_first_child = true;
-						// process both first child and current.
-						if let Some(split_child_index) = parent.split_child_index() {
-							debug_assert!(split_child_index != first_child_index);
-							debug_assert!(split_child_index != current.parent_index);
-							if split_child_index < first_child_index {
-								parent.process_split_child(key.as_ref(), callback);
-							}
-							parent.process_first_child(callback);
-							if split_child_index < current.parent_index {
-								parent.process_split_child(key.as_ref(), callback);
-							}
-							parent.process_child(current, key.as_ref(), callback);
-						} else {
-							parent.process_first_child(callback);
-							parent.process_child(current, key.as_ref(), callback);
-						}
+						parent.process_child(current, key.as_ref(), callback);
 					} else {
 						if let Some(split_child_index) = parent.split_child_index() {
 							if split_child_index < current.parent_index {
-								// this could not be fuse (split cannot be deleted),
-								// no stacking of first child
-								if split_child_index < current.parent_index {
-									parent.process_split_child(key.as_ref(), callback);
-								}
 								parent.did_first_child = true;
 							}
 						}
