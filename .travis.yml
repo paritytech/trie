@@ -1,4 +1,7 @@
 language: rust
+branches:
+  only:
+    - master
 rust:
   - stable
   - nightly
@@ -6,6 +9,8 @@ matrix:
   allow_failures:
     - rust: nightly
 script:
-  - cargo build
+  - cargo check --all --tests --benches
   - cargo test --all
-  
+  - cd trie-db && cargo check --no-default-features
+  - cd ../memory-db && cargo check --no-default-features
+

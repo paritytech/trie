@@ -286,7 +286,7 @@ impl<D: Borrow<[u8]>> OwnedNode<D> {
 
 impl<B: Borrow<[u8]>> OwnedNode<B> {
 	/// Set a partial TODO EMCH factor new node from existing on all those methods.
-	pub fn advance_partial<H: AsMut<[u8]> + Default>(&mut self, nb: usize) -> Option<TNode<H, Vec<u8>>> {
+	pub(crate) fn advance_partial<H: AsMut<[u8]> + Default>(&mut self, nb: usize) -> Option<TNode<H, Vec<u8>>> {
 		if nb == 0 {
 			return None;
 		}
@@ -326,7 +326,7 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 	}
 
 	/// Set a partial TODO EMCH factor new node from existing on all those methods.
-	pub fn set_partial<H: AsMut<[u8]> + Default>(&mut self, partial: NodeKey) -> Option<TNode<H, Vec<u8>>> {
+	pub(crate) fn set_partial<H: AsMut<[u8]> + Default>(&mut self, partial: NodeKey) -> Option<TNode<H, Vec<u8>>> {
 		let data = &self.data.borrow();
 		match &self.plan {
 			NodePlan::Leaf { value, .. } => {
@@ -358,7 +358,7 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 	}
 
 	/// Set a value.
-	pub fn set_value<H: AsMut<[u8]> + Default>(&mut self, new_value: &[u8]) -> Option<TNode<H, Vec<u8>>> {
+	pub(crate) fn set_value<H: AsMut<[u8]> + Default>(&mut self, new_value: &[u8]) -> Option<TNode<H, Vec<u8>>> {
 		let data = &self.data.borrow();
 		match &self.plan {
 			NodePlan::Empty => {
@@ -406,7 +406,7 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 	}
 
 	/// Remove a value.
-	pub fn remove_value<H: AsMut<[u8]> + Default>(&mut self) -> Option<Option<TNode<H, Vec<u8>>>> {
+	pub(crate) fn remove_value<H: AsMut<[u8]> + Default>(&mut self) -> Option<Option<TNode<H, Vec<u8>>>> {
 		let data = &self.data.borrow();
 		match &self.plan {
 			NodePlan::Leaf { .. } => Some(None),
@@ -438,7 +438,7 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 
 	/// Set a handle to a child node or remove it if handle is none.
 	/// Return possibly updated node.
-	pub fn set_handle<H: AsMut<[u8]> + Default>(&mut self, handle: Option<TNodeHandle<H, Vec<u8>>>, index: u8)
+	pub(crate) fn set_handle<H: AsMut<[u8]> + Default>(&mut self, handle: Option<TNodeHandle<H, Vec<u8>>>, index: u8)
 		-> Option<TNode<H, Vec<u8>>> {
 
 		let index = index as usize;

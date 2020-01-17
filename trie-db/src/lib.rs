@@ -20,7 +20,6 @@
 
 extern crate smallvec;
 extern crate hash_db;
-extern crate rand;
 #[macro_use]
 extern crate log;
 
@@ -59,17 +58,8 @@ use std::error::Error;
 
 #[cfg(feature = "std")]
 use std::fmt;
-#[cfg(feature = "std")]
-pub trait MaybeDebug: fmt::Debug {}
-#[cfg(feature = "std")]
-impl<T: fmt::Debug> MaybeDebug for T {}
 
-
-#[cfg(not(feature = "std"))]
-pub trait MaybeDebug {}
-#[cfg(not(feature = "std"))]
-impl<T> MaybeDebug for T {}
-
+use hash_db::MaybeDebug;
 
 pub mod node;
 pub mod proof;
@@ -115,8 +105,7 @@ pub type DBValue = Vec<u8>;
 ///
 /// These borrow the data within them to avoid excessive copying on every
 /// trie operation.
-#[derive(PartialEq, Eq, Clone)]
-#[cfg_attr(feature = "std", derive(Debug))]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum TrieError<T, E> {
 	/// Attempted to create a trie with a state root not in the DB.
 	InvalidStateRoot(T),
