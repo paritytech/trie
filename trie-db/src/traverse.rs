@@ -1183,21 +1183,30 @@ mod tests {
 			],
 		);
 	}
-
 	#[test]
-	fn dummy3() {
+	fn delete_to_empty() {
 		compare_with_triedbmut(
 			&[
-				(vec![2, 254u8], vec![4u8; 33]),
 				(vec![1, 254u8], vec![4u8; 33]),
-				(vec![1, 255u8], vec![5u8; 36]),
 			],
 			&[
 				(vec![1, 254u8], None),
 			],
 		);
 	}
-
+	#[test]
+	fn dummy3() {
+		compare_with_triedbmut(
+			&[
+				(vec![2, 254u8], vec![4u8; 33]),
+				(vec![1, 254u8], vec![4u8; 33]),
+			//	(vec![1, 255u8], vec![5u8; 36]),
+			],
+			&[
+				(vec![1, 254u8], None),
+			],
+		);
+	}
 	#[test]
 	fn dummy4() {
 		compare_with_triedbmut(
