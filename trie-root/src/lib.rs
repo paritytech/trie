@@ -76,18 +76,24 @@ fn shared_prefix_length<T: Eq>(first: &[T], second: &[T]) -> usize {
 /// Generates a trie root hash for a vector of key-value tuples
 ///
 /// ```rust
+/// #[macro_use] extern crate hex_literal;
+/// extern crate trie_root;
+/// extern crate reference_trie;
+/// extern crate keccak_hasher;
 /// use trie_root::trie_root;
 /// use reference_trie::ReferenceTrieStream;
 /// use keccak_hasher::KeccakHasher;
 ///
-/// let v = vec![
-/// 	("doe", "reindeer"),
-/// 	("dog", "puppy"),
-/// 	("dogglesworth", "cat"),
-/// ];
+/// fn main() {
+/// 	let v = vec![
+/// 		("doe", "reindeer"),
+/// 		("dog", "puppy"),
+/// 		("dogglesworth", "cat"),
+/// 	];
 ///
-/// let root = hex!["0807d5393ae7f349481063ebb5dbaf6bda58db282a385ca97f37dccba717cb79"];
-/// assert_eq!(trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v), root);
+/// 	let root = hex!["0807d5393ae7f349481063ebb5dbaf6bda58db282a385ca97f37dccba717cb79"];
+/// 	assert_eq!(trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v), root);
+/// }
 /// ```
 pub fn trie_root<H, S, I, A, B>(input: I) -> H::Out where
 	I: IntoIterator<Item = (A, B)>,
