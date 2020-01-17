@@ -14,8 +14,7 @@
 
 //! Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
 
-use crate::rstd::cmp::*;
-use crate::rstd::fmt;
+use crate::rstd::{cmp::*, fmt};
 use super::{nibble_ops, NibbleSlice, NibbleSliceIterator, BackingByteVec};
 use crate::node::NodeKey;
 use crate::node_codec::Partial;

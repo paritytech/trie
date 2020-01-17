@@ -15,19 +15,15 @@
 use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
 use crate::nibble::NibbleSlice;
 use crate::iterator::TrieDBNodeIterator;
+use crate::rstd::boxed::Box;
 use super::node::{NodeHandle, Node, OwnedNode, decode_hash};
 use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query,
 	TrieLayout, CError, TrieHash};
 use super::nibble::NibbleVec;
+
 #[cfg(feature = "std")]
-use ::std::fmt;
-
-#[cfg(not(feature = "std"))]
-use alloc::boxed::Box;
-
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
+use crate::rstd::{fmt, vec::Vec};
 
 /// A `Trie` implementation using a generic `HashDB` backing database, a `Hasher`
 /// implementation to generate keys and a `NodeCodec` implementation to encode/decode

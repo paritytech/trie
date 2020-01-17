@@ -14,11 +14,9 @@
 
 //! Generation of compact proofs for Merkle-Patricia tries.
 
-#[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, vec::Vec};
-use crate::rstd::convert::TryInto;
-use crate::rstd::marker::PhantomData;
-use crate::rstd::ops::Range;
+use crate::rstd::{
+	boxed::Box, convert::TryInto, marker::PhantomData, ops::Range, vec, vec::Vec,
+};
 
 use hash_db::Hasher;
 
@@ -253,7 +251,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 		let expected_value = trie.get_with(key_bytes, &mut recorder)?;
 		let mut recorded_nodes = recorder.drain().into_iter().peekable();
 
-		// Skip over recorded nodes already on the stack. Their indexes into the respective vector
+		// Skip over recorded nodes already on the stack. Their indexes into the respective Vector
 		// (either `stack` or `recorded_nodes`) match under the assumption that inline nodes have
 		// only inline children.
 		{

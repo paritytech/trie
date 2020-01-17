@@ -14,39 +14,26 @@
 
 //! In-memory trie representation.
 
+use super::{DBValue, node::NodeKey};
 use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_hash};
-use crate::node_codec::NodeCodec;
-use super::{DBValue, node::NodeKey};
 
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
+use hashbrown::HashSet;
+
+use crate::node_codec::NodeCodec;
 use crate::nibble::{NibbleVec, NibbleSlice, nibble_ops, BackingByteVec};
-use crate::rstd::convert::TryFrom;
-use crate::rstd::mem;
-use crate::rstd::ops::Index;
-use crate::rstd::hash::Hash;
-use crate::rstd::result;
+use crate::rstd::{
+	boxed::Box, convert::TryFrom, hash::Hash, mem, ops::Index, result, vec::Vec, VecDeque,
+};
 
 #[cfg(feature = "std")]
 use log::trace;
 
 #[cfg(feature = "std")]
-use ::std::collections::VecDeque;
+use crate::rstd::fmt::{self, Debug};
 
-#[cfg(feature = "std")]
-use std::fmt::{self, Debug};
-
-#[cfg(not(feature = "std"))]
-use ::alloc::collections::vec_deque::VecDeque;
-
-use hashbrown::HashSet;
-
-#[cfg(not(feature = "std"))]
-use alloc::boxed::Box;
-
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
 
 // For lookups into the Node storage buffer.
 // This is deliberately non-copyable.
@@ -1554,7 +1541,7 @@ where
 		trace!(target: "trie", "insert: key={:#x?}, value={:?}", key, ToHex(&value));
 
 		let root_handle = self.root_handle();
-		let (new_handle, changed) = self.insert_at(
+		let (new_handle, _changed) = self.insert_at(
 			root_handle,
 			&mut NibbleSlice::new(key),
 			value.to_vec(),
@@ -1562,7 +1549,7 @@ where
 		)?;
 
 		#[cfg(feature = "std")]
-		trace!(target: "trie", "insert: altered trie={}", changed);
+		trace!(target: "trie", "insert: altered trie={}", _changed);
 		self.root_handle = NodeHandle::InMemory(new_handle);
 
 		Ok(old_val)
@@ -1577,9 +1564,9 @@ where
 		let mut old_val = None;
 
 		match self.remove_at(root_handle, &mut key, &mut old_val)? {
-			Some((handle, changed)) => {
+			Some((handle, _changed)) => {
 				#[cfg(feature = "std")]
-				trace!(target: "trie", "remove: altered trie={}", changed);
+				trace!(target: "trie", "remove: altered trie={}", _changed);
 				self.root_handle = NodeHandle::InMemory(handle);
 			}
 			None => {

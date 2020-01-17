@@ -18,16 +18,12 @@
 //! See `trie_visit` function.
 
 use hash_db::{Hasher, HashDB, Prefix};
-use crate::rstd::marker::PhantomData;
-use crate::rstd::cmp::max;
+use crate::rstd::{cmp::max, marker::PhantomData, vec::Vec};
 use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
 use crate::nibble::nibble_ops;
 use crate::node_codec::NodeCodec;
 use crate::{TrieLayout, TrieHash};
-
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
 
 macro_rules! exponential_out {
 	(@3, [$($inpp:expr),*]) => { exponential_out!(@2, [$($inpp,)* $($inpp),*]) };

@@ -16,26 +16,29 @@
 //! Trie interface and implementation.
 
 #[cfg(not(feature = "std"))]
-#[macro_use] extern crate alloc;
+extern crate alloc;
 
 #[cfg(feature = "std")]
-use std as rstd;
-#[cfg(not(feature = "std"))]
-use core as rstd;
+mod rstd {
+	pub use std::{borrow, boxed, cmp, convert, fmt, hash, iter, marker, mem, ops, rc, result, vec};
+	pub use std::collections::VecDeque;
+	pub use std::error::Error;
+}
 
 #[cfg(not(feature = "std"))]
-use alloc::boxed::Box;
-
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
+mod rstd {
+	pub use core::{borrow, convert, cmp, iter, fmt, hash, marker, mem, ops, result};
+	pub use alloc::{boxed, rc, vec};
+	pub use alloc::collections::VecDeque;
+	pub trait Error {}
+	impl<T> Error for T {}
+}
 
 #[cfg(feature = "std")]
-use std::error::Error;
-
-#[cfg(feature = "std")]
-use std::fmt;
+use self::rstd::{fmt, Error};
 
 use hash_db::MaybeDebug;
+use self::rstd::{boxed::Box, vec::Vec};
 
 pub mod node;
 pub mod proof;

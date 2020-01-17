@@ -14,8 +14,7 @@
 
 //! Trie query recorder.
 
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
+use crate::rstd::vec::Vec;
 
 /// A record of a visited node.
 #[cfg_attr(feature = "std", derive(Debug))]
