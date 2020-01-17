@@ -10,8 +10,7 @@ The implementation comes in two formats:
    a persistent trie structure whose contents can be modified and whose root hash
    is recalculated efficiently.
 - Trie Root (`trie-root` crate) which provides a closed-form function that accepts a
-   sorted enumeration of keys and values (exactly the format provided by
-   `BTreeMap<(&[u8], &[u8])>`) and provides a root calculated entirely in-memory and
+   enumeration of keys and values and provides a root calculated entirely in-memory and
    closed form.
 
 Trie Hash alone is able to be used in `no_std` builds by disabling its (default)
