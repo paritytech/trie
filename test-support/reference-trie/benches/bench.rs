@@ -12,15 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[macro_use]
-extern crate criterion;
-use criterion::Criterion;
+use criterion::{criterion_group, criterion_main, Criterion};
+
 criterion_group!(benches, benchmark);
 criterion_main!(benches);
-
-extern crate keccak_hasher;
-extern crate reference_trie;
-extern crate trie_bench;
 
 fn benchmark(c: &mut Criterion) {
 	trie_bench::standard_benchmark::<
