@@ -6,3 +6,6 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 - Prefix iterator. [#39](https://github.com/paritytech/trie/pull/39)
+
+## [0.19.2] - 2020-01-16
+- Compact proofs support. [#45](https://github.com/paritytech/trie/pull/45)
