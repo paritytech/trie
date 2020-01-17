@@ -14,9 +14,6 @@
 
 //! Key-value datastore with a modified Merkle tree.
 
-extern crate hash_db;
-extern crate keccak_hasher;
-
 use hash_db::Hasher;
 use keccak_hasher::KeccakHasher;
 
