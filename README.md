@@ -64,13 +64,11 @@ cargo test --all
 ### Benchmarking
 
 ```
-cargo benchmark --all
+cargo bench --all
 ```
 
 ### Building in `no_std`
 
-This currently requires the nightly compiler:
-
 ```
-cargo +nightly build --no-default-features
+cargo build --no-default-features
 ```
