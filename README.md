@@ -9,7 +9,7 @@ The implementation comes in two formats:
 - Trie DB (`trie-db` crate) which can be combined with a backend database to provide
    a persistent trie structure whose contents can be modified and whose root hash
    is recalculated efficiently.
-- Trie Hash (`trie-hash` crate) which provides a closed-form function that accepts a
+- Trie Root (`trie-root` crate) which provides a closed-form function that accepts a
    sorted enumeration of keys and values (exactly the format provided by
    `BTreeMap<(&[u8], &[u8])>`) and provides a root calculated entirely in-memory and
    closed form.
@@ -33,7 +33,7 @@ There are also three crates used only for testing:
 - `keccak-hasher` crate, an implementation of `Hasher` based on the Keccak-256 algorithm.
 - `reference-trie` crate, an implementation of a simple trie format; this provides both
    a `NodeCodec` and `TrieStream` implementation making it suitable for both Trie DB and
-   Trie Hash.
+   Trie Root.
 - `trie-standardmap` crate, a key/value generation tool for creating large test datasets
    to specific qualities.
 - `trie-bench` crate, a comprehensive standard benchmarking tool for trie format
