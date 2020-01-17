@@ -348,6 +348,7 @@ mod tests {
 	use crate::DBValue;
 	use reference_trie::{RefTrieDB, RefTrieDBMut, RefLookup, Trie, TrieMut, NibbleSlice};
 	use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt};
+	use hex_literal::hex;
 
 	#[test]
 	fn iterator_works() {

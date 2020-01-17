@@ -29,6 +29,9 @@ use crate::core_::hash::Hash;
 use crate::core_::result;
 
 #[cfg(feature = "std")]
+use log::trace;
+
+#[cfg(feature = "std")]
 use ::std::collections::{HashSet, VecDeque};
 
 #[cfg(feature = "std")]
@@ -1628,7 +1631,8 @@ fn combine_key(start: &mut NodeKey, end: (usize, &[u8])) {
 #[cfg(test)]
 mod tests {
 	use env_logger;
-	use crate::standardmap::*;
+	use trie_standardmap::*;
+	use log::debug;
 	use crate::DBValue;
 	use memory_db::{MemoryDB, PrefixedKey};
 	use hash_db::{Hasher, HashDB};

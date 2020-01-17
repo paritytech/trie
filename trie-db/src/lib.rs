@@ -18,27 +18,6 @@
 #[cfg(not(feature = "std"))]
 #[macro_use] extern crate alloc;
 
-extern crate smallvec;
-extern crate hash_db;
-#[macro_use]
-extern crate log;
-
-#[cfg(test)]
-extern crate env_logger;
-#[cfg(test)]
-#[macro_use]
-extern crate hex_literal;
-#[cfg(test)]
-extern crate trie_standardmap as standardmap;
-#[cfg(test)]
-extern crate trie_root;
-#[cfg(test)]
-extern crate memory_db;
-#[cfg(test)]
-extern crate keccak_hasher;
-#[cfg(all(feature = "std", test))]
-extern crate reference_trie;
-
 #[cfg(not(feature = "std"))]
 extern crate hashbrown;
 

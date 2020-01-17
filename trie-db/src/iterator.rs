@@ -393,6 +393,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 #[cfg(test)]
 mod tests {
 	use crate::DBValue;
+	use hex_literal::hex;
 	use hash_db::{HashDB, Hasher};
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{

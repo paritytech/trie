@@ -14,10 +14,10 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use core_::convert::TryInto;
-use core_::iter::Peekable;
-use core_::marker::PhantomData;
-use core_::result::Result;
+use crate::core_::convert::TryInto;
+use crate::core_::iter::Peekable;
+use crate::core_::marker::PhantomData;
+use crate::core_::result::Result;
 
 use hash_db::Hasher;
 
