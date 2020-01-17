@@ -501,7 +501,6 @@ impl<B, T> StackedNode<B, T>
 		}
 	}
 
-
 	/// Remove a value if the node contains one.
 	fn remove_value(&mut self) {
 		match self {
@@ -745,6 +744,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						let next_index = dest_slice.at(current.depth);
 						let prefix = NibbleSlice::new_offset(key.as_ref(), current.depth + 1);
 						if let Some(child) = current.descend_child(next_index, db, prefix.left())? {
+							stack.push(current);
 							current = child;
 						} else {
 							break;
@@ -932,11 +932,11 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 					let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
 					// register latest change
 					self.2 = Some(self.0.len());
-					// costy clone (could get read from here)
-					self.0.push((owned_prefix(&prefix), hash.clone(), Some(encoded)));
 					if let Some(h) = prev_hash {
 						self.0.push((owned_prefix(&prefix), h.clone(), None));
 					}
+					// costy clone (could get read from here)
+					self.0.push((owned_prefix(&prefix), hash.clone(), Some(encoded)));
 					OwnedNodeHandle::Hash(hash)
 				}
 			})),
@@ -958,10 +958,10 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 				let encoded = s.into_encoded();
 				let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
 				self.1 = hash.clone();
-				self.0.push((owned_prefix(&prefix), hash, Some(encoded)));
 				if let Some(h) = prev_hash {
 					self.0.push((owned_prefix(&prefix), h.clone(), None));
 				}
+				self.0.push((owned_prefix(&prefix), hash, Some(encoded)));
 			},
 			_ => (),
 		}
