@@ -407,30 +407,22 @@ impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
 ///
 /// # Example
 /// ```
-/// extern crate trie_db;
-/// extern crate reference_trie;
-/// extern crate hash_db;
-/// extern crate keccak_hasher;
-/// extern crate memory_db;
-///
 /// use hash_db::Hasher;
 /// use reference_trie::{RefTrieDBMut, TrieMut};
 /// use trie_db::DBValue;
 /// use keccak_hasher::KeccakHasher;
 /// use memory_db::*;
 ///
-/// fn main() {
-///   let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
-///   let mut root = Default::default();
-///   let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
-///   assert!(t.is_empty());
-///   assert_eq!(*t.root(), KeccakHasher::hash(&[0u8][..]));
-///   t.insert(b"foo", b"bar").unwrap();
-///   assert!(t.contains(b"foo").unwrap());
-///   assert_eq!(t.get(b"foo").unwrap().unwrap(), b"bar".to_vec());
-///   t.remove(b"foo").unwrap();
-///   assert!(!t.contains(b"foo").unwrap());
-/// }
+/// let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+/// let mut root = Default::default();
+/// let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+/// assert!(t.is_empty());
+/// assert_eq!(*t.root(), KeccakHasher::hash(&[0u8][..]));
+/// t.insert(b"foo", b"bar").unwrap();
+/// assert!(t.contains(b"foo").unwrap());
+/// assert_eq!(t.get(b"foo").unwrap().unwrap(), b"bar".to_vec());
+/// t.remove(b"foo").unwrap();
+/// assert!(!t.contains(b"foo").unwrap());
 /// ```
 pub struct TrieDBMut<'a, L>
 where

@@ -38,26 +38,18 @@ use alloc::vec::Vec;
 ///
 /// # Example
 /// ```
-/// extern crate trie_db;
-/// extern crate reference_trie;
-/// extern crate hash_db;
-/// extern crate keccak_hasher;
-/// extern crate memory_db;
-///
 /// use hash_db::Hasher;
 /// use reference_trie::{RefTrieDBMut, RefTrieDB, Trie, TrieMut};
 /// use trie_db::DBValue;
 /// use keccak_hasher::KeccakHasher;
 /// use memory_db::*;
 ///
-/// fn main() {
-///   let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
-///   let mut root = Default::default();
-///   RefTrieDBMut::new(&mut memdb, &mut root).insert(b"foo", b"bar").unwrap();
-///   let t = RefTrieDB::new(&memdb, &root).unwrap();
-///   assert!(t.contains(b"foo").unwrap());
-///   assert_eq!(t.get(b"foo").unwrap().unwrap(), b"bar".to_vec());
-/// }
+/// let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
+/// let mut root = Default::default();
+/// RefTrieDBMut::new(&mut memdb, &mut root).insert(b"foo", b"bar").unwrap();
+/// let t = RefTrieDB::new(&memdb, &root).unwrap();
+/// assert!(t.contains(b"foo").unwrap());
+/// assert_eq!(t.get(b"foo").unwrap().unwrap(), b"bar".to_vec());
 /// ```
 pub struct TrieDB<'db, L>
 where
