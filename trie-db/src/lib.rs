@@ -18,9 +18,6 @@
 #[cfg(not(feature = "std"))]
 #[macro_use] extern crate alloc;
 
-#[cfg(not(feature = "std"))]
-extern crate hashbrown;
-
 #[cfg(feature = "std")]
 use std as core_;
 #[cfg(not(feature = "std"))]

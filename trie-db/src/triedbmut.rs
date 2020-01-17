@@ -32,7 +32,7 @@ use crate::core_::result;
 use log::trace;
 
 #[cfg(feature = "std")]
-use ::std::collections::{HashSet, VecDeque};
+use ::std::collections::VecDeque;
 
 #[cfg(feature = "std")]
 use std::fmt::{self, Debug};
@@ -40,8 +40,7 @@ use std::fmt::{self, Debug};
 #[cfg(not(feature = "std"))]
 use ::alloc::collections::vec_deque::VecDeque;
 
-#[cfg(not(feature = "std"))]
-use ::hashbrown::HashSet;
+use hashbrown::HashSet;
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
