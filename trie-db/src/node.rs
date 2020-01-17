@@ -17,10 +17,7 @@ use crate::nibble::{self, NibbleSlice};
 use crate::nibble::nibble_ops;
 use crate::node_codec::NodeCodec;
 
-use crate::core_::borrow::Borrow;
-use crate::core_::ops::Range;
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
+use crate::rstd::{borrow::Borrow, ops::Range};
 
 /// Partial node key type: offset and owned value of a nibbleslice.
 /// Offset is applied on first byte of array (bytes are right aligned).

@@ -13,11 +13,9 @@
 // limitations under the License.
 
 use hash_db::{HashDBRef, Hasher};
+use crate::rstd::boxed::Box;
 use super::triedb::TrieDB;
 use super::{Result, DBValue, Trie, TrieItem, TrieIterator, Query, TrieLayout, CError, TrieHash};
-
-#[cfg(not(feature = "std"))]
-use alloc::boxed::Box;
 
 /// A `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 ///

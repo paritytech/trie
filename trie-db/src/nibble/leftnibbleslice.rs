@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use core_::cmp::{self, Ordering};
+use crate::rstd::cmp::{self, Ordering};
 
 use crate::nibble::{nibble_ops::{self, NIBBLE_PER_BYTE}, NibbleSlice};
 

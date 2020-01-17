@@ -18,27 +18,9 @@
 use crate::MaybeDebug;
 use crate::node::{Node, NodePlan};
 use crate::ChildReference;
-#[cfg(feature = "std")]
-use std::borrow::Borrow;
-#[cfg(not(feature = "std"))]
-use core::borrow::Borrow;
-#[cfg(feature = "std")]
-use std::hash;
-#[cfg(not(feature = "std"))]
-use core::hash;
 
-#[cfg(feature = "std")]
-use std::error::Error;
+use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec};
 
-
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
-
-#[cfg(not(feature = "std"))]
-pub trait Error {}
-
-#[cfg(not(feature = "std"))]
-impl<T> Error for T {}
 
 /// Representation of a nible slice (right aligned).
 /// It contains a right aligned padded first byte (first pair element is the number of nibbles

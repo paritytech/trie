@@ -14,8 +14,7 @@
 
 //! Trie query recorder.
 
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
+use crate::rstd::vec::Vec;
 
 /// A record of a visited node.
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -72,7 +71,7 @@ impl<HO: Copy> Recorder<HO> {
 
 	/// Drain all visited records.
 	pub fn drain(&mut self) -> Vec<Record<HO>> {
-		crate::core_::mem::replace(&mut self.nodes, Vec::new())
+		crate::rstd::mem::replace(&mut self.nodes, Vec::new())
 	}
 }
 

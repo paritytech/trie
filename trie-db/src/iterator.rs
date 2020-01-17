@@ -18,14 +18,7 @@ use crate::triedb::TrieDB;
 use crate::node::{NodePlan, NodeHandle, OwnedNode};
 use crate::nibble::{NibbleSlice, NibbleVec, nibble_ops};
 
-#[cfg(feature = "std")]
-use ::std::rc::Rc;
-#[cfg(not(feature = "std"))]
-use ::alloc::rc::Rc;
-#[cfg(not(feature = "std"))]
-use alloc::boxed::Box;
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
+use crate::rstd::{rc::Rc, vec::Vec};
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -393,6 +386,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 #[cfg(test)]
 mod tests {
 	use crate::DBValue;
+	use hex_literal::hex;
 	use hash_db::{HashDB, Hasher};
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{
