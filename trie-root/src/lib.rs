@@ -18,22 +18,25 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-extern crate hash_db;
-
-#[cfg(feature = "std")]
-use std::collections::BTreeMap;
-#[cfg(feature = "std")]
-use std::cmp;
-
 #[cfg(not(feature = "std"))]
 extern crate alloc;
-#[cfg(not(feature = "std"))]
-use alloc::{collections::btree_map::BTreeMap, vec::Vec};
-#[cfg(not(feature = "std"))]
-use core::cmp;
 
-#[cfg(test)]
-extern crate keccak_hasher;
+
+#[cfg(feature = "std")]
+mod rstd {
+	pub use std::vec::Vec;
+	pub use std::cmp;
+	pub use std::collections::{BTreeMap, VecDeque};
+}
+
+#[cfg(not(feature = "std"))]
+mod rstd {
+	pub use core::cmp;
+	pub use alloc::collections::{BTreeMap, VecDeque};
+	pub use alloc::vec::Vec;
+}
+
+use self::rstd::*;
 
 pub use hash_db::Hasher;
 
@@ -76,24 +79,19 @@ fn shared_prefix_length<T: Eq>(first: &[T], second: &[T]) -> usize {
 /// Generates a trie root hash for a vector of key-value tuples
 ///
 /// ```rust
-/// #[macro_use] extern crate hex_literal;
-/// extern crate trie_root;
-/// extern crate reference_trie;
-/// extern crate keccak_hasher;
+/// use hex_literal::hex;
 /// use trie_root::trie_root;
 /// use reference_trie::ReferenceTrieStream;
 /// use keccak_hasher::KeccakHasher;
 ///
-/// fn main() {
-/// 	let v = vec![
-/// 		("doe", "reindeer"),
-/// 		("dog", "puppy"),
-/// 		("dogglesworth", "cat"),
-/// 	];
+/// let v = vec![
+/// 	("doe", "reindeer"),
+/// 	("dog", "puppy"),
+/// 	("dogglesworth", "cat"),
+/// ];
 ///
-/// 	let root = hex!["0807d5393ae7f349481063ebb5dbaf6bda58db282a385ca97f37dccba717cb79"];
-/// 	assert_eq!(trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v), root);
-/// }
+/// let root = hex!["0807d5393ae7f349481063ebb5dbaf6bda58db282a385ca97f37dccba717cb79"];
+/// assert_eq!(trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v), root);
 /// ```
 pub fn trie_root<H, S, I, A, B>(input: I) -> H::Out where
 	I: IntoIterator<Item = (A, B)>,
@@ -213,24 +211,19 @@ pub fn unhashed_trie_no_extension<H, S, I, A, B>(input: I) -> Vec<u8> where
 /// Generates a key-hashed (secure) trie root hash for a vector of key-value tuples.
 ///
 /// ```rust
-/// #[macro_use] extern crate hex_literal;
-/// extern crate trie_root;
-/// extern crate keccak_hasher;
-/// extern crate reference_trie;
+/// use hex_literal::hex;
 /// use trie_root::sec_trie_root;
 /// use keccak_hasher::KeccakHasher;
 /// use reference_trie::ReferenceTrieStream;
 ///
-/// fn main() {
-/// 	let v = vec![
-/// 		("doe", "reindeer"),
-/// 		("dog", "puppy"),
-/// 		("dogglesworth", "cat"),
-/// 	];
+/// let v = vec![
+/// 	("doe", "reindeer"),
+/// 	("dog", "puppy"),
+/// 	("dogglesworth", "cat"),
+/// ];
 ///
-/// 	let root = hex!["d6e02b2bd48aa04fd2ad87cfac1144a29ca7f7dc60f4526c7b7040763abe3d43"];
-/// 	assert_eq!(sec_trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v), root);
-/// }
+/// let root = hex!["d6e02b2bd48aa04fd2ad87cfac1144a29ca7f7dc60f4526c7b7040763abe3d43"];
+/// assert_eq!(sec_trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v), root);
 /// ```
 pub fn sec_trie_root<H, S, I, A, B>(input: I) -> H::Out where
 	I: IntoIterator<Item = (A, B)>,
