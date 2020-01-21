@@ -662,29 +662,28 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 			let last = next_query.is_none();
 			// unstack nodes if needed
 			while last || target_common_depth < current.depth_prefix {
-	
+				let first_child_index = current.first_child.as_ref().map(|c| c.0.parent_index);
+				// needed also to resolve
+				if let Some(fuse_index) = current.node.fix_node((first_child_index, current.split_child_fuse_index())) {
+					// try first child
+					if let Some((child, child_key)) = current.take_first_child() {
+						debug_assert!(child.parent_index == fuse_index);
+						//
+						current.fuse_branch(child, child_key.as_ref(), callback);
+					} else {
+						let mut prefix = NibbleVec::from(key.as_ref(), current.depth);
+						prefix.push(fuse_index);
+						let child = current.descend_child(fuse_index, db, prefix.as_prefix())?
+							.expect("result of first child is define if consistent db");
+						child.node.partial().map(|p| prefix.append_partial(p.right()));
+						current.fuse_branch(child, prefix.inner(), callback);
+					}
+					// fuse child operation did switch current context.
+					continue;
+				}
 				// TODO check if fuse (num child is 1).
 				// child change or addition
 				if let Some(mut parent) = stack.pop() {
-					let first_child_index = current.first_child.as_ref().map(|c| c.0.parent_index);
-					// needed also to resolve
-					if let Some(fuse_index) = current.node.fix_node((first_child_index, current.split_child_fuse_index())) {
-						// try first child
-						if let Some((child, child_key)) = current.take_first_child() {
-							debug_assert!(child.parent_index == fuse_index);
-							//
-							current.fuse_branch(child, child_key.as_ref(), callback);
-						} else {
-							let mut prefix = NibbleVec::from(key.as_ref(), current.depth);
-							prefix.push(fuse_index);
-							let child = current.descend_child(fuse_index, db, prefix.as_prefix())?
-								.expect("result of first child is define if consistent db");
-							child.node.partial().map(|p| prefix.append_partial(p.right()));
-							current.fuse_branch(child, prefix.inner(), callback);
-						}
-						// fuse child opteration did switch current context.
-						continue;
-					}
 					if parent.did_first_child || current.node.is_deleted() {
 						// process exit, as we already assert two child, no need to store in case of parent
 						// fusing.
