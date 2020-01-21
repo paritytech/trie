@@ -294,14 +294,17 @@ impl<H, SH> Node<H, SH> {
 			| n@Node::Leaf(..) => (n, None),
 			Node::NibbledBranch(partial, encoded_children, val) => {
 				let mut count = 0;
+				let mut other_index = None;
 				if let Some(pending) = pending.0 {
 					if encoded_children[pending as usize].is_none() {
 						count += 1;
+						other_index = Some(pending);
 					}
 				}
 				if let Some(pending) = pending.1 {
 					if encoded_children[pending as usize].is_none() {
 						count += 1;
+						other_index = Some(pending);
 					}
 				}
 				for c in encoded_children.iter() {
@@ -318,7 +321,7 @@ impl<H, SH> Node<H, SH> {
 					(Node::Empty, None)
 				} else if val.is_none() && count == 1 {
 					let child_ix = encoded_children.iter().position(Option::is_some)
-						.expect("counted above");
+						.unwrap_or_else(|| other_index.expect("counted above") as usize);
 					(Node::NibbledBranch(partial, encoded_children, val), Some(child_ix as u8))
 				} else {
 					(Node::NibbledBranch(partial, encoded_children, val), None)

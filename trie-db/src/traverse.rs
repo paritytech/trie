@@ -308,8 +308,8 @@ impl<B, T> StackedItem<B, T>
 
 		child.advance_partial(1 + mid_index - self.depth_prefix);
 
-		// split occurs before visiting a single child
-		debug_assert!(self.first_child.is_none());
+//		// split occurs before visiting a single child
+//		debug_assert!(self.first_child.is_none());
 		// debug_assert!(!self.did_first_child);
 		// ordering key also ensure
 		debug_assert!(self.split_child_index().is_none());
@@ -333,6 +333,9 @@ impl<B, T> StackedItem<B, T>
 			child.node,
 			child.hash.as_ref(),
 		) {
+			if self.split_child_fuse_index() == Some(child.parent_index) {
+				self.split_child = None;
+			}
 			self.node.set_handle(handle, child.parent_index);
 		}
 	}
@@ -687,12 +690,10 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						// fusing.
 						// Deletion case is guaranted by ordering of input (fix delete only if no first
 						// and no split).
-						if let Some(handle) = callback.exit(
-							NibbleSlice::new_offset(key.as_ref(), current.depth_prefix).left(),
-							current.node, current.hash.as_ref(),
-						) {
-							parent.node.set_handle(handle, current.parent_index);
-						}
+						current.process_first_child(callback);
+						current.process_split_child(key.as_ref(), callback);
+						let prefix = NibbleSlice::new_offset(key.as_ref(), current.depth_prefix);
+						parent.append_child(current.into(), prefix.left(), callback);
 					} else if let Some(first_child_index) = parent.first_child_index() {
 						debug_assert!(first_child_index < current.parent_index);
 						parent.did_first_child = true;
@@ -1248,7 +1249,7 @@ mod tests {
 			],
 			&[
 				(vec![9, 1, 141, 44, 212, 0, 0, 51, 138, 32], Some(vec![4, 251])),
-				(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], None),
+		//		(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], None),
 				(vec![128], Some(vec![49, 251])),
 			],
 		);
