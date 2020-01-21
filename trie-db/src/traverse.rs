@@ -279,7 +279,14 @@ impl<B, T> StackedItem<B, T>
 	}
 
 	// replace self by new branch at split and adding to self as a stacked item child.
-	fn split_child(&mut self, mid_index: usize, key: &[u8]) {
+	fn split_child<
+		F: ProcessStack<B, T>,
+	>(&mut self, mid_index: usize, key: &[u8], callback: &mut F) {
+		// if self got split child or first child, they can be processed
+		// (we went up and this is a next key) (ordering)
+		self.process_first_child_then_split(callback);
+		// or it means we need to store key to
+		debug_assert!(self.split_child_index().is_none());
 		let dest_branch = if mid_index % nibble_ops::NIBBLE_PER_BYTE == 0 {
 			let new_slice = NibbleSlice::new_offset(
 				&key[..mid_index / nibble_ops::NIBBLE_PER_BYTE],
@@ -296,6 +303,8 @@ impl<B, T> StackedItem<B, T>
 			Node::new_branch(NibbleSlice::from_stored(&owned))
 		};
 
+
+
 		let old_depth = self.depth;
 		self.depth = mid_index;
 		let mut child = mem::replace(
@@ -307,12 +316,11 @@ impl<B, T> StackedItem<B, T>
 			.map(|p| p.at(mid_index - self.depth_prefix)).unwrap_or(0);
 
 		child.advance_partial(1 + mid_index - self.depth_prefix);
-
 //		// split occurs before visiting a single child
 //		debug_assert!(self.first_child.is_none());
 		// debug_assert!(!self.did_first_child);
 		// ordering key also ensure
-		debug_assert!(self.split_child_index().is_none());
+	//	debug_assert!(self.split_child_index().is_none());
 
 		// not setting child relation (will be set on exit)
 		let child = StackedItemChild {
@@ -355,6 +363,18 @@ impl<B, T> StackedItem<B, T>
 	fn process_first_child<
 		F: ProcessStack<B, T>,
 	>(&mut self, callback: &mut F) {
+		self.process_first_child_inner(callback, false)
+	}
+
+	fn process_first_child_then_split<
+		F: ProcessStack<B, T>,
+	>(&mut self, callback: &mut F) {
+		self.process_first_child_inner(callback, true)
+	}
+
+	fn process_first_child_inner<
+		F: ProcessStack<B, T>,
+	>(&mut self, callback: &mut F, always_split: bool) {
 		if let Some((child, key)) = self.first_child.take() {
 			if let Some(split_child_index) = self.split_child_index() {
 				if split_child_index < child.parent_index {
@@ -363,6 +383,11 @@ impl<B, T> StackedItem<B, T>
 			}
 			let nibble_slice = NibbleSlice::new_offset(key.as_ref(), child.depth_prefix);
 			self.append_child(child, nibble_slice.left(), callback);
+			if always_split {
+				self.process_split_child(key.as_ref(), callback);
+			}
+			// TODO trie remove other unneeded assign.
+			self.did_first_child = true;
 		}
 	}
 
@@ -728,13 +753,15 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 			}
 		}
 
+
+
 		// PATH DOWN descending in next_query.
 		if let Some((key, value)) = next_query {
 			let dest_slice = NibbleFullKey::new(key.as_ref());
 			let dest_depth = key.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
 			let mut descend_mid_index = None;
 			if !current.node.is_empty() {
-				// corner case do not descend in empty node (else condition)
+				// corner case do not descend in empty node (else condition) TODO covered by empty_trie??
 				loop {
 					let common_index = current.node.partial()
 						.map(|current_partial| {
@@ -879,7 +906,7 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 			},
 			TraverseState::MidPartial(mid_index) => {
 				if let Some(value) = value_element {
-					stacked.split_child(mid_index, key_element);
+					stacked.split_child(mid_index, key_element, self);
 					let (offset, parent_index) = if key_element.len() == 0 {
 						// corner case of adding at top of trie
 						(0, 0)
@@ -1078,7 +1105,7 @@ mod tests {
 			v.iter().map(|(a, b)| (a, b.as_ref())),
 		);
 		
-		assert_eq!(calc_root, root);
+//		assert_eq!(calc_root, root);
 		let mut batch_delta = initial_db;
 
 //
@@ -1112,7 +1139,7 @@ mod tests {
 //		assert_eq!(format!("{:?}", t1), format!("{:?}", t2));
 
 
-//		panic!("!!END!!");
+		panic!("!!END!!");
 
 	}
 	#[test]
@@ -1248,8 +1275,8 @@ mod tests {
 				(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], vec![1, 2]),
 			],
 			&[
-				(vec![9, 1, 141, 44, 212, 0, 0, 51, 138, 32], Some(vec![4, 251])),
-		//		(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], None),
+		//		(vec![9, 1, 141, 44, 212, 0, 0, 51, 138, 32], Some(vec![4, 251])),
+				(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], None),
 				(vec![128], Some(vec![49, 251])),
 			],
 		);
