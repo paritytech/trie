@@ -366,9 +366,6 @@ impl<B, T> StackedItem<B, T>
 	fn process_child<
 		F: ProcessStack<B, T>,
 	>(&mut self, mut child: StackedItem<B, T>, key: &[u8], callback: &mut F) {
-		// TODO switch to debug assert if correct asumption or call process first
-		// child ordered with split child.
-		assert!(child.first_child.is_none(), "guaranted by call to fix_node");
 
 		if let Some(first_child_index) = self.first_child_index() {
 			if first_child_index < child.parent_index {
@@ -382,6 +379,7 @@ impl<B, T> StackedItem<B, T>
 		}
 		// split child can be unprocessed (when going up it is kept after second node
 		// in expectation of other children process.
+		child.process_first_child(callback);
 		child.process_split_child(key, callback);
 		let nibble_slice = NibbleSlice::new_offset(key.as_ref(), child.depth_prefix);
 		self.append_child(child.into(), nibble_slice.left(), callback);
@@ -713,7 +711,11 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						if parent.did_first_child {
 							parent.process_child(current, key.as_ref(), callback);
 						} else {
+							current.process_first_child(callback);
+							// split child is after first child (would be processed otherwhise).
+							current.process_split_child(key.as_ref(), callback);
 							// first node visited on a fusable element, store in parent first child and process later.
+							// Process an eventual split child (index after current).
 							parent.first_child = Some((current.into(), key.as_ref().to_vec()));
 						}
 					}
@@ -1194,7 +1196,7 @@ mod tests {
 		);
 	}
 	#[test]
-	fn dummy3() {
+	fn fuse_root_node() {
 		compare_with_triedbmut(
 			&[
 				(vec![2, 254u8], vec![4u8; 33]),
