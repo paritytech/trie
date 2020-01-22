@@ -1235,6 +1235,19 @@ mod tests {
 		);
 	}
 	#[test]
+	fn simple_fuse() {
+		compare_with_triedbmut(
+			&[
+				(vec![0x04u8], vec![4, 32]),
+				(vec![0x04, 0x04], vec![4, 33]),
+				(vec![0x04, 0x04, 0x04], vec![4, 35]),
+			],
+			&[
+				(vec![0x04u8, 0x04], None),
+			],
+		);
+	}
+	#[test]
 	fn dummy1() {
 		compare_with_triedbmut(
 			&[
