@@ -822,14 +822,15 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 					// fuse child operation did switch current context.
 					continue;
 				}
-				// no fix if middle then process buffed
-				if target_common_depth < current.depth {
-					// TODO this can probably remove a lot of those calls TODO check especially
-					// calls in going down path at split child.
-					current.process_first_child(callback);
-					current.process_split_child(key.as_ref(), callback)
-				}
 			}
+			// no fix if middle then process buffed
+			if target_common_depth < current.depth {
+				// TODO this can probably remove a lot of those calls TODO check especially
+				// calls in going down path at split child.
+				current.process_first_child(callback);
+				current.process_split_child(key.as_ref(), callback)
+			}
+
 /*			if !current.test_can_fuse(key.as_ref(), None) {
 				current.process_first_child(callback);
 				if target_common_depth < current.depth {
@@ -1397,6 +1398,22 @@ mod tests {
 				(vec![0], None),
 				(vec![8, 0], Some(vec![63, 0])),
 				(vec![128], Some(vec![63, 0])),
+			],
+		);
+	}
+
+	#[test]
+	fn dummy9() {
+		compare_with_triedbmut(
+			&[
+				(vec![0], vec![0, 212]),
+				(vec![1], vec![111, 22]),
+			],
+			&[
+				(vec![0], None),
+				(vec![5], Some(vec![63, 0])),
+				(vec![14], None),
+				(vec![64], Some(vec![63, 0])),
 			],
 		);
 	}
