@@ -368,7 +368,11 @@ impl<B, T> StackedItem<B, T>
 		if let Some((Some(child), None)) = self.split_child.take() {
 			self.split_child = Some((None, Some(child.parent_index)));
 			// prefix is slice
-			let mut build_prefix = NibbleVec::from(key, self.depth);
+			let mut build_prefix = NibbleVec::from(key, self.depth_prefix);
+			// TODO do same for first child (would need bench) -> here we 
+			// should have a reusable nibblevec to avoid this allocation 
+			// everywhere but would relieve a stored Vec !!
+			self.node.partial().map(|p| build_prefix.append_partial(p.right()));
 			build_prefix.push(child.parent_index);
 			self.append_child(child, build_prefix.as_prefix(), callback);
 		}
@@ -817,6 +821,13 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 					}
 					// fuse child operation did switch current context.
 					continue;
+				}
+				// no fix if middle then process buffed
+				if target_common_depth < current.depth {
+					// TODO this can probably remove a lot of those calls TODO check especially
+					// calls in going down path at split child.
+					current.process_first_child(callback);
+					current.process_split_child(key.as_ref(), callback)
 				}
 			}
 /*			if !current.test_can_fuse(key.as_ref(), None) {
@@ -1347,7 +1358,7 @@ mod tests {
 		);
 	}
 	#[test]
-	fn dummy7() {
+	fn fuse_with_child_partial() {
 		compare_with_triedbmut(
 			&[
 				(vec![212], vec![212, 212]),
@@ -1359,6 +1370,37 @@ mod tests {
 			],
 		);
 	}
+
+	#[test]
+	fn dummy7() {
+		compare_with_triedbmut(
+			&[
+				(vec![0], vec![0, 212]),
+				(vec![8, 8], vec![0, 212]),
+			],
+			&[
+				(vec![0], None),
+				(vec![8, 0], Some(vec![63, 0])),
+				(vec![128], None),
+			],
+		);
+	}
+
+	#[test]
+	fn dummy8() {
+		compare_with_triedbmut(
+			&[
+				(vec![0], vec![0, 212]),
+				(vec![8, 8], vec![0, 212]),
+			],
+			&[
+				(vec![0], None),
+				(vec![8, 0], Some(vec![63, 0])),
+				(vec![128], Some(vec![63, 0])),
+			],
+		);
+	}
+
 
 	#[test]
 	fn dummy_51() {
