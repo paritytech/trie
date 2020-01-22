@@ -167,6 +167,8 @@ impl<B, T> StackedItem<B, T>
 
 	// TODO remove, here for debugging
 	// child_ix is only for non delete (delete is always applied before)
+	// This function checks if this node can fuse in the future, in respect
+	// to a given child to append or expecting all child to be processed.
 	fn test_can_fuse(&self, ref_key: &[u8], child_ix: Option<u8>) -> bool {
 		self.can_fuse
 	}
@@ -299,7 +301,7 @@ impl<B, T> StackedItem<B, T>
 	>(&mut self, mid_index: usize, key: &[u8], callback: &mut F) {
 //		// if self got split child, it can be processed
 //		// (we went up and this is a next key) (ordering)
-//		self.process_first_child_then_split(callback);
+		self.process_first_child_then_split(callback);
 		// or it means we need to store key to
 //		debug_assert!(self.split_child_index().is_none());
 		let dest_branch = if mid_index % nibble_ops::NIBBLE_PER_BYTE == 0 {
@@ -400,7 +402,7 @@ impl<B, T> StackedItem<B, T>
 				self.process_split_child(key.as_ref(), callback);
 			}
 			// TODO trie remove other unneeded assign.
-			self.can_fuse = false;
+			//self.can_fuse = false;
 		}
 	}
 
@@ -424,6 +426,7 @@ impl<B, T> StackedItem<B, T>
 		child.process_split_child(key, callback);
 		let nibble_slice = NibbleSlice::new_offset(key.as_ref(), child.depth_prefix);
 		self.append_child(child.into(), nibble_slice.left(), callback);
+		self.can_fuse = false;
 	}
 
 	fn process_root<
@@ -691,6 +694,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 
 	for next_query in elements.into_iter().map(|e| Some(e)).chain(Some(None)) {
 
+		let mut skip_down = false;
 		// PATH UP over the previous key and value
 		if let Some(key) = previous_key.as_ref() {
 			let target_common_depth = next_query.as_ref().map(|(next, _)| nibble_ops::biggest_depth(
@@ -698,9 +702,15 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 				next.as_ref(),
 			)).unwrap_or(0); // last element goes up to root
 
+/*			let target_common_depth = if current.node.is_empty() {
+				min(target_common_depth, current.depth_prefix)
+			} else {
+				target_common_depth
+			};*/
+
 			let last = next_query.is_none();
 			// unstack nodes if needed
-			while last || target_common_depth < current.depth_prefix {
+			while last || target_common_depth < current.depth_prefix || current.node.is_empty() {
 				let first_child_index = current.first_child.as_ref().map(|c| c.0.parent_index);
 				// needed also to resolve
 				if let Some(fuse_index) = current.node.fix_node((first_child_index, current.split_child_fuse_index())) {
@@ -740,7 +750,6 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						parent.append_child(current.into(), prefix.left(), callback);
 					} else if let Some(first_child_index) = parent.first_child_index() {
 						debug_assert!(first_child_index < current.parent_index);
-						parent.can_fuse = false;
 						parent.process_child(current, key.as_ref(), callback);
 					} else {
 						if let Some(split_child_index) = parent.split_child_index() {
@@ -766,20 +775,57 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 					}
 					current = parent;
 				} else {
-					current.process_first_child(callback);
-					current.process_split_child(key.as_ref(), callback);
-					current.process_root(key.as_ref(), callback);
-					return Ok(());
+					if last {
+						current.process_first_child(callback);
+						current.process_split_child(key.as_ref(), callback);
+						current.process_root(key.as_ref(), callback);
+						return Ok(());
+					} else {
+						if let Some((key, Some(value))) = next_query.as_ref() {
+							let child = Node::new_leaf(
+								NibbleSlice::new_offset(key.as_ref(), 0),
+								value.as_ref(),
+							);
+							current.node = StackedNode::Changed(child);
+							current.depth = key.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
+							current.can_fuse = false;
+						}
+						// move to next key
+						skip_down = true;
+						break;
+					}
+				}
+				let first_child_index = current.first_child.as_ref().map(|c| c.0.parent_index);
+				// needed also to resolve
+				if let Some(fuse_index) = current.node.fix_node((first_child_index, current.split_child_fuse_index())) {
+					// try first child
+					if let Some((child, child_key)) = current.take_first_child() {
+						debug_assert!(child.parent_index == fuse_index);
+						//
+						current.fuse_branch(child, child_key.as_ref(), callback);
+					} else {
+						let mut prefix = NibbleVec::from(key.as_ref(), current.depth);
+						prefix.push(fuse_index);
+						let child = current.descend_child(fuse_index, db, prefix.as_prefix())?
+							.expect("result of first child is define if consistent db");
+						child.node.partial().map(|p| prefix.append_partial(p.right()));
+						current.fuse_branch(child, prefix.inner(), callback);
+					}
+					// fuse child operation did switch current context.
+					continue;
 				}
 			}
-			if !current.test_can_fuse(key.as_ref(), None) {
+/*			if !current.test_can_fuse(key.as_ref(), None) {
 				current.process_first_child(callback);
 				if target_common_depth < current.depth {
 					current.process_split_child(key.as_ref(), callback);
 				}
-			}
+			}*/
 		}
 
+		if skip_down {
+			continue;
+		}
 
 
 		// PATH DOWN descending in next_query.
@@ -935,6 +981,7 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 			TraverseState::MidPartial(mid_index) => {
 				if let Some(value) = value_element {
 					if stacked.node.is_empty() {
+						unreachable!();
 						let child = Node::new_leaf(
 							NibbleSlice::new_offset(key_element, stacked.depth_prefix),
 							value.as_ref(),
@@ -974,8 +1021,6 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 								first_child: None,
 								can_fuse: false,
 							};
-							// TODO this does not work but needed to process node after go up.
-							stacked.can_fuse = false;
 							Some(child)
 						}
 					}
