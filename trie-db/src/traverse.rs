@@ -714,7 +714,8 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						// process exit, as we already assert two child, no need to store in case of parent
 						// fusing.
 						// Deletion case is guaranted by ordering of input (fix delete only if no first
-						// and no split).
+						// and no split). TODO the number of calls to process first and split is wrong:
+						// should be once after fix_node only: that is especially for append_child case.
 						current.process_first_child(callback);
 						current.process_split_child(key.as_ref(), callback);
 						let prefix = NibbleSlice::new_offset(key.as_ref(), current.depth_prefix);
@@ -795,7 +796,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 					.map(|current_partial| {
 						let target_partial = NibbleSlice::new_offset(key.as_ref(), current.depth_prefix);
 						current.depth_prefix + current_partial.common_prefix(&target_partial)
-					}).expect("Covered by previous iteration for well formed trie");
+					}).unwrap_or(current.depth_prefix);
 				TraverseState::MidPartial(mid_index)
 			} else if dest_depth > current.depth {
 				// over callback
@@ -1097,7 +1098,6 @@ mod tests {
 			println!("aft {:?}", t);
 		}
 
-//		let mut reference_delta = db;
 
 		let (calc_root, payload) = trie_traverse_key_no_extension_build(
 			&mut initial_db,
@@ -1108,40 +1108,17 @@ mod tests {
 //		assert_eq!(calc_root, root);
 		let mut batch_delta = initial_db;
 
-//
-		memory_db_from_delta(payload, &mut batch_delta);
-/*
-		// sort
-		let batch_delta: std::collections::BTreeMap<_, _> = batch_delta.drain().into_iter().collect();
-		// TODO this revel an issue with triedbmut implementation (some incorrect RC and therefore
-		// node being kept).
-		assert_eq!(
-			batch_delta,
-			reference_delta.drain().into_iter()
-				// TODO there is something utterly wrong with
-				// triedbmut: nodes getting removed more than once
-				// and hash comming from nowhere
-				// from now simply skip -1 counted
-//				.filter(|(_, (_, rc))| rc >= &0)
-				.collect(),
-		);
-*/
 
-//		println!("{:?}", batch_delta.drain());
-//		println!("{:?}", db.drain());
+		memory_db_from_delta(payload, &mut batch_delta);
 		// test by checking both triedb only
 		let t2 = RefTrieDBNoExt::new(&db, &root).unwrap();
 		println!("{:?}", t2);
 		let t2b = RefTrieDBNoExt::new(&batch_delta, &calc_root).unwrap();
 		println!("{:?}", t2b);
 	
-//		let t1 = RefTrieDBNoExt::new(&batch_delta, &root).unwrap();
-//		assert_eq!(format!("{:?}", t1), format!("{:?}", t2));
-
-
 		panic!("!!END!!");
-
 	}
+
 	#[test]
 	fn empty_node_null_key() {
 		compare_with_triedbmut(
@@ -1275,7 +1252,7 @@ mod tests {
 				(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], vec![1, 2]),
 			],
 			&[
-		//		(vec![9, 1, 141, 44, 212, 0, 0, 51, 138, 32], Some(vec![4, 251])),
+				(vec![9, 1, 141, 44, 212, 0, 0, 51, 138, 32], Some(vec![4, 251])),
 				(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], None),
 				(vec![128], Some(vec![49, 251])),
 			],
