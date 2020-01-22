@@ -716,8 +716,10 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 					// try first child
 					if let Some((child, child_key)) = current.take_first_child() {
 						debug_assert!(child.parent_index == fuse_index);
-						//
-						current.fuse_branch(child, child_key.as_ref(), callback);
+						let mut prefix = NibbleVec::from(child_key.as_ref(), current.depth);
+						prefix.push(fuse_index);
+						child.node.partial().map(|p| prefix.append_partial(p.right()));
+						current.fuse_branch(child, prefix.inner(), callback);
 					} else {
 						let mut prefix = NibbleVec::from(key.as_ref(), current.depth);
 						prefix.push(fuse_index);
@@ -800,8 +802,11 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 					// try first child
 					if let Some((child, child_key)) = current.take_first_child() {
 						debug_assert!(child.parent_index == fuse_index);
-						//
-						current.fuse_branch(child, child_key.as_ref(), callback);
+						// TODO probably no use in storing child_key here
+						let mut prefix = NibbleVec::from(child_key.as_ref(), current.depth);
+						prefix.push(fuse_index);
+						child.node.partial().map(|p| prefix.append_partial(p.right()));
+						current.fuse_branch(child, prefix.inner(), callback);
 					} else {
 						let mut prefix = NibbleVec::from(key.as_ref(), current.depth);
 						prefix.push(fuse_index);
@@ -1341,6 +1346,20 @@ mod tests {
 			],
 		);
 	}
+	#[test]
+	fn dummy7() {
+		compare_with_triedbmut(
+			&[
+				(vec![212], vec![212, 212]),
+			],
+			&[
+				(vec![58], Some(vec![63, 0])),
+				(vec![63], None),
+				(vec![212], None),
+			],
+		);
+	}
+
 	#[test]
 	fn dummy_51() {
 		compare_with_triedbmut(
