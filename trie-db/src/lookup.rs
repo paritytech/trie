@@ -18,10 +18,8 @@ use hash_db::HashDBRef;
 use crate::nibble::NibbleSlice;
 use crate::node::{Node, NodeHandle, decode_hash};
 use crate::node_codec::NodeCodec;
+use crate::rstd::boxed::Box;
 use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash};
-
-#[cfg(not(feature = "std"))]
-use alloc::boxed::Box;
 
 /// Trie lookup helper object.
 pub struct Lookup<'a, L: TrieLayout, Q: Query<L::Hash>> {

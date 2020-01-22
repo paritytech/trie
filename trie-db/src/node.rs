@@ -18,13 +18,7 @@ use crate::nibble::nibble_ops;
 use crate::node_codec::NodeCodec;
 use crate::triedbmut::Node as TNode;
 use crate::triedbmut::NodeHandle as TNodeHandle;
-use crate::core_::borrow::Borrow;
-use crate::core_::ops::Range;
-
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
-#[cfg(not(feature = "std"))]
-use alloc::boxed::Box;
+use crate::rstd::{borrow::Borrow, ops::Range, boxed::Box, vec::Vec};
 
 /// Partial node key type: offset and owned value of a nibbleslice.
 /// Offset is applied on first byte of array (bytes are right aligned).

@@ -14,37 +14,26 @@
 
 //! In-memory trie representation.
 
+use super::{DBValue, node::NodeKey};
 use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_hash};
-use crate::node_codec::NodeCodec;
-use super::{DBValue, node::NodeKey};
 
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
+use hashbrown::HashSet;
+
+use crate::node_codec::NodeCodec;
 use crate::nibble::{NibbleVec, NibbleSlice, nibble_ops, BackingByteVec};
-use crate::core_::convert::TryFrom;
-use crate::core_::mem;
-use crate::core_::ops::Index;
-use crate::core_::hash::Hash;
-use crate::core_::result;
+use crate::rstd::{
+	boxed::Box, convert::TryFrom, hash::Hash, mem, ops::Index, result, vec::Vec, VecDeque,
+};
 
 #[cfg(feature = "std")]
-use ::std::collections::{HashSet, VecDeque};
+use log::trace;
 
 #[cfg(feature = "std")]
-use std::fmt::{self, Debug};
+use crate::rstd::fmt::{self, Debug};
 
-#[cfg(not(feature = "std"))]
-use ::alloc::collections::vec_deque::VecDeque;
-
-#[cfg(not(feature = "std"))]
-use ::hashbrown::HashSet;
-
-#[cfg(not(feature = "std"))]
-use alloc::boxed::Box;
-
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
 
 // For lookups into the Node storage buffer.
 // This is deliberately non-copyable.
@@ -739,30 +728,22 @@ impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
 ///
 /// # Example
 /// ```
-/// extern crate trie_db;
-/// extern crate reference_trie;
-/// extern crate hash_db;
-/// extern crate keccak_hasher;
-/// extern crate memory_db;
-///
 /// use hash_db::Hasher;
 /// use reference_trie::{RefTrieDBMut, TrieMut};
 /// use trie_db::DBValue;
 /// use keccak_hasher::KeccakHasher;
 /// use memory_db::*;
 ///
-/// fn main() {
-///   let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
-///   let mut root = Default::default();
-///   let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
-///   assert!(t.is_empty());
-///   assert_eq!(*t.root(), KeccakHasher::hash(&[0u8][..]));
-///   t.insert(b"foo", b"bar").unwrap();
-///   assert!(t.contains(b"foo").unwrap());
-///   assert_eq!(t.get(b"foo").unwrap().unwrap(), b"bar".to_vec());
-///   t.remove(b"foo").unwrap();
-///   assert!(!t.contains(b"foo").unwrap());
-/// }
+/// let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+/// let mut root = Default::default();
+/// let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+/// assert!(t.is_empty());
+/// assert_eq!(*t.root(), KeccakHasher::hash(&[0u8][..]));
+/// t.insert(b"foo", b"bar").unwrap();
+/// assert!(t.contains(b"foo").unwrap());
+/// assert_eq!(t.get(b"foo").unwrap().unwrap(), b"bar".to_vec());
+/// t.remove(b"foo").unwrap();
+/// assert!(!t.contains(b"foo").unwrap());
 /// ```
 pub struct TrieDBMut<'a, L>
 where
@@ -1894,7 +1875,7 @@ where
 		trace!(target: "trie", "insert: key={:#x?}, value={:?}", key, ToHex(&value));
 
 		let root_handle = self.root_handle();
-		let (new_handle, changed) = self.insert_at(
+		let (new_handle, _changed) = self.insert_at(
 			root_handle,
 			&mut NibbleSlice::new(key),
 			value.to_vec(),
@@ -1902,7 +1883,7 @@ where
 		)?;
 
 		#[cfg(feature = "std")]
-		trace!(target: "trie", "insert: altered trie={}", changed);
+		trace!(target: "trie", "insert: altered trie={}", _changed);
 		self.root_handle = NodeHandle::InMemory(new_handle);
 
 		Ok(old_val)
@@ -1917,9 +1898,9 @@ where
 		let mut old_val = None;
 
 		match self.remove_at(root_handle, &mut key, &mut old_val)? {
-			Some((handle, changed)) => {
+			Some((handle, _changed)) => {
 				#[cfg(feature = "std")]
-				trace!(target: "trie", "remove: altered trie={}", changed);
+				trace!(target: "trie", "remove: altered trie={}", _changed);
 				self.root_handle = NodeHandle::InMemory(handle);
 			}
 			None => {
@@ -1962,7 +1943,8 @@ fn combine_key(start: &mut NodeKey, end: (usize, &[u8])) {
 #[cfg(test)]
 pub(crate) mod tests {
 	use env_logger;
-	use crate::standardmap::*;
+	use trie_standardmap::*;
+	use log::debug;
 	use crate::DBValue;
 	use memory_db::{MemoryDB, PrefixedKey};
 	use hash_db::{Hasher, HashDB};

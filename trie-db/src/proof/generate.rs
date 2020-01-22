@@ -14,11 +14,9 @@
 
 //! Generation of compact proofs for Merkle-Patricia tries.
 
-#[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, vec::Vec};
-use core_::convert::TryInto;
-use core_::marker::PhantomData;
-use core_::ops::Range;
+use crate::rstd::{
+	boxed::Box, convert::TryInto, marker::PhantomData, ops::Range, vec, vec::Vec,
+};
 
 use hash_db::Hasher;
 

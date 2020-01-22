@@ -15,7 +15,7 @@
 //! Nibble oriented methods.
 
 use crate::node::NodeKey;
-use crate::core_::cmp;
+use crate::rstd::cmp;
 
 pub use self::leftnibbleslice::LeftNibbleSlice;
 

@@ -5,6 +5,7 @@ authors = ["Parity Technologies <admin@parity.io>"]
 description = "Merkle-Patricia Trie generic over key hasher and node encoding"
 repository = "https://github.com/paritytech/trie"
 license = "Apache-2.0"
+edition = "2018"
 
 [dependencies]
 log = "0.4"
@@ -15,15 +16,15 @@ rustc-hex = { version = "2.1.0", default-features = false, optional = true }
 
 [dev-dependencies]
 env_logger = "0.6"
-memory-db = { path = "../memory-db", version = "0.18.0" }
+memory-db = { path = "../memory-db", version = "0.18.1" }
 rand = { version = "0.7", default-features = false, features = ["small_rng"] }
 trie-root = { path = "../trie-root", version = "0.15.2"}
 trie-standardmap = { path = "../test-support/trie-standardmap", version = "0.15.2" }
 keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.15.2" }
 # DISABLE the following line when publishing until cyclic dependencies are resolved https://github.com/rust-lang/cargo/issues/4242
 reference-trie = { path = "../test-support/reference-trie", default-features = false, version = "0.19.0" }
-hex-literal = "0.1"
-criterion = "0.2.8"
+hex-literal = "0.2"
+criterion = "0.3"
 parity-codec = "3.0"
 parity-codec-derive = "3.0"
 
@@ -31,7 +32,6 @@ parity-codec-derive = "3.0"
 default = ["std"]
 std = [
   "hash-db/std",
-  "rand/std",
   "rustc-hex",
 ]
 

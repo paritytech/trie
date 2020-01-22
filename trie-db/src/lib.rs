@@ -16,50 +16,29 @@
 //! Trie interface and implementation.
 
 #[cfg(not(feature = "std"))]
-#[macro_use] extern crate alloc;
-
-extern crate smallvec;
-extern crate hash_db;
-#[macro_use]
-extern crate log;
-
-#[cfg(test)]
-extern crate env_logger;
-#[cfg(test)]
-#[macro_use]
-extern crate hex_literal;
-#[cfg(test)]
-extern crate trie_standardmap as standardmap;
-#[cfg(test)]
-extern crate trie_root;
-#[cfg(test)]
-extern crate memory_db;
-#[cfg(test)]
-extern crate keccak_hasher;
-#[cfg(all(feature = "std", test))]
-extern crate reference_trie;
-
-#[cfg(not(feature = "std"))]
-extern crate hashbrown;
+extern crate alloc;
 
 #[cfg(feature = "std")]
-use std as core_;
-#[cfg(not(feature = "std"))]
-use core as core_;
+mod rstd {
+	pub use std::{borrow, boxed, cmp, convert, fmt, hash, iter, marker, mem, ops, rc, result, vec};
+	pub use std::collections::VecDeque;
+	pub use std::error::Error;
+}
 
 #[cfg(not(feature = "std"))]
-use alloc::boxed::Box;
-
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
+mod rstd {
+	pub use core::{borrow, convert, cmp, iter, fmt, hash, marker, mem, ops, result};
+	pub use alloc::{boxed, rc, vec};
+	pub use alloc::collections::VecDeque;
+	pub trait Error {}
+	impl<T> Error for T {}
+}
 
 #[cfg(feature = "std")]
-use std::error::Error;
-
-#[cfg(feature = "std")]
-use std::fmt;
+use self::rstd::{fmt, Error};
 
 use hash_db::MaybeDebug;
+use self::rstd::{boxed::Box, vec::Vec};
 
 pub mod node;
 pub mod proof;
@@ -158,7 +137,7 @@ impl<T, E> Error for TrieError<T, E> where T: fmt::Debug, E: Error {
 
 /// Trie result type.
 /// Boxed to avoid copying around extra space for the `Hasher`s `Out` on successful queries.
-pub type Result<T, H, E> = crate::core_::result::Result<T, Box<TrieError<H, E>>>;
+pub type Result<T, H, E> = crate::rstd::result::Result<T, Box<TrieError<H, E>>>;
 
 
 /// Trie-Item type used for iterators over trie data.

@@ -15,19 +15,15 @@
 use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
 use crate::nibble::NibbleSlice;
 use crate::iterator::TrieDBNodeIterator;
+use crate::rstd::boxed::Box;
 use super::node::{NodeHandle, Node, OwnedNode, decode_hash};
 use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query,
 	TrieLayout, CError, TrieHash};
 use super::nibble::NibbleVec;
+
 #[cfg(feature = "std")]
-use ::std::fmt;
-
-#[cfg(not(feature = "std"))]
-use alloc::boxed::Box;
-
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
+use crate::rstd::{fmt, vec::Vec};
 
 /// A `Trie` implementation using a generic `HashDB` backing database, a `Hasher`
 /// implementation to generate keys and a `NodeCodec` implementation to encode/decode
@@ -38,26 +34,18 @@ use alloc::vec::Vec;
 ///
 /// # Example
 /// ```
-/// extern crate trie_db;
-/// extern crate reference_trie;
-/// extern crate hash_db;
-/// extern crate keccak_hasher;
-/// extern crate memory_db;
-///
 /// use hash_db::Hasher;
 /// use reference_trie::{RefTrieDBMut, RefTrieDB, Trie, TrieMut};
 /// use trie_db::DBValue;
 /// use keccak_hasher::KeccakHasher;
 /// use memory_db::*;
 ///
-/// fn main() {
-///   let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
-///   let mut root = Default::default();
-///   RefTrieDBMut::new(&mut memdb, &mut root).insert(b"foo", b"bar").unwrap();
-///   let t = RefTrieDB::new(&memdb, &root).unwrap();
-///   assert!(t.contains(b"foo").unwrap());
-///   assert_eq!(t.get(b"foo").unwrap().unwrap(), b"bar".to_vec());
-/// }
+/// let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
+/// let mut root = Default::default();
+/// RefTrieDBMut::new(&mut memdb, &mut root).insert(b"foo", b"bar").unwrap();
+/// let t = RefTrieDB::new(&memdb, &root).unwrap();
+/// assert!(t.contains(b"foo").unwrap());
+/// assert_eq!(t.get(b"foo").unwrap().unwrap(), b"bar".to_vec());
 /// ```
 pub struct TrieDB<'db, L>
 where
@@ -284,6 +272,17 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 		let inner = TrieDBNodeIterator::new(db)?;
 		Ok(TrieDBIterator { inner })
 	}
+
+	/// Create a new iterator, but limited to a given prefix.
+	pub fn new_prefixed(db: &'a TrieDB<L>, prefix: &[u8]) -> Result<TrieDBIterator<'a, L>, TrieHash<L>, CError<L>> {
+		let mut inner = TrieDBNodeIterator::new(db)?;
+		inner.prefix(prefix)?;
+
+		Ok(TrieDBIterator {
+			inner,
+		})
+	}
+
 }
 
 impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBIterator<'a, L> {
@@ -337,6 +336,7 @@ mod tests {
 	use crate::DBValue;
 	use reference_trie::{RefTrieDB, RefTrieDBMut, RefLookup, Trie, TrieMut, NibbleSlice};
 	use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt};
+	use hex_literal::hex;
 
 	#[test]
 	fn iterator_works() {

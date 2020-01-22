@@ -12,19 +12,15 @@
 
 //! Verification of compact proofs for Merkle-Patricia tries.
 
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
-use core_::convert::TryInto;
-use core_::iter::Peekable;
-use core_::marker::PhantomData;
-use core_::result::Result;
-
-use hash_db::Hasher;
-
+use crate::rstd::{
+	convert::TryInto, iter::Peekable, marker::PhantomData, result::Result, vec, vec::Vec,
+};
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH,
 	node::{Node, NodeHandle}, NodeCodec, TrieHash, TrieLayout,
 };
+use hash_db::Hasher;
+
 
 /// Errors that may occur during proof verification. Most of the errors types simply indicate that
 /// the proof is invalid with respect to the statement being verified, and the exact error type can

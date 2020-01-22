@@ -12,14 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[macro_use]
-extern crate criterion;
-extern crate memory_db;
-extern crate rand;
-extern crate trie_db;
-extern crate trie_standardmap;
-
-use criterion::{Bencher, black_box, Criterion};
+use criterion::{criterion_group, criterion_main, Bencher, black_box, Criterion};
 
 use trie_db::{NibbleSlice, proof::{generate_proof, verify_proof}, Trie};
 use trie_standardmap::{Alphabet, StandardMap, ValueMode};

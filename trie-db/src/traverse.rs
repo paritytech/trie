@@ -33,8 +33,7 @@ use crate::{TrieLayout, TrieHash, CError, Result, TrieError};
 use crate::nibble::{BackingByteVec, OwnedPrefix};
 use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
 use crate::NodeCodec;
-use ::core_::cmp::*;
-use ::core_::mem;
+use crate::rstd::{cmp, mem};
 
 type StorageHandle = Vec<u8>;
 type OwnedNodeHandle<H> = NodeHandleTrieMut<H, StorageHandle>;
