@@ -158,6 +158,20 @@ impl<B, T> StackedItem<B, T>
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
 		T: TrieLayout,
 {
+	// function is only call when going up, meaning
+	// traverse_key depth + 1 is already visited.
+	fn can_fuse(&self, traverse_key: &[u8]) -> bool {
+		//if let StackedNode::Changedself.node.
+		unimplemented!()
+	}
+
+	// TODO remove, here for debugging
+	// child_ix is only for non delete (delete is always applied before)
+	fn test_can_fuse(&self, ref_key: &[u8], child_ix: Option<u8>) -> bool {
+		self.can_fuse
+	}
+
+
 	fn split_child_fuse_index(&self) -> Option<u8> {
 		match self.split_child.as_ref() {
 			Some((Some(child), _)) => Some(child.parent_index),
@@ -329,7 +343,6 @@ impl<B, T> StackedItem<B, T>
 			depth: old_depth,
 			parent_index,
 		};
-		self.can_fuse = false;
 		self.split_child = Some((Some(child), None));
 	}
 
@@ -710,7 +723,12 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 				// TODO check if fuse (num child is 1).
 				// child change or addition
 				if let Some(mut parent) = stack.pop() {
-					if !parent.can_fuse || current.node.is_empty() {
+					if current.node.is_empty() {
+						current.process_first_child(callback);
+						current.process_split_child(key.as_ref(), callback);
+						let prefix = NibbleSlice::new_offset(key.as_ref(), current.depth_prefix);
+						parent.append_child(current.into(), prefix.left(), callback);
+					} else if !parent.test_can_fuse(key.as_ref(), Some(current.parent_index)) {
 						// process exit, as we already assert two child, no need to store in case of parent
 						// fusing.
 						// Deletion case is guaranted by ordering of input (fix delete only if no first
@@ -735,7 +753,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 							// no stacking of first child
 							parent.can_fuse = false;
 						}
-						if !parent.can_fuse {
+						if !parent.test_can_fuse(key.as_ref(), Some(current.parent_index)) {
 							parent.process_child(current, key.as_ref(), callback);
 						} else {
 							current.process_first_child(callback);
@@ -754,7 +772,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 					return Ok(());
 				}
 			}
-			if !current.can_fuse {
+			if !current.test_can_fuse(key.as_ref(), None) {
 				current.process_first_child(callback);
 				if target_common_depth < current.depth {
 					current.process_split_child(key.as_ref(), callback);
@@ -943,6 +961,7 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 
 							// set value in new branch
 							stacked.node.set_value(value);
+							stacked.can_fuse = false;
 							None
 						} else {
 							let child = StackedItem {
@@ -955,6 +974,8 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 								first_child: None,
 								can_fuse: false,
 							};
+							// TODO this does not work but needed to process node after go up.
+							stacked.can_fuse = false;
 							Some(child)
 						}
 					}
