@@ -53,7 +53,7 @@ enum StackedNode<B, T>
 	/// Deleted node.
 	Deleted,
 }
-
+/*
 impl<B, T> StackedNode<B, T>
 	where
 		B: Borrow<[u8]>,
@@ -67,7 +67,7 @@ impl<B, T> StackedNode<B, T>
 		}
 	}
 }
-
+*/
 /// Item on stack it contains updatable traverse
 /// specific field to manage update that split
 /// partial from a node, and for buffering the first
@@ -104,8 +104,9 @@ struct StackedItem<B, T>
 	/// Note that split_child is always a first_child.
 	/// TODO rename to first modified child (non delete).
 	first_child: Option<(StackedItemChild<B, T>, Vec<u8>)>,
-	/// If a two child where already asserted or the node is deleted.
-	did_first_child: bool,
+	/// true when the value can be deleted and only more
+	/// than one branch cannot be deleted.
+	can_fuse: bool,
 }
 
 
@@ -201,7 +202,7 @@ impl<B, T> StackedItem<B, T>
 				split_child: None,
 				hash,
 				parent_index,
-				did_first_child: false,
+				can_fuse: false,
 			}, child_key))
 		} else {
 			None
@@ -232,7 +233,7 @@ impl<B, T> StackedItem<B, T>
 					split_child: None,
 					hash,
 					parent_index,
-					did_first_child: false,
+					can_fuse: true,
 				})
 			} else {
 				unreachable!("Broken split expectation, visited twice");
@@ -270,7 +271,7 @@ impl<B, T> StackedItem<B, T>
 					depth,
 					first_child: None,
 					split_child: None,
-					did_first_child: false,
+					can_fuse: true,
 				})
 			} else {
 				None
@@ -279,14 +280,14 @@ impl<B, T> StackedItem<B, T>
 	}
 
 	// replace self by new branch at split and adding to self as a stacked item child.
-	fn split_child<
+	fn do_split_child<
 		F: ProcessStack<B, T>,
 	>(&mut self, mid_index: usize, key: &[u8], callback: &mut F) {
-		// if self got split child or first child, they can be processed
-		// (we went up and this is a next key) (ordering)
-		self.process_first_child_then_split(callback);
+//		// if self got split child, it can be processed
+//		// (we went up and this is a next key) (ordering)
+//		self.process_first_child_then_split(callback);
 		// or it means we need to store key to
-		debug_assert!(self.split_child_index().is_none());
+//		debug_assert!(self.split_child_index().is_none());
 		let dest_branch = if mid_index % nibble_ops::NIBBLE_PER_BYTE == 0 {
 			let new_slice = NibbleSlice::new_offset(
 				&key[..mid_index / nibble_ops::NIBBLE_PER_BYTE],
@@ -303,8 +304,6 @@ impl<B, T> StackedItem<B, T>
 			Node::new_branch(NibbleSlice::from_stored(&owned))
 		};
 
-
-
 		let old_depth = self.depth;
 		self.depth = mid_index;
 		let mut child = mem::replace(
@@ -318,7 +317,7 @@ impl<B, T> StackedItem<B, T>
 		child.advance_partial(1 + mid_index - self.depth_prefix);
 //		// split occurs before visiting a single child
 //		debug_assert!(self.first_child.is_none());
-		// debug_assert!(!self.did_first_child);
+		// debug_assert!(!self.cannot_fuse);
 		// ordering key also ensure
 	//	debug_assert!(self.split_child_index().is_none());
 
@@ -330,6 +329,7 @@ impl<B, T> StackedItem<B, T>
 			depth: old_depth,
 			parent_index,
 		};
+		self.can_fuse = false;
 		self.split_child = Some((Some(child), None));
 	}
 
@@ -387,7 +387,7 @@ impl<B, T> StackedItem<B, T>
 				self.process_split_child(key.as_ref(), callback);
 			}
 			// TODO trie remove other unneeded assign.
-			self.did_first_child = true;
+			self.can_fuse = false;
 		}
 	}
 
@@ -441,7 +441,7 @@ impl<B, T> StackedItem<B, T>
 		self.node.set_partial(partial);
 		self.hash = child.hash;
 		self.depth = child_depth;
-		self.did_first_child = false;
+		self.can_fuse = false;
 		self.first_child = None;
 		self.split_child = None;
 	}
@@ -671,7 +671,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 		parent_index: 0,
 		first_child: None,
 		split_child: None,
-		did_first_child: false,
+		can_fuse: true,
 	};
 
 	let mut previous_key: Option<K> = None;
@@ -710,7 +710,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 				// TODO check if fuse (num child is 1).
 				// child change or addition
 				if let Some(mut parent) = stack.pop() {
-					if parent.did_first_child || current.node.is_deleted() {
+					if !parent.can_fuse || current.node.is_empty() {
 						// process exit, as we already assert two child, no need to store in case of parent
 						// fusing.
 						// Deletion case is guaranted by ordering of input (fix delete only if no first
@@ -722,20 +722,20 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						parent.append_child(current.into(), prefix.left(), callback);
 					} else if let Some(first_child_index) = parent.first_child_index() {
 						debug_assert!(first_child_index < current.parent_index);
-						parent.did_first_child = true;
+						parent.can_fuse = false;
 						parent.process_child(current, key.as_ref(), callback);
 					} else {
 						if let Some(split_child_index) = parent.split_child_index() {
 							if split_child_index < current.parent_index {
-								parent.did_first_child = true;
+								parent.can_fuse = false;
 							}
 						}
-						if !parent.did_first_child && parent.node.has_value() {
+						if parent.can_fuse && parent.node.has_value() {
 							// this could not be fuse (delete value occurs before),
 							// no stacking of first child
-							parent.did_first_child = true;
+							parent.can_fuse = false;
 						}
-						if parent.did_first_child {
+						if !parent.can_fuse {
 							parent.process_child(current, key.as_ref(), callback);
 						} else {
 							current.process_first_child(callback);
@@ -748,8 +748,16 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 					}
 					current = parent;
 				} else {
+					current.process_first_child(callback);
+					current.process_split_child(key.as_ref(), callback);
 					current.process_root(key.as_ref(), callback);
 					return Ok(());
+				}
+			}
+			if !current.can_fuse {
+				current.process_first_child(callback);
+				if target_common_depth < current.depth {
+					current.process_split_child(key.as_ref(), callback);
 				}
 			}
 		}
@@ -764,6 +772,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 			if !current.node.is_empty() {
 				// corner case do not descend in empty node (else condition) TODO covered by empty_trie??
 				loop {
+					// TODO check if first common index is simple target_common? of previous go up.
 					let common_index = current.node.partial()
 						.map(|current_partial| {
 							let target_partial = NibbleSlice::new_offset(key.as_ref(), current.depth_prefix);
@@ -889,7 +898,7 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 						parent_index,
 						split_child: None,
 						first_child: None,
-						did_first_child: false,
+						can_fuse: false,
 					};
 					return if stacked.node.is_empty() {
 						// replace empty.
@@ -907,35 +916,47 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 			},
 			TraverseState::MidPartial(mid_index) => {
 				if let Some(value) = value_element {
-					stacked.split_child(mid_index, key_element, self);
-					let (offset, parent_index) = if key_element.len() == 0 {
-						// corner case of adding at top of trie
-						(0, 0)
-					} else {
-						// TODO not sure on index
-						(1, NibbleSlice::new(key_element).at(mid_index))
-					};
-					let child = Node::new_leaf(
-						// TODO not sure on '1 +'
-						NibbleSlice::new_offset(key_element, offset + mid_index),
-						value.as_ref(),
-					);
-					return if mid_index == key_element.len() * nibble_ops::NIBBLE_PER_BYTE {
-						// set value in new branch
-						stacked.node.set_value(value);
+					if stacked.node.is_empty() {
+						let child = Node::new_leaf(
+							NibbleSlice::new_offset(key_element, stacked.depth_prefix),
+							value.as_ref(),
+						);
+						stacked.node = StackedNode::Changed(child);
+						stacked.depth = key_element.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
+						stacked.can_fuse = false;
 						None
 					} else {
-						let child = StackedItem {
-							node: StackedNode::Changed(child),
-							hash: None,
-							depth_prefix: offset + mid_index,
-							depth: key_element.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
-							parent_index,
-							split_child: None,
-							first_child: None,
-							did_first_child: false,
+						stacked.do_split_child(mid_index, key_element, self);
+						let (offset, parent_index) = if key_element.len() == 0 {
+							// corner case of adding at top of trie
+							(0, 0)
+						} else {
+							// TODO not sure on index
+							(1, NibbleSlice::new(key_element).at(mid_index))
 						};
-						Some(child)
+						let child = Node::new_leaf(
+							// TODO not sure on '1 +'
+							NibbleSlice::new_offset(key_element, offset + mid_index),
+							value.as_ref(),
+						);
+						return if mid_index == key_element.len() * nibble_ops::NIBBLE_PER_BYTE {
+
+							// set value in new branch
+							stacked.node.set_value(value);
+							None
+						} else {
+							let child = StackedItem {
+								node: StackedNode::Changed(child),
+								hash: None,
+								depth_prefix: offset + mid_index,
+								depth: key_element.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
+								parent_index,
+								split_child: None,
+								first_child: None,
+								can_fuse: false,
+							};
+							Some(child)
+						}
 					}
 				} else {
 					// nothing to delete.
@@ -1105,10 +1126,9 @@ mod tests {
 			v.iter().map(|(a, b)| (a, b.as_ref())),
 		);
 		
-//		assert_eq!(calc_root, root);
+		assert_eq!(calc_root, root);
+
 		let mut batch_delta = initial_db;
-
-
 		memory_db_from_delta(payload, &mut batch_delta);
 		// test by checking both triedb only
 		let t2 = RefTrieDBNoExt::new(&db, &root).unwrap();
@@ -1116,7 +1136,7 @@ mod tests {
 		let t2b = RefTrieDBNoExt::new(&batch_delta, &calc_root).unwrap();
 		println!("{:?}", t2b);
 	
-		panic!("!!END!!");
+//		panic!("!!END!!");
 	}
 
 	#[test]
@@ -1169,7 +1189,6 @@ mod tests {
 			&[
 				(vec![0x04u8], Some(vec![0xffu8, 0x33])),
 				(vec![0x20u8], Some(vec![0xffu8, 0x33])),
-				//(vec![0x06u8], Some(vec![0xffu8, 0x33])),
 			],
 		);
 	}
@@ -1241,6 +1260,30 @@ mod tests {
 				(vec![0, 144, 64, 212, 141, 1, 0, 0, 255, 144, 64, 212, 141, 1, 0, 141, 206, 0], None),
 				(vec![141, 135, 207, 0, 63, 203, 216, 185, 162, 77, 154, 214, 210, 0, 0, 0, 0, 128], Some(vec![49, 251])),
 				(vec![208, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 6, 8, 21, 1, 4, 0], Some(vec![4, 21])),
+			],
+		);
+	}
+	#[test]
+	fn dummy_51() {
+		compare_with_triedbmut(
+			&[
+				(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], vec![1, 2]),
+			],
+			&[
+				(vec![9, 1, 141, 44, 212, 0, 0, 51, 138, 32], Some(vec![4, 251])),
+				(vec![128], Some(vec![49, 251])),
+			],
+		);
+	}
+	#[test]
+	fn emptied_then_insert() {
+		compare_with_triedbmut(
+			&[
+				(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], vec![1, 2]),
+			],
+			&[
+				(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], None),
+				(vec![128], Some(vec![49, 251])),
 			],
 		);
 	}
