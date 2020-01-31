@@ -64,6 +64,21 @@ pub trait Hasher: Sync + Send {
 	fn hash(x: &[u8]) -> Self::Out;
 }
 
+/// Technical trait to avoid calculating empty root.
+/// This trait assumes, an empty node is `[0u8]`.
+pub trait HasherNullEmptyRoot: Hasher {
+	/// Associated constant value.
+	const EMPTY_ROOT: &'static [u8];
+	
+
+}
+
+/// Test to call for all new `HasherNullEmptyRoot` implementation.
+pub	fn test_associated_empty_root<H: HasherNullEmptyRoot>() -> bool {
+	let empty = <H as Hasher>::hash(&[0u8]);
+	H::EMPTY_ROOT == empty.as_ref()
+}
+
 /// Trait modelling a plain datastore whose key is a fixed type.
 /// The caller should ensure that a key only corresponds to
 /// one value.
