@@ -69,12 +69,10 @@ pub trait Hasher: Sync + Send {
 pub trait HasherNullEmptyRoot: Hasher {
 	/// Associated constant value.
 	const EMPTY_ROOT: &'static [u8];
-	
-
 }
 
 /// Test to call for all new `HasherNullEmptyRoot` implementation.
-pub	fn test_associated_empty_root<H: HasherNullEmptyRoot>() -> bool {
+pub fn test_associated_empty_root<H: HasherNullEmptyRoot>() -> bool {
 	let empty = <H as Hasher>::hash(&[0u8]);
 	H::EMPTY_ROOT == empty.as_ref()
 }

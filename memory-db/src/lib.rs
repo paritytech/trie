@@ -319,6 +319,101 @@ where
 	}
 }
 
+#[cfg(feature = "deprecated")]
+#[cfg(feature = "std")]
+impl<H, KF, T> MemoryDB<H, KF, T>
+where
+	H: KeyHasher,
+	T: HeapSizeOf,
+	KF: KeyFunction<H>,
+{
+	#[deprecated(since="0.12.0", note="please use `size_of` instead")]
+	/// Returns the size of allocated heap memory
+	pub fn mem_used(&self) -> usize {
+		0//self.data.heap_size_of_children()
+		// TODO Reenable above when HeapSizeOf supports arrays.
+	}
+}
+
+// `no_std` implementation requires that hashmap
+// is implementated in parity-util-mem, that
+// is currently not the case.
+#[cfg(feature = "std")]
+impl<H, KF, T> MallocSizeOf for MemoryDB<H, KF, T>
+where
+	H: KeyHasher,
+	H::Out: MallocSizeOf,
+	T: MallocSizeOf,
+	KF: KeyFunction<H>,
+	KF::Key: MallocSizeOf,
+{
+	fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+		self.data.size_of(ops)
+			+ self.null_node_data.size_of(ops)
+			+ self.hashed_null_node.size_of(ops)
+	}
+}
+
+// This is temporary code, we should use
+// `parity-util-mem`, see
+// https://github.com/paritytech/trie/issues/21
+#[cfg(not(feature = "std"))]
+impl<H, KF, T> MallocSizeOf for MemoryDB<H, KF, T>
+where
+	H: KeyHasher,
+	H::Out: MallocSizeOf,
+	T: MallocSizeOf,
+	KF: KeyFunction<H>,
+	KF::Key: MallocSizeOf,
+{
+	fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+		use core::mem::size_of;
+		let mut n = self.data.capacity() * (size_of::<T>() + size_of::<H>() + size_of::<usize>());
+		for (k, v) in self.data.iter() {
+			n += k.size_of(ops) + v.size_of(ops);
+		}
+		n + self.null_node_data.size_of(ops) + self.hashed_null_node.size_of(ops)
+	}
+}
+
+#[cfg(feature = "std")]
+impl<H, KF, T> MallocSizeOf for ConstNullMemoryDB<H, KF, T>
+where
+	H: ConstKeyHasher,
+	H::Out: MallocSizeOf,
+	T: MallocSizeOf,
+	KF: KeyFunction<H>,
+	KF::Key: MallocSizeOf,
+{
+	fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+		self.data.size_of(ops)
+	}
+}
+
+// This is temporary code, we should use
+// `parity-util-mem`, see
+// https://github.com/paritytech/trie/issues/21
+#[cfg(not(feature = "std"))]
+impl<H, KF, T> MallocSizeOf for ConstNullMemoryDB<H, KF, T>
+where
+	H: ConstKeyHasher,
+	H::Out: MallocSizeOf,
+	T: MallocSizeOf,
+	KF: KeyFunction<H>,
+	KF::Key: MallocSizeOf,
+{
+	fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+		use core::mem::size_of;
+		let mut n = self.data.capacity() * (size_of::<T>() + size_of::<H>() + size_of::<usize>());
+		for (k, v) in self.data.iter() {
+			n += k.size_of(ops) + v.size_of(ops);
+		}
+		n
+	}
+}
+
+
+
 macro_rules! impl_mem_db {(
 	$db_type: tt,
 	$hash_constraint: tt,
@@ -667,7 +762,7 @@ where
 fn cmp_null_node<'a, H, KF, T>(db: &MemoryDB<H, KF, T>, value: &T) -> bool
 where
 	H: KeyHasher,
-	T: From<&'a [u8]> + PartialEq<T>,
+	T: PartialEq<T>,
 	KF: KeyFunction<H>,
 {
 	*value == db.null_node_data
@@ -694,7 +789,7 @@ where
 fn const_null_node<'a, H, KF, T>(_: &ConstNullMemoryDB<H, KF, T>) -> T
 where
 	H: ConstKeyHasher,
-	T: From<&'a [u8]> + PartialEq<T>,
+	T: From<&'a [u8]>,
 	KF: KeyFunction<H>,
 {
 	T::from(&[0u8])
@@ -703,7 +798,6 @@ where
 fn ret_hashed_null_node<'a, H, KF, T>(db: &MemoryDB<H, KF, T>) -> H::Out
 where
 	H: KeyHasher,
-	T: From<&'a [u8]>,
 	KF: KeyFunction<H>,
 {
 	db.hashed_null_node.clone()
@@ -712,7 +806,6 @@ where
 fn const_ret_hashed_null_node<'a, H, KF, T>(_: &ConstNullMemoryDB<H, KF, T>) -> H::Out
 where
 	H: ConstKeyHasher,
-	T: From<&'a [u8]>,
 	KF: KeyFunction<H>,
 {
 	let mut result: H::Out = Default::default();
@@ -739,100 +832,6 @@ impl_mem_db!(
 	const_cmp_null_node,
 	const_ret_hashed_null_node
 );
-
-
-#[cfg(feature = "deprecated")]
-#[cfg(feature = "std")]
-impl<H, KF, T> MemoryDB<H, KF, T>
-where
-	H: KeyHasher,
-	T: HeapSizeOf,
-	KF: KeyFunction<H>,
-{
-	#[deprecated(since="0.12.0", note="please use `size_of` instead")]
-	/// Returns the size of allocated heap memory
-	pub fn mem_used(&self) -> usize {
-		0//self.data.heap_size_of_children()
-		// TODO Reenable above when HeapSizeOf supports arrays.
-	}
-}
-
-// `no_std` implementation requires that hashmap
-// is implementated in parity-util-mem, that
-// is currently not the case.
-#[cfg(feature = "std")]
-impl<H, KF, T> MallocSizeOf for MemoryDB<H, KF, T>
-where
-	H: KeyHasher,
-	H::Out: MallocSizeOf,
-	T: MallocSizeOf,
-	KF: KeyFunction<H>,
-	KF::Key: MallocSizeOf,
-{
-	fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
-		self.data.size_of(ops)
-			+ self.null_node_data.size_of(ops)
-			+ self.hashed_null_node.size_of(ops)
-	}
-}
-
-// This is temporary code, we should use
-// `parity-util-mem`, see
-// https://github.com/paritytech/trie/issues/21
-#[cfg(not(feature = "std"))]
-impl<H, KF, T> MallocSizeOf for MemoryDB<H, KF, T>
-where
-	H: KeyHasher,
-	H::Out: MallocSizeOf,
-	T: MallocSizeOf,
-	KF: KeyFunction<H>,
-	KF::Key: MallocSizeOf,
-{
-	fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
-		use core::mem::size_of;
-		let mut n = self.data.capacity() * (size_of::<T>() + size_of::<H>() + size_of::<usize>());
-		for (k, v) in self.data.iter() {
-			n += k.size_of(ops) + v.size_of(ops);
-		}
-		n + self.null_node_data.size_of(ops) + self.hashed_null_node.size_of(ops)
-	}
-}
-
-#[cfg(feature = "std")]
-impl<H, KF, T> MallocSizeOf for ConstNullMemoryDB<H, KF, T>
-where
-	H: ConstKeyHasher,
-	H::Out: MallocSizeOf,
-	T: MallocSizeOf,
-	KF: KeyFunction<H>,
-	KF::Key: MallocSizeOf,
-{
-	fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
-		self.data.size_of(ops)
-	}
-}
-
-// This is temporary code, we should use
-// `parity-util-mem`, see
-// https://github.com/paritytech/trie/issues/21
-#[cfg(not(feature = "std"))]
-impl<H, KF, T> MallocSizeOf for ConstNullMemoryDB<H, KF, T>
-where
-	H: ConstKeyHasher,
-	H::Out: MallocSizeOf,
-	T: MallocSizeOf,
-	KF: KeyFunction<H>,
-	KF::Key: MallocSizeOf,
-{
-	fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
-		use core::mem::size_of;
-		let mut n = self.data.capacity() * (size_of::<T>() + size_of::<H>() + size_of::<usize>());
-		for (k, v) in self.data.iter() {
-			n += k.size_of(ops) + v.size_of(ops);
-		}
-		n
-	}
-}
 
 #[cfg(test)]
 mod tests {
