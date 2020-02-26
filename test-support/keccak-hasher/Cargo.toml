@@ -11,6 +11,7 @@ edition = "2018"
 tiny-keccak = "1.4.2"
 hash-db = { path = "../../hash-db", default-features = false, version = "0.15.2" }
 hash256-std-hasher = { path = "../../hash256-std-hasher", version = "0.15.2" }
+ordered-trie = { path = "../../ordered-trie", default-features = false, version = "0.19.2"}
 
 [features]
 default = ["std"]

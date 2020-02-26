@@ -22,7 +22,7 @@ use reference_trie::{
 	ExtensionLayout,
 	NoExtensionLayout,
 	proof::{generate_proof, verify_proof},
-	reference_trie_root,
+	reference_trie_root_iter_build as reference_trie_root,
 	RefTrieDBMut,
 	RefTrieDBMutNoExt,
 	RefTrieDBNoExt,

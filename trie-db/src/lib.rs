@@ -22,12 +22,15 @@ extern crate alloc;
 mod rstd {
 	pub use std::{borrow, boxed, cmp, convert, fmt, hash, iter, marker, mem, ops, rc, result, vec};
 	pub use std::collections::VecDeque;
+	pub use std::collections::BTreeMap;
 	pub use std::error::Error;
+	pub use std::iter::Empty as EmptyIter;
 }
 
 #[cfg(not(feature = "std"))]
 mod rstd {
 	pub use core::{borrow, convert, cmp, iter, fmt, hash, marker, mem, ops, result};
+	pub use core::iter::Empty as EmptyIter;
 	pub use alloc::{boxed, rc, vec};
 	pub use alloc::collections::VecDeque;
 	pub trait Error {}
@@ -67,11 +70,12 @@ pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
 pub use self::nibble::{NibbleSlice, NibbleVec, nibble_ops};
-pub use crate::node_codec::{NodeCodec, Partial};
-pub use crate::iter_build::{trie_visit, ProcessEncodedNode,
-	 TrieBuilder, TrieRoot, TrieRootUnhashed};
+pub use crate::node_codec::{NodeCodec, Partial, HashDBComplexDyn, EncodedNoChild, Bitmap, BITMAP_LENGTH};
+pub use crate::iter_build::{trie_visit, ProcessEncodedNode, TrieRootUnhashedComplex,
+	 TrieBuilder, TrieRoot, TrieRootUnhashed, TrieRootComplex, TrieBuilderComplex};
 pub use crate::iterator::TrieDBNodeIterator;
 pub use crate::trie_codec::{decode_compact, encode_compact};
+pub use ordered_trie::BinaryHasher;
 
 #[cfg(feature = "std")]
 pub use crate::iter_build::TrieRootPrint;
@@ -357,7 +361,7 @@ where
 	/// Create new mutable instance of Trie.
 	pub fn create(
 		&self,
-		db: &'db mut dyn HashDB<L::Hash, DBValue>,
+		db: &'db mut dyn HashDBComplexDyn<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
 	) -> Box<dyn TrieMut<L> + 'db> {
 		match self.spec {
@@ -370,7 +374,7 @@ where
 	/// Create new mutable instance of trie and check for errors.
 	pub fn from_existing(
 		&self,
-		db: &'db mut dyn HashDB<L::Hash, DBValue>,
+		db: &'db mut dyn HashDBComplexDyn<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
 	) -> Result<Box<dyn TrieMut<L> + 'db>, TrieHash<L>, CError<L>> {
 		match self.spec {
@@ -392,8 +396,9 @@ pub trait TrieLayout {
 	/// no partial in branch, if false the trie will only
 	/// use branch and node with partials in both.
 	const USE_EXTENSION: bool;
+	const COMPLEX_HASH: bool;
 	/// Hasher to use for this trie.
-	type Hash: Hasher;
+	type Hash: BinaryHasher;
 	/// Codec to use (needs to match hasher and nibble ops).
 	type Codec: NodeCodec<HashOut=<Self::Hash as Hasher>::Out>;
 }

@@ -19,8 +19,9 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
+use ordered_trie::{HashOnly, HashDBComplex, HasherComplex, BinaryHasher};
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher,
-	AsHashDB, AsPlainDB, Prefix};
+	AsHashDB, AsPlainDB, Prefix, ComplexLayout};
 use parity_util_mem::{MallocSizeOf, MallocSizeOfOps};
 #[cfg(feature = "deprecated")]
 #[cfg(feature = "std")]
@@ -34,6 +35,7 @@ use std::{
 	marker::PhantomData,
 	cmp::Eq,
 	borrow::Borrow,
+	ops::Range,
 };
 
 #[cfg(not(feature = "std"))]
@@ -49,6 +51,7 @@ use core::{
 	marker::PhantomData,
 	cmp::Eq,
 	borrow::Borrow,
+	ops::Range,
 };
 
 #[cfg(not(feature = "std"))]
@@ -597,6 +600,48 @@ where
 				entry.insert((T::default(), -1));
 			},
 		}
+	}
+}
+
+impl<H, KF, T> HashDBComplex<H, T> for MemoryDB<H, KF, T>
+where
+	H: HasherComplex,
+	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
+	KF: Send + Sync + KeyFunction<H>,
+{
+	fn insert_complex<
+		I: Iterator<Item = Option<H::Out>>,
+		I2: Iterator<Item = H::Out>,
+	> (
+		&mut self,
+		prefix: Prefix,
+		value: &[u8],
+		no_child_value: &[u8],
+		nb_children: usize,
+		children: I,
+		additional_hashes: I2,
+		proof: bool,
+	) -> H::Out {
+		if T::from(value) == self.null_node_data {
+			return self.hashed_null_node.clone();
+		}
+
+		let key = if let Some(key) = H::hash_complex(
+			no_child_value,
+			nb_children,
+			children,
+			additional_hashes,
+			proof,
+		) {
+			key
+		} else {
+			// invalid proof TODO do dedicated method that can return
+			// error??
+			return self.hashed_null_node.clone();
+		};
+
+		HashDB::emplace(self, key, prefix, value.into());
+		key
 	}
 }
 

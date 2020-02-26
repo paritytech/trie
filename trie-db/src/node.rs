@@ -57,6 +57,16 @@ pub enum Node<'a> {
 	NibbledBranch(NibbleSlice<'a>, [Option<NodeHandle<'a>>; nibble_ops::NIBBLE_LENGTH], Option<&'a [u8]>),
 }
 
+impl<'a> Node<'a> {
+	/// Check if this is a branch node plan.
+	pub fn is_branch(&self) -> bool {
+		match self {
+			Node::Branch(..) | Node::NibbledBranch(..) => true,
+			_ => false,
+		}
+	}
+}
+
 /// A `NodeHandlePlan` is a decoding plan for constructing a `NodeHandle` from an encoded trie
 /// node. This is used as a substructure of `NodePlan`. See `NodePlan` for details.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,6 +180,14 @@ impl NodePlan {
 				let value_slice = value.clone().map(|value| &data[value]);
 				Node::NibbledBranch(partial.build(data), child_slices, value_slice)
 			},
+		}
+	}
+
+	/// Check if this is a branch node plan.
+	pub fn is_branch(&self) -> bool {
+		match self {
+			NodePlan::Branch{..} | NodePlan::NibbledBranch{..} => true,
+			_ => false,
 		}
 	}
 }

@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use hash_db::{HashDB, Hasher};
+use hash_db::{Hasher};
+use crate::node_codec::HashDBComplexDyn as HashDB;
 use super::{Result, DBValue, TrieMut, TrieDBMut, TrieLayout, TrieHash, CError};
 
 /// A mutable `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.

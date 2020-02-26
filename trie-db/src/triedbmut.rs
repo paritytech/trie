@@ -19,13 +19,15 @@ use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_hash};
 
+use crate::node_codec::HashDBComplexDyn;
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use hashbrown::HashSet;
 
-use crate::node_codec::NodeCodec;
+use crate::node_codec::{NodeCodec, EncodedNoChild};
 use crate::nibble::{NibbleVec, NibbleSlice, nibble_ops, BackingByteVec};
 use crate::rstd::{
 	boxed::Box, convert::TryFrom, hash::Hash, mem, ops::Index, result, vec::Vec, VecDeque,
+	ops::Range,
 };
 
 #[cfg(feature = "std")]
@@ -124,7 +126,7 @@ where
 	fn inline_or_hash<C, H>(
 		parent_hash: H::Out,
 		child: EncodedNodeHandle,
-		db: &dyn HashDB<H, DBValue>,
+		db: &dyn HashDBComplexDyn<H, DBValue>,
 		storage: &mut NodeStorage<H::Out>
 	) -> Result<NodeHandle<H::Out>, H::Out, C::Error>
 	where
@@ -149,7 +151,7 @@ where
 	fn from_encoded<'a, 'b, C, H>(
 		node_hash: H::Out,
 		data: &'a[u8],
-		db: &dyn HashDB<H, DBValue>,
+		db: &dyn HashDBComplexDyn<H, DBValue>,
 		storage: &'b mut NodeStorage<H::Out>,
 	) -> Result<Self, H::Out, C::Error>
 		where
@@ -203,27 +205,30 @@ where
 	}
 
 	// TODO: parallelize
-	fn into_encoded<F, C, H>(self, mut child_cb: F) -> Vec<u8>
-	where
+	fn into_encoded<F, C, H>(
+		self,
+		mut child_cb: F,
+		register_children: Option<&mut [Option<Range<usize>>]>,
+	) -> (Vec<u8>, EncodedNoChild) where
 		C: NodeCodec<HashOut=O>,
 		F: FnMut(NodeHandle<H::Out>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
 		H: Hasher<Out = O>,
 	{
 		match self {
-			Node::Empty => C::empty_node().to_vec(),
+			Node::Empty => (C::empty_node().to_vec(), EncodedNoChild::Unused),
 			Node::Leaf(partial, value) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
-				C::leaf_node(pr.right(), &value)
+				(C::leaf_node(pr.right(), &value), EncodedNoChild::Unused)
 			},
 			Node::Extension(partial, child) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
 				let c = child_cb(child, Some(&pr), None);
-				C::extension_node(
+				(C::extension_node(
 					it,
 					pr.len(),
 					c,
-				)
+				), EncodedNoChild::Unused)
 			},
 			Node::Branch(mut children, value) => {
 				C::branch_node(
@@ -234,7 +239,8 @@ where
 						.map(|(i, maybe_child)| {
 							maybe_child.map(|child| child_cb(child, None, Some(i as u8)))
 						}),
-					value.as_ref().map(|v| &v[..])
+					value.as_ref().map(|v| &v[..]),
+					register_children,
 				)
 			},
 			Node::NibbledBranch(partial, mut children, value) => {
@@ -254,7 +260,8 @@ where
 								child_cb(child, Some(&pr), Some(i as u8))
 							})
 						}),
-					value.as_ref().map(|v| &v[..])
+					value.as_ref().map(|v| &v[..]),
+					register_children,
 				)
 			},
 		}
@@ -384,7 +391,7 @@ impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
 	}
 }
 
-/// A `Trie` implementation using a generic `HashDB` backing database.
+/// A `Trie` implementation using a generic `HashDBComplexDyn` backing database.
 ///
 /// Use it as a `TrieMut` trait object. You can use `db()` to get the backing database object.
 /// Note that changes are not committed to the database until `commit` is called.
@@ -416,7 +423,7 @@ where
 	L: TrieLayout,
 {
 	storage: NodeStorage<TrieHash<L>>,
-	db: &'a mut dyn HashDB<L::Hash, DBValue>,
+	db: &'a mut dyn HashDBComplexDyn<L::Hash, DBValue>,
 	root: &'a mut TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
 	death_row: HashSet<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
@@ -429,8 +436,20 @@ impl<'a, L> TrieDBMut<'a, L>
 where
 	L: TrieLayout,
 {
+	#[inline]
+	fn register_children_buf(node: &Node<TrieHash<L>>) -> Option<[Option<Range<usize>>; 16]> {
+		match node {
+			Node::NibbledBranch(..) | Node::Branch(..) => if L::COMPLEX_HASH {
+				Some(Default::default())
+			} else {
+				None
+			},
+			_ => None,
+		}
+		
+	}
 	/// Create a new trie with backing database `db` and empty `root`.
-	pub fn new(db: &'a mut dyn HashDB<L::Hash, DBValue>, root: &'a mut TrieHash<L>) -> Self {
+	pub fn new(db: &'a mut dyn HashDBComplexDyn<L::Hash, DBValue>, root: &'a mut TrieHash<L>) -> Self {
 		*root = L::Codec::hashed_null_node();
 		let root_handle = NodeHandle::Hash(L::Codec::hashed_null_node());
 
@@ -447,7 +466,7 @@ where
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
 	pub fn from_existing(
-		db: &'a mut dyn HashDB<L::Hash, DBValue>,
+		db: &'a mut dyn HashDBComplexDyn<L::Hash, DBValue>,
 		root: &'a mut TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
@@ -465,12 +484,12 @@ where
 		})
 	}
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue> {
+	pub fn db(&self) -> &dyn HashDBComplexDyn<L::Hash, DBValue> {
 		self.db
 	}
 
 	/// Get the backing database mutably.
-	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue> {
+	pub fn db_mut(&mut self) -> &mut dyn HashDBComplexDyn<L::Hash, DBValue> {
 		self.db
 	}
 
@@ -1421,17 +1440,28 @@ where
 		match self.storage.destroy(handle) {
 			Stored::New(node) => {
 				let mut k = NibbleVec::new();
-				let encoded_root = node.into_encoded::<_, L::Codec, L::Hash>(
+				let mut register_children = Self::register_children_buf(&node);
+				let (encoded_root, no_node) = node.into_encoded::<_, L::Codec, L::Hash>(
 					|child, o_slice, o_index| {
 						let mov = k.append_optional_slice_and_nibble(o_slice, o_index);
 						let cr = self.commit_child(child, &mut k);
 						k.drop_lasts(mov);
 						cr
-					}
+					},
+					register_children.as_mut().map(|a| &mut a[..]),
 				);
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
-				*self.root = self.db.insert(EMPTY_PREFIX, &encoded_root[..]);
+				if let Some(children) = register_children {
+					*self.root = self.db.insert_complex(
+						EMPTY_PREFIX,
+						&encoded_root[..],
+						&children[..],
+						no_node,
+					);
+				} else {
+					*self.root = self.db.insert(EMPTY_PREFIX, &encoded_root[..]);
+				}
 				self.hash_count += 1;
 
 				self.root_handle = NodeHandle::Hash(*self.root);
@@ -1462,7 +1492,8 @@ where
 				match self.storage.destroy(storage_handle) {
 					Stored::Cached(_, hash) => ChildReference::Hash(hash),
 					Stored::New(node) => {
-						let encoded = {
+						let mut register_children = Self::register_children_buf(&node);
+						let (encoded, no_node) = {
 							let commit_child = |
 								node_handle,
 								o_slice: Option<&NibbleSlice>,
@@ -1473,10 +1504,23 @@ where
 								prefix.drop_lasts(mov);
 								cr
 							};
-							node.into_encoded::<_, L::Codec, L::Hash>(commit_child)
+							node.into_encoded::<_, L::Codec, L::Hash>(
+								commit_child,
+								register_children.as_mut().map(|a| &mut a[..]),
+							)
 						};
 						if encoded.len() >= L::Hash::LENGTH {
-							let hash = self.db.insert(prefix.as_prefix(), &encoded[..]);
+							let hash = if let Some(children) = register_children {
+								self.db.insert_complex(
+									prefix.as_prefix(),
+									&encoded[..],
+									&children[..],
+									no_node,
+								)
+							} else {
+								self.db.insert(prefix.as_prefix(), &encoded[..])
+							};
+	
 							self.hash_count +=1;
 							ChildReference::Hash(hash)
 						} else {
@@ -1613,14 +1657,15 @@ mod tests {
 	use log::debug;
 	use crate::DBValue;
 	use memory_db::{MemoryDB, PrefixedKey};
-	use hash_db::{Hasher, HashDB};
+	use hash_db::Hasher;
 	use keccak_hasher::KeccakHasher;
-	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, NodeCodec,
-		ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension};
+	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, NodeCodec, HashDBComplexDyn,
+		ReferenceNodeCodec, reference_trie_root_iter_build as reference_trie_root,
+		reference_trie_root_no_extension_iter_build as reference_trie_root_no_extension};
 	use crate::nibble::BackingByteVec;
 
 	fn populate_trie<'db>(
-		db: &'db mut dyn HashDB<KeccakHasher, DBValue>,
+		db: &'db mut dyn HashDBComplexDyn<KeccakHasher, DBValue>,
 		root: &'db mut <KeccakHasher as Hasher>::Out,
 		v: &[(Vec<u8>, Vec<u8>)]
 	) -> RefTrieDBMut<'db> {
@@ -1641,7 +1686,7 @@ mod tests {
 	}
 
 	fn populate_trie_no_extension<'db>(
-		db: &'db mut dyn HashDB<KeccakHasher, DBValue>,
+		db: &'db mut dyn HashDBComplexDyn<KeccakHasher, DBValue>,
 		root: &'db mut <KeccakHasher as Hasher>::Out,
 		v: &[(Vec<u8>, Vec<u8>)]
 	) -> RefTrieDBMutNoExt<'db> {

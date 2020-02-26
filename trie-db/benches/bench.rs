@@ -326,7 +326,7 @@ fn trie_mut_ref_root_a(c: &mut Criterion) {
 				.map(|v| (&v.0, &v.1))
 				.collect::<std::collections::BTreeMap<_, _>>();
 
-			reference_trie::reference_trie_root(inputc);
+			reference_trie::reference_trie_root_iter_build(inputc);
 		}),
 		data);
 }
@@ -346,7 +346,7 @@ fn trie_mut_ref_root_b(c: &mut Criterion) {
 				.map(|v| (&v.0, &v.1))
 				.collect::<std::collections::BTreeMap<_, _>>();
 
-			reference_trie::reference_trie_root(inputc);
+			reference_trie::reference_trie_root_iter_build(inputc);
 		}),
 		data);
 }

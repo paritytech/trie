@@ -13,6 +13,7 @@ hash256-std-hasher = { path = "../../hash256-std-hasher", version = "0.15.2" }
 keccak-hasher = { path = "../keccak-hasher", version = "0.15.2" }
 trie-db = { path = "../../trie-db", default-features = false, version = "0.19.2" }
 trie-root = { path = "../../trie-root", default-features = false, version = "0.15.2" }
+ordered-trie = { path = "../../ordered-trie", default-features = false, version = "0.19.2"}
 parity-scale-codec = { version = "1.0.3", features = ["derive"] }
 
 [dev-dependencies]

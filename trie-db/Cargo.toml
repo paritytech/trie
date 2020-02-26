@@ -12,6 +12,7 @@ log = "0.4"
 smallvec = "1.0.0"
 hash-db = { path = "../hash-db", default-features = false, version = "0.15.2"}
 hashbrown = { version = "0.6.3", default-features = false }
+ordered-trie = { path = "../ordered-trie", default-features = false, version = "0.19.2"}
 rustc-hex = { version = "2.1.0", default-features = false, optional = true }
 
 [dev-dependencies]
@@ -38,3 +39,4 @@ std = [
 [[bench]]
 name = "bench"
 harness = false
+
