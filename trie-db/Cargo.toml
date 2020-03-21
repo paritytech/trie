@@ -16,7 +16,7 @@ rustc-hex = { version = "2.1.0", default-features = false, optional = true }
 
 [dev-dependencies]
 env_logger = "0.6"
-memory-db = { path = "../memory-db", version = "0.19.0" }
+memory-db = { path = "../memory-db", version = "0.20.0" }
 rand = { version = "0.7", default-features = false, features = ["small_rng"] }
 trie-root = { path = "../trie-root", version = "0.16.0"}
 trie-standardmap = { path = "../test-support/trie-standardmap", version = "0.15.2" }
