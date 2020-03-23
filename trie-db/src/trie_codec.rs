@@ -143,7 +143,7 @@ impl<L: TrieLayout> EncoderStackEntry<L> {
 		for i in 0..nibble_ops::NIBBLE_LENGTH {
 			children[i] = if omit_children[i] {
 				Some(empty_child)
-			} else if let Some(child_plan) = &child_handles[i] {
+			} else if let Some(child_plan) = &child_handles.at(i) {
 				let child_ref = child_plan
 					.build(node_data)
 					.try_into()
@@ -286,7 +286,7 @@ impl<'a, L: TrieLayout> DecoderStackEntry<'a, L> {
 			}
 			Node::Branch(children, _) | Node::NibbledBranch(_, children, _) => {
 				while self.child_index < nibble_ops::NIBBLE_LENGTH {
-					match children[self.child_index] {
+					match children.at(self.child_index) {
 						Some(NodeHandle::Inline(data)) if data.is_empty() =>
 							return Ok(false),
 						Some(child) => {

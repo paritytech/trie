@@ -167,7 +167,7 @@ where
 				)
 			},
 			EncodedNode::Branch(encoded_children, val) => {
-				let mut child = |i:usize| match encoded_children[i] {
+				let mut child = |i:usize| match encoded_children.at(i) {
 					Some(child) => Self::inline_or_hash::<C, H>(node_hash, child, db, storage)
 						.map(Some),
 					None => Ok(None),
@@ -183,7 +183,7 @@ where
 				Node::Branch(children, val.map(|v| v.to_vec()))
 			},
 			EncodedNode::NibbledBranch(k, encoded_children, val) => {
-				let mut child = |i:usize| match encoded_children[i] {
+				let mut child = |i:usize| match encoded_children.at(i) {
 					Some(child) => Self::inline_or_hash::<C, H>(node_hash, child, db, storage)
 						.map(Some),
 					None => Ok(None),

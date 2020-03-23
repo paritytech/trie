@@ -18,7 +18,7 @@ use crate::nibble::NibbleOps;
 use crate::node_codec::NodeCodec;
 
 use crate::nibble::nibble_ops;
-use crate::nibble::ChildSliceIndex;
+use crate::nibble::{ChildSliceIndex, ChildSliceType};
 
 use crate::rstd::{borrow::Borrow, ops::Range};
 
@@ -33,6 +33,23 @@ pub type NodeKey = (usize, nibble::BackingByteVec);
 pub struct BranchChildrenSlice<'a, I> {
 	index: I,
 	data: &'a[u8],
+}
+
+impl<'a, I: ChildSliceIndex> BranchChildrenSlice<'a, I> {
+	/// Similar to `Index` but return a copied value.
+	pub fn at(&self, index: usize) -> Option<NodeHandle<'a>> {
+		if index < I::NIBBLE_LENGTH {
+			let (start, child_type, end) = self.index.range_at(index);
+			let size = end - start;
+			if end > start {
+				return Some(match child_type {
+					ChildSliceType::Hash => NodeHandle::Hash(&self.data[start..end]),
+					ChildSliceType::Inline => NodeHandle::Inline(&self.data[start..end]),
+				});
+			}
+		}
+		None
+	}
 }
 
 /// A reference to a trie node which may be stored within another trie node.
@@ -127,6 +144,23 @@ pub struct BranchChildrenNodePlan<I> {
 	index: I,
 }
 
+impl<I: ChildSliceIndex> BranchChildrenNodePlan<I> {
+	/// Similar to `Index` but return a copied value.
+	pub fn at(&self, index: usize) -> Option<NodeHandlePlan> {
+		if index < I::NIBBLE_LENGTH {
+			let (start, child_type, end) = self.index.range_at(index);
+			let size = end - start;
+			if end > start {
+				return Some(match child_type {
+					ChildSliceType::Hash => NodeHandlePlan::Hash(start..end),
+					ChildSliceType::Inline => NodeHandlePlan::Inline(start..end),
+				});
+			}
+		}
+		None
+	}
+}
+
 /// A `NodePlan` is a blueprint for decoding a node from a byte slice. The `NodePlan` is created
 /// by parsing an encoded node and can be reused multiple times. This is useful as a `Node` borrows
 /// from a byte slice and this struct does not.
@@ -176,7 +210,7 @@ impl<I: ChildSliceIndex> NodePlan<I> {
 			NodePlan::Branch { value, children } => {
 				let mut child_slices = [None; nibble_ops::NIBBLE_LENGTH];
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
-					child_slices[i] = children[i].as_ref().map(|child| child.build(data));
+					child_slices[i] = children.at(i).as_ref().map(|child| child.build(data));
 				}
 				let value_slice = value.clone().map(|value| &data[value]);
 				Node::Branch(child_slices, value_slice)
@@ -184,7 +218,7 @@ impl<I: ChildSliceIndex> NodePlan<I> {
 			NodePlan::NibbledBranch { partial, value, children } => {
 				let mut child_slices = [None; nibble_ops::NIBBLE_LENGTH];
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
-					child_slices[i] = children[i].as_ref().map(|child| child.build(data));
+					child_slices[i] = children.at(i).as_ref().map(|child| child.build(data));
 				}
 				let value_slice = value.clone().map(|value| &data[value]);
 				Node::NibbledBranch(partial.build(data), child_slices, value_slice)

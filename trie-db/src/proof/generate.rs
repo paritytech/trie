@@ -141,7 +141,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 	) -> TrieResult<(), TrieHash<L>, CError<L>>
 	{
 		for i in child_index..nibble_ops::NIBBLE_LENGTH {
-			children[i] = child_handles[i]
+			children[i] = child_handles.at(i)
 				.as_ref()
 				.map(|child_plan|
 					child_plan
@@ -182,7 +182,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 					set_child is called when the only child is popped from the stack; \
 					child_index is <NIBBLE_LENGTH before child is pushed to the stack; qed"
 				);
-				children[self.child_index]
+				children.at(self.child_index)
 					.as_ref()
 					.map(|child| Self::replacement_child_ref(encoded_child, child))
 			}
@@ -457,7 +457,7 @@ fn match_key_to_branch_node<'a, 'b, L: TrieLayout>(
 		as usize;
 	assert!(*child_index <= new_index);
 	while *child_index < new_index {
-		children[*child_index] = child_handles[*child_index]
+		children[*child_index] = child_handles.at(*child_index)
 			.as_ref()
 			.map(|child_plan|
 				child_plan
@@ -470,7 +470,7 @@ fn match_key_to_branch_node<'a, 'b, L: TrieLayout>(
 			.transpose()?;
 		*child_index += 1;
 	}
-	if let Some(child_plan) = &child_handles[*child_index] {
+	if let Some(child_plan) = &child_handles.at(*child_index) {
 		Ok(Step::Descend {
 			child_prefix_len: prefix_len + partial.len() + 1,
 			child: child_plan.build(node_data),

@@ -461,12 +461,27 @@ pub struct NibbleSliceIterator<'a> {
 	i: usize,
 }
 
+#[cfg_attr(feature = "std", derive(Debug))]
+#[derive(Eq, PartialEq, Clone, Copy)]
+#[repr(u8)]
+/// indicate if the slice is inline or a hash 
+pub enum ChildSliceType {
+	Inline,
+	Hash,
+}
+
+impl Default for ChildSliceType {
+	fn default() -> Self {
+		ChildSliceType::Hash
+	}
+}
+
 /// Technical trait only to access child slice from an encoded
 /// representation of a branch.
 /// This is use instead of `&[&[u8]]` to allow associated type
 /// with a constant length.
-pub trait ChildSliceIndex: AsRef<[usize]>
-	+ AsMut<[usize]> + Default + Eq + PartialEq + crate::MaybeDebug
+pub trait ChildSliceIndex: AsRef<[(usize, ChildSliceType)]>
+	+ AsMut<[(usize, ChildSliceType)]> + Default + Eq + PartialEq + crate::MaybeDebug
 	+ Clone {
 
 	/// Constant length for the number of children.
@@ -477,8 +492,9 @@ pub trait ChildSliceIndex: AsRef<[usize]>
 	const CONTENT_HEADER_SIZE: usize;
 
 	#[inline]
-	fn range_at<'a>(&self, ix: usize) -> (usize, usize) {
-		(self.as_ref()[ix], self.as_ref()[ix + 1])
+	fn range_at<'a>(&self, ix: usize) -> (usize, ChildSliceType, usize) {
+		let (start, child_type) = self.as_ref()[ix];
+		(start + Self::CONTENT_HEADER_SIZE, child_type, self.as_ref()[ix + 1].0)
 	}
 
 	/// Access a children slice at a given index.
@@ -486,8 +502,7 @@ pub trait ChildSliceIndex: AsRef<[usize]>
 	/// slice is the slice value with a fix size header of length
 	/// `CONTENT_HEADER_SIZE`.
 	fn slice_at<'a>(&self, ix: usize, data: &'a [u8]) -> Option<&'a[u8]> {
-		let (s, e) = self.range_at(ix);
-		let s = s + Self::CONTENT_HEADER_SIZE;
+		let (s, _, e) = self.range_at(ix);
 		if s < e {
 			Some(&data[s..e])
 		} else {
@@ -520,16 +535,16 @@ macro_rules! child_slice_index {
 		#[cfg_attr(feature = "std", derive(Debug))]
 		#[derive(Default, Eq, PartialEq, Clone)]
 		/// Child slice indexes for radix $size.
-		pub struct $me([usize; $size + 1]);
+		pub struct $me([(usize, ChildSliceType); $size + 1]);
 
-		impl AsRef<[usize]> for $me {
-			fn as_ref(&self) -> &[usize] {
+		impl AsRef<[(usize, ChildSliceType)]> for $me {
+			fn as_ref(&self) -> &[(usize, ChildSliceType)] {
 				&self.0[..]
 			}
 		}
 
-		impl AsMut<[usize]> for $me {
-			fn as_mut(&mut self) -> &mut [usize] {
+		impl AsMut<[(usize, ChildSliceType)]> for $me {
+			fn as_mut(&mut self) -> &mut [(usize, ChildSliceType)] {
 				&mut self.0[..]
 			}
 		}
@@ -553,22 +568,22 @@ child_slice_index!(ChildSliceIndex2, 2, 1);
 /// but could use bench to see if worth implementing
 /// (probably sparse vec implementation is better:
 /// need to remove asref and asmut bound).
-pub struct ChildSliceIndex256(Vec<usize>);
+pub struct ChildSliceIndex256(Vec<(usize, ChildSliceType)>);
 
 impl Default for ChildSliceIndex256 {
 	fn default() -> Self {
-		ChildSliceIndex256(vec![0; 257])
+		ChildSliceIndex256(vec![(0, Default::default()); 257])
 	}
 }
 
-impl AsRef<[usize]> for ChildSliceIndex256 {
-	fn as_ref(&self) -> &[usize] {
+impl AsRef<[(usize, ChildSliceType)]> for ChildSliceIndex256 {
+	fn as_ref(&self) -> &[(usize, ChildSliceType)] {
 			&self.0[..]
 	}
 }
 
-impl AsMut<[usize]> for ChildSliceIndex256 {
-	fn as_mut(&mut self) -> &mut [usize] {
+impl AsMut<[(usize, ChildSliceType)]> for ChildSliceIndex256 {
+	fn as_mut(&mut self) -> &mut [(usize, ChildSliceType)] {
 		&mut self.0[..]
 	}
 }

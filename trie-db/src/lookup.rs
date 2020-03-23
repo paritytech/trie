@@ -86,7 +86,7 @@ where
 					}
 					Node::Branch(children, value) => match partial.is_empty() {
 						true => return Ok(value.map(move |val| self.query.decode(val))),
-						false => match children[partial.at(0) as usize] {
+						false => match children.at(partial.at(0) as usize) {
 							Some(x) => {
 								partial = partial.mid(1);
 								key_nibbles += 1;
@@ -102,7 +102,7 @@ where
 
 						match partial.len() == slice.len() {
 							true => return Ok(value.map(move |val| self.query.decode(val))),
-							false => match children[partial.at(slice.len()) as usize] {
+							false => match children.at(partial.at(slice.len()) as usize) {
 								Some(x) => {
 									partial = partial.mid(slice.len() + 1);
 									key_nibbles += slice.len() + 1;

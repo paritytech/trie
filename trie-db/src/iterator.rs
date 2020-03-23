@@ -163,7 +163,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 						crumb.status = Status::AtChild(i as usize);
 						self.key_nibbles.push(i);
 
-						if let Some(child) = &children[i as usize] {
+						if let Some(child) = &children.at(i as usize) {
 							full_key_nibbles += 1;
 							partial = partial.mid(1);
 
@@ -201,7 +201,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 						self.key_nibbles.append_partial(slice.right());
 						self.key_nibbles.push(i);
 
-						if let Some(child) = &children[i as usize] {
+						if let Some(child) = &children.at(i as usize) {
 							full_key_nibbles += 1;
 							partial = partial.mid(1);
 
@@ -310,7 +310,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 					},
 					(Status::AtChild(i), NodePlan::Branch { children, .. })
 					| (Status::AtChild(i), NodePlan::NibbledBranch { children, .. }) => {
-						if let Some(child) = &children[i] {
+						if let Some(child) = &children.at(i) {
 							self.key_nibbles.pop();
 							self.key_nibbles.push(i as u8);
 							IterStep::Descend::<L>(

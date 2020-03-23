@@ -196,14 +196,14 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 					.expect("it's less than prefix.len(); qed")
 					as usize;
 				while self.child_index < child_index {
-					if let Some(child) = children[self.child_index] {
+					if let Some(child) = children.at(self.child_index) {
 						let child_ref = child.try_into()
 							.map_err(Error::InvalidChildReference)?;
 						self.children[self.child_index] = Some(child_ref);
 					}
 					self.child_index += 1;
 				}
-				let child = children[self.child_index]
+				let child = children.at(self.child_index)
 					.expect("guaranteed by advance_item");
 				Self::make_child_entry(proof_iter, child, child_prefix)
 			}
@@ -222,7 +222,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 			}
 			Node::Branch(children, _) | Node::NibbledBranch(_, children, _) => {
 				while self.child_index < nibble_ops::NIBBLE_LENGTH {
-					if let Some(child) = children[self.child_index] {
+					if let Some(child) = children.at(self.child_index) {
 						let child_ref = child.try_into()
 							.map_err(Error::InvalidChildReference)?;
 						self.children[self.child_index] = Some(child_ref);
