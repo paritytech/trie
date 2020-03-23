@@ -476,19 +476,20 @@ pub trait ChildSliceIndex: AsRef<[usize]>
 	/// This is only needed for default implementation.
 	const CONTENT_HEADER_SIZE: usize;
 
+	#[inline]
+	fn range_at<'a>(&self, ix: usize) -> (usize, usize) {
+		(self.as_ref()[ix], self.as_ref()[ix + 1])
+	}
+
 	/// Access a children slice at a given index.
 	/// The default implemenatation only works if the encoding of child
 	/// slice is the slice value with a fix size header of length
 	/// `CONTENT_HEADER_SIZE`.
 	fn slice_at<'a>(&self, ix: usize, data: &'a [u8]) -> Option<&'a[u8]> {
-		let b = (self.as_ref().get(ix), self.as_ref().get(ix + 1));
-		if let (Some(s), Some(e)) = b {
-			let s = s + Self::CONTENT_HEADER_SIZE;
-			if s < *e {
-				Some(&data[s..*e])
-			} else {
-				None
-			}
+		let (s, e) = self.range_at(ix);
+		let s = s + Self::CONTENT_HEADER_SIZE;
+		if s < e {
+			Some(&data[s..e])
 		} else {
 			None
 		}

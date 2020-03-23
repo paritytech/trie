@@ -25,20 +25,22 @@
 //! expected to save roughly (n - 1) hashes in size where n is the number of nodes in the partial
 //! trie.
 
-use hash_db::HashDB;
+use hash_db::{HashDB, Hasher};
+use crate::nibble::nibble_ops;
 use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
-	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout,
-	nibble_ops::NIBBLE_LENGTH, node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode},
+	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout, ChildIndex,
+	NibbleOps,
+	node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, BranchChildrenNodePlan},
 };
 use crate::rstd::{
 	boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec, vec::Vec,
 };
 
-struct EncoderStackEntry<C: NodeCodec> {
+struct EncoderStackEntry<L: TrieLayout> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: NibbleVec,
-	node: Rc<OwnedNode<DBValue>>,
+	node: Rc<OwnedNode<DBValue, ChildIndex<L>>>,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
@@ -47,10 +49,9 @@ struct EncoderStackEntry<C: NodeCodec> {
 	/// The encoding of the subtrie nodes rooted at this entry, which is built up in
 	/// `encode_compact`.
 	output_index: usize,
-	_marker: PhantomData<C>,
 }
 
-impl<C: NodeCodec> EncoderStackEntry<C> {
+impl<L: TrieLayout> EncoderStackEntry<L> {
 	/// Given the prefix of the next child node, identify its index and advance `child_index` to
 	/// that. For a given entry, this must be called sequentially only with strictly increasing
 	/// child prefixes. Returns an error if the child prefix is not a child of this entry or if
@@ -95,7 +96,7 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 	}
 
 	/// Generates the encoding of the subtrie rooted at this entry.
-	fn encode_node(&self) -> Result<Vec<u8>, C::HashOut, C::Error> {
+	fn encode_node(&self) -> Result<Vec<u8>, TrieHash<L>, CError<L>> {
 		let node_data = self.node.data();
 		Ok(match self.node.node_plan() {
 			NodePlan::Empty | NodePlan::Leaf { .. } => node_data.to_vec(),
@@ -104,22 +105,22 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 					node_data.to_vec()
 				} else {
 					let partial = partial.build(node_data);
-					let empty_child = ChildReference::Inline(C::HashOut::default(), 0);
-					C::extension_node(partial.right_iter(), partial.len(), empty_child)
+					let empty_child = ChildReference::Inline(TrieHash::<L>::default(), 0);
+					L::Codec::extension_node(partial.right_iter(), partial.len(), empty_child)
 				}
 			}
 			NodePlan::Branch { value, children } => {
-				C::branch_node(
-					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
+				L::Codec::branch_node(
+					Self::branch_children(node_data, children, &self.omit_children)?.iter(),
 					value.clone().map(|range| &node_data[range])
 				)
 			}
 			NodePlan::NibbledBranch { partial, value, children } => {
 				let partial = partial.build(node_data);
-				C::branch_node_nibbled(
+				L::Codec::branch_node_nibbled(
 					partial.right_iter(),
 					partial.len(),
-					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
+					Self::branch_children(node_data, children, &self.omit_children)?.iter(),
 					value.clone().map(|range| &node_data[range])
 				)
 			}
@@ -133,13 +134,13 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 	/// - omit_children[i] is only true if child_handles[i] is Some
 	fn branch_children(
 		node_data: &[u8],
-		child_handles: &[Option<NodeHandlePlan>; NIBBLE_LENGTH],
+		child_handles: &BranchChildrenNodePlan<ChildIndex<L>>,
 		omit_children: &[bool],
-	) -> Result<[Option<ChildReference<C::HashOut>>; NIBBLE_LENGTH], C::HashOut, C::Error>
+	) -> Result<[Option<ChildReference<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH], TrieHash<L>, CError<L>>
 	{
-		let empty_child = ChildReference::Inline(C::HashOut::default(), 0);
-		let mut children = [None; NIBBLE_LENGTH];
-		for i in 0..NIBBLE_LENGTH {
+		let empty_child = ChildReference::Inline(TrieHash::<L>::default(), 0);
+		let mut children = [None; nibble_ops::NIBBLE_LENGTH];
+		for i in 0..nibble_ops::NIBBLE_LENGTH {
 			children[i] = if omit_children[i] {
 				Some(empty_child)
 			} else if let Some(child_plan) = &child_handles[i] {
@@ -147,7 +148,7 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 					.build(node_data)
 					.try_into()
 					.map_err(|hash| Box::new(
-						TrieError::InvalidHash(C::HashOut::default(), hash)
+						TrieError::InvalidHash(TrieHash::<L>::default(), hash)
 					))?;
 				Some(child_ref)
 			} else {
@@ -173,7 +174,7 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
-	let mut stack: Vec<EncoderStackEntry<L::Codec>> = Vec::new();
+	let mut stack: Vec<EncoderStackEntry<L>> = Vec::new();
 
 	// TrieDBNodeIterator guarantees that:
 	// - It yields at least one node.
@@ -219,7 +220,7 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 				let children_len = match node.node_plan() {
 					NodePlan::Empty | NodePlan::Leaf { .. } => 0,
 					NodePlan::Extension { .. } => 1,
-					NodePlan::Branch { .. } | NodePlan::NibbledBranch { .. } => NIBBLE_LENGTH,
+					NodePlan::Branch { .. } | NodePlan::NibbledBranch { .. } => nibble_ops::NIBBLE_LENGTH,
 				};
 				stack.push(EncoderStackEntry {
 					prefix,
@@ -227,7 +228,6 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 					child_index: 0,
 					omit_children: vec![false; children_len],
 					output_index: output.len(),
-					_marker: PhantomData::default(),
 				});
 				// Insert a placeholder into output which will be replaced when this new entry is
 				// popped from the stack.
@@ -250,17 +250,16 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 	Ok(output)
 }
 
-struct DecoderStackEntry<'a, C: NodeCodec> {
-	node: Node<'a>,
+struct DecoderStackEntry<'a, L: TrieLayout> {
+	node: Node<'a, ChildIndex<L>>,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
 	/// The reconstructed child references.
-	children: Vec<Option<ChildReference<C::HashOut>>>,
-	_marker: PhantomData<C>,
+	children: Vec<Option<ChildReference<TrieHash<L>>>>,
 }
 
-impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
+impl<'a, L: TrieLayout> DecoderStackEntry<'a, L> {
 	/// Advance the child index until either it exceeds the number of children or the child is
 	/// marked as omitted. Omitted children are indicated by an empty inline reference. For each
 	/// child that is passed over and not omitted, copy over the child reference from the node to
@@ -269,7 +268,7 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	/// Returns true if the child index is past the last child, meaning the `children` references
 	/// list is complete. If this returns true and the entry is an extension node, then
 	/// `children[0]` is guaranteed to be Some.
-	fn advance_child_index(&mut self) -> Result<bool, C::HashOut, C::Error> {
+	fn advance_child_index(&mut self) -> Result<bool, TrieHash<L>, CError<L>> {
 		match self.node {
 			Node::Extension(_, child) if self.child_index == 0 => {
 				match child {
@@ -278,7 +277,7 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 					_ => {
 						let child_ref = child.try_into()
 							.map_err(|hash| Box::new(
-								TrieError::InvalidHash(C::HashOut::default(), hash)
+								TrieError::InvalidHash(TrieHash::<L>::default(), hash)
 							))?;
 						self.children[self.child_index] = Some(child_ref);
 					}
@@ -286,14 +285,14 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 				self.child_index += 1;
 			}
 			Node::Branch(children, _) | Node::NibbledBranch(_, children, _) => {
-				while self.child_index < NIBBLE_LENGTH {
+				while self.child_index < nibble_ops::NIBBLE_LENGTH {
 					match children[self.child_index] {
 						Some(NodeHandle::Inline(data)) if data.is_empty() =>
 							return Ok(false),
 						Some(child) => {
 							let child_ref = child.try_into()
 								.map_err(|hash| Box::new(
-									TrieError::InvalidHash(C::HashOut::default(), hash)
+									TrieError::InvalidHash(TrieHash::<L>::default(), hash)
 								))?;
 							self.children[self.child_index] = Some(child_ref);
 						}
@@ -350,20 +349,20 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	fn encode_node(self) -> Vec<u8> {
 		match self.node {
 			Node::Empty =>
-				C::empty_node().to_vec(),
+				L::Codec::empty_node().to_vec(),
 			Node::Leaf(partial, value) =>
-				C::leaf_node(partial.right(), value),
+				L::Codec::leaf_node(partial.right(), value),
 			Node::Extension(partial, _) =>
-				C::extension_node(
+				L::Codec::extension_node(
 					partial.right_iter(),
 					partial.len(),
 					self.children[0]
 						.expect("required by method precondition; qed"),
 				),
 			Node::Branch(_, value) =>
-				C::branch_node(self.children.into_iter(), value),
+				L::Codec::branch_node(self.children.into_iter(), value),
 			Node::NibbledBranch(partial, _, value) =>
-				C::branch_node_nibbled(
+				L::Codec::branch_node_nibbled(
 					partial.right_iter(),
 					partial.len(),
 					self.children.iter(),
@@ -393,7 +392,7 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 {
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
-	let mut stack: Vec<DecoderStackEntry<L::Codec>> = Vec::new();
+	let mut stack: Vec<DecoderStackEntry<L>> = Vec::new();
 
 	// The prefix of the next item to be read from the slice of encoded items.
 	let mut prefix = NibbleVec::new();
@@ -405,13 +404,12 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 		let children_len = match node {
 			Node::Empty | Node::Leaf(..) => 0,
 			Node::Extension(..) => 1,
-			Node::Branch(..) | Node::NibbledBranch(..) => NIBBLE_LENGTH,
+			Node::Branch(..) | Node::NibbledBranch(..) => nibble_ops::NIBBLE_LENGTH,
 		};
 		let mut last_entry = DecoderStackEntry {
 			node,
 			child_index: 0,
 			children: vec![None; children_len],
-			_marker: PhantomData::default(),
 		};
 
 		loop {

@@ -18,12 +18,12 @@ use super::{DBValue, node::NodeKey};
 use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_hash};
-
+use crate::nibble::nibble_ops;
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use hashbrown::HashSet;
 
 use crate::node_codec::NodeCodec;
-use crate::nibble::{NibbleVec, NibbleSlice, nibble_ops, BackingByteVec};
+use crate::nibble::{NibbleVec, NibbleSlice, NibbleOps, BackingByteVec};
 use crate::rstd::{
 	boxed::Box, convert::TryFrom, hash::Hash, mem, ops::Index, result, vec::Vec, VecDeque,
 };

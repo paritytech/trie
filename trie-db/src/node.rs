@@ -14,14 +14,26 @@
 
 use hash_db::Hasher;
 use crate::nibble::{self, NibbleSlice};
-use crate::nibble::nibble_ops;
+use crate::nibble::NibbleOps;
 use crate::node_codec::NodeCodec;
+
+use crate::nibble::nibble_ops;
+use crate::nibble::ChildSliceIndex;
 
 use crate::rstd::{borrow::Borrow, ops::Range};
 
 /// Partial node key type: offset and owned value of a nibbleslice.
 /// Offset is applied on first byte of array (bytes are right aligned).
 pub type NodeKey = (usize, nibble::BackingByteVec);
+
+#[derive(Eq, PartialEq, Clone)]
+#[cfg_attr(feature = "std", derive(Debug))]
+/// Alias to branch children slice, it is equivalent to '&[&[u8]]'.
+/// Reason for using it is https://github.com/rust-lang/rust/issues/43408.
+pub struct BranchChildrenSlice<'a, I> {
+	index: I,
+	data: &'a[u8],
+}
 
 /// A reference to a trie node which may be stored within another trie node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,7 +55,7 @@ pub fn decode_hash<H: Hasher>(data: &[u8]) -> Option<H::Out> {
 /// Type of node in the trie and essential information thereof.
 #[derive(Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "std", derive(Debug))]
-pub enum Node<'a> {
+pub enum Node<'a, I> {
 	/// Null trie node; could be an empty root or an empty branch entry.
 	Empty,
 	/// Leaf node; has key slice and value. Value may not be empty.
@@ -52,9 +64,9 @@ pub enum Node<'a> {
 	Extension(NibbleSlice<'a>, NodeHandle<'a>),
 	/// Branch node; has slice of child nodes (each possibly null)
 	/// and an optional immediate node data.
-	Branch([Option<NodeHandle<'a>>; nibble_ops::NIBBLE_LENGTH], Option<&'a [u8]>),
+	Branch(BranchChildrenSlice<'a, I>, Option<&'a [u8]>),
 	/// Branch node with support for a nibble (when extension nodes are not used).
-	NibbledBranch(NibbleSlice<'a>, [Option<NodeHandle<'a>>; nibble_ops::NIBBLE_LENGTH], Option<&'a [u8]>),
+	NibbledBranch(NibbleSlice<'a>, BranchChildrenSlice<'a, I>, Option<&'a [u8]>),
 }
 
 /// A `NodeHandlePlan` is a decoding plan for constructing a `NodeHandle` from an encoded trie
@@ -108,6 +120,13 @@ impl NibbleSlicePlan {
 	}
 }
 
+/// TODO try non public
+#[derive(Eq, PartialEq, Clone)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub struct BranchChildrenNodePlan<I> {
+	index: I,
+}
+
 /// A `NodePlan` is a blueprint for decoding a node from a byte slice. The `NodePlan` is created
 /// by parsing an encoded node and can be reused multiple times. This is useful as a `Node` borrows
 /// from a byte slice and this struct does not.
@@ -116,7 +135,7 @@ impl NibbleSlicePlan {
 /// ranges that can be used to index into a large byte slice.
 #[derive(Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "std", derive(Debug))]
-pub enum NodePlan {
+pub enum NodePlan<I> {
 	/// Null trie node; could be an empty root or an empty branch entry.
 	Empty,
 	/// Leaf node; has a partial key plan and value.
@@ -133,21 +152,21 @@ pub enum NodePlan {
 	/// and an optional immediate node data.
 	Branch {
 		value: Option<Range<usize>>,
-		children: [Option<NodeHandlePlan>; nibble_ops::NIBBLE_LENGTH],
+		children: BranchChildrenNodePlan<I>,
 	},
 	/// Branch node with support for a nibble (when extension nodes are not used).
 	NibbledBranch {
 		partial: NibbleSlicePlan,
 		value: Option<Range<usize>>,
-		children: [Option<NodeHandlePlan>; nibble_ops::NIBBLE_LENGTH],
+		children: BranchChildrenNodePlan<I>,
 	},
 }
 
-impl NodePlan {
+impl<I: ChildSliceIndex> NodePlan<I> {
 	/// Build a node by decoding a byte slice according to the node plan. It is the responsibility
 	/// of the caller to ensure that the node plan was created for the argument data, otherwise the
 	/// call may decode incorrectly or panic.
-	pub fn build<'a, 'b>(&'a self, data: &'b [u8]) -> Node<'b> {
+	pub fn build<'a, 'b>(&'a self, data: &'b [u8]) -> Node<'b, I> {
 		match self {
 			NodePlan::Empty => Node::Empty,
 			NodePlan::Leaf { partial, value } =>
@@ -178,14 +197,14 @@ impl NodePlan {
 /// the `OwnedNode`. This is useful for trie iterators.
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(PartialEq, Eq)]
-pub struct OwnedNode<D: Borrow<[u8]>> {
+pub struct OwnedNode<D: Borrow<[u8]>, I> {
 	data: D,
-	plan: NodePlan,
+	plan: NodePlan<I>,
 }
 
-impl<D: Borrow<[u8]>> OwnedNode<D> {
+impl<D: Borrow<[u8]>, I: ChildSliceIndex> OwnedNode<D, I> {
 	/// Construct an `OwnedNode` by decoding an owned data source according to some codec.
-	pub fn new<C: NodeCodec>(data: D) -> Result<Self, C::Error> {
+	pub fn new<C: NodeCodec<ChildIndex = I>>(data: D) -> Result<Self, C::Error>	{
 		let plan = C::decode_plan(data.borrow())?;
 		Ok(OwnedNode { data, plan })
 	}
@@ -196,12 +215,12 @@ impl<D: Borrow<[u8]>> OwnedNode<D> {
 	}
 
 	/// Returns a reference to the node decode plan.
-	pub fn node_plan(&self) -> &NodePlan {
+	pub fn node_plan(&self) -> &NodePlan<I> {
 		&self.plan
 	}
 
 	/// Construct a `Node` by borrowing data from this struct.
-	pub fn node(&self) -> Node {
+	pub fn node(&self) -> Node<I> {
 		self.plan.build(self.data.borrow())
 	}
 }

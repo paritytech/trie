@@ -14,11 +14,11 @@
 
 //! An owning, nibble-oriented byte vector.
 
-use crate::nibble::{NibbleSlice, BackingByteVec};
-use crate::nibble::nibble_ops;
+use crate::nibble::{NibbleSlice, BackingByteVec, NibbleOps};
 use hash_db::Prefix;
 use crate::node_codec::Partial;
 use super::NibbleVec;
+use crate::nibble::nibble_ops;
 
 impl Default for NibbleVec {
 	fn default() -> Self {

@@ -19,7 +19,7 @@ use crate::rstd::boxed::Box;
 use super::node::{NodeHandle, Node, OwnedNode, decode_hash};
 use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query,
-	TrieLayout, CError, TrieHash};
+	TrieLayout, ChildIndex, CError, TrieHash};
 use super::nibble::NibbleVec;
 
 #[cfg(feature = "std")]
@@ -90,7 +90,7 @@ where
 		parent_hash: TrieHash<L>,
 		node_handle: NodeHandle,
 		partial_key: Prefix,
-	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
+	) -> Result<(OwnedNode<DBValue, ChildIndex<L>>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
 		let (node_hash, node_data) = match node_handle {
 			NodeHandle::Hash(data) => {
 				let node_hash = decode_hash::<L::Hash>(data)

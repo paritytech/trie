@@ -57,6 +57,7 @@ mod nibble;
 mod node_codec;
 mod trie_codec;
 
+pub use crate::nibble::nibble_ops;
 pub use hash_db::{HashDB, HashDBRef, Hasher};
 pub use self::triedb::{TrieDB, TrieDBIterator};
 pub use self::triedbmut::{TrieDBMut, ChildReference};
@@ -66,7 +67,7 @@ pub use self::fatdb::{FatDB, FatDBIterator};
 pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
-pub use self::nibble::{NibbleSlice, NibbleVec, nibble_ops};
+pub use self::nibble::{NibbleSlice, NibbleVec, NibbleOps, ChildSliceIndex};
 pub use crate::node_codec::{NodeCodec, Partial};
 pub use crate::iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed};
@@ -382,11 +383,14 @@ pub trait TrieLayout {
 	/// no partial in branch, if false the trie will only
 	/// use branch and node with partials in both.
 	const USE_EXTENSION: bool;
+	/// Trie nibble constants. It defines trie radix.
+	type Nibble: NibbleOps;
 	/// Hasher to use for this trie.
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
-	type Codec: NodeCodec<HashOut=<Self::Hash as Hasher>::Out>;
+	type Codec: NodeCodec<HashOut=TrieHash<Self>, ChildIndex=ChildIndex<Self>>;
 }
+
 
 /// This trait associates a trie definition with preferred methods.
 /// It also contains own default implementations and can be
@@ -448,3 +452,5 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
 pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;
+/// Alias accessor to child slice index from a `TrieLayout`.
+pub type ChildIndex<L> = <<L as TrieLayout>::Nibble as NibbleOps>::ChildSliceIndex;
