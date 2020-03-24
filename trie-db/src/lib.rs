@@ -67,7 +67,9 @@ pub use self::fatdb::{FatDB, FatDBIterator};
 pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
-pub use self::nibble::{NibbleSlice, NibbleVec, NibbleOps, ChildSliceIndex};
+pub use self::nibble::{NibbleSlice, NibbleVec, NibbleOps, ChildSliceIndex,
+	ChildSliceIndex2, ChildSliceIndex4, ChildSliceIndex16, ChildSliceIndex256,
+	NibbleHalf, NibbleQuarter, NibbleBit, NibbleFull};
 pub use crate::node_codec::{NodeCodec, Partial};
 pub use crate::iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed};

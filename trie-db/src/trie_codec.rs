@@ -269,13 +269,13 @@ impl<'a, L: TrieLayout> DecoderStackEntry<'a, L> {
 	/// list is complete. If this returns true and the entry is an extension node, then
 	/// `children[0]` is guaranteed to be Some.
 	fn advance_child_index(&mut self) -> Result<bool, TrieHash<L>, CError<L>> {
-		match self.node {
+		match &mut self.node {
 			Node::Extension(_, child) if self.child_index == 0 => {
 				match child {
 					NodeHandle::Inline(data) if data.is_empty() =>
 						return Ok(false),
 					_ => {
-						let child_ref = child.try_into()
+						let child_ref = child.clone().try_into()
 							.map_err(|hash| Box::new(
 								TrieError::InvalidHash(TrieHash::<L>::default(), hash)
 							))?;

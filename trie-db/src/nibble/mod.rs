@@ -14,11 +14,10 @@
 
 //! Nibble oriented methods.
 
-use crate::node::NodeKey;
+use crate::node::{NodeKey, NodeHandlePlan};
 use crate::rstd::cmp;
 use hash_db::MaybeDebug;
 use crate::rstd::vec::Vec;
-
 pub use self::leftnibbleslice::LeftNibbleSlice;
 
 mod nibblevec;
@@ -75,9 +74,9 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	/// Last nibble index as u8, a convenience constant for iteration on all nibble.
 	const LAST_NIBBLE_INDEX: u8 = (Self::NIBBLE_PER_BYTE - 1) as u8;
 
-	/// Buffer type for child slice index array.
+	/// Buffer type for child slice index array. TODO EMCH this associated type looks useless!! (a
+	/// codec thing -> can move ChildSliceIndex to codec code)
 	type ChildSliceIndex: ChildSliceIndex;
-
 
 	/// Pad left aligned representation for a given number of element.
 	/// Mask a byte from a `ix` > 0 (ix being content).
@@ -480,6 +479,8 @@ impl Default for ChildSliceType {
 /// representation of a branch.
 /// This is use instead of `&[&[u8]]` to allow associated type
 /// with a constant length.
+/// TODO EMCH this is probably not a good trait, putting directly
+/// AsRef<[NodeHandlePlan]> &AsMut is WAY better.
 pub trait ChildSliceIndex: AsRef<[(usize, ChildSliceType)]>
 	+ AsMut<[(usize, ChildSliceType)]> + Default + Eq + PartialEq + crate::MaybeDebug
 	+ Clone {
@@ -489,22 +490,67 @@ pub trait ChildSliceIndex: AsRef<[(usize, ChildSliceType)]>
 
 	/// Constant size of header for each child index.
 	/// This is only needed for default implementation.
+	/// TODO EMCH not sure this is really usefull
 	const CONTENT_HEADER_SIZE: usize;
 
 	#[inline]
-	fn range_at<'a>(&self, ix: usize) -> (usize, ChildSliceType, usize) {
+	fn range_at(&self, ix: usize) -> (usize, ChildSliceType, usize) {
 		let (start, child_type) = self.as_ref()[ix];
 		(start + Self::CONTENT_HEADER_SIZE, child_type, self.as_ref()[ix + 1].0)
 	}
 
-	/// Access a children slice at a given index.
+	#[inline]
+	fn from_node_plan(nodes: impl Iterator<Item = Option<NodeHandlePlan>>) -> Self {
+		let mut index = Self::default();
+		let mut prev = 0;
+		let mut first = true;
+		for (i, node) in nodes.enumerate() {
+			match node {
+				Some(NodeHandlePlan::Hash(range)) => {
+					// TODO EMCH awkward: change proto or use simple index
+					if first {
+						let mut n = range.start;
+						for i in (0..i).rev() {
+							n -= Self::CONTENT_HEADER_SIZE;
+							index.as_mut()[i].0 = n;
+						}
+					}
+					index.as_mut()[i] = (range.start - Self::CONTENT_HEADER_SIZE, ChildSliceType::Hash);
+					prev = range.end;
+					first = false;
+				},
+				Some(NodeHandlePlan::Inline(range)) => {
+					if first {
+						let mut n = range.start;
+						for i in (0..i).rev() {
+							n -= Self::CONTENT_HEADER_SIZE;
+							index.as_mut()[i].0 = n;
+						}
+					}
+					index.as_mut()[i] = (range.start - Self::CONTENT_HEADER_SIZE, ChildSliceType::Inline);
+					prev = range.end;
+					first = false;
+				},
+				None => {
+					if !first {
+						index.as_mut()[i] = (prev, Default::default());
+						prev += Self::CONTENT_HEADER_SIZE;
+					}
+				},
+			}
+		}
+		let len = index.as_ref().len();
+		index.as_mut()[len - 1] = (prev, Default::default());
+		index
+	}
+
 	/// The default implemenatation only works if the encoding of child
 	/// slice is the slice value with a fix size header of length
 	/// `CONTENT_HEADER_SIZE`.
-	fn slice_at<'a>(&self, ix: usize, data: &'a [u8]) -> Option<&'a[u8]> {
-		let (s, _, e) = self.range_at(ix);
+	fn slice_at<'a>(&self, ix: usize, data: &'a [u8]) -> Option<(&'a[u8], ChildSliceType)> {
+		let (s, t, e) = self.range_at(ix);
 		if s < e {
-			Some(&data[s..e])
+			Some((&data[s..e], t))
 		} else {
 			None
 		}
@@ -520,7 +566,7 @@ pub trait ChildSliceIndex: AsRef<[(usize, ChildSliceType)]>
 pub struct IterChildSliceIndex<'a, CS>(&'a CS, usize, &'a[u8]);
 
 impl<'a, CS: ChildSliceIndex> Iterator for IterChildSliceIndex<'a, CS> {
-	type Item = Option<&'a[u8]>;
+	type Item = Option<(&'a[u8], ChildSliceType)>;
 	fn next(&mut self) -> Option<Self::Item> {
 		if self.1 == CS::NIBBLE_LENGTH {
 			return None;

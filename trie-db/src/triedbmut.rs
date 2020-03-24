@@ -1616,7 +1616,9 @@ mod tests {
 	use hash_db::{Hasher, HashDB};
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, NodeCodec,
-		ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension};
+		ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension,
+		ChildSliceIndex, ChildSliceIndex16,
+	};
 	use crate::nibble::BackingByteVec;
 
 	fn populate_trie<'db>(
@@ -1662,7 +1664,7 @@ mod tests {
 	}
 
 	fn reference_hashed_null_node() -> <KeccakHasher as Hasher>::Out {
-		<ReferenceNodeCodec<KeccakHasher> as NodeCodec>::hashed_null_node()
+		<ReferenceNodeCodec<KeccakHasher, ChildSliceIndex16> as NodeCodec>::hashed_null_node()
 	}
 
 	#[test]

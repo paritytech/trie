@@ -36,11 +36,10 @@ pub struct BranchChildrenSlice<'a, I> {
 }
 
 impl<'a, I: ChildSliceIndex> BranchChildrenSlice<'a, I> {
-	/// Similar to `Index` but return a copied value.
+	/// Similar to `Index` but returns a copied value.
 	pub fn at(&self, index: usize) -> Option<NodeHandle<'a>> {
 		if index < I::NIBBLE_LENGTH {
 			let (start, child_type, end) = self.index.range_at(index);
-			let size = end - start;
 			if end > start {
 				return Some(match child_type {
 					ChildSliceType::Hash => NodeHandle::Hash(&self.data[start..end]),
@@ -49,6 +48,14 @@ impl<'a, I: ChildSliceIndex> BranchChildrenSlice<'a, I> {
 			}
 		}
 		None
+	}
+
+	/// Iterator over children node handles.
+	pub fn iter(&'a self) -> impl Iterator<Item=Option<NodeHandle<'a>>> {
+		self.index.iter(self.data).map(|o_slice| o_slice.map(|(slice, child_type)| match child_type {
+			ChildSliceType::Hash => NodeHandle::Hash(slice),
+			ChildSliceType::Inline => NodeHandle::Inline(slice),
+		}))
 	}
 }
 
@@ -149,7 +156,6 @@ impl<I: ChildSliceIndex> BranchChildrenNodePlan<I> {
 	pub fn at(&self, index: usize) -> Option<NodeHandlePlan> {
 		if index < I::NIBBLE_LENGTH {
 			let (start, child_type, end) = self.index.range_at(index);
-			let size = end - start;
 			if end > start {
 				return Some(match child_type {
 					ChildSliceType::Hash => NodeHandlePlan::Hash(start..end),
@@ -158,6 +164,12 @@ impl<I: ChildSliceIndex> BranchChildrenNodePlan<I> {
 			}
 		}
 		None
+	}
+
+	/// Build from sequence of content.
+	pub fn new(nodes: impl Iterator<Item = Option<NodeHandlePlan>>) -> Self {
+		let index = ChildSliceIndex::from_node_plan(nodes);
+		BranchChildrenNodePlan { index }
 	}
 }
 
@@ -208,18 +220,18 @@ impl<I: ChildSliceIndex> NodePlan<I> {
 			NodePlan::Extension { partial, child } =>
 				Node::Extension(partial.build(data), child.build(data)),
 			NodePlan::Branch { value, children } => {
-				let mut child_slices = [None; nibble_ops::NIBBLE_LENGTH];
-				for i in 0..nibble_ops::NIBBLE_LENGTH {
-					child_slices[i] = children.at(i).as_ref().map(|child| child.build(data));
-				}
+				let child_slices = BranchChildrenSlice {
+					index: children.index.clone(),
+					data,
+				};
 				let value_slice = value.clone().map(|value| &data[value]);
 				Node::Branch(child_slices, value_slice)
 			},
 			NodePlan::NibbledBranch { partial, value, children } => {
-				let mut child_slices = [None; nibble_ops::NIBBLE_LENGTH];
-				for i in 0..nibble_ops::NIBBLE_LENGTH {
-					child_slices[i] = children.at(i).as_ref().map(|child| child.build(data));
-				}
+				let child_slices = BranchChildrenSlice {
+					index: children.index.clone(),
+					data,
+				};
 				let value_slice = value.clone().map(|value| &data[value]);
 				Node::NibbledBranch(partial.build(data), child_slices, value_slice)
 			},

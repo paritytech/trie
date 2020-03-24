@@ -22,13 +22,16 @@ use parity_scale_codec::{Decode, Input, Output, Encode, Compact, Error as CodecE
 use trie_root::Hasher;
 
 use trie_db::{
-	node::{NibbleSlicePlan, NodePlan, NodeHandlePlan},
+	node::{NibbleSlicePlan, NodePlan, NodeHandlePlan, BranchChildrenNodePlan},
 	triedbmut::ChildReference,
 	DBValue,
 	trie_visit,
 	TrieBuilder,
 	TrieRoot,
 	Partial,
+	NibbleOps,
+	NibbleHalf,
+
 };
 use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
@@ -37,7 +40,7 @@ pub use trie_db::{
 	decode_compact, encode_compact,
 	nibble_ops, NibbleSlice, NibbleVec, NodeCodec, proof, Record, Recorder,
 	Trie, TrieConfiguration, TrieDB, TrieDBIterator, TrieDBMut, TrieDBNodeIterator, TrieError,
-	TrieIterator, TrieLayout, TrieMut,
+	TrieIterator, TrieLayout, TrieMut, ChildSliceIndex, ChildSliceIndex16,
 };
 pub use trie_root::TrieStream;
 pub mod node {
@@ -50,25 +53,39 @@ pub struct ExtensionLayout;
 impl TrieLayout for ExtensionLayout {
 	const USE_EXTENSION: bool = true;
 	type Hash = KeccakHasher;
-	type Codec = ReferenceNodeCodec<KeccakHasher>;
+	type Nibble = NibbleHalf;
+	type Codec = ReferenceNodeCodec<KeccakHasher, ChildSliceIndex16>;
 }
 
 impl TrieConfiguration for ExtensionLayout { }
 
 /// Trie layout without extension nodes, allowing
 /// generic hasher.
-pub struct GenericNoExtensionLayout<H>(PhantomData<H>);
+pub struct GenericNoExtensionLayout<H, I, N>(PhantomData<(H, I, N)>);
 
-impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
+impl<
+	H: Hasher,
+	I: ChildSliceIndex,
+	N: NibbleOps<ChildSliceIndex = I>,
+> TrieLayout for GenericNoExtensionLayout<H, I, N> {
 	const USE_EXTENSION: bool = false;
 	type Hash = H;
-	type Codec = ReferenceNodeCodecNoExt<H>;
+	type Nibble = N;
+	type Codec = ReferenceNodeCodecNoExt<H, I>;
 }
 
-impl<H: Hasher> TrieConfiguration for GenericNoExtensionLayout<H> { }
+impl<
+	H: Hasher,
+	I: ChildSliceIndex,
+	N: NibbleOps<ChildSliceIndex = I>,
+> TrieConfiguration for GenericNoExtensionLayout<H, I, N> { }
 
 /// Trie layout without extension nodes.
-pub type NoExtensionLayout = GenericNoExtensionLayout<keccak_hasher::KeccakHasher>;
+pub type NoExtensionLayout = GenericNoExtensionLayout<
+	keccak_hasher::KeccakHasher,
+	ChildSliceIndex16,
+	NibbleHalf,
+>;
 
 /// Children bitmap codec for radix 16 trie.
 pub struct Bitmap(u16);
@@ -483,14 +500,14 @@ impl Decode for NodeHeaderNoExt {
 
 /// Simple reference implementation of a `NodeCodec`.
 #[derive(Default, Clone)]
-pub struct ReferenceNodeCodec<H>(PhantomData<H>);
+pub struct ReferenceNodeCodec<H, I>(PhantomData<(H, I)>);
 
 /// Simple reference implementation of a `NodeCodec`.
 /// Even if implementation follows initial specification of
 /// https://github.com/w3f/polkadot-re-spec/issues/8, this may
 /// not follow it in the future, it is mainly the testing codec without extension node.
 #[derive(Default, Clone)]
-pub struct ReferenceNodeCodecNoExt<H>(PhantomData<H>);
+pub struct ReferenceNodeCodecNoExt<H, I>(PhantomData<(H, I)>);
 
 fn partial_to_key(partial: Partial, offset: u8, over: u8) -> Vec<u8> {
 	let number_nibble_encoded = (partial.0).0 as usize;
@@ -615,15 +632,16 @@ impl<'a> Input for ByteSliceInput<'a> {
 // but due to the current limitations of Rust const evaluation we can't do
 // `const HASHED_NULL_NODE: <KeccakHasher as Hasher>::Out = <KeccakHasher as Hasher>::Out( … … )`.
 // Perhaps one day soon?
-impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
+impl<H: Hasher, I: ChildSliceIndex> NodeCodec for ReferenceNodeCodec<H, I> {
 	type Error = CodecError;
 	type HashOut = H::Out;
+	type ChildIndex = I;
 
 	fn hashed_null_node() -> <H as Hasher>::Out {
 		H::hash(<Self as NodeCodec>::empty_node())
 	}
 
-	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
+	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan<Self::ChildIndex>, Self::Error> {
 		let mut input = ByteSliceInput::new(data);
 		match NodeHeader::decode(&mut input)? {
 			NodeHeader::Null => Ok(NodePlan::Empty),
@@ -637,21 +655,33 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 				} else {
 					None
 				};
-				let mut children = [
-					None, None, None, None, None, None, None, None,
-					None, None, None, None, None, None, None, None,
-				];
-				for i in 0..nibble_ops::NIBBLE_LENGTH {
+				let mut error: ::std::result::Result<(), Self::Error> = Ok(());
+				let children = BranchChildrenNodePlan::new((0..nibble_ops::NIBBLE_LENGTH).map(|i| {
 					if bitmap.value_at(i) {
-						let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-						let range = input.take(count)?;
-						children[i] = Some(if count == H::LENGTH {
-							NodeHandlePlan::Hash(range)
+						let count = match <Compact<u32>>::decode(&mut input) {
+							Ok(c) => c.0 as usize,
+							Err(e) => {
+								error = Err(e);
+								return None;
+							},
+						};
+						let range = match input.take(count) {
+							Ok(i) => i,
+							Err(e) => {
+								error = Err(e);
+								return None;
+							},
+						};
+						if count == H::LENGTH {
+							Some(NodeHandlePlan::Hash(range))
 						} else {
-							NodeHandlePlan::Inline(range)
-						});
+							Some(NodeHandlePlan::Inline(range))
+						}
+					} else {
+						None
 					}
-				}
+				}));
+				error?;
 				Ok(NodePlan::Branch { value, children })
 			}
 			NodeHeader::Extension(nibble_count) => {
@@ -757,15 +787,16 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 
 }
 
-impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
+impl<H: Hasher, I: ChildSliceIndex> NodeCodec for ReferenceNodeCodecNoExt<H, I> {
 	type Error = CodecError;
 	type HashOut = <H as Hasher>::Out;
+	type ChildIndex = I;
 
 	fn hashed_null_node() -> <H as Hasher>::Out {
 		H::hash(<Self as NodeCodec>::empty_node())
 	}
 
-	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
+	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan<I>, Self::Error> {
 		let mut input = ByteSliceInput::new(data);
 		match NodeHeaderNoExt::decode(&mut input)? {
 			NodeHeaderNoExt::Null => Ok(NodePlan::Empty),
@@ -787,21 +818,34 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				} else {
 					None
 				};
-				let mut children = [
-					None, None, None, None, None, None, None, None,
-					None, None, None, None, None, None, None, None,
-				];
-				for i in 0..nibble_ops::NIBBLE_LENGTH {
+				let mut error: ::std::result::Result<(), Self::Error> = Ok(());
+				let children = BranchChildrenNodePlan::new((0..nibble_ops::NIBBLE_LENGTH).map(|i| {
 					if bitmap.value_at(i) {
-						let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-						let range = input.take(count)?;
-						children[i] = Some(if count == H::LENGTH {
-							NodeHandlePlan::Hash(range)
+						let count = match <Compact<u32>>::decode(&mut input) {
+							Ok(c) => c.0 as usize,
+							Err(e) => {
+								error = Err(e);
+								return None;
+							},
+						};
+						let range = match input.take(count) {
+							Ok(i) => i,
+							Err(e) => {
+								error = Err(e);
+								return None;
+							},
+						};
+						if count == H::LENGTH {
+							Some(NodeHandlePlan::Hash(range))
 						} else {
-							NodeHandlePlan::Inline(range)
-						});
+							Some(NodeHandlePlan::Inline(range))
+						}
+					} else {
+						None
 					}
-				}
+				}));
+				error?;
+
 				Ok(NodePlan::NibbledBranch {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
 					value,
@@ -1216,9 +1260,9 @@ mod tests {
 	fn too_big_nibble_length() {
 		// + 1 for 0 added byte of nibble encode
 		let input = vec![0u8; (NIBBLE_SIZE_BOUND_NO_EXT as usize + 1) / 2 + 1];
-		let enc = <ReferenceNodeCodecNoExt<KeccakHasher> as NodeCodec>
+		let enc = <ReferenceNodeCodecNoExt<KeccakHasher, ChildSliceIndex16> as NodeCodec>
 		::leaf_node(((0, 0), &input), &[1]);
-		let dec = <ReferenceNodeCodecNoExt<KeccakHasher> as NodeCodec>
+		let dec = <ReferenceNodeCodecNoExt<KeccakHasher, ChildSliceIndex16> as NodeCodec>
 		::decode(&enc).unwrap();
 		let o_sl = if let Node::Leaf(sl, _) = dec {
 			Some(sl)

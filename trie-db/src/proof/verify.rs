@@ -17,8 +17,8 @@ use crate::rstd::{
 };
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, NibbleOps,
-	node::{Node, NodeHandle}, NodeCodec, TrieHash, TrieLayout,
-	ChildIndex,
+	node::{Node, NodeHandle, BranchChildrenSlice}, NodeCodec, TrieHash, TrieLayout,
+	ChildIndex, ChildSliceIndex,
 };
 use crate::nibble::nibble_ops;
 use hash_db::Hasher;
@@ -183,11 +183,11 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 		where
 			I: Iterator<Item=&'a Vec<u8>>,
 	{
-		match self.node {
+		match &mut self.node {
 			Node::Extension(_, child) => {
 				// Guaranteed because of sorted keys order.
 				assert_eq!(self.child_index, 0);
-				Self::make_child_entry(proof_iter, child, child_prefix)
+				Self::make_child_entry(proof_iter, *child, child_prefix)
 			}
 			Node::Branch(children, _) | Node::NibbledBranch(_, children, _) => {
 				// because this is a branch
@@ -213,9 +213,9 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 
 	/// Populate the remaining references in `children` with references copied the node itself.
 	fn complete_children(&mut self) -> Result<(), Error<TrieHash<L>, CError<L>>> {
-		match self.node {
+		match &mut self.node {
 			Node::Extension(_, child) if self.child_index == 0 => {
-				let child_ref = child.try_into()
+				let child_ref = child.clone().try_into()
 					.map_err(Error::InvalidChildReference)?;
 				self.children[self.child_index] = Some(child_ref);
 				self.child_index += 1;
@@ -317,9 +317,11 @@ enum ValueMatch<'a> {
 
 /// Determines whether a node on the stack carries a value at the given key or whether any nodes
 /// in the subtrie do. The prefix of the node is given by the first `prefix_len` nibbles of `key`.
-fn match_key_to_node<'a, I>(key: &LeftNibbleSlice<'a>, prefix_len: usize, node: &Node<I>)
-						 -> ValueMatch<'a>
-{
+fn match_key_to_node<'a, I: ChildSliceIndex>(
+	key: &LeftNibbleSlice<'a>,
+	prefix_len: usize,
+	node: &Node<I>
+) -> ValueMatch<'a> {
 	match node {
 		Node::Empty => ValueMatch::NotFound,
 		Node::Leaf(partial, value) => {
@@ -357,10 +359,10 @@ fn match_key_to_node<'a, I>(key: &LeftNibbleSlice<'a>, prefix_len: usize, node: 
 /// Determines whether a branch node on the stack carries a value at the given key or whether any
 /// nodes in the subtrie do. The key of the branch node value is given by the first
 /// `prefix_plus_partial_len` nibbles of `key`.
-fn match_key_to_branch_node<'a>(
+fn match_key_to_branch_node<'a, I: ChildSliceIndex>(
 	key: &LeftNibbleSlice<'a>,
 	prefix_plus_partial_len: usize,
-	children: &[Option<NodeHandle>; nibble_ops::NIBBLE_LENGTH],
+	children: &BranchChildrenSlice<I>,
 	value: &Option<&[u8]>,
 ) -> ValueMatch<'a>
 {
@@ -374,7 +376,7 @@ fn match_key_to_branch_node<'a>(
 		let index = key.at(prefix_plus_partial_len)
 			.expect("it's less than prefix.len(); qed")
 			as usize;
-		if children[index].is_some() {
+		if children.at(index).is_some() {
 			ValueMatch::IsChild(key.truncate(prefix_plus_partial_len + 1))
 		} else {
 			ValueMatch::NotFound
