@@ -14,7 +14,7 @@
 
 //! Nibble oriented methods.
 
-use crate::node::{NodeKey, NodeHandlePlan};
+use crate::node::{NodeKey, NodeHandle, NodeHandlePlan};
 use crate::rstd::cmp;
 use hash_db::MaybeDebug;
 use crate::rstd::vec::Vec;
@@ -460,100 +460,36 @@ pub struct NibbleSliceIterator<'a> {
 	i: usize,
 }
 
-#[cfg_attr(feature = "std", derive(Debug))]
-#[derive(Eq, PartialEq, Clone, Copy)]
-#[repr(u8)]
-/// indicate if the slice is inline or a hash 
-pub enum ChildSliceType {
-	Inline,
-	Hash,
-}
-
-impl Default for ChildSliceType {
-	fn default() -> Self {
-		ChildSliceType::Hash
-	}
-}
-
 /// Technical trait only to access child slice from an encoded
 /// representation of a branch.
 /// This is use instead of `&[&[u8]]` to allow associated type
 /// with a constant length.
-/// TODO EMCH this is probably not a good trait, putting directly
-/// AsRef<[NodeHandlePlan]> &AsMut is WAY better.
-pub trait ChildSliceIndex: AsRef<[(usize, ChildSliceType)]>
-	+ AsMut<[(usize, ChildSliceType)]> + Default + Eq + PartialEq + crate::MaybeDebug
+/// TODO rename to ChildRangeIndex
+pub trait ChildSliceIndex: AsRef<[Option<NodeHandlePlan>]>
+	+ AsMut<[Option<NodeHandlePlan>]> + Default + Eq + PartialEq + crate::MaybeDebug
 	+ Clone {
 
 	/// Constant length for the number of children.
+	/// TODO EMCH see if can delete
 	const NIBBLE_LENGTH : usize;
-
-	/// Constant size of header for each child index.
-	/// This is only needed for default implementation.
-	/// TODO EMCH not sure this is really usefull
-	const CONTENT_HEADER_SIZE: usize;
-
-	#[inline]
-	fn range_at(&self, ix: usize) -> (usize, ChildSliceType, usize) {
-		let (start, child_type) = self.as_ref()[ix];
-		(start + Self::CONTENT_HEADER_SIZE, child_type, self.as_ref()[ix + 1].0)
-	}
 
 	#[inline]
 	fn from_node_plan(nodes: impl Iterator<Item = Option<NodeHandlePlan>>) -> Self {
 		let mut index = Self::default();
-		let mut prev = 0;
-		let mut first = true;
 		for (i, node) in nodes.enumerate() {
-			match node {
-				Some(NodeHandlePlan::Hash(range)) => {
-					// TODO EMCH awkward: change proto or use simple index
-					if first {
-						let mut n = range.start;
-						for i in (0..i).rev() {
-							n -= Self::CONTENT_HEADER_SIZE;
-							index.as_mut()[i].0 = n;
-						}
-					}
-					index.as_mut()[i] = (range.start - Self::CONTENT_HEADER_SIZE, ChildSliceType::Hash);
-					prev = range.end;
-					first = false;
-				},
-				Some(NodeHandlePlan::Inline(range)) => {
-					if first {
-						let mut n = range.start;
-						for i in (0..i).rev() {
-							n -= Self::CONTENT_HEADER_SIZE;
-							index.as_mut()[i].0 = n;
-						}
-					}
-					index.as_mut()[i] = (range.start - Self::CONTENT_HEADER_SIZE, ChildSliceType::Inline);
-					prev = range.end;
-					first = false;
-				},
-				None => {
-					if !first {
-						index.as_mut()[i] = (prev, Default::default());
-						prev += Self::CONTENT_HEADER_SIZE;
-					}
-				},
-			}
+			index.as_mut()[i] = node;
 		}
-		let len = index.as_ref().len();
-		index.as_mut()[len - 1] = (prev, Default::default());
 		index
 	}
 
-	/// The default implemenatation only works if the encoding of child
-	/// slice is the slice value with a fix size header of length
-	/// `CONTENT_HEADER_SIZE`.
-	fn slice_at<'a>(&self, ix: usize, data: &'a [u8]) -> Option<(&'a[u8], ChildSliceType)> {
-		let (s, t, e) = self.range_at(ix);
-		if s < e {
-			Some((&data[s..e], t))
-		} else {
-			None
-		}
+	#[inline]
+	fn range_at(&self, ix: usize) -> Option<NodeHandlePlan> {
+		self.as_ref()[ix].clone()
+	}
+
+	#[inline]
+	fn slice_at<'a>(&self, ix: usize, data: &'a [u8]) -> Option<NodeHandle<'a>> {
+		self.range_at(ix).map(|plan| plan.build(data))
 	}
 
 	/// Iterator over the children slice.
@@ -566,7 +502,7 @@ pub trait ChildSliceIndex: AsRef<[(usize, ChildSliceType)]>
 pub struct IterChildSliceIndex<'a, CS>(&'a CS, usize, &'a[u8]);
 
 impl<'a, CS: ChildSliceIndex> Iterator for IterChildSliceIndex<'a, CS> {
-	type Item = Option<(&'a[u8], ChildSliceType)>;
+	type Item = Option<NodeHandle<'a>>;
 	fn next(&mut self) -> Option<Self::Item> {
 		if self.1 == CS::NIBBLE_LENGTH {
 			return None;
@@ -577,34 +513,33 @@ impl<'a, CS: ChildSliceIndex> Iterator for IterChildSliceIndex<'a, CS> {
 }
 
 macro_rules! child_slice_index {
-	($me: ident, $size: expr, $pre: expr) => {
+	($me: ident, $size: expr) => {
 		#[cfg_attr(feature = "std", derive(Debug))]
 		#[derive(Default, Eq, PartialEq, Clone)]
 		/// Child slice indexes for radix $size.
-		pub struct $me([(usize, ChildSliceType); $size + 1]);
+		pub struct $me([Option<NodeHandlePlan>; $size + 1]);
 
-		impl AsRef<[(usize, ChildSliceType)]> for $me {
-			fn as_ref(&self) -> &[(usize, ChildSliceType)] {
+		impl AsRef<[Option<NodeHandlePlan>]> for $me {
+			fn as_ref(&self) -> &[Option<NodeHandlePlan>] {
 				&self.0[..]
 			}
 		}
 
-		impl AsMut<[(usize, ChildSliceType)]> for $me {
-			fn as_mut(&mut self) -> &mut [(usize, ChildSliceType)] {
+		impl AsMut<[Option<NodeHandlePlan>]> for $me {
+			fn as_mut(&mut self) -> &mut [Option<NodeHandlePlan>] {
 				&mut self.0[..]
 			}
 		}
 
 		impl ChildSliceIndex for $me {
-			const CONTENT_HEADER_SIZE: usize = $pre;
 			const NIBBLE_LENGTH: usize = $size;
 		}
 	}
 }
 
-child_slice_index!(ChildSliceIndex16, 16, 1);
-child_slice_index!(ChildSliceIndex4, 4, 1);
-child_slice_index!(ChildSliceIndex2, 2, 1);
+child_slice_index!(ChildSliceIndex16, 16);
+child_slice_index!(ChildSliceIndex4, 4);
+child_slice_index!(ChildSliceIndex2, 2);
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Eq, PartialEq, Clone)]
@@ -614,27 +549,26 @@ child_slice_index!(ChildSliceIndex2, 2, 1);
 /// but could use bench to see if worth implementing
 /// (probably sparse vec implementation is better:
 /// need to remove asref and asmut bound).
-pub struct ChildSliceIndex256(Vec<(usize, ChildSliceType)>);
+pub struct ChildSliceIndex256(Vec<Option<NodeHandlePlan>>);
 
 impl Default for ChildSliceIndex256 {
 	fn default() -> Self {
-		ChildSliceIndex256(vec![(0, Default::default()); 257])
+		ChildSliceIndex256(vec![None; 257])
 	}
 }
 
-impl AsRef<[(usize, ChildSliceType)]> for ChildSliceIndex256 {
-	fn as_ref(&self) -> &[(usize, ChildSliceType)] {
+impl AsRef<[Option<NodeHandlePlan>]> for ChildSliceIndex256 {
+	fn as_ref(&self) -> &[Option<NodeHandlePlan>] {
 			&self.0[..]
 	}
 }
 
-impl AsMut<[(usize, ChildSliceType)]> for ChildSliceIndex256 {
-	fn as_mut(&mut self) -> &mut [(usize, ChildSliceType)] {
+impl AsMut<[Option<NodeHandlePlan>]> for ChildSliceIndex256 {
+	fn as_mut(&mut self) -> &mut [Option<NodeHandlePlan>] {
 		&mut self.0[..]
 	}
 }
 
 impl ChildSliceIndex for ChildSliceIndex256 {
-	const CONTENT_HEADER_SIZE: usize = 1;
 	const NIBBLE_LENGTH: usize = 256;
 }

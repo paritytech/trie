@@ -18,7 +18,7 @@ use crate::nibble::NibbleOps;
 use crate::node_codec::NodeCodec;
 
 use crate::nibble::nibble_ops;
-use crate::nibble::{ChildSliceIndex, ChildSliceType};
+use crate::nibble::{ChildSliceIndex};
 
 use crate::rstd::{borrow::Borrow, ops::Range};
 
@@ -38,24 +38,12 @@ pub struct BranchChildrenSlice<'a, I> {
 impl<'a, I: ChildSliceIndex> BranchChildrenSlice<'a, I> {
 	/// Similar to `Index` but returns a copied value.
 	pub fn at(&self, index: usize) -> Option<NodeHandle<'a>> {
-		if index < I::NIBBLE_LENGTH {
-			let (start, child_type, end) = self.index.range_at(index);
-			if end > start {
-				return Some(match child_type {
-					ChildSliceType::Hash => NodeHandle::Hash(&self.data[start..end]),
-					ChildSliceType::Inline => NodeHandle::Inline(&self.data[start..end]),
-				});
-			}
-		}
-		None
+		self.index.slice_at(index, self.data)
 	}
 
 	/// Iterator over children node handles.
 	pub fn iter(&'a self) -> impl Iterator<Item=Option<NodeHandle<'a>>> {
-		self.index.iter(self.data).map(|o_slice| o_slice.map(|(slice, child_type)| match child_type {
-			ChildSliceType::Hash => NodeHandle::Hash(slice),
-			ChildSliceType::Inline => NodeHandle::Inline(slice),
-		}))
+		self.index.iter(self.data)
 	}
 }
 
@@ -154,16 +142,7 @@ pub struct BranchChildrenNodePlan<I> {
 impl<I: ChildSliceIndex> BranchChildrenNodePlan<I> {
 	/// Similar to `Index` but return a copied value.
 	pub fn at(&self, index: usize) -> Option<NodeHandlePlan> {
-		if index < I::NIBBLE_LENGTH {
-			let (start, child_type, end) = self.index.range_at(index);
-			if end > start {
-				return Some(match child_type {
-					ChildSliceType::Hash => NodeHandlePlan::Hash(start..end),
-					ChildSliceType::Inline => NodeHandlePlan::Inline(start..end),
-				});
-			}
-		}
-		None
+		self.index.range_at(index)
 	}
 
 	/// Build from sequence of content.
