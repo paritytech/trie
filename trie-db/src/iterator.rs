@@ -15,9 +15,8 @@
 use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout};
 use hash_db::{EMPTY_PREFIX};
 use crate::triedb::TrieDB;
-use crate::nibble::nibble_ops;
 use crate::node::{NodePlan, NodeHandle, OwnedNode};
-use crate::nibble::{NibbleSlice, NibbleVec};
+use crate::nibble::{NibbleSlice, NibbleVec, NibbleOps};
 
 use crate::rstd::{rc::Rc, vec::Vec};
 
@@ -49,7 +48,7 @@ impl<L: TrieLayout> Crumb<L> {
 			| (Status::At, NodePlan::NibbledBranch { .. }) => Status::AtChild(0),
 			(Status::AtChild(x), NodePlan::Branch { .. })
 			| (Status::AtChild(x), NodePlan::NibbledBranch { .. })
-			if x < (nibble_ops::NIBBLE_LENGTH - 1) => Status::AtChild(x + 1),
+			if x < (L::Nibble::NIBBLE_LENGTH - 1) => Status::AtChild(x + 1),
 			_ => Status::Exiting,
 		}
 	}
@@ -183,7 +182,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 							if slice < partial {
 								crumb.status = Status::Exiting;
 								self.key_nibbles.append_partial(slice.right());
-								self.key_nibbles.push((nibble_ops::NIBBLE_LENGTH - 1) as u8);
+								self.key_nibbles.push((L::Nibble::NIBBLE_LENGTH - 1) as u8);
 								return Ok(false);
 							}
 							return Ok(slice.starts_with(&partial));

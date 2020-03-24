@@ -38,7 +38,7 @@ pub use trie_db::{
 	decode_compact, encode_compact,
 	nibble_ops, NibbleSlice, NibbleVec, NodeCodec, proof, Record, Recorder,
 	Trie, TrieConfiguration, TrieDB, TrieDBIterator, TrieDBMut, TrieDBNodeIterator, TrieError,
-	TrieIterator, TrieLayout, TrieMut, ChildSliceIndex, ChildSliceIndex16, NibbleHalf,
+	TrieIterator, TrieLayout, TrieMut, ChildIndex, ChildIndex16, NibbleHalf,
 };
 pub use trie_root::TrieStream;
 pub mod node {

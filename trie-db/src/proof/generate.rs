@@ -25,7 +25,7 @@ use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, NibbleSlice,
 	node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, BranchChildrenNodePlan},
 	NodeCodec, Recorder, Result as TrieResult, Trie, TrieError, TrieHash,
-	TrieLayout, ChildIndex,
+	TrieLayout, TrieChildIndex,
 };
 
 struct StackEntry<'a, L: TrieLayout> {
@@ -135,7 +135,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 	/// - children has size NIBBLE_LENGTH.
 	fn complete_branch_children(
 		node_data: &[u8],
-		child_handles: &BranchChildrenNodePlan<ChildIndex<L>>,
+		child_handles: &BranchChildrenNodePlan<TrieChildIndex<L>>,
 		child_index: usize,
 		children: &mut [Option<ChildReference<TrieHash<L>>>],
 	) -> TrieResult<(), TrieHash<L>, CError<L>>
@@ -428,7 +428,7 @@ fn match_key_to_node<'a, L: TrieLayout>(
 fn match_key_to_branch_node<'a, 'b, L: TrieLayout>(
 	node_data: &'a [u8],
 	value_range: &'b Option<Range<usize>>,
-	child_handles: &'b BranchChildrenNodePlan<ChildIndex<L>>,
+	child_handles: &'b BranchChildrenNodePlan<TrieChildIndex<L>>,
 	omit_value: &mut bool,
 	child_index: &mut usize,
 	children: &mut [Option<ChildReference<TrieHash<L>>>],

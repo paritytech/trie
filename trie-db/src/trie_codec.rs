@@ -27,9 +27,10 @@
 
 use hash_db::{HashDB};
 use crate::nibble::nibble_ops;
+use crate::nibble::NibbleOps;
 use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
-	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout, ChildIndex,
+	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout, TrieChildIndex,
 	node::{Node, NodeHandle, NodePlan, OwnedNode, BranchChildrenNodePlan},
 };
 use crate::rstd::{
@@ -133,8 +134,9 @@ impl<L: TrieLayout> EncoderStackEntry<L> {
 	/// - omit_children[i] is only true if child_handles[i] is Some
 	fn branch_children(
 		node_data: &[u8],
-		child_handles: &BranchChildrenNodePlan<ChildIndex<L>>,
+		child_handles: &BranchChildrenNodePlan<TrieChildIndex<L>>,
 		omit_children: &[bool],
+		// TODO EMCH the trait need some associated buffer
 	) -> Result<[Option<ChildReference<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH], TrieHash<L>, CError<L>>
 	{
 		let empty_child = ChildReference::Inline(TrieHash::<L>::default(), 0);
@@ -219,7 +221,8 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 				let children_len = match node.node_plan() {
 					NodePlan::Empty | NodePlan::Leaf { .. } => 0,
 					NodePlan::Extension { .. } => 1,
-					NodePlan::Branch { .. } | NodePlan::NibbledBranch { .. } => nibble_ops::NIBBLE_LENGTH,
+					NodePlan::Branch { .. }
+						| NodePlan::NibbledBranch { .. } => L::Nibble::NIBBLE_LENGTH,
 				};
 				stack.push(EncoderStackEntry {
 					prefix,
@@ -284,7 +287,7 @@ impl<'a, L: TrieLayout> DecoderStackEntry<'a, L> {
 				self.child_index += 1;
 			}
 			Node::Branch(children, _) | Node::NibbledBranch(_, children, _) => {
-				while self.child_index < nibble_ops::NIBBLE_LENGTH {
+				while self.child_index < L::Nibble::NIBBLE_LENGTH {
 					match children.at(self.child_index) {
 						Some(NodeHandle::Inline(data)) if data.is_empty() =>
 							return Ok(false),
@@ -403,7 +406,7 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 		let children_len = match node {
 			Node::Empty | Node::Leaf(..) => 0,
 			Node::Extension(..) => 1,
-			Node::Branch(..) | Node::NibbledBranch(..) => nibble_ops::NIBBLE_LENGTH,
+			Node::Branch(..) | Node::NibbledBranch(..) => L::Nibble::NIBBLE_LENGTH,
 		};
 		let mut last_entry = DecoderStackEntry {
 			node,

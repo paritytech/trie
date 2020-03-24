@@ -17,8 +17,7 @@ use crate::nibble::{self, NibbleSlice};
 use crate::nibble::NibbleOps;
 use crate::node_codec::NodeCodec;
 
-use crate::nibble::nibble_ops;
-use crate::nibble::{ChildSliceIndex};
+use crate::nibble::{ChildIndex, ChildSliceIndex};
 
 use crate::rstd::{borrow::Borrow, ops::Range};
 use crate::rstd::marker::PhantomData;
@@ -77,9 +76,9 @@ pub enum Node<'a, N: NibbleOps> {
 	Extension(NibbleSlice<'a, N>, NodeHandle<'a>),
 	/// Branch node; has slice of child nodes (each possibly null)
 	/// and an optional immediate node data.
-	Branch(BranchChildrenSlice<'a, N::ChildSliceIndex>, Option<&'a [u8]>),
+	Branch(BranchChildrenSlice<'a, N::ChildIndex>, Option<&'a [u8]>),
 	/// Branch node with support for a nibble (when extension nodes are not used).
-	NibbledBranch(NibbleSlice<'a, N>, BranchChildrenSlice<'a, N::ChildSliceIndex>, Option<&'a [u8]>),
+	NibbledBranch(NibbleSlice<'a, N>, BranchChildrenSlice<'a, N::ChildIndex>, Option<&'a [u8]>),
 }
 
 /// A `NodeHandlePlan` is a decoding plan for constructing a `NodeHandle` from an encoded trie
@@ -124,7 +123,7 @@ impl<N: NibbleOps> NibbleSlicePlan<N> {
 
 	/// Returns the nibble length of the slice.
 	pub fn len(&self) -> usize {
-		(self.bytes.end - self.bytes.start) * nibble_ops::NIBBLE_PER_BYTE - self.offset
+		(self.bytes.end - self.bytes.start) * N::NIBBLE_PER_BYTE - self.offset
 	}
 
 	/// Build a nibble slice by decoding a byte slice according to the plan. It is the
@@ -142,7 +141,7 @@ pub struct BranchChildrenNodePlan<I> {
 	index: I,
 }
 
-impl<I: ChildSliceIndex> BranchChildrenNodePlan<I> {
+impl<I: ChildIndex> BranchChildrenNodePlan<I> {
 	/// Similar to `Index` but return a copied value.
 	pub fn at(&self, index: usize) -> Option<NodeHandlePlan> {
 		self.index.range_at(index)
@@ -150,7 +149,7 @@ impl<I: ChildSliceIndex> BranchChildrenNodePlan<I> {
 
 	/// Build from sequence of content.
 	pub fn new(nodes: impl Iterator<Item = Option<NodeHandlePlan>>) -> Self {
-		let index = ChildSliceIndex::from_node_plan(nodes);
+		let index = ChildIndex::from_iter(nodes);
 		BranchChildrenNodePlan { index }
 	}
 }
@@ -180,13 +179,13 @@ pub enum NodePlan<N: NibbleOps> {
 	/// and an optional immediate node data.
 	Branch {
 		value: Option<Range<usize>>,
-		children: BranchChildrenNodePlan<N::ChildSliceIndex>,
+		children: BranchChildrenNodePlan<N::ChildIndex>,
 	},
 	/// Branch node with support for a nibble (when extension nodes are not used).
 	NibbledBranch {
 		partial: NibbleSlicePlan<N>,
 		value: Option<Range<usize>>,
-		children: BranchChildrenNodePlan<N::ChildSliceIndex>,
+		children: BranchChildrenNodePlan<N::ChildIndex>,
 	},
 }
 

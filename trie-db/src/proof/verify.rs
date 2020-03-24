@@ -361,7 +361,7 @@ fn match_key_to_node<'a, N: NibbleOps>(
 fn match_key_to_branch_node<'a, N: NibbleOps>(
 	key: &LeftNibbleSlice<'a, N>,
 	prefix_plus_partial_len: usize,
-	children: &BranchChildrenSlice<N::ChildSliceIndex>,
+	children: &BranchChildrenSlice<N::ChildIndex>,
 	value: &Option<&[u8]>,
 ) -> ValueMatch<'a, N>
 {

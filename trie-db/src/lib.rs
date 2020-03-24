@@ -67,9 +67,9 @@ pub use self::fatdb::{FatDB, FatDBIterator};
 pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
-pub use self::nibble::{NibbleSlice, NibbleVec, NibbleOps, ChildSliceIndex,
-	ChildSliceIndex2, ChildSliceIndex4, ChildSliceIndex16, ChildSliceIndex256,
-	NibbleHalf, NibbleQuarter, NibbleBit, NibbleFull};
+pub use self::nibble::{NibbleSlice, NibbleVec, NibbleOps, ChildIndex,
+	ChildIndex2, ChildIndex4, ChildIndex16, ChildIndex256,
+	NibbleHalf, NibbleQuarter, NibbleBit, NibbleFull, ChildSliceIndex};
 pub use crate::node_codec::{NodeCodec, Partial};
 pub use crate::iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed};
@@ -455,4 +455,4 @@ pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
 pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;
 /// Alias accessor to child slice index from a `TrieLayout`.
-pub type ChildIndex<L> = <<L as TrieLayout>::Nibble as NibbleOps>::ChildSliceIndex;
+pub type TrieChildIndex<L> = <<L as TrieLayout>::Nibble as NibbleOps>::ChildIndex;

@@ -55,6 +55,7 @@ impl<H> From<StorageHandle> for NodeHandle<H> {
 	}
 }
 
+// TODO EMCH need some associated buffer.
 fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; 16]> {
 	Box::new([
 		None, None, None, None, None, None, None, None,
