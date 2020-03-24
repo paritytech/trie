@@ -30,7 +30,7 @@ use crate::nibble::nibble_ops;
 use crate::nibble::NibbleOps;
 use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
-	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout, TrieChildIndex,
+	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout, TrieChildRangeIndex,
 	node::{Node, NodeHandle, NodePlan, OwnedNode, BranchChildrenNodePlan},
 };
 use crate::rstd::{
@@ -134,7 +134,7 @@ impl<L: TrieLayout> EncoderStackEntry<L> {
 	/// - omit_children[i] is only true if child_handles[i] is Some
 	fn branch_children(
 		node_data: &[u8],
-		child_handles: &BranchChildrenNodePlan<TrieChildIndex<L>>,
+		child_handles: &BranchChildrenNodePlan<TrieChildRangeIndex<L>>,
 		omit_children: &[bool],
 		// TODO EMCH the trait need some associated buffer
 	) -> Result<[Option<ChildReference<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH], TrieHash<L>, CError<L>>

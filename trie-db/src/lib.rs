@@ -455,4 +455,4 @@ pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
 pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;
 /// Alias accessor to child slice index from a `TrieLayout`.
-pub type TrieChildIndex<L> = <<L as TrieLayout>::Nibble as NibbleOps>::ChildIndex;
+pub type TrieChildRangeIndex<L> = <<L as TrieLayout>::Nibble as NibbleOps>::ChildRangeIndex;

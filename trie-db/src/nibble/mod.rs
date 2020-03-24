@@ -77,7 +77,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 
 	/// Buffer type for child slice index array. TODO EMCH this associated type looks useless!! (a
 	/// codec thing -> can move ChildIndex to codec code)
-	type ChildIndex: ChildIndex;
+	type ChildRangeIndex: ChildIndex<NodeHandlePlan>;
 
 	/// Pad left aligned representation for a given number of element.
 	/// Mask a byte from a `ix` > 0 (ix being content).
@@ -345,7 +345,7 @@ pub struct NibbleHalf; // TODO rename Radix16
 impl NibbleOps for NibbleHalf {
 	const LAYOUT: ByteLayout = ByteLayout::Half;
 	const PADDING_BITMASK: &'static [(u8, usize)] = &[(0xFF, 4), (0x0F, 0)];
-	type ChildIndex = ChildIndex16;
+	type ChildRangeIndex = ChildIndex16<NodeHandlePlan>;
 
 	#[inline]
 	fn number_padding(i: usize) -> usize {
@@ -373,7 +373,7 @@ impl NibbleOps for NibbleQuarter {
 		(0b0000_1111, 2),
 		(0b0000_0011, 0),
 	];
-	type ChildIndex = ChildIndex4;
+	type ChildRangeIndex = ChildIndex4<NodeHandlePlan>;
 }
 
 /// Radix 2 `NibbleOps` definition.
@@ -393,7 +393,7 @@ impl NibbleOps for NibbleBit {
 		(0b0000_0011, 1),
 		(0b0000_0001, 0),
 	];
-	type ChildIndex = ChildIndex2;
+	type ChildRangeIndex = ChildIndex2<NodeHandlePlan>;
 }
 
 /// Radix 256 `NibbleOps` definition.
@@ -406,7 +406,7 @@ impl NibbleOps for NibbleFull {
 	const PADDING_BITMASK: &'static [(u8, usize)] = &[
 		(1, 0),
 	];
-	type ChildIndex = ChildIndex256;
+	type ChildRangeIndex = ChildIndex256<NodeHandlePlan>;
 
 	#[inline]
 	fn split_shifts(_pad: usize) -> (usize, usize) {
@@ -472,8 +472,8 @@ pub struct NibbleSliceIterator<'a, N: NibbleOps> {
 /// representation of a branch.
 /// This is use instead of `&[&[u8]]` to allow associated type
 /// with a constant length.
-pub trait ChildIndex: AsRef<[Option<NodeHandlePlan>]>
-	+ AsMut<[Option<NodeHandlePlan>]> + Default + Eq + PartialEq + crate::MaybeDebug
+pub trait ChildIndex<V>: AsRef<[Option<V>]>
+	+ AsMut<[Option<V>]> + Default + Eq + PartialEq + crate::MaybeDebug
 	+ Clone {
 
 	/// Constant length for the number of children.
@@ -481,7 +481,7 @@ pub trait ChildIndex: AsRef<[Option<NodeHandlePlan>]>
 	const NIBBLE_LENGTH : usize;
 
 	#[inline]
-	fn from_iter(nodes: impl Iterator<Item = Option<NodeHandlePlan>>) -> Self {
+	fn from_iter(nodes: impl Iterator<Item = Option<V>>) -> Self {
 		let mut index = Self::default();
 		for (i, node) in nodes.enumerate() {
 			index.as_mut()[i] = node;
@@ -490,16 +490,15 @@ pub trait ChildIndex: AsRef<[Option<NodeHandlePlan>]>
 	}
 
 	#[inline]
-	fn range_at(&self, ix: usize) -> Option<NodeHandlePlan> {
-		self.as_ref()[ix].clone()
+	fn at(&self, ix: usize) -> Option<&V> {
+		self.as_ref()[ix].as_ref()
 	}
 }
 
-	
-pub trait ChildSliceIndex: ChildIndex {
+pub trait ChildSliceIndex: ChildIndex<NodeHandlePlan> {
 	#[inline]
 	fn slice_at<'a>(&self, ix: usize, data: &'a [u8]) -> Option<NodeHandle<'a>> {
-		self.range_at(ix).map(|plan| plan.build(data))
+		self.at(ix).map(|plan| plan.build(data))
 	}
 
 	/// Iterator over the children slice.
@@ -508,7 +507,7 @@ pub trait ChildSliceIndex: ChildIndex {
 	}
 }
 
-impl<I: ChildIndex> ChildSliceIndex for I { }
+impl<I: ChildIndex<NodeHandlePlan>> ChildSliceIndex for I { }
 
 /// Iterator over `ChildSliceIndex` trait.
 pub struct IterChildSliceIndex<'a, CS>(&'a CS, usize, &'a[u8]);
@@ -527,23 +526,26 @@ impl<'a, CS: ChildSliceIndex> Iterator for IterChildSliceIndex<'a, CS> {
 macro_rules! child_slice_index {
 	($me: ident, $size: expr) => {
 		#[cfg_attr(feature = "std", derive(Debug))]
-		#[derive(Default, Eq, PartialEq, Clone)]
+		#[derive(Eq, PartialEq, Clone)]
 		/// Child slice indexes for radix $size.
-		pub struct $me([Option<NodeHandlePlan>; $size + 1]);
+		pub struct $me<V>([Option<V>; $size]);
 
-		impl AsRef<[Option<NodeHandlePlan>]> for $me {
-			fn as_ref(&self) -> &[Option<NodeHandlePlan>] {
+		impl<V> AsRef<[Option<V>]> for $me<V> {
+			fn as_ref(&self) -> &[Option<V>] {
 				&self.0[..]
 			}
 		}
 
-		impl AsMut<[Option<NodeHandlePlan>]> for $me {
-			fn as_mut(&mut self) -> &mut [Option<NodeHandlePlan>] {
+		impl<V> AsMut<[Option<V>]> for $me<V> {
+			fn as_mut(&mut self) -> &mut [Option<V>] {
 				&mut self.0[..]
 			}
 		}
 
-		impl ChildIndex for $me {
+		impl<V> ChildIndex<V> for $me<V>
+			where
+				V: MaybeDebug + Eq + PartialEq + Clone,
+		{
 			const NIBBLE_LENGTH: usize = $size;
 		}
 	}
@@ -553,6 +555,29 @@ child_slice_index!(ChildIndex16, 16);
 child_slice_index!(ChildIndex4, 4);
 child_slice_index!(ChildIndex2, 2);
 
+impl<V> Default for ChildIndex2<V> {
+	fn default() -> Self {
+		ChildIndex2([None, None])
+	}
+}
+
+impl<V> Default for ChildIndex4<V> {
+	fn default() -> Self {
+		ChildIndex4([None, None, None, None])
+	}
+}
+
+impl<V> Default for ChildIndex16<V> {
+	fn default() -> Self {
+		ChildIndex16([
+			None, None, None, None,
+			None, None, None, None,
+			None, None, None, None,
+			None, None, None, None,
+		])
+	}
+}
+
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Eq, PartialEq, Clone)]
 /// Child slice indexes for radix 256.
@@ -561,26 +586,29 @@ child_slice_index!(ChildIndex2, 2);
 /// but could use bench to see if worth implementing
 /// (probably sparse vec implementation is better:
 /// need to remove asref and asmut bound).
-pub struct ChildIndex256(Vec<Option<NodeHandlePlan>>);
+pub struct ChildIndex256<V>(Vec<Option<V>>);
 
-impl Default for ChildIndex256 {
+impl<V: Clone> Default for ChildIndex256<V> {
 	fn default() -> Self {
-		ChildIndex256(vec![None; 257])
+		ChildIndex256(vec![None; 256])
 	}
 }
 
-impl AsRef<[Option<NodeHandlePlan>]> for ChildIndex256 {
-	fn as_ref(&self) -> &[Option<NodeHandlePlan>] {
+impl<V> AsRef<[Option<V>]> for ChildIndex256<V> {
+	fn as_ref(&self) -> &[Option<V>] {
 			&self.0[..]
 	}
 }
 
-impl AsMut<[Option<NodeHandlePlan>]> for ChildIndex256 {
-	fn as_mut(&mut self) -> &mut [Option<NodeHandlePlan>] {
+impl<V> AsMut<[Option<V>]> for ChildIndex256<V> {
+	fn as_mut(&mut self) -> &mut [Option<V>] {
 		&mut self.0[..]
 	}
 }
 
-impl ChildIndex for ChildIndex256 {
+impl<V> ChildIndex<V> for ChildIndex256<V>
+	where
+		V: MaybeDebug + Eq + PartialEq + Clone,
+{
 	const NIBBLE_LENGTH: usize = 256;
 }
