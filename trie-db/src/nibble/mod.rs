@@ -107,6 +107,8 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	}
 
 	/// Get u8 nibble value at a given index of a byte.
+	///
+	/// TODO EMCH rename to at right since it is for right aligned...
 	#[inline(always)]
 	fn at_left(ix: u8, b: u8) -> u8 {
 		// TODO EMCH compare perf without padding bitmask
