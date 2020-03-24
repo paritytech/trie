@@ -15,14 +15,14 @@
 //! Generation of compact proofs for Merkle-Patricia tries.
 
 use crate::rstd::{
-	boxed::Box, convert::TryInto, marker::PhantomData, ops::Range, vec, vec::Vec,
+	boxed::Box, convert::TryInto, ops::Range, vec, vec::Vec,
 };
 
 use hash_db::Hasher;
 
 use crate::nibble::nibble_ops;
 use crate::{
-	CError, ChildReference, nibble::LeftNibbleSlice, NibbleOps, NibbleSlice,
+	CError, ChildReference, nibble::LeftNibbleSlice, NibbleSlice,
 	node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, BranchChildrenNodePlan},
 	NodeCodec, Recorder, Result as TrieResult, Trie, TrieError, TrieHash,
 	TrieLayout, ChildIndex,
@@ -30,8 +30,8 @@ use crate::{
 
 struct StackEntry<'a, L: TrieLayout> {
 	/// The prefix is the nibble path to the node in the trie.
-	prefix: LeftNibbleSlice<'a>,
-	node: OwnedNode<Vec<u8>, ChildIndex<L>>,
+	prefix: LeftNibbleSlice<'a, L::Nibble>,
+	node: OwnedNode<Vec<u8>, L::Nibble>,
 	/// The hash of the node or None if it is referenced inline.
 	node_hash: Option<TrieHash<L>>,
 	/// Whether the value should be omitted in the generated proof.
@@ -47,7 +47,7 @@ struct StackEntry<'a, L: TrieLayout> {
 
 impl<'a, L: TrieLayout> StackEntry<'a, L> {
 	fn new(
-		prefix: LeftNibbleSlice<'a>,
+		prefix: LeftNibbleSlice<'a, L::Nibble>,
 		node_data: Vec<u8>,
 		node_hash: Option<TrieHash<L>>,
 		output_index: Option<usize>,
@@ -366,11 +366,11 @@ enum Step<'a> {
 /// entry on the stack.
 fn match_key_to_node<'a, L: TrieLayout>(
 	node_data: &'a [u8],
-	node_plan: &NodePlan<ChildIndex<L>>,
+	node_plan: &NodePlan<L::Nibble>,
 	omit_value: &mut bool,
 	child_index: &mut usize,
 	children: &mut [Option<ChildReference<TrieHash<L>>>],
-	key: &LeftNibbleSlice,
+	key: &LeftNibbleSlice<L::Nibble>,
 	prefix_len: usize,
 ) -> TrieResult<Step<'a>, TrieHash<L>, CError<L>>
 {
@@ -432,9 +432,9 @@ fn match_key_to_branch_node<'a, 'b, L: TrieLayout>(
 	omit_value: &mut bool,
 	child_index: &mut usize,
 	children: &mut [Option<ChildReference<TrieHash<L>>>],
-	key: &'b LeftNibbleSlice<'b>,
+	key: &'b LeftNibbleSlice<'b, L::Nibble>,
 	prefix_len: usize,
-	partial: NibbleSlice<'b>,
+	partial: NibbleSlice<'b, L::Nibble>,
 ) -> TrieResult<Step<'a>, TrieHash<L>, CError<L>>
 {
 	if !key.contains(&partial, prefix_len) {
@@ -499,7 +499,7 @@ fn value_with_omission<'a>(
 fn unwind_stack<L: TrieLayout>(
 	stack: &mut Vec<StackEntry<L>>,
 	proof_nodes: &mut Vec<Vec<u8>>,
-	maybe_key: Option<&LeftNibbleSlice>,
+	maybe_key: Option<&LeftNibbleSlice<L::Nibble>>,
 ) -> TrieResult<(), TrieHash<L>, CError<L>>
 {
 	while let Some(entry) = stack.pop() {

@@ -19,19 +19,21 @@ use hash_db::Prefix;
 use crate::node_codec::Partial;
 use super::NibbleVec;
 use crate::nibble::nibble_ops;
+use crate::rstd::marker::PhantomData;
 
-impl Default for NibbleVec {
+impl<N: NibbleOps> Default for NibbleVec<N> {
 	fn default() -> Self {
 		NibbleVec::new()
 	}
 }
 
-impl NibbleVec {
+impl<N: NibbleOps> NibbleVec<N> {
 	/// Make a new `NibbleVec`.
 	pub fn new() -> Self {
 		NibbleVec {
 			inner: BackingByteVec::new(),
 			len: 0,
+			_marker: PhantomData,
 		}
 	}
 
@@ -109,7 +111,7 @@ impl NibbleVec {
 	}
 
 	/// Append another `NibbleVec`. Can be slow (alignement of second vec).
-	pub fn append(&mut self, v: &NibbleVec) {
+	pub fn append(&mut self, v: &NibbleVec<N>) {
 
 		if v.len == 0 { return; }
 		let final_len = self.len + v.len;
@@ -157,7 +159,7 @@ impl NibbleVec {
 	/// Can be slow.
 	pub(crate) fn append_optional_slice_and_nibble(
 		&mut self,
-		o_slice: Option<&NibbleSlice>,
+		o_slice: Option<&NibbleSlice<N>>,
 		o_index: Option<u8>,
 	) -> usize {
 		let mut res = 0;
@@ -176,7 +178,7 @@ impl NibbleVec {
 	/// Can be slow.
 	pub(crate) fn clone_append_optional_slice_and_nibble(
 		&self,
-		o_slice: Option<&NibbleSlice>,
+		o_slice: Option<&NibbleSlice<N>>,
 		o_index: Option<u8>,
 	) -> Self {
 		let mut p = self.clone();
@@ -196,7 +198,7 @@ impl NibbleVec {
 	}
 
 	/// Try to treat this `NibbleVec` as a `NibbleSlice`. Works only if there is no padding.
-	pub fn as_nibbleslice(&self) -> Option<NibbleSlice> {
+	pub fn as_nibbleslice(&self) -> Option<NibbleSlice<N>> {
 		if self.len % nibble_ops::NIBBLE_PER_BYTE == 0 {
 			Some(NibbleSlice::new(self.inner()))
 		} else {
@@ -224,8 +226,8 @@ impl NibbleVec {
 	}
 }
 
-impl<'a> From<NibbleSlice<'a>> for NibbleVec {
-	fn from(s: NibbleSlice<'a>) -> Self {
+impl<'a, N: NibbleOps> From<NibbleSlice<'a, N>> for NibbleVec<N> {
+	fn from(s: NibbleSlice<'a, N>) -> Self {
 		let mut v = NibbleVec::new();
 		for i in 0..s.len() {
 			v.push(s.at(i));
@@ -237,11 +239,12 @@ impl<'a> From<NibbleSlice<'a>> for NibbleVec {
 #[cfg(test)]
 mod tests {
 	use crate::nibble::NibbleVec;
+	use crate::nibble::NibbleHalf;
 	use crate::nibble::nibble_ops;
 
 	#[test]
 	fn push_pop() {
-		let mut v = NibbleVec::new();
+		let mut v = NibbleVec::<NibbleHalf>::new();
 
 		for i in 0..(nibble_ops::NIBBLE_PER_BYTE * 3) {
 			let iu8 = (i % nibble_ops::NIBBLE_PER_BYTE) as u8;
@@ -266,9 +269,9 @@ mod tests {
 	}
 
 	fn append_partial_inner(res: &[u8], init: &[u8], partial: ((u8, u8), &[u8])) {
-		let mut resv = NibbleVec::new();
+		let mut resv = NibbleVec::<NibbleHalf>::new();
 		res.iter().for_each(|r| resv.push(*r));
-		let mut initv = NibbleVec::new();
+		let mut initv = NibbleVec::<NibbleHalf>::new();
 		init.iter().for_each(|r| initv.push(*r));
 		initv.append_partial(partial);
 		assert_eq!(resv, initv);
@@ -277,7 +280,7 @@ mod tests {
 	#[test]
 	fn drop_lasts_test() {
 		let test_trun = |a: &[u8], b: usize, c: (&[u8], usize)| {
-			let mut k = NibbleVec::new();
+			let mut k = NibbleVec::<NibbleHalf>::new();
 			for v in a {
 				k.push(*v);
 			}

@@ -18,6 +18,7 @@ use crate::node::{NodeKey, NodeHandle, NodeHandlePlan};
 use crate::rstd::cmp;
 use hash_db::MaybeDebug;
 use crate::rstd::vec::Vec;
+use crate::rstd::marker::PhantomData;
 pub use self::leftnibbleslice::LeftNibbleSlice;
 
 mod nibblevec;
@@ -76,6 +77,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 
 	/// Buffer type for child slice index array. TODO EMCH this associated type looks useless!! (a
 	/// codec thing -> can move ChildSliceIndex to codec code)
+	/// TODO EMCH rename
 	type ChildSliceIndex: ChildSliceIndex;
 
 	/// Pad left aligned representation for a given number of element.
@@ -119,7 +121,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 
 	/// Get u8 nibble value at a given index in a `NibbleSlice`.
 	#[inline(always)]
-	fn at(s: &NibbleSlice, ix: usize) -> u8 {
+	fn at(s: &NibbleSlice<Self>, ix: usize) -> u8 {
 		// same as left with offset
 		Self::left_nibble_at(&s.data[..], s.offset + ix)
 	}
@@ -253,7 +255,7 @@ pub mod nibble_ops {
 
 	/// Get u8 nibble value at a given index in a `NibbleSlice`.
 	#[inline(always)]
-	pub fn at(s: &NibbleSlice, i: usize) -> u8 {
+	pub fn at(s: &NibbleSlice<NibbleHalf>, i: usize) -> u8 {
 		let ix = (s.offset + i) / NIBBLE_PER_BYTE;
 		let pad = (s.offset + i) % NIBBLE_PER_BYTE;
 		at_left(pad as u8, s.data[ix])
@@ -421,9 +423,10 @@ pub(crate) type BackingByteVec = smallvec::SmallVec<[u8; 36]>;
 /// a `NibbleSlice` can get costy.
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Clone, PartialEq, Eq)]
-pub struct NibbleVec {
+pub struct NibbleVec<N> {
 	inner: BackingByteVec,
 	len: usize,
+	_marker: PhantomData<N>,
 }
 
 /// Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
@@ -449,14 +452,15 @@ pub struct NibbleVec {
 /// }
 /// ```
 #[derive(Copy, Clone)]
-pub struct NibbleSlice<'a> {
+pub struct NibbleSlice<'a, N> {
 	data: &'a [u8],
 	offset: usize,
+	_marker: PhantomData<N>,
 }
 
 /// Iterator type for a nibble slice.
-pub struct NibbleSliceIterator<'a> {
-	p: &'a NibbleSlice<'a>,
+pub struct NibbleSliceIterator<'a, N: NibbleOps> {
+	p: &'a NibbleSlice<'a, N>,
 	i: usize,
 }
 

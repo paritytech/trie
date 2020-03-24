@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout, ChildIndex};
-use hash_db::{Hasher, EMPTY_PREFIX};
+use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout};
+use hash_db::{EMPTY_PREFIX};
 use crate::triedb::TrieDB;
 use crate::nibble::nibble_ops;
 use crate::node::{NodePlan, NodeHandle, OwnedNode};
-use crate::nibble::{NibbleSlice, NibbleVec, NibbleOps};
+use crate::nibble::{NibbleSlice, NibbleVec};
 
 use crate::rstd::{rc::Rc, vec::Vec};
 
@@ -34,7 +34,7 @@ enum Status {
 #[derive(Eq, PartialEq)]
 struct Crumb<L: TrieLayout> {
 	hash: Option<TrieHash<L>>,
-	node: Rc<OwnedNode<DBValue, ChildIndex<L>>>,
+	node: Rc<OwnedNode<DBValue, L::Nibble>>,
 	status: Status,
 }
 
@@ -59,7 +59,7 @@ impl<L: TrieLayout> Crumb<L> {
 pub struct TrieDBNodeIterator<'a, L: TrieLayout> {
 	db: &'a TrieDB<'a, L>,
 	trail: Vec<Crumb<L>>,
-	key_nibbles: NibbleVec,
+	key_nibbles: NibbleVec<L::Nibble>,
 }
 
 impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
@@ -80,7 +80,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 	}
 
 	/// Descend into a payload.
-	fn descend(&mut self, node: OwnedNode<DBValue, ChildIndex<L>>, node_hash: Option<TrieHash<L>>) {
+	fn descend(&mut self, node: OwnedNode<DBValue, L::Nibble>, node_hash: Option<TrieHash<L>>) {
 		self.trail.push(Crumb {
 			hash: node_hash,
 			status: Status::Entering,
@@ -258,14 +258,14 @@ impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
 }
 
 impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
-	type Item = Result<(NibbleVec, Option<TrieHash<L>>, Rc<OwnedNode<DBValue, ChildIndex<L>>>), TrieHash<L>, CError<L>>;
+	type Item = Result<(NibbleVec<L::Nibble>, Option<TrieHash<L>>, Rc<OwnedNode<DBValue, L::Nibble>>), TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		enum IterStep<L: TrieLayout> {
 			YieldNode,
 			PopTrail,
 			Continue,
-			Descend(Result<(OwnedNode<DBValue, ChildIndex<L>>, Option<TrieHash<L>>), TrieHash<L>, CError<L>>),
+			Descend(Result<(OwnedNode<DBValue, L::Nibble>, Option<TrieHash<L>>), TrieHash<L>, CError<L>>),
 		}
 		loop {
 			let iter_step = {
@@ -393,7 +393,7 @@ mod tests {
 	use reference_trie::{
 		RefTrieDB, RefTrieDBMut,
 		TrieError, TrieMut, TrieIterator, TrieDBNodeIterator, NibbleSlice, NibbleVec,
-		node::Node,
+		node::Node, NibbleHalf,
 	};
 	use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt};
 
@@ -427,8 +427,8 @@ mod tests {
 		(memdb, root)
 	}
 
-	fn nibble_vec<T: AsRef<[u8]>>(bytes: T, len: usize) -> NibbleVec {
-		let slice = NibbleSlice::new(bytes.as_ref());
+	fn nibble_vec<T: AsRef<[u8]>>(bytes: T, len: usize) -> NibbleVec<NibbleHalf> {
+		let slice = NibbleSlice::<NibbleHalf>::new(bytes.as_ref());
 
 		let mut v = NibbleVec::new();
 		for i in 0..len {

@@ -25,22 +25,21 @@
 //! expected to save roughly (n - 1) hashes in size where n is the number of nodes in the partial
 //! trie.
 
-use hash_db::{HashDB, Hasher};
+use hash_db::{HashDB};
 use crate::nibble::nibble_ops;
 use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout, ChildIndex,
-	NibbleOps,
-	node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, BranchChildrenNodePlan},
+	node::{Node, NodeHandle, NodePlan, OwnedNode, BranchChildrenNodePlan},
 };
 use crate::rstd::{
-	boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec, vec::Vec,
+	boxed::Box, convert::TryInto, rc::Rc, result, vec, vec::Vec,
 };
 
 struct EncoderStackEntry<L: TrieLayout> {
 	/// The prefix is the nibble path to the node in the trie.
-	prefix: NibbleVec,
-	node: Rc<OwnedNode<DBValue, ChildIndex<L>>>,
+	prefix: NibbleVec<L::Nibble>,
+	node: Rc<OwnedNode<DBValue, L::Nibble>>,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
@@ -60,7 +59,7 @@ impl<L: TrieLayout> EncoderStackEntry<L> {
 	/// Preconditions:
 	/// - self.prefix + partial must be a prefix of child_prefix.
 	/// - if self.node is a branch, then child_prefix must be longer than self.prefix + partial.
-	fn advance_child_index(&mut self, child_prefix: &NibbleVec)
+	fn advance_child_index(&mut self, child_prefix: &NibbleVec<L::Nibble>)
 		-> result::Result<(), &'static str>
 	{
 		match self.node.node_plan() {
@@ -251,7 +250,7 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 }
 
 struct DecoderStackEntry<'a, L: TrieLayout> {
-	node: Node<'a, ChildIndex<L>>,
+	node: Node<'a, L::Nibble>,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
@@ -308,7 +307,7 @@ impl<'a, L: TrieLayout> DecoderStackEntry<'a, L> {
 
 	/// Push the partial key of this entry's node (including the branch nibble) to the given
 	/// prefix.
-	fn push_to_prefix(&self, prefix: &mut NibbleVec) {
+	fn push_to_prefix(&self, prefix: &mut NibbleVec<L::Nibble>) {
 		match self.node {
 			Node::Empty => {}
 			Node::Leaf(partial, _) | Node::Extension(partial, _) => {
@@ -326,7 +325,7 @@ impl<'a, L: TrieLayout> DecoderStackEntry<'a, L> {
 
 	/// Pop the partial key of this entry's node (including the branch nibble) from the given
 	/// prefix.
-	fn pop_from_prefix(&self, prefix: &mut NibbleVec) {
+	fn pop_from_prefix(&self, prefix: &mut NibbleVec<L::Nibble>) {
 		match self.node {
 			Node::Empty => {}
 			Node::Leaf(partial, _) | Node::Extension(partial, _) => {

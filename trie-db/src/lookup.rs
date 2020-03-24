@@ -40,7 +40,7 @@ where
 	/// function to decode or copy.
 	pub fn look_up(
 		mut self,
-		key: NibbleSlice,
+		key: NibbleSlice<L::Nibble>,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let mut partial = key;
 		let mut hash = self.hash;

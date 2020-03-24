@@ -22,7 +22,6 @@ use crate::rstd::{cmp::max, marker::PhantomData, vec::Vec};
 use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
 use crate::nibble::nibble_ops;
-use crate::NibbleOps;
 use crate::node_codec::NodeCodec;
 use crate::{TrieLayout, TrieHash};
 
@@ -129,9 +128,9 @@ impl<T, V> CacheAccum<T, V>
 	) {
 		let nibble_value = nibble_ops::left_nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
-		let nkey = NibbleSlice::new_offset(&k2.as_ref()[..], target_depth + 1);
+		let nkey = NibbleSlice::<T::Nibble>::new_offset(&k2.as_ref()[..], target_depth + 1);
 		let encoded = T::Codec::leaf_node(nkey.right(), &v2.as_ref()[..]);
-		let pr = NibbleSlice::new_offset(
+		let pr = NibbleSlice::<T::Nibble>::new_offset(
 			&k2.as_ref()[..],
 			k2.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE - nkey.len(),
 		);
@@ -201,11 +200,11 @@ impl<T, V> CacheAccum<T, V>
 			v.as_ref().map(|v| v.as_ref()),
 		);
 		self.reset_depth(branch_d);
-		let pr = NibbleSlice::new_offset(&key_branch, branch_d);
+		let pr = NibbleSlice::<T::Nibble>::new_offset(&key_branch, branch_d);
 		let branch_hash = callback.process(pr.left(), encoded, is_root && nkey.is_none());
 
 		if let Some(nkeyix) = nkey {
-			let pr = NibbleSlice::new_offset(&key_branch, nkeyix.0);
+			let pr = NibbleSlice::<T::Nibble>::new_offset(&key_branch, nkeyix.0);
 			let nib = pr.right_range_iter(nkeyix.1);
 			let encoded = T::Codec::extension_node(nib, nkeyix.1, branch_hash);
 			let h = callback.process(pr.left(), encoded, is_root);
@@ -229,14 +228,14 @@ impl<T, V> CacheAccum<T, V>
 		// encode branch
 		let v = self.0[last].1.take();
 		let nkeyix = nkey.unwrap_or((0, 0));
-		let pr = NibbleSlice::new_offset(&key_branch, nkeyix.0);
+		let pr = NibbleSlice::<T::Nibble>::new_offset(&key_branch, nkeyix.0);
 		let encoded = T::Codec::branch_node_nibbled(
 			pr.right_range_iter(nkeyix.1),
 			nkeyix.1,
 			self.0[last].0.as_ref().iter(), v.as_ref().map(|v| v.as_ref()));
 		self.reset_depth(branch_d);
 		let ext_length = nkey.as_ref().map(|nkeyix| nkeyix.0).unwrap_or(0);
-		let pr = NibbleSlice::new_offset(
+		let pr = NibbleSlice::<T::Nibble>::new_offset(
 			&key_branch,
 			branch_d - ext_length,
 		);
@@ -292,9 +291,9 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F)
 		if single {
 			// one single element corner case
 			let (k2, v2) = previous_value;
-			let nkey = NibbleSlice::new_offset(&k2.as_ref()[..], last_depth);
+			let nkey = NibbleSlice::<T::Nibble>::new_offset(&k2.as_ref()[..], last_depth);
 			let encoded = T::Codec::leaf_node(nkey.right(), &v2.as_ref()[..]);
-			let pr = NibbleSlice::new_offset(
+			let pr = NibbleSlice::<T::Nibble>::new_offset(
 				&k2.as_ref()[..],
 				k2.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE - nkey.len(),
 			);

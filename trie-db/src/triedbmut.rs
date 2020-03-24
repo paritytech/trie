@@ -64,7 +64,7 @@ fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; 16]> {
 
 /// Type alias to indicate the nible covers a full key,
 /// therefore its left side is a full prefix.
-type NibbleFullKey<'key> = NibbleSlice<'key>;
+type NibbleFullKey<'key, N> = NibbleSlice<'key, N>;
 
 /// Node types in the Trie.
 enum Node<H> {
@@ -203,16 +203,17 @@ where
 	}
 
 	// TODO: parallelize
-	fn into_encoded<F, C, H>(self, mut child_cb: F) -> Vec<u8>
+	fn into_encoded<F, C, H, N>(self, mut child_cb: F) -> Vec<u8>
 	where
-		C: NodeCodec<HashOut=O>,
-		F: FnMut(NodeHandle<H::Out>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
+		N: NibbleOps,
+		C: NodeCodec<HashOut=O, Nibble=N>,
+		F: FnMut(NodeHandle<H::Out>, Option<&NibbleSlice<N>>, Option<u8>) -> ChildReference<H::Out>,
 		H: Hasher<Out = O>,
 	{
 		match self {
 			Node::Empty => C::empty_node().to_vec(),
 			Node::Leaf(partial, value) => {
-				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
+				let pr = NibbleSlice::<N>::new_offset(&partial.1[..], partial.0);
 				C::leaf_node(pr.right(), &value)
 			},
 			Node::Extension(partial, child) => {
@@ -238,7 +239,7 @@ where
 				)
 			},
 			Node::NibbledBranch(partial, mut children, value) => {
-				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
+				let pr = NibbleSlice::<N>::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
 				C::branch_node_nibbled(
 					it,
@@ -496,14 +497,14 @@ where
 	fn inspect<F>(
 		&mut self,
 		stored: Stored<TrieHash<L>>,
-		key: &mut NibbleFullKey,
+		key: &mut NibbleFullKey<L::Nibble>,
 		inspector: F,
 	) -> Result<Option<(Stored<TrieHash<L>>, bool)>, TrieHash<L>, CError<L>>
 		where
 			F: FnOnce(
 				&mut Self,
 				Node<TrieHash<L>>,
-				&mut NibbleFullKey,
+				&mut NibbleFullKey<L::Nibble>,
 			) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>>,
 	{
 		Ok(match stored {
@@ -529,7 +530,7 @@ where
 	// Walk the trie, attempting to find the key's node.
 	fn lookup<'x, 'key>(
 		&'x self,
-		mut partial: NibbleSlice<'key>,
+		mut partial: NibbleSlice<'key, L::Nibble>,
 		handle: &NodeHandle<TrieHash<L>>,
 	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
 		where 'x: 'key
@@ -596,7 +597,7 @@ where
 	fn insert_at(
 		&mut self,
 		handle: NodeHandle<TrieHash<L>>,
-		key: &mut NibbleFullKey,
+		key: &mut NibbleFullKey<L::Nibble>,
 		value: DBValue,
 		old_val: &mut Option<DBValue>,
 	) -> Result<(StorageHandle, bool), TrieHash<L>, CError<L>> {
@@ -617,7 +618,7 @@ where
 	fn insert_inspector(
 		&mut self,
 		node: Node<TrieHash<L>>,
-		key: &mut NibbleFullKey,
+		key: &mut NibbleFullKey<L::Nibble>,
 		value: DBValue,
 		old_val: &mut Option<DBValue>,
 	) -> Result<InsertAction<TrieHash<L>>, TrieHash<L>, CError<L>> {
@@ -963,7 +964,7 @@ where
 	fn remove_at(
 		&mut self,
 		handle: NodeHandle<TrieHash<L>>,
-		key: &mut NibbleFullKey,
+		key: &mut NibbleFullKey<L::Nibble>,
 		old_val: &mut Option<DBValue>,
 	) -> Result<Option<(StorageHandle, bool)>, TrieHash<L>, CError<L>> {
 		let stored = match handle {
@@ -987,7 +988,7 @@ where
 	fn remove_inspector(
 		&mut self,
 		node: Node<TrieHash<L>>,
-		key: &mut NibbleFullKey,
+		key: &mut NibbleFullKey<L::Nibble>,
 		old_val: &mut Option<DBValue>,
 	) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		let partial = key.clone();
@@ -1116,7 +1117,7 @@ where
 						target: "trie",
 						"restoring leaf wrong partial, partial={:?}, existing={:?}",
 						partial,
-						NibbleSlice::from_stored(&encoded),
+						NibbleSlice::<L::Nibble>::from_stored(&encoded),
 					);
 					Action::Restore(Node::Leaf(encoded, value))
 				}
@@ -1168,7 +1169,7 @@ where
 	fn fix(
 		&mut self,
 		node: Node<TrieHash<L>>,
-		key: NibbleSlice,
+		key: NibbleSlice<L::Nibble>,
 	) -> Result<Node<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		match node {
 			Node::Branch(mut children, value) => {
@@ -1197,7 +1198,7 @@ where
 					(UsedIndex::One(a), None) => {
 						// only one onward node. make an extension.
 
-						let new_partial = NibbleSlice::new_offset(&[a], 1).to_stored();
+						let new_partial = NibbleSlice::<L::Nibble>::new_offset(&[a], 1).to_stored();
 						let child = children[a as usize].take()
 							.expect("used_index only set if occupied; qed");
 						let new_node = Node::Extension(new_partial, child);
@@ -1207,7 +1208,7 @@ where
 						// make a leaf.
 						#[cfg(feature = "std")]
 						trace!(target: "trie", "fixing: branch -> leaf");
-						Ok(Node::Leaf(NibbleSlice::new(&[]).to_stored(), value))
+						Ok(Node::Leaf(NibbleSlice::<L::Nibble>::new(&[]).to_stored(), value))
 					}
 					(_, value) => {
 						// all is well.
@@ -1421,7 +1422,7 @@ where
 		match self.storage.destroy(handle) {
 			Stored::New(node) => {
 				let mut k = NibbleVec::new();
-				let encoded_root = node.into_encoded::<_, L::Codec, L::Hash>(
+				let encoded_root = node.into_encoded::<_, L::Codec, L::Hash, L::Nibble>(
 					|child, o_slice, o_index| {
 						let mov = k.append_optional_slice_and_nibble(o_slice, o_index);
 						let cr = self.commit_child(child, &mut k);
@@ -1454,7 +1455,7 @@ where
 	fn commit_child(
 		&mut self,
 		handle: NodeHandle<TrieHash<L>>,
-		prefix: &mut NibbleVec,
+		prefix: &mut NibbleVec<L::Nibble>,
 	) -> ChildReference<TrieHash<L>> {
 		match handle {
 			NodeHandle::Hash(hash) => ChildReference::Hash(hash),
@@ -1465,7 +1466,7 @@ where
 						let encoded = {
 							let commit_child = |
 								node_handle,
-								o_slice: Option<&NibbleSlice>,
+								o_slice: Option<&NibbleSlice<L::Nibble>>,
 								o_index: Option<u8>
 							| {
 								let mov = prefix.append_optional_slice_and_nibble(o_slice, o_index);
@@ -1473,7 +1474,7 @@ where
 								prefix.drop_lasts(mov);
 								cr
 							};
-							node.into_encoded::<_, L::Codec, L::Hash>(commit_child)
+							node.into_encoded::<_, L::Codec, L::Hash, L::Nibble>(commit_child)
 						};
 						if encoded.len() >= L::Hash::LENGTH {
 							let hash = self.db.insert(prefix.as_prefix(), &encoded[..]);
@@ -1617,7 +1618,7 @@ mod tests {
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, NodeCodec,
 		ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension,
-		ChildSliceIndex, ChildSliceIndex16,
+		NibbleHalf,
 	};
 	use crate::nibble::BackingByteVec;
 
@@ -1664,7 +1665,7 @@ mod tests {
 	}
 
 	fn reference_hashed_null_node() -> <KeccakHasher as Hasher>::Out {
-		<ReferenceNodeCodec<KeccakHasher, ChildSliceIndex16> as NodeCodec>::hashed_null_node()
+		<ReferenceNodeCodec<KeccakHasher, NibbleHalf> as NodeCodec>::hashed_null_node()
 	}
 
 	#[test]

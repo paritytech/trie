@@ -30,8 +30,6 @@ use trie_db::{
 	TrieRoot,
 	Partial,
 	NibbleOps,
-	NibbleHalf,
-
 };
 use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
@@ -40,7 +38,7 @@ pub use trie_db::{
 	decode_compact, encode_compact,
 	nibble_ops, NibbleSlice, NibbleVec, NodeCodec, proof, Record, Recorder,
 	Trie, TrieConfiguration, TrieDB, TrieDBIterator, TrieDBMut, TrieDBNodeIterator, TrieError,
-	TrieIterator, TrieLayout, TrieMut, ChildSliceIndex, ChildSliceIndex16,
+	TrieIterator, TrieLayout, TrieMut, ChildSliceIndex, ChildSliceIndex16, NibbleHalf,
 };
 pub use trie_root::TrieStream;
 pub mod node {
@@ -54,36 +52,33 @@ impl TrieLayout for ExtensionLayout {
 	const USE_EXTENSION: bool = true;
 	type Hash = KeccakHasher;
 	type Nibble = NibbleHalf;
-	type Codec = ReferenceNodeCodec<KeccakHasher, ChildSliceIndex16>;
+	type Codec = ReferenceNodeCodec<KeccakHasher, NibbleHalf>;
 }
 
 impl TrieConfiguration for ExtensionLayout { }
 
 /// Trie layout without extension nodes, allowing
 /// generic hasher.
-pub struct GenericNoExtensionLayout<H, I, N>(PhantomData<(H, I, N)>);
+pub struct GenericNoExtensionLayout<H, N>(PhantomData<(H, N)>);
 
 impl<
 	H: Hasher,
-	I: ChildSliceIndex,
-	N: NibbleOps<ChildSliceIndex = I>,
-> TrieLayout for GenericNoExtensionLayout<H, I, N> {
+	N: NibbleOps,
+> TrieLayout for GenericNoExtensionLayout<H, N> {
 	const USE_EXTENSION: bool = false;
 	type Hash = H;
 	type Nibble = N;
-	type Codec = ReferenceNodeCodecNoExt<H, I>;
+	type Codec = ReferenceNodeCodecNoExt<H, N>;
 }
 
 impl<
 	H: Hasher,
-	I: ChildSliceIndex,
-	N: NibbleOps<ChildSliceIndex = I>,
-> TrieConfiguration for GenericNoExtensionLayout<H, I, N> { }
+	N: NibbleOps,
+> TrieConfiguration for GenericNoExtensionLayout<H, N> { }
 
 /// Trie layout without extension nodes.
 pub type NoExtensionLayout = GenericNoExtensionLayout<
 	keccak_hasher::KeccakHasher,
-	ChildSliceIndex16,
 	NibbleHalf,
 >;
 
@@ -632,16 +627,16 @@ impl<'a> Input for ByteSliceInput<'a> {
 // but due to the current limitations of Rust const evaluation we can't do
 // `const HASHED_NULL_NODE: <KeccakHasher as Hasher>::Out = <KeccakHasher as Hasher>::Out( … … )`.
 // Perhaps one day soon?
-impl<H: Hasher, I: ChildSliceIndex> NodeCodec for ReferenceNodeCodec<H, I> {
+impl<H: Hasher, N: NibbleOps> NodeCodec for ReferenceNodeCodec<H, N> {
 	type Error = CodecError;
 	type HashOut = H::Out;
-	type ChildIndex = I;
+	type Nibble = N;
 
 	fn hashed_null_node() -> <H as Hasher>::Out {
 		H::hash(<Self as NodeCodec>::empty_node())
 	}
 
-	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan<Self::ChildIndex>, Self::Error> {
+	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan<Self::Nibble>, Self::Error> {
 		let mut input = ByteSliceInput::new(data);
 		match NodeHeader::decode(&mut input)? {
 			NodeHeader::Null => Ok(NodePlan::Empty),
@@ -787,16 +782,16 @@ impl<H: Hasher, I: ChildSliceIndex> NodeCodec for ReferenceNodeCodec<H, I> {
 
 }
 
-impl<H: Hasher, I: ChildSliceIndex> NodeCodec for ReferenceNodeCodecNoExt<H, I> {
+impl<H: Hasher, N: NibbleOps> NodeCodec for ReferenceNodeCodecNoExt<H, N> {
 	type Error = CodecError;
 	type HashOut = <H as Hasher>::Out;
-	type ChildIndex = I;
+	type Nibble = N;
 
 	fn hashed_null_node() -> <H as Hasher>::Out {
 		H::hash(<Self as NodeCodec>::empty_node())
 	}
 
-	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan<I>, Self::Error> {
+	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan<N>, Self::Error> {
 		let mut input = ByteSliceInput::new(data);
 		match NodeHeaderNoExt::decode(&mut input)? {
 			NodeHeaderNoExt::Null => Ok(NodePlan::Empty),
@@ -1260,9 +1255,9 @@ mod tests {
 	fn too_big_nibble_length() {
 		// + 1 for 0 added byte of nibble encode
 		let input = vec![0u8; (NIBBLE_SIZE_BOUND_NO_EXT as usize + 1) / 2 + 1];
-		let enc = <ReferenceNodeCodecNoExt<KeccakHasher, ChildSliceIndex16> as NodeCodec>
+		let enc = <ReferenceNodeCodecNoExt<KeccakHasher, NibbleHalf> as NodeCodec>
 		::leaf_node(((0, 0), &input), &[1]);
-		let dec = <ReferenceNodeCodecNoExt<KeccakHasher, ChildSliceIndex16> as NodeCodec>
+		let dec = <ReferenceNodeCodecNoExt<KeccakHasher, NibbleHalf> as NodeCodec>
 		::decode(&enc).unwrap();
 		let o_sl = if let Node::Leaf(sl, _) = dec {
 			Some(sl)

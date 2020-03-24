@@ -18,7 +18,7 @@
 use crate::MaybeDebug;
 use crate::node::{Node, NodePlan};
 use crate::ChildReference;
-use crate::{NibbleOps, ChildSliceIndex};
+use crate::{NibbleOps};
 use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec};
 
 
@@ -33,7 +33,7 @@ pub trait NodeCodec: Sized {
 	/// Codec error type.
 	type Error: Error;
 
-	type ChildIndex: ChildSliceIndex;
+	type Nibble: NibbleOps;
 
 	/// Output type of encoded node hasher.
 	type HashOut: AsRef<[u8]> + AsMut<[u8]> + Default + MaybeDebug + PartialEq + Eq
@@ -43,10 +43,10 @@ pub trait NodeCodec: Sized {
 	fn hashed_null_node() -> Self::HashOut;
 
 	/// Decode bytes to a `NodePlan`. Returns `Self::E` on failure.
-	fn decode_plan(data: &[u8]) -> Result<NodePlan<Self::ChildIndex>, Self::Error>;
+	fn decode_plan(data: &[u8]) -> Result<NodePlan<Self::Nibble>, Self::Error>;
 
 	/// Decode bytes to a `Node`. Returns `Self::E` on failure.
-	fn decode(data: &[u8]) -> Result<Node<Self::ChildIndex>, Self::Error> {
+	fn decode(data: &[u8]) -> Result<Node<Self::Nibble>, Self::Error> {
 		Ok(Self::decode_plan(data)?.build(data))
 	}
 

@@ -13,12 +13,11 @@
 //! Verification of compact proofs for Merkle-Patricia tries.
 
 use crate::rstd::{
-	convert::TryInto, iter::Peekable, marker::PhantomData, result::Result, vec, vec::Vec,
+	convert::TryInto, iter::Peekable, result::Result, vec, vec::Vec,
 };
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, NibbleOps,
 	node::{Node, NodeHandle, BranchChildrenSlice}, NodeCodec, TrieHash, TrieLayout,
-	ChildIndex, ChildSliceIndex,
 };
 use crate::nibble::nibble_ops;
 use hash_db::Hasher;
@@ -98,8 +97,8 @@ impl<HO: std::fmt::Debug, CE: std::error::Error + 'static> std::error::Error for
 
 struct StackEntry<'a, L: TrieLayout> {
 	/// The prefix is the nibble path to the node in the trie.
-	prefix: LeftNibbleSlice<'a>,
-	node: Node<'a, ChildIndex<L>>,
+	prefix: LeftNibbleSlice<'a, L::Nibble>,
+	node: Node<'a, L::Nibble>,
 	is_inline: bool,
 	/// The value associated with this trie node.
 	value: Option<&'a [u8]>,
@@ -111,7 +110,7 @@ struct StackEntry<'a, L: TrieLayout> {
 }
 
 impl<'a, L: TrieLayout> StackEntry<'a, L> {
-	fn new(node_data: &'a [u8], prefix: LeftNibbleSlice<'a>, is_inline: bool)
+	fn new(node_data: &'a [u8], prefix: LeftNibbleSlice<'a, L::Nibble>, is_inline: bool)
 		   -> Result<Self, Error<TrieHash<L>, CError<L>>>
 	{
 		let node = L::Codec::decode(node_data)
@@ -177,7 +176,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 
 	fn advance_child_index<I>(
 		&mut self,
-		child_prefix: LeftNibbleSlice<'a>,
+		child_prefix: LeftNibbleSlice<'a, L::Nibble>,
 		proof_iter: &mut I,
 	) -> Result<Self, Error<TrieHash<L>, CError<L>>>
 		where
@@ -238,7 +237,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 	fn make_child_entry<I>(
 		proof_iter: &mut I,
 		child: NodeHandle<'a>,
-		prefix: LeftNibbleSlice<'a>,
+		prefix: LeftNibbleSlice<'a, L::Nibble>,
 	) -> Result<Self, Error<TrieHash<L>, CError<L>>>
 		where
 			I: Iterator<Item=&'a Vec<u8>>,
@@ -265,7 +264,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 	}
 
 	fn advance_item<I>(&mut self, items_iter: &mut Peekable<I>)
-					   -> Result<Step<'a>, Error<TrieHash<L>, CError<L>>>
+					   -> Result<Step<'a, L::Nibble>, Error<TrieHash<L>, CError<L>>>
 		where
 			I: Iterator<Item=(&'a [u8], Option<&'a [u8]>)>
 	{
@@ -302,7 +301,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 	}
 }
 
-enum ValueMatch<'a> {
+enum ValueMatch<'a, N> {
 	/// The key matches a leaf node, so the value at the key must be present.
 	MatchesLeaf,
 	/// The key matches a branch node, so the value at the key may or may not be present.
@@ -312,16 +311,16 @@ enum ValueMatch<'a> {
 	/// The key matches a location in trie, but the value was not omitted.
 	NotOmitted,
 	/// The key may match below a child of this node. Parameter is the prefix of the child node.
-	IsChild(LeftNibbleSlice<'a>),
+	IsChild(LeftNibbleSlice<'a, N>),
 }
 
 /// Determines whether a node on the stack carries a value at the given key or whether any nodes
 /// in the subtrie do. The prefix of the node is given by the first `prefix_len` nibbles of `key`.
-fn match_key_to_node<'a, I: ChildSliceIndex>(
-	key: &LeftNibbleSlice<'a>,
+fn match_key_to_node<'a, N: NibbleOps>(
+	key: &LeftNibbleSlice<'a, N>,
 	prefix_len: usize,
-	node: &Node<I>
-) -> ValueMatch<'a> {
+	node: &Node<N>
+) -> ValueMatch<'a, N> {
 	match node {
 		Node::Empty => ValueMatch::NotFound,
 		Node::Leaf(partial, value) => {
@@ -359,12 +358,12 @@ fn match_key_to_node<'a, I: ChildSliceIndex>(
 /// Determines whether a branch node on the stack carries a value at the given key or whether any
 /// nodes in the subtrie do. The key of the branch node value is given by the first
 /// `prefix_plus_partial_len` nibbles of `key`.
-fn match_key_to_branch_node<'a, I: ChildSliceIndex>(
-	key: &LeftNibbleSlice<'a>,
+fn match_key_to_branch_node<'a, N: NibbleOps>(
+	key: &LeftNibbleSlice<'a, N>,
 	prefix_plus_partial_len: usize,
-	children: &BranchChildrenSlice<I>,
+	children: &BranchChildrenSlice<N::ChildSliceIndex>,
 	value: &Option<&[u8]>,
-) -> ValueMatch<'a>
+) -> ValueMatch<'a, N>
 {
 	if key.len() == prefix_plus_partial_len {
 		if value.is_none() {
@@ -384,8 +383,8 @@ fn match_key_to_branch_node<'a, I: ChildSliceIndex>(
 	}
 }
 
-enum Step<'a> {
-	Descend(LeftNibbleSlice<'a>),
+enum Step<'a, N> {
+	Descend(LeftNibbleSlice<'a, N>),
 	UnwindStack,
 }
 

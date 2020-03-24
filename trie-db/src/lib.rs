@@ -390,7 +390,7 @@ pub trait TrieLayout {
 	/// Hasher to use for this trie.
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
-	type Codec: NodeCodec<HashOut=TrieHash<Self>, ChildIndex=ChildIndex<Self>>;
+	type Codec: NodeCodec<HashOut=TrieHash<Self>, Nibble=Self::Nibble>;
 }
 
 
