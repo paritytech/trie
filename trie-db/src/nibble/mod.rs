@@ -68,7 +68,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	/// const fn padding_bitmask(ix: usize) -> (u8, usize) {
 	///   //assert!(ix < 8 / BIT_PER_NIBBLE);
 	///   let offset = BIT_PER_NIBBLE * ix;
-	///   (1u8 >> offset, 8 - offset)
+	///   (255u8 >> offset, 8 - offset)
 	/// }
 	/// ```
 	const PADDING_BITMASK: &'static [(u8, usize)]; // TODO EMCH rewrite to remove this const (does not help readability).
@@ -87,7 +87,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	fn pad_left(ix: u8, b: u8) -> u8 {
 		debug_assert!(ix > 0); // 0 does not pad anything TODO EMCH allow 0
 		b & !Self::PADDING_BITMASK[ix as usize].0
-		//b & !(1u8 >> (Self::BIT_PER_NIBBLE * ix)) // TODO EMCH compare perf with that
+		//b & !(255u8 >> (Self::BIT_PER_NIBBLE * ix)) // TODO EMCH compare perf with that
 	}
 
 	/// Pad right aligned representation for a given number of element.
@@ -95,12 +95,15 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	/// Result is a byte containing `ix` nibble of right aligned content and padded with 0.
 	#[inline(always)]
 	fn pad_right(ix: u8, b: u8) -> u8 {
-		b & !(1u8 << (Self::BIT_PER_NIBBLE * (ix as usize)))
-/*		if ix > 0 {
-			b & Self::PADDING_BITMASK[Self::NIBBLE_PER_BYTE - ix as usize].0
+		// TODO EMCH change code to avoid this test (panic on 0 to see)
+		// it means there is calls to pad_right where we do not use the number
+		// of elements!
+		if ix > 0 {
+			b & !(255u8 << (Self::BIT_PER_NIBBLE * (Self::NIBBLE_PER_BYTE - ix as usize)))
+			//b & Self::PADDING_BITMASK[Self::NIBBLE_PER_BYTE - ix as usize].0
 		} else {
 			b
-		}*/
+		}
 	}
 
 	/// Get u8 nibble value at a given index of a byte.

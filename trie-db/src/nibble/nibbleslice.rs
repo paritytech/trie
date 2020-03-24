@@ -19,7 +19,6 @@ use super::{NibbleOps, NibbleSlice, NibbleSliceIterator, BackingByteVec};
 use crate::node::NodeKey;
 use crate::node_codec::Partial;
 use hash_db::Prefix;
-use crate::nibble::nibble_ops;
 
 impl<'a, N: NibbleOps> Iterator for NibbleSliceIterator<'a, N> {
 	type Item = u8;
@@ -61,8 +60,8 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 
 	/// Helper function to create a owned `NodeKey` from this `NibbleSlice`.
 	pub fn to_stored(&self) -> NodeKey {
-		let split = self.offset / nibble_ops::NIBBLE_PER_BYTE;
-		let offset = self.offset % nibble_ops::NIBBLE_PER_BYTE;
+		let split = self.offset / N::NIBBLE_PER_BYTE;
+		let offset = self.offset % N::NIBBLE_PER_BYTE;
 		(offset, self.data[split..].into())
 	}
 
@@ -72,23 +71,23 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	/// original padding).
 	pub fn to_stored_range(&self, nb: usize) -> NodeKey {
 		if nb >= self.len() { return self.to_stored() }
-		if (self.offset + nb) % nibble_ops::NIBBLE_PER_BYTE == 0 {
+		if (self.offset + nb) % N::NIBBLE_PER_BYTE == 0 {
 			// aligned
-			let start = self.offset / nibble_ops::NIBBLE_PER_BYTE;
-			let end = (self.offset + nb) / nibble_ops::NIBBLE_PER_BYTE;
+			let start = self.offset / N::NIBBLE_PER_BYTE;
+			let end = (self.offset + nb) / N::NIBBLE_PER_BYTE;
 			(
-				self.offset % nibble_ops::NIBBLE_PER_BYTE,
+				self.offset % N::NIBBLE_PER_BYTE,
 				BackingByteVec::from_slice(&self.data[start..end]),
 			)
 		} else {
 			// unaligned
-			let start = self.offset / nibble_ops::NIBBLE_PER_BYTE;
-			let end = (self.offset + nb) / nibble_ops::NIBBLE_PER_BYTE;
+			let start = self.offset / N::NIBBLE_PER_BYTE;
+			let end = (self.offset + nb) / N::NIBBLE_PER_BYTE;
 			let ea = BackingByteVec::from_slice(&self.data[start..=end]);
-			let ea_offset = self.offset % nibble_ops::NIBBLE_PER_BYTE;
-			let n_offset = nibble_ops::number_padding(nb);
+			let ea_offset = self.offset % N::NIBBLE_PER_BYTE;
+			let n_offset = N::number_padding(nb);
 			let mut result = (ea_offset, ea);
-			nibble_ops::shift_key(&mut result, n_offset);
+			N::shift_key(&mut result, n_offset);
 			result.1.pop();
 			result
 		}
@@ -99,7 +98,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 
 	/// Get the length (in nibbles, naturally) of this slice.
 	#[inline]
-	pub fn len(&self) -> usize { self.data.len() * nibble_ops::NIBBLE_PER_BYTE - self.offset }
+	pub fn len(&self) -> usize { self.data.len() * N::NIBBLE_PER_BYTE - self.offset }
 
 	/// Get the nibble at position `i`.
 	#[inline(always)]
@@ -148,10 +147,10 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	/// Return `Partial` representation of this slice:
 	/// first encoded byte and following slice.
 	pub fn right(&'a self) -> Partial {
-		let split = self.offset / nibble_ops::NIBBLE_PER_BYTE;
-		let nb = (self.len() % nibble_ops::NIBBLE_PER_BYTE) as u8;
+		let split = self.offset / N::NIBBLE_PER_BYTE;
+		let nb = (self.len() % N::NIBBLE_PER_BYTE) as u8;
 		if nb > 0 {
-			((nb, nibble_ops::pad_right(self.data[split])), &self.data[split + 1 ..])
+			((nb, N::pad_right(nb, self.data[split])), &self.data[split + 1 ..])
 		} else {
 			((0, 0), &self.data[split..])
 		}
@@ -164,7 +163,7 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 		crate::rstd::iter::from_fn(move || {
 			if first.0 > 0 {
 				first.0 = 0;
-				Some(nibble_ops::pad_right(first.1))
+				Some(N::pad_right(first.0, first.1))
 			} else {
 				if ix < sl.len() {
 					ix += 1;
@@ -179,15 +178,15 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	/// Return `Partial` bytes iterator over a range of byte..
 	/// Warning can be slow when unaligned (similar to `to_stored_range`).
 	pub fn right_range_iter(&'a self, to: usize) -> impl Iterator<Item = u8> + 'a {
-		let mut nib_res = to % nibble_ops::NIBBLE_PER_BYTE;
-		let aligned_i = (self.offset + to) % nibble_ops::NIBBLE_PER_BYTE;
+		let mut nib_res = to % N::NIBBLE_PER_BYTE;
+		let aligned_i = (self.offset + to) % N::NIBBLE_PER_BYTE;
 		let aligned = aligned_i == 0;
-		let mut ix = self.offset / nibble_ops::NIBBLE_PER_BYTE;
-		let ix_lim = (self.offset + to) / nibble_ops::NIBBLE_PER_BYTE;
+		let mut ix = self.offset / N::NIBBLE_PER_BYTE;
+		let ix_lim = (self.offset + to) / N::NIBBLE_PER_BYTE;
 		crate::rstd::iter::from_fn( move || {
 			if aligned {
 				if nib_res > 0 {
-					let v = nibble_ops::pad_right(self.data[ix]);
+					let v = N::pad_right(nib_res as u8, self.data[ix]);
 					nib_res = 0;
 					ix += 1;
 					Some(v)
@@ -198,11 +197,11 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 					None
 				}
 			} else {
-				let (s1, s2) = nibble_ops::SPLIT_SHIFTS;
+				let (s1, s2) = N::split_shifts(aligned_i);
 				// unaligned
 				if nib_res > 0 {
 					let v = self.data[ix] >> s1;
-					let v = nibble_ops::pad_right(v);
+					let v = N::pad_right(nib_res as u8, v);
 					nib_res = 0;
 					Some(v)
 				} else if ix < ix_lim {
@@ -221,17 +220,17 @@ impl<'a, N: NibbleOps> NibbleSlice<'a, N> {
 	/// originates from a full key it will be the `Prefix of
 	/// the node`.
 	pub fn left(&'a self) -> Prefix {
-		let split = self.offset / nibble_ops::NIBBLE_PER_BYTE;
-		let ix = (self.offset % nibble_ops::NIBBLE_PER_BYTE) as u8;
+		let split = self.offset / N::NIBBLE_PER_BYTE;
+		let ix = (self.offset % N::NIBBLE_PER_BYTE) as u8;
 		if ix == 0 {
-			(&self.data[..split], None)
+			(&self.data[..split], (0, 0))
 		} else {
-			(&self.data[..split], Some(nibble_ops::pad_left(self.data[split])))
+			(&self.data[..split], (ix, N::pad_left(ix, self.data[split])))
 		}
 	}
 
 	/// Owned version of a `Prefix` from a `left` method call.
-	pub fn left_owned(&'a self) -> (BackingByteVec, Option<u8>) {
+	pub fn left_owned(&'a self) -> (BackingByteVec, (u8, u8)) {
 		let (a, b) = self.left();
 		(a.into(), b)
 	}

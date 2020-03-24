@@ -734,7 +734,7 @@ mod tests {
 		};
 
 		// Remove the leaf node from the DB.
-		let prefix = (&hex!("02")[..], None);
+		let prefix = (&hex!("02")[..], (0, 0));
 		memdb.remove(&leaf_hash, prefix);
 
 		// Seek to missing node returns error.
@@ -894,4 +894,3 @@ mod tests {
 		assert!(iter.next().is_none());
 	}
 }
-

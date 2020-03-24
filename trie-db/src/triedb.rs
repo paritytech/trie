@@ -314,9 +314,9 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 					if let Some(value) = maybe_value {
 						let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
 						let key = key_slice.to_vec();
-						if let Some(extra_nibble) = maybe_extra_nibble {
+						if maybe_extra_nibble.0 > 0 {
 							return Some(Err(Box::new(
-								TrieError::ValueAtIncompleteKey(key, extra_nibble)
+								TrieError::ValueAtIncompleteKey(key, maybe_extra_nibble)
 							)));
 						}
 						return Some(Ok((key, value.to_vec())));

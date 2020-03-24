@@ -101,12 +101,12 @@ impl<N: NibbleOps> NibbleVec<N> {
 
 	/// Get `Prefix` representation of this `NibbleVec`.
 	pub fn as_prefix(&self) -> Prefix {
-		let split = self.len / nibble_ops::NIBBLE_PER_BYTE;
-		let pos = (self.len % nibble_ops::NIBBLE_PER_BYTE) as u8;
+		let split = self.len / N::NIBBLE_PER_BYTE;
+		let pos = (self.len % N::NIBBLE_PER_BYTE) as u8;
 		if pos == 0 {
-			(&self.inner[..split], None)
+			(&self.inner[..split], (0, 0))
 		} else {
-			(&self.inner[..split], Some(nibble_ops::pad_left(self.inner[split])))
+			(&self.inner[..split], (pos, N::pad_left(pos, self.inner[split])))
 		}
 	}
 

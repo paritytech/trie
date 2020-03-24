@@ -420,7 +420,7 @@ where
 	db: &'a mut dyn HashDB<L::Hash, DBValue>,
 	root: &'a mut TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
-	death_row: HashSet<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
+	death_row: HashSet<(TrieHash<L>, (BackingByteVec, (u8, u8)))>,
 	/// The number of hash operations this trie has performed.
 	/// Note that none are performed until changes are committed.
 	hash_count: usize,
@@ -1248,12 +1248,13 @@ where
 						let mut key2 = key.clone();
 						key2.advance((enc_nibble.1.len() * nibble_ops::NIBBLE_PER_BYTE) - enc_nibble.0);
 						let (start, alloc_start, prefix_end) = match key2.left() {
-							(start, None) => (start, None, Some(nibble_ops::push_at_left(0, a, 0))),
-							(start, Some(v)) => {
+							(start, (0, _v)) => (start, None, (1, L::Nibble::push_at_left(0, a, 0))),
+							(start, (nb, v)) if nb == L::Nibble::LAST_NIBBLE_INDEX => {
 								let mut so: BackingByteVec = start.into();
-								so.push(nibble_ops::pad_left(v) | a);
-								(start, Some(so), None)
+								so.push(L::Nibble::pad_left(L::Nibble::LAST_NIBBLE_INDEX, v) | a);
+								(start, Some(so), (0, 0))
 							},
+							(start, (nb, v)) => (start, None, (nb + 1, L::Nibble::push_at_left(nb, a, v))),
 						};
 						let child_prefix = (alloc_start.as_ref().map(|start| &start[..]).unwrap_or(start), prefix_end);
 						let stored = match child {
@@ -1322,13 +1323,13 @@ where
 				let mut key2 = key.clone();
 				key2.advance((partial.1.len() * nibble_ops::NIBBLE_PER_BYTE) - partial.0 - 1);
 				let (start, alloc_start, prefix_end) = match key2.left() {
-					(start, None) => (start, None, Some(nibble_ops::push_at_left(0, last, 0))),
-					(start, Some(v)) => {
+					(start, (0, _v)) => (start, None, (1, L::Nibble::push_at_left(0, last, 0))),
+					(start, (nb, v)) if nb == L::Nibble::LAST_NIBBLE_INDEX => {
 						let mut so: BackingByteVec = start.into();
-						// Complete last byte with `last`.
-						so.push(nibble_ops::pad_left(v) | last);
-						(start, Some(so), None)
+						so.push(L::Nibble::pad_left(L::Nibble::LAST_NIBBLE_INDEX, v) | last);
+						(start, Some(so), (0, 0))
 					},
+					(start, (nb, v)) => (start, None, (nb + 1, L::Nibble::push_at_left(nb, last, v))),
 				};
 				let child_prefix = (alloc_start.as_ref().map(|start| &start[..]).unwrap_or(start), prefix_end);
 
