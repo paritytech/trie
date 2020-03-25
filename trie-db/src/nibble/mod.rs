@@ -500,23 +500,3 @@ impl<V> ChildIndex<V> for ChildIndex256<V>
 {
 	const NIBBLE_LENGTH: usize = 256;
 }
-
-/*
-use crate::rstd::ops::{Deref, DerefMut};
-#[cfg_attr(feature = "std", derive(Debug))]
-#[derive(Eq, PartialEq, Clone, Default)]
-pub struct BoxedCache<C>(Box<C>);
-
-impl Deref for Boxed<C> {
-	type Target = C
-	fn deref(&self) -> &Self::Target {
-		self.0.deref()
-	}
-}
-
-impl DerefMut for Boxed<C> {
-	type Target = C
-	fn deref_mut(&self) -> &Self::Target {
-		self.0.deref_mut()
-	}
-}*/

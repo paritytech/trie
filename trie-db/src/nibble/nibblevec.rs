@@ -242,22 +242,26 @@ impl<'a, N: NibbleOps> From<NibbleSlice<'a, N>> for NibbleVec<N> {
 #[cfg(test)]
 mod tests {
 	use crate::nibble::NibbleVec;
-	use crate::nibble::NibbleHalf;
-	use crate::nibble::NibbleOps;
+	use crate::nibble::{NibbleHalf, NibbleOps, NibbleQuarter};
 
 	#[test]
 	fn push_pop() {
-		let mut v = NibbleVec::<NibbleHalf>::new();
+		push_pop_inner::<NibbleHalf>();
+		push_pop_inner::<NibbleQuarter>();
+	}
 
-		for i in 0..(NibbleHalf::NIBBLE_PER_BYTE * 3) {
-			let iu8 = (i % NibbleHalf::NIBBLE_PER_BYTE) as u8;
+	fn push_pop_inner<N: NibbleOps>() {
+		let mut v = NibbleVec::<N>::new();
+
+		for i in 0..(N::NIBBLE_PER_BYTE * 3) {
+			let iu8 = (i % N::NIBBLE_PER_BYTE) as u8;
 			v.push(iu8);
 			assert_eq!(v.len() - 1, i);
 			assert_eq!(v.at(i), iu8);
 		}
 
-		for i in (0..(NibbleHalf::NIBBLE_PER_BYTE * 3)).rev() {
-			let iu8 = (i % NibbleHalf::NIBBLE_PER_BYTE) as u8;
+		for i in (0..(N::NIBBLE_PER_BYTE * 3)).rev() {
+			let iu8 = (i % N::NIBBLE_PER_BYTE) as u8;
 			let a = v.pop();
 			assert_eq!(a, Some(iu8));
 			assert_eq!(v.len(), i);
@@ -266,15 +270,55 @@ mod tests {
 
 	#[test]
 	fn append_partial() {
-		append_partial_inner(&[1, 2, 3], &[], ((1, 1), &[0x23]));
-		append_partial_inner(&[1, 2, 3], &[1], ((0, 0), &[0x23]));
-		append_partial_inner(&[0, 1, 2, 3], &[0], ((1, 1), &[0x23]));
+		append_partial_inner::<NibbleHalf>(&[1, 2, 3], &[], ((1, 1), &[0x23]));
+		append_partial_inner::<NibbleHalf>(&[1, 2, 3], &[1], ((0, 0), &[0x23]));
+		append_partial_inner::<NibbleHalf>(&[0, 1, 2, 3], &[0], ((1, 1), &[0x23]));
+		append_partial_inner::<NibbleQuarter>(&[1, 0, 2, 0, 3], &[], ((1, 1), &[0x23]));
+		append_partial_inner::<NibbleQuarter>(
+			&[1, 0, 2, 0, 3, 0, 1, 0, 2],
+			&[],
+			((1, 1), &[0x23, 0x12]),
+		);
+		append_partial_inner::<NibbleQuarter>(
+			&[2, 1, 0, 2, 0, 3, 0, 1, 0, 2],
+			&[],
+			((2, 0b1001), &[0x23, 0x12]),
+		);
+		append_partial_inner::<NibbleQuarter>(
+			&[3, 2, 1, 0, 2, 0, 3, 0, 1, 0, 2],
+			&[],
+			((3, 0b111001), &[0x23, 0x12]));
+		append_partial_inner::<NibbleQuarter>(
+			&[3, 1, 0, 2, 0, 3, 0, 1, 0, 2],
+			&[3],
+			((1, 1), &[0x23, 0x12]),
+		);
+		append_partial_inner::<NibbleQuarter>(
+			&[3, 2, 3, 1, 0, 2, 0, 3, 0, 1, 0, 2],
+			&[3, 2, 3],
+			((1, 1), &[0x23, 0x12]),
+		);
+		append_partial_inner::<NibbleQuarter>(
+			&[3, 2, 3, 2, 1, 0, 2, 0, 3, 0, 1, 0, 2],
+			&[3, 2, 3],
+			((2, 0b1001), &[0x23, 0x12]),
+		);
+		append_partial_inner::<NibbleQuarter>(
+			&[3, 2, 1, 0, 2, 0, 3, 0, 1, 0, 2],
+			&[3, 2],
+			((1, 1), &[0x23, 0x12]),
+		);
+		append_partial_inner::<NibbleQuarter>(
+			&[3, 2, 3, 2, 1, 0, 2, 0, 3, 0, 1, 0, 2],
+			&[3, 2],
+			((3, 0b111001), &[0x23, 0x12]),
+		);
 	}
 
-	fn append_partial_inner(res: &[u8], init: &[u8], partial: ((u8, u8), &[u8])) {
-		let mut resv = NibbleVec::<NibbleHalf>::new();
+	fn append_partial_inner<N: NibbleOps>(res: &[u8], init: &[u8], partial: ((u8, u8), &[u8])) {
+		let mut resv = NibbleVec::<N>::new();
 		res.iter().for_each(|r| resv.push(*r));
-		let mut initv = NibbleVec::<NibbleHalf>::new();
+		let mut initv = NibbleVec::<N>::new();
 		init.iter().for_each(|r| initv.push(*r));
 		initv.append_partial(partial);
 		assert_eq!(resv, initv);
