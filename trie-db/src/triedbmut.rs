@@ -1629,7 +1629,7 @@ mod tests {
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, NodeCodec,
 		ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension,
-		NibbleHalf, ChildIndex16,
+		NibbleHalf, ChildIndex16, BitMap16,
 	};
 	use crate::nibble::BackingByteVec;
 	use super::NodeHandle;
@@ -1677,7 +1677,7 @@ mod tests {
 	}
 
 	fn reference_hashed_null_node() -> <KeccakHasher as Hasher>::Out {
-		<ReferenceNodeCodec<KeccakHasher, NibbleHalf> as NodeCodec>::hashed_null_node()
+		<ReferenceNodeCodec<KeccakHasher, NibbleHalf, BitMap16> as NodeCodec>::hashed_null_node()
 	}
 
 	#[test]
