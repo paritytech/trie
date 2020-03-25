@@ -19,7 +19,6 @@ use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, NibbleOps,
 	node::{Node, NodeHandle, BranchChildrenSlice}, NodeCodec, TrieHash, TrieLayout,
 };
-use crate::nibble::nibble_ops;
 use hash_db::Hasher;
 
 
@@ -118,7 +117,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 		let children_len = match node {
 			Node::Empty | Node::Leaf(..) => 0,
 			Node::Extension(..) => 1,
-			Node::Branch(..) | Node::NibbledBranch(..) => nibble_ops::NIBBLE_LENGTH,
+			Node::Branch(..) | Node::NibbledBranch(..) => L::Nibble::NIBBLE_LENGTH,
 		};
 		let value = match node {
 			Node::Empty | Node::Extension(_, _) => None,
@@ -220,7 +219,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 				self.child_index += 1;
 			}
 			Node::Branch(children, _) | Node::NibbledBranch(_, children, _) => {
-				while self.child_index < nibble_ops::NIBBLE_LENGTH {
+				while self.child_index < L::Nibble::NIBBLE_LENGTH {
 					if let Some(child) = children.at(self.child_index) {
 						let child_ref = child.try_into()
 							.map_err(Error::InvalidChildReference)?;

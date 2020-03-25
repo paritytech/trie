@@ -20,7 +20,7 @@ use crate::rstd::{
 
 use hash_db::Hasher;
 
-use crate::nibble::nibble_ops;
+use crate::nibble::NibbleOps;
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, NibbleSlice,
 	node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, BranchChildrenNodePlan},
@@ -60,7 +60,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 		let children_len = match node.node_plan() {
 			NodePlan::Empty | NodePlan::Leaf { .. } => 0,
 			NodePlan::Extension { .. } => 1,
-			NodePlan::Branch { .. } | NodePlan::NibbledBranch { .. } => nibble_ops::NIBBLE_LENGTH,
+			NodePlan::Branch { .. } | NodePlan::NibbledBranch { .. } => L::Nibble::NIBBLE_LENGTH,
 		};
 		Ok(StackEntry {
 			prefix,
@@ -140,7 +140,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 		children: &mut [Option<ChildReference<TrieHash<L>>>],
 	) -> TrieResult<(), TrieHash<L>, CError<L>>
 	{
-		for i in child_index..nibble_ops::NIBBLE_LENGTH {
+		for i in child_index..L::Nibble::NIBBLE_LENGTH {
 			children[i] = child_handles.at(i)
 				.as_ref()
 				.map(|child_plan|
@@ -177,7 +177,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 			}
 			NodePlan::Branch { children, .. } | NodePlan::NibbledBranch { children, .. } => {
 				assert!(
-					self.child_index < nibble_ops::NIBBLE_LENGTH,
+					self.child_index < L::Nibble::NIBBLE_LENGTH,
 					"extension nodes have at most NIBBLE_LENGTH children; \
 					set_child is called when the only child is popped from the stack; \
 					child_index is <NIBBLE_LENGTH before child is pushed to the stack; qed"
