@@ -20,14 +20,14 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 mod rstd {
-	pub use std::{borrow, boxed, cmp, convert, fmt, hash, iter, marker, mem, ops, rc, result, vec};
+	pub use std::{borrow, boxed, cmp, convert, fmt, hash, iter, marker, mem, ops, rc, result, vec, slice};
 	pub use std::collections::VecDeque;
 	pub use std::error::Error;
 }
 
 #[cfg(not(feature = "std"))]
 mod rstd {
-	pub use core::{borrow, convert, cmp, iter, fmt, hash, marker, mem, ops, result};
+	pub use core::{borrow, convert, cmp, iter, fmt, hash, marker, mem, ops, result, slice};
 	pub use alloc::{boxed, rc, vec};
 	pub use alloc::collections::VecDeque;
 	pub trait Error {}
@@ -394,6 +394,8 @@ pub trait TrieLayout {
 
 	/// Array to use with `iter_build`.
 	type IterBuildCache: ChildIndex<ChildReference<TrieHash<Self>>>;
+	/// Array to use with `triedbmut`.
+	type NodeIndex: ChildIndex<triedbmut::NodeHandle<TrieHash<Self>>>;
 }
 
 

@@ -35,6 +35,7 @@ use trie_db::{
 use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
 
+pub use trie_db::triedbmut::NodeHandle;
 pub use trie_db::{
 	decode_compact, encode_compact,
 	nibble_ops, NibbleSlice, NibbleVec, NodeCodec, proof, Record, Recorder,
@@ -55,6 +56,7 @@ impl TrieLayout for ExtensionLayout {
 	type Nibble = NibbleHalf;
 	type Codec = ReferenceNodeCodec<KeccakHasher, NibbleHalf>;
 	type IterBuildCache = ChildIndex16<ChildReference<TrieHash<Self>>>;
+	type NodeIndex = ChildIndex16<NodeHandle<TrieHash<Self>>>;
 }
 
 impl TrieConfiguration for ExtensionLayout { }
@@ -73,6 +75,7 @@ impl<
 	type Nibble = N;
 	type Codec = ReferenceNodeCodecNoExt<H, N>;
 	type IterBuildCache = ChildIndex16<ChildReference<<H as Hasher>::Out>>;
+	type NodeIndex = ChildIndex16<NodeHandle<<H as Hasher>::Out>>;
 }
 
 impl<

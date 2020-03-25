@@ -470,8 +470,6 @@ pub struct NibbleSliceIterator<'a, N: NibbleOps> {
 
 /// Technical trait only to access child slice from an encoded
 /// representation of a branch.
-/// This is use instead of `&[&[u8]]` to allow associated type
-/// with a constant length.
 pub trait ChildIndex<V>: AsRef<[Option<V>]>
 	+ AsMut<[Option<V>]> + Default + Eq + PartialEq + crate::MaybeDebug
 	+ Clone {
@@ -492,6 +490,21 @@ pub trait ChildIndex<V>: AsRef<[Option<V>]>
 	#[inline]
 	fn at(&self, ix: usize) -> Option<&V> {
 		self.as_ref()[ix].as_ref()
+	}
+
+	#[inline]
+	fn take(&mut self, ix: usize) -> Option<V> {
+		self.as_mut()[ix].take()
+	}
+
+	#[inline]
+	fn at_mut(&mut self, ix: usize) -> &mut Option<V> {
+		&mut self.as_mut()[ix]
+	}
+
+	#[inline]
+	fn iter_mut(&mut self) -> crate::rstd::slice::IterMut<Option<V>> {
+		self.as_mut().iter_mut()
 	}
 }
 
@@ -613,3 +626,23 @@ impl<V> ChildIndex<V> for ChildIndex256<V>
 {
 	const NIBBLE_LENGTH: usize = 256;
 }
+
+/*
+use crate::rstd::ops::{Deref, DerefMut};
+#[cfg_attr(feature = "std", derive(Debug))]
+#[derive(Eq, PartialEq, Clone, Default)]
+pub struct BoxedCache<C>(Box<C>);
+
+impl Deref for Boxed<C> {
+	type Target = C
+	fn deref(&self) -> &Self::Target {
+		self.0.deref()
+	}
+}
+
+impl DerefMut for Boxed<C> {
+	type Target = C
+	fn deref_mut(&self) -> &Self::Target {
+		self.0.deref_mut()
+	}
+}*/
