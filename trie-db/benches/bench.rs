@@ -14,7 +14,7 @@
 
 use criterion::{criterion_group, criterion_main, Bencher, black_box, Criterion};
 
-use trie_db::{NibbleSlice, proof::{generate_proof, verify_proof}, Trie, NibbleHalf};
+use trie_db::{NibbleSlice, proof::{generate_proof, verify_proof}, Trie, Radix16};
 use trie_standardmap::{Alphabet, StandardMap, ValueMode};
 
 criterion_group!(benches,
@@ -49,7 +49,7 @@ fn nibble_common_prefix(b: &mut Criterion) {
 	let (keys, values): (Vec<_>, Vec<_>) = st.make().into_iter().unzip();
 	b.bench_function("nibble_common_prefix", move |b| {
 		let mixed: Vec<_> = keys.iter().zip(values.iter().rev()).map(|pair| {
-			(NibbleSlice::<NibbleHalf>::new(pair.0), NibbleSlice::<NibbleHalf>::new(pair.1))
+			(NibbleSlice::<Radix16>::new(pair.0), NibbleSlice::<Radix16>::new(pair.1))
 		}).collect();
 
 		b.iter(&mut || {

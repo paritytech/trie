@@ -242,12 +242,12 @@ impl<'a, N: NibbleOps> From<NibbleSlice<'a, N>> for NibbleVec<N> {
 #[cfg(test)]
 mod tests {
 	use crate::nibble::NibbleVec;
-	use crate::nibble::{NibbleHalf, NibbleOps, NibbleQuarter};
+	use crate::nibble::{Radix16, NibbleOps, Radix4};
 
 	#[test]
 	fn push_pop() {
-		push_pop_inner::<NibbleHalf>();
-		push_pop_inner::<NibbleQuarter>();
+		push_pop_inner::<Radix16>();
+		push_pop_inner::<Radix4>();
 	}
 
 	fn push_pop_inner<N: NibbleOps>() {
@@ -270,45 +270,45 @@ mod tests {
 
 	#[test]
 	fn append_partial() {
-		append_partial_inner::<NibbleHalf>(&[1, 2, 3], &[], ((1, 1), &[0x23]));
-		append_partial_inner::<NibbleHalf>(&[1, 2, 3], &[1], ((0, 0), &[0x23]));
-		append_partial_inner::<NibbleHalf>(&[0, 1, 2, 3], &[0], ((1, 1), &[0x23]));
-		append_partial_inner::<NibbleQuarter>(&[1, 0, 2, 0, 3], &[], ((1, 1), &[0x23]));
-		append_partial_inner::<NibbleQuarter>(
+		append_partial_inner::<Radix16>(&[1, 2, 3], &[], ((1, 1), &[0x23]));
+		append_partial_inner::<Radix16>(&[1, 2, 3], &[1], ((0, 0), &[0x23]));
+		append_partial_inner::<Radix16>(&[0, 1, 2, 3], &[0], ((1, 1), &[0x23]));
+		append_partial_inner::<Radix4>(&[1, 0, 2, 0, 3], &[], ((1, 1), &[0x23]));
+		append_partial_inner::<Radix4>(
 			&[1, 0, 2, 0, 3, 0, 1, 0, 2],
 			&[],
 			((1, 1), &[0x23, 0x12]),
 		);
-		append_partial_inner::<NibbleQuarter>(
+		append_partial_inner::<Radix4>(
 			&[2, 1, 0, 2, 0, 3, 0, 1, 0, 2],
 			&[],
 			((2, 0b1001), &[0x23, 0x12]),
 		);
-		append_partial_inner::<NibbleQuarter>(
+		append_partial_inner::<Radix4>(
 			&[3, 2, 1, 0, 2, 0, 3, 0, 1, 0, 2],
 			&[],
 			((3, 0b111001), &[0x23, 0x12]));
-		append_partial_inner::<NibbleQuarter>(
+		append_partial_inner::<Radix4>(
 			&[3, 1, 0, 2, 0, 3, 0, 1, 0, 2],
 			&[3],
 			((1, 1), &[0x23, 0x12]),
 		);
-		append_partial_inner::<NibbleQuarter>(
+		append_partial_inner::<Radix4>(
 			&[3, 2, 3, 1, 0, 2, 0, 3, 0, 1, 0, 2],
 			&[3, 2, 3],
 			((1, 1), &[0x23, 0x12]),
 		);
-		append_partial_inner::<NibbleQuarter>(
+		append_partial_inner::<Radix4>(
 			&[3, 2, 3, 2, 1, 0, 2, 0, 3, 0, 1, 0, 2],
 			&[3, 2, 3],
 			((2, 0b1001), &[0x23, 0x12]),
 		);
-		append_partial_inner::<NibbleQuarter>(
+		append_partial_inner::<Radix4>(
 			&[3, 2, 1, 0, 2, 0, 3, 0, 1, 0, 2],
 			&[3, 2],
 			((1, 1), &[0x23, 0x12]),
 		);
-		append_partial_inner::<NibbleQuarter>(
+		append_partial_inner::<Radix4>(
 			&[3, 2, 3, 2, 1, 0, 2, 0, 3, 0, 1, 0, 2],
 			&[3, 2],
 			((3, 0b111001), &[0x23, 0x12]),
@@ -327,7 +327,7 @@ mod tests {
 	#[test]
 	fn drop_lasts_test() {
 		let test_trun = |a: &[u8], b: usize, c: (&[u8], usize)| {
-			let mut k = NibbleVec::<NibbleHalf>::new();
+			let mut k = NibbleVec::<Radix16>::new();
 			for v in a {
 				k.push(*v);
 			}

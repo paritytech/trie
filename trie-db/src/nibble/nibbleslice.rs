@@ -286,12 +286,12 @@ impl<'a, N: NibbleOps> fmt::Debug for NibbleSlice<'a, N> {
 
 #[cfg(test)]
 mod tests {
-	use crate::nibble::{NibbleSlice, BackingByteVec, NibbleHalf, NibbleQuarter, NibbleOps};
+	use crate::nibble::{NibbleSlice, BackingByteVec, Radix16, Radix4, NibbleOps};
 	static D: &'static [u8;3] = &[0x01u8, 0x23, 0x45];
 
 	#[test]
 	fn basics() {
-		basics_inner::<NibbleHalf>();
+		basics_inner::<Radix16>();
 	}
 
 	fn basics_inner<N: NibbleOps>() {
@@ -311,7 +311,7 @@ mod tests {
 
 	#[test]
 	fn iterator() {
-		iterator_inner::<NibbleHalf>();
+		iterator_inner::<Radix16>();
 	}
 
 	fn iterator_inner<N: NibbleOps>() {
@@ -323,7 +323,7 @@ mod tests {
 
 	#[test]
 	fn mid() {
-		mid_inner::<NibbleHalf>();
+		mid_inner::<Radix16>();
 	}
 
 	fn mid_inner<N: NibbleOps>() {
@@ -340,7 +340,7 @@ mod tests {
 
 	#[test]
 	fn encoded_pre() {
-		let n = NibbleSlice::<NibbleHalf>::new(D);
+		let n = NibbleSlice::<Radix16>::new(D);
 		assert_eq!(n.to_stored(), (0, BackingByteVec::from_slice(&[0x01, 0x23, 0x45])));
 		assert_eq!(n.mid(1).to_stored(), (1, BackingByteVec::from_slice(&[0x01, 0x23, 0x45])));
 		assert_eq!(n.mid(2).to_stored(), (0, BackingByteVec::from_slice(&[0x23, 0x45])));
@@ -349,7 +349,7 @@ mod tests {
 
 	#[test]
 	fn from_encoded_pre() {
-		let n = NibbleSlice::<NibbleHalf>::new(D);
+		let n = NibbleSlice::<Radix16>::new(D);
 		let stored: BackingByteVec = [0x01, 0x23, 0x45][..].into();
 		assert_eq!(n, NibbleSlice::from_stored(&(0, stored.clone())));
 		assert_eq!(n.mid(1), NibbleSlice::from_stored(&(1, stored)));
@@ -357,8 +357,8 @@ mod tests {
 
 	#[test]
 	fn range_iter() {
-		let n = NibbleSlice::<NibbleHalf>::new(D);
-		let n2 = NibbleSlice::<NibbleQuarter>::new(D);
+		let n = NibbleSlice::<Radix16>::new(D);
+		let n2 = NibbleSlice::<Radix4>::new(D);
 		for i in [
 			vec![],
 			vec![0x00],
@@ -368,8 +368,8 @@ mod tests {
 			vec![0x00, 0x12, 0x34],
 			vec![0x01, 0x23, 0x45],
 		].iter().enumerate() {
-			range_iter_test::<NibbleHalf>(n, i.0, None, &i.1[..]);
-			range_iter_test::<NibbleQuarter>(n2, i.0 * 2, None, &i.1[..]);
+			range_iter_test::<Radix16>(n, i.0, None, &i.1[..]);
+			range_iter_test::<Radix4>(n2, i.0 * 2, None, &i.1[..]);
 		}
 		for i in [
 			vec![],
@@ -379,8 +379,8 @@ mod tests {
 			vec![0x12, 0x34],
 			vec![0x01, 0x23, 0x45],
 		].iter().enumerate() {
-			range_iter_test::<NibbleHalf>(n, i.0, Some(1), &i.1[..]);
-			range_iter_test::<NibbleQuarter>(n2, i.0 * 2, Some(2), &i.1[..]);
+			range_iter_test::<Radix16>(n, i.0, Some(1), &i.1[..]);
+			range_iter_test::<Radix4>(n2, i.0 * 2, Some(2), &i.1[..]);
 		}
 		for i in [
 			vec![],
@@ -389,8 +389,8 @@ mod tests {
 			vec![0x02, 0x34],
 			vec![0x23, 0x45],
 		].iter().enumerate() {
-			range_iter_test::<NibbleHalf>(n, i.0, Some(2), &i.1[..]);
-			range_iter_test::<NibbleQuarter>(n2, i.0 * 2, Some(4), &i.1[..]);
+			range_iter_test::<Radix16>(n, i.0, Some(2), &i.1[..]);
+			range_iter_test::<Radix4>(n2, i.0 * 2, Some(4), &i.1[..]);
 		}
 		for i in [
 			vec![],
@@ -398,8 +398,8 @@ mod tests {
 			vec![0x34],
 			vec![0x03, 0x45],
 		].iter().enumerate() {
-			range_iter_test::<NibbleHalf>(n, i.0, Some(3), &i.1[..]);
-			range_iter_test::<NibbleQuarter>(n2, i.0 * 2, Some(6), &i.1[..]);
+			range_iter_test::<Radix16>(n, i.0, Some(3), &i.1[..]);
+			range_iter_test::<Radix4>(n2, i.0 * 2, Some(6), &i.1[..]);
 		}
 	}
 
@@ -412,7 +412,7 @@ mod tests {
 
 	#[test]
 	fn shared() {
-		shared_inner::<NibbleHalf>();
+		shared_inner::<Radix16>();
 	}
 	fn shared_inner<N: NibbleOps>() {
 		let n = NibbleSlice::<N>::new(D);
@@ -431,7 +431,7 @@ mod tests {
 
 	#[test]
 	fn compare() {
-		compare_inner::<NibbleHalf>();
+		compare_inner::<Radix16>();
 	}
 	fn compare_inner<N: NibbleOps>() {
 		let other = &[0x01u8, 0x23, 0x01, 0x23, 0x45];

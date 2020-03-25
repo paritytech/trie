@@ -39,8 +39,8 @@ pub use trie_db::{
 	decode_compact, encode_compact, BitMap,
 	NibbleSlice, NibbleVec, NodeCodec, proof, Record, Recorder,
 	Trie, TrieConfiguration, TrieDB, TrieDBIterator, TrieDBMut, TrieDBNodeIterator, TrieError,
-	TrieIterator, TrieLayout, TrieMut, ChildIndex, ChildIndex16, NibbleHalf, NibbleOps,
-	NibbleQuarter, ChildIndex4,
+	TrieIterator, TrieLayout, TrieMut, ChildIndex, ChildIndex16, Radix16, NibbleOps,
+	Radix4, ChildIndex4,
 };
 pub use trie_root::TrieStream;
 pub mod node {
@@ -53,8 +53,8 @@ pub struct ExtensionLayout;
 impl TrieLayout for ExtensionLayout {
 	const USE_EXTENSION: bool = true;
 	type Hash = KeccakHasher;
-	type Nibble = NibbleHalf;
-	type Codec = ReferenceNodeCodec<KeccakHasher, NibbleHalf, BitMap16>;
+	type Nibble = Radix16;
+	type Codec = ReferenceNodeCodec<KeccakHasher, Radix16, BitMap16>;
 	type ChildRefIndex = ChildIndex16<ChildReference<TrieHash<Self>>>;
 	type NodeIndex = ChildIndex16<NodeHandle<TrieHash<Self>>>;
 }
@@ -89,7 +89,7 @@ impl<
 /// Trie layout without extension nodes.
 pub type NoExtensionLayout = GenericNoExtensionLayout<
 	keccak_hasher::KeccakHasher,
-	NibbleHalf,
+	Radix16,
 	ChildIndex16<ChildReference<<keccak_hasher::KeccakHasher as Hasher>::Out>>,
 	BitMap16,
 >;
@@ -97,7 +97,7 @@ pub type NoExtensionLayout = GenericNoExtensionLayout<
 /// Trie layout without extension nodes.
 pub type NoExtensionLayoutQuarter = GenericNoExtensionLayout<
 	keccak_hasher::KeccakHasher,
-	NibbleQuarter,
+	Radix4,
 	ChildIndex4<ChildReference<<keccak_hasher::KeccakHasher as Hasher>::Out>>,
 	BitMap4,
 >;
@@ -1464,9 +1464,9 @@ mod tests {
 	fn too_big_nibble_length() {
 		// + 1 for 0 added byte of nibble encode
 		let input = vec![0u8; (NIBBLE_SIZE_BOUND_NO_EXT as usize + 1) / 2 + 1];
-		let enc = <ReferenceNodeCodecNoExt<KeccakHasher, NibbleHalf, BitMap16> as NodeCodec>
+		let enc = <ReferenceNodeCodecNoExt<KeccakHasher, Radix16, BitMap16> as NodeCodec>
 		::leaf_node(((0, 0), &input), &[1]);
-		let dec = <ReferenceNodeCodecNoExt<KeccakHasher, NibbleHalf, BitMap16> as NodeCodec>
+		let dec = <ReferenceNodeCodecNoExt<KeccakHasher, Radix16, BitMap16> as NodeCodec>
 		::decode(&enc).unwrap();
 		let o_sl = if let Node::Leaf(sl, _) = dec {
 			Some(sl)

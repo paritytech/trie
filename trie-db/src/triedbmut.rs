@@ -1629,7 +1629,7 @@ mod tests {
 	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, NodeCodec,
 		ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension,
-		NibbleHalf, ChildIndex16, BitMap16,
+		Radix16, ChildIndex16, BitMap16,
 	};
 	use crate::nibble::BackingByteVec;
 	use super::NodeHandle;
@@ -1677,7 +1677,7 @@ mod tests {
 	}
 
 	fn reference_hashed_null_node() -> <KeccakHasher as Hasher>::Out {
-		<ReferenceNodeCodec<KeccakHasher, NibbleHalf, BitMap16> as NodeCodec>::hashed_null_node()
+		<ReferenceNodeCodec<KeccakHasher, Radix16, BitMap16> as NodeCodec>::hashed_null_node()
 	}
 
 	#[test]
@@ -2089,7 +2089,7 @@ mod tests {
 		let b: &[u8] = [0x56, 0x78][..].into();
 		let test_comb = |a: (_, &BackingByteVec), b, c| {
 			let mut a = (a.0, a.1.clone());
-			super::combine_key::<crate::nibble::NibbleHalf>(&mut a, b);
+			super::combine_key::<crate::nibble::Radix16>(&mut a, b);
 			assert_eq!((a.0, &a.1[..]), c);
 		};
 		test_comb((0, &a), (0, &b), (0, &[0x12, 0x34, 0x56, 0x78][..]));

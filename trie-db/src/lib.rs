@@ -68,7 +68,7 @@ pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
 pub use self::nibble::{NibbleSlice, NibbleVec, NibbleOps, ChildIndex,
 	ChildIndex2, ChildIndex4, ChildIndex16, ChildIndex256,
-	NibbleHalf, NibbleQuarter, NibbleBit, NibbleFull, ChildSliceIndex};
+	Radix16, Radix4, Radix2, Radix256, ChildSliceIndex};
 pub use crate::node_codec::{NodeCodec, Partial, BitMap};
 pub use crate::iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed};

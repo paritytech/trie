@@ -30,17 +30,15 @@ const TWO_EXP: [usize; 9] = [1, 2, 4, 8, 16, 32, 64, 128, 256];
 
 /// Ordered enumeration of the different possible number of nibble in
 /// a byte.
-#[repr(usize)] // TODO EMCH remove repr ??
-pub enum ByteLayout { // TODO EMCH rename to Layout
-	// TODO EMCH rename to Radix2 (all other variant too)
+pub enum Layout {
 	/// Radix 2 trie. Eight nibble per byte.
-	Bit = 0, // 1, 8, 2
+	Radix2, // 1, 8, 2
 	/// Radix 4 trie. Four nibble per byte.
-	Quarter = 1, // 2, 4, 4
+	Radix4, // 2, 4, 4
 	/// Radix 16 trie. Two nibble per byte.
-	Half = 2, // 4, 2, 16
+	Radix16, // 4, 2, 16
 	/// Radix 256 trie. One nibble per byte.
-	Full = 3, // 8, 1, 256
+	Radix256, // 8, 1, 256
 }
 
 /// This trait contain Trie nibble specific definitions.
@@ -49,8 +47,8 @@ pub enum ByteLayout { // TODO EMCH rename to Layout
 /// Generic methods should not need redefinition except for optimization
 /// purpose.
 pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy + MaybeDebug {
-	/// See [`ByteLayout`].
-	const LAYOUT : ByteLayout;
+	/// See [`Layout`].
+	const LAYOUT : Layout;
 	/// Single nibble length in bit.
 	const BIT_PER_NIBBLE : usize = TWO_EXP[Self::LAYOUT as usize];
 	/// Number of nibble per byte.
@@ -107,7 +105,6 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 
 	/// Get u8 nibble value at a given index of a byte.
 	///
-	/// TODO EMCH rename to at right since it is for right aligned...
 	#[inline(always)]
 	fn at_left(ix: u8, b: u8) -> u8 {
 		// TODO EMCH compare perf without padding bitmask
@@ -214,10 +211,10 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 /// Radix 16 `NibbleOps` definition.
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Copy)]
-pub struct NibbleHalf; // TODO rename Radix16
+pub struct Radix16;
 
-impl NibbleOps for NibbleHalf {
-	const LAYOUT: ByteLayout = ByteLayout::Half;
+impl NibbleOps for Radix16 {
+	const LAYOUT: Layout = Layout::Radix16;
 	const PADDING_BITMASK: &'static [(u8, usize)] = &[(0xFF, 4), (0x0F, 0)];
 	type ChildRangeIndex = ChildIndex16<NodeHandlePlan>;
 
@@ -236,11 +233,11 @@ impl NibbleOps for NibbleHalf {
 /// Radix 4 `NibbleOps` definition.
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Copy)]
-pub struct NibbleQuarter; // TODO rename Radix4
+pub struct Radix4;
 
 // new_padded_end merged
-impl NibbleOps for NibbleQuarter {
-	const LAYOUT: ByteLayout = ByteLayout::Quarter;
+impl NibbleOps for Radix4 {
+	const LAYOUT: Layout = Layout::Radix4;
 	const PADDING_BITMASK: &'static [(u8, usize)] = &[
 		(0b1111_1111, 6),
 		(0b0011_1111, 4),
@@ -253,10 +250,10 @@ impl NibbleOps for NibbleQuarter {
 /// Radix 2 `NibbleOps` definition.
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Copy)]
-pub struct NibbleBit; // TODO rename Radix2
+pub struct Radix2;
 
-impl NibbleOps for NibbleBit {
-	const LAYOUT: ByteLayout = ByteLayout::Bit;
+impl NibbleOps for Radix2 {
+	const LAYOUT: Layout = Layout::Radix2;
 	const PADDING_BITMASK: &'static [(u8, usize)] = &[
 		(0b1111_1111, 7),
 		(0b0111_1111, 6),
@@ -273,10 +270,10 @@ impl NibbleOps for NibbleBit {
 /// Radix 256 `NibbleOps` definition.
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Copy)]
-pub struct NibbleFull; // TODO rename Radix256
+pub struct Radix256;
 
-impl NibbleOps for NibbleFull {
-	const LAYOUT: ByteLayout = ByteLayout::Full;
+impl NibbleOps for Radix256 {
+	const LAYOUT: Layout = Layout::Radix256;
 	const PADDING_BITMASK: &'static [(u8, usize)] = &[
 		(1, 0),
 	];

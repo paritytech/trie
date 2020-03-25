@@ -155,18 +155,18 @@ impl<'a, N: NibbleOps> std::fmt::Debug for LeftNibbleSlice<'a, N> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::nibble::NibbleHalf;
+	use crate::nibble::Radix16;
 
 	#[test]
 	fn test_len() {
-		assert_eq!(LeftNibbleSlice::<NibbleHalf>::new(&[]).len(), 0);
-		assert_eq!(LeftNibbleSlice::<NibbleHalf>::new(&b"hello"[..]).len(), 10);
-		assert_eq!(LeftNibbleSlice::<NibbleHalf>::new(&b"hello"[..]).truncate(7).len(), 7);
+		assert_eq!(LeftNibbleSlice::<Radix16>::new(&[]).len(), 0);
+		assert_eq!(LeftNibbleSlice::<Radix16>::new(&b"hello"[..]).len(), 10);
+		assert_eq!(LeftNibbleSlice::<Radix16>::new(&b"hello"[..]).truncate(7).len(), 7);
 	}
 
 	#[test]
 	fn test_at() {
-		let slice = LeftNibbleSlice::<NibbleHalf>::new(&b"\x01\x23\x45\x67"[..]).truncate(7);
+		let slice = LeftNibbleSlice::<Radix16>::new(&b"\x01\x23\x45\x67"[..]).truncate(7);
 		assert_eq!(slice.at(0), Some(0));
 		assert_eq!(slice.at(6), Some(6));
 		assert_eq!(slice.at(7), None);
@@ -176,58 +176,58 @@ mod tests {
 	#[test]
 	fn test_starts_with() {
 		assert!(
-			LeftNibbleSlice::<NibbleHalf>::new(b"hello").starts_with(&LeftNibbleSlice::<NibbleHalf>::new(b"heli").truncate(7))
+			LeftNibbleSlice::<Radix16>::new(b"hello").starts_with(&LeftNibbleSlice::<Radix16>::new(b"heli").truncate(7))
 		);
 		assert!(
-			!LeftNibbleSlice::<NibbleHalf>::new(b"hello").starts_with(&LeftNibbleSlice::<NibbleHalf>::new(b"heli").truncate(8))
+			!LeftNibbleSlice::<Radix16>::new(b"hello").starts_with(&LeftNibbleSlice::<Radix16>::new(b"heli").truncate(8))
 		);
 	}
 
 	#[test]
 	fn test_contains() {
 		assert!(
-			LeftNibbleSlice::<NibbleHalf>::new(b"hello").contains(&NibbleSlice::new_offset(b"ello", 0), 2)
+			LeftNibbleSlice::<Radix16>::new(b"hello").contains(&NibbleSlice::new_offset(b"ello", 0), 2)
 		);
 		assert!(
-			LeftNibbleSlice::<NibbleHalf>::new(b"hello").contains(&NibbleSlice::new_offset(b"ello", 1), 3)
+			LeftNibbleSlice::<Radix16>::new(b"hello").contains(&NibbleSlice::new_offset(b"ello", 1), 3)
 		);
 		assert!(
-			!LeftNibbleSlice::<NibbleHalf>::new(b"hello").contains(&NibbleSlice::new_offset(b"allo", 1), 3)
+			!LeftNibbleSlice::<Radix16>::new(b"hello").contains(&NibbleSlice::new_offset(b"allo", 1), 3)
 		);
 		assert!(
-			!LeftNibbleSlice::<NibbleHalf>::new(b"hello").contains(&NibbleSlice::new_offset(b"ello!", 1), 3)
+			!LeftNibbleSlice::<Radix16>::new(b"hello").contains(&NibbleSlice::new_offset(b"ello!", 1), 3)
 		);
 	}
 
 	#[test]
 	fn test_cmp() {
-		assert!(LeftNibbleSlice::<NibbleHalf>::new(b"hallo") < LeftNibbleSlice::<NibbleHalf>::new(b"hello"));
-		assert!(LeftNibbleSlice::<NibbleHalf>::new(b"hello") > LeftNibbleSlice::<NibbleHalf>::new(b"hallo"));
+		assert!(LeftNibbleSlice::<Radix16>::new(b"hallo") < LeftNibbleSlice::<Radix16>::new(b"hello"));
+		assert!(LeftNibbleSlice::<Radix16>::new(b"hello") > LeftNibbleSlice::<Radix16>::new(b"hallo"));
 		assert_eq!(
-			LeftNibbleSlice::<NibbleHalf>::new(b"hello").cmp(&LeftNibbleSlice::<NibbleHalf>::new(b"hello")),
+			LeftNibbleSlice::<Radix16>::new(b"hello").cmp(&LeftNibbleSlice::<Radix16>::new(b"hello")),
 			Ordering::Equal
 		);
 
 		assert!(
-			LeftNibbleSlice::<NibbleHalf>::new(b"hello\x10")
-				< LeftNibbleSlice::<NibbleHalf>::new(b"hello\x20").truncate(11)
+			LeftNibbleSlice::<Radix16>::new(b"hello\x10")
+				< LeftNibbleSlice::<Radix16>::new(b"hello\x20").truncate(11)
 		);
 		assert!(
-			LeftNibbleSlice::<NibbleHalf>::new(b"hello\x20").truncate(11)
-				> LeftNibbleSlice::<NibbleHalf>::new(b"hello\x10")
+			LeftNibbleSlice::<Radix16>::new(b"hello\x20").truncate(11)
+				> LeftNibbleSlice::<Radix16>::new(b"hello\x10")
 		);
 
 		assert!(
-			LeftNibbleSlice::<NibbleHalf>::new(b"hello\x10").truncate(11)
-				< LeftNibbleSlice::<NibbleHalf>::new(b"hello\x10")
+			LeftNibbleSlice::<Radix16>::new(b"hello\x10").truncate(11)
+				< LeftNibbleSlice::<Radix16>::new(b"hello\x10")
 		);
 		assert!(
-			LeftNibbleSlice::<NibbleHalf>::new(b"hello\x10")
-				> LeftNibbleSlice::<NibbleHalf>::new(b"hello\x10").truncate(11)
+			LeftNibbleSlice::<Radix16>::new(b"hello\x10")
+				> LeftNibbleSlice::<Radix16>::new(b"hello\x10").truncate(11)
 		);
 		assert_eq!(
-			LeftNibbleSlice::<NibbleHalf>::new(b"hello\x10").truncate(11)
-				.cmp(&LeftNibbleSlice::<NibbleHalf>::new(b"hello\x10").truncate(11)),
+			LeftNibbleSlice::<Radix16>::new(b"hello\x10").truncate(11)
+				.cmp(&LeftNibbleSlice::<Radix16>::new(b"hello\x10").truncate(11)),
 			Ordering::Equal
 		);
 	}

@@ -392,7 +392,7 @@ mod tests {
 	use reference_trie::{
 		RefTrieDB, RefTrieDBMut,
 		TrieError, TrieMut, TrieIterator, TrieDBNodeIterator, NibbleSlice, NibbleVec,
-		node::Node, NibbleHalf,
+		node::Node, Radix16,
 	};
 	use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt};
 
@@ -426,8 +426,8 @@ mod tests {
 		(memdb, root)
 	}
 
-	fn nibble_vec<T: AsRef<[u8]>>(bytes: T, len: usize) -> NibbleVec<NibbleHalf> {
-		let slice = NibbleSlice::<NibbleHalf>::new(bytes.as_ref());
+	fn nibble_vec<T: AsRef<[u8]>>(bytes: T, len: usize) -> NibbleVec<Radix16> {
+		let slice = NibbleSlice::<Radix16>::new(bytes.as_ref());
 
 		let mut v = NibbleVec::new();
 		for i in 0..len {
