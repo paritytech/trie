@@ -29,7 +29,6 @@ use trie_db::{
 	TrieBuilder,
 	TrieRoot,
 	Partial,
-	NibbleOps,
 	TrieHash,
 };
 use std::borrow::Borrow;
@@ -40,7 +39,7 @@ pub use trie_db::{
 	decode_compact, encode_compact,
 	nibble_ops, NibbleSlice, NibbleVec, NodeCodec, proof, Record, Recorder,
 	Trie, TrieConfiguration, TrieDB, TrieDBIterator, TrieDBMut, TrieDBNodeIterator, TrieError,
-	TrieIterator, TrieLayout, TrieMut, ChildIndex, ChildIndex16, NibbleHalf,
+	TrieIterator, TrieLayout, TrieMut, ChildIndex, ChildIndex16, NibbleHalf, NibbleOps,
 };
 pub use trie_root::TrieStream;
 pub mod node {

@@ -18,7 +18,6 @@ use super::{DBValue, node::NodeKey};
 use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_hash};
-use crate::nibble::nibble_ops;
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use crate::ChildIndex;
 use hashbrown::HashSet;
@@ -1257,7 +1256,7 @@ where
 						let child = children.take(a as usize)
 							.expect("used_index only set if occupied; qed");
 						let mut key2 = key.clone();
-						key2.advance((enc_nibble.1.len() * nibble_ops::NIBBLE_PER_BYTE) - enc_nibble.0);
+						key2.advance((enc_nibble.1.len() * L::Nibble::NIBBLE_PER_BYTE) - enc_nibble.0);
 						let (start, alloc_start, prefix_end) = match key2.left() {
 							(start, (0, _v)) => (start, None, (1, L::Nibble::push_at_left(0, a, 0))),
 							(start, (nb, v)) if nb == L::Nibble::LAST_NIBBLE_INDEX => {
@@ -1288,11 +1287,11 @@ where
 						match child_node {
 							Node::Leaf(sub_partial, value) => {
 								let mut enc_nibble = enc_nibble;
-								combine_key(
+								combine_key::<L::Nibble>(
 									&mut enc_nibble,
-									(nibble_ops::NIBBLE_PER_BYTE - 1, &[a][..]),
+									(L::Nibble::NIBBLE_PER_BYTE - 1, &[a][..]),
 								);
-								combine_key(
+								combine_key::<L::Nibble>(
 									&mut enc_nibble,
 									(sub_partial.0, &sub_partial.1[..]),
 								);
@@ -1300,11 +1299,11 @@ where
 							},
 							Node::NibbledBranch(sub_partial, ch_children, ch_value) => {
 								let mut enc_nibble = enc_nibble;
-								combine_key(
+								combine_key::<L::Nibble>(
 									&mut enc_nibble,
-									(nibble_ops::NIBBLE_PER_BYTE - 1, &[a][..]),
+									(L::Nibble::NIBBLE_PER_BYTE - 1, &[a][..]),
 								);
-								combine_key(
+								combine_key::<L::Nibble>(
 									&mut enc_nibble,
 									(sub_partial.0, &sub_partial.1[..]),
 								);
@@ -1332,7 +1331,7 @@ where
 				// recursively, so there might be some prefix from branch.
 				let last = partial.1[partial.1.len() - 1] & (255 >> 4);
 				let mut key2 = key.clone();
-				key2.advance((partial.1.len() * nibble_ops::NIBBLE_PER_BYTE) - partial.0 - 1);
+				key2.advance((partial.1.len() * L::Nibble::NIBBLE_PER_BYTE) - partial.0 - 1);
 				let (start, alloc_start, prefix_end) = match key2.left() {
 					(start, (0, _v)) => (start, None, (1, L::Nibble::push_at_left(0, last, 0))),
 					(start, (nb, v)) if nb == L::Nibble::LAST_NIBBLE_INDEX => {
@@ -1368,7 +1367,7 @@ where
 						}
 						// subpartial
 						let mut partial = partial;
-						combine_key(&mut partial, (sub_partial.0, &sub_partial.1[..]));
+						combine_key::<L::Nibble>(&mut partial, (sub_partial.0, &sub_partial.1[..]));
 						#[cfg(feature = "std")]
 						trace!(
 							target: "trie",
@@ -1385,7 +1384,7 @@ where
 						}
 						// subpartial oly
 						let mut partial = partial;
-						combine_key(&mut partial, (sub_partial.0, &sub_partial.1[..]));
+						combine_key::<L::Nibble>(&mut partial, (sub_partial.0, &sub_partial.1[..]));
 						#[cfg(feature = "std")]
 						trace!(
 							target: "trie",
@@ -1604,14 +1603,14 @@ where
 }
 
 /// combine two NodeKeys
-fn combine_key(start: &mut NodeKey, end: (usize, &[u8])) {
-	debug_assert!(start.0 < nibble_ops::NIBBLE_PER_BYTE);
-	debug_assert!(end.0 < nibble_ops::NIBBLE_PER_BYTE);
-	let final_offset = (start.0 + end.0) % nibble_ops::NIBBLE_PER_BYTE;
-	let _shifted = nibble_ops::shift_key(start, final_offset);
+fn combine_key<N: NibbleOps>(start: &mut NodeKey, end: (usize, &[u8])) {
+	debug_assert!(start.0 < N::NIBBLE_PER_BYTE);
+	debug_assert!(end.0 < N::NIBBLE_PER_BYTE);
+	let final_offset = (start.0 + end.0) % N::NIBBLE_PER_BYTE;
+	let _shifted = N::shift_key(start, final_offset);
 	let st = if end.0 > 0 {
 		let sl = start.1.len();
-		start.1[sl - 1] |= nibble_ops::pad_right(end.1[0]);
+		start.1[sl - 1] |= N::pad_right((N::NIBBLE_PER_BYTE - end.0) as u8, end.1[0]);
 		1
 	} else {
 		0
@@ -2090,7 +2089,7 @@ mod tests {
 		let b: &[u8] = [0x56, 0x78][..].into();
 		let test_comb = |a: (_, &BackingByteVec), b, c| {
 			let mut a = (a.0, a.1.clone());
-			super::combine_key(&mut a, b);
+			super::combine_key::<crate::nibble::NibbleHalf>(&mut a, b);
 			assert_eq!((a.0, &a.1[..]), c);
 		};
 		test_comb((0, &a), (0, &b), (0, &[0x12, 0x34, 0x56, 0x78][..]));
