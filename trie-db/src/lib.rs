@@ -57,7 +57,6 @@ mod nibble;
 mod node_codec;
 mod trie_codec;
 
-pub use crate::nibble::nibble_ops;
 pub use hash_db::{HashDB, HashDBRef, Hasher};
 pub use self::triedb::{TrieDB, TrieDBIterator};
 pub use self::triedbmut::{TrieDBMut, ChildReference};
