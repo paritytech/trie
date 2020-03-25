@@ -78,7 +78,7 @@ enum Node<H, C> {
 	/// a flag indicating it is an extension.
 	/// The child node is always a branch.
 	Extension(NodeKey, NodeHandle<H>),
-	/// A branch has up to 16 children and an optional value.
+	/// A branch has up to number of children per nibble and an optional value.
 	Branch(Box<C>, Option<DBValue>),
 	/// Branch node with support for a nibble (to avoid extension node).
 	NibbledBranch(NodeKey, Box<C>, Option<DBValue>),
@@ -1191,7 +1191,7 @@ where
 					Many,
 				};
 				let mut used_index = UsedIndex::None;
-				for i in 0..16 {
+				for i in 0..L::Nibble::NIBBLE_LENGTH {
 					match (children.at(i).is_none(), &used_index) {
 						(false, &UsedIndex::None) => used_index = UsedIndex::One(i as u8),
 						(false, &UsedIndex::One(_)) => {
@@ -1237,7 +1237,7 @@ where
 					Many,
 				};
 				let mut used_index = UsedIndex::None;
-				for i in 0..16 {
+				for i in 0..L::Nibble::NIBBLE_PER_BYTE {
 					match (children.at(i).is_none(), &used_index) {
 						(false, &UsedIndex::None) => used_index = UsedIndex::One(i as u8),
 						(false, &UsedIndex::One(_)) => {
