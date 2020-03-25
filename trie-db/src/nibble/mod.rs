@@ -555,26 +555,27 @@ child_slice_index!(ChildIndex16, 16);
 child_slice_index!(ChildIndex4, 4);
 child_slice_index!(ChildIndex2, 2);
 
+macro_rules! exponential_out {
+	(@3, [$($inpp:expr),*]) => { exponential_out!(@2, [$($inpp,)* $($inpp),*]) };
+	(@2, [$($inpp:expr),*]) => { exponential_out!(@1, [$($inpp,)* $($inpp),*]) };
+	(@1, [$($inpp:expr),*]) => { [$($inpp,)* $($inpp),*] };
+}
+
 impl<V> Default for ChildIndex2<V> {
 	fn default() -> Self {
-		ChildIndex2([None, None])
+		ChildIndex2(exponential_out!(@1, [None]))
 	}
 }
 
 impl<V> Default for ChildIndex4<V> {
 	fn default() -> Self {
-		ChildIndex4([None, None, None, None])
+		ChildIndex4(exponential_out!(@2, [None]))
 	}
 }
 
 impl<V> Default for ChildIndex16<V> {
 	fn default() -> Self {
-		ChildIndex16([
-			None, None, None, None,
-			None, None, None, None,
-			None, None, None, None,
-			None, None, None, None,
-		])
+		ChildIndex16(exponential_out!(@3, [None, None]))
 	}
 }
 

@@ -306,7 +306,7 @@ enum Stored<H> {
 }
 
 /// Used to build a collection of child nodes from a collection of `NodeHandle`s
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub enum ChildReference<HO> { // `HO` is e.g. `H256`, i.e. the output of a `Hasher`
 	Hash(HO),

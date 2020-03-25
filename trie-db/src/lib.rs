@@ -391,6 +391,9 @@ pub trait TrieLayout {
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
 	type Codec: NodeCodec<HashOut=TrieHash<Self>, Nibble=Self::Nibble>;
+
+	/// Array to use with `iter_build`.
+	type IterBuildCache: ChildIndex<ChildReference<TrieHash<Self>>>;
 }
 
 

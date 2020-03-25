@@ -21,24 +21,13 @@ use hash_db::{Hasher, HashDB, Prefix};
 use crate::rstd::{cmp::max, marker::PhantomData, vec::Vec};
 use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
-use crate::nibble::nibble_ops;
+use crate::nibble::NibbleOps;
 use crate::node_codec::NodeCodec;
 use crate::{TrieLayout, TrieHash};
 
-macro_rules! exponential_out {
-	(@3, [$($inpp:expr),*]) => { exponential_out!(@2, [$($inpp,)* $($inpp),*]) };
-	(@2, [$($inpp:expr),*]) => { exponential_out!(@1, [$($inpp,)* $($inpp),*]) };
-	(@1, [$($inpp:expr),*]) => { [$($inpp,)* $($inpp),*] };
-}
-
 type CacheNode<HO> = Option<ChildReference<HO>>;
 
-#[inline(always)]
-fn new_vec_slice_buffer<HO>() -> [CacheNode<HO>; 16] {
-	exponential_out!(@3, [None, None])
-}
-
-type ArrayNode<T> = [CacheNode<TrieHash<T>>; 16];
+type ArrayNode<T> = <T as TrieLayout>::IterBuildCache;
 
 /// Struct containing iteration cache, can be at most the length of the lowest nibble.
 ///
@@ -64,7 +53,7 @@ impl<T, V> CacheAccum<T, V>
 	#[inline(always)]
 	fn set_cache_value(&mut self, depth:usize, value: Option<V>) {
 		if self.0.is_empty() || self.0[self.0.len() - 1].2 < depth {
-			self.0.push((new_vec_slice_buffer(), None, depth));
+			self.0.push((Default::default(), None, depth));
 		}
 		let last = self.0.len() - 1;
 		debug_assert!(self.0[last].2 <= depth);
@@ -74,7 +63,7 @@ impl<T, V> CacheAccum<T, V>
 	#[inline(always)]
 	fn set_node(&mut self, depth: usize, nibble_index: usize, node: CacheNode<TrieHash<T>>) {
 		if self.0.is_empty() || self.0[self.0.len() - 1].2 < depth {
-			self.0.push((new_vec_slice_buffer(), None, depth));
+			self.0.push((Default::default(), None, depth));
 		}
 
 		let last = self.0.len() - 1;
@@ -126,13 +115,13 @@ impl<T, V> CacheAccum<T, V>
 		target_depth: usize,
 		(k2, v2): &(impl AsRef<[u8]>, impl AsRef<[u8]>),
 	) {
-		let nibble_value = nibble_ops::left_nibble_at(&k2.as_ref()[..], target_depth);
+		let nibble_value = T::Nibble::left_nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
 		let nkey = NibbleSlice::<T::Nibble>::new_offset(&k2.as_ref()[..], target_depth + 1);
 		let encoded = T::Codec::leaf_node(nkey.right(), &v2.as_ref()[..]);
 		let pr = NibbleSlice::<T::Nibble>::new_offset(
 			&k2.as_ref()[..],
-			k2.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE - nkey.len(),
+			k2.as_ref().len() * T::Nibble::NIBBLE_PER_BYTE - nkey.len(),
 		);
 		let hash = callback.process(pr.left(), encoded, false);
 
@@ -175,7 +164,7 @@ impl<T, V> CacheAccum<T, V>
 			};
 			if !is_root {
 				// put hash in parent
-				let nibble: u8 = nibble_ops::left_nibble_at(&ref_branch.as_ref()[..], llix);
+				let nibble: u8 = T::Nibble::left_nibble_at(&ref_branch.as_ref()[..], llix);
 				self.set_node(llix, nibble as usize, Some(h));
 			}
 		}
@@ -267,10 +256,10 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F)
 		let mut single = true;
 		for (k, v) in iter_input {
 			single = false;
-			let common_depth = nibble_ops::biggest_depth(&previous_value.0.as_ref()[..], &k.as_ref()[..]);
+			let common_depth = T::Nibble::biggest_depth(&previous_value.0.as_ref()[..], &k.as_ref()[..]);
 			// 0 is a reserved value : could use option
 			let depth_item = common_depth;
-			if common_depth == previous_value.0.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE {
+			if common_depth == previous_value.0.as_ref().len() * T::Nibble::NIBBLE_PER_BYTE {
 				// the new key include the previous one : branch value case
 				// just stored value at branch depth
 				depth_queue.set_cache_value(common_depth, Some(previous_value.1));
@@ -295,7 +284,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F)
 			let encoded = T::Codec::leaf_node(nkey.right(), &v2.as_ref()[..]);
 			let pr = NibbleSlice::<T::Nibble>::new_offset(
 				&k2.as_ref()[..],
-				k2.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE - nkey.len(),
+				k2.as_ref().len() * T::Nibble::NIBBLE_PER_BYTE - nkey.len(),
 			);
 			callback.process(pr.left(), encoded, true);
 		} else {

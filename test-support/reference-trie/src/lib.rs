@@ -30,6 +30,7 @@ use trie_db::{
 	TrieRoot,
 	Partial,
 	NibbleOps,
+	TrieHash,
 };
 use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
@@ -53,33 +54,38 @@ impl TrieLayout for ExtensionLayout {
 	type Hash = KeccakHasher;
 	type Nibble = NibbleHalf;
 	type Codec = ReferenceNodeCodec<KeccakHasher, NibbleHalf>;
+	type IterBuildCache = ChildIndex16<ChildReference<TrieHash<Self>>>;
 }
 
 impl TrieConfiguration for ExtensionLayout { }
 
 /// Trie layout without extension nodes, allowing
 /// generic hasher.
-pub struct GenericNoExtensionLayout<H, N>(PhantomData<(H, N)>);
+pub struct GenericNoExtensionLayout<H, N, C>(PhantomData<(H, N, C)>);
 
 impl<
 	H: Hasher,
 	N: NibbleOps,
-> TrieLayout for GenericNoExtensionLayout<H, N> {
+	C: ChildIndex<ChildReference<<H as Hasher>::Out>>,
+> TrieLayout for GenericNoExtensionLayout<H, N, C> {
 	const USE_EXTENSION: bool = false;
 	type Hash = H;
 	type Nibble = N;
 	type Codec = ReferenceNodeCodecNoExt<H, N>;
+	type IterBuildCache = ChildIndex16<ChildReference<<H as Hasher>::Out>>;
 }
 
 impl<
 	H: Hasher,
 	N: NibbleOps,
-> TrieConfiguration for GenericNoExtensionLayout<H, N> { }
+	C: ChildIndex<ChildReference<H::Out>>,
+> TrieConfiguration for GenericNoExtensionLayout<H, N, C> { }
 
 /// Trie layout without extension nodes.
 pub type NoExtensionLayout = GenericNoExtensionLayout<
 	keccak_hasher::KeccakHasher,
 	NibbleHalf,
+	ChildIndex16<ChildReference<<keccak_hasher::KeccakHasher as Hasher>::Out>>,
 >;
 
 /// Children bitmap codec for radix 16 trie.
