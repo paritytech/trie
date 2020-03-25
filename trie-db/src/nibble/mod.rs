@@ -73,8 +73,7 @@ pub trait NibbleOps: Default + Clone + PartialEq + Eq + PartialOrd + Ord + Copy 
 	/// Last nibble index as u8, a convenience constant for iteration on all nibble.
 	const LAST_NIBBLE_INDEX: u8 = (Self::NIBBLE_PER_BYTE - 1) as u8;
 
-	/// Buffer type for child slice index array. TODO EMCH this associated type looks useless!! (a
-	/// codec thing -> can move ChildIndex to codec code)
+	/// Buffer type for child slice index array.
 	type ChildRangeIndex: ChildIndex<NodeHandlePlan>;
 
 	/// Pad left aligned representation for a given number of element.
