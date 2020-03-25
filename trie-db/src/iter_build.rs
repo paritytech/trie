@@ -546,6 +546,7 @@ mod test {
 		compare_implementations_prefixed(data.clone());
 		compare_implementations_no_extension(data.clone());
 		compare_implementations_no_extension_prefixed(data.clone());
+		compare_implementations_no_extension_q(data.clone());
 	}
 
 	fn compare_implementations_prefixed(data: Vec<(Vec<u8>, Vec<u8>)>) {
@@ -562,6 +563,11 @@ mod test {
 		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
 		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 		reference_trie::compare_implementations_no_extension(data, memdb, hashdb);
+	}
+	fn compare_implementations_no_extension_q(data: Vec<(Vec<u8>, Vec<u8>)>) {
+		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
+		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+		reference_trie::compare_implementations_no_extension_q(data, memdb, hashdb);
 	}
 	fn compare_implementations_no_extension_prefixed(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();

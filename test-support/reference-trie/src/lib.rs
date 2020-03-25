@@ -40,6 +40,7 @@ pub use trie_db::{
 	NibbleSlice, NibbleVec, NodeCodec, proof, Record, Recorder,
 	Trie, TrieConfiguration, TrieDB, TrieDBIterator, TrieDBMut, TrieDBNodeIterator, TrieError,
 	TrieIterator, TrieLayout, TrieMut, ChildIndex, ChildIndex16, NibbleHalf, NibbleOps,
+	NibbleQuarter, ChildIndex4,
 };
 pub use trie_root::TrieStream;
 pub mod node {
@@ -91,6 +92,14 @@ pub type NoExtensionLayout = GenericNoExtensionLayout<
 	NibbleHalf,
 	ChildIndex16<ChildReference<<keccak_hasher::KeccakHasher as Hasher>::Out>>,
 	BitMap16,
+>;
+
+/// Trie layout without extension nodes.
+pub type NoExtensionLayoutQuarter = GenericNoExtensionLayout<
+	keccak_hasher::KeccakHasher,
+	NibbleQuarter,
+	ChildIndex4<ChildReference<<keccak_hasher::KeccakHasher as Hasher>::Out>>,
+	BitMap4,
 >;
 
 /// Children bitmap codec for radix 16 trie.
@@ -248,14 +257,17 @@ impl BitMap for BitMap2 {
 
 pub type RefTrieDB<'a> = trie_db::TrieDB<'a, ExtensionLayout>;
 pub type RefTrieDBNoExt<'a> = trie_db::TrieDB<'a, NoExtensionLayout>;
+pub type RefTrieDBNoExtQ<'a> = trie_db::TrieDB<'a, NoExtensionLayoutQuarter>;
 pub type RefTrieDBMut<'a> = trie_db::TrieDBMut<'a, ExtensionLayout>;
 pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMut<'a, NoExtensionLayout>;
+pub type RefTrieDBMutNoExtQ<'a> = trie_db::TrieDBMut<'a, NoExtensionLayoutQuarter>;
 pub type RefFatDB<'a> = trie_db::FatDB<'a, ExtensionLayout>;
 pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, ExtensionLayout>;
 pub type RefSecTrieDB<'a> = trie_db::SecTrieDB<'a, ExtensionLayout>;
 pub type RefSecTrieDBMut<'a> = trie_db::SecTrieDBMut<'a, ExtensionLayout>;
 pub type RefLookup<'a, Q> = trie_db::Lookup<'a, ExtensionLayout, Q>;
 pub type RefLookupNoExt<'a, Q> = trie_db::Lookup<'a, NoExtensionLayout, Q>;
+pub type RefLookupNoExtQ<'a, Q> = trie_db::Lookup<'a, NoExtensionLayoutQuarter, Q>;
 
 pub fn reference_trie_root<I, A, B>(input: I) -> <KeccakHasher as Hasher>::Out where
 	I: IntoIterator<Item = (A, B)>,
@@ -1276,6 +1288,56 @@ pub fn compare_implementations_no_extension(
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
 			let t = RefTrieDBNoExt::new(&db, &root_new).unwrap();
+			println!("{:?}", t);
+			for a in t.iter().unwrap() {
+				println!("a:{:?}", a);
+			}
+		}
+	}
+
+	assert_eq!(root, root_new);
+}
+
+/// Compare trie builder and in memory trie.
+/// This uses the variant without extension nodes.
+/// This uses a radix 4 trie.
+pub fn compare_implementations_no_extension_q(
+	data: Vec<(Vec<u8>, Vec<u8>)>,
+	mut memdb: impl hash_db::HashDB<KeccakHasher, DBValue>,
+	mut hashdb: impl hash_db::HashDB<KeccakHasher, DBValue>,
+) {
+	let root_new = {
+		let mut cb = TrieBuilder::new(&mut hashdb);
+		trie_visit::<NoExtensionLayoutQuarter, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		cb.root.unwrap_or(Default::default())
+	};
+	let root = {
+		let mut root = Default::default();
+		let mut t = RefTrieDBMutNoExtQ::new(&mut memdb, &mut root);
+		for i in 0..data.len() {
+			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
+		}
+		t.root().clone()
+	};
+	{
+		let db : &dyn hash_db::HashDB<_, _> = &memdb;
+		let t = RefTrieDBNoExtQ::new(&db, &root).unwrap();
+		println!("{:?}", t);
+	}
+
+	if root != root_new {
+		{
+			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
+			let t = RefTrieDBNoExtQ::new(&db, &root_new).unwrap();
+			println!("{:?}", t);
+			for a in t.iter().unwrap() {
+				println!("a:{:?}", a);
+			}
+		}
+
+		{
+			let db : &dyn hash_db::HashDB<_, _> = &memdb;
+			let t = RefTrieDBNoExtQ::new(&db, &root).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
