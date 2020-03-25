@@ -393,7 +393,7 @@ pub trait TrieLayout {
 	type Codec: NodeCodec<HashOut=TrieHash<Self>, Nibble=Self::Nibble>;
 
 	/// Array to use with `iter_build`.
-	type IterBuildCache: ChildIndex<ChildReference<TrieHash<Self>>>;
+	type ChildRefIndex: ChildIndex<ChildReference<TrieHash<Self>>>;
 	/// Array to use with `triedbmut`.
 	type NodeIndex: ChildIndex<triedbmut::NodeHandle<TrieHash<Self>>>;
 }

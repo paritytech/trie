@@ -54,7 +54,7 @@ impl TrieLayout for ExtensionLayout {
 	type Hash = KeccakHasher;
 	type Nibble = NibbleHalf;
 	type Codec = ReferenceNodeCodec<KeccakHasher, NibbleHalf>;
-	type IterBuildCache = ChildIndex16<ChildReference<TrieHash<Self>>>;
+	type ChildRefIndex = ChildIndex16<ChildReference<TrieHash<Self>>>;
 	type NodeIndex = ChildIndex16<NodeHandle<TrieHash<Self>>>;
 }
 
@@ -73,7 +73,7 @@ impl<
 	type Hash = H;
 	type Nibble = N;
 	type Codec = ReferenceNodeCodecNoExt<H, N>;
-	type IterBuildCache = ChildIndex16<ChildReference<<H as Hasher>::Out>>;
+	type ChildRefIndex = ChildIndex16<ChildReference<<H as Hasher>::Out>>;
 	type NodeIndex = ChildIndex16<NodeHandle<<H as Hasher>::Out>>;
 }
 

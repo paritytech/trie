@@ -1237,7 +1237,7 @@ where
 					Many,
 				};
 				let mut used_index = UsedIndex::None;
-				for i in 0..L::Nibble::NIBBLE_PER_BYTE {
+				for i in 0..L::Nibble::NIBBLE_LENGTH {
 					match (children.at(i).is_none(), &used_index) {
 						(false, &UsedIndex::None) => used_index = UsedIndex::One(i as u8),
 						(false, &UsedIndex::One(_)) => {

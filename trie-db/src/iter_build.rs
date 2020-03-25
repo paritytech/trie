@@ -27,7 +27,7 @@ use crate::{TrieLayout, TrieHash};
 
 type CacheNode<HO> = Option<ChildReference<HO>>;
 
-type ArrayNode<T> = <T as TrieLayout>::IterBuildCache;
+type ArrayNode<T> = <T as TrieLayout>::ChildRefIndex;
 
 /// Struct containing iteration cache, can be at most the length of the lowest nibble.
 ///

@@ -26,7 +26,6 @@
 //! trie.
 
 use hash_db::{HashDB};
-use crate::nibble::nibble_ops;
 use crate::nibble::NibbleOps;
 use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
@@ -110,17 +109,27 @@ impl<L: TrieLayout> EncoderStackEntry<L> {
 				}
 			}
 			NodePlan::Branch { value, children } => {
+				let mut result: Result<(), TrieHash<L>, CError<L>> = Ok(());
+				let result = &mut result;
+				let children = (0..L::Nibble::NIBBLE_LENGTH).map(|i| {
+					Self::branch_children(i, node_data, children, &self.omit_children, result)
+				});
 				L::Codec::branch_node(
-					Self::branch_children(node_data, children, &self.omit_children)?.iter(),
+					children,
 					value.clone().map(|range| &node_data[range])
 				)
 			}
 			NodePlan::NibbledBranch { partial, value, children } => {
 				let partial = partial.build(node_data);
+				let mut result: Result<(), TrieHash<L>, CError<L>> = Ok(());
+				let result = &mut result;
+				let children = (0..L::Nibble::NIBBLE_LENGTH).map(|i| {
+					Self::branch_children(i, node_data, children, &self.omit_children, result)
+				});
 				L::Codec::branch_node_nibbled(
 					partial.right_iter(),
 					partial.len(),
-					Self::branch_children(node_data, children, &self.omit_children)?.iter(),
+					children,
 					value.clone().map(|range| &node_data[range])
 				)
 			}
@@ -133,30 +142,33 @@ impl<L: TrieLayout> EncoderStackEntry<L> {
 	/// - omit_children has size NIBBLE_LENGTH.
 	/// - omit_children[i] is only true if child_handles[i] is Some
 	fn branch_children(
+		i: usize,
 		node_data: &[u8],
 		child_handles: &BranchChildrenNodePlan<TrieChildRangeIndex<L>>,
 		omit_children: &[bool],
-		// TODO EMCH the trait need some associated buffer
-	) -> Result<[Option<ChildReference<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH], TrieHash<L>, CError<L>>
+		result: &mut Result<(), TrieHash<L>, CError<L>>,
+	) -> Option<ChildReference<TrieHash<L>>>
 	{
 		let empty_child = ChildReference::Inline(TrieHash::<L>::default(), 0);
-		let mut children = [None; nibble_ops::NIBBLE_LENGTH];
-		for i in 0..nibble_ops::NIBBLE_LENGTH {
-			children[i] = if omit_children[i] {
-				Some(empty_child)
-			} else if let Some(child_plan) = &child_handles.at(i) {
-				let child_ref = child_plan
-					.build(node_data)
-					.try_into()
-					.map_err(|hash| Box::new(
-						TrieError::InvalidHash(TrieHash::<L>::default(), hash)
-					))?;
-				Some(child_ref)
-			} else {
-				None
-			};
+		if omit_children[i] {
+			Some(empty_child)
+		} else if let Some(child_plan) = &child_handles.at(i) {
+			let child_ref = child_plan
+				.build(node_data)
+				.try_into()
+				.map_err(|hash| Box::new(
+					TrieError::InvalidHash(TrieHash::<L>::default(), hash)
+				));
+			match child_ref {
+				Ok(child_ref) => Some(child_ref),
+				Err(e) => {
+					*result = Err(e);
+					None
+				},
+			}
+		} else {
+			None
 		}
-		Ok(children)
 	}
 }
 
