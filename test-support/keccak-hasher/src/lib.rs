@@ -15,6 +15,7 @@
 //! Hasher implementation for the Keccak-256 hash
 
 use hash_db::Hasher;
+use hash_db::HasherNullEmptyRoot;
 use tiny_keccak::Keccak;
 use hash256_std_hasher::Hash256StdHasher;
 
@@ -35,10 +36,25 @@ impl Hasher for KeccakHasher {
 	}
 }
 
+impl HasherNullEmptyRoot for KeccakHasher {
+	const EMPTY_ROOT: &'static [u8] = &[
+		188, 54, 120, 158, 122, 30, 40, 20, 54, 70,
+		66, 41, 130, 143, 129, 125, 102, 18, 247, 180,
+		119, 214, 101, 145, 255, 150, 169, 224, 100, 188,
+		201, 138,
+	];
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
 	use std::collections::HashMap;
+
+	#[test]
+	fn empty_root_const() {
+		use hash_db::test_associated_empty_root;
+		assert!(test_associated_empty_root::<KeccakHasher>());
+	}
 
 	#[test]
 	fn hash256_std_hasher_works() {
