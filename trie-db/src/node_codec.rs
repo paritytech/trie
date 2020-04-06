@@ -19,7 +19,7 @@ use crate::MaybeDebug;
 use crate::node::{Node, NodePlan};
 use crate::ChildReference;
 
-use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec, EmptyIter, ops::Range, marker::PhantomData, mem::replace};
+use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec, EmptyIter, ops::Range, marker::PhantomData};
 
 /// Representation of a nible slice (right aligned).
 /// It contains a right aligned padded first byte (first pair element is the number of nibbles
@@ -95,8 +95,6 @@ pub trait NodeCodecComplex: NodeCodec {
 	/// Sequence of hashes needed for the children proof verification.
 	type AdditionalHashesPlan: Iterator<Item = Range<usize>>;
 
-	/// `Decode_no_child`, returning an offset position if there is a common representation.
-	/// NodePlan do not include child (sized null).
 	/// TODO EMCH this is technical function for common implementation.
 	/// TODO document this damn bitmap!!!
 	fn decode_plan_proof(data: &[u8]) -> Result<(
@@ -115,57 +113,61 @@ pub trait NodeCodecComplex: NodeCodec {
 		Ok((plan.build(data), hashes))
 	}
 
-	/// Returns an encoded branch node.
+	/// Returns an encoded branch node, and additional information for getting the common
+	/// encoded part with the proof base encoding.
+	/// 
 	/// Takes an iterator yielding `ChildReference<Self::HashOut>` and an optional value.
-	fn branch_node_proof(
+	fn branch_node_common(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Option<&[u8]>,
 		register_children: &mut [Option<Range<usize>>],
-	) -> (Vec<u8>, EncodedNoChild);
+	) -> (Vec<u8>, EncodedCommon);
 
-	/// Returns an encoded branch node with a possible partial path.
+	/// Returns an encoded branch node with a possible partial path, and additional information
+	/// for getting the encoding without child common part.
 	/// `number_nibble` is the partial path length as in `extension_node`.
-	fn branch_node_nibbled_proof(
+	fn branch_node_nibbled_common(
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Option<&[u8]>,
 		register_children: &mut [Option<Range<usize>>],
-	) -> (Vec<u8>, EncodedNoChild);
+	) -> (Vec<u8>, EncodedCommon);
 }
 
 #[derive(Clone)]
-pub enum EncodedNoChild {
+pub enum EncodedCommon {
 	// not runing complex
 	Unused,
-	// range over the full encoded
+	// range over the encoded common part with the storage encoded
 	Range(Range<usize>),
 	// allocated in case we cannot use a range
-	Allocated(Vec<u8>),
+	NoCommonPart,
 }
 
-impl EncodedNoChild {
-	pub fn encoded_no_child<'a>(&'a self, encoded: &'a [u8]) -> &'a [u8] {
+impl EncodedCommon {
+	pub fn encoded_common<'a>(&'a self, encoded: &'a [u8]) -> &'a [u8] {
 		match self {
-			EncodedNoChild::Unused => encoded,
-			EncodedNoChild::Range(range) => &encoded[range.clone()],
-			EncodedNoChild::Allocated(data) => &data[..],
+			EncodedCommon::Unused => encoded,
+			EncodedCommon::Range(range) => &encoded[range.clone()],
+			EncodedCommon::NoCommonPart => &[],
 		}
 	}
 	// TODO this is bad we should produce a branch that does
 	// not include it in the first place (new encode fn with
 	// default impl using trim no child).
-	pub fn trim_no_child(self, encoded: &mut Vec<u8>) {
+	// TODO consider removal
+	pub fn trim_common(self, encoded: &mut Vec<u8>) {
 		match self {
-			EncodedNoChild::Unused => (),
-			EncodedNoChild::Range(range) => {
+			EncodedCommon::Unused => (),
+			EncodedCommon::Range(range) => {
 				encoded.truncate(range.end);
 				if range.start != 0 {
 					*encoded = encoded.split_off(range.start);
 				}
 			},
-			EncodedNoChild::Allocated(data) => {
-				replace(encoded, data);
+			EncodedCommon::NoCommonPart => {
+				*encoded = Vec::new();
 			},
 		}
 	}
@@ -187,7 +189,7 @@ pub trait HashDBComplexDyn<H: Hasher, T>: Send + Sync + HashDB<H, T> {
 		prefix: Prefix,
 		value: &[u8],
 		children: &[Option<Range<usize>>],
-		no_child: EncodedNoChild,
+		common: EncodedCommon,
 	) -> H::Out;
 }
 
@@ -197,7 +199,7 @@ impl<H: HasherComplex, T, C: HashDBComplex<H, T>> HashDBComplexDyn<H, T> for C {
 		prefix: Prefix,
 		value: &[u8],
 		children: &[Option<Range<usize>>],
-		no_child: EncodedNoChild,
+		common: EncodedCommon,
 	) -> H::Out {
 
 		// TODO factor this with iter_build (just use the trait)
@@ -211,7 +213,7 @@ impl<H: HasherComplex, T, C: HashDBComplex<H, T>> HashDBComplexDyn<H, T> for C {
 			self,
 			prefix,
 			value,
-			no_child.encoded_no_child(value),
+			common.encoded_common(value),
 			nb_children,
 			children,
 			EmptyIter::default(),

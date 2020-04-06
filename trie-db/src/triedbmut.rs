@@ -23,7 +23,7 @@ use crate::node_codec::HashDBComplexDyn;
 use hash_db::{Hasher, Prefix, EMPTY_PREFIX};
 use hashbrown::HashSet;
 
-use crate::node_codec::{NodeCodec, NodeCodecComplex, EncodedNoChild};
+use crate::node_codec::{NodeCodec, NodeCodecComplex, EncodedCommon};
 use crate::nibble::{NibbleVec, NibbleSlice, nibble_ops, BackingByteVec};
 use crate::rstd::{
 	boxed::Box, convert::TryFrom, hash::Hash, mem, ops::Index, result, vec::Vec, VecDeque,
@@ -209,16 +209,16 @@ where
 		self,
 		mut child_cb: F,
 		register_children: Option<&mut [Option<Range<usize>>]>,
-	) -> (Vec<u8>, EncodedNoChild) where
+	) -> (Vec<u8>, EncodedCommon) where
 		C: NodeCodecComplex<HashOut=O>,
 		F: FnMut(NodeHandle<H::Out>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
 		H: Hasher<Out = O>,
 	{
 		match self {
-			Node::Empty => (C::empty_node().to_vec(), EncodedNoChild::Unused),
+			Node::Empty => (C::empty_node().to_vec(), EncodedCommon::Unused),
 			Node::Leaf(partial, value) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
-				(C::leaf_node(pr.right(), &value), EncodedNoChild::Unused)
+				(C::leaf_node(pr.right(), &value), EncodedCommon::Unused)
 			},
 			Node::Extension(partial, child) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
@@ -228,7 +228,7 @@ where
 					it,
 					pr.len(),
 					c,
-				), EncodedNoChild::Unused)
+				), EncodedCommon::Unused)
 			},
 			Node::Branch(mut children, value) => {
 				// map the `NodeHandle`s from the Branch to `ChildReferences`
@@ -239,7 +239,7 @@ where
 						maybe_child.map(|child| child_cb(child, None, Some(i as u8)))
 					});
 				if let Some(register_children) = register_children {
-					C::branch_node_proof(
+					C::branch_node_common(
 						// map the `NodeHandle`s from the Branch to `ChildReferences`
 						children,
 						value.as_ref().map(|v| &v[..]),
@@ -249,7 +249,7 @@ where
 					(C::branch_node(
 						children,
 						value.as_ref().map(|v| &v[..]),
-					), EncodedNoChild::Unused)
+					), EncodedCommon::Unused)
 				}
 			},
 			Node::NibbledBranch(partial, mut children, value) => {
@@ -268,7 +268,7 @@ where
 					});
 
 				if let Some(register_children) = register_children {
-					C::branch_node_nibbled_proof(
+					C::branch_node_nibbled_common(
 						it,
 						pr.len(),
 						children,
@@ -281,7 +281,7 @@ where
 						pr.len(),
 						children,
 						value.as_ref().map(|v| &v[..]),
-					), EncodedNoChild::Unused)
+					), EncodedCommon::Unused)
 				}
 			},
 		}

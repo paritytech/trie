@@ -17,7 +17,7 @@ use crate::rstd::{
 };
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH,
-	node::{Node, NodeHandle}, NodeCodecComplex, TrieHash, TrieLayout, EncodedNoChild,
+	node::{Node, NodeHandle}, NodeCodecComplex, TrieHash, TrieLayout, EncodedCommon,
 };
 use hash_db::Hasher;
 use ordered_trie::{BinaryHasher, HasherComplex};
@@ -149,11 +149,11 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 	}
 
 	/// Encode this entry to an encoded trie node with data properly reconstructed.
-	fn encode_node(&mut self) -> Result<(Vec<u8>, EncodedNoChild), Error<C::HashOut, C::Error>> {
+	fn encode_node(&mut self) -> Result<(Vec<u8>, EncodedCommon), Error<C::HashOut, C::Error>> {
 		self.complete_children()?;
 		Ok(match self.node {
 			Node::Empty =>
-				(C::empty_node().to_vec(), EncodedNoChild::Unused),
+				(C::empty_node().to_vec(), EncodedCommon::Unused),
 			Node::Leaf(partial, _) => {
 				let value = self.value
 					.expect(
@@ -161,7 +161,7 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 						value is only ever reassigned in the ValueMatch::MatchesLeaf match \
 						clause, which assigns only to Some"
 					);
-				(C::leaf_node(partial.right(), value), EncodedNoChild::Unused)
+				(C::leaf_node(partial.right(), value), EncodedCommon::Unused)
 			}
 			Node::Extension(partial, _) => {
 				let child = self.children[0]
@@ -170,12 +170,12 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 					partial.right_iter(),
 					partial.len(),
 					child
-				), EncodedNoChild::Unused)
+				), EncodedCommon::Unused)
 			}
 			Node::Branch(_, _) => {
 				let mut register_children: [Option<_>; NIBBLE_LENGTH] = Default::default();
 				let register_children = &mut register_children[..];
-				C::branch_node_proof(
+				C::branch_node_common(
 					self.children.iter(),
 					self.value,
 					register_children, // TODO unused register result
@@ -184,7 +184,7 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 			Node::NibbledBranch(partial, _, _) => {
 				let mut register_children: [Option<_>; NIBBLE_LENGTH] = Default::default();
 				let register_children = &mut register_children[..];
-				C::branch_node_nibbled_proof(
+				C::branch_node_nibbled_common(
 					partial.right_iter(),
 					partial.len(),
 					self.children.iter(),
@@ -471,7 +471,7 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 			}
 			Step::UnwindStack => {
 				let is_inline = last_entry.is_inline;
-				let (node_data, no_child) = last_entry.encode_node()?;
+				let (node_data, common) = last_entry.encode_node()?;
 
 				let child_ref = if is_inline {
 					if node_data.len() > L::Hash::LENGTH {
@@ -501,7 +501,7 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 							});
 
 						if let Some(h) = L::Hash::hash_complex(
-							&no_child.encoded_no_child(node_data.as_slice())[..],
+							&common.encoded_common(node_data.as_slice())[..],
 							nb_children,
 							children,
 							additional_hash.into_iter(),

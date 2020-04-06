@@ -31,7 +31,7 @@ use crate::{
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout, NodeCodecComplex,
 	nibble_ops::NIBBLE_LENGTH, node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode},
 };
-use crate::node_codec::{Bitmap, EncodedNoChild};
+use crate::node_codec::{Bitmap, EncodedCommon};
 use crate::rstd::{
 	boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec, vec::Vec,
 	ops::Range,
@@ -126,8 +126,8 @@ impl<C: NodeCodecComplex> EncoderStackEntry<C> {
 				} else {
 					(Self::branch_children(node_data, &children, &self.omit_children[..])?, None)
 				};
-				let (mut result, no_child) = if let Some(complex) = complex {
-					C::branch_node_proof(
+				let (mut result, common) = if let Some(complex) = complex {
+					C::branch_node_common(
 						children.iter(),
 						value.clone().map(|range| &node_data[range]),
 						complex,
@@ -136,10 +136,10 @@ impl<C: NodeCodecComplex> EncoderStackEntry<C> {
 					(C::branch_node(
 						children.iter(),
 						value.clone().map(|range| &node_data[range]),
-					), EncodedNoChild::Unused)
+					), EncodedCommon::Unused)
 				};
 				if complex_hash {
-					no_child.trim_no_child(&mut result);
+					common.trim_common(&mut result);
 					let bitmap_start = result.len();
 					result.push(0u8);
 					result.push(0u8);
@@ -178,8 +178,8 @@ impl<C: NodeCodecComplex> EncoderStackEntry<C> {
 					(Self::branch_children(node_data, &children, &self.omit_children[..])?, None)
 				};
 				let partial = partial.build(node_data);
-				let (mut result, no_child) = if let Some(complex) = complex {
-					C::branch_node_nibbled_proof(
+				let (mut result, common) = if let Some(complex) = complex {
+					C::branch_node_nibbled_common(
 						partial.right_iter(),
 						partial.len(),
 						children.iter(),
@@ -192,10 +192,10 @@ impl<C: NodeCodecComplex> EncoderStackEntry<C> {
 						partial.len(),
 						children.iter(),
 						value.clone().map(|range| &node_data[range]),
-					), EncodedNoChild::Unused)
+					), EncodedCommon::Unused)
 				};
 				if complex_hash {
-					no_child.trim_no_child(&mut result);
+					common.trim_common(&mut result);
 					let bitmap_start = result.len();
 					result.push(0u8);
 					result.push(0u8);
@@ -474,21 +474,21 @@ impl<'a, C: NodeCodecComplex, F> DecoderStackEntry<'a, C, F> {
 	///
 	/// Preconditions:
 	/// - if node is an extension node, then `children[0]` is Some.
-	fn encode_node(self, register_children: Option<&mut [Option<Range<usize>>]>) -> (Vec<u8>, EncodedNoChild) {
+	fn encode_node(self, register_children: Option<&mut [Option<Range<usize>>]>) -> (Vec<u8>, EncodedCommon) {
 		match self.node {
 			Node::Empty =>
-				(C::empty_node().to_vec(), EncodedNoChild::Unused),
+				(C::empty_node().to_vec(), EncodedCommon::Unused),
 			Node::Leaf(partial, value) =>
-				(C::leaf_node(partial.right(), value), EncodedNoChild::Unused),
+				(C::leaf_node(partial.right(), value), EncodedCommon::Unused),
 			Node::Extension(partial, _) =>
 				(C::extension_node(
 					partial.right_iter(),
 					partial.len(),
 					self.children[0]
 						.expect("required by method precondition; qed"),
-				), EncodedNoChild::Unused),
+				), EncodedCommon::Unused),
 			Node::Branch(_, value) => if let Some(register_children) = register_children {
-				C::branch_node_proof(
+				C::branch_node_common(
 					self.children.into_iter(),
 					value,
 					register_children,
@@ -497,10 +497,10 @@ impl<'a, C: NodeCodecComplex, F> DecoderStackEntry<'a, C, F> {
 				(C::branch_node(
 					self.children.into_iter(),
 					value,
-				), EncodedNoChild::Unused)
+				), EncodedCommon::Unused)
 			},
 			Node::NibbledBranch(partial, _, value) => if let Some(register_children) = register_children {
-				C::branch_node_nibbled_proof(
+				C::branch_node_nibbled_common(
 					partial.right_iter(),
 					partial.len(),
 					self.children.iter(),
@@ -513,7 +513,7 @@ impl<'a, C: NodeCodecComplex, F> DecoderStackEntry<'a, C, F> {
 					partial.len(),
 					self.children.iter(),
 					value,
-				), EncodedNoChild::Unused)
+				), EncodedCommon::Unused)
 			},
 		}
 	}
@@ -585,7 +585,7 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 			let complex = last_entry.complex.take();
 			// Since `advance_child_index` returned true, the preconditions for `encode_node` are
 			// satisfied.
-			let (node_data, no_child) = last_entry.encode_node(register_children.as_mut().map(|r| r.as_mut()));
+			let (node_data, common) = last_entry.encode_node(register_children.as_mut().map(|r| r.as_mut()));
 			let node_hash = if let Some((bitmap_keys, additional_hashes)) = complex {
 				let children = register_children.expect("Set to some if complex");
 				let nb_children = children.iter().filter(|v| v.is_some()).count();
@@ -607,7 +607,7 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 				db.insert_complex(
 					prefix.as_prefix(),
 					&node_data[..],
-					no_child.encoded_no_child(&node_data[..]),
+					common.encoded_common(&node_data[..]),
 					nb_children,
 					children,
 					additional_hashes,

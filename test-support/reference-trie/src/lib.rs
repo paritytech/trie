@@ -30,7 +30,7 @@ use trie_db::{
 	TrieRootComplex,
 	Partial,
 	BinaryHasher,
-	EncodedNoChild,
+	EncodedCommon,
 	HashesPlan,
 };
 use std::borrow::Borrow;
@@ -765,7 +765,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
 	) -> Vec<u8> {
-		Self::branch_node_internal(children, maybe_value, None).0
+		Self::branch_node_internal(children, maybe_value, None, true).0
 	}
 
 	fn branch_node_nibbled(
@@ -787,21 +787,21 @@ impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodec<H> {
 		decode_plan_proof_internal(data, offset, node, H::LENGTH)
 	}
 
-	fn branch_node_proof(
+	fn branch_node_common(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
 		register_children: &mut [Option<Range<usize>>],
-	) -> (Vec<u8>, EncodedNoChild) {
-		Self::branch_node_internal(children, maybe_value, Some(register_children))
+	) -> (Vec<u8>, EncodedCommon) {
+		Self::branch_node_internal(children, maybe_value, Some(register_children), true)
 	}
 
-	fn branch_node_nibbled_proof(
+	fn branch_node_nibbled_common(
 		_partial:	impl Iterator<Item = u8>,
 		_number_nibble: usize,
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		_maybe_value: Option<&[u8]>,
 		_register_children: &mut [Option<Range<usize>>],
-	) -> (Vec<u8>, EncodedNoChild) {
+	) -> (Vec<u8>, EncodedCommon) {
 		unreachable!()
 	}
 }
@@ -811,7 +811,8 @@ impl<H: Hasher> ReferenceNodeCodec<H> {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<Self as NodeCodec>::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
 		mut register_children: Option<&mut [Option<Range<usize>>]>,
-	) -> (Vec<u8>, EncodedNoChild) {
+		encode_children: bool,
+	) -> (Vec<u8>, EncodedCommon) {
 		let mut output = vec![0; BITMAP_LENGTH + 1];
 		let mut prefix: [u8; 3] = [0; 3];
 		let have_value = if let Some(value) = maybe_value {
@@ -824,14 +825,16 @@ impl<H: Hasher> ReferenceNodeCodec<H> {
 		let ix = &mut ix;
 		let mut register_children = register_children.as_mut();
 		let register_children = &mut register_children;
-		let no_child = if register_children.is_some() {
-			EncodedNoChild::Range(Range {
+		let common = if encode_children && register_children.is_some() {
+			EncodedCommon::Range(Range {
 				start: 0,
 				end: output.len(),
 			})
 		} else {
-			EncodedNoChild::Unused
+			EncodedCommon::Unused
 		};
+
+		let mut child_ix = output.len();
 		let has_children = children.map(|maybe_child| match maybe_child.borrow() {
 			Some(ChildReference::Hash(h)) => {
 				if let Some(ranges) = register_children {
@@ -839,24 +842,30 @@ impl<H: Hasher> ReferenceNodeCodec<H> {
 					// case for reasonable hash length.
 					let encode_size_offset = 1;
 					ranges[*ix] = Some(Range {
-						start: output.len() + encode_size_offset,
-						end: output.len() + encode_size_offset + h.as_ref().len(),
+						start: child_ix + encode_size_offset,
+						end: child_ix + encode_size_offset + h.as_ref().len(),
 					});
+					child_ix += encode_size_offset + h.as_ref().len();
 					*ix += 1;
 				}
-				h.as_ref().encode_to(&mut output);
+				if encode_children {
+					h.as_ref().encode_to(&mut output);
+				}
 				true
 			}
 			&Some(ChildReference::Inline(inline_data, len)) => {
 				if let Some(ranges) = register_children {
 					let encode_size_offset = 1;
 					ranges[*ix] = Some(Range {
-						start: output.len() + encode_size_offset,
-						end: output.len() + encode_size_offset + len,
+						start: child_ix + encode_size_offset,
+						end: child_ix + encode_size_offset + len,
 					});
+					child_ix += encode_size_offset + len;
 					*ix += 1;
 				}
-				inline_data.as_ref()[..len].encode_to(&mut output);
+				if encode_children {
+					inline_data.as_ref()[..len].encode_to(&mut output);
+				}
 				true
 			}
 			None => {
@@ -868,7 +877,7 @@ impl<H: Hasher> ReferenceNodeCodec<H> {
 		});
 		branch_node_buffered(have_value, has_children, prefix.as_mut());
 		output[0..BITMAP_LENGTH + 1].copy_from_slice(prefix.as_ref());
-		(output, no_child)
+		(output, common)
 	}
 }
 
@@ -1040,7 +1049,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
 	) -> Vec<u8> {
-		Self::branch_node_nibbled_internal(partial, number_nibble, children, maybe_value, None).0
+		Self::branch_node_nibbled_internal(partial, number_nibble, children, maybe_value, None, true).0
 	}
 }
 
@@ -1051,7 +1060,8 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<Self as NodeCodec>::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
 		mut register_children: Option<&mut [Option<Range<usize>>]>,
-	) -> (Vec<u8>, EncodedNoChild) {
+		encode_children: bool,
+	) -> (Vec<u8>, EncodedCommon) {
 		let mut output = if maybe_value.is_some() {
 			partial_from_iterator_encode(
 				partial,
@@ -1075,14 +1085,16 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 		let ix = &mut ix;
 		let mut register_children = register_children.as_mut();
 		let register_children = &mut register_children;
-		let no_child = if register_children.is_some() {
-			EncodedNoChild::Range(Range {
+		let common = if encode_children && register_children.is_some() {
+			EncodedCommon::Range(Range {
 				start: 0,
 				end: output.len(),
 			})
 		} else {
-			EncodedNoChild::Unused
+			EncodedCommon::Unused
 		};
+
+		let mut child_ix = output.len();
 		Bitmap::encode(children.map(|maybe_child| match maybe_child.borrow() {
 			Some(ChildReference::Hash(h)) => {
 				if let Some(ranges) = register_children {
@@ -1090,24 +1102,30 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 					// case for reasonable hash length.
 					let encode_size_offset = 1;
 					ranges[*ix] = Some(Range {
-						start: output.len() + encode_size_offset,
-						end: output.len() + encode_size_offset + h.as_ref().len(),
+						start: child_ix + encode_size_offset,
+						end: child_ix + encode_size_offset + h.as_ref().len(),
 					});
+					child_ix += encode_size_offset + h.as_ref().len();
 					*ix += 1;
 				}
-				h.as_ref().encode_to(&mut output);
+				if encode_children {
+					h.as_ref().encode_to(&mut output);
+				}
 				true
 			}
 			&Some(ChildReference::Inline(inline_data, len)) => {
 				if let Some(ranges) = register_children {
 					let encode_size_offset = 1;
 					ranges[*ix] = Some(Range {
-						start: output.len() + encode_size_offset,
-						end: output.len() + encode_size_offset + len,
+						start: child_ix + encode_size_offset,
+						end: child_ix + encode_size_offset + len,
 					});
+					child_ix += encode_size_offset + len;
 					*ix += 1;
 				}
-				inline_data.as_ref()[..len].encode_to(&mut output);
+				if encode_children {
+					inline_data.as_ref()[..len].encode_to(&mut output);
+				}
 				true
 			}
 			None => {
@@ -1119,7 +1137,7 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 		}), bitmap.as_mut());
 		output[bitmap_index..bitmap_index + BITMAP_LENGTH]
 			.copy_from_slice(&bitmap.as_ref()[..BITMAP_LENGTH]);
-		(output, no_child)
+		(output, common)
 	}
 }
 
@@ -1131,22 +1149,22 @@ impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodecNoExt<H> {
 		decode_plan_proof_internal(data, offset, node, H::LENGTH)
 	}
 
-	fn branch_node_proof(
+	fn branch_node_common(
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		_maybe_value: Option<&[u8]>,
 		_register_children: &mut [Option<Range<usize>>],
-	) -> (Vec<u8>, EncodedNoChild) {
+	) -> (Vec<u8>, EncodedCommon) {
 		unreachable!()
 	}
 
-	fn branch_node_nibbled_proof(
+	fn branch_node_nibbled_common(
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
 		register_children: &mut [Option<Range<usize>>],
-	) -> (Vec<u8>, EncodedNoChild) {
-		Self::branch_node_nibbled_internal(partial, number_nibble, children, maybe_value, Some(register_children))
+	) -> (Vec<u8>, EncodedCommon) {
+		Self::branch_node_nibbled_internal(partial, number_nibble, children, maybe_value, Some(register_children), true)
 	}
 }
 
