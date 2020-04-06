@@ -804,6 +804,22 @@ impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodec<H> {
 	) -> (Vec<u8>, EncodedCommon) {
 		unreachable!()
 	}
+
+	fn branch_node_for_hash(
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		maybe_value: Option<&[u8]>,
+	) -> Vec<u8> {
+		Self::branch_node_internal(children, maybe_value, None, false).0
+	}
+
+	fn branch_node_nibbled_for_hash(
+		_partial:	impl Iterator<Item = u8>,
+		_number_nibble: usize,
+		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		_maybe_value: Option<&[u8]>,
+	) -> Vec<u8> {
+		unreachable!()
+	}
 }
 
 impl<H: Hasher> ReferenceNodeCodec<H> {
@@ -1164,7 +1180,37 @@ impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodecNoExt<H> {
 		maybe_value: Option<&[u8]>,
 		register_children: &mut [Option<Range<usize>>],
 	) -> (Vec<u8>, EncodedCommon) {
-		Self::branch_node_nibbled_internal(partial, number_nibble, children, maybe_value, Some(register_children), true)
+		Self::branch_node_nibbled_internal(
+			partial,
+			number_nibble,
+			children,
+			maybe_value,
+			Some(register_children),
+			true,
+		)
+	}
+
+	fn branch_node_for_hash(
+		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
+		_maybe_value: Option<&[u8]>,
+	) -> Vec<u8> {
+		unreachable!()
+	}
+
+	fn branch_node_nibbled_for_hash(
+		partial: impl Iterator<Item = u8>,
+		number_nibble: usize,
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		maybe_value: Option<&[u8]>,
+	) -> Vec<u8> {
+		Self::branch_node_nibbled_internal(
+			partial,
+			number_nibble,
+			children,
+			maybe_value,
+			None,
+			false,
+		).0
 	}
 }
 

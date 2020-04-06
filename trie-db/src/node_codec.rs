@@ -113,19 +113,20 @@ pub trait NodeCodecComplex: NodeCodec {
 		Ok((plan.build(data), hashes))
 	}
 
-	/// Returns an encoded branch node, and additional information for getting the common
-	/// encoded part with the proof base encoding.
+	/// Returns branch node encoded for storage, and additional information for hash calculation.
 	/// 
-	/// Takes an iterator yielding `ChildReference<Self::HashOut>` and an optional value.
+	/// Takes an iterator yielding `ChildReference<Self::HashOut>` and an optional value
+	/// as input, the third input is an output container needed for hash calculation.
 	fn branch_node_common(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Option<&[u8]>,
 		register_children: &mut [Option<Range<usize>>],
 	) -> (Vec<u8>, EncodedCommon);
 
-	/// Returns an encoded branch node with a possible partial path, and additional information
-	/// for getting the encoding without child common part.
-	/// `number_nibble` is the partial path length as in `extension_node`.
+	/// Variant of `branch_node_common` but with a nibble.
+	///
+	/// `number_nibble` is the partial path length, it replaces the one
+	/// use by `extension_node`.
 	fn branch_node_nibbled_common(
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
@@ -133,16 +134,45 @@ pub trait NodeCodecComplex: NodeCodec {
 		value: Option<&[u8]>,
 		register_children: &mut [Option<Range<usize>>],
 	) -> (Vec<u8>, EncodedCommon);
+
+	/// Returns branch node encoded information for hash.
+	/// Result is the same as `branch_node_common().1.encoded_common(branch_node_common().0`.
+	fn branch_node_for_hash(
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		value: Option<&[u8]>,
+	) -> Vec<u8>;
+
+	/// Variant of `branch_node_for_hash` but with a nibble.
+	fn branch_node_nibbled_for_hash(
+		partial: impl Iterator<Item = u8>,
+		number_nibble: usize,
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		value: Option<&[u8]>,
+	) -> Vec<u8>;
+
+	/// Build compact proof encoding from branch info.
+	fn proof_compact_encoded(
+		branch_basis: Vec<u8>,
+		number_nibble: usize,
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		value: Option<&[u8]>,
+		register_children: &[Option<Range<usize>>],
+	) -> Vec<u8> {
+		unimplemented!("TODO factor this code!!(look for _for_hash current calls)")
+	}
 }
 
+/// Information to fetch bytes that needs to be include when calculating a node hash.
+/// The node hash is the hash of these information and the merkle root of its children.
+/// TODO EMCH rename to BranchHashInfo
 #[derive(Clone)]
 pub enum EncodedCommon {
-	// not runing complex
+	/// No need for complex hash. TODO EMCH see if still used.
 	Unused,
-	// range over the encoded common part with the storage encoded
+	/// Range over the branch encoded for storage.
 	Range(Range<usize>),
-	// allocated in case we cannot use a range
-	NoCommonPart,
+	/// Allocated in case we cannot use a range.
+	Allocated(Vec<u8>),
 }
 
 impl EncodedCommon {
@@ -150,7 +180,7 @@ impl EncodedCommon {
 		match self {
 			EncodedCommon::Unused => encoded,
 			EncodedCommon::Range(range) => &encoded[range.clone()],
-			EncodedCommon::NoCommonPart => &[],
+			EncodedCommon::Allocated(buff) => &buff[..],
 		}
 	}
 	// TODO this is bad we should produce a branch that does
@@ -166,8 +196,8 @@ impl EncodedCommon {
 					*encoded = encoded.split_off(range.start);
 				}
 			},
-			EncodedCommon::NoCommonPart => {
-				*encoded = Vec::new();
+			EncodedCommon::Allocated(buf) => {
+				*encoded = buf;
 			},
 		}
 	}

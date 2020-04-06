@@ -118,14 +118,10 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 					&mut self.children,
 				)?;
 				if !self.is_inline && complex {
-					let mut register_children: [Option<_>; NIBBLE_LENGTH] = Default::default();
-					let register_children = &mut register_children[..];
-					let (mut result, common) = C::branch_node_common(
+					let mut result = C::branch_node_for_hash(
 						self.children.iter(),
 						value_with_omission(node_data, value, self.omit_value),
-						register_children,
 					);
-					common.trim_common(&mut result);
 					let bitmap_start = result.len();
 					result.push(0u8);
 					result.push(0u8);
@@ -171,16 +167,12 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 				)?;
 				if !self.is_inline && complex {
 					// TODO factor with non nibbled!!
-					let mut register_children: [Option<_>; NIBBLE_LENGTH] = Default::default();
-					let register_children = &mut register_children[..];
-					let (mut result, common) = C::branch_node_nibbled_common(
+					let mut result = C::branch_node_nibbled_for_hash(
 						partial.right_iter(),
 						partial.len(),
 						self.children.iter(),
 						value_with_omission(node_data, value, self.omit_value),
-						register_children,
 					);
-					common.trim_common(&mut result);
 					let bitmap_start = result.len();
 					result.push(0u8);
 					result.push(0u8);

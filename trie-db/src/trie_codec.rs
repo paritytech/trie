@@ -118,28 +118,24 @@ impl<C: NodeCodecComplex> EncoderStackEntry<C> {
 				}
 			}
 			NodePlan::Branch { value, children } => {
-				let mut register: [Option<_>; NIBBLE_LENGTH]; // TODO unused register
-				let (children, complex) = if complex_hash {
+				let children = if complex_hash {
 					let no_omit = [false; NIBBLE_LENGTH];
-					register = Default::default();
-					(Self::branch_children(node_data, &children, &no_omit[..])?, Some(&mut register[..]))
+					Self::branch_children(node_data, &children, &no_omit[..])?
 				} else {
-					(Self::branch_children(node_data, &children, &self.omit_children[..])?, None)
+					Self::branch_children(node_data, &children, &self.omit_children[..])?
 				};
-				let (mut result, common) = if let Some(complex) = complex {
-					C::branch_node_common(
+				let mut result = if complex_hash {
+					C::branch_node_for_hash(
 						children.iter(),
 						value.clone().map(|range| &node_data[range]),
-						complex,
 					)
 				} else {
-					(C::branch_node(
+					C::branch_node(
 						children.iter(),
 						value.clone().map(|range| &node_data[range]),
-					), EncodedCommon::Unused)
+					)
 				};
 				if complex_hash {
-					common.trim_common(&mut result);
 					let bitmap_start = result.len();
 					result.push(0u8);
 					result.push(0u8);
@@ -169,33 +165,29 @@ impl<C: NodeCodecComplex> EncoderStackEntry<C> {
 				result
 			}
 			NodePlan::NibbledBranch { partial, value, children } => {
-				let mut register: [Option<_>; NIBBLE_LENGTH]; // TODO unused register
-				let (children, complex) = if complex_hash {
+				let children = if complex_hash {
 					let no_omit = [false; NIBBLE_LENGTH];
-					register = Default::default();
-					(Self::branch_children(node_data, &children, &no_omit[..])?, Some(&mut register[..]))
+					Self::branch_children(node_data, &children, &no_omit[..])?
 				} else {
-					(Self::branch_children(node_data, &children, &self.omit_children[..])?, None)
+					Self::branch_children(node_data, &children, &self.omit_children[..])?
 				};
 				let partial = partial.build(node_data);
-				let (mut result, common) = if let Some(complex) = complex {
-					C::branch_node_nibbled_common(
+				let mut result = if complex_hash {
+					C::branch_node_nibbled_for_hash(
 						partial.right_iter(),
 						partial.len(),
 						children.iter(),
 						value.clone().map(|range| &node_data[range]),
-						complex,
 					)
 				} else {
-					(C::branch_node_nibbled(
+					C::branch_node_nibbled(
 						partial.right_iter(),
 						partial.len(),
 						children.iter(),
 						value.clone().map(|range| &node_data[range]),
-					), EncodedCommon::Unused)
+					)
 				};
 				if complex_hash {
-					common.trim_common(&mut result);
 					let bitmap_start = result.len();
 					result.push(0u8);
 					result.push(0u8);
