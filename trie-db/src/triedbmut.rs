@@ -23,7 +23,7 @@ use crate::node_codec::HashDBComplexDyn;
 use hash_db::{Hasher, Prefix, EMPTY_PREFIX};
 use hashbrown::HashSet;
 
-use crate::node_codec::{NodeCodec, EncodedNoChild};
+use crate::node_codec::{NodeCodec, NodeCodecComplex, EncodedNoChild};
 use crate::nibble::{NibbleVec, NibbleSlice, nibble_ops, BackingByteVec};
 use crate::rstd::{
 	boxed::Box, convert::TryFrom, hash::Hash, mem, ops::Index, result, vec::Vec, VecDeque,
@@ -210,7 +210,7 @@ where
 		mut child_cb: F,
 		register_children: Option<&mut [Option<Range<usize>>]>,
 	) -> (Vec<u8>, EncodedNoChild) where
-		C: NodeCodec<HashOut=O>,
+		C: NodeCodecComplex<HashOut=O>,
 		F: FnMut(NodeHandle<H::Out>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
 		H: Hasher<Out = O>,
 	{
@@ -231,38 +231,58 @@ where
 				), EncodedNoChild::Unused)
 			},
 			Node::Branch(mut children, value) => {
-				C::branch_node(
-					// map the `NodeHandle`s from the Branch to `ChildReferences`
-					children.iter_mut()
-						.map(Option::take)
-						.enumerate()
-						.map(|(i, maybe_child)| {
-							maybe_child.map(|child| child_cb(child, None, Some(i as u8)))
-						}),
-					value.as_ref().map(|v| &v[..]),
-					register_children,
-				)
+				// map the `NodeHandle`s from the Branch to `ChildReferences`
+				let children = children.iter_mut()
+					.map(Option::take)
+					.enumerate()
+					.map(|(i, maybe_child)| {
+						maybe_child.map(|child| child_cb(child, None, Some(i as u8)))
+					});
+				if let Some(register_children) = register_children {
+					C::branch_node_proof(
+						// map the `NodeHandle`s from the Branch to `ChildReferences`
+						children,
+						value.as_ref().map(|v| &v[..]),
+						register_children,
+					)
+				} else {
+					(C::branch_node(
+						children,
+						value.as_ref().map(|v| &v[..]),
+					), EncodedNoChild::Unused)
+				}
 			},
 			Node::NibbledBranch(partial, mut children, value) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
-				C::branch_node_nibbled(
-					it,
-					pr.len(),
-					// map the `NodeHandle`s from the Branch to `ChildReferences`
-					children.iter_mut()
-						.map(Option::take)
-						.enumerate()
-						.map(|(i, maybe_child)| {
-							//let branch_index = [i as u8];
-							maybe_child.map(|child| {
-								let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
-								child_cb(child, Some(&pr), Some(i as u8))
-							})
-						}),
-					value.as_ref().map(|v| &v[..]),
-					register_children,
-				)
+				// map the `NodeHandle`s from the Branch to `ChildReferences`
+				let children = children.iter_mut()
+					.map(Option::take)
+					.enumerate()
+					.map(|(i, maybe_child)| {
+						//let branch_index = [i as u8];
+						maybe_child.map(|child| {
+							let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
+							child_cb(child, Some(&pr), Some(i as u8))
+						})
+					});
+
+				if let Some(register_children) = register_children {
+					C::branch_node_nibbled_proof(
+						it,
+						pr.len(),
+						children,
+						value.as_ref().map(|v| &v[..]),
+						register_children,
+					)
+				} else {
+					(C::branch_node_nibbled(
+						it,
+						pr.len(),
+						children,
+						value.as_ref().map(|v| &v[..]),
+					), EncodedNoChild::Unused)
+				}
 			},
 		}
 	}

@@ -73,8 +73,7 @@ pub trait NodeCodec: Sized {
 	fn branch_node(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Option<&[u8]>,
-		register_children: Option<&mut [Option<Range<usize>>]>,
-	) -> (Vec<u8>, EncodedNoChild);
+	) -> Vec<u8>;
 
 	/// Returns an encoded branch node with a possible partial path.
 	/// `number_nibble` is the partial path length as in `extension_node`.
@@ -82,9 +81,8 @@ pub trait NodeCodec: Sized {
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		value: Option<&[u8]>,
-		register_children: Option<&mut [Option<Range<usize>>]>,
-	) -> (Vec<u8>, EncodedNoChild);
+		value: Option<&[u8]>
+	) -> Vec<u8>;
 }
 
 /// Trait for handling complex proof.
@@ -116,6 +114,24 @@ pub trait NodeCodecComplex: NodeCodec {
 		let hashes = hashes.map(|(bitmap, hashes)| (bitmap, HashesIter::new(data, hashes)));
 		Ok((plan.build(data), hashes))
 	}
+
+	/// Returns an encoded branch node.
+	/// Takes an iterator yielding `ChildReference<Self::HashOut>` and an optional value.
+	fn branch_node_proof(
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		value: Option<&[u8]>,
+		register_children: &mut [Option<Range<usize>>],
+	) -> (Vec<u8>, EncodedNoChild);
+
+	/// Returns an encoded branch node with a possible partial path.
+	/// `number_nibble` is the partial path length as in `extension_node`.
+	fn branch_node_nibbled_proof(
+		partial: impl Iterator<Item = u8>,
+		number_nibble: usize,
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		value: Option<&[u8]>,
+		register_children: &mut [Option<Range<usize>>],
+	) -> (Vec<u8>, EncodedNoChild);
 }
 
 #[derive(Clone)]

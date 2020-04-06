@@ -24,7 +24,7 @@ use crate::node_codec::Bitmap;
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH, NibbleSlice, node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode}, NodeCodec, Recorder,
 	Result as TrieResult, Trie, TrieError, TrieHash,
-	TrieLayout,
+	TrieLayout, NodeCodecComplex,
 };
 use ordered_trie::BinaryHasher;
 
@@ -47,7 +47,7 @@ struct StackEntry<'a, C: NodeCodec, H> {
 	_marker: PhantomData<(C, H)>,
 }
 
-impl<'a, C: NodeCodec, H: BinaryHasher> StackEntry<'a, C, H>
+impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 	where
 		H: BinaryHasher<Out = C::HashOut>,
 {
@@ -120,10 +120,10 @@ impl<'a, C: NodeCodec, H: BinaryHasher> StackEntry<'a, C, H>
 				if !self.is_inline && complex {
 					let mut register_children: [Option<_>; NIBBLE_LENGTH] = Default::default();
 					let register_children = &mut register_children[..];
-					let (mut result, no_child) = C::branch_node(
+					let (mut result, no_child) = C::branch_node_proof(
 						self.children.iter(),
 						value_with_omission(node_data, value, self.omit_value),
-						Some(register_children),
+						register_children,
 					);
 					no_child.trim_no_child(&mut result);
 					let bitmap_start = result.len();
@@ -158,8 +158,7 @@ impl<'a, C: NodeCodec, H: BinaryHasher> StackEntry<'a, C, H>
 					C::branch_node(
 						self.children.into_iter(),
 						value_with_omission(node_data, value, self.omit_value),
-						None, // TODO allow complex here
-					).0
+					)
 				}
 			},
 			NodePlan::NibbledBranch { partial: partial_plan, value, children } => {
@@ -174,12 +173,12 @@ impl<'a, C: NodeCodec, H: BinaryHasher> StackEntry<'a, C, H>
 					// TODO factor with non nibbled!!
 					let mut register_children: [Option<_>; NIBBLE_LENGTH] = Default::default();
 					let register_children = &mut register_children[..];
-					let (mut result, no_child) = C::branch_node_nibbled(
+					let (mut result, no_child) = C::branch_node_nibbled_proof(
 						partial.right_iter(),
 						partial.len(),
 						self.children.iter(),
 						value_with_omission(node_data, value, self.omit_value),
-						Some(register_children),
+						register_children,
 					);
 					no_child.trim_no_child(&mut result);
 					let bitmap_start = result.len();
@@ -216,8 +215,7 @@ impl<'a, C: NodeCodec, H: BinaryHasher> StackEntry<'a, C, H>
 						partial.len(),
 						self.children.into_iter(),
 						value_with_omission(node_data, value, self.omit_value),
-						None, // TODO allow complex here
-					).0
+					)
 				}
 			},
 		})
@@ -596,7 +594,7 @@ fn value_with_omission<'a>(
 /// Unwind the stack until the given key is prefixed by the entry at the top of the stack. If the
 /// key is None, unwind the stack completely. As entries are popped from the stack, they are
 /// encoded into proof nodes and added to the finalized proof.
-fn unwind_stack<C: NodeCodec, H: BinaryHasher>(
+fn unwind_stack<C: NodeCodecComplex, H: BinaryHasher>(
 	stack: &mut Vec<StackEntry<C, H>>,
 	proof_nodes: &mut Vec<Vec<u8>>,
 	maybe_key: Option<&LeftNibbleSlice>,

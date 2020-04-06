@@ -764,6 +764,52 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 	fn branch_node(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
+	) -> Vec<u8> {
+		Self::branch_node_internal(children, maybe_value, None).0
+	}
+
+	fn branch_node_nibbled(
+		_partial:	impl Iterator<Item = u8>,
+		_number_nibble: usize,
+		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		_maybe_value: Option<&[u8]>,
+	) -> Vec<u8> {
+		unreachable!()
+	}
+
+}
+
+impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodec<H> {
+	type AdditionalHashesPlan = HashesPlan;
+
+	fn decode_plan_proof(data: &[u8]) -> Result<(NodePlan, Option<(Bitmap, Self::AdditionalHashesPlan)>), Self::Error> {
+		let (node, offset) = Self::decode_plan_internal(data, true)?;
+		decode_plan_proof_internal(data, offset, node, H::LENGTH)
+	}
+
+	fn branch_node_proof(
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		maybe_value: Option<&[u8]>,
+		register_children: &mut [Option<Range<usize>>],
+	) -> (Vec<u8>, EncodedNoChild) {
+		Self::branch_node_internal(children, maybe_value, Some(register_children))
+	}
+
+	fn branch_node_nibbled_proof(
+		_partial:	impl Iterator<Item = u8>,
+		_number_nibble: usize,
+		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		_maybe_value: Option<&[u8]>,
+		_register_children: &mut [Option<Range<usize>>],
+	) -> (Vec<u8>, EncodedNoChild) {
+		unreachable!()
+	}
+}
+
+impl<H: Hasher> ReferenceNodeCodec<H> {
+	fn branch_node_internal(
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<Self as NodeCodec>::HashOut>>>>,
+		maybe_value: Option<&[u8]>,
 		mut register_children: Option<&mut [Option<Range<usize>>]>,
 	) -> (Vec<u8>, EncodedNoChild) {
 		let mut output = vec![0; BITMAP_LENGTH + 1];
@@ -823,26 +869,6 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		branch_node_buffered(have_value, has_children, prefix.as_mut());
 		output[0..BITMAP_LENGTH + 1].copy_from_slice(prefix.as_ref());
 		(output, no_child)
-	}
-
-	fn branch_node_nibbled(
-		_partial:	impl Iterator<Item = u8>,
-		_number_nibble: usize,
-		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		_maybe_value: Option<&[u8]>,
-		_register_children: Option<&mut [Option<Range<usize>>]>,
-	) -> (Vec<u8>, EncodedNoChild) {
-		unreachable!()
-	}
-
-}
-
-impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodec<H> {
-	type AdditionalHashesPlan = HashesPlan;
-
-	fn decode_plan_proof(data: &[u8]) -> Result<(NodePlan, Option<(Bitmap, Self::AdditionalHashesPlan)>), Self::Error> {
-		let (node, offset) = Self::decode_plan_internal(data, true)?;
-		decode_plan_proof_internal(data, offset, node, H::LENGTH)
 	}
 }
 
@@ -1004,8 +1030,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 	fn branch_node(
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		_maybe_value: Option<&[u8]>,
-		_register_children: Option<&mut [Option<Range<usize>>]>,
-	) -> (Vec<u8>, EncodedNoChild) {
+	) -> Vec<u8> {
 		unreachable!()
 	}
 
@@ -1013,6 +1038,17 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		maybe_value: Option<&[u8]>,
+	) -> Vec<u8> {
+		Self::branch_node_nibbled_internal(partial, number_nibble, children, maybe_value, None).0
+	}
+}
+
+impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
+	fn branch_node_nibbled_internal(
+		partial: impl Iterator<Item = u8>,
+		number_nibble: usize,
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<Self as NodeCodec>::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
 		mut register_children: Option<&mut [Option<Range<usize>>]>,
 	) -> (Vec<u8>, EncodedNoChild) {
@@ -1085,7 +1121,6 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 			.copy_from_slice(&bitmap.as_ref()[..BITMAP_LENGTH]);
 		(output, no_child)
 	}
-
 }
 
 impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodecNoExt<H> {
@@ -1094,6 +1129,24 @@ impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodecNoExt<H> {
 	fn decode_plan_proof(data: &[u8]) -> Result<(NodePlan, Option<(Bitmap, Self::AdditionalHashesPlan)>), Self::Error> {
 		let (node, offset) = Self::decode_plan_internal(data, true)?;
 		decode_plan_proof_internal(data, offset, node, H::LENGTH)
+	}
+
+	fn branch_node_proof(
+		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
+		_maybe_value: Option<&[u8]>,
+		_register_children: &mut [Option<Range<usize>>],
+	) -> (Vec<u8>, EncodedNoChild) {
+		unreachable!()
+	}
+
+	fn branch_node_nibbled_proof(
+		partial: impl Iterator<Item = u8>,
+		number_nibble: usize,
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		maybe_value: Option<&[u8]>,
+		register_children: &mut [Option<Range<usize>>],
+	) -> (Vec<u8>, EncodedNoChild) {
+		Self::branch_node_nibbled_internal(partial, number_nibble, children, maybe_value, Some(register_children))
 	}
 }
 

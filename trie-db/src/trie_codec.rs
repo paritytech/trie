@@ -52,7 +52,7 @@ struct EncoderStackEntry<C: NodeCodec> {
 	_marker: PhantomData<C>,
 }
 
-impl<C: NodeCodec> EncoderStackEntry<C> {
+impl<C: NodeCodecComplex> EncoderStackEntry<C> {
 	/// Given the prefix of the next child node, identify its index and advance `child_index` to
 	/// that. For a given entry, this must be called sequentially only with strictly increasing
 	/// child prefixes. Returns an error if the child prefix is not a child of this entry or if
@@ -126,11 +126,18 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 				} else {
 					(Self::branch_children(node_data, &children, &self.omit_children[..])?, None)
 				};
-				let (mut result, no_child) = C::branch_node(
-					children.iter(),
-					value.clone().map(|range| &node_data[range]),
-					complex,
-				);
+				let (mut result, no_child) = if let Some(complex) = complex {
+					C::branch_node_proof(
+						children.iter(),
+						value.clone().map(|range| &node_data[range]),
+						complex,
+					)
+				} else {
+					(C::branch_node(
+						children.iter(),
+						value.clone().map(|range| &node_data[range]),
+					), EncodedNoChild::Unused)
+				};
 				if complex_hash {
 					no_child.trim_no_child(&mut result);
 					let bitmap_start = result.len();
@@ -171,13 +178,22 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 					(Self::branch_children(node_data, &children, &self.omit_children[..])?, None)
 				};
 				let partial = partial.build(node_data);
-				let (mut result, no_child) = C::branch_node_nibbled(
-					partial.right_iter(),
-					partial.len(),
-					children.iter(),
-					value.clone().map(|range| &node_data[range]),
-					complex,
-				);
+				let (mut result, no_child) = if let Some(complex) = complex {
+					C::branch_node_nibbled_proof(
+						partial.right_iter(),
+						partial.len(),
+						children.iter(),
+						value.clone().map(|range| &node_data[range]),
+						complex,
+					)
+				} else {
+					(C::branch_node_nibbled(
+						partial.right_iter(),
+						partial.len(),
+						children.iter(),
+						value.clone().map(|range| &node_data[range]),
+					), EncodedNoChild::Unused)
+				};
 				if complex_hash {
 					no_child.trim_no_child(&mut result);
 					let bitmap_start = result.len();
@@ -352,7 +368,7 @@ struct DecoderStackEntry<'a, C: NodeCodec, F> {
 	_marker: PhantomData<C>,
 }
 
-impl<'a, C: NodeCodec, F> DecoderStackEntry<'a, C, F> {
+impl<'a, C: NodeCodecComplex, F> DecoderStackEntry<'a, C, F> {
 	/// Advance the child index until either it exceeds the number of children or the child is
 	/// marked as omitted. Omitted children are indicated by an empty inline reference. For each
 	/// child that is passed over and not omitted, copy over the child reference from the node to
@@ -471,20 +487,34 @@ impl<'a, C: NodeCodec, F> DecoderStackEntry<'a, C, F> {
 					self.children[0]
 						.expect("required by method precondition; qed"),
 				), EncodedNoChild::Unused),
-			Node::Branch(_, value) =>
-				C::branch_node(
+			Node::Branch(_, value) => if let Some(register_children) = register_children {
+				C::branch_node_proof(
 					self.children.into_iter(),
 					value,
 					register_children,
-				),
-			Node::NibbledBranch(partial, _, value) =>
-				C::branch_node_nibbled(
+				)
+			} else {
+				(C::branch_node(
+					self.children.into_iter(),
+					value,
+				), EncodedNoChild::Unused)
+			},
+			Node::NibbledBranch(partial, _, value) => if let Some(register_children) = register_children {
+				C::branch_node_nibbled_proof(
 					partial.right_iter(),
 					partial.len(),
 					self.children.iter(),
 					value,
 					register_children,
-				),
+				)
+			} else {
+				(C::branch_node_nibbled(
+					partial.right_iter(),
+					partial.len(),
+					self.children.iter(),
+					value,
+				), EncodedNoChild::Unused)
+			},
 		}
 	}
 }

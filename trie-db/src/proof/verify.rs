@@ -175,21 +175,21 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 			Node::Branch(_, _) => {
 				let mut register_children: [Option<_>; NIBBLE_LENGTH] = Default::default();
 				let register_children = &mut register_children[..];
-				C::branch_node(
+				C::branch_node_proof(
 					self.children.iter(),
 					self.value,
-					Some(register_children), // TODO again unused register result
+					register_children, // TODO unused register result
 				)
 			},
 			Node::NibbledBranch(partial, _, _) => {
 				let mut register_children: [Option<_>; NIBBLE_LENGTH] = Default::default();
 				let register_children = &mut register_children[..];
-				C::branch_node_nibbled(
+				C::branch_node_nibbled_proof(
 					partial.right_iter(),
 					partial.len(),
 					self.children.iter(),
 					self.value,
-					Some(register_children), // TODO again unused register result
+					register_children, // TODO again unused register result
 				)
 			},
 		})
