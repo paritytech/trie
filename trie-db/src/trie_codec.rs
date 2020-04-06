@@ -26,7 +26,6 @@
 //! trie.
 
 pub use ordered_trie::{BinaryHasher, HashDBComplex};
-use hash_db::{HashDB, Hasher};
 use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout,

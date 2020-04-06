@@ -28,7 +28,6 @@ use trie_db::{
 	trie_visit,
 	TrieBuilderComplex,
 	TrieRootComplex,
-	TrieRootUnhashedComplex,
 	Partial,
 	BinaryHasher,
 	EncodedNoChild,

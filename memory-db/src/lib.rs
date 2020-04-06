@@ -19,9 +19,9 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-use ordered_trie::{HashOnly, HashDBComplex, HasherComplex, BinaryHasher};
+use ordered_trie::{HashDBComplex, HasherComplex};
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher,
-	AsHashDB, AsPlainDB, Prefix, ComplexLayout};
+	AsHashDB, AsPlainDB, Prefix};
 use parity_util_mem::{MallocSizeOf, MallocSizeOfOps};
 #[cfg(feature = "deprecated")]
 #[cfg(feature = "std")]
@@ -35,7 +35,6 @@ use std::{
 	marker::PhantomData,
 	cmp::Eq,
 	borrow::Borrow,
-	ops::Range,
 };
 
 #[cfg(not(feature = "std"))]

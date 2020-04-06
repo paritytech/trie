@@ -38,7 +38,7 @@ mod rstd {
 }
 
 #[cfg(feature = "std")]
-use self::rstd::{fmt, Error};
+use self::rstd::fmt;
 
 use hash_db::MaybeDebug;
 use self::rstd::{boxed::Box, vec::Vec};
@@ -70,7 +70,7 @@ pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
 pub use self::nibble::{NibbleSlice, NibbleVec, nibble_ops};
-pub use crate::node_codec::{NodeCodec, Partial, HashDBComplexDyn, EncodedNoChild, Bitmap, BITMAP_LENGTH};
+pub use crate::node_codec::{NodeCodec, NodeCodecComplex, Partial, HashDBComplexDyn, EncodedNoChild, Bitmap, BITMAP_LENGTH};
 pub use crate::iter_build::{trie_visit, ProcessEncodedNode, TrieRootUnhashedComplex,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed, TrieRootComplex, TrieBuilderComplex};
 pub use crate::iterator::TrieDBNodeIterator;
@@ -121,19 +121,6 @@ impl<T, E> fmt::Display for TrieError<T, E> where T: MaybeDebug, E: MaybeDebug {
 					"Encoded node {:?} contains invalid hash reference with length: {}",
 					hash, data.len()
 				),
-		}
-	}
-}
-
-#[cfg(feature = "std")]
-impl<T, E> Error for TrieError<T, E> where T: fmt::Debug, E: Error {
-	fn description(&self) -> &str {
-		match *self {
-			TrieError::InvalidStateRoot(_) => "Invalid state root",
-			TrieError::IncompleteDatabase(_) => "Incomplete database",
-			TrieError::ValueAtIncompleteKey(_, _) => "Value at incomplete key",
-			TrieError::DecoderError(_, ref err) => err.description(),
-			TrieError::InvalidHash(_, _) => "Encoded node contains invalid hash reference",
 		}
 	}
 }

@@ -38,14 +38,11 @@ mod rstd {
 	impl<T> Error for T {}
 }
 
-#[cfg(feature = "std")]
-use self::rstd::{fmt, Error};
 
-use hash_db::{MaybeDebug, AsHashDB, Prefix, HashDB};
-use self::rstd::{boxed::Box, vec::Vec};
+use hash_db::{Prefix, HashDB};
+use self::rstd::vec::Vec;
 
-
-use hash_db::{HashDBRef, Hasher};
+use hash_db::Hasher;
 use crate::rstd::marker::PhantomData;
 
 
@@ -139,6 +136,7 @@ pub struct SequenceBinaryTree<K> {
 	_ph: PhantomData<K>,
 }
 
+/* TODO unimplemented
 pub struct SequenceBinaryTreeDB<'a, K, H: Hasher> {
 	tree: &'a SequenceBinaryTree<K>,
 	db: &'a dyn HashDBRef<H, DBValue>,
@@ -149,6 +147,7 @@ pub struct SequenceBinaryTreeInMem<'a, K, NK: Ord, H: Hasher> {
 	tree: &'a SequenceBinaryTree<K>,
 	db: &'a crate::rstd::BTreeMap<NK, H::Out>,
 }
+*/
 
 impl Default for SequenceBinaryTree<usize> {
 	fn default() -> Self {
@@ -240,6 +239,7 @@ impl SequenceBinaryTree<usize> {
 		self.length - self.start - self.end
 	}
 
+	#[cfg(test)] // TODO is in implementation but unused, should be rename to resize
 	fn push(&mut self, mut nb: usize) {
 		if nb == 0 {
 			return;
@@ -311,7 +311,7 @@ impl SequenceBinaryTree<usize> {
 	}
 
 	pub fn iter_depth(&self, from: Option<usize>) -> impl Iterator<Item = usize> {
-		if let Some(from) = from {
+		if let Some(_from) = from {
 			unimplemented!();
 		}
 		let nb_elements = self.nb_elements();
@@ -348,7 +348,7 @@ impl SequenceBinaryTree<usize> {
 		where
 			KN: KeyNode + From<(usize, usize)> + Clone,
 	{
-		if let Some(from) = from {
+		if let Some(_from) = from {
 			unimplemented!();
 		}
 		let nb_elements = self.nb_elements();
@@ -385,8 +385,8 @@ impl SequenceBinaryTree<usize> {
 			}
 		})
 	}
-
-	fn pop(&mut self, nb: usize) {
+/* TODO unimplemented
+	fn pop(&mut self, _nb: usize) {
 		unimplemented!("update max depth");
 	}
 
@@ -395,18 +395,19 @@ impl SequenceBinaryTree<usize> {
 		// TODO if start = max_depth_length / 2 -> max_depth - 1
 	}
 
-	fn max_depth_length(end: &usize) -> usize {
+	fn max_depth_length(_end: &usize) -> usize {
 		// 2^x = max_depth_length
 		unimplemented!()
 	}
 
-	fn front_depth(index: usize) -> usize {
+	fn front_depth(_index: usize) -> usize {
 		unimplemented!("for index between end and max len");
 	}
 
-	fn tail_depth(index: usize) -> usize {
+	fn tail_depth(_index: usize) -> usize {
 		unimplemented!("for index between end and max len");
 	}
+*/
 }
 
 
@@ -617,7 +618,7 @@ impl KeyNode for UsizeKeyNode {
 	}
 	fn push_back(&mut self, nibble: bool) {
 		self.value = self.value << 1;
-		self.value = self.value | 1;
+		self.value = self.value | (nibble as usize);
 		self.depth +=1;
 	}
 	fn pop_front(&mut self) -> Option<bool> {
@@ -633,7 +634,7 @@ impl KeyNode for UsizeKeyNode {
 	}
 	fn push_front(&mut self, nibble: bool) {
 		self.depth += 1;
-		self.value = self.value | (1 << (self.depth - 1));
+		self.value = self.value | ((nibble as usize) << (self.depth - 1));
 	}
 
 	fn remove_at(&mut self, index: usize) {
@@ -700,7 +701,13 @@ fn key_node_test() {
 			assert_eq!(u.push_back(true), v.push_back(true));
 		}
 		assert_eq!(u.pop_back(), v.pop_back());
+		if !end {
+			assert_eq!(u.push_back(false), v.push_back(false));
+		}
+		assert_eq!(u.pop_back(), v.pop_back());
 		assert_eq!(u.push_front(true), v.push_front(true));
+		assert_eq!(u.pop_front(), v.pop_front());
+		assert_eq!(u.push_front(false), v.push_front(false));
 		assert_eq!(u.pop_front(), v.pop_front());
 		if !end {
 			assert_eq!(start, u.into());
@@ -764,7 +771,7 @@ pub trait ProcessNodeProof<HO, KN>: ProcessNode<HO, KN> {
 }
 
 /// Does only proccess hash on its buffer.
-/// Buffer length need to be right and is unchecked. 
+/// Correct buffer size is expected, this is unchecked. 
 pub struct HashOnly<'a, H>(&'a mut [u8], PhantomData<H>);
 
 impl<'a, H: BinaryHasher> HashOnly<'a, H> {
@@ -1000,7 +1007,7 @@ pub fn trie_root<HO, KN, I, F>(layout: &SequenceBinaryTree<usize>, input: I, cal
 		F: ProcessNode<HO, KN>,
 {
 	debug_assert!(layout.start == 0, "unimplemented start");
-	let mut iter = input.into_iter().zip(layout.iter_path_node_key::<KN>(None)).enumerate();
+	let mut iter = input.into_iter().zip(layout.iter_path_node_key::<KN>(None));
 	debug_assert!({
 		let (r, s) = iter.size_hint();
 		if s == Some(r) {
@@ -1010,7 +1017,7 @@ pub fn trie_root<HO, KN, I, F>(layout: &SequenceBinaryTree<usize>, input: I, cal
 		}
 	});
 	let mut depth1 = layout.depth;
-	let mut child1 = if let Some((_, (child, key))) = iter.next() {
+	let mut child1 = if let Some((child, key)) = iter.next() {
 		debug_assert!(key.depth() == depth1);
 		child
 	} else {
@@ -1034,7 +1041,7 @@ pub fn trie_root<HO, KN, I, F>(layout: &SequenceBinaryTree<usize>, input: I, cal
 			depth1 = key.depth();
 			child1 = parent;
 		} else {
-			if let Some((index, (child2, key2))) = iter.next() {
+			if let Some((child2, key2)) = iter.next() {
 				key = key2;
 				if key.depth() == depth1 {
 					key.pop_back();

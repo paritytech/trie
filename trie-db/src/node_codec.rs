@@ -97,6 +97,37 @@ pub trait NodeCodec: Sized {
 	) -> (Vec<u8>, EncodedNoChild);
 }
 
+/// Positional input for children decoding.
+pub type OffsetChildren = usize;
+
+/// Trait for handling complex proof.
+/// This adds methods to basic node codec in order to support:
+/// - storage encoding with existing `NodeCodec` methods
+/// - encode a proof specific representation. (usually the common representation and
+/// the merkle proof of the children stored encoded hash).
+/// - Intermediate optional common representation shared between storage
+pub trait NodeCodecComplex: NodeCodec {
+	/// Sequence of hashes needed for the children proof verification.
+	type AdditionalHashes: Iterator<Item = Self::HashOut>;
+
+	/// `Decode_no_child`, returning an offset position if there is a common representation.
+	/// NodePlan do not include child (sized null).
+	/// TODO EMCH this is technical function for common implementation.
+	fn decode_plan_proof(data: &[u8]) -> Result<(NodePlan, OffsetChildren), Self::Error>;
+
+	/// Decode but child are not included (instead we put empty inline
+	/// nodes).
+	/// An children positianal information is also return for decoding of children.
+	/// TODO EMCH this looks rather useless.
+	fn decode_node_proof(data: &[u8]) -> Result<(Node, OffsetChildren), Self::Error> {
+		let (plan, offset) = Self::decode_plan_proof(data)?;
+		Ok((plan.build(data), offset))
+	}
+
+	fn decode_proof(data: &[u8]) -> Result<(NodePlan, Self::AdditionalHashes), Self::Error>;
+
+}
+
 #[derive(Clone)]
 pub enum EncodedNoChild {
 	// not runing complex
@@ -166,7 +197,6 @@ impl<H: HasherComplex, T, C: HashDBComplex<H, T>> HashDBComplexDyn<H, T> for C {
 		// TODO factor this with iter_build (just use the trait)
 		let nb_children = children.iter().filter(|v| v.is_some()).count();
 		let children = ComplexLayoutIterValues::new(
-			nb_children,
 			children.iter().filter_map(|v| v.as_ref()),
 			value,
 		);
@@ -207,7 +237,6 @@ impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a mut dyn HashDBComplexDyn<H, T> {
 // TODO this using a buffer is bad (we should switch
 // binary hasher to use slice as input (or be able to))
 pub struct ComplexLayoutIterValues<'a, HO, I> {
-	nb_children: usize, 
 	children: I, 
 	node: &'a [u8],
 	_ph: PhantomData<HO>,
@@ -230,9 +259,8 @@ code snippet for proof
 */	
 
 impl<'a, HO: Default, I> ComplexLayoutIterValues<'a, HO, I> {
-	pub fn new(nb_children: usize, children: I, node: &'a[u8]) -> Self {
+	pub fn new(children: I, node: &'a[u8]) -> Self {
 		ComplexLayoutIterValues {
-			nb_children,
 			children,
 			node,
 			_ph: PhantomData,

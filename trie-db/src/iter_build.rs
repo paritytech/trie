@@ -17,7 +17,7 @@
 //! implementation.
 //! See `trie_visit` function.
 
-use hash_db::{Hasher, HashDB, Prefix, ComplexLayout};
+use hash_db::{Hasher, HashDB, Prefix};
 use ordered_trie::{HashDBComplex, HasherComplex};
 use crate::rstd::{cmp::max, marker::PhantomData, vec::Vec, EmptyIter, ops::Range};
 use crate::triedbmut::{ChildReference};
@@ -401,7 +401,8 @@ impl<'a, H: Hasher, V, DB: HashDB<H, V>> ProcessEncodedNode<<H as Hasher>::Out>
 		prefix: Prefix,
 		(encoded_node, _no_child): (Vec<u8>, EncodedNoChild),
 		is_root: bool,
-		complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
+		// TODO different trait??
+		_complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {
 		let len = encoded_node.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
@@ -480,7 +481,8 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRoot<H, <H as Has
 		_: Prefix,
 		(encoded_node, _no_child): (Vec<u8>, EncodedNoChild),
 		is_root: bool,
-		complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
+		// TODO different trait
+		_complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {
 		let len = encoded_node.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
@@ -600,7 +602,8 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootPrint<H, <H a
 		p: Prefix,
 		(encoded_node, _no_child): (Vec<u8>, EncodedNoChild),
 		is_root: bool,
-		complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
+		// TODO different trait?
+		_complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {
 		println!("Encoded node: {:x?}", &encoded_node);
 		println!("	with prefix: {:x?}", &p);
@@ -627,7 +630,8 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashed<H> {
 		_: Prefix,
 		(encoded_node, _no_child): (Vec<u8>, EncodedNoChild),
 		is_root: bool,
-		complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
+		// TODO different trait
+		_complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {
 		let len = encoded_node.len();
 		if !is_root && len < <H as Hasher>::LENGTH {

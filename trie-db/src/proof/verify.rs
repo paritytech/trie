@@ -14,7 +14,7 @@
 
 use crate::rstd::{
 	convert::TryInto, iter::Peekable, marker::PhantomData, result::Result, vec, vec::Vec,
-	iter::from_fn, iter::FromFn,
+	iter::from_fn,
 };
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH,
@@ -120,8 +120,7 @@ impl<'a, C: NodeCodec, H: BinaryHasher> StackEntry<'a, C, H>
 	fn new(node_data: &'a [u8], prefix: LeftNibbleSlice<'a>, is_inline: bool, complex: bool)
 		   -> Result<Self, Error<C::HashOut, C::Error>>
 	{
-		let children_len = NIBBLE_LENGTH;
-		let mut	children = vec![None; NIBBLE_LENGTH]; // TODO use array
+		let children = vec![None; NIBBLE_LENGTH]; // TODO use array
 		let (node, complex) = if !is_inline && complex {
 			// TODO factorize with trie_codec
 			let encoded_node = node_data;
