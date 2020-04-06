@@ -19,7 +19,7 @@ use crate::MaybeDebug;
 use crate::node::{Node, NodePlan};
 use crate::ChildReference;
 
-use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec, EmptyIter, ops::Range, marker::PhantomData, mem::replace};
+use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec, EmptyIter, ops::Range, marker::PhantomData, mem::replace, iter::from_fn};
 
 /// Representation of a nible slice (right aligned).
 /// It contains a right aligned padded first byte (first pair element is the number of nibbles
@@ -42,21 +42,11 @@ pub trait NodeCodec: Sized {
 	/// Decode bytes to a `NodePlan`. Returns `Self::E` on failure.
 	fn decode_plan(data: &[u8]) -> Result<NodePlan, Self::Error>;
 
-	/// See `Decode_no_child`.
-	fn decode_plan_no_child(data: &[u8]) -> Result<(NodePlan, usize), Self::Error>;
-
 	/// Decode bytes to a `Node`. Returns `Self::E` on failure.
 	fn decode(data: &[u8]) -> Result<Node, Self::Error> {
 		// TODO ensure real use codec have their own implementation
 		// as this can be slower
 		Ok(Self::decode_plan(data)?.build(data))
-	}
-
-	/// Decode but child are not include (instead we put empty inline
-	/// nodes).
-	fn decode_no_child(data: &[u8]) -> Result<(Node, usize), Self::Error> {
-		let (plan, offset) = Self::decode_plan_no_child(data)?;
-		Ok((plan.build(data), offset))
 	}
 
 	/// Check if the provided bytes correspond to the codecs "empty" node.
@@ -108,7 +98,7 @@ pub type OffsetChildren = usize;
 /// - Intermediate optional common representation shared between storage
 pub trait NodeCodecComplex: NodeCodec {
 	/// Sequence of hashes needed for the children proof verification.
-	type AdditionalHashes: Iterator<Item = Self::HashOut>;
+	type AdditionalHashesPlan: Iterator<Item = Range<usize>>;
 
 	/// `Decode_no_child`, returning an offset position if there is a common representation.
 	/// NodePlan do not include child (sized null).
@@ -124,9 +114,17 @@ pub trait NodeCodecComplex: NodeCodec {
 		Ok((plan.build(data), offset))
 	}
 
-	fn decode_proof(data: &[u8]) -> Result<(NodePlan, Self::AdditionalHashes), Self::Error>;
+	fn decode_proof(data: &[u8]) -> Result<(NodePlan, Self::AdditionalHashesPlan), Self::Error>;
 
+	/// Decode but child are not include (instead we put empty inline
+	/// nodes).
+	fn decode_no_child(data: &[u8]) -> Result<(Node, usize), Self::Error> {
+		let (plan, offset) = Self::decode_plan_proof(data)?;
+		Ok((plan.build(data), offset))
+	}
 }
+
+
 
 #[derive(Clone)]
 pub enum EncodedNoChild {
@@ -320,5 +318,55 @@ impl Bitmap {
 		}
 		output[0] = (bitmap % 256) as u8;
 		output[1] = (bitmap / 256) as u8;
+	}
+}
+
+
+/// Simple implementation of a additional hash iterator based
+/// upon a sequential encoding of known length.
+pub struct HashesPlan {
+	hash_len: usize,
+	/// we use two size counter to implement `size_hint`.
+	end: usize,
+	offset: usize,
+}
+
+impl HashesPlan {
+	pub fn new(nb_child: usize, offset: usize, hash_len: usize) -> Self {
+		HashesPlan {
+			end: offset + (hash_len * nb_child),
+			hash_len,
+			offset,
+		}
+	}
+	pub fn iter_hashes<'a, HO: Default + AsMut<[u8]>>(mut self, data: &'a [u8]) -> impl Iterator<Item = HO> + 'a {
+		from_fn(move || {
+			self.next().map(|range| {
+				let mut result = HO::default();
+				result.as_mut().copy_from_slice(&data[range]);
+				result
+			})
+		})
+	}
+}
+
+impl Iterator for HashesPlan {
+	type Item = Range<usize>;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		if self.offset < self.end {
+			self.end += self.hash_len;
+			Some(Range {
+				start: self.end - self.hash_len,
+				end: self.end
+			})
+		} else {
+			None
+		}
+	}
+
+	fn size_hint(&self) -> (usize, Option<usize>) {
+		let size = self.end / self.hash_len;
+		(size, Some(size))
 	}
 }

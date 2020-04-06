@@ -19,6 +19,7 @@ use crate::rstd::{
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH,
 	node::{Node, NodeHandle}, NodeCodec, TrieHash, TrieLayout, EncodedNoChild,
+	NodeCodecComplex,
 };
 use hash_db::Hasher;
 use ordered_trie::{BinaryHasher, HasherComplex};
@@ -113,7 +114,7 @@ struct StackEntry<'a, C: NodeCodec, H> {
 	_marker: PhantomData<(C, H)>,
 }
 
-impl<'a, C: NodeCodec, H: BinaryHasher> StackEntry<'a, C, H>
+impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 	where
 		H: BinaryHasher<Out = C::HashOut>,
 {

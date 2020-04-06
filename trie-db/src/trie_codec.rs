@@ -28,7 +28,7 @@
 pub use ordered_trie::{BinaryHasher, HashDBComplex};
 use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
-	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout,
+	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout, NodeCodecComplex,
 	nibble_ops::NIBBLE_LENGTH, node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode},
 };
 use crate::node_codec::{Bitmap, BITMAP_LENGTH, EncodedNoChild};

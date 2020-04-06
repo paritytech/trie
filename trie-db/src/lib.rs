@@ -70,7 +70,8 @@ pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
 pub use self::nibble::{NibbleSlice, NibbleVec, nibble_ops};
-pub use crate::node_codec::{NodeCodec, NodeCodecComplex, Partial, HashDBComplexDyn, EncodedNoChild, Bitmap, BITMAP_LENGTH};
+pub use crate::node_codec::{NodeCodec, NodeCodecComplex, Partial, HashDBComplexDyn, EncodedNoChild,
+	Bitmap, BITMAP_LENGTH, HashesPlan};
 pub use crate::iter_build::{trie_visit, ProcessEncodedNode, TrieRootUnhashedComplex,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed, TrieRootComplex, TrieBuilderComplex};
 pub use crate::iterator::TrieDBNodeIterator;
@@ -383,11 +384,16 @@ pub trait TrieLayout {
 	/// no partial in branch, if false the trie will only
 	/// use branch and node with partials in both.
 	const USE_EXTENSION: bool;
+	/// Does the layout implement a complex hash.
+	/// Note that if does not, the `NodeCodecComplex` hash
+	/// associated codec only really need to implement `NodeCodec`
+	/// and dummy implementation can be used.
+	/// TODO EMCH consider splitting trait with a TrieLayoutComplex variant!!
 	const COMPLEX_HASH: bool;
 	/// Hasher to use for this trie.
 	type Hash: BinaryHasher;
 	/// Codec to use (needs to match hasher and nibble ops).
-	type Codec: NodeCodec<HashOut=<Self::Hash as Hasher>::Out>;
+	type Codec: NodeCodecComplex<HashOut=<Self::Hash as Hasher>::Out>;
 }
 
 /// This trait associates a trie definition with preferred methods.

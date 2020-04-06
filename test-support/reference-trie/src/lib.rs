@@ -31,13 +31,14 @@ use trie_db::{
 	Partial,
 	BinaryHasher,
 	EncodedNoChild,
+	HashesPlan,
 };
 use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
 
 pub use trie_db::{
 	decode_compact, encode_compact, HashDBComplexDyn,
-	nibble_ops, NibbleSlice, NibbleVec, NodeCodec, proof, Record, Recorder,
+	nibble_ops, NibbleSlice, NibbleVec, NodeCodec, proof, Record, Recorder, NodeCodecComplex,
 	Trie, TrieConfiguration, TrieDB, TrieDBIterator, TrieDBMut, TrieDBNodeIterator, TrieError,
 	TrieIterator, TrieLayout, TrieMut, Bitmap, BITMAP_LENGTH,
 };
@@ -727,10 +728,6 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		Ok(Self::decode_plan_internal(data, false)?.0)
 	}
 
-	fn decode_plan_no_child(data: &[u8]) -> ::std::result::Result<(NodePlan, usize), Self::Error> {
-		Self::decode_plan_internal(data, true)
-	}
-
 	fn is_empty_node(data: &[u8]) -> bool {
 		data == <Self as NodeCodec>::empty_node()
 	}
@@ -840,6 +837,16 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 
 }
 
+impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodec<H> {
+	type AdditionalHashesPlan = HashesPlan;
+	fn decode_plan_proof(data: &[u8]) -> ::std::result::Result<(NodePlan, usize), Self::Error> {
+		Self::decode_plan_internal(data, true)
+	}
+	fn decode_proof(_data: &[u8]) -> ::std::result::Result<(NodePlan, HashesPlan), Self::Error> {
+		unimplemented!()
+	}
+}
+
 impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 	fn decode_plan_internal(
 		data: &[u8],
@@ -919,10 +926,6 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 
 	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
 		Ok(Self::decode_plan_internal(data, false)?.0)
-	}
-
-	fn decode_plan_no_child(data: &[u8]) -> ::std::result::Result<(NodePlan, usize), Self::Error> {
-		Self::decode_plan_internal(data, true)
 	}
 
 	fn hashed_null_node() -> <H as Hasher>::Out {
@@ -1036,6 +1039,16 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		(output, no_child)
 	}
 
+}
+
+impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodecNoExt<H> {
+	type AdditionalHashesPlan = HashesPlan;
+	fn decode_plan_proof(data: &[u8]) -> ::std::result::Result<(NodePlan, usize), Self::Error> {
+		Self::decode_plan_internal(data, true)
+	}
+	fn decode_proof(_data: &[u8]) -> ::std::result::Result<(NodePlan, HashesPlan), Self::Error> {
+		unimplemented!()
+	}
 }
 
 /// Compare trie builder and in memory trie.

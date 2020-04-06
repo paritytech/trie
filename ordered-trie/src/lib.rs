@@ -1225,7 +1225,7 @@ mod test {
 	fn test_depth_iter() {
 		// cases corresponding to test_depth, TODO add more
 //		let cases = [7, 6, 5, 12, 11, 10, 9];
-		for nb in (0usize..16) {
+		for nb in 0usize..16 {
 			let mut n = 0;
 			let tree = Tree::new(0, 0, nb);
 			for (i, (d, k)) in tree.iter_depth(None)
@@ -1410,7 +1410,6 @@ mod test {
 					&mut callback_read_proof,
 					false,
 				);
-				let additional_hash = callback.additional_hash;
 				println!("{}, {}", l, p);
 				assert!(root.is_some());
 				assert_eq!(root.unwrap().as_ref(), &result[l][..]);
@@ -1463,7 +1462,6 @@ mod test {
 				&mut callback_read_proof,
 				false,
 			);
-			let additional_hash = callback.additional_hash;
 			println!("{}, {:?}", l, ps);
 			assert!(root.is_some());
 			assert_eq!(root.unwrap().as_ref(), &result[l][..]);
