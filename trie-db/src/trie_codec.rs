@@ -31,10 +31,10 @@ use crate::{
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout, NodeCodecComplex,
 	nibble_ops::NIBBLE_LENGTH, node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode},
 };
-use crate::node_codec::{Bitmap, BITMAP_LENGTH, EncodedNoChild};
+use crate::node_codec::{Bitmap, EncodedNoChild};
 use crate::rstd::{
 	boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec, vec::Vec,
-	iter::from_fn, ops::Range,
+	ops::Range,
 };
 use ordered_trie::{SequenceBinaryTree, HashProof, trie_root, UsizeKeyNode};
 struct EncoderStackEntry<C: NodeCodec> {
@@ -516,63 +516,8 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 
 	for (i, encoded_node) in encoded.iter().enumerate() {
 		let (node, complex) = if L::COMPLEX_HASH  {
-			let (mut node, mut offset) = L::Codec::decode_no_child(encoded_node)
-				.map_err(|err| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), err)))?;
-			match &mut node {
-				Node::Branch(b_child, _) | Node::NibbledBranch(_, b_child, _) => {
-					if encoded_node.len() < offset + 3 {
-						// TODO new error or move this parte to codec trait and use codec error
-						return Err(Box::new(TrieError::IncompleteDatabase(<TrieHash<L>>::default())));
-					}
-					let keys_position = Bitmap::decode(&encoded_node[offset..offset + BITMAP_LENGTH]);
-					offset += BITMAP_LENGTH;
-
-					let mut nb_additional;
-					// inline nodes
-					loop {
-						let nb = encoded_node[offset] as usize;
-						offset += 1;
-						if nb >= 128 {
-							nb_additional = nb - 128;
-							break;
-						}
-						if encoded_node.len() < offset + nb + 2 {
-							// TODO new error or move this parte to codec trait and use codec error
-							return Err(Box::new(TrieError::IncompleteDatabase(<TrieHash<L>>::default())));
-						}
-						let ix = encoded_node[offset] as usize;
-						offset += 1;
-						let inline = &encoded_node[offset..offset + nb];
-						if ix >= NIBBLE_LENGTH {
-							// TODO new error or move this parte to codec trait and use codec error
-							return Err(Box::new(TrieError::IncompleteDatabase(<TrieHash<L>>::default())));
-						}
-						b_child[ix] = Some(NodeHandle::Inline(inline));
-						offset += nb;
-					}
-					let hash_len = <L::Hash as BinaryHasher>::NULL_HASH.len();
-					let additional_len = nb_additional * hash_len;
-					if encoded_node.len() < offset + additional_len {
-						// TODO new error or move this parte to codec trait and use codec error
-						return Err(Box::new(TrieError::IncompleteDatabase(<TrieHash<L>>::default())));
-					}
-					let additional_hashes = from_fn(move || {
-						if nb_additional > 0 {
-							let mut hash = <TrieHash<L>>::default();
-							hash.as_mut().copy_from_slice(&encoded_node[offset..offset + hash_len]);
-							offset += hash_len;
-							nb_additional -= 1;
-							Some(hash)
-						} else {
-							None
-						}
-					});
-					(node, Some((keys_position, additional_hashes)))
-				},
-				_ => { 
-					(node, None)
-				},
-			}
+			L::Codec::decode_proof(encoded_node)
+				.map_err(|err| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), err)))?
 		} else {
 			(
 				L::Codec::decode(encoded_node)

@@ -14,16 +14,14 @@
 
 use crate::rstd::{
 	convert::TryInto, iter::Peekable, marker::PhantomData, result::Result, vec, vec::Vec,
-	iter::from_fn,
 };
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH,
-	node::{Node, NodeHandle}, NodeCodec, TrieHash, TrieLayout, EncodedNoChild,
-	NodeCodecComplex,
+	node::{Node, NodeHandle}, NodeCodecComplex, TrieHash, TrieLayout, EncodedNoChild,
 };
 use hash_db::Hasher;
 use ordered_trie::{BinaryHasher, HasherComplex};
-use crate::node_codec::{Bitmap, BITMAP_LENGTH};
+use crate::node_codec::{Bitmap, HashesIter};
 
 
 /// Errors that may occur during proof verification. Most of the errors types simply indicate that
@@ -98,7 +96,7 @@ impl<HO: std::fmt::Debug, CE: std::error::Error + 'static> std::error::Error for
 	}
 }
 
-struct StackEntry<'a, C: NodeCodec, H> {
+struct StackEntry<'a, C: NodeCodecComplex, H> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: LeftNibbleSlice<'a>,
 	node: Node<'a>,
@@ -110,7 +108,8 @@ struct StackEntry<'a, C: NodeCodec, H> {
 	child_index: usize,
 	/// The child references to use in reconstructing the trie nodes.
 	children: Vec<Option<ChildReference<C::HashOut>>>,
-	complex: Option<(Bitmap, Vec<C::HashOut>)>,
+	/// Proof info if a complex proof is needed.
+	complex: Option<(Bitmap, HashesIter<'a, C::AdditionalHashesPlan, C::HashOut>)>,
 	_marker: PhantomData<(C, H)>,
 }
 
@@ -125,60 +124,8 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 		let (node, complex) = if !is_inline && complex {
 			// TODO factorize with trie_codec
 			let encoded_node = node_data;
-			let (mut node, mut offset) = C::decode_no_child(encoded_node)
-				.map_err(Error::DecodeError)?;
-			match &mut node {
-				Node::Branch(b_child, _) | Node::NibbledBranch(_, b_child, _) => {
-					if encoded_node.len() < offset + 3 {
-						// TODO new error or move this parte to codec trait and use codec error
-						return Err(Error::IncompleteProof);
-					}
-					let keys_position = Bitmap::decode(&encoded_node[offset..offset + BITMAP_LENGTH]);
-					offset += BITMAP_LENGTH;
-
-					let mut nb_additional;
-					// inline nodes
-					loop {
-						let nb = encoded_node[offset] as usize;
-						offset += 1;
-						if nb >= 128 {
-							nb_additional = nb - 128;
-							break;
-						}
-						if encoded_node.len() < offset + nb + 2 {
-							return Err(Error::IncompleteProof);
-						}
-						let ix = encoded_node[offset] as usize;
-						offset += 1;
-						let inline = &encoded_node[offset..offset + nb];
-						if ix >= NIBBLE_LENGTH {
-							return Err(Error::IncompleteProof);
-						}
-						b_child[ix] = Some(NodeHandle::Inline(inline));
-						offset += nb;
-					}
-					let hash_len = <H as BinaryHasher>::NULL_HASH.len();
-					let additional_len = nb_additional * hash_len;
-					if encoded_node.len() < offset + additional_len {
-						return Err(Error::IncompleteProof);
-					}
-					let additional_hashes = from_fn(move || {
-						if nb_additional > 0 {
-							let mut hash = <H::Out>::default();
-							hash.as_mut().copy_from_slice(&encoded_node[offset..offset + hash_len]);
-							offset += hash_len;
-							nb_additional -= 1;
-							Some(hash)
-						} else {
-							None
-						}
-					});
-					// TODO dedicated iterator type instead of from_fn to avoid alloc
-					let additional_hashes: Vec<H::Out> = additional_hashes.collect();
-					(node, Some((keys_position, additional_hashes)))
-				},
-				_ => (node, None),
-			}
+			C::decode_proof(encoded_node)
+				.map_err(Error::DecodeError)?
 		} else {
 			(C::decode(node_data)
 				.map_err(Error::DecodeError)?, None)
@@ -188,7 +135,6 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 			Node::Leaf(_, value) => Some(value),
 			Node::Branch(_, value) | Node::NibbledBranch(_, _, value) => value,
 		};
-
 
 		Ok(StackEntry {
 			node,

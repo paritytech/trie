@@ -839,12 +839,59 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 
 impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodec<H> {
 	type AdditionalHashesPlan = HashesPlan;
-	fn decode_plan_proof(data: &[u8]) -> ::std::result::Result<(NodePlan, usize), Self::Error> {
-		Self::decode_plan_internal(data, true)
+
+	fn decode_plan_proof(data: &[u8]) -> Result<(NodePlan, Option<(Bitmap, Self::AdditionalHashesPlan)>), Self::Error> {
+		let (node, offset) = Self::decode_plan_internal(data, true)?;
+		decode_plan_proof_internal(data, offset, node, H::LENGTH)
 	}
-	fn decode_proof(_data: &[u8]) -> ::std::result::Result<(NodePlan, HashesPlan), Self::Error> {
-		unimplemented!()
-	}
+}
+
+fn decode_plan_proof_internal(
+	data: &[u8],
+	mut offset: usize,
+	mut node: NodePlan,
+	hash_len: usize,
+) -> Result<(NodePlan, Option<(Bitmap, HashesPlan)>), CodecError> {
+	let hashes_plan = match &mut node {
+		NodePlan::Branch{children, ..} | NodePlan::NibbledBranch{children, ..} => {
+			if data.len() < offset + 3 {
+				return Err(CodecError::from("Decode branch, missing proof headers"));
+			}
+			// TODO EMCH bitmap looks unused!!!
+			let keys_position = Bitmap::decode(&data[offset..offset + BITMAP_LENGTH]);
+			offset += BITMAP_LENGTH;
+
+			let nb_additional;
+			// read inline nodes.
+			loop {
+				let nb = data[offset] as usize;
+				offset += 1;
+				if nb >= 128 {
+					nb_additional = nb - 128;
+					break;
+				}
+				// 2 for inline index and next elt length.
+				if data.len() < offset + nb + 2 {
+					return Err(CodecError::from("Decode branch, missing proof inline data"));
+				}
+				let ix = data[offset] as usize;
+				offset += 1;
+				let inline = offset..offset + nb;
+				if ix >= nibble_ops::NIBBLE_LENGTH {
+					return Err(CodecError::from("Decode branch, invalid inline index"));
+				}
+				children[ix] = Some(NodeHandlePlan::Inline(inline));
+				offset += nb;
+			}
+			let additional_len = nb_additional * hash_len;
+			if data.len() < offset + additional_len {
+				return Err(CodecError::from("Decode branch, missing child proof hashes"));
+			}
+			Some((keys_position, HashesPlan::new(nb_additional, offset, hash_len)))
+		},
+		_ => None,
+	};
+	Ok((node, hashes_plan))
 }
 
 impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
@@ -1043,11 +1090,10 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 
 impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodecNoExt<H> {
 	type AdditionalHashesPlan = HashesPlan;
-	fn decode_plan_proof(data: &[u8]) -> ::std::result::Result<(NodePlan, usize), Self::Error> {
-		Self::decode_plan_internal(data, true)
-	}
-	fn decode_proof(_data: &[u8]) -> ::std::result::Result<(NodePlan, HashesPlan), Self::Error> {
-		unimplemented!()
+
+	fn decode_plan_proof(data: &[u8]) -> Result<(NodePlan, Option<(Bitmap, Self::AdditionalHashesPlan)>), Self::Error> {
+		let (node, offset) = Self::decode_plan_internal(data, true)?;
+		decode_plan_proof_internal(data, offset, node, H::LENGTH)
 	}
 }
 

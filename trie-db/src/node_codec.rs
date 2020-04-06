@@ -19,7 +19,7 @@ use crate::MaybeDebug;
 use crate::node::{Node, NodePlan};
 use crate::ChildReference;
 
-use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec, EmptyIter, ops::Range, marker::PhantomData, mem::replace, iter::from_fn};
+use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec, EmptyIter, ops::Range, marker::PhantomData, mem::replace};
 
 /// Representation of a nible slice (right aligned).
 /// It contains a right aligned padded first byte (first pair element is the number of nibbles
@@ -87,9 +87,6 @@ pub trait NodeCodec: Sized {
 	) -> (Vec<u8>, EncodedNoChild);
 }
 
-/// Positional input for children decoding.
-pub type OffsetChildren = usize;
-
 /// Trait for handling complex proof.
 /// This adds methods to basic node codec in order to support:
 /// - storage encoding with existing `NodeCodec` methods
@@ -103,28 +100,23 @@ pub trait NodeCodecComplex: NodeCodec {
 	/// `Decode_no_child`, returning an offset position if there is a common representation.
 	/// NodePlan do not include child (sized null).
 	/// TODO EMCH this is technical function for common implementation.
-	fn decode_plan_proof(data: &[u8]) -> Result<(NodePlan, OffsetChildren), Self::Error>;
-
-	/// Decode but child are not included (instead we put empty inline
-	/// nodes).
-	/// An children positianal information is also return for decoding of children.
-	/// TODO EMCH this looks rather useless.
-	fn decode_node_proof(data: &[u8]) -> Result<(Node, OffsetChildren), Self::Error> {
-		let (plan, offset) = Self::decode_plan_proof(data)?;
-		Ok((plan.build(data), offset))
-	}
-
-	fn decode_proof(data: &[u8]) -> Result<(NodePlan, Self::AdditionalHashesPlan), Self::Error>;
+	/// TODO document this damn bitmap!!!
+	fn decode_plan_proof(data: &[u8]) -> Result<(
+		NodePlan,
+		Option<(Bitmap, Self::AdditionalHashesPlan)>,
+	), Self::Error>;
 
 	/// Decode but child are not include (instead we put empty inline
 	/// nodes).
-	fn decode_no_child(data: &[u8]) -> Result<(Node, usize), Self::Error> {
-		let (plan, offset) = Self::decode_plan_proof(data)?;
-		Ok((plan.build(data), offset))
+	fn decode_proof(data: &[u8]) -> Result<(
+		Node,
+		Option<(Bitmap, HashesIter<Self::AdditionalHashesPlan, Self::HashOut>)>,
+	), Self::Error> {
+		let (plan, hashes) = Self::decode_plan_proof(data)?;
+		let hashes = hashes.map(|(bitmap, hashes)| (bitmap, HashesIter::new(data, hashes)));
+		Ok((plan.build(data), hashes))
 	}
 }
-
-
 
 #[derive(Clone)]
 pub enum EncodedNoChild {
@@ -339,14 +331,40 @@ impl HashesPlan {
 			offset,
 		}
 	}
-	pub fn iter_hashes<'a, HO: Default + AsMut<[u8]>>(mut self, data: &'a [u8]) -> impl Iterator<Item = HO> + 'a {
-		from_fn(move || {
-			self.next().map(|range| {
-				let mut result = HO::default();
-				result.as_mut().copy_from_slice(&data[range]);
-				result
-			})
-		})
+}
+
+/// Iterator over additional hashes
+/// upon a sequential encoding of known length.
+pub struct HashesIter<'a, I, HO> {
+	data: &'a [u8],
+	ranges: I,
+	buffer: HO,
+}
+
+impl<'a, I, HO: Default> HashesIter<'a, I, HO> {
+	pub fn new(data: &'a [u8], ranges: I) -> Self {
+		HashesIter {
+			ranges,
+			data,
+			buffer: HO::default(),
+		}
+	}
+}
+
+impl<'a, I, HO> Iterator for HashesIter<'a, I, HO>
+	where
+		I: Iterator<Item = Range<usize>>,
+		HO: AsMut<[u8]> + Clone, 
+{
+	type Item = HO;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		if let Some(range) = self.ranges.next() {
+			self.buffer.as_mut().copy_from_slice(&self.data[range]);
+			Some(self.buffer.clone())
+		} else {
+			None
+		}
 	}
 }
 
@@ -355,10 +373,10 @@ impl Iterator for HashesPlan {
 
 	fn next(&mut self) -> Option<Self::Item> {
 		if self.offset < self.end {
-			self.end += self.hash_len;
+			self.offset += self.hash_len;
 			Some(Range {
-				start: self.end - self.hash_len,
-				end: self.end
+				start: self.offset - self.hash_len,
+				end: self.offset
 			})
 		} else {
 			None
