@@ -455,6 +455,10 @@ impl SequenceBinaryTree<usize> {
 // and value describe above is still interesting).
 
 /// key of node is a sequence of one bit nibbles.
+/// This do not implement any key alignment logic,
+/// using it for the sequence trie should always
+/// use `iter_path_node_key` or `path_node_key`
+/// function to instantiate.
 pub trait KeyNode {
 	fn depth(&self) -> usize;
 	// return nibble at depth (bin tree so return bool)
