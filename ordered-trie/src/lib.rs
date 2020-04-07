@@ -40,7 +40,7 @@ mod rstd {
 
 
 use hash_db::{Prefix, HashDB};
-use self::rstd::vec::Vec;
+use crate::rstd::vec::Vec;
 
 use hash_db::Hasher;
 use crate::rstd::marker::PhantomData;
@@ -64,7 +64,7 @@ pub mod key {
 
 pub mod meta {
 	use hash_db::Hasher;
-	use self::rstd::vec::Vec;
+	use crate::rstd::vec::Vec;
 
 	/// Codec for the meta needed to get
 	/// information for the tree.
