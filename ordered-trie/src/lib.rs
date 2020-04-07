@@ -917,7 +917,8 @@ impl<KN: KeyNode> MultiProofState<KN> {
 				}
 			}
 
-			let right = self.next_key1.as_ref()
+			// sibling || is just to skip next nible query as it is unused.
+			let right = sibling || self.next_key1.as_ref()
 				.expect("start_with_current").nibble_at(key.depth()).expect("starts with");
 			if let Some(join1) = self.join1 {
 				if let Some(join2) = self.join2 {
@@ -939,13 +940,13 @@ impl<KN: KeyNode> MultiProofState<KN> {
 				unreachable!("next is defined (start_with_next)");
 			}
 			if !sibling {
-				// TODO could skip right resolution in sibling case
 				if right {
 					return MultiProofResult::RegisterLeft;
 				} else {
 					return MultiProofResult::RegisterRight;
 				}
 			}
+			return MultiProofResult::DoNothing;
 		}
 		MultiProofResult::DoNothingNoStartWith
 	}
