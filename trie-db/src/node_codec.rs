@@ -18,7 +18,6 @@
 use crate::MaybeDebug;
 use crate::node::{Node, NodePlan};
 use crate::ChildReference;
-use crate::nibble::nibble_ops;
 use ordered_trie::BinaryHasher;
 
 use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec, EmptyIter, ops::Range, marker::PhantomData};
@@ -163,13 +162,11 @@ pub trait NodeCodecComplex: NodeCodec {
 	/// It can be calculated from `branch_node_common` through
 	/// `EncodedCommon` call, or directly by `branch_node_for_hash`.
 	/// TODO EMCH rename this common `HashProofHeader`.
-	/// - `in_proof_children`: presence of children in the proof, this is typically
-	/// ommitted children from compact proof encoded as a 0 length children. These
-	/// will not be encoded as hash for child proof.
+	/// - `children`: contains all children reference, not that children reference
+	/// that are compacted are set as inline children of length 0.
 	/// TODO consider using bitmap directly
 	fn encode_compact_proof<H: BinaryHasher>(
 		hash_proof_header: Vec<u8>,
-		in_proof_children: [bool; nibble_ops::NIBBLE_LENGTH],
 		children: &[Option<ChildReference<H::Out>>],
 		hash_buf: &mut H::Buffer,
 	) -> Vec<u8>;

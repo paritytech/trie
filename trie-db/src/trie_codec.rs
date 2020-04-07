@@ -118,21 +118,14 @@ impl<C: NodeCodecComplex> EncoderStackEntry<C> {
 				}
 			},
 			NodePlan::Branch { value, children } => {
-				let children = if complex_hash {
-					let no_omit = [false; NIBBLE_LENGTH];
-					Self::branch_children(node_data, &children, &no_omit[..])?
-				} else {
-					Self::branch_children(node_data, &children, &self.omit_children[..])?
-				};
+				let children = Self::branch_children(node_data, &children, &self.omit_children[..])?;
 				if complex_hash {
 					let hash_proof_header = C::branch_node_for_hash(
 						children.iter(),
 						value.clone().map(|range| &node_data[range]),
 					);
-					let in_proof_children = self.omit_children.clone();
 					C::encode_compact_proof::<H>(
 						hash_proof_header,
-						in_proof_children,
 						&children[..],
 						hash_buf,
 					)
@@ -144,12 +137,7 @@ impl<C: NodeCodecComplex> EncoderStackEntry<C> {
 				}
 			},
 			NodePlan::NibbledBranch { partial, value, children } => {
-				let children = if complex_hash {
-					let no_omit = [false; NIBBLE_LENGTH];
-					Self::branch_children(node_data, &children, &no_omit[..])?
-				} else {
-					Self::branch_children(node_data, &children, &self.omit_children[..])?
-				};
+				let children = Self::branch_children(node_data, &children, &self.omit_children[..])?;
 				let partial = partial.build(node_data);
 				if complex_hash {
 					let hash_proof_header = C::branch_node_nibbled_for_hash(
@@ -158,10 +146,8 @@ impl<C: NodeCodecComplex> EncoderStackEntry<C> {
 						children.iter(),
 						value.clone().map(|range| &node_data[range]),
 					);
-					let in_proof_children = self.omit_children.clone();
 					C::encode_compact_proof::<H>(
 						hash_proof_header,
-						in_proof_children,
 						&children[..],
 						hash_buf,
 					)

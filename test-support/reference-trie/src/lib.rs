@@ -824,11 +824,10 @@ impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodec<H> {
 
 	fn encode_compact_proof<BH: BinaryHasher>(
 		hash_proof_header: Vec<u8>,
-		in_proof_children: [bool; nibble_ops::NIBBLE_LENGTH],
 		children: &[Option<ChildReference<BH::Out>>],
 		hash_buf: &mut BH::Buffer,
 	) -> Vec<u8> {
-		encode_proof_internal::<BH>(hash_proof_header, in_proof_children, children, hash_buf)
+		encode_proof_internal::<BH>(hash_proof_header, children, hash_buf)
 	}
 
 }
@@ -958,10 +957,10 @@ fn decode_plan_proof_internal(
 
 fn encode_proof_internal<H: BinaryHasher>(
 	mut result: Vec<u8>,
-	mut in_proof_children: [bool; nibble_ops::NIBBLE_LENGTH],
 	children: &[Option<ChildReference<H::Out>>],
 	hash_buf: &mut H::Buffer,
 ) -> Vec<u8> {
+	let mut	in_proof_children = [false; nibble_ops::NIBBLE_LENGTH];
 	let bitmap_start = result.len();
 	result.push(0u8);
 	result.push(0u8);
@@ -971,12 +970,14 @@ fn encode_proof_internal<H: BinaryHasher>(
 		// TODO EMCH seems like we do not need in_proof_children input
 		// How does it differs from standard bitmap??
 		if let Some(ChildReference::Inline(h, nb)) = child.borrow() {
-			// TODO do not write inline of null size, these are defined
-			// in the bitmap and from the algos.
-			debug_assert!(*nb < 128);
-			result.push(*nb as u8);
-			result.push(ix as u8);
-			result.extend_from_slice(&h.as_ref()[..*nb]);
+			if *nb > 0 {
+				// TODO do not write inline of null size, these are defined
+				// in the bitmap and from the algos.
+				debug_assert!(*nb < 128);
+				result.push(*nb as u8);
+				result.push(ix as u8);
+				result.extend_from_slice(&h.as_ref()[..*nb]);
+			}
 			in_proof_children[ix] = true;
 		}
 	}
@@ -1268,11 +1269,10 @@ impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodecNoExt<H> {
 
 	fn encode_compact_proof<BH: BinaryHasher>(
 		hash_proof_header: Vec<u8>,
-		in_proof_children: [bool; nibble_ops::NIBBLE_LENGTH],
 		children: &[Option<ChildReference<BH::Out>>],
 		hash_buf: &mut BH::Buffer,
 	) -> Vec<u8> {
-		encode_proof_internal::<BH>(hash_proof_header, in_proof_children, children, hash_buf)
+		encode_proof_internal::<BH>(hash_proof_header, children, hash_buf)
 	}
 
 }

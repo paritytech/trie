@@ -123,7 +123,6 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 					);
 					C::encode_compact_proof::<H>(
 						hash_proof_header,
-						[false; NIBBLE_LENGTH],
 						&self.children[..],
 						hash_buf,
 					)
@@ -151,7 +150,6 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 					);
 					C::encode_compact_proof::<H>(
 						hash_proof_header,
-						[false; NIBBLE_LENGTH],
 						&self.children[..],
 						hash_buf,
 					)
