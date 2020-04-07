@@ -116,7 +116,7 @@ impl<C: NodeCodecComplex> EncoderStackEntry<C> {
 					let empty_child = ChildReference::Inline(C::HashOut::default(), 0);
 					C::extension_node(partial.right_iter(), partial.len(), empty_child)
 				}
-			}
+			},
 			NodePlan::Branch { value, children } => {
 				let children = if complex_hash {
 					let no_omit = [false; NIBBLE_LENGTH];
@@ -124,46 +124,25 @@ impl<C: NodeCodecComplex> EncoderStackEntry<C> {
 				} else {
 					Self::branch_children(node_data, &children, &self.omit_children[..])?
 				};
-				let mut result = if complex_hash {
-					C::branch_node_for_hash(
+				if complex_hash {
+					let hash_proof_header = C::branch_node_for_hash(
 						children.iter(),
 						value.clone().map(|range| &node_data[range]),
+					);
+					let in_proof_children = self.omit_children.clone();
+					C::encode_compact_proof::<H>(
+						hash_proof_header,
+						in_proof_children,
+						&children[..],
+						hash_buf,
 					)
 				} else {
 					C::branch_node(
 						children.iter(),
 						value.clone().map(|range| &node_data[range]),
 					)
-				};
-				if complex_hash {
-					let bitmap_start = result.len();
-					result.push(0u8);
-					result.push(0u8);
-					let mut in_proof_children = self.omit_children.clone();
-					// write all inline nodes TODO we could omit children first
-					// as in std case and fill this bitmap as in generate.rs.
-					for (ix, child) in children.iter().enumerate() {
-						if let Some(ChildReference::Inline(h, nb)) = child.as_ref() {
-							debug_assert!(*nb < 128);
-							result.push(*nb as u8);
-							result.push(ix as u8);
-							result.extend_from_slice(&h.as_ref()[..*nb]);
-							in_proof_children[ix] = true;
-						}
-					}
-					Bitmap::encode(in_proof_children.iter().map(|b| *b), &mut result[bitmap_start..]);
-					let additional_hashes = binary_additional_hashes::<H>(
-						&children[..],
-						&in_proof_children[..],
-						hash_buf,
-					);
-					result.push((additional_hashes.len() as u8) | 128); // first bit at one indicates we are on additional hashes
-					for hash in additional_hashes {
-						result.extend_from_slice(hash.as_ref());
-					}
 				}
-				result
-			}
+			},
 			NodePlan::NibbledBranch { partial, value, children } => {
 				let children = if complex_hash {
 					let no_omit = [false; NIBBLE_LENGTH];
@@ -172,12 +151,19 @@ impl<C: NodeCodecComplex> EncoderStackEntry<C> {
 					Self::branch_children(node_data, &children, &self.omit_children[..])?
 				};
 				let partial = partial.build(node_data);
-				let mut result = if complex_hash {
-					C::branch_node_nibbled_for_hash(
+				if complex_hash {
+					let hash_proof_header = C::branch_node_nibbled_for_hash(
 						partial.right_iter(),
 						partial.len(),
 						children.iter(),
 						value.clone().map(|range| &node_data[range]),
+					);
+					let in_proof_children = self.omit_children.clone();
+					C::encode_compact_proof::<H>(
+						hash_proof_header,
+						in_proof_children,
+						&children[..],
+						hash_buf,
 					)
 				} else {
 					C::branch_node_nibbled(
@@ -186,35 +172,8 @@ impl<C: NodeCodecComplex> EncoderStackEntry<C> {
 						children.iter(),
 						value.clone().map(|range| &node_data[range]),
 					)
-				};
-				if complex_hash {
-					let bitmap_start = result.len();
-					result.push(0u8);
-					result.push(0u8);
-					let mut in_proof_children = self.omit_children.clone();
-					// write all inline nodes
-					for (ix, child) in children.iter().enumerate() {
-						if let Some(ChildReference::Inline(h, nb)) = child.as_ref() {
-							debug_assert!(*nb < 128);
-							result.push(*nb as u8);
-							result.push(ix as u8);
-							result.extend_from_slice(&h.as_ref()[..*nb]);
-							in_proof_children[ix] = true;
-						}
-					}
-					Bitmap::encode(in_proof_children.iter().map(|b| *b), &mut result[bitmap_start..]);
-					let additional_hashes = binary_additional_hashes::<H>(
-						&children[..],
-						&in_proof_children[..],
-						hash_buf,
-					);
-					result.push((additional_hashes.len() as u8) | 128); // first bit at one indicates we are on additional hashes
-					for hash in additional_hashes {
-						result.extend_from_slice(hash.as_ref());
-					}
 				}
-				result
-			}
+			},
 		})
 	}
 
