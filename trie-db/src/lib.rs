@@ -388,7 +388,6 @@ pub trait TrieLayout {
 	/// Note that if does not, the `NodeCodecComplex` hash
 	/// associated codec only really need to implement `NodeCodec`
 	/// and dummy implementation can be used.
-	/// TODO EMCH consider splitting trait with a TrieLayoutComplex variant!!
 	const COMPLEX_HASH: bool;
 	/// Hasher to use for this trie.
 	type Hash: BinaryHasher;

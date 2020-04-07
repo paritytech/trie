@@ -963,11 +963,8 @@ fn encode_proof_internal<H: BinaryHasher>(
 	let bitmap_start = result.len();
 	result.push(0u8);
 	result.push(0u8);
-	// write all inline nodes TODO we could omit children first
-	// as in std case and fill this bitmap as in generate.rs.
+	// Write all inline nodes.
 	for (ix, child) in children.iter().enumerate() {
-		// TODO EMCH seems like we do not need in_proof_children input
-		// How does it differs from standard bitmap??
 		if let Some(ChildReference::Inline(h, nb)) = child.borrow() {
 			if *nb > 0 {
 				// TODO do not write inline of null size, these are defined

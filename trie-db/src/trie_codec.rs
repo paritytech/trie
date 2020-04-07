@@ -578,13 +578,6 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 /// indicates if it is included in the proof (inline node or
 /// compacted node).
 /// - `hash_buf` a buffer of the right size to compute the hash.
-///
-/// TODO EMCH this can be highly optimized: we do not need to calculate
-/// hash up to the root but only up to the needed intermediate hash.
-///  -> custom callback different than trie_root probably
-///  at this time trie_root run on empty inline node and produce some incorrect
-///  path that cannot be included in additional hash.
-/// TODO and can move to ordered_trie??
 pub fn binary_additional_hashes<H: BinaryHasher>(
 	children: &[Option<ChildReference<H::Out>>],
 	in_proof_children: &[bool],
@@ -611,7 +604,7 @@ pub fn binary_additional_hashes<H: BinaryHasher>(
 			ChildReference::Hash(h) => h.clone(),
 			ChildReference::Inline(h, _) => h.clone(),
 		});
-	// TODO we can skip a hash (the one to calculate root), actually we can skip all hash
+	// Note that since call back skip some calculation, root result cannot be use in this case.
 	let _root = trie_root::<_, UsizeKeyNode, _, _>(&tree, hashes.clone().into_iter(), &mut callback);
 	callback.take_additional_hash()
 }
