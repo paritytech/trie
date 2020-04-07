@@ -490,6 +490,9 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 								v.as_ref().map(|v| (ix, v.clone()))
 							})
 							.map(|(ix, child_ref)| {
+								// Use of bitmap_keys here to avoid
+								// adding a reference that is ommitted
+								// from the proof.
 								if bitmap_keys.value_at(ix) {
 									Some(match child_ref {
 										ChildReference::Hash(h) => h,

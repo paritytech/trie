@@ -331,10 +331,13 @@ impl<'a, C: NodeCodecComplex, F> DecoderStackEntry<'a, C, F> {
 				self.child_index += 1;
 			}
 			Node::Branch(children, _) | Node::NibbledBranch(_, children, _) => {
-				if let Some((bitmap, _)) = self.complex.as_ref() {
+				if let Some((bitmap_keys, _)) = self.complex.as_ref() {
 					while self.child_index < NIBBLE_LENGTH {
 						match children[self.child_index] {
-							Some(NodeHandle::Inline(data)) if data.is_empty() && bitmap.value_at(self.child_index) => {
+							Some(NodeHandle::Inline(data)) if data.is_empty()
+								// Use of bitmap_keys here to avoid going into
+								// a child that is ommitted from the binary hash proof.
+								&& bitmap_keys.value_at(self.child_index) => {
 								return Ok(false);
 							},
 							Some(child) => {
@@ -523,18 +526,15 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 			// Since `advance_child_index` returned true, the preconditions for `encode_node` are
 			// satisfied.
 			let (node_data, common) = last_entry.encode_node(register_children.as_mut().map(|r| r.as_mut()));
-			let node_hash = if let Some((bitmap_keys, additional_hashes)) = complex {
+			let node_hash = if let Some((_bitmap_keys, additional_hashes)) = complex {
 				let children = register_children.expect("Set to some if complex");
 				let nb_children = children.iter().filter(|v| v.is_some()).count();
 				let children = children.iter()
-					.enumerate()
-					.filter_map(|(ix, v)| {
-						v.as_ref().map(|v| (ix, v.clone()))
-					})
-					.map(|(ix, range)| {
-						if bitmap_keys.value_at(ix) {
+					.filter_map(|v| v.clone())
+					.map(|range| {
+						let len = range.end - range.start;
+						if len > 0 {
 							let mut v = TrieHash::<L>::default();
-							let len = range.end - range.start;
 							v.as_mut()[..len].copy_from_slice(&node_data[range]);
 							Some(v)
 						} else {

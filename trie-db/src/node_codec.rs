@@ -97,12 +97,9 @@ pub trait NodeCodecComplex: NodeCodec {
 	type AdditionalHashesPlan: Iterator<Item = Range<usize>>;
 
 	/// TODO EMCH this is technical function for common implementation.
-	/// TODO document this damn bitmap!!!
-	/// The parameter bitmap indicates children that are directly encoded
-	/// in the proof or encoded as inline. That is the difference between
-	/// the set of children and the set of children that are part of the
-	/// additional hash of the proof. TODO remove it (not needed if we
-	/// remove it from encode input, then doc that at codec level).
+	/// The parameter bitmap indicates children that are ommitted because
+	/// they are not needed by the hashing or because they are compacted.
+	/// The additional hashes are the hashes required to verify the proof.
 	fn decode_plan_proof(data: &[u8]) -> Result<(
 		NodePlan,
 		Option<(Bitmap, Self::AdditionalHashesPlan)>,
@@ -162,8 +159,9 @@ pub trait NodeCodecComplex: NodeCodec {
 	/// It can be calculated from `branch_node_common` through
 	/// `EncodedCommon` call, or directly by `branch_node_for_hash`.
 	/// TODO EMCH rename this common `HashProofHeader`.
-	/// - `children`: contains all children reference, not that children reference
-	/// that are compacted are set as inline children of length 0.
+	/// - `children`: contains all children reference to include in the proof,
+	/// note that children reference that are compacted are set as inline children of length 0.
+	///
 	/// TODO consider using bitmap directly
 	fn encode_compact_proof<H: BinaryHasher>(
 		hash_proof_header: Vec<u8>,
