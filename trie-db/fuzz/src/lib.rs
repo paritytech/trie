@@ -363,3 +363,10 @@ fn test_generate_proof<L: TrieLayout>(
 
 	(root, proof, items)
 }
+
+/*
+#[test]
+fn debug_error() {
+	let input = [0x40,0x0,0xe6,0xff,0xff,0x40,0x0,0xe6,0xff,0xff,0x2b];
+	fuzz_that_verify_accepts_valid_proofs(&input[..]);
+}*/

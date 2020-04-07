@@ -344,6 +344,7 @@ impl SequenceBinaryTree<usize> {
 			}
 		})
 	}
+
 	pub fn iter_path_node_key<KN>(&self, from: Option<usize>) -> impl Iterator<Item = KN>
 		where
 			KN: KeyNode + From<(usize, usize)> + Clone,
@@ -453,7 +454,6 @@ impl SequenceBinaryTree<usize> {
 // then the value just need to be extract from terminal hash instead. (terminal hash marker
 // and value describe above is still interesting).
 
-
 /// key of node is a sequence of one bit nibbles.
 pub trait KeyNode {
 	fn depth(&self) -> usize;
@@ -475,7 +475,7 @@ pub trait KeyNode {
 // please do not use, only for test of (usize, K)
 struct VecKeyNode(std::collections::VecDeque<bool>);
 #[cfg(test)]
-impl KeyNode for  VecKeyNode {
+impl KeyNode for VecKeyNode {
 	fn increment_no_increase(&mut self) {
 		for i in (0..self.0.len()).rev() {
 			match self.0.get_mut(i) {
@@ -494,6 +494,7 @@ impl KeyNode for  VecKeyNode {
 	fn depth(&self) -> usize {
 		self.0.len()
 	}
+
 	fn nibble_at(&self, depth: usize) -> Option<bool> {
 		self.0.get(depth).cloned()
 	}
@@ -538,34 +539,6 @@ impl From<(usize, usize)> for VecKeyNode {
 		if depth == 0 {
 			return VecKeyNode(std::collections::VecDeque::new());
 		}
-/*		if depth == 0 {
-			return vec![];
-			return vec![0];
-			return vec![0, 0];
-			...
-		}
-		if depth == 1 {
-			return vec![1];
-			return vec![0, 1];
-			return vec![0, 0, 1];
-		}
-		if depth == 2 {
-			return vec![1, 0];
-			return vec![0, 1, 0];
-		}
-		if depth == 3 {
-			return vec![1, 1];
-			return vec![0, 1, 1];
-		}
-		if depth == 4 {
-			return vec![1, 0, 0];
-		}
-		if depth == 5 {
-			return vec![1, 0, 1];
-		}
-*/
-
-
 		VecKeyNode(
 			(1..=depth).map(|i| right_at(key, depth - i)).collect()
 		)
@@ -664,6 +637,16 @@ impl KeyNode for UsizeKeyNode {
 		}
 	}
 	fn common_depth(&self, other: &Self) -> usize {
+/*		let bound = crate::rstd::cmp::min(self.depth, other.depth);
+		let mut depth = 0;
+		for i in 0..bound {
+			if self.nibble_at(i) == other.nibble_at(i) {
+				depth += 1;
+			} else {
+				break;
+			}
+		}
+		depth*/
 		let (big, small) = if self.depth < other.depth {
 			(other, self)
 		} else {
@@ -672,7 +655,6 @@ impl KeyNode for UsizeKeyNode {
 		// end is not common
 		let big_v = big.value >> (big.depth - small.depth);
 		let diff = big_v ^ small.value;
-
 		small.depth - (0usize.leading_zeros() - diff.leading_zeros()) as usize
 	}
 }
@@ -1528,7 +1510,7 @@ impl<H: BinaryHasher> HasherComplex for H {
 		I: Iterator<Item = Option<<Self as Hasher>::Out>>,
 		I2: Iterator<Item = <Self as Hasher>::Out>,
 	>(
-		x: &[u8],
+		header: &[u8],
 		nb_children: usize,
 		children: I,
 		additional_hashes: I2,
@@ -1543,8 +1525,9 @@ impl<H: BinaryHasher> HasherComplex for H {
 			let iter = children.filter_map(|v| v); // TODO assert same number as count
 			crate::trie_root::<_, UsizeKeyNode, _, _>(&seq_trie, iter, &mut callback_read_proof)
 		} else {
-			// proof node
-			let iter_key = seq_trie.iter_depth(None).enumerate().map(Into::<UsizeKeyNode>::into);
+			// proof node, UsizeKeyNode should be big enough for hasher complex
+			// case.
+			let iter_key = seq_trie.iter_path_node_key::<UsizeKeyNode>(None);
 			let iter = children
 				.zip(iter_key)
 				.filter_map(|(value, key)| if let Some(value) = value {
@@ -1565,8 +1548,8 @@ impl<H: BinaryHasher> HasherComplex for H {
 			}
 		};
 		// TODO really need a real hash trait
-		let mut buf = Vec::with_capacity(x.len() + hash.as_ref().len());
-		buf.extend_from_slice(x);
+		let mut buf = Vec::with_capacity(header.len() + hash.as_ref().len());
+		buf.extend_from_slice(header);
 		buf.extend_from_slice(hash.as_ref());
 		Some(H::hash(buf.as_slice()))
 	}
