@@ -533,6 +533,9 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 					.filter_map(|v| v.clone())
 					.map(|range| {
 						let len = range.end - range.start;
+						// We know that these are not ommitted node, they are
+						// rebuild at this point (otherwhise we could query
+						// bitmap_keys to ensure that).
 						if len > 0 {
 							let mut v = TrieHash::<L>::default();
 							v.as_mut()[..len].copy_from_slice(&node_data[range]);
@@ -575,6 +578,13 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 /// indicates if it is included in the proof (inline node or
 /// compacted node).
 /// - `hash_buf` a buffer of the right size to compute the hash.
+///
+/// TODO EMCH this can be highly optimized: we do not need to calculate
+/// hash up to the root but only up to the needed intermediate hash.
+///  -> custom callback different than trie_root probably
+///  at this time trie_root run on empty inline node and produce some incorrect
+///  path that cannot be included in additional hash.
+/// TODO and can move to ordered_trie??
 pub fn binary_additional_hashes<H: BinaryHasher>(
 	children: &[Option<ChildReference<H::Out>>],
 	in_proof_children: &[bool],
@@ -594,14 +604,14 @@ pub fn binary_additional_hashes<H: BinaryHasher>(
 		});
 
 
-	let mut callback = HashProof::<H, _, _>::new(hash_buf, to_prove);
+	let mut callback = HashProof::<H, _, _>::new(hash_buf, to_prove, true);
 	let hashes = children.iter()
 		.filter_map(|o_child| o_child.as_ref())
 		.map(|child| match child {
 			ChildReference::Hash(h) => h.clone(),
 			ChildReference::Inline(h, _) => h.clone(),
 		});
-	// TODO we can skip a hash (the one to calculate root)
+	// TODO we can skip a hash (the one to calculate root), actually we can skip all hash
 	let _root = trie_root::<_, UsizeKeyNode, _, _>(&tree, hashes.clone().into_iter(), &mut callback);
 	callback.take_additional_hash()
 }

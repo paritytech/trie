@@ -918,7 +918,6 @@ fn decode_plan_proof_internal(
 			if data.len() < offset + 3 {
 				return Err(CodecError::from("Decode branch, missing proof headers"));
 			}
-			// TODO EMCH bitmap looks unused!!!
 			let keys_position = Bitmap::decode(&data[offset..offset + BITMAP_LENGTH]);
 			offset += BITMAP_LENGTH;
 
@@ -981,10 +980,9 @@ fn encode_proof_internal<H: BinaryHasher>(
 			in_proof_children[ix] = true;
 		}
 	}
-	// We write a bitmap containing all children node that are either ommitted from the
-	// proof or inline nodes encoded in the proof.
-	// TODO seems useless as we build it from an empty input (maybe not for trie_codec
-	// not sure if ommited node are children of trie codec already).
+	// We write a bitmap containing all children node that are included in the binary
+	// child proof construction.
+	// In practice, that is inline values and ommited compacted values).
 	Bitmap::encode(in_proof_children.iter().map(|b| *b), &mut result[bitmap_start..]);
 
 	let additional_hashes = binary_additional_hashes::<H>(

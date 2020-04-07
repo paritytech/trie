@@ -96,17 +96,21 @@ pub trait NodeCodecComplex: NodeCodec {
 	/// Sequence of hashes needed for the children proof verification.
 	type AdditionalHashesPlan: Iterator<Item = Range<usize>>;
 
-	/// TODO EMCH this is technical function for common implementation.
-	/// The parameter bitmap indicates children that are ommitted because
-	/// they are not needed by the hashing or because they are compacted.
-	/// The additional hashes are the hashes required to verify the proof.
+	/// Technical function to implement `decode_proof`.
 	fn decode_plan_proof(data: &[u8]) -> Result<(
 		NodePlan,
 		Option<(Bitmap, Self::AdditionalHashesPlan)>,
 	), Self::Error>;
 
-	/// Decode but child are not include (instead we put empty inline
-	/// nodes).
+	/// Decode a `Node` from a proof. The node can miss some branch that
+	/// are not use by the proof, in this case they are stored as an inline
+	/// zero length child.
+	///
+	/// Accompanying resulting node, is also a bitmap of children included in 
+	/// the proof calculation and a sequence of additianal node for proof
+	/// verification.
+	/// In practice this contains inline node (inline nodes are always added
+	/// to the proof) and ommitted children hash (compacted hash).
 	fn decode_proof(data: &[u8]) -> Result<(
 		Node,
 		Option<(Bitmap, HashesIter<Self::AdditionalHashesPlan, Self::HashOut>)>,
@@ -159,8 +163,12 @@ pub trait NodeCodecComplex: NodeCodec {
 	/// It can be calculated from `branch_node_common` through
 	/// `EncodedCommon` call, or directly by `branch_node_for_hash`.
 	/// TODO EMCH rename this common `HashProofHeader`.
-	/// - `children`: contains all children reference to include in the proof,
-	/// note that children reference that are compacted are set as inline children of length 0.
+	/// - `children`: contains all children, with compact (ommited children) defined as
+	/// a null length inline node.
+	/// The children to be include in the proof are therefore the compacted one and the
+	/// inline nodes only.
+	/// The other children value are needed because they can be included into the additional
+	/// hash, and are required for intermediate hash calculation.
 	///
 	/// TODO consider using bitmap directly
 	fn encode_compact_proof<H: BinaryHasher>(

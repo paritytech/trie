@@ -286,7 +286,7 @@ impl SequenceBinaryTree<usize> {
 		}
 	}
 
-	/// resolve the tree path for a given index.
+	/// Resolve the tree path for a given index.
 	pub fn path_node_key<KN: KeyNode + From<(usize, usize)>>(&self, index: usize) -> KN {
 		let tmp = (!0usize << (self.depth - self.end_depth)) | (index >> self.end_depth);
 		if !tmp == 0 {
@@ -798,13 +798,16 @@ impl<'a, H: BinaryHasher, KN> ProcessNode<H::Out, KN> for HashOnly<'a, H> {
 
 /// Buffer length need to be right and is unchecked, proof elements are
 /// stored in memory (no streaming). 
-pub struct HashProof<'a, H: Hasher, I, KN>{
+pub struct HashProof<'a, H: Hasher, I, KN> {
 	buffer: &'a mut [u8],
-	// I must guaranty right depth and index in range regarding
-	// to the tree struct!!!
+	// `I` is a iterator over the depth of every element included in the proof.
+	// Can be obtain from `iter_path_node_key` filtered by contained elements.
 	to_prove: I,
 	state: MultiProofState<KN>,
 	additional_hash: Vec<H::Out>,
+	// when we do not need to calculate the root but just the additional hashes
+	// we can set it to true to avoid useless hashes round.
+	additional_hash_only: bool,
 }
 
 // We need some read ahead to manage state.
@@ -951,13 +954,18 @@ impl<'a, H: BinaryHasher, KN: KeyNode, I: Iterator<Item = KN>> HashProof<'a, H, 
 	// TODO write function to build from iter of unchecked usize indexes: map iter
 	// with either depth_at or the depth_iterator skipping undesired elements (second
 	// seems better as it filters out of range.
-	pub fn new(buff: &'a mut H::Buffer, mut to_prove: I) -> Self {
+	pub fn new(
+		buff: &'a mut H::Buffer,
+		mut to_prove: I,
+		additional_hash_only: bool,
+	) -> Self {
 		let state = MultiProofState::new(&mut to_prove);
 		HashProof {
 			buffer: buff.as_mut(),
 			to_prove,
 			state,
 			additional_hash: Vec::new(),
+			additional_hash_only,
 		}
 	}
 	pub fn take_additional_hash(&mut self) -> Vec<H::Out> {
@@ -970,23 +978,30 @@ impl<'a, H: BinaryHasher, KN: KeyNode, I: Iterator<Item = KN>> ProcessNode<H::Ou
 		H::NULL_HASH
 	}
 	fn process(&mut self, key: &KN, child1: &[u8], child2: &[u8]) -> H::Out {
+		let mut skip_hashing = false;;
 		match self.state.new_key(key, &mut self.to_prove) {
 			MultiProofResult::DoNothing => (),
 			MultiProofResult::RegisterLeft => {
 				let mut to_push = H::Out::default();
 				to_push.as_mut().copy_from_slice(child1);
 				self.additional_hash.push(to_push);
+				skip_hashing = self.additional_hash_only;
 			},
 			MultiProofResult::RegisterRight => {
 				let mut to_push = H::Out::default();
 				to_push.as_mut().copy_from_slice(child2);
 				self.additional_hash.push(to_push);
+				skip_hashing = self.additional_hash_only;
 			},
 		}
 
-		self.buffer[..H::LENGTH].copy_from_slice(child1);
-		self.buffer[H::LENGTH..].copy_from_slice(child2);
-		H::hash(&self.buffer[..])
+		if skip_hashing {
+			Default::default()
+		} else {
+			self.buffer[..H::LENGTH].copy_from_slice(child1);
+			self.buffer[H::LENGTH..].copy_from_slice(child2);
+			H::hash(&self.buffer[..])
+		}
 	}
 	fn register_root(&mut self, root: &H::Out) {
 		if self.state.is_empty {
@@ -1394,14 +1409,20 @@ mod test {
 			let tree = Tree::new(0, 0, l);
 			let mut hash_buf = <KeccakHasher as BinaryHasher>::Buffer::default();
 			let mut hash_buf2 = <KeccakHasher as BinaryHasher>::Buffer::default();
+			let mut hash_buf3 = <KeccakHasher as BinaryHasher>::Buffer::default();
 			let mut callback_read_proof = HashOnly::<KeccakHasher>::new(&mut hash_buf2);
 			let hashes: Vec<_> = hashes(l);
 			for p in 0..l {
 				let to_prove = vec![tree.path_node_key::<UsizeKeyNode>(p)];
-				let mut callback = HashProof::<KeccakHasher, _, _>::new(&mut hash_buf, to_prove.into_iter());
+				let mut callback = HashProof::<KeccakHasher, _, _>::new(&mut hash_buf, to_prove.into_iter(), false);
+				let to_prove = vec![tree.path_node_key::<UsizeKeyNode>(p)];
 				let root = trie_root::<_, UsizeKeyNode, _, _>(&tree, hashes.clone().into_iter(), &mut callback);
+				let mut callback2 = HashProof::<KeccakHasher, _, _>::new(&mut hash_buf3, to_prove.into_iter(), true);
+				let _ = trie_root::<_, UsizeKeyNode, _, _>(&tree, hashes.clone().into_iter(), &mut callback2);
 				assert_eq!(root.as_ref(), &result[l][..]);
 				let additional_hash = callback.take_additional_hash();
+				let additional_hash_2 = callback2.take_additional_hash();
+				assert_eq!(additional_hash, additional_hash_2);
 				let proof_items = vec![(tree.path_node_key::<UsizeKeyNode>(p), hashes[p].clone())];
 				let root = trie_root_from_proof::<_, UsizeKeyNode, _, _, _>(
 					&tree,
@@ -1442,6 +1463,7 @@ mod test {
 			let tree = Tree::new(0, 0, l);
 			let mut hash_buf = <KeccakHasher as BinaryHasher>::Buffer::default();
 			let mut hash_buf2 = <KeccakHasher as BinaryHasher>::Buffer::default();
+			let mut hash_buf3 = <KeccakHasher as BinaryHasher>::Buffer::default();
 			let mut callback_read_proof = HashOnly::<KeccakHasher>::new(&mut hash_buf2);
 			let hashes: Vec<_> = hashes(l);
 			let mut to_prove = Vec::new();
@@ -1451,10 +1473,14 @@ mod test {
 				to_prove.push(tree.path_node_key::<UsizeKeyNode>(p));
 				proof_items.push((tree.path_node_key::<UsizeKeyNode>(p), hashes[p].clone()));
 			}
-			let mut callback = HashProof::<KeccakHasher, _, _>::new(&mut hash_buf, to_prove.into_iter());
+			let mut callback = HashProof::<KeccakHasher, _, _>::new(&mut hash_buf, to_prove.clone().into_iter(), false);
+			let mut callback2 = HashProof::<KeccakHasher, _, _>::new(&mut hash_buf3, to_prove.into_iter(), true);
 			let root = trie_root::<_, UsizeKeyNode, _, _>(&tree, hashes.clone().into_iter(), &mut callback);
+			let _ = trie_root::<_, UsizeKeyNode, _, _>(&tree, hashes.clone().into_iter(), &mut callback2);
 			assert_eq!(root.as_ref(), &result[l][..]);
 			let additional_hash = callback.take_additional_hash();
+			let additional_hash2 = callback2.take_additional_hash();
+			assert_eq!(additional_hash, additional_hash2);
 			let root = trie_root_from_proof::<_, UsizeKeyNode, _, _, _>(
 				&tree,
 				proof_items,
