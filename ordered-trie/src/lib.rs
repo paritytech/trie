@@ -827,6 +827,7 @@ enum MultiProofResult {
 	RegisterLeft,
 	RegisterRight,
 	DoNothing,
+	DoNothingNoStartWith,
 }
 
 impl<KN: KeyNode> MultiProofState<KN> {
@@ -946,7 +947,7 @@ impl<KN: KeyNode> MultiProofState<KN> {
 				}
 			}
 		}
-		MultiProofResult::DoNothing
+		MultiProofResult::DoNothingNoStartWith
 	}
 }
 
@@ -978,9 +979,12 @@ impl<'a, H: BinaryHasher, KN: KeyNode, I: Iterator<Item = KN>> ProcessNode<H::Ou
 		H::NULL_HASH
 	}
 	fn process(&mut self, key: &KN, child1: &[u8], child2: &[u8]) -> H::Out {
-		let mut skip_hashing = false;;
+		let mut skip_hashing = false;
 		match self.state.new_key(key, &mut self.to_prove) {
-			MultiProofResult::DoNothing => (),
+			MultiProofResult::DoNothingNoStartWith => (),
+			MultiProofResult::DoNothing => {
+				skip_hashing = self.additional_hash_only
+			},
 			MultiProofResult::RegisterLeft => {
 				let mut to_push = H::Out::default();
 				to_push.as_mut().copy_from_slice(child1);
