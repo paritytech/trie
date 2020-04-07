@@ -30,7 +30,7 @@ use trie_db::{
 	TrieRootComplex,
 	Partial,
 	BinaryHasher,
-	EncodedCommon,
+	ChildRootHeader,
 	HashesPlan,
 	binary_additional_hashes,
 };
@@ -792,7 +792,7 @@ impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodec<H> {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
 		register_children: &mut [Option<Range<usize>>],
-	) -> (Vec<u8>, EncodedCommon) {
+	) -> (Vec<u8>, ChildRootHeader) {
 		Self::branch_node_internal(children, maybe_value, Some(register_children), true)
 	}
 
@@ -802,7 +802,7 @@ impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodec<H> {
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		_maybe_value: Option<&[u8]>,
 		_register_children: &mut [Option<Range<usize>>],
-	) -> (Vec<u8>, EncodedCommon) {
+	) -> (Vec<u8>, ChildRootHeader) {
 		unreachable!()
 	}
 
@@ -838,7 +838,7 @@ impl<H: Hasher> ReferenceNodeCodec<H> {
 		maybe_value: Option<&[u8]>,
 		mut register_children: Option<&mut [Option<Range<usize>>]>,
 		encode_children: bool,
-	) -> (Vec<u8>, EncodedCommon) {
+	) -> (Vec<u8>, ChildRootHeader) {
 		let mut output = vec![0; BITMAP_LENGTH + 1];
 		let mut prefix: [u8; 3] = [0; 3];
 		let have_value = if let Some(value) = maybe_value {
@@ -852,12 +852,12 @@ impl<H: Hasher> ReferenceNodeCodec<H> {
 		let mut register_children = register_children.as_mut();
 		let register_children = &mut register_children;
 		let common = if encode_children && register_children.is_some() {
-			EncodedCommon::Range(Range {
+			ChildRootHeader::Range(Range {
 				start: 0,
 				end: output.len(),
 			})
 		} else {
-			EncodedCommon::Unused
+			ChildRootHeader::Unused
 		};
 
 		let mut child_ix = output.len();
@@ -1126,7 +1126,7 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 		maybe_value: Option<&[u8]>,
 		mut register_children: Option<&mut [Option<Range<usize>>]>,
 		encode_children: bool,
-	) -> (Vec<u8>, EncodedCommon) {
+	) -> (Vec<u8>, ChildRootHeader) {
 		let mut output = if maybe_value.is_some() {
 			partial_from_iterator_encode(
 				partial,
@@ -1151,12 +1151,12 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 		let mut register_children = register_children.as_mut();
 		let register_children = &mut register_children;
 		let common = if encode_children && register_children.is_some() {
-			EncodedCommon::Range(Range {
+			ChildRootHeader::Range(Range {
 				start: 0,
 				end: output.len(),
 			})
 		} else {
-			EncodedCommon::Unused
+			ChildRootHeader::Unused
 		};
 
 		let mut child_ix = output.len();
@@ -1218,7 +1218,7 @@ impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodecNoExt<H> {
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		_maybe_value: Option<&[u8]>,
 		_register_children: &mut [Option<Range<usize>>],
-	) -> (Vec<u8>, EncodedCommon) {
+	) -> (Vec<u8>, ChildRootHeader) {
 		unreachable!()
 	}
 
@@ -1228,7 +1228,7 @@ impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodecNoExt<H> {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
 		register_children: &mut [Option<Range<usize>>],
-	) -> (Vec<u8>, EncodedCommon) {
+	) -> (Vec<u8>, ChildRootHeader) {
 		Self::branch_node_nibbled_internal(
 			partial,
 			number_nibble,

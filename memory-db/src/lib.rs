@@ -615,7 +615,7 @@ where
 		&mut self,
 		prefix: Prefix,
 		value: &[u8],
-		no_child_value: &[u8],
+		child_proof_header: &[u8],
 		nb_children: usize,
 		children: I,
 		additional_hashes: I2,
@@ -626,7 +626,7 @@ where
 		}
 
 		let key = if let Some(key) = H::hash_complex(
-			no_child_value,
+			child_proof_header,
 			nb_children,
 			children,
 			additional_hashes,
@@ -634,8 +634,7 @@ where
 		) {
 			key
 		} else {
-			// invalid proof TODO do dedicated method that can return
-			// error??
+			// invalid proof TODO handle error properly
 			return self.hashed_null_node.clone();
 		};
 

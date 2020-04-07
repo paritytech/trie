@@ -128,7 +128,7 @@ pub trait NodeCodecComplex: NodeCodec {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Option<&[u8]>,
 		register_children: &mut [Option<Range<usize>>],
-	) -> (Vec<u8>, EncodedCommon);
+	) -> (Vec<u8>, ChildRootHeader);
 
 	/// Variant of `branch_node_common` but with a nibble.
 	///
@@ -140,10 +140,10 @@ pub trait NodeCodecComplex: NodeCodec {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Option<&[u8]>,
 		register_children: &mut [Option<Range<usize>>],
-	) -> (Vec<u8>, EncodedCommon);
+	) -> (Vec<u8>, ChildRootHeader);
 
 	/// Returns branch node encoded information for hash.
-	/// Result is the same as `branch_node_common().1.encoded_common(branch_node_common().0`.
+	/// Result is the same as `branch_node_common().1.header(branch_node_common().0`.
 	fn branch_node_for_hash(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Option<&[u8]>,
@@ -161,16 +161,13 @@ pub trait NodeCodecComplex: NodeCodec {
 	///
 	/// - `hash_proof_header`: the part common with the header info from hash.
 	/// It can be calculated from `branch_node_common` through
-	/// `EncodedCommon` call, or directly by `branch_node_for_hash`.
-	/// TODO EMCH rename this common `HashProofHeader`.
+	/// `ChildRootHeader` call, or directly by `branch_node_for_hash`.
 	/// - `children`: contains all children, with compact (ommited children) defined as
 	/// a null length inline node.
 	/// The children to be include in the proof are therefore the compacted one and the
 	/// inline nodes only.
 	/// The other children value are needed because they can be included into the additional
 	/// hash, and are required for intermediate hash calculation.
-	///
-	/// TODO consider using bitmap directly
 	fn encode_compact_proof<H: BinaryHasher>(
 		hash_proof_header: Vec<u8>,
 		children: &[Option<ChildReference<H::Out>>],
@@ -180,10 +177,9 @@ pub trait NodeCodecComplex: NodeCodec {
 
 /// Information to fetch bytes that needs to be include when calculating a node hash.
 /// The node hash is the hash of these information and the merkle root of its children.
-/// TODO EMCH rename to BranchHashInfo
 #[derive(Clone)]
-pub enum EncodedCommon {
-	/// No need for complex hash. TODO EMCH see if still used.
+pub enum ChildRootHeader {
+	/// No need for complex hash.
 	Unused,
 	/// Range over the branch encoded for storage.
 	Range(Range<usize>),
@@ -191,33 +187,14 @@ pub enum EncodedCommon {
 	Allocated(Vec<u8>),
 }
 
-impl EncodedCommon {
-	pub fn encoded_common<'a>(&'a self, encoded: &'a [u8]) -> &'a [u8] {
+impl ChildRootHeader {
+	pub fn header<'a>(&'a self, encoded: &'a [u8]) -> &'a [u8] {
 		match self {
-			EncodedCommon::Unused => encoded,
-			EncodedCommon::Range(range) => &encoded[range.clone()],
-			EncodedCommon::Allocated(buff) => &buff[..],
+			ChildRootHeader::Unused => encoded,
+			ChildRootHeader::Range(range) => &encoded[range.clone()],
+			ChildRootHeader::Allocated(buff) => &buff[..],
 		}
 	}
-	// TODO this is bad we should produce a branch that does
-	// not include it in the first place (new encode fn with
-	// default impl using trim no child).
-	// TODO consider removal
-	pub fn trim_common(self, encoded: &mut Vec<u8>) {
-		match self {
-			EncodedCommon::Unused => (),
-			EncodedCommon::Range(range) => {
-				encoded.truncate(range.end);
-				if range.start != 0 {
-					*encoded = encoded.split_off(range.start);
-				}
-			},
-			EncodedCommon::Allocated(buf) => {
-				*encoded = buf;
-			},
-		}
-	}
-
 }
 
 use ordered_trie::{HashDBComplex, HasherComplex};
@@ -235,7 +212,7 @@ pub trait HashDBComplexDyn<H: Hasher, T>: Send + Sync + HashDB<H, T> {
 		prefix: Prefix,
 		value: &[u8],
 		children: &[Option<Range<usize>>],
-		common: EncodedCommon,
+		common: ChildRootHeader,
 	) -> H::Out;
 }
 
@@ -245,7 +222,7 @@ impl<H: HasherComplex, T, C: HashDBComplex<H, T>> HashDBComplexDyn<H, T> for C {
 		prefix: Prefix,
 		value: &[u8],
 		children: &[Option<Range<usize>>],
-		common: EncodedCommon,
+		common: ChildRootHeader,
 	) -> H::Out {
 
 		// TODO factor this with iter_build (just use the trait)
@@ -259,7 +236,7 @@ impl<H: HasherComplex, T, C: HashDBComplex<H, T>> HashDBComplexDyn<H, T> for C {
 			self,
 			prefix,
 			value,
-			common.encoded_common(value),
+			common.header(value),
 			nb_children,
 			children,
 			EmptyIter::default(),

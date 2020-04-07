@@ -70,7 +70,7 @@ pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
 pub use self::nibble::{NibbleSlice, NibbleVec, nibble_ops};
-pub use crate::node_codec::{NodeCodec, NodeCodecComplex, Partial, HashDBComplexDyn, EncodedCommon,
+pub use crate::node_codec::{NodeCodec, NodeCodecComplex, Partial, HashDBComplexDyn, ChildRootHeader,
 	Bitmap, BITMAP_LENGTH, HashesPlan};
 pub use crate::iter_build::{trie_visit, ProcessEncodedNode, TrieRootUnhashedComplex,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed, TrieRootComplex, TrieBuilderComplex};
