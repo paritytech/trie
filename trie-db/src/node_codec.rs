@@ -18,6 +18,8 @@
 use crate::MaybeDebug;
 use crate::node::{Node, NodePlan};
 use crate::ChildReference;
+use crate::nibble::nibble_ops;
+use ordered_trie::BinaryHasher;
 
 use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec, EmptyIter, ops::Range, marker::PhantomData};
 
@@ -97,6 +99,11 @@ pub trait NodeCodecComplex: NodeCodec {
 
 	/// TODO EMCH this is technical function for common implementation.
 	/// TODO document this damn bitmap!!!
+	/// The parameter bitmap indicates children that are directly encoded
+	/// in the proof or encoded as inline. That is the difference between
+	/// the set of children and the set of children that are part of the
+	/// additional hash of the proof. TODO remove it (not needed if we
+	/// remove it from encode input, then doc that at codec level).
 	fn decode_plan_proof(data: &[u8]) -> Result<(
 		NodePlan,
 		Option<(Bitmap, Self::AdditionalHashesPlan)>,
@@ -151,15 +158,21 @@ pub trait NodeCodecComplex: NodeCodec {
 	) -> Vec<u8>;
 
 	/// Build compact proof encoding from branch info.
-	fn proof_compact_encoded(
-		branch_basis: Vec<u8>,
-		number_nibble: usize,
-		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		value: Option<&[u8]>,
-		register_children: &[Option<Range<usize>>],
-	) -> Vec<u8> {
-		unimplemented!("TODO factor this code!!(look for _for_hash current calls)")
-	}
+	///
+	/// - `hash_proof_header`: the part common with the header info from hash.
+	/// It can be calculated from `branch_node_common` through
+	/// `EncodedCommon` call, or directly by `branch_node_for_hash`.
+	/// TODO EMCH rename this common `HashProofHeader`.
+	/// - `in_proof_children`: presence of children in the proof, this is typically
+	/// ommitted children from compact proof encoded as a 0 length children. These
+	/// will not be encoded as hash for child proof.
+	/// TODO consider using bitmap directly
+	fn encode_compact_proof<H: BinaryHasher>(
+		hash_proof_header: Vec<u8>,
+		in_proof_children: [bool; nibble_ops::NIBBLE_LENGTH],
+		children: &[Option<ChildReference<H::Out>>],
+		hash_buf: &mut H::Buffer,
+	) -> Vec<u8>;
 }
 
 /// Information to fetch bytes that needs to be include when calculating a node hash.

@@ -32,6 +32,7 @@ use trie_db::{
 	BinaryHasher,
 	EncodedCommon,
 	HashesPlan,
+	binary_additional_hashes,
 };
 use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
@@ -820,6 +821,16 @@ impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodec<H> {
 	) -> Vec<u8> {
 		unreachable!()
 	}
+
+	fn encode_compact_proof<BH: BinaryHasher>(
+		hash_proof_header: Vec<u8>,
+		in_proof_children: [bool; nibble_ops::NIBBLE_LENGTH],
+		children: &[Option<ChildReference<BH::Out>>],
+		hash_buf: &mut BH::Buffer,
+	) -> Vec<u8> {
+		encode_proof_internal::<BH>(hash_proof_header, in_proof_children, children, hash_buf)
+	}
+
 }
 
 impl<H: Hasher> ReferenceNodeCodec<H> {
@@ -943,6 +954,48 @@ fn decode_plan_proof_internal(
 		_ => None,
 	};
 	Ok((node, hashes_plan))
+}
+
+fn encode_proof_internal<H: BinaryHasher>(
+	mut result: Vec<u8>,
+	mut in_proof_children: [bool; nibble_ops::NIBBLE_LENGTH],
+	children: &[Option<ChildReference<H::Out>>],
+	hash_buf: &mut H::Buffer,
+) -> Vec<u8> {
+	let bitmap_start = result.len();
+	result.push(0u8);
+	result.push(0u8);
+	// write all inline nodes TODO we could omit children first
+	// as in std case and fill this bitmap as in generate.rs.
+	for (ix, child) in children.iter().enumerate() {
+		// TODO EMCH seems like we do not need in_proof_children input
+		// How does it differs from standard bitmap??
+		if let Some(ChildReference::Inline(h, nb)) = child.borrow() {
+			// TODO do not write inline of null size, these are defined
+			// in the bitmap and from the algos.
+			debug_assert!(*nb < 128);
+			result.push(*nb as u8);
+			result.push(ix as u8);
+			result.extend_from_slice(&h.as_ref()[..*nb]);
+			in_proof_children[ix] = true;
+		}
+	}
+	// We write a bitmap containing all children node that are either ommitted from the
+	// proof or inline nodes encoded in the proof.
+	// TODO seems useless as we build it from an empty input (maybe not for trie_codec
+	// not sure if ommited node are children of trie codec already).
+	Bitmap::encode(in_proof_children.iter().map(|b| *b), &mut result[bitmap_start..]);
+
+	let additional_hashes = binary_additional_hashes::<H>(
+		&children[..],
+		&in_proof_children[..],
+		hash_buf,
+	);
+	result.push((additional_hashes.len() as u8) | 128); // first bit at one indicates we are on additional hashes
+	for hash in additional_hashes {
+		result.extend_from_slice(hash.as_ref());
+	}
+	result
 }
 
 impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
@@ -1212,6 +1265,16 @@ impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodecNoExt<H> {
 			false,
 		).0
 	}
+
+	fn encode_compact_proof<BH: BinaryHasher>(
+		hash_proof_header: Vec<u8>,
+		in_proof_children: [bool; nibble_ops::NIBBLE_LENGTH],
+		children: &[Option<ChildReference<BH::Out>>],
+		hash_buf: &mut BH::Buffer,
+	) -> Vec<u8> {
+		encode_proof_internal::<BH>(hash_proof_header, in_proof_children, children, hash_buf)
+	}
+
 }
 
 /// Compare trie builder and in memory trie.

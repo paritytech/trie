@@ -75,7 +75,7 @@ pub use crate::node_codec::{NodeCodec, NodeCodecComplex, Partial, HashDBComplexD
 pub use crate::iter_build::{trie_visit, ProcessEncodedNode, TrieRootUnhashedComplex,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed, TrieRootComplex, TrieBuilderComplex};
 pub use crate::iterator::TrieDBNodeIterator;
-pub use crate::trie_codec::{decode_compact, encode_compact};
+pub use crate::trie_codec::{decode_compact, encode_compact, binary_additional_hashes};
 pub use ordered_trie::BinaryHasher;
 
 #[cfg(feature = "std")]

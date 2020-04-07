@@ -130,19 +130,17 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 					// TODO again register for nothing
 					for (ix, child) in self.children.iter().enumerate() {
 						if let Some(ChildReference::Inline(h, nb)) = child.as_ref() {
-							if *nb > 0 {
-								debug_assert!(*nb < 128);
-									result.push(*nb as u8);
-								result.push(ix as u8);
-								result.extend_from_slice(&h.as_ref()[..*nb]);
-							}
-								in_proof_children[ix] = true;
+							debug_assert!(*nb < 128);
+							result.push(*nb as u8);
+							result.push(ix as u8);
+							result.extend_from_slice(&h.as_ref()[..*nb]);
+							in_proof_children[ix] = true;
 						}
 					}
 					Bitmap::encode(in_proof_children.iter().map(|b| *b), &mut result[bitmap_start..]);
 					let additional_hashes = crate::trie_codec::binary_additional_hashes::<H>(
 						&self.children[..],
-							&in_proof_children[..],
+						&in_proof_children[..],
 						hash_buf,
 					);
 					result.push((additional_hashes.len() as u8) | 128); // first bit at one indicates we are on additional hashes

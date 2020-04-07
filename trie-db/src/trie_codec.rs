@@ -624,7 +624,13 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 	Err(Box::new(TrieError::IncompleteDatabase(<TrieHash<L>>::default())))
 }
 
-pub(crate) fn binary_additional_hashes<H: BinaryHasher>(
+/// Returns the additional hashes requires for a proof.
+/// - `children`, the children for a branch
+/// - `in_proof_children`, for all children,
+/// indicates if it is included in the proof (inline node or
+/// compacted node).
+/// - `hash_buf` a buffer of the right size to compute the hash.
+pub fn binary_additional_hashes<H: BinaryHasher>(
 	children: &[Option<ChildReference<H::Out>>],
 	in_proof_children: &[bool],
 	hash_buf: &mut H::Buffer,
