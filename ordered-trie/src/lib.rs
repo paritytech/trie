@@ -64,6 +64,7 @@ pub mod key {
 
 pub mod meta {
 	use hash_db::Hasher;
+	use self::rstd::vec::Vec;
 
 	/// Codec for the meta needed to get
 	/// information for the tree.
