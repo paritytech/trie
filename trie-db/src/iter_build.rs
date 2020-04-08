@@ -23,7 +23,7 @@ use crate::rstd::{cmp::max, marker::PhantomData, vec::Vec, EmptyIter, ops::Range
 use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
 use crate::nibble::nibble_ops;
-use crate::node_codec::{NodeCodec, NodeCodecComplex, ChildRootHeader};
+use crate::node_codec::{NodeCodec, NodeCodecComplex, ChildProofHeader};
 use crate::{TrieLayout, TrieHash};
 use crate::rstd::borrow::Borrow;
 
@@ -146,7 +146,7 @@ impl<T, V> CacheAccum<T, V>
 			k2.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE - nkey.len(),
 		);
 		let iter: Option<(EmptyIter<Option<_>>, _)> = None;
-		let hash = callback.process(pr.left(), (encoded, ChildRootHeader::Unused), false, iter);
+		let hash = callback.process(pr.left(), (encoded, ChildProofHeader::Unused), false, iter);
 
 		// insert hash in branch (first level branch only at this point)
 		self.set_node(target_depth, nibble_value as usize, Some(hash));
@@ -219,7 +219,7 @@ impl<T, V> CacheAccum<T, V>
 			(T::Codec::branch_node(
 				self.0[last].0.as_ref().iter(),
 				v.as_ref().map(|v| v.as_ref()),
-			), ChildRootHeader::Unused)
+			), ChildProofHeader::Unused)
 		};
 		let pr = NibbleSlice::new_offset(&key_branch, branch_d);
 		let branch_hash = if T::COMPLEX_HASH {
@@ -237,7 +237,7 @@ impl<T, V> CacheAccum<T, V>
 			let nib = pr.right_range_iter(nkeyix.1);
 			let encoded = T::Codec::extension_node(nib, nkeyix.1, branch_hash);
 			let iter: Option<(EmptyIter<Option<_>>, _)> = None;
-			let h = callback.process(pr.left(), (encoded, ChildRootHeader::Unused), is_root, iter);
+			let h = callback.process(pr.left(), (encoded, ChildProofHeader::Unused), is_root, iter);
 			h
 		} else {
 			branch_hash
@@ -272,7 +272,7 @@ impl<T, V> CacheAccum<T, V>
 				pr.right_range_iter(nkeyix.1),
 				nkeyix.1,
 				self.0[last].0.as_ref().iter(), v.as_ref().map(|v| v.as_ref()),
-			), ChildRootHeader::Unused)
+			), ChildProofHeader::Unused)
 		};
 		let ext_length = nkey.as_ref().map(|nkeyix| nkeyix.0).unwrap_or(0);
 		let pr = NibbleSlice::new_offset(
@@ -347,7 +347,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F)
 				k2.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE - nkey.len(),
 			);
 			let iter: Option<(EmptyIter<Option<_>>, _)> = None;
-			callback.process(pr.left(), (encoded, ChildRootHeader::Unused), true, iter);
+			callback.process(pr.left(), (encoded, ChildProofHeader::Unused), true, iter);
 		} else {
 			depth_queue.flush_value(callback, last_depth, &previous_value);
 			let ref_branches = previous_value.0;
@@ -356,7 +356,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F)
 	} else {
 		let iter: Option<(EmptyIter<Option<_>>, _)> = None;
 		// nothing null root corner case
-		callback.process(hash_db::EMPTY_PREFIX, (T::Codec::empty_node().to_vec(), ChildRootHeader::Unused), true, iter);
+		callback.process(hash_db::EMPTY_PREFIX, (T::Codec::empty_node().to_vec(), ChildProofHeader::Unused), true, iter);
 	}
 }
 
@@ -372,7 +372,7 @@ pub trait ProcessEncodedNode<HO> {
 	fn process(
 		&mut self,
 		prefix: Prefix,
-		encoded_node: (Vec<u8>, ChildRootHeader),
+		encoded_node: (Vec<u8>, ChildProofHeader),
 		is_root: bool,
 		complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<HO>>>>, usize)>,
 	) -> ChildReference<HO>;
@@ -414,7 +414,7 @@ impl<'a, H: Hasher, V, DB: HashDB<H, V>> ProcessEncodedNode<<H as Hasher>::Out>
 	fn process(
 		&mut self,
 		prefix: Prefix,
-		(encoded_node, _common): (Vec<u8>, ChildRootHeader),
+		(encoded_node, _common): (Vec<u8>, ChildProofHeader),
 		is_root: bool,
 		// TODO different trait??
 		_complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
@@ -439,7 +439,7 @@ impl<'a, H: HasherComplex, V, DB: HashDBComplex<H, V>> ProcessEncodedNode<<H as 
 	fn process(
 		&mut self,
 		prefix: Prefix,
-		(encoded_node, common): (Vec<u8>, ChildRootHeader),
+		(encoded_node, common): (Vec<u8>, ChildProofHeader),
 		is_root: bool,
 		complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {
@@ -494,7 +494,7 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRoot<H, <H as Has
 	fn process(
 		&mut self,
 		_: Prefix,
-		(encoded_node, _common): (Vec<u8>, ChildRootHeader),
+		(encoded_node, _common): (Vec<u8>, ChildProofHeader),
 		is_root: bool,
 		// TODO different trait
 		_complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
@@ -531,7 +531,7 @@ impl<H: HasherComplex> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootComple
 	fn process(
 		&mut self,
 		_: Prefix,
-		(encoded_node, common): (Vec<u8>, ChildRootHeader),
+		(encoded_node, common): (Vec<u8>, ChildProofHeader),
 		is_root: bool,
 		complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {
@@ -615,7 +615,7 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootPrint<H, <H a
 	fn process(
 		&mut self,
 		p: Prefix,
-		(encoded_node, _common): (Vec<u8>, ChildRootHeader),
+		(encoded_node, _common): (Vec<u8>, ChildProofHeader),
 		is_root: bool,
 		// TODO different trait?
 		_complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
@@ -643,7 +643,7 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashed<H> {
 	fn process(
 		&mut self,
 		_: Prefix,
-		(encoded_node, _common): (Vec<u8>, ChildRootHeader),
+		(encoded_node, _common): (Vec<u8>, ChildProofHeader),
 		is_root: bool,
 		// TODO different trait
 		_complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
@@ -667,7 +667,7 @@ impl<H: HasherComplex> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhash
 	fn process(
 		&mut self,
 		_: Prefix,
-		(encoded_node, common): (Vec<u8>, ChildRootHeader),
+		(encoded_node, common): (Vec<u8>, ChildProofHeader),
 		is_root: bool,
 		complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {

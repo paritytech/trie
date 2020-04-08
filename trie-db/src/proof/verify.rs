@@ -17,7 +17,7 @@ use crate::rstd::{
 };
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH,
-	node::{Node, NodeHandle}, NodeCodecComplex, TrieHash, TrieLayout, ChildRootHeader,
+	node::{Node, NodeHandle}, NodeCodecComplex, TrieHash, TrieLayout, ChildProofHeader,
 };
 use hash_db::Hasher;
 use ordered_trie::{BinaryHasher, HasherComplex};
@@ -149,11 +149,11 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 	}
 
 	/// Encode this entry to an encoded trie node with data properly reconstructed.
-	fn encode_node(&mut self) -> Result<(Vec<u8>, ChildRootHeader), Error<C::HashOut, C::Error>> {
+	fn encode_node(&mut self) -> Result<(Vec<u8>, ChildProofHeader), Error<C::HashOut, C::Error>> {
 		self.complete_children()?;
 		Ok(match self.node {
 			Node::Empty =>
-				(C::empty_node().to_vec(), ChildRootHeader::Unused),
+				(C::empty_node().to_vec(), ChildProofHeader::Unused),
 			Node::Leaf(partial, _) => {
 				let value = self.value
 					.expect(
@@ -161,7 +161,7 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 						value is only ever reassigned in the ValueMatch::MatchesLeaf match \
 						clause, which assigns only to Some"
 					);
-				(C::leaf_node(partial.right(), value), ChildRootHeader::Unused)
+				(C::leaf_node(partial.right(), value), ChildProofHeader::Unused)
 			}
 			Node::Extension(partial, _) => {
 				let child = self.children[0]
@@ -170,7 +170,7 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 					partial.right_iter(),
 					partial.len(),
 					child
-				), ChildRootHeader::Unused)
+				), ChildProofHeader::Unused)
 			}
 			Node::Branch(_, _) => {
 				let mut register_children: [Option<_>; NIBBLE_LENGTH] = Default::default();

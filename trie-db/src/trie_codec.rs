@@ -31,7 +31,7 @@ use crate::{
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout, NodeCodecComplex,
 	nibble_ops::NIBBLE_LENGTH, node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode},
 };
-use crate::node_codec::{Bitmap, ChildRootHeader};
+use crate::node_codec::{Bitmap, ChildProofHeader};
 use crate::rstd::{
 	boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec, vec::Vec,
 	ops::Range,
@@ -414,19 +414,19 @@ impl<'a, C: NodeCodecComplex, F> DecoderStackEntry<'a, C, F> {
 	///
 	/// Preconditions:
 	/// - if node is an extension node, then `children[0]` is Some.
-	fn encode_node(self, register_children: Option<&mut [Option<Range<usize>>]>) -> (Vec<u8>, ChildRootHeader) {
+	fn encode_node(self, register_children: Option<&mut [Option<Range<usize>>]>) -> (Vec<u8>, ChildProofHeader) {
 		match self.node {
 			Node::Empty =>
-				(C::empty_node().to_vec(), ChildRootHeader::Unused),
+				(C::empty_node().to_vec(), ChildProofHeader::Unused),
 			Node::Leaf(partial, value) =>
-				(C::leaf_node(partial.right(), value), ChildRootHeader::Unused),
+				(C::leaf_node(partial.right(), value), ChildProofHeader::Unused),
 			Node::Extension(partial, _) =>
 				(C::extension_node(
 					partial.right_iter(),
 					partial.len(),
 					self.children[0]
 						.expect("required by method precondition; qed"),
-				), ChildRootHeader::Unused),
+				), ChildProofHeader::Unused),
 			Node::Branch(_, value) => if let Some(register_children) = register_children {
 				C::branch_node_common(
 					self.children.into_iter(),
@@ -437,7 +437,7 @@ impl<'a, C: NodeCodecComplex, F> DecoderStackEntry<'a, C, F> {
 				(C::branch_node(
 					self.children.into_iter(),
 					value,
-				), ChildRootHeader::Unused)
+				), ChildProofHeader::Unused)
 			},
 			Node::NibbledBranch(partial, _, value) => if let Some(register_children) = register_children {
 				C::branch_node_nibbled_common(
@@ -453,7 +453,7 @@ impl<'a, C: NodeCodecComplex, F> DecoderStackEntry<'a, C, F> {
 					partial.len(),
 					self.children.iter(),
 					value,
-				), ChildRootHeader::Unused)
+				), ChildProofHeader::Unused)
 			},
 		}
 	}

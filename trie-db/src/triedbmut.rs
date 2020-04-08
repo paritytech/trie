@@ -23,7 +23,7 @@ use crate::node_codec::HashDBComplexDyn;
 use hash_db::{Hasher, Prefix, EMPTY_PREFIX};
 use hashbrown::HashSet;
 
-use crate::node_codec::{NodeCodec, NodeCodecComplex, ChildRootHeader};
+use crate::node_codec::{NodeCodec, NodeCodecComplex, ChildProofHeader};
 use crate::nibble::{NibbleVec, NibbleSlice, nibble_ops, BackingByteVec};
 use crate::rstd::{
 	boxed::Box, convert::TryFrom, hash::Hash, mem, ops::Index, result, vec::Vec, VecDeque,
@@ -209,16 +209,16 @@ where
 		self,
 		mut child_cb: F,
 		register_children: Option<&mut [Option<Range<usize>>]>,
-	) -> (Vec<u8>, ChildRootHeader) where
+	) -> (Vec<u8>, ChildProofHeader) where
 		C: NodeCodecComplex<HashOut=O>,
 		F: FnMut(NodeHandle<H::Out>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
 		H: Hasher<Out = O>,
 	{
 		match self {
-			Node::Empty => (C::empty_node().to_vec(), ChildRootHeader::Unused),
+			Node::Empty => (C::empty_node().to_vec(), ChildProofHeader::Unused),
 			Node::Leaf(partial, value) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
-				(C::leaf_node(pr.right(), &value), ChildRootHeader::Unused)
+				(C::leaf_node(pr.right(), &value), ChildProofHeader::Unused)
 			},
 			Node::Extension(partial, child) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
@@ -228,7 +228,7 @@ where
 					it,
 					pr.len(),
 					c,
-				), ChildRootHeader::Unused)
+				), ChildProofHeader::Unused)
 			},
 			Node::Branch(mut children, value) => {
 				// map the `NodeHandle`s from the Branch to `ChildReferences`
@@ -249,7 +249,7 @@ where
 					(C::branch_node(
 						children,
 						value.as_ref().map(|v| &v[..]),
-					), ChildRootHeader::Unused)
+					), ChildProofHeader::Unused)
 				}
 			},
 			Node::NibbledBranch(partial, mut children, value) => {
@@ -281,7 +281,7 @@ where
 						pr.len(),
 						children,
 						value.as_ref().map(|v| &v[..]),
-					), ChildRootHeader::Unused)
+					), ChildProofHeader::Unused)
 				}
 			},
 		}

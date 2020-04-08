@@ -128,7 +128,7 @@ pub trait NodeCodecComplex: NodeCodec {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Option<&[u8]>,
 		register_children: &mut [Option<Range<usize>>],
-	) -> (Vec<u8>, ChildRootHeader);
+	) -> (Vec<u8>, ChildProofHeader);
 
 	/// Variant of `branch_node_common` but with a nibble.
 	///
@@ -140,7 +140,7 @@ pub trait NodeCodecComplex: NodeCodec {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Option<&[u8]>,
 		register_children: &mut [Option<Range<usize>>],
-	) -> (Vec<u8>, ChildRootHeader);
+	) -> (Vec<u8>, ChildProofHeader);
 
 	/// Returns branch node encoded information for hash.
 	/// Result is the same as `branch_node_common().1.header(branch_node_common().0`.
@@ -161,7 +161,7 @@ pub trait NodeCodecComplex: NodeCodec {
 	///
 	/// - `hash_proof_header`: the part common with the header info from hash.
 	/// It can be calculated from `branch_node_common` through
-	/// `ChildRootHeader` call, or directly by `branch_node_for_hash`.
+	/// `ChildProofHeader` call, or directly by `branch_node_for_hash`.
 	/// - `children`: contains all children, with compact (ommited children) defined as
 	/// a null length inline node.
 	/// The children to be include in the proof are therefore the compacted one and the
@@ -178,7 +178,7 @@ pub trait NodeCodecComplex: NodeCodec {
 /// Information to fetch bytes that needs to be include when calculating a node hash.
 /// The node hash is the hash of these information and the merkle root of its children.
 #[derive(Clone)]
-pub enum ChildRootHeader {
+pub enum ChildProofHeader {
 	/// No need for complex hash.
 	Unused,
 	/// Range over the branch encoded for storage.
@@ -187,12 +187,12 @@ pub enum ChildRootHeader {
 	Allocated(Vec<u8>),
 }
 
-impl ChildRootHeader {
+impl ChildProofHeader {
 	pub fn header<'a>(&'a self, encoded: &'a [u8]) -> &'a [u8] {
 		match self {
-			ChildRootHeader::Unused => encoded,
-			ChildRootHeader::Range(range) => &encoded[range.clone()],
-			ChildRootHeader::Allocated(buff) => &buff[..],
+			ChildProofHeader::Unused => encoded,
+			ChildProofHeader::Range(range) => &encoded[range.clone()],
+			ChildProofHeader::Allocated(buff) => &buff[..],
 		}
 	}
 }
@@ -212,7 +212,7 @@ pub trait HashDBComplexDyn<H: Hasher, T>: Send + Sync + HashDB<H, T> {
 		prefix: Prefix,
 		value: &[u8],
 		children: &[Option<Range<usize>>],
-		common: ChildRootHeader,
+		common: ChildProofHeader,
 	) -> H::Out;
 }
 
@@ -222,7 +222,7 @@ impl<H: HasherComplex, T, C: HashDBComplex<H, T>> HashDBComplexDyn<H, T> for C {
 		prefix: Prefix,
 		value: &[u8],
 		children: &[Option<Range<usize>>],
-		common: ChildRootHeader,
+		common: ChildProofHeader,
 	) -> H::Out {
 
 		// TODO factor this with iter_build (just use the trait)
