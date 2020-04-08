@@ -76,7 +76,7 @@ pub use crate::iter_build::{trie_visit, ProcessEncodedNode, TrieRootUnhashedHybr
 	 TrieBuilder, TrieRoot, TrieRootUnhashed, TrieRootHybrid, TrieBuilderHybrid};
 pub use crate::iterator::TrieDBNodeIterator;
 pub use crate::trie_codec::{decode_compact, encode_compact, binary_additional_hashes};
-pub use ordered_trie::BinaryHasher;
+pub use ordered_trie::{HashDBHybrid, HasherHybrid, BinaryHasher};
 
 #[cfg(feature = "std")]
 pub use crate::iter_build::TrieRootPrint;
