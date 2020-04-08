@@ -18,14 +18,13 @@ use crate::rstd::{
 	boxed::Box, convert::TryInto, marker::PhantomData, ops::Range, vec, vec::Vec,
 };
 
-use hash_db::Hasher;
+use hash_db::{Hasher, BinaryHasher};
 
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH, NibbleSlice, node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode}, NodeCodec, Recorder,
 	Result as TrieResult, Trie, TrieError, TrieHash,
 	TrieLayout, NodeCodecHybrid,
 };
-use ordered_trie::BinaryHasher;
 
 struct StackEntry<'a, C: NodeCodec, H> {
 	/// The prefix is the nibble path to the node in the trie.

@@ -18,7 +18,7 @@
 use crate::MaybeDebug;
 use crate::node::{Node, NodePlan};
 use crate::ChildReference;
-use ordered_trie::BinaryHasher;
+use hash_db::BinaryHasher;
 
 use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec, EmptyIter, ops::Range, marker::PhantomData};
 

@@ -14,7 +14,7 @@
 
 //! Hasher implementation for the Keccak-256 hash
 
-use hash_db::Hasher;
+use hash_db::{Hasher, BinaryHasher};
 //use hash_db::FixHash;
 use tiny_keccak::Keccak;
 use hash256_std_hasher::Hash256StdHasher;
@@ -36,16 +36,16 @@ impl Hasher for KeccakHasher {
 	}
 }
 
-impl ordered_trie::BinaryHasher for KeccakHasher {
+impl BinaryHasher for KeccakHasher {
 	const NULL_HASH: &'static [u8] = &[197, 210, 70, 1, 134, 247, 35, 60, 146,
 		126, 125, 178, 220, 199, 3, 192, 229, 0, 182, 83, 202, 130, 39, 59, 123,
 		250, 216, 4, 93, 133, 164, 112];
-	type Buffer = ordered_trie::Buffer64;
+	type Buffer = hash_db::Buffer64;
 }
 
 #[test]
 fn test_keccack_hasher() {
-	ordered_trie::test_binary_hasher::<KeccakHasher>()
+	hash_db::test_binary_hasher::<KeccakHasher>()
 }
 
 /* TODO this is rather bad trait see if delete??

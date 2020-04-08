@@ -64,6 +64,40 @@ pub trait Hasher: Sync + Send {
 	fn hash(x: &[u8]) -> Self::Out;
 }
 
+/// Small trait for to allow using buffer of type [u8; H::LENGTH * 2].
+pub trait BinaryHasher: Hasher {
+	/// Hash for the empty content (is hash(&[])).
+	const NULL_HASH: &'static [u8];
+	type Buffer: AsRef<[u8]> + AsMut<[u8]> + Default;
+}
+
+/// Test function to use on every binary buffer implementation.
+pub fn test_binary_hasher<H: BinaryHasher>() {
+	let size = <H as Hasher>::LENGTH * 2;
+	let buf = <H as BinaryHasher>::Buffer::default();
+	assert_eq!(buf.as_ref().len(), size);
+	let null_hash = H::hash(&[]);
+	assert_eq!(H::NULL_HASH, null_hash.as_ref());
+}
+
+/// A buffer for binary hasher of size 64.
+pub struct Buffer64([u8; 64]);
+impl AsRef<[u8]> for Buffer64 {
+	fn as_ref(&self) -> &[u8] {
+		&self.0[..]
+	}
+}
+impl AsMut<[u8]> for Buffer64 {
+	fn as_mut(&mut self) -> &mut [u8] {
+		&mut self.0[..]
+	}
+}
+impl Default for Buffer64 {
+	fn default() -> Self {
+		Buffer64([0; 64])
+	}
+}
+
 /// Trait modelling a plain datastore whose key is a fixed type.
 /// The caller should ensure that a key only corresponds to
 /// one value.

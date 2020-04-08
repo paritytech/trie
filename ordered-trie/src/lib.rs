@@ -42,7 +42,7 @@ mod rstd {
 use hash_db::{Prefix, HashDB};
 use crate::rstd::vec::Vec;
 
-use hash_db::Hasher;
+use hash_db::{Hasher, BinaryHasher};
 use crate::rstd::marker::PhantomData;
 
 
@@ -716,33 +716,6 @@ fn key_node_test() {
 //	test(usize::max_value());
 }
 
-/// A buffer for binary hasher of size 64.
-pub struct Buffer64([u8; 64]);
-impl AsRef<[u8]> for Buffer64 {
-	fn as_ref(&self) -> &[u8] {
-		&self.0[..]
-	}
-}
-impl AsMut<[u8]> for Buffer64 {
-	fn as_mut(&mut self) -> &mut [u8] {
-		&mut self.0[..]
-	}
-}
-impl Default for Buffer64 {
-	fn default() -> Self {
-		Buffer64([0; 64])
-	}
-}
-/// Test function to use on every binary buffer implementation.
-pub fn test_binary_hasher<H: BinaryHasher>() {
-	let size = <H as Hasher>::LENGTH * 2;
-	let buf = <H as BinaryHasher>::Buffer::default();
-	assert_eq!(buf.as_ref().len(), size);
-	let null_hash = H::hash(&[]);
-	assert_eq!(H::NULL_HASH, null_hash.as_ref());
-
-}
-
 pub trait ProcessNode<HO, KN> {
 	/// Callback for an empty trie, return byte representation
 	/// of the hash for the empty trie.
@@ -1249,18 +1222,6 @@ mod test {
 		}
 	}
 
-	impl BinaryHasher for KeccakHasher {
-		const NULL_HASH: &'static [u8] = &[197, 210, 70, 1, 134, 247, 35, 60, 146,
-			126, 125, 178, 220, 199, 3, 192, 229, 0, 182, 83, 202, 130, 39, 59, 123,
-			250, 216, 4, 93, 133, 164, 112];
-		type Buffer = Buffer64;
-	}
-
-	#[test]
-	fn test_keccack_hasher() {
-		test_binary_hasher::<KeccakHasher>()
-	}
-
 	fn hashes(l: usize) -> Vec<[u8;32]> {
 		(0..l).map(|i| {
 			let mut hash = <KeccakHasher as Hasher>::Out::default();
@@ -1485,13 +1446,6 @@ mod test {
 			assert_eq!(root.unwrap().as_ref(), &result[l][..]);
 		}
 	}
-}
-
-/// Small trait for to allow using buffer of type [u8; H::LENGTH * 2].
-pub trait BinaryHasher: Hasher {
-	/// Hash for the empty content (is hash(&[])).
-	const NULL_HASH: &'static [u8];
-	type Buffer: AsRef<[u8]> + AsMut<[u8]> + Default;
 }
 
 pub trait HasherHybrid: BinaryHasher {

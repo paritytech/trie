@@ -25,7 +25,8 @@
 //! expected to save roughly (n - 1) hashes in size where n is the number of nodes in the partial
 //! trie.
 
-pub use ordered_trie::{BinaryHasher, HashDBHybrid};
+use ordered_trie::HashDBHybrid;
+use hash_db::BinaryHasher;
 use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout, NodeCodecHybrid,

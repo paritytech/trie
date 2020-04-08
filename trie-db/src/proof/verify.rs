@@ -19,8 +19,8 @@ use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH,
 	node::{Node, NodeHandle}, NodeCodecHybrid, TrieHash, TrieLayout, ChildProofHeader,
 };
-use hash_db::Hasher;
-use ordered_trie::{BinaryHasher, HasherHybrid};
+use hash_db::{Hasher, BinaryHasher};
+use ordered_trie::HasherHybrid;
 use crate::node_codec::{Bitmap, HashesIter};
 
 

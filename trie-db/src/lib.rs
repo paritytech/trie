@@ -60,7 +60,7 @@ mod nibble;
 mod node_codec;
 mod trie_codec;
 
-pub use hash_db::{HashDB, HashDBRef, Hasher};
+pub use hash_db::{HashDB, HashDBRef, Hasher, BinaryHasher};
 pub use self::triedb::{TrieDB, TrieDBIterator};
 pub use self::triedbmut::{TrieDBMut, ChildReference};
 pub use self::sectriedbmut::SecTrieDBMut;
@@ -76,7 +76,7 @@ pub use crate::iter_build::{trie_visit, ProcessEncodedNode, TrieRootUnhashedHybr
 	 TrieBuilder, TrieRoot, TrieRootUnhashed, TrieRootHybrid, TrieBuilderHybrid};
 pub use crate::iterator::TrieDBNodeIterator;
 pub use crate::trie_codec::{decode_compact, encode_compact, binary_additional_hashes};
-pub use ordered_trie::{HashDBHybrid, HasherHybrid, BinaryHasher};
+pub use ordered_trie::{HashDBHybrid, HasherHybrid};
 
 #[cfg(feature = "std")]
 pub use crate::iter_build::TrieRootPrint;
