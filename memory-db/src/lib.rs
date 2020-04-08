@@ -19,7 +19,7 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-use ordered_trie::{HashDBComplex, HasherComplex};
+use ordered_trie::{HashDBHybrid, HasherHybrid};
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher,
 	AsHashDB, AsPlainDB, Prefix};
 use parity_util_mem::{MallocSizeOf, MallocSizeOfOps};
@@ -602,13 +602,13 @@ where
 	}
 }
 
-impl<H, KF, T> HashDBComplex<H, T> for MemoryDB<H, KF, T>
+impl<H, KF, T> HashDBHybrid<H, T> for MemoryDB<H, KF, T>
 where
-	H: HasherComplex,
+	H: HasherHybrid,
 	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: Send + Sync + KeyFunction<H>,
 {
-	fn insert_complex<
+	fn insert_hybrid<
 		I: Iterator<Item = Option<H::Out>>,
 		I2: Iterator<Item = H::Out>,
 	> (
@@ -625,7 +625,7 @@ where
 			return self.hashed_null_node.clone();
 		}
 
-		let key = if let Some(key) = H::hash_complex(
+		let key = if let Some(key) = H::hash_hybrid(
 			child_proof_header,
 			nb_children,
 			children,

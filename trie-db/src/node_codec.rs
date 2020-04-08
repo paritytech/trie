@@ -86,13 +86,13 @@ pub trait NodeCodec: Sized {
 	) -> Vec<u8>;
 }
 
-/// Trait for handling complex proof.
+/// Trait for handling hybrid proof.
 /// This adds methods to basic node codec in order to support:
 /// - storage encoding with existing `NodeCodec` methods
 /// - encode a proof specific representation. (usually the common representation and
 /// the merkle proof of the children stored encoded hash).
 /// - Intermediate optional common representation shared between storage
-pub trait NodeCodecComplex: NodeCodec {
+pub trait NodeCodecHybrid: NodeCodec {
 	/// Sequence of hashes needed for the children proof verification.
 	type AdditionalHashesPlan: Iterator<Item = Range<usize>>;
 
@@ -179,7 +179,7 @@ pub trait NodeCodecComplex: NodeCodec {
 /// The node hash is the hash of these information and the merkle root of its children.
 #[derive(Clone)]
 pub enum ChildProofHeader {
-	/// No need for complex hash.
+	/// No need for hybrid hash.
 	Unused,
 	/// Range over the branch encoded for storage.
 	Range(Range<usize>),
@@ -197,17 +197,17 @@ impl ChildProofHeader {
 	}
 }
 
-use ordered_trie::{HashDBComplex, HasherComplex};
+use ordered_trie::{HashDBHybrid, HasherHybrid};
 use hash_db::{HashDB, Prefix, HashDBRef, Hasher};
 
-pub trait HashDBComplexDyn<H: Hasher, T>: Send + Sync + HashDB<H, T> {
+pub trait HashDBHybridDyn<H: Hasher, T>: Send + Sync + HashDB<H, T> {
 	/// Insert a datum item into the DB and return the datum's hash for a later lookup. Insertions
 	/// are counted and the equivalent number of `remove()`s must be performed before the data
 	/// is considered dead.
 	///
-	/// TODO warn semantic of children differs from HashDBComplex (in HashDBComplex it is the
+	/// TODO warn semantic of children differs from HashDBHybrid (in HashDBHybrid it is the
 	/// children of the binary hasher, here it is the children of the patricia merkle trie).
-	fn insert_complex(
+	fn insert_hybrid(
 		&mut self,
 		prefix: Prefix,
 		value: &[u8],
@@ -216,8 +216,8 @@ pub trait HashDBComplexDyn<H: Hasher, T>: Send + Sync + HashDB<H, T> {
 	) -> H::Out;
 }
 
-impl<H: HasherComplex, T, C: HashDBComplex<H, T>> HashDBComplexDyn<H, T> for C {
-	fn insert_complex(
+impl<H: HasherHybrid, T, C: HashDBHybrid<H, T>> HashDBHybridDyn<H, T> for C {
+	fn insert_hybrid(
 		&mut self,
 		prefix: Prefix,
 		value: &[u8],
@@ -227,12 +227,12 @@ impl<H: HasherComplex, T, C: HashDBComplex<H, T>> HashDBComplexDyn<H, T> for C {
 
 		// TODO factor this with iter_build (just use the trait)
 		let nb_children = children.iter().filter(|v| v.is_some()).count();
-		let children = ComplexLayoutIterValues::new(
+		let children = HybridLayoutIterValues::new(
 			children.iter().filter_map(|v| v.as_ref()),
 			value,
 		);
 
-		<C as HashDBComplex<H, T>>::insert_complex(
+		<C as HashDBHybrid<H, T>>::insert_hybrid(
 			self,
 			prefix,
 			value,
@@ -245,7 +245,7 @@ impl<H: HasherComplex, T, C: HashDBComplex<H, T>> HashDBComplexDyn<H, T> for C {
 	}
 }
 
-impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a dyn HashDBComplexDyn<H, T> {
+impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a dyn HashDBHybridDyn<H, T> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
 		self.as_hash_db().get(key, prefix)
 	}
@@ -255,7 +255,7 @@ impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a dyn HashDBComplexDyn<H, T> {
 	}
 }
 
-impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a mut dyn HashDBComplexDyn<H, T> {
+impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a mut dyn HashDBHybridDyn<H, T> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
 		self.as_hash_db().get(key, prefix)
 	}
@@ -267,20 +267,20 @@ impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a mut dyn HashDBComplexDyn<H, T> {
 
 // TODO this using a buffer is bad (we should switch
 // binary hasher to use slice as input (or be able to))
-pub struct ComplexLayoutIterValues<'a, HO, I> {
+pub struct HybridLayoutIterValues<'a, HO, I> {
 	children: I, 
 	node: &'a [u8],
 	_ph: PhantomData<HO>,
 }
 /*
 code snippet for children iter:
-ComplexLayoutIterValues::new(nb_children, children, value)
+HybridLayoutIterValues::new(nb_children, children, value)
 				.map(|(is_defined, v)| {
 					debug_assert!(is_defined);
 					v
 				});
 code snippet for proof
-			let iter = ComplexLayoutIterValues::new(nb_children, children, value)
+			let iter = HybridLayoutIterValues::new(nb_children, children, value)
 				.zip(iter_key)
 				.filter_map(|((is_defined, hash), key)| if is_defined {
 					Some((key, hash))
@@ -289,9 +289,9 @@ code snippet for proof
 				});
 */	
 
-impl<'a, HO: Default, I> ComplexLayoutIterValues<'a, HO, I> {
+impl<'a, HO: Default, I> HybridLayoutIterValues<'a, HO, I> {
 	pub fn new(children: I, node: &'a[u8]) -> Self {
-		ComplexLayoutIterValues {
+		HybridLayoutIterValues {
 			children,
 			node,
 			_ph: PhantomData,
@@ -299,7 +299,7 @@ impl<'a, HO: Default, I> ComplexLayoutIterValues<'a, HO, I> {
 	}
 }
 
-impl<'a, HO: AsMut<[u8]> + Default, I: Iterator<Item = &'a Range<usize>>> Iterator for ComplexLayoutIterValues<'a, HO, I> {
+impl<'a, HO: AsMut<[u8]> + Default, I: Iterator<Item = &'a Range<usize>>> Iterator for HybridLayoutIterValues<'a, HO, I> {
 	type Item = Option<HO>;
 
 	fn next(&mut self) -> Option<Self::Item> {

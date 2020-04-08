@@ -18,12 +18,12 @@
 //! See `trie_visit` function.
 
 use hash_db::{Hasher, HashDB, Prefix};
-use ordered_trie::{HashDBComplex, HasherComplex};
+use ordered_trie::{HashDBHybrid, HasherHybrid};
 use crate::rstd::{cmp::max, marker::PhantomData, vec::Vec, EmptyIter, ops::Range};
 use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
 use crate::nibble::nibble_ops;
-use crate::node_codec::{NodeCodec, NodeCodecComplex, ChildProofHeader};
+use crate::node_codec::{NodeCodec, NodeCodecHybrid, ChildProofHeader};
 use crate::{TrieLayout, TrieHash};
 use crate::rstd::borrow::Borrow;
 
@@ -54,7 +54,7 @@ const INITIAL_DEPTH: usize = 10;
 
 #[inline]
 fn register_children_buf<T: TrieLayout>() -> Option<[Option<Range<usize>>; 16]> {
-	if T::COMPLEX_HASH {
+	if T::HYBRID_HASH {
 		Some(Default::default())
 	} else {
 		None
@@ -222,7 +222,7 @@ impl<T, V> CacheAccum<T, V>
 			), ChildProofHeader::Unused)
 		};
 		let pr = NibbleSlice::new_offset(&key_branch, branch_d);
-		let branch_hash = if T::COMPLEX_HASH {
+		let branch_hash = if T::HYBRID_HASH {
 			let len = self.0[last].0.as_ref().iter().filter(|v| v.is_some()).count();
 			let children = self.0[last].0.as_ref().iter();
 			callback.process(pr.left(), encoded, is_root && nkey.is_none(), Some((children, len)))
@@ -279,7 +279,7 @@ impl<T, V> CacheAccum<T, V>
 			&key_branch,
 			branch_d - ext_length,
 		);
-		let result = if T::COMPLEX_HASH {
+		let result = if T::HYBRID_HASH {
 			let len = self.0[last].0.as_ref().iter().filter(|v| v.is_some()).count();
 			let children = self.0[last].0.as_ref().iter();
 			callback.process(pr.left(), encoded, is_root, Some((children, len)))
@@ -374,7 +374,7 @@ pub trait ProcessEncodedNode<HO> {
 		prefix: Prefix,
 		encoded_node: (Vec<u8>, ChildProofHeader),
 		is_root: bool,
-		complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<HO>>>>, usize)>,
+		hybrid_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<HO>>>>, usize)>,
 	) -> ChildReference<HO>;
 }
 
@@ -396,15 +396,15 @@ impl<'a, H, HO, V, DB> TrieBuilder<'a, H, HO, V, DB> {
 /// Get trie root and insert visited node in a hash_db.
 /// As for all `ProcessEncodedNode` implementation, it
 /// is only for full trie parsing (not existing trie).
-pub struct TrieBuilderComplex<'a, H, HO, V, DB> {
+pub struct TrieBuilderHybrid<'a, H, HO, V, DB> {
 	db: &'a mut DB,
 	pub root: Option<HO>,
 	_ph: PhantomData<(H, V)>,
 }
 
-impl<'a, H, HO, V, DB> TrieBuilderComplex<'a, H, HO, V, DB> {
+impl<'a, H, HO, V, DB> TrieBuilderHybrid<'a, H, HO, V, DB> {
 	pub fn new(db: &'a mut DB) -> Self {
-		TrieBuilderComplex { db, root: None, _ph: PhantomData }
+		TrieBuilderHybrid { db, root: None, _ph: PhantomData }
 	}
 }
 
@@ -417,7 +417,7 @@ impl<'a, H: Hasher, V, DB: HashDB<H, V>> ProcessEncodedNode<<H as Hasher>::Out>
 		(encoded_node, _common): (Vec<u8>, ChildProofHeader),
 		is_root: bool,
 		// TODO different trait??
-		_complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
+		_hybrid_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {
 		let len = encoded_node.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
@@ -434,14 +434,14 @@ impl<'a, H: Hasher, V, DB: HashDB<H, V>> ProcessEncodedNode<<H as Hasher>::Out>
 	}
 }
 
-impl<'a, H: HasherComplex, V, DB: HashDBComplex<H, V>> ProcessEncodedNode<<H as Hasher>::Out>
-	for TrieBuilderComplex<'a, H, <H as Hasher>::Out, V, DB> {
+impl<'a, H: HasherHybrid, V, DB: HashDBHybrid<H, V>> ProcessEncodedNode<<H as Hasher>::Out>
+	for TrieBuilderHybrid<'a, H, <H as Hasher>::Out, V, DB> {
 	fn process(
 		&mut self,
 		prefix: Prefix,
 		(encoded_node, common): (Vec<u8>, ChildProofHeader),
 		is_root: bool,
-		complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
+		hybrid_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {
 		let len = encoded_node.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
@@ -451,14 +451,14 @@ impl<'a, H: HasherComplex, V, DB: HashDBComplex<H, V>> ProcessEncodedNode<<H as 
 			return ChildReference::Inline(h, len);
 		}
 		
-		let hash = if let Some((children, nb_children)) = complex_hash {
+		let hash = if let Some((children, nb_children)) = hybrid_hash {
 			let iter = children
 				.filter_map(|v| match v.borrow().as_ref() {
 					Some(ChildReference::Hash(v)) => Some(Some(v.clone())),
 					Some(ChildReference::Inline(v, _l)) => Some(Some(v.clone())),
 					None => None,
 				});
-			self.db.insert_complex(
+			self.db.insert_hybrid(
 				prefix,
 				&encoded_node[..],
 				common.header(&encoded_node[..]),
@@ -497,7 +497,7 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRoot<H, <H as Has
 		(encoded_node, _common): (Vec<u8>, ChildProofHeader),
 		is_root: bool,
 		// TODO different trait
-		_complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
+		_hybrid_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {
 		let len = encoded_node.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
@@ -515,25 +515,25 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRoot<H, <H as Has
 }
 
 /// Calculate the trie root of the trie.
-pub struct TrieRootComplex<H, HO> {
+pub struct TrieRootHybrid<H, HO> {
 	/// The resulting root.
 	pub root: Option<HO>,
 	_ph: PhantomData<H>,
 }
 
-impl<H, HO> Default for TrieRootComplex<H, HO> {
+impl<H, HO> Default for TrieRootHybrid<H, HO> {
 	fn default() -> Self {
-		TrieRootComplex { root: None, _ph: PhantomData }
+		TrieRootHybrid { root: None, _ph: PhantomData }
 	}
 }
 
-impl<H: HasherComplex> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootComplex<H, <H as Hasher>::Out> {
+impl<H: HasherHybrid> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootHybrid<H, <H as Hasher>::Out> {
 	fn process(
 		&mut self,
 		_: Prefix,
 		(encoded_node, common): (Vec<u8>, ChildProofHeader),
 		is_root: bool,
-		complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
+		hybrid_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {
 		let len = encoded_node.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
@@ -542,14 +542,14 @@ impl<H: HasherComplex> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootComple
 
 			return ChildReference::Inline(h, len);
 		}
-		let hash = if let Some((children, nb_children)) = complex_hash {
+		let hash = if let Some((children, nb_children)) = hybrid_hash {
 			let iter = children
 				.filter_map(|v| match v.borrow().as_ref() {
 					Some(ChildReference::Hash(v)) => Some(Some(v.clone())),
 					Some(ChildReference::Inline(v, _l)) => Some(Some(v.clone())),
 					None => None,
 				});
-			<H as HasherComplex>::hash_complex(
+			<H as HasherHybrid>::hash_hybrid(
 				common.header(&encoded_node[..]),
 				nb_children,
 				iter,
@@ -582,15 +582,15 @@ impl<H> Default for TrieRootUnhashed<H> {
 }
 
 /// Get the trie root node encoding.
-pub struct TrieRootUnhashedComplex<H> {
+pub struct TrieRootUnhashedHybrid<H> {
 	/// The resulting encoded root.
 	pub root: Option<Vec<u8>>,
 	_ph: PhantomData<H>,
 }
 
-impl<H> Default for TrieRootUnhashedComplex<H> {
+impl<H> Default for TrieRootUnhashedHybrid<H> {
 	fn default() -> Self {
-		TrieRootUnhashedComplex { root: None, _ph: PhantomData }
+		TrieRootUnhashedHybrid { root: None, _ph: PhantomData }
 	}
 }
 
@@ -618,7 +618,7 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootPrint<H, <H a
 		(encoded_node, _common): (Vec<u8>, ChildProofHeader),
 		is_root: bool,
 		// TODO different trait?
-		_complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
+		_hybrid_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {
 		println!("Encoded node: {:x?}", &encoded_node);
 		println!("	with prefix: {:x?}", &p);
@@ -646,7 +646,7 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashed<H> {
 		(encoded_node, _common): (Vec<u8>, ChildProofHeader),
 		is_root: bool,
 		// TODO different trait
-		_complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
+		_hybrid_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {
 		let len = encoded_node.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
@@ -663,13 +663,13 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashed<H> {
 	}
 }
 
-impl<H: HasherComplex> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashedComplex<H> {
+impl<H: HasherHybrid> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashedHybrid<H> {
 	fn process(
 		&mut self,
 		_: Prefix,
 		(encoded_node, common): (Vec<u8>, ChildProofHeader),
 		is_root: bool,
-		complex_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
+		hybrid_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {
 		let len = encoded_node.len();
 		if !is_root && len < <H as Hasher>::LENGTH {
@@ -678,14 +678,14 @@ impl<H: HasherComplex> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhash
 
 			return ChildReference::Inline(h, len);
 		}
-		let hash = if let Some((children, nb_children)) = complex_hash {
+		let hash = if let Some((children, nb_children)) = hybrid_hash {
 			let iter = children
 				.filter_map(|v| match v.borrow().as_ref() {
 					Some(ChildReference::Hash(v)) => Some(Some(v.clone())),
 					Some(ChildReference::Inline(v, _l)) => Some(Some(v.clone())),
 					None => None,
 				});
-			<H as HasherComplex>::hash_complex(
+			<H as HasherHybrid>::hash_hybrid(
 				common.header(&encoded_node[..]),
 				nb_children,
 				iter,

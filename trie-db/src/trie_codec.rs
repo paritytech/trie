@@ -25,10 +25,10 @@
 //! expected to save roughly (n - 1) hashes in size where n is the number of nodes in the partial
 //! trie.
 
-pub use ordered_trie::{BinaryHasher, HashDBComplex};
+pub use ordered_trie::{BinaryHasher, HashDBHybrid};
 use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
-	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout, NodeCodecComplex,
+	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout, NodeCodecHybrid,
 	nibble_ops::NIBBLE_LENGTH, node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode},
 };
 use crate::node_codec::{Bitmap, ChildProofHeader};
@@ -52,7 +52,7 @@ struct EncoderStackEntry<C: NodeCodec> {
 	_marker: PhantomData<C>,
 }
 
-impl<C: NodeCodecComplex> EncoderStackEntry<C> {
+impl<C: NodeCodecHybrid> EncoderStackEntry<C> {
 	/// Given the prefix of the next child node, identify its index and advance `child_index` to
 	/// that. For a given entry, this must be called sequentially only with strictly increasing
 	/// child prefixes. Returns an error if the child prefix is not a child of this entry or if
@@ -99,7 +99,7 @@ impl<C: NodeCodecComplex> EncoderStackEntry<C> {
 	/// Generates the encoding of the subtrie rooted at this entry.
 	fn encode_node<H>(
 		&self,
-		complex_hash: bool,
+		hybrid_hash: bool,
 		hash_buf: &mut H::Buffer,
 	) -> Result<Vec<u8>, C::HashOut, C::Error>
 		where
@@ -119,7 +119,7 @@ impl<C: NodeCodecComplex> EncoderStackEntry<C> {
 			},
 			NodePlan::Branch { value, children } => {
 				let children = Self::branch_children(node_data, &children, &self.omit_children[..])?;
-				if complex_hash {
+				if hybrid_hash {
 					let hash_proof_header = C::branch_node_for_hash(
 						children.iter(),
 						value.clone().map(|range| &node_data[range]),
@@ -139,7 +139,7 @@ impl<C: NodeCodecComplex> EncoderStackEntry<C> {
 			NodePlan::NibbledBranch { partial, value, children } => {
 				let children = Self::branch_children(node_data, &children, &self.omit_children[..])?;
 				let partial = partial.build(node_data);
-				if complex_hash {
+				if hybrid_hash {
 					let hash_proof_header = C::branch_node_nibbled_for_hash(
 						partial.right_iter(),
 						partial.len(),
@@ -208,7 +208,7 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 {
 	let mut output = Vec::new();
 
-	// TODO make it optional and replace boolean is_complex
+	// TODO make it optional and replace boolean is_hybrid
 	let mut hash_buf = <L::Hash as BinaryHasher>::Buffer::default();
 	let hash_buf = &mut hash_buf;
 
@@ -254,7 +254,7 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 						break;
 					} else {
 						output[last_entry.output_index] = last_entry.encode_node::<L::Hash>(
-							L::COMPLEX_HASH,
+							L::HYBRID_HASH,
 							hash_buf,
 						)?;
 					}
@@ -284,7 +284,7 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 
 	while let Some(entry) = stack.pop() {
 		output[entry.output_index] = entry.encode_node::<L::Hash>(
-			L::COMPLEX_HASH,
+			L::HYBRID_HASH,
 			hash_buf,
 		)?;
 	}
@@ -300,12 +300,12 @@ struct DecoderStackEntry<'a, C: NodeCodec, F> {
 	/// The reconstructed child references.
 	/// TODO remove Vec here!!!
 	children: Vec<Option<ChildReference<C::HashOut>>>,
-	/// Complex proof input
-	complex: Option<(Bitmap, F)>,
+	/// Hybrid proof input
+	hybrid: Option<(Bitmap, F)>,
 	_marker: PhantomData<C>,
 }
 
-impl<'a, C: NodeCodecComplex, F> DecoderStackEntry<'a, C, F> {
+impl<'a, C: NodeCodecHybrid, F> DecoderStackEntry<'a, C, F> {
 	/// Advance the child index until either it exceeds the number of children or the child is
 	/// marked as omitted. Omitted children are indicated by an empty inline reference. For each
 	/// child that is passed over and not omitted, copy over the child reference from the node to
@@ -331,7 +331,7 @@ impl<'a, C: NodeCodecComplex, F> DecoderStackEntry<'a, C, F> {
 				self.child_index += 1;
 			}
 			Node::Branch(children, _) | Node::NibbledBranch(_, children, _) => {
-				if let Some((bitmap_keys, _)) = self.complex.as_ref() {
+				if let Some((bitmap_keys, _)) = self.hybrid.as_ref() {
 					while self.child_index < NIBBLE_LENGTH {
 						match children[self.child_index] {
 							Some(NodeHandle::Inline(data)) if data.is_empty()
@@ -475,7 +475,7 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
-		DB: HashDBComplex<L::Hash, T>,
+		DB: HashDBHybrid<L::Hash, T>,
 {
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
@@ -485,7 +485,7 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 	let mut prefix = NibbleVec::new();
 
 	for (i, encoded_node) in encoded.iter().enumerate() {
-		let (node, complex) = if L::COMPLEX_HASH  {
+		let (node, hybrid) = if L::HYBRID_HASH  {
 			L::Codec::decode_proof(encoded_node)
 				.map_err(|err| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), err)))?
 		} else {
@@ -504,7 +504,7 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 			node,
 			child_index: 0,
 			children: vec![None; children_len],
-			complex,
+			hybrid,
 			_marker: PhantomData::default(),
 		};
 
@@ -516,18 +516,18 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 			}
 
 			let mut register_children: [Option<_>; NIBBLE_LENGTH];
-			let mut register_children = if last_entry.complex.is_some() {
+			let mut register_children = if last_entry.hybrid.is_some() {
 				register_children = Default::default();
 				Some(&mut register_children[..])
 			} else {
 				None
 			};
-			let complex = last_entry.complex.take();
+			let hybrid = last_entry.hybrid.take();
 			// Since `advance_child_index` returned true, the preconditions for `encode_node` are
 			// satisfied.
 			let (node_data, common) = last_entry.encode_node(register_children.as_mut().map(|r| r.as_mut()));
-			let node_hash = if let Some((_bitmap_keys, additional_hashes)) = complex {
-				let children = register_children.expect("Set to some if complex");
+			let node_hash = if let Some((_bitmap_keys, additional_hashes)) = hybrid {
+				let children = register_children.expect("Set to some if hybrid");
 				let nb_children = children.iter().filter(|v| v.is_some()).count();
 				let children = children.iter()
 					.filter_map(|v| v.clone())
@@ -544,7 +544,7 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 							None
 						}
 					});
-				db.insert_complex(
+				db.insert_hybrid(
 					prefix.as_prefix(),
 					&node_data[..],
 					common.header(&node_data[..]),

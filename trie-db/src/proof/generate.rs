@@ -23,7 +23,7 @@ use hash_db::Hasher;
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH, NibbleSlice, node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode}, NodeCodec, Recorder,
 	Result as TrieResult, Trie, TrieError, TrieHash,
-	TrieLayout, NodeCodecComplex,
+	TrieLayout, NodeCodecHybrid,
 };
 use ordered_trie::BinaryHasher;
 
@@ -46,7 +46,7 @@ struct StackEntry<'a, C: NodeCodec, H> {
 	_marker: PhantomData<(C, H)>,
 }
 
-impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
+impl<'a, C: NodeCodecHybrid, H: BinaryHasher> StackEntry<'a, C, H>
 	where
 		H: BinaryHasher<Out = C::HashOut>,
 {
@@ -83,7 +83,7 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 	/// Encode this entry to an encoded trie node with data properly omitted.
 	fn encode_node(
 		mut self,
-		complex: bool,
+		hybrid: bool,
 		hash_buf: &mut H::Buffer,
 	) -> TrieResult<Vec<u8>, C::HashOut, C::Error> {
 		let node_data = self.node.data();
@@ -116,7 +116,7 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 					self.child_index,
 					&mut self.children,
 				)?;
-				if !self.is_inline && complex {
+				if !self.is_inline && hybrid {
 					let hash_proof_header = C::branch_node_for_hash(
 						self.children.iter(),
 						value_with_omission(node_data, value, self.omit_value),
@@ -141,7 +141,7 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 					self.child_index,
 					&mut self.children
 				)?;
-				if !self.is_inline && complex {
+				if !self.is_inline && hybrid {
 					let hash_proof_header = C::branch_node_nibbled_for_hash(
 						partial.right_iter(),
 						partial.len(),
@@ -284,7 +284,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 		let key = LeftNibbleSlice::new(key_bytes);
 
 		// Unwind the stack until the new entry is a child of the last entry on the stack.
-		unwind_stack(&mut stack, &mut proof_nodes, Some(&key), L::COMPLEX_HASH, hash_buf)?;
+		unwind_stack(&mut stack, &mut proof_nodes, Some(&key), L::HYBRID_HASH, hash_buf)?;
 
 		// Perform the trie lookup for the next key, recording the sequence of nodes traversed.
 		let mut recorder = Recorder::new();
@@ -392,7 +392,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 		}
 	}
 
-	unwind_stack(&mut stack, &mut proof_nodes, None, L::COMPLEX_HASH, hash_buf)?;
+	unwind_stack(&mut stack, &mut proof_nodes, None, L::HYBRID_HASH, hash_buf)?;
 	Ok(proof_nodes)
 }
 
@@ -538,11 +538,11 @@ fn value_with_omission<'a>(
 /// Unwind the stack until the given key is prefixed by the entry at the top of the stack. If the
 /// key is None, unwind the stack completely. As entries are popped from the stack, they are
 /// encoded into proof nodes and added to the finalized proof.
-fn unwind_stack<C: NodeCodecComplex, H: BinaryHasher>(
+fn unwind_stack<C: NodeCodecHybrid, H: BinaryHasher>(
 	stack: &mut Vec<StackEntry<C, H>>,
 	proof_nodes: &mut Vec<Vec<u8>>,
 	maybe_key: Option<&LeftNibbleSlice>,
-	complex: bool,
+	hybrid: bool,
 	hash_buf: &mut H::Buffer,
 ) -> TrieResult<(), C::HashOut, C::Error>
 	where
@@ -558,7 +558,7 @@ fn unwind_stack<C: NodeCodecComplex, H: BinaryHasher>(
 			_ => {
 				// Pop and finalize node from the stack.
 				let index = entry.output_index;
-				let encoded = entry.encode_node(complex, hash_buf)?;
+				let encoded = entry.encode_node(hybrid, hash_buf)?;
 				if let Some(parent_entry) = stack.last_mut() {
 					parent_entry.set_child(&encoded);
 				}

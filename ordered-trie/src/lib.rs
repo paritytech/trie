@@ -1494,11 +1494,11 @@ pub trait BinaryHasher: Hasher {
 	type Buffer: AsRef<[u8]> + AsMut<[u8]> + Default;
 }
 
-pub trait HasherComplex: BinaryHasher {
+pub trait HasherHybrid: BinaryHasher {
 
-	/// Alternate hash with complex proof allowed
+	/// Alternate hash with hybrid proof allowed
 	/// TODO expose buffer !! (then memory db use a single buf)
-	fn hash_complex<
+	fn hash_hybrid<
 		I: Iterator<Item = Option<<Self as Hasher>::Out>>,
 		I2: Iterator<Item = <Self as Hasher>::Out>,
 	>(
@@ -1510,8 +1510,8 @@ pub trait HasherComplex: BinaryHasher {
 	) -> Option<Self::Out>;
 }
 
-impl<H: BinaryHasher> HasherComplex for H {
-	fn hash_complex<
+impl<H: BinaryHasher> HasherHybrid for H {
+	fn hash_hybrid<
 		I: Iterator<Item = Option<<Self as Hasher>::Out>>,
 		I2: Iterator<Item = <Self as Hasher>::Out>,
 	>(
@@ -1530,7 +1530,7 @@ impl<H: BinaryHasher> HasherComplex for H {
 			let iter = children.filter_map(|v| v); // TODO assert same number as count
 			crate::trie_root::<_, UsizeKeyNode, _, _>(&seq_trie, iter, &mut callback_read_proof)
 		} else {
-			// proof node, UsizeKeyNode should be big enough for hasher complex
+			// proof node, UsizeKeyNode should be big enough for hasher hybrid
 			// case.
 			let iter_key = seq_trie.iter_path_node_key::<UsizeKeyNode>(None);
 			let iter = children
@@ -1561,12 +1561,12 @@ impl<H: BinaryHasher> HasherComplex for H {
 }
 
 /// Same as HashDB but can modify the value upon storage, and apply
-/// `HasherComplex`.
-pub trait HashDBComplex<H: HasherComplex, T>: Send + Sync + HashDB<H, T> {
+/// `HasherHybrid`.
+pub trait HashDBHybrid<H: HasherHybrid, T>: Send + Sync + HashDB<H, T> {
 	/// Insert a datum item into the DB and return the datum's hash for a later lookup. Insertions
 	/// are counted and the equivalent number of `remove()`s must be performed before the data
 	/// is considered dead.
-	fn insert_complex<
+	fn insert_hybrid<
 		I: Iterator<Item = Option<H::Out>>,
 		I2: Iterator<Item = H::Out>,
 	>(

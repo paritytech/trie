@@ -17,10 +17,10 @@ use crate::rstd::{
 };
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH,
-	node::{Node, NodeHandle}, NodeCodecComplex, TrieHash, TrieLayout, ChildProofHeader,
+	node::{Node, NodeHandle}, NodeCodecHybrid, TrieHash, TrieLayout, ChildProofHeader,
 };
 use hash_db::Hasher;
-use ordered_trie::{BinaryHasher, HasherComplex};
+use ordered_trie::{BinaryHasher, HasherHybrid};
 use crate::node_codec::{Bitmap, HashesIter};
 
 
@@ -96,7 +96,7 @@ impl<HO: std::fmt::Debug, CE: std::error::Error + 'static> std::error::Error for
 	}
 }
 
-struct StackEntry<'a, C: NodeCodecComplex, H> {
+struct StackEntry<'a, C: NodeCodecHybrid, H> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: LeftNibbleSlice<'a>,
 	node: Node<'a>,
@@ -108,20 +108,20 @@ struct StackEntry<'a, C: NodeCodecComplex, H> {
 	child_index: usize,
 	/// The child references to use in reconstructing the trie nodes.
 	children: Vec<Option<ChildReference<C::HashOut>>>,
-	/// Proof info if a complex proof is needed.
-	complex: Option<(Bitmap, HashesIter<'a, C::AdditionalHashesPlan, C::HashOut>)>,
+	/// Proof info if a hybrid proof is needed.
+	hybrid: Option<(Bitmap, HashesIter<'a, C::AdditionalHashesPlan, C::HashOut>)>,
 	_marker: PhantomData<(C, H)>,
 }
 
-impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
+impl<'a, C: NodeCodecHybrid, H: BinaryHasher> StackEntry<'a, C, H>
 	where
 		H: BinaryHasher<Out = C::HashOut>,
 {
-	fn new(node_data: &'a [u8], prefix: LeftNibbleSlice<'a>, is_inline: bool, complex: bool)
+	fn new(node_data: &'a [u8], prefix: LeftNibbleSlice<'a>, is_inline: bool, hybrid: bool)
 		   -> Result<Self, Error<C::HashOut, C::Error>>
 	{
 		let children = vec![None; NIBBLE_LENGTH]; // TODO use array
-		let (node, complex) = if !is_inline && complex {
+		let (node, hybrid) = if !is_inline && hybrid {
 			// TODO factorize with trie_codec
 			let encoded_node = node_data;
 			C::decode_proof(encoded_node)
@@ -143,7 +143,7 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 			value,
 			child_index: 0,
 			children,
-			complex,
+			hybrid,
 			_marker: PhantomData::default(),
 		})
 	}
@@ -199,7 +199,7 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 		&mut self,
 		child_prefix: LeftNibbleSlice<'a>,
 		proof_iter: &mut I,
-		complex: bool,
+		hybrid: bool,
 	) -> Result<Self, Error<C::HashOut, C::Error>>
 		where
 			I: Iterator<Item=&'a Vec<u8>>,
@@ -208,7 +208,7 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 			Node::Extension(_, child) => {
 				// Guaranteed because of sorted keys order.
 				assert_eq!(self.child_index, 0);
-				Self::make_child_entry(proof_iter, child, child_prefix, complex)
+				Self::make_child_entry(proof_iter, child, child_prefix, hybrid)
 			}
 			Node::Branch(children, _) | Node::NibbledBranch(_, children, _) => {
 				// because this is a branch
@@ -226,7 +226,7 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 				}
 				let child = children[self.child_index]
 					.expect("guaranteed by advance_item");
-				Self::make_child_entry(proof_iter, child, child_prefix, complex)
+				Self::make_child_entry(proof_iter, child, child_prefix, hybrid)
 			}
 			_ => panic!("cannot have children"),
 		}
@@ -260,7 +260,7 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 		proof_iter: &mut I,
 		child: NodeHandle<'a>,
 		prefix: LeftNibbleSlice<'a>,
-		complex: bool,
+		hybrid: bool,
 	) -> Result<Self, Error<C::HashOut, C::Error>>
 		where
 			I: Iterator<Item=&'a Vec<u8>>,
@@ -270,9 +270,9 @@ impl<'a, C: NodeCodecComplex, H: BinaryHasher> StackEntry<'a, C, H>
 				if data.is_empty() {
 					let node_data = proof_iter.next()
 						.ok_or(Error::IncompleteProof)?;
-					StackEntry::new(node_data, prefix, false, complex)
+					StackEntry::new(node_data, prefix, false, hybrid)
 				} else {
-					StackEntry::new(data, prefix, true, complex)
+					StackEntry::new(data, prefix, true, hybrid)
 				}
 			}
 			NodeHandle::Hash(data) => {
@@ -455,7 +455,7 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 		root_node,
 		LeftNibbleSlice::new(&[]),
 		false,
-		L::COMPLEX_HASH,
+		L::HYBRID_HASH,
 	)?;
 	loop {
 		// Insert omitted value.
@@ -464,7 +464,7 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 				let next_entry = last_entry.advance_child_index(
 					child_prefix,
 					&mut proof_iter,
-					L::COMPLEX_HASH,
+					L::HYBRID_HASH,
 				)?;
 				stack.push(last_entry);
 				last_entry = next_entry;
@@ -481,7 +481,7 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 					&mut hash.as_mut()[..node_data.len()].copy_from_slice(node_data.as_ref());
 					ChildReference::Inline(hash, node_data.len())
 				} else {
-					ChildReference::Hash(if let Some((bitmap_keys, additional_hash)) = last_entry.complex {
+					ChildReference::Hash(if let Some((bitmap_keys, additional_hash)) = last_entry.hybrid {
 						let children = last_entry.children;
 						let nb_children = children.iter().filter(|v| v.is_some()).count();
 						let children = children.into_iter()
@@ -503,7 +503,7 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 								}
 							});
 
-						if let Some(h) = L::Hash::hash_complex(
+						if let Some(h) = L::Hash::hash_hybrid(
 							&common.header(node_data.as_slice())[..],
 							nb_children,
 							children,
@@ -513,7 +513,7 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 							h
 						} else {
 							// TODO better error for the invalid
-							// complex hash
+							// hybrid hash
 							return Err(Error::RootMismatch(Default::default()));
 						}
 					} else {

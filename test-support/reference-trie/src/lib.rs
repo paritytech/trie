@@ -26,8 +26,8 @@ use trie_db::{
 	triedbmut::ChildReference,
 	DBValue,
 	trie_visit,
-	TrieBuilderComplex,
-	TrieRootComplex,
+	TrieBuilderHybrid,
+	TrieRootHybrid,
 	Partial,
 	BinaryHasher,
 	ChildProofHeader,
@@ -38,8 +38,8 @@ use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
 
 pub use trie_db::{
-	decode_compact, encode_compact, HashDBComplexDyn,
-	nibble_ops, NibbleSlice, NibbleVec, NodeCodec, proof, Record, Recorder, NodeCodecComplex,
+	decode_compact, encode_compact, HashDBHybridDyn,
+	nibble_ops, NibbleSlice, NibbleVec, NodeCodec, proof, Record, Recorder, NodeCodecHybrid,
 	Trie, TrieConfiguration, TrieDB, TrieDBIterator, TrieDBMut, TrieDBNodeIterator, TrieError,
 	TrieIterator, TrieLayout, TrieMut, Bitmap, BITMAP_LENGTH,
 };
@@ -53,7 +53,7 @@ pub struct ExtensionLayout;
 
 impl TrieLayout for ExtensionLayout {
 	const USE_EXTENSION: bool = true;
-	const COMPLEX_HASH: bool = true;
+	const HYBRID_HASH: bool = true;
 	type Hash = KeccakHasher;
 	type Codec = ReferenceNodeCodec<KeccakHasher>;
 }
@@ -66,7 +66,7 @@ pub struct GenericNoExtensionLayout<H>(PhantomData<H>);
 
 impl<H: BinaryHasher> TrieLayout for GenericNoExtensionLayout<H> {
 	const USE_EXTENSION: bool = false;
-	const COMPLEX_HASH: bool = true;
+	const HYBRID_HASH: bool = true;
 	type Hash = H;
 	type Codec = ReferenceNodeCodecNoExt<H>;
 }
@@ -135,7 +135,7 @@ pub fn reference_trie_root_iter_build<I, A, B>(input: I) -> <KeccakHasher as Has
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	let mut cb = trie_db::TrieRootComplex::<KeccakHasher, _>::default();
+	let mut cb = trie_db::TrieRootHybrid::<KeccakHasher, _>::default();
 	trie_visit::<ExtensionLayout, _, _, _, _>(data_sorted_unique(input), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
@@ -145,7 +145,7 @@ pub fn reference_trie_root_no_extension_iter_build<I, A, B>(input: I) -> <Keccak
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	let mut cb = trie_db::TrieRootComplex::<KeccakHasher, _>::default();
+	let mut cb = trie_db::TrieRootHybrid::<KeccakHasher, _>::default();
 	trie_visit::<NoExtensionLayout, _, _, _, _>(data_sorted_unique(input), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
@@ -155,7 +155,7 @@ fn reference_trie_root_unhashed_iter_build<I, A, B>(input: I) -> Vec<u8> where
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	let mut cb = trie_db::TrieRootUnhashedComplex::<KeccakHasher>::default();
+	let mut cb = trie_db::TrieRootUnhashedHybrid::<KeccakHasher>::default();
 	trie_visit::<ExtensionLayout, _, _, _, _>(data_sorted_unique(input), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
@@ -165,7 +165,7 @@ fn reference_trie_root_unhashed_no_extension_iter_build<I, A, B>(input: I) -> Ve
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	let mut cb = trie_db::TrieRootUnhashedComplex::<KeccakHasher>::default();
+	let mut cb = trie_db::TrieRootUnhashedHybrid::<KeccakHasher>::default();
 	trie_visit::<NoExtensionLayout, _, _, _, _>(data_sorted_unique(input), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
@@ -642,7 +642,7 @@ impl<'a> Input for ByteSliceInput<'a> {
 impl<H: Hasher> ReferenceNodeCodec<H> {
 	fn decode_plan_internal(
 		data: &[u8],
-		is_complex: bool,
+		is_hybrid: bool,
 	) -> ::std::result::Result<(NodePlan, usize), <Self as NodeCodec>::Error> {
 		let mut input = ByteSliceInput::new(data);
 		let node = match NodeHeader::decode(&mut input)? {
@@ -663,7 +663,7 @@ impl<H: Hasher> ReferenceNodeCodec<H> {
 				];
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
 					if bitmap.value_at(i) {
-						if is_complex {
+						if is_hybrid {
 							children[i] = Some(NodeHandlePlan::Inline(Range { start: 0, end: 0 }));
 						} else {
 							let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
@@ -780,7 +780,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 
 }
 
-impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodec<H> {
+impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodec<H> {
 	type AdditionalHashesPlan = HashesPlan;
 
 	fn decode_plan_proof(data: &[u8]) -> Result<(NodePlan, Option<(Bitmap, Self::AdditionalHashesPlan)>), Self::Error> {
@@ -996,7 +996,7 @@ fn encode_proof_internal<H: BinaryHasher>(
 impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 	fn decode_plan_internal(
 		data: &[u8],
-		is_complex: bool,
+		is_hybrid: bool,
 	) -> ::std::result::Result<(NodePlan, usize), <Self as NodeCodec>::Error> {
 		let mut input = ByteSliceInput::new(data);
 		let node = match NodeHeaderNoExt::decode(&mut input)? {
@@ -1025,7 +1025,7 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 				];
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
 					if bitmap.value_at(i) {
-						if is_complex {
+						if is_hybrid {
 							children[i] = Some(NodeHandlePlan::Inline(Range { start: 0, end: 0 }));
 						} else {
 							let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
@@ -1205,7 +1205,7 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 	}
 }
 
-impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodecNoExt<H> {
+impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodecNoExt<H> {
 	type AdditionalHashesPlan = HashesPlan;
 
 	fn decode_plan_proof(data: &[u8]) -> Result<(NodePlan, Option<(Bitmap, Self::AdditionalHashesPlan)>), Self::Error> {
@@ -1272,13 +1272,13 @@ impl<H: Hasher> NodeCodecComplex for ReferenceNodeCodecNoExt<H> {
 }
 
 /// Compare trie builder and in memory trie.
-pub fn compare_implementations<X : hash_db::HashDB<KeccakHasher, DBValue> + ordered_trie::HashDBComplex<KeccakHasher, DBValue> + Eq> (
+pub fn compare_implementations<X : hash_db::HashDB<KeccakHasher, DBValue> + ordered_trie::HashDBHybrid<KeccakHasher, DBValue> + Eq> (
 	data: Vec<(Vec<u8>, Vec<u8>)>,
 	mut memdb: X,
 	mut hashdb: X,
 ) {
 	let root_new = {
-		let mut cb = TrieBuilderComplex::new(&mut hashdb);
+		let mut cb = TrieBuilderHybrid::new(&mut hashdb);
 		trie_visit::<ExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
@@ -1318,10 +1318,10 @@ pub fn compare_implementations<X : hash_db::HashDB<KeccakHasher, DBValue> + orde
 /// Compare trie builder and trie root implementations.
 pub fn compare_root(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
-	mut memdb: impl ordered_trie::HashDBComplex<KeccakHasher, DBValue>,
+	mut memdb: impl ordered_trie::HashDBHybrid<KeccakHasher, DBValue>,
 ) {
 	let root_new = {
-		let mut cb = TrieRootComplex::<KeccakHasher, _>::default();
+		let mut cb = TrieRootHybrid::<KeccakHasher, _>::default();
 		trie_visit::<ExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
@@ -1342,7 +1342,7 @@ pub fn compare_unhashed(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
 ) {
 	let root_new = {
-		let mut cb = trie_db::TrieRootUnhashedComplex::<KeccakHasher>::default();
+		let mut cb = trie_db::TrieRootUnhashedHybrid::<KeccakHasher>::default();
 		trie_visit::<ExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
@@ -1357,7 +1357,7 @@ pub fn compare_unhashed_no_extension(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
 ) {
 	let root_new = {
-		let mut cb = trie_db::TrieRootUnhashedComplex::<KeccakHasher>::default();
+		let mut cb = trie_db::TrieRootUnhashedHybrid::<KeccakHasher>::default();
 		trie_visit::<NoExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
@@ -1375,7 +1375,7 @@ pub fn calc_root<I, A, B>(
 		A: AsRef<[u8]> + Ord + fmt::Debug,
 		B: AsRef<[u8]> + fmt::Debug,
 {
-	let mut cb = TrieRootComplex::<KeccakHasher, _>::default();
+	let mut cb = TrieRootHybrid::<KeccakHasher, _>::default();
 	trie_visit::<ExtensionLayout, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
@@ -1390,7 +1390,7 @@ pub fn calc_root_no_extension<I, A, B>(
 		A: AsRef<[u8]> + Ord + fmt::Debug,
 		B: AsRef<[u8]> + fmt::Debug,
 {
-	let mut cb = TrieRootComplex::<KeccakHasher, _>::default();
+	let mut cb = TrieRootHybrid::<KeccakHasher, _>::default();
 	trie_db::trie_visit::<NoExtensionLayout, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
@@ -1404,9 +1404,9 @@ pub fn calc_root_build<I, A, B, DB>(
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord + fmt::Debug,
 		B: AsRef<[u8]> + fmt::Debug,
-		DB: hash_db::HashDB<KeccakHasher, DBValue> + ordered_trie::HashDBComplex<KeccakHasher, DBValue>,
+		DB: hash_db::HashDB<KeccakHasher, DBValue> + ordered_trie::HashDBHybrid<KeccakHasher, DBValue>,
 {
-	let mut cb = TrieBuilderComplex::new(hashdb);
+	let mut cb = TrieBuilderHybrid::new(hashdb);
 	trie_visit::<ExtensionLayout, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
@@ -1421,9 +1421,9 @@ pub fn calc_root_build_no_extension<I, A, B, DB>(
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord + fmt::Debug,
 		B: AsRef<[u8]> + fmt::Debug,
-		DB: hash_db::HashDB<KeccakHasher, DBValue> + ordered_trie::HashDBComplex<KeccakHasher, DBValue>,
+		DB: hash_db::HashDB<KeccakHasher, DBValue> + ordered_trie::HashDBHybrid<KeccakHasher, DBValue>,
 {
-	let mut cb = TrieBuilderComplex::new(hashdb);
+	let mut cb = TrieBuilderHybrid::new(hashdb);
 	trie_db::trie_visit::<NoExtensionLayout, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or(Default::default())
 }
@@ -1432,11 +1432,11 @@ pub fn calc_root_build_no_extension<I, A, B, DB>(
 /// This uses the variant without extension nodes.
 pub fn compare_implementations_no_extension(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
-	mut memdb: impl hash_db::HashDB<KeccakHasher, DBValue> + ordered_trie::HashDBComplex<KeccakHasher, DBValue>,
-	mut hashdb: impl hash_db::HashDB<KeccakHasher, DBValue> + ordered_trie::HashDBComplex<KeccakHasher, DBValue>,
+	mut memdb: impl hash_db::HashDB<KeccakHasher, DBValue> + ordered_trie::HashDBHybrid<KeccakHasher, DBValue>,
+	mut hashdb: impl hash_db::HashDB<KeccakHasher, DBValue> + ordered_trie::HashDBHybrid<KeccakHasher, DBValue>,
 ) {
 	let root_new = {
-		let mut cb = TrieBuilderComplex::new(&mut hashdb);
+		let mut cb = TrieBuilderHybrid::new(&mut hashdb);
 		trie_visit::<NoExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
@@ -1475,8 +1475,8 @@ pub fn compare_implementations_no_extension(
 /// ordering before running when trie_build expect correct ordering).
 pub fn compare_implementations_no_extension_unordered(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
-	mut memdb: impl hash_db::HashDB<KeccakHasher, DBValue> + ordered_trie::HashDBComplex<KeccakHasher, DBValue>,
-	mut hashdb: impl hash_db::HashDB<KeccakHasher, DBValue> + ordered_trie::HashDBComplex<KeccakHasher, DBValue>,
+	mut memdb: impl hash_db::HashDB<KeccakHasher, DBValue> + ordered_trie::HashDBHybrid<KeccakHasher, DBValue>,
+	mut hashdb: impl hash_db::HashDB<KeccakHasher, DBValue> + ordered_trie::HashDBHybrid<KeccakHasher, DBValue>,
 ) {
 	let mut b_map = std::collections::btree_map::BTreeMap::new();
 	let root = {
@@ -1489,7 +1489,7 @@ pub fn compare_implementations_no_extension_unordered(
 		t.root().clone()
 	};
 	let root_new = {
-		let mut cb = TrieBuilderComplex::new(&mut hashdb);
+		let mut cb = TrieBuilderHybrid::new(&mut hashdb);
 		trie_visit::<NoExtensionLayout, _, _, _, _>(b_map.into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
@@ -1520,7 +1520,7 @@ pub fn compare_implementations_no_extension_unordered(
 /// its input test data.
 pub fn compare_no_extension_insert_remove(
 	data: Vec<(bool, Vec<u8>, Vec<u8>)>,
-	mut memdb: impl ordered_trie::HashDBComplex<KeccakHasher, DBValue>,
+	mut memdb: impl ordered_trie::HashDBHybrid<KeccakHasher, DBValue>,
 ) {
 	let mut data2 = std::collections::BTreeMap::new();
 	let mut root = Default::default();
