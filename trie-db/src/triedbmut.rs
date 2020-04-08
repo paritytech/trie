@@ -1734,7 +1734,7 @@ mod tests {
 	fn playpen() {
 		env_logger::init();
 		let mut seed = Default::default();
-		for test_i in 0..10000 {
+		for test_i in 0..10 {
 			if test_i % 50 == 0 {
 				debug!("{:?} of 10000 stress tests done", test_i);
 			}
@@ -1777,7 +1777,7 @@ mod tests {
 
 		// no_extension
 		let mut seed = Default::default();
-		for test_i in 0..10 {
+		for test_i in 0..100000 {
 			if test_i % 50 == 0 {
 				debug!("{:?} of 10000 stress tests done", test_i);
 			}
