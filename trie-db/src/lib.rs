@@ -401,14 +401,20 @@ pub trait TrieLayout {
 pub trait TrieConfiguration: Sized + TrieLayout {
 	/// Operation to build a trie db from its ordered iterator over its key/values.
 	fn trie_build<DB, I, A, B>(db: &mut DB, input: I) -> <Self::Hash as Hasher>::Out where
-	DB: HashDB<Self::Hash, usize>,
+	DB: HashDB<Self::Hash, usize> + HashDBHybrid<Self::Hash, usize>,
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	{
-		let mut cb = TrieBuilder::new(db);
-		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
+		if Self::HYBRID_HASH {
+			let mut cb = TrieBuilderHybrid::new(db);
+			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
+			cb.root.unwrap_or(Default::default())
+		} else {
+			let mut cb = TrieBuilder::new(db);
+			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
+			cb.root.unwrap_or(Default::default())
+		}
 	}
 	/// Determines a trie root given its ordered contents, closed form.
 	fn trie_root<I, A, B>(input: I) -> <Self::Hash as Hasher>::Out where
@@ -416,9 +422,15 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	{
-		let mut cb = TrieRoot::<Self::Hash, _>::default();
-		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
+		if Self::HYBRID_HASH {
+			let mut cb = TrieRootHybrid::<Self::Hash, _>::default();
+			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
+			cb.root.unwrap_or(Default::default())
+		} else {
+			let mut cb = TrieRoot::<Self::Hash, _>::default();
+			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
+			cb.root.unwrap_or(Default::default())
+		}
 	}
 	/// Determines a trie root node's data given its ordered contents, closed form.
 	fn trie_root_unhashed<I, A, B>(input: I) -> Vec<u8> where
@@ -426,9 +438,15 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	{
-		let mut cb = TrieRootUnhashed::<Self::Hash>::default();
-		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
+		if Self::HYBRID_HASH {
+			let mut cb = TrieRootUnhashedHybrid::<Self::Hash>::default();
+			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
+			cb.root.unwrap_or(Default::default())
+		} else {
+			let mut cb = TrieRootUnhashed::<Self::Hash>::default();
+			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
+			cb.root.unwrap_or(Default::default())
+		}
 	}
 	/// Encoding of index as a key (when reusing general trie for
 	/// indexed trie).
