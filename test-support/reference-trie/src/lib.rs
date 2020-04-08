@@ -783,9 +783,9 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodec<H> {
 	type AdditionalHashesPlan = HashesPlan;
 
-	fn decode_plan_proof(data: &[u8]) -> Result<(NodePlan, Option<(Bitmap, Self::AdditionalHashesPlan)>), Self::Error> {
+	fn decode_plan_compact_proof(data: &[u8]) -> Result<(NodePlan, Option<(Bitmap, Self::AdditionalHashesPlan)>), Self::Error> {
 		let (node, offset) = Self::decode_plan_internal(data, true)?;
-		decode_plan_proof_internal(data, offset, node, H::LENGTH)
+		decode_plan_compact_proof_internal(data, offset, node, H::LENGTH)
 	}
 
 	fn branch_node_common(
@@ -906,7 +906,7 @@ impl<H: Hasher> ReferenceNodeCodec<H> {
 	}
 }
 
-fn decode_plan_proof_internal(
+fn decode_plan_compact_proof_internal(
 	data: &[u8],
 	mut offset: usize,
 	mut node: NodePlan,
@@ -1208,9 +1208,9 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodecNoExt<H> {
 	type AdditionalHashesPlan = HashesPlan;
 
-	fn decode_plan_proof(data: &[u8]) -> Result<(NodePlan, Option<(Bitmap, Self::AdditionalHashesPlan)>), Self::Error> {
+	fn decode_plan_compact_proof(data: &[u8]) -> Result<(NodePlan, Option<(Bitmap, Self::AdditionalHashesPlan)>), Self::Error> {
 		let (node, offset) = Self::decode_plan_internal(data, true)?;
-		decode_plan_proof_internal(data, offset, node, H::LENGTH)
+		decode_plan_compact_proof_internal(data, offset, node, H::LENGTH)
 	}
 
 	fn branch_node_common(

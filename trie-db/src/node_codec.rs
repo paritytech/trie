@@ -96,8 +96,8 @@ pub trait NodeCodecHybrid: NodeCodec {
 	/// Sequence of hashes needed for the children proof verification.
 	type AdditionalHashesPlan: Iterator<Item = Range<usize>>;
 
-	/// Technical function to implement `decode_proof`.
-	fn decode_plan_proof(data: &[u8]) -> Result<(
+	/// Technical function to implement `decode_compact_proof`.
+	fn decode_plan_compact_proof(data: &[u8]) -> Result<(
 		NodePlan,
 		Option<(Bitmap, Self::AdditionalHashesPlan)>,
 	), Self::Error>;
@@ -111,14 +111,31 @@ pub trait NodeCodecHybrid: NodeCodec {
 	/// verification.
 	/// In practice this contains inline node (inline nodes are always added
 	/// to the proof) and ommitted children hash (compacted hash).
-	fn decode_proof(data: &[u8]) -> Result<(
+	fn decode_compact_proof(data: &[u8]) -> Result<(
 		Node,
 		Option<(Bitmap, HashesIter<Self::AdditionalHashesPlan, Self::HashOut>)>,
 	), Self::Error> {
-		let (plan, hashes) = Self::decode_plan_proof(data)?;
+		let (plan, hashes) = Self::decode_plan_compact_proof(data)?;
 		let hashes = hashes.map(|(bitmap, hashes)| (bitmap, HashesIter::new(data, hashes)));
 		Ok((plan.build(data), hashes))
 	}
+
+	/// Build compact proof encoding from branch info.
+	///
+	/// - `hash_proof_header`: the part common with the header info from hash.
+	/// It can be calculated from `branch_node_common` through
+	/// `ChildProofHeader` call, or directly by `branch_node_for_hash`.
+	/// - `children`: contains all children, with compact (ommited children) defined as
+	/// a null length inline node.
+	/// The children to be include in the proof are therefore the compacted one and the
+	/// inline nodes only.
+	/// The other children value are needed because they can be included into the additional
+	/// hash, and are required for intermediate hash calculation.
+	fn encode_compact_proof<H: BinaryHasher>(
+		hash_proof_header: Vec<u8>,
+		children: &[Option<ChildReference<H::Out>>],
+		hash_buf: &mut H::Buffer,
+	) -> Vec<u8>;
 
 	/// Returns branch node encoded for storage, and additional information for hash calculation.
 	/// 
@@ -155,23 +172,6 @@ pub trait NodeCodecHybrid: NodeCodec {
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Option<&[u8]>,
-	) -> Vec<u8>;
-
-	/// Build compact proof encoding from branch info.
-	///
-	/// - `hash_proof_header`: the part common with the header info from hash.
-	/// It can be calculated from `branch_node_common` through
-	/// `ChildProofHeader` call, or directly by `branch_node_for_hash`.
-	/// - `children`: contains all children, with compact (ommited children) defined as
-	/// a null length inline node.
-	/// The children to be include in the proof are therefore the compacted one and the
-	/// inline nodes only.
-	/// The other children value are needed because they can be included into the additional
-	/// hash, and are required for intermediate hash calculation.
-	fn encode_compact_proof<H: BinaryHasher>(
-		hash_proof_header: Vec<u8>,
-		children: &[Option<ChildReference<H::Out>>],
-		hash_buf: &mut H::Buffer,
 	) -> Vec<u8>;
 }
 

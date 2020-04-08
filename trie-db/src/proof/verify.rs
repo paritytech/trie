@@ -124,7 +124,7 @@ impl<'a, C: NodeCodecHybrid, H: BinaryHasher> StackEntry<'a, C, H>
 		let (node, hybrid) = if !is_inline && hybrid {
 			// TODO factorize with trie_codec
 			let encoded_node = node_data;
-			C::decode_proof(encoded_node)
+			C::decode_compact_proof(encoded_node)
 				.map_err(Error::DecodeError)?
 		} else {
 			(C::decode(node_data)

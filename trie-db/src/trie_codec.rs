@@ -486,7 +486,7 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 
 	for (i, encoded_node) in encoded.iter().enumerate() {
 		let (node, hybrid) = if L::HYBRID_HASH  {
-			L::Codec::decode_proof(encoded_node)
+			L::Codec::decode_compact_proof(encoded_node)
 				.map_err(|err| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), err)))?
 		} else {
 			(
