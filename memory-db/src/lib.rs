@@ -35,6 +35,7 @@ use std::{
 	marker::PhantomData,
 	cmp::Eq,
 	borrow::Borrow,
+	result,
 };
 
 #[cfg(not(feature = "std"))]
@@ -51,6 +52,7 @@ use core::{
 	cmp::Eq,
 	borrow::Borrow,
 	ops::Range,
+	result,
 };
 
 #[cfg(not(feature = "std"))]
@@ -608,7 +610,25 @@ where
 	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: Send + Sync + KeyFunction<H>,
 {
-	fn insert_hybrid<
+	fn insert_hybrid(
+		&mut self,
+		prefix: Prefix,
+		value: &[u8],
+		callback: fn(&[u8]) -> result::Result<Option<H::Out>, ()>,
+	) -> bool {
+		if let Ok(result) = callback(value) {
+			if let Some(key) = result {
+				<Self as HashDB<H, T>>::emplace(self, key, prefix, T::from(value));
+			} else {
+				<Self as HashDB<H, T>>::insert(self, prefix, value);
+			}
+			true
+		} else {
+			false
+		}
+	}
+	
+	fn insert_branch_hybrid<
 		I: Iterator<Item = Option<H::Out>>,
 		I2: Iterator<Item = H::Out>,
 	> (

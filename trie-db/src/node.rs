@@ -85,6 +85,15 @@ impl NodeHandlePlan {
 			NodeHandlePlan::Inline(range) => NodeHandle::Inline(&data[range.clone()]),
 		}
 	}
+	/// Range of node handle definition in encoded data.
+	/// TODO EMCH this breaks design a bit, maybe return H::Out
+	/// or put a util function.
+	pub fn range<'a, 'b>(&'a self) -> Range<usize> {
+		match self {
+			NodeHandlePlan::Hash(range) => range.clone(),
+			NodeHandlePlan::Inline(range) => range.clone(),
+		}
+	}
 }
 
 /// A `NibbleSlicePlan` is a blueprint for decoding a nibble slice from a byte slice. The

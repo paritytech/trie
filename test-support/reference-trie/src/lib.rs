@@ -87,6 +87,17 @@ pub type RefSecTrieDBMut<'a> = trie_db::SecTrieDBMut<'a, ExtensionLayout>;
 pub type RefLookup<'a, Q> = trie_db::Lookup<'a, ExtensionLayout, Q>;
 pub type RefLookupNoExt<'a, Q> = trie_db::Lookup<'a, NoExtensionLayout, Q>;
 
+
+/// Typed version of hybrid_hash_node_adapter.
+pub fn hybrid_hash_node_adapter_no_ext(
+	encoded_node: &[u8]
+) -> std::result::Result<Option<<KeccakHasher as Hasher>::Out>, ()> {
+	trie_db::hybrid_hash_node_adapter::<
+		ReferenceNodeCodecNoExt<KeccakHasher>,
+		KeccakHasher,
+	> (encoded_node)
+}
+
 pub fn reference_trie_root<I, A, B>(input: I) -> <KeccakHasher as Hasher>::Out where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord + fmt::Debug,
@@ -399,6 +410,13 @@ enum NodeHeaderNoExt {
 	Leaf(usize),
 }
 
+impl NodeHeader {
+	fn is_branch(first_byte: u8) -> bool {
+		first_byte == BRANCH_NODE_NO_VALUE
+			|| first_byte == BRANCH_NODE_NO_VALUE
+	}
+}
+
 impl Encode for NodeHeader {
 	fn encode_to<T: Output>(&self, output: &mut T) {
 		match self {
@@ -488,6 +506,14 @@ impl Decode for NodeHeader {
 			i @ EXTENSION_NODE_OFFSET ..= EXTENSION_NODE_LAST =>
 				NodeHeader::Extension((i - EXTENSION_NODE_OFFSET) as usize),
 		})
+	}
+}
+
+impl NodeHeaderNoExt {
+	fn is_branch(first_byte: u8) -> bool {
+		let first_byte = first_byte & (0b11 << 6);
+		first_byte == BRANCH_WITHOUT_MASK_NO_EXT 
+			|| first_byte == BRANCH_WITH_MASK_NO_EXT
 	}
 }
 
@@ -642,8 +668,9 @@ impl<'a> Input for ByteSliceInput<'a> {
 impl<H: Hasher> ReferenceNodeCodec<H> {
 	fn decode_plan_internal(
 		data: &[u8],
-		is_hybrid: bool,
+		is_proof: bool,
 	) -> ::std::result::Result<(NodePlan, usize), <Self as NodeCodec>::Error> {
+		let mut result_offset = 0;
 		let mut input = ByteSliceInput::new(data);
 		let node = match NodeHeader::decode(&mut input)? {
 			NodeHeader::Null => NodePlan::Empty,
@@ -657,13 +684,14 @@ impl<H: Hasher> ReferenceNodeCodec<H> {
 				} else {
 					None
 				};
+				result_offset = input.offset;
 				let mut children = [
 					None, None, None, None, None, None, None, None,
 					None, None, None, None, None, None, None, None,
 				];
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
 					if bitmap.value_at(i) {
-						if is_hybrid {
+						if is_proof {
 							children[i] = Some(NodeHandlePlan::Inline(Range { start: 0, end: 0 }));
 						} else {
 							let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
@@ -708,7 +736,7 @@ impl<H: Hasher> ReferenceNodeCodec<H> {
 				}
 			}
 		};
-		Ok((node, input.offset))
+		Ok((node, result_offset))
 	}
 }
 
@@ -828,6 +856,21 @@ impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodec<H> {
 		hash_buf: &mut BH::Buffer,
 	) -> Vec<u8> {
 		encode_proof_internal::<BH>(hash_proof_header, children, hash_buf)
+	}
+
+	fn need_hybrid_proof(data: &[u8]) -> Option<(NodePlan, ChildProofHeader)> {
+		if data.len() > 0 {
+			if NodeHeader::is_branch(data[0]) {
+				if let Ok((node, offset)) = Self::decode_plan_internal(data, false) {
+					let header = ChildProofHeader::Range( Range {
+						start: 0,
+						end: offset,
+					});
+					return Some((node, header))
+				}
+			}
+		}
+		None
 	}
 }
 
@@ -996,8 +1039,9 @@ fn encode_proof_internal<H: BinaryHasher>(
 impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 	fn decode_plan_internal(
 		data: &[u8],
-		is_hybrid: bool,
+		is_proof: bool,
 	) -> ::std::result::Result<(NodePlan, usize), <Self as NodeCodec>::Error> {
+		let mut result_offset = 0;
 		let mut input = ByteSliceInput::new(data);
 		let node = match NodeHeaderNoExt::decode(&mut input)? {
 			NodeHeaderNoExt::Null => NodePlan::Empty,
@@ -1023,9 +1067,10 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 					None, None, None, None, None, None, None, None,
 					None, None, None, None, None, None, None, None,
 				];
+				result_offset = input.offset;
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
 					if bitmap.value_at(i) {
-						if is_hybrid {
+						if is_proof {
 							children[i] = Some(NodeHandlePlan::Inline(Range { start: 0, end: 0 }));
 						} else {
 							let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
@@ -1062,7 +1107,7 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 				}
 			}
 		};
-		Ok((node, input.offset))
+		Ok((node, result_offset))
 	}
 }
 
@@ -1269,6 +1314,20 @@ impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodecNoExt<H> {
 		encode_proof_internal::<BH>(hash_proof_header, children, hash_buf)
 	}
 
+	fn need_hybrid_proof(data: &[u8]) -> Option<(NodePlan, ChildProofHeader)> {
+		if data.len() > 0 {
+			if NodeHeaderNoExt::is_branch(data[0]) {
+				if let Ok((node, offset)) = Self::decode_plan_internal(data, false) {
+					let header = ChildProofHeader::Range( Range {
+						start: 0,
+						end: offset,
+					});
+					return Some((node, header))
+				}
+			}
+		}
+		None
+	}
 }
 
 /// Compare trie builder and in memory trie.

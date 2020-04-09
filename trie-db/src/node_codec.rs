@@ -20,7 +20,7 @@ use crate::node::{Node, NodePlan};
 use crate::ChildReference;
 use hash_db::BinaryHasher;
 
-use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec, EmptyIter, ops::Range, marker::PhantomData};
+use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec, EmptyIter, ops::Range};
 
 /// Representation of a nible slice (right aligned).
 /// It contains a right aligned padded first byte (first pair element is the number of nibbles
@@ -137,6 +137,12 @@ pub trait NodeCodecHybrid: NodeCodec {
 		hash_buf: &mut H::Buffer,
 	) -> Vec<u8>;
 
+	/// Does the encoded content need a hybrid proof.
+	/// With current hybrid proof capability this is strictly
+	/// the same as checking if the node is a branch.
+	/// It return the proof header and the NodePlan if hybrid proof is needed.
+	fn need_hybrid_proof(data: &[u8]) -> Option<(NodePlan, ChildProofHeader)>;
+
 	/// Returns branch node encoded for storage, and additional information for hash calculation.
 	/// 
 	/// Takes an iterator yielding `ChildReference<Self::HashOut>` and an optional value
@@ -207,7 +213,7 @@ pub trait HashDBHybridDyn<H: Hasher, T>: Send + Sync + HashDB<H, T> {
 	///
 	/// TODO warn semantic of children differs from HashDBHybrid (in HashDBHybrid it is the
 	/// children of the binary hasher, here it is the children of the patricia merkle trie).
-	fn insert_hybrid(
+	fn insert_branch_hybrid(
 		&mut self,
 		prefix: Prefix,
 		value: &[u8],
@@ -217,7 +223,7 @@ pub trait HashDBHybridDyn<H: Hasher, T>: Send + Sync + HashDB<H, T> {
 }
 
 impl<H: HasherHybrid, T, C: HashDBHybrid<H, T>> HashDBHybridDyn<H, T> for C {
-	fn insert_hybrid(
+	fn insert_branch_hybrid(
 		&mut self,
 		prefix: Prefix,
 		value: &[u8],
@@ -225,14 +231,15 @@ impl<H: HasherHybrid, T, C: HashDBHybrid<H, T>> HashDBHybridDyn<H, T> for C {
 		common: ChildProofHeader,
 	) -> H::Out {
 
-		// TODO factor this with iter_build (just use the trait)
+		// TODO factor this with iter_build (just use the trait) also use in adapter from codec
 		let nb_children = children.iter().filter(|v| v.is_some()).count();
-		let children = HybridLayoutIterValues::new(
-			children.iter().filter_map(|v| v.as_ref()),
-			value,
-		);
+		let children = children.iter().map(|o_range| o_range.as_ref().map(|range| {
+			let mut dest = H::Out::default();
+			dest.as_mut()[..range.len()].copy_from_slice(&value[range.clone()]);
+			dest
+		}));
 
-		<C as HashDBHybrid<H, T>>::insert_hybrid(
+		<C as HashDBHybrid<H, T>>::insert_branch_hybrid(
 			self,
 			prefix,
 			value,
@@ -262,66 +269,6 @@ impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a mut dyn HashDBHybridDyn<H, T> {
 
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
 		self.as_hash_db().contains(key, prefix)
-	}
-}
-
-// TODO this using a buffer is bad (we should switch
-// binary hasher to use slice as input (or be able to))
-pub struct HybridLayoutIterValues<'a, HO, I> {
-	children: I, 
-	node: &'a [u8],
-	_ph: PhantomData<HO>,
-}
-/*
-code snippet for children iter:
-HybridLayoutIterValues::new(nb_children, children, value)
-				.map(|(is_defined, v)| {
-					debug_assert!(is_defined);
-					v
-				});
-code snippet for proof
-			let iter = HybridLayoutIterValues::new(nb_children, children, value)
-				.zip(iter_key)
-				.filter_map(|((is_defined, hash), key)| if is_defined {
-					Some((key, hash))
-				} else {
-					None
-				});
-*/	
-
-impl<'a, HO: Default, I> HybridLayoutIterValues<'a, HO, I> {
-	pub fn new(children: I, node: &'a[u8]) -> Self {
-		HybridLayoutIterValues {
-			children,
-			node,
-			_ph: PhantomData,
-		}
-	}
-}
-
-impl<'a, HO: AsMut<[u8]> + Default, I: Iterator<Item = &'a Range<usize>>> Iterator for HybridLayoutIterValues<'a, HO, I> {
-	type Item = Option<HO>;
-
-	fn next(&mut self) -> Option<Self::Item> {
-		if let Some(range) = self.children.next() {
-			let range_len = range.len();
-			if range_len == 0 {
-				// this is for undefined proof hash
-				return None;
-			}
-			let mut dest = HO::default();
-			dest.as_mut()[..range_len].copy_from_slice(&self.node[range.clone()]);
-			/* inherent to default?? TODO consider doing it, but if refacto
-			 * this will be part of hasher (when run with slice as input)
-			 * for i in range_len..dest.len() {
-				dest[i] = 0;
-			}*/
-			// TODO the input iterator is HO but could really be &HO, would need some
-			// change on trie_root to.
-			Some(Some(dest))
-		} else {
-			None
-		}
 	}
 }
 
@@ -428,4 +375,74 @@ impl Iterator for HashesPlan {
 		let size = self.end / self.hash_len;
 		(size, Some(size))
 	}
+}
+
+/// Adapter standard implementation to use with `HashDBInsertComplex` function.
+pub fn hybrid_hash_node_adapter<Codec: NodeCodecHybrid<HashOut = Hasher::Out>, Hasher: HasherHybrid>(
+	encoded_node: &[u8]
+) -> crate::rstd::result::Result<Option<Hasher::Out>, ()> {
+	Ok(if let Some((node, common)) = Codec::need_hybrid_proof(encoded_node) {
+		match node {
+			NodePlan::Branch { children, .. } | NodePlan::NibbledBranch { children, .. } => {
+				let nb_children = children.iter().filter(|v| v.is_some()).count();
+				let children = children.iter().map(|o_range| o_range.as_ref().map(|range| {
+					let range = range.range();
+					let mut dest = Hasher::Out::default();
+					dest.as_mut()[..range.len()].copy_from_slice(&encoded_node[range]);
+					dest
+				}));
+				Some(Hasher::hash_hybrid(
+					common.header(encoded_node),
+					nb_children,
+					children,
+					EmptyIter::default(),
+					false, // not a proof, will not fail
+				).expect("not a proof, does not fail")) //  TODO EMCH split function in two variants!
+			},
+			_ => unreachable!("hybrid only touch branch node"),
+		}
+	} else {
+		None
+	})
+}
+
+#[test]
+fn test_hybrid_hash_node_adapter() {
+	use reference_trie::{RefTrieDBMutNoExt, TrieMut, hybrid_hash_node_adapter_no_ext};
+	use crate::DBValue;
+	use memory_db::{MemoryDB, HashKey};
+	use keccak_hasher::KeccakHasher;
+	use hash_db::EMPTY_PREFIX;
+
+
+	let mut db = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+	let data = vec![
+		(vec![0], vec![251; 34]),
+		(vec![0, 1], vec![252; 34]),
+		(vec![0, 1, 2], vec![255; 32]),
+		(vec![0, 1], vec![0; 38]),
+	];
+	let mut root = Default::default();
+	{
+		let mut t = RefTrieDBMutNoExt::new(&mut db, &mut root);
+		for i in 0..data.len() {
+			let key: &[u8]= &data[i].0;
+			let value: &[u8] = &data[i].1;
+			t.insert(key, value).unwrap();
+		}
+	}
+	let mut db2 = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+	for (_key, (value, rc)) in db.clone().drain() {
+		if rc > 0 {
+			if !db2.insert_hybrid(
+				EMPTY_PREFIX,
+				&value[..],
+				hybrid_hash_node_adapter_no_ext,
+			) {
+				panic!("invalid encoded node in proof");
+			}
+		}
+	}
+
+	assert!(db == db2);
 }

@@ -1473,7 +1473,7 @@ where
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
 				if let Some(children) = register_children {
-					*self.root = self.db.insert_hybrid(
+					*self.root = self.db.insert_branch_hybrid(
 						EMPTY_PREFIX,
 						&encoded_root[..],
 						&children[..],
@@ -1531,7 +1531,7 @@ where
 						};
 						if encoded.len() >= L::Hash::LENGTH {
 							let hash = if let Some(children) = register_children {
-								self.db.insert_hybrid(
+								self.db.insert_branch_hybrid(
 									prefix.as_prefix(),
 									&encoded[..],
 									&children[..],
@@ -1777,7 +1777,7 @@ mod tests {
 
 		// no_extension
 		let mut seed = Default::default();
-		for test_i in 0..100000 {
+		for test_i in 0..100 {
 			if test_i % 50 == 0 {
 				debug!("{:?} of 10000 stress tests done", test_i);
 			}

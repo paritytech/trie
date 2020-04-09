@@ -545,7 +545,7 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 							None
 						}
 					});
-				db.insert_hybrid(
+				db.insert_branch_hybrid(
 					prefix.as_prefix(),
 					&node_data[..],
 					common.header(&node_data[..]),

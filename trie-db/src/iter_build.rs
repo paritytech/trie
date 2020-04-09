@@ -458,7 +458,7 @@ impl<'a, H: HasherHybrid, V, DB: HashDBHybrid<H, V>> ProcessEncodedNode<<H as Ha
 					Some(ChildReference::Inline(v, _l)) => Some(Some(v.clone())),
 					None => None,
 				});
-			self.db.insert_hybrid(
+			self.db.insert_branch_hybrid(
 				prefix,
 				&encoded_node[..],
 				common.header(&encoded_node[..]),

@@ -1452,6 +1452,7 @@ pub trait HasherHybrid: BinaryHasher {
 
 	/// Alternate hash with hybrid proof allowed
 	/// TODO expose buffer !! (then memory db use a single buf)
+	/// TODO EMCH also split depending on proof or not!!
 	fn hash_hybrid<
 		I: Iterator<Item = Option<<Self as Hasher>::Out>>,
 		I2: Iterator<Item = <Self as Hasher>::Out>,
@@ -1517,10 +1518,25 @@ impl<H: BinaryHasher> HasherHybrid for H {
 /// Same as HashDB but can modify the value upon storage, and apply
 /// `HasherHybrid`.
 pub trait HashDBHybrid<H: HasherHybrid, T>: Send + Sync + HashDB<H, T> {
+	/// `HashDB` is often use to load content from encoded node.
+	/// This will not preserve insertion done through `insert_branch_hybrid` calls
+	/// and break the proof.
+	/// This function allows to use a callback (usually the call back
+	/// will check the encoded value with codec and for branch it will
+	/// emplace over the hash_hybrid key) for changing key of some content.
+	/// Callback is allow to fail (since it will decode some node this indicates
+	/// invalid content earlier), in this case we return false.
+	fn insert_hybrid(
+		&mut self,
+		prefix: Prefix,
+		value: &[u8],
+		callback: fn(&[u8]) -> rstd::result::Result<Option<H::Out>, ()>,
+	) -> bool;
+	
 	/// Insert a datum item into the DB and return the datum's hash for a later lookup. Insertions
 	/// are counted and the equivalent number of `remove()`s must be performed before the data
 	/// is considered dead.
-	fn insert_hybrid<
+	fn insert_branch_hybrid<
 		I: Iterator<Item = Option<H::Out>>,
 		I2: Iterator<Item = H::Out>,
 	>(
