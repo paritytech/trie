@@ -506,6 +506,7 @@ where
 				&mut NibbleFullKey,
 			) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>>,
 	{
+		let current_key = key.clone();
 		Ok(match stored {
 			Stored::New(node) => match inspector(self, node, key)? {
 				Action::Restore(node) => Some((Stored::New(node), false)),
@@ -515,11 +516,11 @@ where
 			Stored::Cached(node, hash) => match inspector(self, node, key)? {
 				Action::Restore(node) => Some((Stored::Cached(node, hash), false)),
 				Action::Replace(node) => {
-					self.death_row.insert((hash, key.left_owned()));
+					self.death_row.insert((hash, current_key.left_owned()));
 					Some((Stored::New(node), true))
 				}
 				Action::Delete => {
-					self.death_row.insert((hash, key.left_owned()));
+					self.death_row.insert((hash, current_key.left_owned()));
 					None
 				}
 			},
@@ -1781,12 +1782,17 @@ mod tests {
 
 		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		{
+			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 
-		t.insert(&[0x01], big_value).unwrap();
-		t.insert(&[0x01, 0x23], big_value).unwrap();
-		t.insert(&[0x01, 0x34], big_value).unwrap();
-		t.remove(&[0x01]).unwrap();
+			t.insert(&[0x01], big_value).unwrap();
+			t.insert(&[0x01, 0x23], big_value).unwrap();
+			t.insert(&[0x01, 0x34], big_value).unwrap();
+			t.remove(&[0x01]).unwrap();
+			t.remove(&[0x01, 0x23]).unwrap();
+			t.remove(&[0x01, 0x34]).unwrap();
+		}
+		assert_eq!(memdb.keys().len(), 0);
 	}
 
 	#[test]
