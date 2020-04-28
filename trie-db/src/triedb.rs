@@ -20,8 +20,9 @@ use super::node::{NodeHandle, Node, OwnedNode, decode_hash};
 use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query,
 	TrieLayout, CError, TrieHash};
-use super::nibble::NibbleVec;
 
+#[cfg(feature = "std")]
+use super::nibble::NibbleVec;
 #[cfg(feature = "std")]
 use crate::rstd::{fmt, vec::Vec};
 

@@ -24,6 +24,8 @@ use std::hash;
 use core::hash;
 
 #[cfg(feature = "std")]
+compile_error!("d");
+#[cfg(feature = "std")]
 pub trait MaybeDebug: Debug {}
 #[cfg(feature = "std")]
 impl<T: Debug> MaybeDebug for T {}

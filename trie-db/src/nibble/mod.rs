@@ -18,6 +18,7 @@ use crate::node::{NodeKey, NodeHandle, NodeHandlePlan};
 use crate::rstd::cmp;
 use hash_db::MaybeDebug;
 use crate::rstd::vec::Vec;
+use crate::rstd::vec;
 use crate::rstd::marker::PhantomData;
 pub use self::leftnibbleslice::LeftNibbleSlice;
 

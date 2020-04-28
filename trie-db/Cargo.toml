@@ -29,9 +29,8 @@ parity-codec = "3.0"
 parity-codec-derive = "3.0"
 
 [features]
-default = ["std"]
+default = []
 std = [
-  "hash-db/std",
   "rustc-hex",
 ]
 
