@@ -121,19 +121,6 @@ impl<T, E> fmt::Display for TrieError<T, E> where T: MaybeDebug, E: MaybeDebug {
 	}
 }
 
-#[cfg(feature = "std")]
-impl<T, E> Error for TrieError<T, E> where T: fmt::Debug, E: Error {
-	fn description(&self) -> &str {
-		match *self {
-			TrieError::InvalidStateRoot(_) => "Invalid state root",
-			TrieError::IncompleteDatabase(_) => "Incomplete database",
-			TrieError::ValueAtIncompleteKey(_, _) => "Value at incomplete key",
-			TrieError::DecoderError(_, ref err) => err.description(),
-			TrieError::InvalidHash(_, _) => "Encoded node contains invalid hash reference",
-		}
-	}
-}
-
 /// Trie result type.
 /// Boxed to avoid copying around extra space for the `Hasher`s `Out` on successful queries.
 pub type Result<T, H, E> = crate::rstd::result::Result<T, Box<TrieError<H, E>>>;
