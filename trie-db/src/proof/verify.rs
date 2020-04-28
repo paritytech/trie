@@ -13,11 +13,11 @@
 //! Verification of compact proofs for Merkle-Patricia tries.
 
 use crate::rstd::{
-	convert::TryInto, iter::Peekable, marker::PhantomData, result::Result, vec, vec::Vec,
+	convert::TryInto, iter::Peekable, result::Result, vec, vec::Vec,
 };
 use crate::{
-	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH,
-	node::{Node, NodeHandle}, NodeCodec, TrieHash, TrieLayout,
+	CError, ChildReference, nibble::LeftNibbleSlice, NibbleOps,
+	node::{Node, NodeHandle, BranchChildrenSlice}, NodeCodec, TrieHash, TrieLayout,
 };
 use hash_db::Hasher;
 
@@ -94,10 +94,10 @@ impl<HO: std::fmt::Debug, CE: std::error::Error + 'static> std::error::Error for
 	}
 }
 
-struct StackEntry<'a, C: NodeCodec> {
+struct StackEntry<'a, L: TrieLayout> {
 	/// The prefix is the nibble path to the node in the trie.
-	prefix: LeftNibbleSlice<'a>,
-	node: Node<'a>,
+	prefix: LeftNibbleSlice<'a, L::Nibble>,
+	node: Node<'a, L::Nibble>,
 	is_inline: bool,
 	/// The value associated with this trie node.
 	value: Option<&'a [u8]>,
@@ -105,20 +105,19 @@ struct StackEntry<'a, C: NodeCodec> {
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
 	/// The child references to use in reconstructing the trie nodes.
-	children: Vec<Option<ChildReference<C::HashOut>>>,
-	_marker: PhantomData<C>,
+	children: Vec<Option<ChildReference<TrieHash<L>>>>,
 }
 
-impl<'a, C: NodeCodec> StackEntry<'a, C> {
-	fn new(node_data: &'a [u8], prefix: LeftNibbleSlice<'a>, is_inline: bool)
-		   -> Result<Self, Error<C::HashOut, C::Error>>
+impl<'a, L: TrieLayout> StackEntry<'a, L> {
+	fn new(node_data: &'a [u8], prefix: LeftNibbleSlice<'a, L::Nibble>, is_inline: bool)
+		   -> Result<Self, Error<TrieHash<L>, CError<L>>>
 	{
-		let node = C::decode(node_data)
+		let node = L::Codec::decode(node_data)
 			.map_err(Error::DecodeError)?;
 		let children_len = match node {
 			Node::Empty | Node::Leaf(..) => 0,
 			Node::Extension(..) => 1,
-			Node::Branch(..) | Node::NibbledBranch(..) => NIBBLE_LENGTH,
+			Node::Branch(..) | Node::NibbledBranch(..) => L::Nibble::NIBBLE_LENGTH,
 		};
 		let value = match node {
 			Node::Empty | Node::Extension(_, _) => None,
@@ -132,16 +131,15 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 			value,
 			child_index: 0,
 			children: vec![None; children_len],
-			_marker: PhantomData::default(),
 		})
 	}
 
 	/// Encode this entry to an encoded trie node with data properly reconstructed.
-	fn encode_node(mut self) -> Result<Vec<u8>, Error<C::HashOut, C::Error>> {
+	fn encode_node(mut self) -> Result<Vec<u8>, Error<TrieHash<L>, CError<L>>> {
 		self.complete_children()?;
 		Ok(match self.node {
 			Node::Empty =>
-				C::empty_node().to_vec(),
+				L::Codec::empty_node().to_vec(),
 			Node::Leaf(partial, _) => {
 				let value = self.value
 					.expect(
@@ -149,24 +147,24 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 						value is only ever reassigned in the ValueMatch::MatchesLeaf match \
 						clause, which assigns only to Some"
 					);
-				C::leaf_node(partial.right(), value)
+				L::Codec::leaf_node(partial.right(), value)
 			}
 			Node::Extension(partial, _) => {
 				let child = self.children[0]
 					.expect("the child must be completed since child_index is 1");
-				C::extension_node(
+				L::Codec::extension_node(
 					partial.right_iter(),
 					partial.len(),
 					child
 				)
 			}
 			Node::Branch(_, _) =>
-				C::branch_node(
+				L::Codec::branch_node(
 					self.children.iter(),
 					self.value,
 				),
 			Node::NibbledBranch(partial, _, _) =>
-				C::branch_node_nibbled(
+				L::Codec::branch_node_nibbled(
 					partial.right_iter(),
 					partial.len(),
 					self.children.iter(),
@@ -177,17 +175,17 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 
 	fn advance_child_index<I>(
 		&mut self,
-		child_prefix: LeftNibbleSlice<'a>,
+		child_prefix: LeftNibbleSlice<'a, L::Nibble>,
 		proof_iter: &mut I,
-	) -> Result<Self, Error<C::HashOut, C::Error>>
+	) -> Result<Self, Error<TrieHash<L>, CError<L>>>
 		where
 			I: Iterator<Item=&'a Vec<u8>>,
 	{
-		match self.node {
+		match &mut self.node {
 			Node::Extension(_, child) => {
 				// Guaranteed because of sorted keys order.
 				assert_eq!(self.child_index, 0);
-				Self::make_child_entry(proof_iter, child, child_prefix)
+				Self::make_child_entry(proof_iter, *child, child_prefix)
 			}
 			Node::Branch(children, _) | Node::NibbledBranch(_, children, _) => {
 				// because this is a branch
@@ -196,14 +194,14 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 					.expect("it's less than prefix.len(); qed")
 					as usize;
 				while self.child_index < child_index {
-					if let Some(child) = children[self.child_index] {
+					if let Some(child) = children.at(self.child_index) {
 						let child_ref = child.try_into()
 							.map_err(Error::InvalidChildReference)?;
 						self.children[self.child_index] = Some(child_ref);
 					}
 					self.child_index += 1;
 				}
-				let child = children[self.child_index]
+				let child = children.at(self.child_index)
 					.expect("guaranteed by advance_item");
 				Self::make_child_entry(proof_iter, child, child_prefix)
 			}
@@ -212,17 +210,17 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 	}
 
 	/// Populate the remaining references in `children` with references copied the node itself.
-	fn complete_children(&mut self) -> Result<(), Error<C::HashOut, C::Error>> {
-		match self.node {
+	fn complete_children(&mut self) -> Result<(), Error<TrieHash<L>, CError<L>>> {
+		match &mut self.node {
 			Node::Extension(_, child) if self.child_index == 0 => {
-				let child_ref = child.try_into()
+				let child_ref = child.clone().try_into()
 					.map_err(Error::InvalidChildReference)?;
 				self.children[self.child_index] = Some(child_ref);
 				self.child_index += 1;
 			}
 			Node::Branch(children, _) | Node::NibbledBranch(_, children, _) => {
-				while self.child_index < NIBBLE_LENGTH {
-					if let Some(child) = children[self.child_index] {
+				while self.child_index < L::Nibble::NIBBLE_LENGTH {
+					if let Some(child) = children.at(self.child_index) {
 						let child_ref = child.try_into()
 							.map_err(Error::InvalidChildReference)?;
 						self.children[self.child_index] = Some(child_ref);
@@ -238,8 +236,8 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 	fn make_child_entry<I>(
 		proof_iter: &mut I,
 		child: NodeHandle<'a>,
-		prefix: LeftNibbleSlice<'a>,
-	) -> Result<Self, Error<C::HashOut, C::Error>>
+		prefix: LeftNibbleSlice<'a, L::Nibble>,
+	) -> Result<Self, Error<TrieHash<L>, CError<L>>>
 		where
 			I: Iterator<Item=&'a Vec<u8>>,
 	{
@@ -254,7 +252,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 				}
 			}
 			NodeHandle::Hash(data) => {
-				let mut hash = C::HashOut::default();
+				let mut hash = TrieHash::<L>::default();
 				if data.len() != hash.as_ref().len() {
 					return Err(Error::InvalidChildReference(data.to_vec()));
 				}
@@ -265,7 +263,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 	}
 
 	fn advance_item<I>(&mut self, items_iter: &mut Peekable<I>)
-					   -> Result<Step<'a>, Error<C::HashOut, C::Error>>
+					   -> Result<Step<'a, L::Nibble>, Error<TrieHash<L>, CError<L>>>
 		where
 			I: Iterator<Item=(&'a [u8], Option<&'a [u8]>)>
 	{
@@ -302,7 +300,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 	}
 }
 
-enum ValueMatch<'a> {
+enum ValueMatch<'a, N> {
 	/// The key matches a leaf node, so the value at the key must be present.
 	MatchesLeaf,
 	/// The key matches a branch node, so the value at the key may or may not be present.
@@ -312,14 +310,16 @@ enum ValueMatch<'a> {
 	/// The key matches a location in trie, but the value was not omitted.
 	NotOmitted,
 	/// The key may match below a child of this node. Parameter is the prefix of the child node.
-	IsChild(LeftNibbleSlice<'a>),
+	IsChild(LeftNibbleSlice<'a, N>),
 }
 
 /// Determines whether a node on the stack carries a value at the given key or whether any nodes
 /// in the subtrie do. The prefix of the node is given by the first `prefix_len` nibbles of `key`.
-fn match_key_to_node<'a>(key: &LeftNibbleSlice<'a>, prefix_len: usize, node: &Node)
-						 -> ValueMatch<'a>
-{
+fn match_key_to_node<'a, N: NibbleOps>(
+	key: &LeftNibbleSlice<'a, N>,
+	prefix_len: usize,
+	node: &Node<N>
+) -> ValueMatch<'a, N> {
 	match node {
 		Node::Empty => ValueMatch::NotFound,
 		Node::Leaf(partial, value) => {
@@ -357,12 +357,12 @@ fn match_key_to_node<'a>(key: &LeftNibbleSlice<'a>, prefix_len: usize, node: &No
 /// Determines whether a branch node on the stack carries a value at the given key or whether any
 /// nodes in the subtrie do. The key of the branch node value is given by the first
 /// `prefix_plus_partial_len` nibbles of `key`.
-fn match_key_to_branch_node<'a>(
-	key: &LeftNibbleSlice<'a>,
+fn match_key_to_branch_node<'a, N: NibbleOps>(
+	key: &LeftNibbleSlice<'a, N>,
 	prefix_plus_partial_len: usize,
-	children: &[Option<NodeHandle>; NIBBLE_LENGTH],
+	children: &BranchChildrenSlice<N::ChildRangeIndex>,
 	value: &Option<&[u8]>,
-) -> ValueMatch<'a>
+) -> ValueMatch<'a, N>
 {
 	if key.len() == prefix_plus_partial_len {
 		if value.is_none() {
@@ -374,7 +374,7 @@ fn match_key_to_branch_node<'a>(
 		let index = key.at(prefix_plus_partial_len)
 			.expect("it's less than prefix.len(); qed")
 			as usize;
-		if children[index].is_some() {
+		if children.at(index).is_some() {
 			ValueMatch::IsChild(key.truncate(prefix_plus_partial_len + 1))
 		} else {
 			ValueMatch::NotFound
@@ -382,8 +382,8 @@ fn match_key_to_branch_node<'a>(
 	}
 }
 
-enum Step<'a> {
-	Descend(LeftNibbleSlice<'a>),
+enum Step<'a, N> {
+	Descend(LeftNibbleSlice<'a, N>),
 	UnwindStack,
 }
 
@@ -423,7 +423,7 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 
 	// A stack of child references to fill in omitted branch children for later trie nodes in the
 	// proof.
-	let mut stack: Vec<StackEntry<L::Codec>> = Vec::new();
+	let mut stack: Vec<StackEntry<L>> = Vec::new();
 
 	let root_node = match proof_iter.next() {
 		Some(node) => node,

@@ -20,8 +20,9 @@ use super::node::{NodeHandle, Node, OwnedNode, decode_hash};
 use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query,
 	TrieLayout, CError, TrieHash};
-use super::nibble::NibbleVec;
 
+#[cfg(feature = "std")]
+use super::nibble::NibbleVec;
 #[cfg(feature = "std")]
 use crate::rstd::{fmt, vec::Vec};
 
@@ -90,7 +91,7 @@ where
 		parent_hash: TrieHash<L>,
 		node_handle: NodeHandle,
 		partial_key: Prefix,
-	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
+	) -> Result<(OwnedNode<DBValue, L::Nibble>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
 		let (node_hash, node_data) = match node_handle {
 			NodeHandle::Hash(data) => {
 				let node_hash = decode_hash::<L::Hash>(data)
@@ -153,7 +154,7 @@ where
 {
 	trie: &'db TrieDB<'db, L>,
 	node_key: NodeHandle<'a>,
-	partial_key: NibbleVec,
+	partial_key: NibbleVec<L::Nibble>,
 	index: Option<u8>,
 }
 
@@ -193,7 +194,7 @@ where
 						.finish()
 				},
 				Node::Branch(ref nodes, ref value) => {
-					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.into_iter()
+					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.iter()
 						.enumerate()
 						.filter_map(|(i, n)| n.map(|n| (i, n)))
 						.map(|(i, n)| TrieAwareDebugNode {
@@ -314,9 +315,9 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 					if let Some(value) = maybe_value {
 						let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
 						let key = key_slice.to_vec();
-						if let Some(extra_nibble) = maybe_extra_nibble {
+						if maybe_extra_nibble.0 > 0 {
 							return Some(Err(Box::new(
-								TrieError::ValueAtIncompleteKey(key, extra_nibble)
+								TrieError::ValueAtIncompleteKey(key, maybe_extra_nibble)
 							)));
 						}
 						return Some(Ok((key, value.to_vec())));

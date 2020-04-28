@@ -15,19 +15,20 @@
 
 //! Trie interface and implementation.
 
+
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
 #[cfg(feature = "std")]
 mod rstd {
-	pub use std::{borrow, boxed, cmp, convert, fmt, hash, iter, marker, mem, ops, rc, result, vec};
+	pub use std::{borrow, boxed, cmp, convert, fmt, hash, iter, marker, mem, ops, rc, result, vec, slice};
 	pub use std::collections::VecDeque;
 	pub use std::error::Error;
 }
 
 #[cfg(not(feature = "std"))]
 mod rstd {
-	pub use core::{borrow, convert, cmp, iter, fmt, hash, marker, mem, ops, result};
+	pub use core::{borrow, convert, cmp, iter, fmt, hash, marker, mem, ops, result, slice};
 	pub use alloc::{boxed, rc, vec};
 	pub use alloc::collections::VecDeque;
 	pub trait Error {}
@@ -66,8 +67,10 @@ pub use self::fatdb::{FatDB, FatDBIterator};
 pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
-pub use self::nibble::{NibbleSlice, NibbleVec, nibble_ops};
-pub use crate::node_codec::{NodeCodec, Partial};
+pub use self::nibble::{NibbleSlice, NibbleVec, NibbleOps, ChildIndex,
+	ChildIndex2, ChildIndex4, ChildIndex16, ChildIndex256,
+	Radix16, Radix4, Radix2, Radix256, ChildSliceIndex};
+pub use crate::node_codec::{NodeCodec, Partial, BitMap};
 pub use crate::iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed};
 pub use crate::iterator::TrieDBNodeIterator;
@@ -91,8 +94,8 @@ pub enum TrieError<T, E> {
 	IncompleteDatabase(T),
 	/// A value was found in the trie with a nibble key that was not byte-aligned.
 	/// The first parameter is the byte-aligned part of the prefix and the second parameter is the
-	/// remaining nibble.
-	ValueAtIncompleteKey(Vec<u8>, u8),
+	/// remaining nibble (number of nibbles and masked byte value).
+	ValueAtIncompleteKey(Vec<u8>, (u8, u8)),
 	/// Corrupt Trie item
 	DecoderError(T, E),
 	InvalidHash(T, Vec<u8>),
@@ -122,17 +125,7 @@ impl<T, E> fmt::Display for TrieError<T, E> where T: MaybeDebug, E: MaybeDebug {
 }
 
 #[cfg(feature = "std")]
-impl<T, E> Error for TrieError<T, E> where T: fmt::Debug, E: Error {
-	fn description(&self) -> &str {
-		match *self {
-			TrieError::InvalidStateRoot(_) => "Invalid state root",
-			TrieError::IncompleteDatabase(_) => "Incomplete database",
-			TrieError::ValueAtIncompleteKey(_, _) => "Value at incomplete key",
-			TrieError::DecoderError(_, ref err) => err.description(),
-			TrieError::InvalidHash(_, _) => "Encoded node contains invalid hash reference",
-		}
-	}
-}
+impl<T, E> Error for TrieError<T, E> where T: fmt::Debug, E: Error { }
 
 /// Trie result type.
 /// Boxed to avoid copying around extra space for the `Hasher`s `Out` on successful queries.
@@ -392,11 +385,19 @@ pub trait TrieLayout {
 	/// no partial in branch, if false the trie will only
 	/// use branch and node with partials in both.
 	const USE_EXTENSION: bool;
+	/// Trie nibble constants. It defines trie radix.
+	type Nibble: NibbleOps;
 	/// Hasher to use for this trie.
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
-	type Codec: NodeCodec<HashOut=<Self::Hash as Hasher>::Out>;
+	type Codec: NodeCodec<HashOut=TrieHash<Self>, Nibble=Self::Nibble>;
+
+	/// Array to use with `iter_build`.
+	type ChildRefIndex: ChildIndex<ChildReference<TrieHash<Self>>>;
+	/// Array to use with `triedbmut`.
+	type NodeIndex: ChildIndex<triedbmut::NodeHandle<TrieHash<Self>>>;
 }
+
 
 /// This trait associates a trie definition with preferred methods.
 /// It also contains own default implementations and can be
@@ -458,3 +459,5 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
 pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;
+/// Alias accessor to child slice index from a `TrieLayout`.
+pub type TrieChildRangeIndex<L> = <<L as TrieLayout>::Nibble as NibbleOps>::ChildRangeIndex;

@@ -40,13 +40,14 @@ impl<T> MaybeDebug for T {}
 /// nibbles (the node key can be split into prefix and node partial).
 /// Therefore it is always the leftmost portion of the node key, so its internal representation
 /// is a non expanded byte slice followed by a last padded byte representation.
-/// The padded byte is an optional padded value.
-pub type Prefix<'a> = (&'a[u8], Option<u8>);
+/// The padded byte is a pair of u8 containing the number of nibble, followed by
+/// the left aligned padded value.
+pub type Prefix<'a> = (&'a[u8], (u8, u8));
 
 /// An empty prefix constant.
 /// Can be use when the prefix is not use internally
 /// or for root nodes.
-pub static EMPTY_PREFIX: Prefix<'static> = (&[], None);
+pub static EMPTY_PREFIX: Prefix<'static> = (&[], (0, 0));
 
 /// Trait describing an object that can hash a slice of bytes. Used to abstract
 /// other types over the hashing algorithm. Defines a single `hash` method and an

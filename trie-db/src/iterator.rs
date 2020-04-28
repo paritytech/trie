@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout};
-use hash_db::{Hasher, EMPTY_PREFIX};
+use hash_db::{EMPTY_PREFIX};
 use crate::triedb::TrieDB;
 use crate::node::{NodePlan, NodeHandle, OwnedNode};
-use crate::nibble::{NibbleSlice, NibbleVec, nibble_ops};
+use crate::nibble::{NibbleSlice, NibbleVec, NibbleOps};
 
 use crate::rstd::{rc::Rc, vec::Vec};
 
@@ -31,13 +31,13 @@ enum Status {
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Eq, PartialEq)]
-struct Crumb<H: Hasher> {
-	hash: Option<H::Out>,
-	node: Rc<OwnedNode<DBValue>>,
+struct Crumb<L: TrieLayout> {
+	hash: Option<TrieHash<L>>,
+	node: Rc<OwnedNode<DBValue, L::Nibble>>,
 	status: Status,
 }
 
-impl<H: Hasher> Crumb<H> {
+impl<L: TrieLayout> Crumb<L> {
 	/// Move on to next status in the node's sequence.
 	fn increment(&mut self) {
 		self.status = match (self.status, self.node.node_plan()) {
@@ -48,7 +48,7 @@ impl<H: Hasher> Crumb<H> {
 			| (Status::At, NodePlan::NibbledBranch { .. }) => Status::AtChild(0),
 			(Status::AtChild(x), NodePlan::Branch { .. })
 			| (Status::AtChild(x), NodePlan::NibbledBranch { .. })
-			if x < (nibble_ops::NIBBLE_LENGTH - 1) => Status::AtChild(x + 1),
+			if x < (L::Nibble::NIBBLE_LENGTH - 1) => Status::AtChild(x + 1),
 			_ => Status::Exiting,
 		}
 	}
@@ -57,8 +57,8 @@ impl<H: Hasher> Crumb<H> {
 /// Iterator for going through all nodes in the trie in pre-order traversal order.
 pub struct TrieDBNodeIterator<'a, L: TrieLayout> {
 	db: &'a TrieDB<'a, L>,
-	trail: Vec<Crumb<L::Hash>>,
-	key_nibbles: NibbleVec,
+	trail: Vec<Crumb<L>>,
+	key_nibbles: NibbleVec<L::Nibble>,
 }
 
 impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
@@ -79,7 +79,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 	}
 
 	/// Descend into a payload.
-	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<TrieHash<L>>) {
+	fn descend(&mut self, node: OwnedNode<DBValue, L::Nibble>, node_hash: Option<TrieHash<L>>) {
 		self.trail.push(Crumb {
 			hash: node_hash,
 			status: Status::Entering,
@@ -162,7 +162,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 						crumb.status = Status::AtChild(i as usize);
 						self.key_nibbles.push(i);
 
-						if let Some(child) = &children[i as usize] {
+						if let Some(child) = &children.at(i as usize) {
 							full_key_nibbles += 1;
 							partial = partial.mid(1);
 
@@ -182,7 +182,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 							if slice < partial {
 								crumb.status = Status::Exiting;
 								self.key_nibbles.append_partial(slice.right());
-								self.key_nibbles.push((nibble_ops::NIBBLE_LENGTH - 1) as u8);
+								self.key_nibbles.push((L::Nibble::NIBBLE_LENGTH - 1) as u8);
 								return Ok(false);
 							}
 							return Ok(slice.starts_with(&partial));
@@ -200,7 +200,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 						self.key_nibbles.append_partial(slice.right());
 						self.key_nibbles.push(i);
 
-						if let Some(child) = &children[i as usize] {
+						if let Some(child) = &children.at(i as usize) {
 							full_key_nibbles += 1;
 							partial = partial.mid(1);
 
@@ -257,14 +257,14 @@ impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
 }
 
 impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
-	type Item = Result<(NibbleVec, Option<TrieHash<L>>, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
+	type Item = Result<(NibbleVec<L::Nibble>, Option<TrieHash<L>>, Rc<OwnedNode<DBValue, L::Nibble>>), TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		enum IterStep<O, E> {
+		enum IterStep<L: TrieLayout> {
 			YieldNode,
 			PopTrail,
 			Continue,
-			Descend(Result<(OwnedNode<DBValue>, Option<O>), O, E>),
+			Descend(Result<(OwnedNode<DBValue, L::Nibble>, Option<TrieHash<L>>), TrieHash<L>, CError<L>>),
 		}
 		loop {
 			let iter_step = {
@@ -289,7 +289,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 					(Status::At, NodePlan::Extension { partial: partial_plan, child }) => {
 						let partial = partial_plan.build(node_data);
 						self.key_nibbles.append_partial(partial.right());
-						IterStep::Descend::<TrieHash<L>, CError<L>>(
+						IterStep::Descend::<L>(
 							self.db.get_raw_or_lookup(
 								b.hash.unwrap_or_default(),
 								child.build(node_data),
@@ -309,10 +309,10 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 					},
 					(Status::AtChild(i), NodePlan::Branch { children, .. })
 					| (Status::AtChild(i), NodePlan::NibbledBranch { children, .. }) => {
-						if let Some(child) = &children[i] {
+						if let Some(child) = &children.at(i) {
 							self.key_nibbles.pop();
 							self.key_nibbles.push(i as u8);
-							IterStep::Descend::<TrieHash<L>, CError<L>>(
+							IterStep::Descend::<L>(
 								self.db.get_raw_or_lookup(
 									b.hash.unwrap_or_default(),
 									child.build(node_data),
@@ -355,10 +355,10 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 					self.trail.last_mut()?
 						.increment();
 				},
-				IterStep::Descend::<TrieHash<L>, CError<L>>(Ok((node, node_hash))) => {
+				IterStep::Descend::<L>(Ok((node, node_hash))) => {
 					self.descend(node, node_hash);
 				},
-				IterStep::Descend::<TrieHash<L>, CError<L>>(Err(err)) => {
+				IterStep::Descend::<L>(Err(err)) => {
 					// Increment here as there is an implicit PopTrail.
 					self.trail.last_mut()
 						.expect(
@@ -392,7 +392,7 @@ mod tests {
 	use reference_trie::{
 		RefTrieDB, RefTrieDBMut,
 		TrieError, TrieMut, TrieIterator, TrieDBNodeIterator, NibbleSlice, NibbleVec,
-		node::Node,
+		node::Node, Radix16,
 	};
 	use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt};
 
@@ -426,8 +426,8 @@ mod tests {
 		(memdb, root)
 	}
 
-	fn nibble_vec<T: AsRef<[u8]>>(bytes: T, len: usize) -> NibbleVec {
-		let slice = NibbleSlice::new(bytes.as_ref());
+	fn nibble_vec<T: AsRef<[u8]>>(bytes: T, len: usize) -> NibbleVec<Radix16> {
+		let slice = NibbleSlice::<Radix16>::new(bytes.as_ref());
 
 		let mut v = NibbleVec::new();
 		for i in 0..len {
@@ -733,7 +733,7 @@ mod tests {
 		};
 
 		// Remove the leaf node from the DB.
-		let prefix = (&hex!("02")[..], None);
+		let prefix = (&hex!("02")[..], (0, 0));
 		memdb.remove(&leaf_hash, prefix);
 
 		// Seek to missing node returns error.
@@ -893,4 +893,3 @@ mod tests {
 		assert!(iter.next().is_none());
 	}
 }
-
