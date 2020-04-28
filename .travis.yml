@@ -11,6 +11,4 @@ matrix:
 script:
   - cargo check --all --tests --benches
   - cargo test --all
-  - cd trie-db && cargo check --no-default-features && cd ..
-  - cd memory-db && cargo check --no-default-features && cd ..
-  - cd trie-root && cargo check --no-default-features && cd ..
+  - cd check_no_std && cargo check --no-default-features && cd ..
