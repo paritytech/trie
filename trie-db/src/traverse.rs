@@ -97,8 +97,6 @@ struct StackedItem<B, T>
 	/// That is the only situation where we got a modified item that may need
 	/// a to be iterated on at a next iteration.
 	split_child: Option<StackedItemChild<B, T>>,
-	/// Did we descend in a split child.
-	in_split_child: bool,
 	/// Store first child, until `exit` get call, this is needed
 	/// to be able to fuse branch containing a single child (delay
 	/// `exit` call of first element after process of the second one).
@@ -209,7 +207,6 @@ impl<B, T> StackedItem<B, T>
 				depth_prefix,
 				first_child: None,
 				split_child: None,
-				in_split_child: false,
 				hash,
 				parent_index,
 				can_fuse: false,
@@ -233,7 +230,6 @@ impl<B, T> StackedItem<B, T>
 				parent_index,
 				..
 			}) = self.split_child.take() {
-				self.in_split_child = true;
 				// from a split child key is none (partial changed on split)
 				Some(StackedItem {
 					node,
@@ -241,7 +237,6 @@ impl<B, T> StackedItem<B, T>
 					depth_prefix,
 					first_child: None,
 					split_child: None,
-					in_split_child: false,
 					hash,
 					parent_index,
 					can_fuse: true,
@@ -282,7 +277,6 @@ impl<B, T> StackedItem<B, T>
 					depth,
 					first_child: None,
 					split_child: None,
-					in_split_child: false,
 					can_fuse: true,
 				})
 			} else {
@@ -352,10 +346,6 @@ impl<B, T> StackedItem<B, T>
 			child.node,
 			child.hash.as_ref(),
 		) {
-			if self.in_split_child {
-				self.split_child = None;
-				self.in_split_child = false;
-			}
 			self.node.set_handle(handle, child.parent_index);
 		}
 	}
@@ -364,7 +354,6 @@ impl<B, T> StackedItem<B, T>
 		F: ProcessStack<B, T>,
 	>(&mut self, key: &[u8], callback: &mut F) {
 		if let Some(child) = self.split_child.take() {
-			self.in_split_child = true; // TODO EMCH look wrong
 			// prefix is slice
 			let mut build_prefix = NibbleVec::from(key, self.depth_prefix);
 			// TODO do same for first child (would need bench) -> here we 
@@ -689,7 +678,6 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 		parent_index: 0,
 		first_child: None,
 		split_child: None,
-		in_split_child: false,
 		can_fuse: true,
 	};
 
@@ -977,7 +965,6 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 						depth: key_element.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
 						parent_index,
 						split_child: None,
-						in_split_child: false,
 						first_child: None,
 						can_fuse: false,
 					};
@@ -1035,7 +1022,6 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 								depth: key_element.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
 								parent_index,
 								split_child: None,
-								in_split_child: false,
 								first_child: None,
 								can_fuse: false,
 							};
