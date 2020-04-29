@@ -137,8 +137,13 @@ impl<H, KF, T> PartialEq<MemoryDB<H, KF, T>> for MemoryDB<H, KF, T>
 	T: Eq + MaybeDebug,
 {
 	fn eq(&self, other: &MemoryDB<H, KF, T>) -> bool {
-		for a in self.data.iter() {
-			match other.data.get(&a.0) {
+		let (s, other) = if self.data.len() > other.data.len() {
+			(&self.data, &other.data)
+		} else {
+			(&other.data, &self.data)
+		};
+		for a in s.iter() {
+			match other.get(&a.0) {
 				Some(v) if v != a.1 => return false,
 				None => return false,
 				_ => (),

@@ -271,7 +271,7 @@ impl<H, SH> Node<H, SH> {
 		&mut self,
 		pending: (Option<u8>, Option<u8>),
 	) -> (bool, Option<u8>) {
-		let node = mem::replace(self, Node::Empty); 
+		let node = mem::replace(self, Node::Empty); // TODO EMCH rewrite to avoid this mem replace.
 		let (node, fuse) = match node {
 			Node::Extension(..)
 			| Node::Branch(..) => unreachable!("Only for no extension trie"),
@@ -296,7 +296,7 @@ impl<H, SH> Node<H, SH> {
 						other_index = Some(pending);
 					}
 				}
-				for c in encoded_children.iter() {
+				for c in encoded_children.iter() { // that is damn costy, a bitmap would be better TODO EMCH consider storing a bitmap
 					if c.is_some() {
 						count += 1;
 					}

@@ -644,10 +644,10 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 
 			let last = next_query.is_none();
 			// unstack nodes if needed
-			while last || target_common_depth < current.item.depth_prefix || current.item.node.is_empty() {
+			while last || target_common_depth < current.item.depth_prefix || current.item.node.is_empty() { // TODO EMCH rename is_empty to is deleted
 				let first_modified_child_index = current.first_modified_child.as_ref().map(|c| c.parent_index); // TODO function for that to use
 				// needed also to resolve
-				if let Some(fuse_index) = current.item.node.fix_node((first_modified_child_index, current.split_child_index())) {
+				if let Some(fuse_index) = current.item.node.fix_node((first_modified_child_index, current.split_child_index())) { // TODO EMCH rename fix_node to need_fuse
 					// try first child
 					if let Some(child) = current.take_first_modified_child() {
 						unreachable!();
@@ -671,8 +671,8 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 				// child change or addition
 				if let Some(mut parent) = stack.pop() {
 					if current.item.node.is_empty() {
-						current.process_first_modified_child(key.as_ref(), callback);
-						current.process_split_child(key.as_ref(), callback);
+						current.process_first_modified_child(key.as_ref(), callback); // TODO is it of any use in a deleted node
+						current.process_split_child(key.as_ref(), callback); // TODO is it of any use?? (assert none instead??)
 						let prefix = NibbleSlice::new_offset(key.as_ref(), current.item.depth_prefix);
 						parent.append_child(current.into(), prefix.left(), callback);
 					} else if !parent.can_fuse {
@@ -1142,7 +1142,6 @@ mod tests {
 		println!("{:?}", db.clone().drain());
 		println!("{:?}", batch_delta.clone().drain());
 		assert!(db == batch_delta);
-	
 	}
 
 	#[test]

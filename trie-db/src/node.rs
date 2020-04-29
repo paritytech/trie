@@ -487,7 +487,7 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 						None, None, None, None,
 						None, None, None, None,
 					]);
-					for i in 0..nibble_ops::NIBBLE_LENGTH {
+					for i in 0..nibble_ops::NIBBLE_LENGTH { // TODO skip index
 						child_slices[i] = children[i].as_ref().map(|child| child.build_thandle(data));
 					}
 
