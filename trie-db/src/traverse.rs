@@ -34,6 +34,7 @@ use crate::nibble::{BackingByteVec, OwnedPrefix};
 use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
 use crate::NodeCodec;
 use crate::rstd::{cmp, mem};
+use crate::rstd::boxed::Box;
 
 type StorageHandle = Vec<u8>;
 type OwnedNodeHandle<H> = NodeHandleTrieMut<H, StorageHandle>;
@@ -101,7 +102,6 @@ struct StackedItem<B, T>
 	can_fuse: bool,
 }
 
-
 /// Variant of stacked item to store first changed node.
 struct StackedNode<B, T>
 	where
@@ -136,21 +136,6 @@ impl<B, T> StackedItem<B, T>
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
 		T: TrieLayout,
 {
-	// function is only call when going up, meaning
-	// traverse_key depth + 1 is already visited.
-	fn can_fuse(&self, traverse_key: &[u8]) -> bool {
-		//if let StackedNodeState::Changedself.node.
-		unimplemented!()
-	}
-
-	// TODO remove, here for debugging
-	// child_ix is only for non delete (delete is always applied before)
-	// This function checks if this node can fuse in the future, in respect
-	// to a given child to append or expecting all child to be processed.
-	fn test_can_fuse(&self, ref_key: &[u8], child_ix: Option<u8>) -> bool {
-		self.can_fuse
-	}
-
 	fn split_child_index(&self) -> Option<u8> {
 		match self.split_child.as_ref() {
 			Some(child) => Some(child.parent_index),
@@ -691,7 +676,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						current.process_split_child(key.as_ref(), callback);
 						let prefix = NibbleSlice::new_offset(key.as_ref(), current.item.depth_prefix);
 						parent.append_child(current.into(), prefix.left(), callback);
-					} else if !parent.test_can_fuse(key.as_ref(), Some(current.item.parent_index)) {
+					} else if !parent.can_fuse {
 						// process exit, as we already assert two child, no need to store in case of parent
 						// fusing.
 						// Deletion case is guaranted by ordering of input (fix delete only if no first
@@ -715,7 +700,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 							// no stacking of first child
 							parent.can_fuse = false;
 						}
-						if !parent.test_can_fuse(key.as_ref(), Some(current.item.parent_index)) {
+						if !parent.can_fuse {
 							parent.process_child(current, key.as_ref(), callback);
 						} else {
 							current.process_first_modified_child(key.as_ref(), callback);
