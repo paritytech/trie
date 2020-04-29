@@ -602,7 +602,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 		F: ProcessStack<B, T>,
 {
 	// Stack of traversed nodes
-	let mut stack: smallvec::SmallVec<[StackedItem<B, T>; 32]> = Default::default();
+	let mut stack: smallvec::SmallVec<[StackedItem<B, T>; 16]> = Default::default();
 
 	let root = if let Ok(root) = fetch::<T, B>(db, root_hash, EMPTY_PREFIX) {
 		root
