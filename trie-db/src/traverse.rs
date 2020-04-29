@@ -89,11 +89,8 @@ struct StackedItem<B, T>
 	depth: usize,
 	/// parent index (only relevant when parent is a branch).
 	parent_index: u8,
-	/// Store split child to create after we did insert a branch
-	/// into a partial. We keep index (second field) in case we descend
-	/// into this split child: TODO rational seems bad (we descend into the
-	/// branch so when we call fix we pass this anyway. TODO in fixnode
-	/// add a check for this index not being set (only if from second field).
+	/// Store split child data created when adding a new node in an existing
+	/// partial.
 	/// That is the only situation where we got a modified item that may need
 	/// a to be iterated on at a next iteration.
 	split_child: Option<StackedItemChild<B, T>>,
@@ -102,9 +99,9 @@ struct StackedItem<B, T>
 	/// `exit` call of first element after process of the second one).
 	/// Store child and the key use when storing (to calculate final
 	/// nibble, this is more memory costy than strictly necessary).
-	/// Note that split_child is always a first_child.
+	/// Note that split_child is always a first_modified_child.
 	/// TODO rename to first modified child (non delete).
-	first_child: Option<StackedItemChild<B, T>>,
+	first_modified_child: Option<StackedItemChild<B, T>>,
 	/// true when the value can be deleted and only more
 	/// than one branch cannot be deleted.
 	can_fuse: bool,
@@ -181,16 +178,16 @@ impl<B, T> StackedItem<B, T>
 		}
 	}
 
-	fn first_child_index(&self) -> Option<u8> {
-		self.first_child.as_ref().map(|c| c.parent_index)
+	fn first_modified_child_index(&self) -> Option<u8> {
+		self.first_modified_child.as_ref().map(|c| c.parent_index)
 	}
 
 	fn is_split_child(&self, index: u8) -> bool {
 		self.split_child_index().map(|child_index| child_index == index).unwrap_or(false)
 	}
 
-	// take first child (used for fusing, otherwhise process_first_child is probably what you want)
-	fn take_first_child(&mut self) -> Option<StackedItem<B, T>> {
+	// take first child (used for fusing, otherwhise process_first_modified_child is probably what you want)
+	fn take_first_modified_child(&mut self) -> Option<StackedItem<B, T>> {
 		// descending in first child is only for fusizg node
 		// so we do not update self first child status (will be deleted).
 		if let Some(StackedItemChild {
@@ -200,12 +197,12 @@ impl<B, T> StackedItem<B, T>
 			hash,
 			parent_index,
 			..
-		}) = self.first_child.take() {
+		}) = self.first_modified_child.take() {
 				Some(StackedItem {
 				node,
 				depth,
 				depth_prefix,
-				first_child: None,
+				first_modified_child: None,
 				split_child: None,
 				hash,
 				parent_index,
@@ -235,7 +232,7 @@ impl<B, T> StackedItem<B, T>
 					node,
 					depth,
 					depth_prefix,
-					first_child: None,
+					first_modified_child: None,
 					split_child: None,
 					hash,
 					parent_index,
@@ -275,7 +272,7 @@ impl<B, T> StackedItem<B, T>
 					parent_index: index,
 					depth_prefix,
 					depth,
-					first_child: None,
+					first_modified_child: None,
 					split_child: None,
 					can_fuse: true,
 				})
@@ -291,7 +288,7 @@ impl<B, T> StackedItem<B, T>
 	>(&mut self, mid_index: usize, key: &[u8], callback: &mut F) {
 //		// if self got split child, it can be processed
 //		// (we went up and this is a next key) (ordering)
-		self.process_first_child_then_split(key, callback);
+		self.process_first_modified_child_then_split(key, callback);
 		// or it means we need to store key to
 //		debug_assert!(self.split_child_index().is_none());
 		let dest_branch = if mid_index % nibble_ops::NIBBLE_PER_BYTE == 0 {
@@ -322,7 +319,7 @@ impl<B, T> StackedItem<B, T>
 
 		child.advance_partial(1 + mid_index - self.depth_prefix);
 //		// split occurs before visiting a single child
-//		debug_assert!(self.first_child.is_none());
+//		debug_assert!(self.first_modified_child.is_none());
 		// debug_assert!(!self.cannot_fuse);
 		// ordering key also ensure
 	//	debug_assert!(self.split_child_index().is_none());
@@ -365,23 +362,23 @@ impl<B, T> StackedItem<B, T>
 		}
 	}
 
-	fn process_first_child<
+	fn process_first_modified_child<
 		F: ProcessStack<B, T>,
 	>(&mut self, key: &[u8], callback: &mut F) {
-		self.process_first_child_inner(key, callback, false)
+		self.process_first_modified_child_inner(key, callback, false)
 	}
 
 	// TODO single call remove the function
-	fn process_first_child_then_split<
+	fn process_first_modified_child_then_split<
 		F: ProcessStack<B, T>,
 	>(&mut self, key: &[u8], callback: &mut F) {
-		self.process_first_child_inner(key, callback, true)
+		self.process_first_modified_child_inner(key, callback, true)
 	}
 
-	fn process_first_child_inner<
+	fn process_first_modified_child_inner<
 		F: ProcessStack<B, T>,
 	>(&mut self, key: &[u8], callback: &mut F, always_split: bool) {
-		if let Some(child) = self.first_child.take() {
+		if let Some(child) = self.first_modified_child.take() {
 			if let Some(split_child_index) = self.split_child_index() {
 				if split_child_index < child.parent_index {
 					self.process_split_child(key.as_ref(), callback);
@@ -401,9 +398,9 @@ impl<B, T> StackedItem<B, T>
 		F: ProcessStack<B, T>,
 	>(&mut self, mut child: StackedItem<B, T>, key: &[u8], callback: &mut F) {
 
-		if let Some(first_child_index) = self.first_child_index() {
-			if first_child_index < child.parent_index {
-				self.process_first_child(key, callback);
+		if let Some(first_modified_child_index) = self.first_modified_child_index() {
+			if first_modified_child_index < child.parent_index {
+				self.process_first_modified_child(key, callback);
 			}
 		}
 		if let Some(split_child_index) = self.split_child_index() {
@@ -413,7 +410,7 @@ impl<B, T> StackedItem<B, T>
 		}
 		// split child can be unprocessed (when going up it is kept after second node
 		// in expectation of other children process.
-		child.process_first_child(key, callback);
+		child.process_first_modified_child(key, callback);
 		child.process_split_child(key, callback);
 		let nibble_slice = NibbleSlice::new_offset(key.as_ref(), child.depth_prefix);
 		self.append_child(child.into(), nibble_slice.left(), callback);
@@ -423,7 +420,7 @@ impl<B, T> StackedItem<B, T>
 	fn process_root<
 		F: ProcessStack<B, T>,
 	>(mut self, key: &[u8], callback: &mut F) {
-		self.process_first_child(key, callback);
+		self.process_first_modified_child(key, callback);
 		self.process_split_child(key, callback);
 		callback.exit_root(
 			self.node,
@@ -449,7 +446,7 @@ impl<B, T> StackedItem<B, T>
 		self.hash = child.hash;
 		self.depth = child_depth;
 		self.can_fuse = true;
-		self.first_child = None;
+		self.first_modified_child = None;
 		self.split_child = None;
 	}
 }
@@ -676,7 +673,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 		depth_prefix: 0,
 		depth,
 		parent_index: 0,
-		first_child: None,
+		first_modified_child: None,
 		split_child: None,
 		can_fuse: true,
 	};
@@ -702,11 +699,11 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 			let last = next_query.is_none();
 			// unstack nodes if needed
 			while last || target_common_depth < current.depth_prefix || current.node.is_empty() {
-				let first_child_index = current.first_child.as_ref().map(|c| c.parent_index); // TODO function for that to use
+				let first_modified_child_index = current.first_modified_child.as_ref().map(|c| c.parent_index); // TODO function for that to use
 				// needed also to resolve
-				if let Some(fuse_index) = current.node.fix_node((first_child_index, current.split_child_index())) {
+				if let Some(fuse_index) = current.node.fix_node((first_modified_child_index, current.split_child_index())) {
 					// try first child
-					if let Some(child) = current.take_first_child() {
+					if let Some(child) = current.take_first_modified_child() {
 						debug_assert!(child.parent_index == fuse_index);
 						let mut prefix = NibbleVec::from(key.as_ref(), current.depth);
 						prefix.push(fuse_index);
@@ -727,7 +724,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 				// child change or addition
 				if let Some(mut parent) = stack.pop() {
 					if current.node.is_empty() {
-						current.process_first_child(key.as_ref(), callback);
+						current.process_first_modified_child(key.as_ref(), callback);
 						current.process_split_child(key.as_ref(), callback);
 						let prefix = NibbleSlice::new_offset(key.as_ref(), current.depth_prefix);
 						parent.append_child(current.into(), prefix.left(), callback);
@@ -737,12 +734,12 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						// Deletion case is guaranted by ordering of input (fix delete only if no first
 						// and no split). TODO the number of calls to process first and split is wrong:
 						// should be once after fix_node only: that is especially for append_child case.
-						current.process_first_child(key.as_ref(), callback);
+						current.process_first_modified_child(key.as_ref(), callback);
 						current.process_split_child(key.as_ref(), callback);
 						let prefix = NibbleSlice::new_offset(key.as_ref(), current.depth_prefix);
 						parent.append_child(current.into(), prefix.left(), callback);
-					} else if let Some(first_child_index) = parent.first_child_index() {
-						debug_assert!(first_child_index < current.parent_index);
+					} else if let Some(first_modified_child_index) = parent.first_modified_child_index() {
+						debug_assert!(first_modified_child_index < current.parent_index);
 						parent.process_child(current, key.as_ref(), callback);
 					} else {
 						if let Some(split_child_index) = parent.split_child_index() {
@@ -758,18 +755,18 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						if !parent.test_can_fuse(key.as_ref(), Some(current.parent_index)) {
 							parent.process_child(current, key.as_ref(), callback);
 						} else {
-							current.process_first_child(key.as_ref(), callback);
+							current.process_first_modified_child(key.as_ref(), callback);
 							// split child is after first child (would be processed otherwhise).
 							current.process_split_child(key.as_ref(), callback);
 							// first node visited on a fusable element, store in parent first child and process later.
 							// Process an eventual split child (index after current).
-							parent.first_child = Some(current.into());
+							parent.first_modified_child = Some(current.into());
 						}
 					}
 					current = parent;
 				} else {
 					if last {
-						current.process_first_child(key.as_ref(), callback);
+						current.process_first_modified_child(key.as_ref(), callback);
 						current.process_split_child(key.as_ref(), callback);
 						current.process_root(key.as_ref(), callback);
 						return Ok(());
@@ -788,11 +785,11 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						break;
 					}
 				}
-				let first_child_index = current.first_child.as_ref().map(|c| c.parent_index); // TODO there is a function for that
+				let first_modified_child_index = current.first_modified_child.as_ref().map(|c| c.parent_index); // TODO there is a function for that
 				// needed also to resolve
-				if let Some(fuse_index) = current.node.fix_node((first_child_index, current.split_child_index())) {
+				if let Some(fuse_index) = current.node.fix_node((first_modified_child_index, current.split_child_index())) {
 					// try first child
-					if let Some(child) = current.take_first_child() {
+					if let Some(child) = current.take_first_modified_child() {
 						debug_assert!(child.parent_index == fuse_index);
 						// TODO probably no use in storing child_key here
 						let mut prefix = NibbleVec::from(key.as_ref(), current.depth);
@@ -815,12 +812,12 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 			if target_common_depth < current.depth {
 				// TODO this can probably remove a lot of those calls TODO check especially
 				// calls in going down path at split child.
-				current.process_first_child(key.as_ref(), callback);
+				current.process_first_modified_child(key.as_ref(), callback);
 				current.process_split_child(key.as_ref(), callback)
 			}
 
 /*			if !current.test_can_fuse(key.as_ref(), None) {
-				current.process_first_child(callback);
+				current.process_first_modified_child(callback);
 				if target_common_depth < current.depth {
 					current.process_split_child(key.as_ref(), callback);
 				}
@@ -965,7 +962,7 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 						depth: key_element.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
 						parent_index,
 						split_child: None,
-						first_child: None,
+						first_modified_child: None,
 						can_fuse: false,
 					};
 					return if stacked.node.is_empty() {
@@ -1022,7 +1019,7 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 								depth: key_element.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
 								parent_index,
 								split_child: None,
-								first_child: None,
+								first_modified_child: None,
 								can_fuse: false,
 							};
 							Some(child)
