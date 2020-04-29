@@ -528,6 +528,7 @@ fn trie_mut_same_key_single(c: &mut Criterion) {
 }
 
 fn trie_mut_same_key_batch(c: &mut Criterion) {
+	//use memory_db::HashKey;
 	use memory_db::PrefixedKey;
 	use trie_db::TrieMut;
 	let data : Vec<(Vec<u8>, Vec<u8>)> = input_unsorted(29, 204800, 32);

@@ -20,20 +20,18 @@
 use crate::triedbmut::{Node, NibbleFullKey};
 use crate::triedbmut::NodeHandle as NodeHandleTrieMut;
 use crate::node::{OwnedNode, NodeHandle, NodeKey};
-use crate::nibble::{NibbleVec, nibble_ops, NibbleSlice};
+use crate::nibble::{NibbleVec, nibble_ops, NibbleSlice, LeftNibbleSlice};
 #[cfg(feature = "std")]
 use std::borrow::Borrow;
 #[cfg(not(feature = "std"))]
 use core::borrow::Borrow;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-#[cfg(not(feature = "std"))]
-use alloc::boxed::Box;
 use crate::{TrieLayout, TrieHash, CError, Result, TrieError};
 use crate::nibble::{BackingByteVec, OwnedPrefix};
 use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
 use crate::NodeCodec;
-use crate::rstd::{cmp, mem};
+use crate::rstd::mem;
 use crate::rstd::boxed::Box;
 
 type StorageHandle = Vec<u8>;
@@ -110,9 +108,9 @@ struct StackedNode<B, T>
 {
 	/// Internal node representation.
 	node: StackedNodeState<B, T>,
-	/// Hash used to access this node, for inline node and
+	/// Hash and prefix used to access this node, for inline node (except root) and
 	/// new nodes this is None.
-	hash: Option<TrieHash<T>>,
+	hash: Option<(TrieHash<T>, OwnedPrefix)>,
 	/// Index of prefix.
 	depth_prefix: usize,
 	/// Depth of node, it is prefix depth and partial depth.
@@ -194,14 +192,14 @@ impl<B, T> StackedItem<B, T>
 						(StackedNodeState::Unchanged(
 							fetch::<T, B>(
 								db, &hash, prefix,
-						)?), Some(hash))
+						)?), Some((hash, owned_prefix(&prefix))))
 					},
 					NodeHandle::Inline(node_encoded) => {
 						// Instantiating B is only for inline node, still costy.
 						(StackedNodeState::Unchanged(
 							OwnedNode::new::<T::Codec>(B::from(node_encoded))
 								.map_err(|e| Box::new(TrieError::DecoderError(
-									self.item.hash.clone().unwrap_or_else(Default::default),
+									self.item.hash.clone().map(|i| i.0).unwrap_or_else(Default::default),
 									e,
 								)))?
 						), None)
@@ -287,7 +285,7 @@ impl<B, T> StackedItem<B, T>
 		if let Some(handle) = callback.exit(
 			prefix,
 			child.node,
-			child.hash.as_ref(),
+			child.hash,
 		) {
 			self.item.node.set_handle(handle, child.parent_index);
 		}
@@ -370,7 +368,7 @@ impl<B, T> StackedItem<B, T>
 		self.process_split_child(key, callback);
 		callback.exit_root(
 			self.item.node,
-			self.item.hash.as_ref(),
+			self.item.hash,
 		)
 	}
 
@@ -383,7 +381,7 @@ impl<B, T> StackedItem<B, T>
 		// delete current
 		callback.exit(
 			NibbleSlice::new_offset(key.as_ref(), self.item.depth_prefix).left(),
-			to_rem, self.item.hash.as_ref(),
+			to_rem, self.item.hash.take(),
 		).expect("no new node on empty");
 
 		let partial = NibbleSlice::new_offset(key, self.item.depth_prefix)
@@ -570,10 +568,10 @@ trait ProcessStack<B, T>
 	) -> Option<StackedItem<B, T>>;
 
 	/// Callback on exit a node, commit action on change node should be applied here.
-	fn exit(&mut self, prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<&TrieHash<T>>)
+	fn exit(&mut self, prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>)
 		-> Option<Option<OwnedNodeHandle<TrieHash<T>>>>;
 	/// Same as `exit` but for root (very last exit call).
-	fn exit_root(&mut self, stacked: StackedNodeState<B, T>, prev_hash: Option<&TrieHash<T>>);
+	fn exit_root(&mut self, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>);
 }
 
 /// State when descending
@@ -616,7 +614,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 	let mut current = StackedItem {
 		item: StackedNode {
 			node: current,
-			hash: Some(*root_hash),
+			hash: Some((*root_hash, owned_prefix(&EMPTY_PREFIX))),
 			depth_prefix: 0,
 			depth,
 			parent_index: 0,
@@ -652,11 +650,12 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 				if let Some(fuse_index) = current.item.node.fix_node((first_modified_child_index, current.split_child_index())) {
 					// try first child
 					if let Some(child) = current.take_first_modified_child() {
-						debug_assert!(child.item.parent_index == fuse_index);
+						unreachable!();
+/*						debug_assert!(child.item.parent_index == fuse_index);
 						let mut prefix = NibbleVec::from(key.as_ref(), current.item.depth);
 						prefix.push(fuse_index);
 						child.item.node.partial().map(|p| prefix.append_partial(p.right()));
-						current.fuse_branch(child, prefix.inner(), callback);
+						current.fuse_branch(child, prefix.inner(), callback);*/
 					} else {
 						let mut prefix = NibbleVec::from(key.as_ref(), current.item.depth);
 						prefix.push(fuse_index);
@@ -740,7 +739,6 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 					// try first child
 					if let Some(child) = current.take_first_modified_child() {
 						debug_assert!(child.item.parent_index == fuse_index);
-						// TODO probably no use in storing child_key here
 						let mut prefix = NibbleVec::from(key.as_ref(), current.item.depth);
 						prefix.push(fuse_index);
 						child.item.node.partial().map(|p| prefix.append_partial(p.right()));
@@ -777,7 +775,6 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 			continue;
 		}
 
-
 		// PATH DOWN descending in next_query.
 		if let Some((key, value)) = next_query {
 			let dest_slice = NibbleFullKey::new(key.as_ref());
@@ -813,14 +810,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 			let traverse_state = if let Some(mid_index) = descend_mid_index {
 				TraverseState::MidPartial(mid_index)
 			} else if dest_depth < current.item.depth {
-				// TODO this might be unreachable from previous loop
-				// split child (insert in current prefix -> try fuzzing on unreachable
-				let mid_index = current.item.node.partial()
-					.map(|current_partial| {
-						let target_partial = NibbleSlice::new_offset(key.as_ref(), current.item.depth_prefix);
-						current.item.depth_prefix + current_partial.common_prefix(&target_partial)
-					}).unwrap_or(current.item.depth_prefix);
-				TraverseState::MidPartial(mid_index)
+				unreachable!();
 			} else if dest_depth > current.item.depth {
 				// over callback
 				TraverseState::AfterNode
@@ -918,7 +908,7 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 					};
 					return if stacked.item.node.is_empty() {
 						// replace empty.
-						new_child.item.hash = stacked.item.hash;
+						new_child.item.hash = stacked.item.hash.take();
 						*stacked = new_child;
 						None
 					} else {
@@ -980,32 +970,32 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 	}
 
 
-	fn exit(&mut self, prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<&TrieHash<T>>)
+	fn exit(&mut self, prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>)
 		-> Option<Option<OwnedNodeHandle<TrieHash<T>>>> {
 		match stacked {
 			StackedNodeState::Changed(node) => Some(Some({
+				if let Some((h, p)) = prev_hash {
+					self.0.push((p, h, None));
+				}
 				let encoded = node.into_encoded::<_, T::Codec, T::Hash>(
 					|child, _o_slice, _o_index| {
 						child.as_child_ref::<T::Hash>()
 					}
 				);
-				if encoded.len() < 32 {
+				if encoded.len() < <T::Hash as hash_db::Hasher>::LENGTH {
 					OwnedNodeHandle::InMemory(encoded)
 				} else {
 					let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
 					// register latest change
 					self.2 = Some(self.0.len());
-					if let Some(h) = prev_hash {
-						self.0.push((owned_prefix(&prefix), h.clone(), None));
-					}
 					// costy clone (could get read from here)
 					self.0.push((owned_prefix(&prefix), hash.clone(), Some(encoded)));
 					OwnedNodeHandle::Hash(hash)
 				}
 			})),
 			StackedNodeState::Deleted => {
-				if let Some(h) = prev_hash {
-					self.0.push((owned_prefix(&prefix), h.clone(), None));
+				if let Some((h, p)) = prev_hash {
+					self.0.push((p, h.clone(), None));
 				}
 				Some(None)
 			},
@@ -1013,7 +1003,7 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 		}
 	}
 	
-	fn exit_root(&mut self, stacked: StackedNodeState<B, T>, prev_hash: Option<&TrieHash<T>>) {
+	fn exit_root(&mut self, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>) {
 		let prefix = EMPTY_PREFIX;
 		match stacked {
 			s@StackedNodeState::Deleted
@@ -1021,8 +1011,8 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 				let encoded = s.into_encoded();
 				let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
 				self.1 = hash.clone();
-				if let Some(h) = prev_hash {
-					self.0.push((owned_prefix(&prefix), h.clone(), None));
+				if let Some((h, p)) = prev_hash {
+					self.0.push((p, h.clone(), None));
 				}
 				self.0.push((owned_prefix(&prefix), hash, Some(encoded)));
 			},
@@ -1087,6 +1077,7 @@ mod tests {
 		mdb: &mut MemoryDB<KeccakHasher, PrefixedKey<KeccakHasher>, DBValue>,
 	) {
 		for (p, h, v) in delta {
+		println!("p{:?}, {:?}, {:?}", p, h, v);
 			if let Some(v) = v {
 				let prefix = (p.0.as_ref(), p.1);
 				// damn elastic array in value looks costy
@@ -1147,8 +1138,11 @@ mod tests {
 		println!("{:?}", t2);
 		let t2b = RefTrieDBNoExt::new(&batch_delta, &calc_root).unwrap();
 		println!("{:?}", t2b);
+
+		println!("{:?}", db.clone().drain());
+		println!("{:?}", batch_delta.clone().drain());
+		assert!(db == batch_delta);
 	
-//		panic!("!!END!!");
 	}
 
 	#[test]

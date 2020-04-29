@@ -15,6 +15,7 @@
 use crate::rstd::cmp::{self, Ordering};
 
 use crate::nibble::{nibble_ops::{self, NIBBLE_PER_BYTE}, NibbleSlice};
+use hash_db::Prefix;
 
 /// A representation of a nibble slice which is left-aligned. The regular `NibbleSlice` is
 /// right-aligned, meaning it does not support efficient truncation from the right side.
@@ -33,6 +34,16 @@ impl<'a> LeftNibbleSlice<'a> {
 			len: bytes.len() * NIBBLE_PER_BYTE,
 		}
 	}
+
+	/// Constructs a byte-aligned nibble slice of a given size.
+	/// TODO EMCH may end up unused
+	pub fn from(bytes: &'a [u8], len: usize) -> Self {
+		LeftNibbleSlice {
+			bytes,
+			len,
+		}
+	}
+
 
 	/// Returns the length of the slice in nibbles.
 	pub fn len(&self) -> usize {
@@ -91,6 +102,18 @@ impl<'a> LeftNibbleSlice<'a> {
 
 		// If common nibble prefix is the same, finally compare lengths.
 		self.len().cmp(&other.len())
+	}
+
+	/// Get `Prefix` representation of this `NibbleVec`.
+	/// TODO EMCH for test, may become unused.
+	pub fn as_prefix(&self) -> Prefix {
+		let split = self.len / nibble_ops::NIBBLE_PER_BYTE;
+		let pos = (self.len % nibble_ops::NIBBLE_PER_BYTE) as u8;
+		if pos == 0 {
+			(&self.bytes[..split], None)
+		} else {
+			(&self.bytes[..split], Some(nibble_ops::pad_left(self.bytes[split])))
+		}
 	}
 }
 
