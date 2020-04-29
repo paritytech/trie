@@ -375,19 +375,18 @@ impl<B, T> StackedItem<B, T>
 	// consume branch and return item to attach to parent
 	fn fuse_branch<
 		F: ProcessStack<B, T>,
-	>(&mut self, child: StackedItem<B, T>, key: &[u8], callback: &mut F) {
+	>(&mut self, mut child: StackedItem<B, T>, key: &[u8], callback: &mut F) {
 		let child_depth = self.item.depth + 1 + child.item.node.partial().map(|p| p.len()).unwrap_or(0);
-		let to_rem = mem::replace(&mut self.item.node, child.item.node);
-		// delete current
+		let _ = mem::replace(&mut self.item.node, child.item.node);
+		// delete child
 		callback.exit(
-			NibbleSlice::new_offset(key.as_ref(), self.item.depth_prefix).left(),
-			to_rem, self.item.hash.take(),
+			EMPTY_PREFIX,
+			StackedNodeState::Deleted, child.item.hash.take(),
 		).expect("no new node on empty");
 
 		let partial = NibbleSlice::new_offset(key, self.item.depth_prefix)
 			.to_stored_range(child_depth - self.item.depth_prefix);
 		self.item.node.set_partial(partial);
-		self.item.hash = child.item.hash;
 		self.item.depth = child_depth;
 		self.can_fuse = true;
 		self.first_modified_child = None;
@@ -629,8 +628,59 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 	for next_query in elements.into_iter().map(|e| Some(e)).chain(Some(None)) {
 
 		let mut skip_down = false;
+		let last = next_query.is_none();
+
 		// PATH UP over the previous key and value
 		if let Some(key) = previous_key.as_ref() {
+
+			// first remove deleted.
+			if current.item.node.is_empty() {
+				current.process_first_modified_child(key.as_ref(), callback); // TODO is it of any use in a deleted node
+				current.process_split_child(key.as_ref(), callback); // TODO is it of any use?? (assert none instead??)
+				if let Some(mut parent) = stack.pop() {
+					let prefix = NibbleSlice::new_offset(key.as_ref(), current.item.depth_prefix);
+					parent.append_child(current.into(), prefix.left(), callback);
+					current = parent;
+				} else {
+					// empty trie, next additional value is therefore a leaf
+					// and delete this one (done in append_child otherwhise)
+					debug_assert!(current.item.depth_prefix == 0);
+					if let Some((key, Some(value))) = next_query.as_ref() {
+						callback.exit(
+							EMPTY_PREFIX,
+							current.item.node,
+							current.item.hash,
+						);
+						let leaf = Node::new_leaf(
+							NibbleSlice::new(key.as_ref()),
+							value.as_ref(),
+						);
+						current = StackedItem {
+							item: StackedNode {
+								node: StackedNodeState::Changed(leaf),
+								hash: None,
+								depth_prefix: 0,
+								depth: key.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
+								parent_index: 0,
+							},
+							first_modified_child: None,
+							split_child: None,
+							can_fuse: true,
+						};
+						continue;
+					} else {
+						if last {
+							callback.exit_root(
+								current.item.node,
+								current.item.hash,
+							);
+							return Ok(());
+						}
+						continue;
+					}
+				}
+			}
+
 			let target_common_depth = next_query.as_ref().map(|(next, _)| nibble_ops::biggest_depth(
 				key.as_ref(),
 				next.as_ref(),
@@ -641,41 +691,32 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 			} else {
 				target_common_depth
 			};*/
-
-			let last = next_query.is_none();
-			// unstack nodes if needed
-			while last || target_common_depth < current.item.depth_prefix || current.item.node.is_empty() { // TODO EMCH rename is_empty to is deleted
-				let first_modified_child_index = current.first_modified_child.as_ref().map(|c| c.parent_index); // TODO function for that to use
-				// needed also to resolve
-				if let Some(fuse_index) = current.item.node.fix_node((first_modified_child_index, current.split_child_index())) { // TODO EMCH rename fix_node to need_fuse
-					// try first child
-					if let Some(child) = current.take_first_modified_child() {
-						unreachable!();
-/*						debug_assert!(child.item.parent_index == fuse_index);
-						let mut prefix = NibbleVec::from(key.as_ref(), current.item.depth);
-						prefix.push(fuse_index);
-						child.item.node.partial().map(|p| prefix.append_partial(p.right()));
-						current.fuse_branch(child, prefix.inner(), callback);*/
-					} else {
-						let mut prefix = NibbleVec::from(key.as_ref(), current.item.depth);
-						prefix.push(fuse_index);
-						let child = current.descend_child(fuse_index, db, prefix.as_prefix())?
-							.expect("result of first child is define if consistent db");
-						child.item.node.partial().map(|p| prefix.append_partial(p.right()));
-						current.fuse_branch(child, prefix.inner(), callback);
-					}
-					// fuse child operation did switch current context.
-					continue;
+			let first_modified_child_index = current.first_modified_child.as_ref().map(|c| c.parent_index); // TODO function for that to use
+			// needed also to resolve
+			if let Some(fuse_index) = current.item.node.fix_node((first_modified_child_index, current.split_child_index())) { // TODO EMCH rename fix_node to need_fuse
+				// try first child
+				if let Some(child) = current.take_first_modified_child() {
+					debug_assert!(child.item.parent_index == fuse_index);
+					let mut prefix = NibbleVec::from(key.as_ref(), current.item.depth);
+					prefix.push(fuse_index);
+					child.item.node.partial().map(|p| prefix.append_partial(p.right()));
+					current.fuse_branch(child, prefix.inner(), callback);
+				} else {
+					let mut prefix = NibbleVec::from(key.as_ref(), current.item.depth);
+					prefix.push(fuse_index);
+					let child = current.descend_child(fuse_index, db, prefix.as_prefix())?
+						.expect("result of first child is define if consistent db"); // TODO EMCH Error here do!!!
+					child.item.node.partial().map(|p| prefix.append_partial(p.right()));
+					current.fuse_branch(child, prefix.inner(), callback);
 				}
+			}
+			// unstack nodes if needed
+			while last || target_common_depth < current.item.depth_prefix { // TODO EMCH rename is_empty to is deleted
+				
 				// TODO check if fuse (num child is 1).
 				// child change or addition
 				if let Some(mut parent) = stack.pop() {
-					if current.item.node.is_empty() {
-						current.process_first_modified_child(key.as_ref(), callback); // TODO is it of any use in a deleted node
-						current.process_split_child(key.as_ref(), callback); // TODO is it of any use?? (assert none instead??)
-						let prefix = NibbleSlice::new_offset(key.as_ref(), current.item.depth_prefix);
-						parent.append_child(current.into(), prefix.left(), callback);
-					} else if !parent.can_fuse {
+					if !parent.can_fuse {
 						// process exit, as we already assert two child, no need to store in case of parent
 						// fusing.
 						// Deletion case is guaranted by ordering of input (fix delete only if no first
@@ -702,9 +743,9 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						if !parent.can_fuse {
 							parent.process_child(current, key.as_ref(), callback);
 						} else {
-							current.process_first_modified_child(key.as_ref(), callback);
+							current.process_first_modified_child(key.as_ref(), callback); // TODO this is super confusing an assert no firt please
 							// split child is after first child (would be processed otherwhise).
-							current.process_split_child(key.as_ref(), callback);
+							current.process_split_child(key.as_ref(), callback); // TODO same
 							// first node visited on a fusable element, store in parent first child and process later.
 							// Process an eventual split child (index after current).
 							parent.first_modified_child = Some(current.into());
@@ -1065,6 +1106,7 @@ mod tests {
 	};
 
 	use memory_db::{MemoryDB, PrefixedKey};
+//	use memory_db::{MemoryDB, HashKey as PrefixedKey};
 	use keccak_hasher::KeccakHasher;
 	use crate::{DBValue, OwnedPrefix};
 	use hash_db::HashDB;
