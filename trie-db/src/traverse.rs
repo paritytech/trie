@@ -328,8 +328,12 @@ impl<B, T> StackedItem<B, T>
 					self.process_split_child(key.as_ref(), callback);
 				}
 			}
-			let nibble_slice = NibbleSlice::new_offset(key.as_ref(), child.depth_prefix);
-			self.append_child(child, nibble_slice.left(), callback);
+
+			let mut build_prefix = NibbleVec::from(key, self.item.depth_prefix);
+			self.item.node.partial().map(|p| build_prefix.append_partial(p.right()));
+			build_prefix.push(child.parent_index);
+			self.append_child(child, build_prefix.as_prefix(), callback);
+
 			if always_split {
 				self.process_split_child(key.as_ref(), callback);
 			}
