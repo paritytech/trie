@@ -704,7 +704,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 							};
 							continue;
 						},
-						Some((_key, InputAction::Attach(attach_root))) => unimplemented!("TOOD ATTACH/DETACH"), // this is a replace by this root node, just need to rework the partial of the node.
+						Some((_key, InputAction::Attach(_attach_root))) => unimplemented!("TOOD ATTACH/DETACH"), // this is a replace by this root node, just need to rework the partial of the node.
 						Some((_key, InputAction::Detach))
 						| Some((_key, InputAction::Delete)) => {
 							continue;
@@ -950,7 +950,7 @@ impl<B, T, C> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C>
 					InputAction::Delete => {
 						stacked.item.node.remove_value();
 					},
-					InputAction::Attach(attach_root) => unimplemented!("TOOD ATTACH/DETACH"),
+					InputAction::Attach(_attach_root) => unimplemented!("TOOD ATTACH/DETACH"),
 					InputAction::Detach => unimplemented!("TOOD ATTACH/DETACH"),
 				}
 				None
@@ -996,7 +996,7 @@ impl<B, T, C> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C>
 						// nothing to delete.
 						None
 					},
-					InputAction::Attach(attach_root) => unimplemented!("TOOD ATTACH/DETACH"),
+					InputAction::Attach(_attach_root) => unimplemented!("TOOD ATTACH/DETACH"),
 					InputAction::Detach => unimplemented!("TOOD ATTACH/DETACH"),
 				}
 			},
@@ -1046,7 +1046,7 @@ impl<B, T, C> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C>
 						// nothing to delete.
 						None
 					},
-					InputAction::Attach(attach_root) => unimplemented!("TOOD ATTACH/DETACH"),
+					InputAction::Attach(_attach_root) => unimplemented!("TOOD ATTACH/DETACH"),
 					InputAction::Detach => unimplemented!("TOOD ATTACH/DETACH"),
 				}
 			},
@@ -1151,6 +1151,7 @@ mod tests {
 	use crate::{DBValue, OwnedPrefix};
 	use hash_db::HashDB;
 	use crate::triedbmut::tests::populate_trie_no_extension;
+	use crate::nibble::NibbleSlice;
 
 	type H256 = <KeccakHasher as hash_db::Hasher>::Out;
 
@@ -1158,8 +1159,66 @@ mod tests {
 		delta: impl Iterator<Item = (OwnedPrefix, H256, Option<Vec<u8>>)>,
 		mdb: &mut MemoryDB<KeccakHasher, PrefixedKey<KeccakHasher>, DBValue>,
 	) {
+		let mut previous_prefix = None;
+		let cp_prefix = |previous: &OwnedPrefix, next: &OwnedPrefix, prev_delete: bool, is_delet: bool| {
+			println!("{:?} -> {:?}", previous, next);
+			if previous == next {
+				// we can have two same value if it is deletion then creation
+				assert!(prev_delete && !is_delet);
+				return;
+			}
+			let prev_slice = NibbleSlice::new(previous.0.as_slice());
+			let p_at = |i| {
+				if i < prev_slice.len() {
+					Some(prev_slice.at(i))
+				} else if i == prev_slice.len() {
+					previous.1
+				} else {
+					None
+				}
+			};
+
+			let next_slice = NibbleSlice::new(next.0.as_slice());
+			let n_at = |i| {
+				if i < next_slice.len() {
+					Some(next_slice.at(i))
+				} else if i == next_slice.len() {
+					next.1
+				} else {
+					None
+				}
+			};
+			let mut i = 0;
+			loop {
+				match (p_at(i), n_at(i)) {
+					(Some(p), Some(n)) => {
+						if p < n {
+							break;
+						} else if p == n {
+							i += 1;
+						} else {
+							panic!("Misordered results");
+						}
+					},
+					(Some(p), None) => {
+						// moving upward is fine
+						break;
+					},
+					(None, Some(p)) => {
+						// next is bellow first, that is not correct
+						panic!("Misordered results");
+					},
+					(None, None) => {
+						unreachable!("equality tested firsthand")
+					},
+				}
+			}
+		};
 		for (p, h, v) in delta {
-		println!("p{:?}, {:?}, {:?}", p, h, v);
+			let is_delete = v.is_none();
+			previous_prefix.as_ref().map(|(prev, p_is_del)| cp_prefix(prev, &p, *p_is_del, is_delete));
+
+			//println!("p{:?}, {:?}, {:?}", p, h, v);
 			if let Some(v) = v {
 				let prefix = (p.0.as_ref(), p.1);
 				// damn elastic array in value looks costy
@@ -1168,6 +1227,7 @@ mod tests {
 				let prefix = (p.0.as_ref(), p.1);
 				mdb.remove(&h, prefix);
 			}
+			previous_prefix = Some((p, is_delete));
 		}
 	}
 
