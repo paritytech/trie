@@ -15,7 +15,6 @@
 use crate::rstd::cmp::{self, Ordering};
 
 use crate::nibble::{nibble_ops::{self, NIBBLE_PER_BYTE}, NibbleSlice};
-use hash_db::Prefix;
 
 /// A representation of a nibble slice which is left-aligned. The regular `NibbleSlice` is
 /// right-aligned, meaning it does not support efficient truncation from the right side.

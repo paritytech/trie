@@ -566,7 +566,7 @@ trait ProcessStack<B, T>
 		&mut self,
 		stacked: &mut StackedItem<B, T>,
 		key_element: &[u8],
-		action: InputAction<&[u8]>,
+		action: InputAction<&[u8], &TrieHash<T>>,
 		state: TraverseState,
 	) -> Option<StackedItem<B, T>>;
 
@@ -588,21 +588,31 @@ enum TraverseState {
 }
 
 /// Action for a key to traverse.
-pub enum InputAction<V> {
+pub enum InputAction<V, H> {
 	/// Delete a value if it exists.
 	Delete,
 	/// Insert a value. If value is already define,
 	/// it will be overwrite.
 	Insert(V),
+	/// Detach trie content at a given.
+	/// Handle detached nodes is managed by process stack logic.
+	Detach,
+	/// Attach a trie with given hash.
+	/// Handle of conflict is managed by process stack logic.
+	/// More common strategie would be to replace content and handle
+	/// the replaced content as a detached content is handled.
+	Attach(H),
 }
 
-impl<V: AsRef<[u8]>> InputAction<V> {
+impl<V: AsRef<[u8]>, H> InputAction<V, H> {
 
 	/// Alternative to `std::convert::AsRef`.
-	pub fn as_ref(&self) -> InputAction<&[u8]> {
+	pub fn as_ref(&self) -> InputAction<&[u8], &H> {
 		match self {
 			InputAction::Insert(v) => InputAction::Insert(v.as_ref()),
 			InputAction::Delete => InputAction::Delete,
+			InputAction::Attach(attach_root) => InputAction::Attach(&attach_root),
+			InputAction::Detach => InputAction::Detach,
 		}
 	}
 }
@@ -616,7 +626,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 ) -> Result<(), TrieHash<T>, CError<T>>
 	where
 		T: TrieLayout,
-		I: Iterator<Item = (K, InputAction<V>)>,
+		I: Iterator<Item = (K, InputAction<V, TrieHash<T>>)>,
 		K: AsRef<[u8]> + Ord,
 		V: AsRef<[u8]>,
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
@@ -694,7 +704,9 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 							};
 							continue;
 						},
-						Some((_key, InputAction::Delete)) => {
+						Some((_key, InputAction::Attach(attach_root))) => unimplemented!("TOOD ATTACH/DETACH"), // this is a replace by this root node, just need to rework the partial of the node.
+						Some((_key, InputAction::Detach))
+						| Some((_key, InputAction::Delete)) => {
 							continue;
 						},
 						None => {
@@ -787,19 +799,6 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						current.process_root(key.as_ref(), callback);
 						return Ok(());
 					} else {
-						match next_query.as_ref() {
-							Some((key, InputAction::Insert(value))) => {
-								let child = Node::new_leaf(
-									NibbleSlice::new_offset(key.as_ref(), 0),
-									value.as_ref(),
-								);
-								current.item.node = StackedNodeState::Changed(child);
-								current.item.depth = key.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
-								current.can_fuse = false;
-							},
-							Some((_key, InputAction::Delete)) => unreachable!(),
-							None => (),
-						}
 						// move to next key
 						skip_down = true;
 						break;
@@ -939,7 +938,7 @@ impl<B, T, C> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C>
 		&mut self,
 		stacked: &mut StackedItem<B, T>,
 		key_element: &[u8],
-		action: InputAction<&[u8]>,
+		action: InputAction<&[u8], &TrieHash<T>>,
 		state: TraverseState,
 	) -> Option<StackedItem<B, T>> {
 		match state {
@@ -951,6 +950,8 @@ impl<B, T, C> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C>
 					InputAction::Delete => {
 						stacked.item.node.remove_value();
 					},
+					InputAction::Attach(attach_root) => unimplemented!("TOOD ATTACH/DETACH"),
+					InputAction::Detach => unimplemented!("TOOD ATTACH/DETACH"),
 				}
 				None
 			},
@@ -995,6 +996,8 @@ impl<B, T, C> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C>
 						// nothing to delete.
 						None
 					},
+					InputAction::Attach(attach_root) => unimplemented!("TOOD ATTACH/DETACH"),
+					InputAction::Detach => unimplemented!("TOOD ATTACH/DETACH"),
 				}
 			},
 			TraverseState::MidPartial(mid_index) => {
@@ -1043,6 +1046,8 @@ impl<B, T, C> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C>
 						// nothing to delete.
 						None
 					},
+					InputAction::Attach(attach_root) => unimplemented!("TOOD ATTACH/DETACH"),
+					InputAction::Detach => unimplemented!("TOOD ATTACH/DETACH"),
 				}
 			},
 		}
@@ -1118,7 +1123,7 @@ pub fn batch_update<'a, T, I, K, V, B>(
 ) -> Result<(TrieHash<T>, Vec<(OwnedPrefix, TrieHash<T>, Option<Vec<u8>>)>), TrieHash<T>, CError<T>>
 	where
 		T: TrieLayout,
-		I: Iterator<Item = (K, InputAction<V>)>,
+		I: Iterator<Item = (K, InputAction<V, TrieHash<T>>)>,
 		K: AsRef<[u8]> + Ord,
 		V: AsRef<[u8]>,
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
