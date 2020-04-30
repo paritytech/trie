@@ -364,7 +364,7 @@ fn test_generate_proof<L: TrieLayout>(
 	(root, proof, items)
 }
 
-pub fn fuzz_batch_update(input: &[u8], build_val: fn(&mut Vec<u8>)) {
+pub fn fuzz_batch_update(input: &[u8], build_val: fn(&mut Vec<u8>), compare_db: bool) {
 	let data = fuzz_to_data(input);
 	let mut data = fuzz_removal(data);
 	for i in data.iter_mut() {
@@ -405,14 +405,27 @@ pub fn fuzz_batch_update(input: &[u8], build_val: fn(&mut Vec<u8>)) {
 		}
 	}
 //println!("{:?}", sorted_data);
-	let (calc_root, _payload) = reference_trie::trie_traverse_key_no_extension_build(
+	let (calc_root, payload) = reference_trie::trie_traverse_key_no_extension_build(
 		&mut initial_db,
 		&initial_root,
 		sorted_data.into_iter(),
 	);
-//	println!("{:?}", batch_update.1);
-//	println!("{:?}", root);
 	assert!(calc_root == root);
+
+	if compare_db {
+		for (p, h, v) in payload {
+			use hash_db::HashDB;
+			if let Some(v) = v {
+				let prefix = (p.0.as_ref(), p.1);
+				initial_db.emplace(h, prefix, v[..].into());
+			} else {
+				let prefix = (p.0.as_ref(), p.1);
+				initial_db.remove(&h, prefix);
+			}
+		}
+
+		assert!(initial_db == db);
+	}
 }
 
 #[test]
@@ -440,7 +453,7 @@ fn test() {
 		vec![0x0,0x0,0x4,0x8d,0x8d,0x4],
 	];
 	for v in tests.iter() {
-		fuzz_batch_update(&v[..], |_v| ());
-		fuzz_batch_update(&v[..], |v| v.extend(&[4u8; 32]));
+		fuzz_batch_update(&v[..], |_v| (), false);
+		fuzz_batch_update(&v[..], |v| v.extend(&[4u8; 32]), true);
 	}
 }
