@@ -20,7 +20,7 @@
 use crate::triedbmut::{Node, NibbleFullKey};
 use crate::triedbmut::NodeHandle as NodeHandleTrieMut;
 use crate::node::{OwnedNode, NodeHandle, NodeKey};
-use crate::nibble::{NibbleVec, nibble_ops, NibbleSlice, LeftNibbleSlice};
+use crate::nibble::{NibbleVec, nibble_ops, NibbleSlice};
 #[cfg(feature = "std")]
 use std::borrow::Borrow;
 #[cfg(not(feature = "std"))]
@@ -897,16 +897,16 @@ fn fetch<T: TrieLayout, B: Borrow<[u8]>>(
 /// Contains ordered node change for this iteration.
 /// The resulting root hash.
 /// The latest changed node.
-struct BatchUpdate<H>(
-	Vec<(OwnedPrefix, H, Option<Vec<u8>>)>,
-	H,
-	Option<usize>, // TODO EMCH remove??
-);
+struct BatchUpdate<H, C> {
+	register_update: C,
+	root: H,
+}
 
-impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
+impl<B, T, C> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C>
 	where
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
 		T: TrieLayout,
+		C: FnMut((OwnedPrefix, TrieHash<T>, Option<Vec<u8>>)),
 {
 	fn enter_terminal(
 		&mut self,
@@ -1014,13 +1014,13 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 	
 	}
 
-
 	fn exit(&mut self, prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>)
 		-> Option<Option<OwnedNodeHandle<TrieHash<T>>>> {
+		let register = &mut self.register_update;
 		match stacked {
 			StackedNodeState::Changed(node) => Some(Some({
 				if let Some((h, p)) = prev_hash {
-					self.0.push((p, h, None));
+					register((p, h, None));
 				}
 				let encoded = node.into_encoded::<_, T::Codec, T::Hash>(
 					|child, _o_slice, _o_index| {
@@ -1031,16 +1031,14 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 					OwnedNodeHandle::InMemory(encoded)
 				} else {
 					let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
-					// register latest change
-					self.2 = Some(self.0.len());
 					// costy clone (could get read from here)
-					self.0.push((owned_prefix(&prefix), hash.clone(), Some(encoded)));
+					register((owned_prefix(&prefix), hash.clone(), Some(encoded)));
 					OwnedNodeHandle::Hash(hash)
 				}
 			})),
 			StackedNodeState::Deleted => {
 				if let Some((h, p)) = prev_hash {
-					self.0.push((p, h.clone(), None));
+					register((p, h.clone(), None));
 				}
 				Some(None)
 			},
@@ -1050,16 +1048,17 @@ impl<B, T> ProcessStack<B, T> for BatchUpdate<TrieHash<T>>
 	
 	fn exit_root(&mut self, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>) {
 		let prefix = EMPTY_PREFIX;
+		let register = &mut self.register_update;
 		match stacked {
 			s@StackedNodeState::Deleted
 			| s@StackedNodeState::Changed(..) => {
 				let encoded = s.into_encoded();
 				let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
-				self.1 = hash.clone();
+				self.root = hash.clone();
 				if let Some((h, p)) = prev_hash {
-					self.0.push((p, h.clone(), None));
+					register((p, h.clone(), None));
 				}
-				self.0.push((owned_prefix(&prefix), hash, Some(encoded)));
+				register((owned_prefix(&prefix), hash, Some(encoded)));
 			},
 			_ => (),
 		}
@@ -1077,15 +1076,11 @@ pub fn from_owned_prefix(prefix: &OwnedPrefix) -> Prefix {
 }
 
 /// Update trie, returning deltas and root.
-/// TODO this put all in memory in a vec: we could stream the process
-/// (would be really good for very big updates). -> then remove root
-/// from result and Batch update (is simply latest hash of iter (given
-/// delete after insert)).
 pub fn batch_update<'a, T, I, K, V, B>(
 	db: &'a dyn HashDBRef<T::Hash, B>,
 	root_hash: &'a TrieHash<T>,
 	elements: I,
-) -> Result<(TrieHash<T>, impl Iterator<Item = (OwnedPrefix, TrieHash<T>, Option<Vec<u8>>)>), TrieHash<T>, CError<T>>
+) -> Result<(TrieHash<T>, Vec<(OwnedPrefix, TrieHash<T>, Option<Vec<u8>>)>), TrieHash<T>, CError<T>>
 	where
 		T: TrieLayout,
 		I: IntoIterator<Item = (K, Option<V>)>,
@@ -1093,14 +1088,15 @@ pub fn batch_update<'a, T, I, K, V, B>(
 		V: AsRef<[u8]>,
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
 {
-	let mut batch_update = BatchUpdate(
-		Default::default(),
-		root_hash.clone(),
-		None,
-	);
+	let mut dest = Vec::new();
+	let mut batch_update = BatchUpdate {
+		register_update: |update| {
+			dest.push(update)
+		},
+		root: root_hash.clone(),
+	};
 	trie_traverse_key::<T, _, _, _, _, _>(db, root_hash, elements, &mut batch_update)?;
-	// TODO when remove third elt of batchupdate the map gets useless
-	Ok((batch_update.1, batch_update.0.into_iter().map(|i| (i.0, i.1, i.2))))
+	Ok((batch_update.root, dest))
 }
 
 #[cfg(test)]
@@ -1199,6 +1195,7 @@ mod tests {
 			],
 		);
 	}
+
 	#[test]
 	fn non_empty_node_null_key() {
 		compare_with_triedbmut(
@@ -1210,6 +1207,7 @@ mod tests {
 			],
 		);
 	}
+
 	#[test]
 	fn empty_node_with_key() {
 		compare_with_triedbmut(
@@ -1219,6 +1217,7 @@ mod tests {
 			],
 		);
 	}
+
 	#[test]
 	fn simple_fuse() {
 		compare_with_triedbmut(
@@ -1232,6 +1231,7 @@ mod tests {
 			],
 		);
 	}
+
 	#[test]
 	fn dummy1() {
 		compare_with_triedbmut(
@@ -1244,6 +1244,7 @@ mod tests {
 			],
 		);
 	}
+
 	#[test]
 	fn two_recursive_mid_insert() {
 		compare_with_triedbmut(
@@ -1256,6 +1257,7 @@ mod tests {
 			],
 		);
 	}
+
 	#[test]
 	fn dummy2() {
 		compare_with_triedbmut(
@@ -1268,10 +1270,10 @@ mod tests {
 				(vec![0x01u8, 0x01u8, 0x23], Some(vec![0xffu8; 32])),
 				(vec![0x01u8, 0x81u8, 0x23], Some(vec![0xfeu8; 32])),
 				(vec![0x01u8, 0x81u8, 0x23], None),
-//				(vec![0x01u8, 0xf1u8, 0x23], Some(vec![0xffu8, 0x34])),
 			],
 		);
 	}
+
 	#[test]
 	fn delete_to_empty() {
 		compare_with_triedbmut(
@@ -1283,19 +1285,20 @@ mod tests {
 			],
 		);
 	}
+
 	#[test]
 	fn fuse_root_node() {
 		compare_with_triedbmut(
 			&[
 				(vec![2, 254u8], vec![4u8; 33]),
 				(vec![1, 254u8], vec![4u8; 33]),
-			//	(vec![1, 255u8], vec![5u8; 36]),
 			],
 			&[
 				(vec![1, 254u8], None),
 			],
 		);
 	}
+
 	#[test]
 	fn dummy4() {
 		compare_with_triedbmut(
@@ -1327,6 +1330,7 @@ mod tests {
 			],
 		);
 	}
+
 	#[test]
 	fn fuse_with_child_partial() {
 		compare_with_triedbmut(
@@ -1387,7 +1391,6 @@ mod tests {
 		);
 	}
 
-
 	#[test]
 	fn dummy_51() {
 		compare_with_triedbmut(
@@ -1400,6 +1403,7 @@ mod tests {
 			],
 		);
 	}
+
 	#[test]
 	fn emptied_then_insert() {
 		compare_with_triedbmut(
@@ -1438,12 +1442,10 @@ mod tests {
 			&[
 				(vec![144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144], None),
 				(vec![144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 208], Some(vec![4; 32])),
-//				(vec![144, 144, 144, 144, 144, 144, 144, 144, 144, 151, 144, 144, 144, 144, 144, 144, 144], Some(vec![4, 251])),
 				(vec![255, 255, 255, 255, 255, 255, 15, 0, 98, 34, 255, 0, 197, 193, 31, 5, 64, 0, 248, 197, 247, 231, 58, 0, 3, 214, 1, 192, 122, 39, 226, 0], None),
 			],
 		);
 	}
-
 
 	#[test]
 	fn single_latest_change_value_does_not_work() {

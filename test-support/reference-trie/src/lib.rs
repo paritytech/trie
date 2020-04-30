@@ -1202,7 +1202,8 @@ pub fn trie_traverse_key_no_extension_build<'a, I, K, V, B>(
 		V: AsRef<[u8]>,
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
 {
-	batch_update::<NoExtensionLayout, _, _, _, _>(db, root, elements).unwrap()
+	let (root, values) = batch_update::<NoExtensionLayout, _, _, _, _>(db, root, elements).unwrap();
+	(root, values.into_iter())
 }
 
 #[cfg(test)]

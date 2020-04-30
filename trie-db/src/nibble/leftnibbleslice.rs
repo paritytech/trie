@@ -35,16 +35,6 @@ impl<'a> LeftNibbleSlice<'a> {
 		}
 	}
 
-	/// Constructs a byte-aligned nibble slice of a given size.
-	/// TODO EMCH may end up unused
-	pub fn from(bytes: &'a [u8], len: usize) -> Self {
-		LeftNibbleSlice {
-			bytes,
-			len,
-		}
-	}
-
-
 	/// Returns the length of the slice in nibbles.
 	pub fn len(&self) -> usize {
 		self.len
