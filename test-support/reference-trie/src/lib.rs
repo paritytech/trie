@@ -33,7 +33,7 @@ use trie_db::{
 };
 use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
-use trie_db::traverse::batch_update;
+use trie_db::traverse::{batch_update, InputAction};
 
 pub use trie_db::{
 	decode_compact, encode_compact,
@@ -1202,6 +1202,11 @@ pub fn trie_traverse_key_no_extension_build<'a, I, K, V, B>(
 		V: AsRef<[u8]>,
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
 {
+	let elements = elements.into_iter().map(|(k, v)| (k, if let Some(v) = v {
+		InputAction::Insert(v)
+	} else {
+		InputAction::Delete
+	}));
 	let (root, values) = batch_update::<NoExtensionLayout, _, _, _, _>(db, root, elements).unwrap();
 	(root, values.into_iter())
 }

@@ -93,18 +93,6 @@ impl<'a> LeftNibbleSlice<'a> {
 		// If common nibble prefix is the same, finally compare lengths.
 		self.len().cmp(&other.len())
 	}
-
-	/// Get `Prefix` representation of this `NibbleVec`.
-	/// TODO EMCH for test, may become unused.
-	pub fn as_prefix(&self) -> Prefix {
-		let split = self.len / nibble_ops::NIBBLE_PER_BYTE;
-		let pos = (self.len % nibble_ops::NIBBLE_PER_BYTE) as u8;
-		if pos == 0 {
-			(&self.bytes[..split], None)
-		} else {
-			(&self.bytes[..split], Some(nibble_ops::pad_left(self.bytes[split])))
-		}
-	}
 }
 
 impl<'a> PartialEq for LeftNibbleSlice<'a> {

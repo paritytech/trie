@@ -566,7 +566,7 @@ trait ProcessStack<B, T>
 		&mut self,
 		stacked: &mut StackedItem<B, T>,
 		key_element: &[u8],
-		value_element: Option<&[u8]>,
+		action: InputAction<&[u8]>,
 		state: TraverseState,
 	) -> Option<StackedItem<B, T>>;
 
@@ -587,6 +587,26 @@ enum TraverseState {
 	MidPartial(usize),
 }
 
+/// Action for a key to traverse.
+pub enum InputAction<V> {
+	/// Delete a value if it exists.
+	Delete,
+	/// Insert a value. If value is already define,
+	/// it will be overwrite.
+	Insert(V),
+}
+
+impl<V: AsRef<[u8]>> InputAction<V> {
+
+	/// Alternative to `std::convert::AsRef`.
+	pub fn as_ref(&self) -> InputAction<&[u8]> {
+		match self {
+			InputAction::Insert(v) => InputAction::Insert(v.as_ref()),
+			InputAction::Delete => InputAction::Delete,
+		}
+	}
+}
+
 /// The main entry point for traversing a trie by a set of keys.
 fn trie_traverse_key<'a, T, I, K, V, B, F>(
 	db: &'a dyn HashDBRef<T::Hash, B>,
@@ -596,7 +616,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 ) -> Result<(), TrieHash<T>, CError<T>>
 	where
 		T: TrieLayout,
-		I: IntoIterator<Item = (K, Option<V>)>,
+		I: Iterator<Item = (K, InputAction<V>)>,
 		K: AsRef<[u8]> + Ord,
 		V: AsRef<[u8]>,
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
@@ -649,38 +669,41 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 					// empty trie, next additional value is therefore a leaf
 					// and delete this one (done in append_child otherwhise)
 					debug_assert!(current.item.depth_prefix == 0);
-					if let Some((key, Some(value))) = next_query.as_ref() {
-						callback.exit(
-							EMPTY_PREFIX,
-							current.item.node,
-							current.item.hash,
-						);
-						let leaf = Node::new_leaf(
-							NibbleSlice::new(key.as_ref()),
-							value.as_ref(),
-						);
-						current = StackedItem {
-							item: StackedNode {
-								node: StackedNodeState::Changed(leaf),
-								hash: None,
-								depth_prefix: 0,
-								depth: key.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
-								parent_index: 0,
-							},
-							first_modified_child: None,
-							split_child: None,
-							can_fuse: true,
-						};
-						continue;
-					} else {
-						if last {
+					match next_query.as_ref() {
+						Some((key, InputAction::Insert(value))) => {
+							callback.exit(
+								EMPTY_PREFIX,
+								current.item.node,
+								current.item.hash,
+							);
+							let leaf = Node::new_leaf(
+								NibbleSlice::new(key.as_ref()),
+								value.as_ref(),
+							);
+							current = StackedItem {
+								item: StackedNode {
+									node: StackedNodeState::Changed(leaf),
+									hash: None,
+									depth_prefix: 0,
+									depth: key.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
+									parent_index: 0,
+								},
+								first_modified_child: None,
+								split_child: None,
+								can_fuse: true,
+							};
+							continue;
+						},
+						Some((_key, InputAction::Delete)) => {
+							continue;
+						},
+						None => {
 							callback.exit_root(
 								current.item.node,
 								current.item.hash,
 							);
 							return Ok(());
-						}
-						continue;
+						},
 					}
 				}
 			}
@@ -764,14 +787,18 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						current.process_root(key.as_ref(), callback);
 						return Ok(());
 					} else {
-						if let Some((key, Some(value))) = next_query.as_ref() {
-							let child = Node::new_leaf(
-								NibbleSlice::new_offset(key.as_ref(), 0),
-								value.as_ref(),
-							);
-							current.item.node = StackedNodeState::Changed(child);
-							current.item.depth = key.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
-							current.can_fuse = false;
+						match next_query.as_ref() {
+							Some((key, InputAction::Insert(value))) => {
+								let child = Node::new_leaf(
+									NibbleSlice::new_offset(key.as_ref(), 0),
+									value.as_ref(),
+								);
+								current.item.node = StackedNodeState::Changed(child);
+								current.item.depth = key.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
+								current.can_fuse = false;
+							},
+							Some((_key, InputAction::Delete)) => unreachable!(),
+							None => (),
 						}
 						// move to next key
 						skip_down = true;
@@ -866,7 +893,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 			if let Some(new_child) = callback.enter_terminal(
 				&mut current,
 				key.as_ref(),
-				value.as_ref().map(|v| v.as_ref()),
+				value.as_ref(),
 				traverse_state,
 			) {
 				stack.push(current);
@@ -912,102 +939,110 @@ impl<B, T, C> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C>
 		&mut self,
 		stacked: &mut StackedItem<B, T>,
 		key_element: &[u8],
-		value_element: Option<&[u8]>,
+		action: InputAction<&[u8]>,
 		state: TraverseState,
 	) -> Option<StackedItem<B, T>> {
 		match state {
 			TraverseState::ValueMatch => {
-				if let Some(value) = value_element {
-					stacked.item.node.set_value(value);
-				} else {
-					stacked.item.node.remove_value();
+				match action {
+					InputAction::Insert(value) => {
+						stacked.item.node.set_value(value);
+					},
+					InputAction::Delete => {
+						stacked.item.node.remove_value();
+					},
 				}
 				None
 			},
 			TraverseState::AfterNode => {
-				
-				if let Some(val) = value_element {
-					// corner case of empty trie.
-					let offset = if stacked.item.node.is_empty() {
-						0
-					} else {
-						1
-					};
-					// dest is a leaf appended to terminal
-					let dest_leaf = Node::new_leaf(
-						NibbleSlice::new_offset(key_element, stacked.item.depth + offset),
-						val,
-					);
-					let parent_index = NibbleSlice::new(key_element).at(stacked.item.depth);
-					let mut new_child = StackedItem {
-						item: StackedNode {
-							node: StackedNodeState::Changed(dest_leaf),
-							hash: None,
-							depth_prefix: stacked.item.depth + offset,
-							depth: key_element.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
-							parent_index,
-						},
-						split_child: None,
-						first_modified_child: None,
-						can_fuse: false,
-					};
-					return if stacked.item.node.is_empty() {
-						// replace empty.
-						new_child.item.hash = stacked.item.hash.take();
-						*stacked = new_child;
+				match action {
+					InputAction::Insert(val) => {
+						// corner case of empty trie.
+						let offset = if stacked.item.node.is_empty() {
+							0
+						} else {
+							1
+						};
+						// dest is a leaf appended to terminal
+						let dest_leaf = Node::new_leaf(
+							NibbleSlice::new_offset(key_element, stacked.item.depth + offset),
+							val,
+						);
+						let parent_index = NibbleSlice::new(key_element).at(stacked.item.depth);
+						let mut new_child = StackedItem {
+							item: StackedNode {
+								node: StackedNodeState::Changed(dest_leaf),
+								hash: None,
+								depth_prefix: stacked.item.depth + offset,
+								depth: key_element.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
+								parent_index,
+							},
+							split_child: None,
+							first_modified_child: None,
+							can_fuse: false,
+						};
+						return if stacked.item.node.is_empty() {
+							// replace empty.
+							new_child.item.hash = stacked.item.hash.take();
+							*stacked = new_child;
+							None
+						} else {
+							// append to parent is done on exit through changed nature of the new leaf.
+							Some(new_child)
+						}
+					},
+					InputAction::Delete => {
+						// nothing to delete.
 						None
-					} else {
-						// append to parent is done on exit through changed nature of the new leaf.
-						Some(new_child)
-					};
-				} else {
-					// nothing to delete.
-					return None;
+					},
 				}
 			},
 			TraverseState::MidPartial(mid_index) => {
-				if let Some(value) = value_element {
-					if stacked.item.node.is_empty() {
-						unreachable!();
-					} else {
-						stacked.do_split_child(mid_index, key_element, self);
-						let (offset, parent_index) = if key_element.len() == 0 {
-							// corner case of adding at top of trie
-							(0, 0)
+				match action {
+					InputAction::Insert(value) => {
+						if stacked.item.node.is_empty() {
+							unreachable!();
 						} else {
-							// TODO not sure on index
-							(1, NibbleSlice::new(key_element).at(mid_index))
-						};
-						let child = Node::new_leaf(
-							// TODO not sure on '1 +'
-							NibbleSlice::new_offset(key_element, offset + mid_index),
-							value.as_ref(),
-						);
-						return if mid_index == key_element.len() * nibble_ops::NIBBLE_PER_BYTE {
-
-							// set value in new branch
-							stacked.item.node.set_value(value);
-							stacked.can_fuse = false;
-							None
-						} else {
-							let child = StackedItem {
-								item: StackedNode {
-									node: StackedNodeState::Changed(child),
-									hash: None,
-									depth_prefix: offset + mid_index,
-									depth: key_element.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
-									parent_index,
-								},
-								split_child: None,
-								first_modified_child: None,
-								can_fuse: false,
+							stacked.do_split_child(mid_index, key_element, self);
+							let (offset, parent_index) = if key_element.len() == 0 {
+								// corner case of adding at top of trie
+								(0, 0)
+							} else {
+								// TODO not sure on index
+								(1, NibbleSlice::new(key_element).at(mid_index))
 							};
-							Some(child)
+							let child = Node::new_leaf(
+								// TODO not sure on '1 +'
+								NibbleSlice::new_offset(key_element, offset + mid_index),
+								value.as_ref(),
+							);
+							return if mid_index == key_element.len() * nibble_ops::NIBBLE_PER_BYTE {
+
+								// set value in new branch
+								stacked.item.node.set_value(value);
+								stacked.can_fuse = false;
+								None
+							} else {
+								let child = StackedItem {
+									item: StackedNode {
+										node: StackedNodeState::Changed(child),
+										hash: None,
+										depth_prefix: offset + mid_index,
+										depth: key_element.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
+										parent_index,
+									},
+									split_child: None,
+									first_modified_child: None,
+									can_fuse: false,
+								};
+								Some(child)
+							}
 						}
-					}
-				} else {
-					// nothing to delete.
-					return None;
+					},
+					InputAction::Delete => {
+						// nothing to delete.
+						None
+					},
 				}
 			},
 		}
@@ -1083,7 +1118,7 @@ pub fn batch_update<'a, T, I, K, V, B>(
 ) -> Result<(TrieHash<T>, Vec<(OwnedPrefix, TrieHash<T>, Option<Vec<u8>>)>), TrieHash<T>, CError<T>>
 	where
 		T: TrieLayout,
-		I: IntoIterator<Item = (K, Option<V>)>,
+		I: Iterator<Item = (K, InputAction<V>)>,
 		K: AsRef<[u8]> + Ord,
 		V: AsRef<[u8]>,
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
