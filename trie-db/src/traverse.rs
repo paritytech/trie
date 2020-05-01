@@ -567,12 +567,15 @@ trait ProcessStack<B, T>
 		stacked: &mut StackedItem<B, T>,
 		key_element: &[u8],
 		action: InputAction<&[u8], &TrieHash<T>>,
+		fetched_node: Option<OwnedNode<B>>,
 		state: TraverseState,
 	) -> Option<StackedItem<B, T>>;
 
 	/// Callback on exit a node, commit action on change node should be applied here.
 	fn exit(&mut self, prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>)
 		-> Option<Option<OwnedNodeHandle<TrieHash<T>>>>;
+	/// Callback on a detached node.
+	fn exit_detached(&mut self, prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>);
 	/// Same as `exit` but for root (very last exit call).
 	fn exit_root(&mut self, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>);
 }
@@ -607,12 +610,13 @@ pub enum InputAction<V, H> {
 impl<V: AsRef<[u8]>, H> InputAction<V, H> {
 
 	/// Alternative to `std::convert::AsRef`.
-	pub fn as_ref(&self) -> InputAction<&[u8], &H> {
+	/// Retun optionally a reference to a hash to an node to fetch for this action.
+	pub fn as_ref(&self) -> (InputAction<&[u8], &H>, Option<&H>) {
 		match self {
-			InputAction::Insert(v) => InputAction::Insert(v.as_ref()),
-			InputAction::Delete => InputAction::Delete,
-			InputAction::Attach(attach_root) => InputAction::Attach(&attach_root),
-			InputAction::Detach => InputAction::Detach,
+			InputAction::Insert(v) => (InputAction::Insert(v.as_ref()), None),
+			InputAction::Delete => (InputAction::Delete, None),
+			InputAction::Attach(attach_root) => (InputAction::Attach(&attach_root), Some(&attach_root)),
+			InputAction::Detach => (InputAction::Detach, None),
 		}
 	}
 }
@@ -704,9 +708,28 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 							};
 							continue;
 						},
-						Some((_key, InputAction::Attach(_attach_root))) => unimplemented!("TOOD ATTACH/DETACH"), // this is a replace by this root node, just need to rework the partial of the node.
+						Some((_key, InputAction::Attach(attach_root))) => {
+							// TODO nooop on attach empty
+							let root_node = fetch::<T, B>(db, &attach_root, EMPTY_PREFIX)?;
+							let depth = root_node.partial().map(|p| p.len()).unwrap_or(0);
+							current = StackedItem {
+								item: StackedNode {
+									node: StackedNodeState::Unchanged(root_node),
+									hash: None,
+									depth_prefix: 0,
+									depth,
+									parent_index: 0,
+								},
+								first_modified_child: None,
+								split_child: None,
+								can_fuse: true,
+							};
+							continue;
+						},
 						Some((_key, InputAction::Detach))
 						| Some((_key, InputAction::Delete)) => {
+							// TODO EMCH could also detach a empty trie root (way to match a serie of detach with
+							// their keys)
 							continue;
 						},
 						None => {
@@ -889,10 +912,18 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 				// value replace callback
 				TraverseState::ValueMatch
 			};
+			let (value, do_fetch) = value.as_ref();
+			let fetch = if let Some(hash) = do_fetch {
+				let hash = fetch::<T, B>(db, &hash, EMPTY_PREFIX)?;
+				Some(hash)
+			} else {
+				None
+			};
 			if let Some(new_child) = callback.enter_terminal(
 				&mut current,
 				key.as_ref(),
-				value.as_ref(),
+				value,
+				fetch,
 				traverse_state,
 			) {
 				stack.push(current);
@@ -923,22 +954,25 @@ fn fetch<T: TrieLayout, B: Borrow<[u8]>>(
 /// Contains ordered node change for this iteration.
 /// The resulting root hash.
 /// The latest changed node.
-struct BatchUpdate<H, C> {
+struct BatchUpdate<H, C, D> {
 	register_update: C,
+	register_detached: D,
 	root: H,
 }
 
-impl<B, T, C> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C>
+impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 	where
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
 		T: TrieLayout,
 		C: FnMut((OwnedPrefix, TrieHash<T>, Option<Vec<u8>>)),
+		D: FnMut((OwnedPrefix, TrieHash<T>)),
 {
 	fn enter_terminal(
 		&mut self,
 		stacked: &mut StackedItem<B, T>,
 		key_element: &[u8],
 		action: InputAction<&[u8], &TrieHash<T>>,
+		fetched_node: Option<OwnedNode<B>>,
 		state: TraverseState,
 	) -> Option<StackedItem<B, T>> {
 		match state {
@@ -950,8 +984,26 @@ impl<B, T, C> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C>
 					InputAction::Delete => {
 						stacked.item.node.remove_value();
 					},
-					InputAction::Attach(_attach_root) => unimplemented!("TOOD ATTACH/DETACH"),
-					InputAction::Detach => unimplemented!("TOOD ATTACH/DETACH"),
+					InputAction::Attach(attach_root) => {
+						/*
+						// replace existing node, attached node is aligned
+						// so unchanged, but we write it as Changed to process parent
+						// hash change (not that in this case it cost us a unnecessary node delete
+						// and insert).
+						let attached_node = StackedNodeState::Changed(
+							fetch::<T, B>(db, &attach_root, EMPTY_PREFIX)
+						)?;
+						let detached = mem::replace(&mut stacked.item.node, attached_node);
+						// TODO remove prefix from detached and run exit_detached on it.
+						// : todo defined (probably will manage prefix resizet their and all.
+						register_detached(detached);
+							//), Some((hash, owned_prefix(&prefix))))
+*/
+						unimplemented!("TOOD ATTACH/DETACH")
+					},
+					InputAction::Detach => {
+unimplemented!("TOOD ATTACH/DETACH")
+					},
 				}
 				None
 			},
@@ -1103,6 +1155,27 @@ impl<B, T, C> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C>
 			_ => (),
 		}
 	}
+
+	fn exit_detached(&mut self, prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>) {
+		let register_del = &mut self.register_update;
+		let register = &mut self.register_detached;
+		match stacked {
+			s@StackedNodeState::Deleted
+			| s@StackedNodeState::Changed(..) => {
+				// same as root: also hash inline nodes.
+				if let Some((h, p)) = prev_hash {
+					register_del((p, h.clone(), None));
+				}
+				let encoded = s.into_encoded();
+				let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
+				register((owned_prefix(&prefix), hash));
+			},
+			StackedNodeState::Unchanged(node) => {
+				let hash = <T::Hash as hash_db::Hasher>::hash(node.data());
+				register((owned_prefix(&prefix), hash));
+			},
+		}
+	}
 }
 
 
@@ -1132,6 +1205,9 @@ pub fn batch_update<'a, T, I, K, V, B>(
 	let mut batch_update = BatchUpdate {
 		register_update: |update| {
 			dest.push(update)
+		},
+		register_detached: |update| {
+			unimplemented!("TODO")
 		},
 		root: root_hash.clone(),
 	};
