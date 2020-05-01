@@ -1195,7 +1195,11 @@ pub fn trie_traverse_key_no_extension_build<'a, I, K, V, B>(
 	db: &'a mut dyn hash_db::HashDBRef<keccak_hasher::KeccakHasher, B>,
 	root: &'a <KeccakHasher as Hasher>::Out,
 	elements: I,
-) -> (<KeccakHasher as Hasher>::Out, impl Iterator<Item = (OwnedPrefix, <KeccakHasher as Hasher>::Out, Option<Vec<u8>>)>)
+) -> (
+	<KeccakHasher as Hasher>::Out,
+	impl Iterator<Item = (OwnedPrefix, <KeccakHasher as Hasher>::Out, Option<Vec<u8>>)>,
+	impl Iterator<Item = (Vec<u8>, OwnedPrefix, <KeccakHasher as Hasher>::Out)>,
+)
 	where
 		I: IntoIterator<Item = (K, Option<V>)>,
 		K: AsRef<[u8]> + Ord,
@@ -1207,8 +1211,8 @@ pub fn trie_traverse_key_no_extension_build<'a, I, K, V, B>(
 	} else {
 		InputAction::Delete
 	}));
-	let (root, values) = batch_update::<NoExtensionLayout, _, _, _, _>(db, root, elements).unwrap();
-	(root, values.into_iter())
+	let (root, values, detached_root) = batch_update::<NoExtensionLayout, _, _, _, _>(db, root, elements).unwrap();
+	(root, values.into_iter(), detached_root.into_iter())
 }
 
 #[cfg(test)]

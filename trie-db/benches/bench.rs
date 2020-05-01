@@ -549,7 +549,7 @@ fn trie_mut_same_key_batch(c: &mut Criterion) {
 			let mut mdb = db.clone();
 			// sort
 			let data: std::collections::BTreeSet<Vec<u8>> = data.iter().map(|(a, _b)| a.clone()).collect();
-			let (calc_root, _payload) = reference_trie::trie_traverse_key_no_extension_build(
+			let (calc_root, _payload, _detached) = reference_trie::trie_traverse_key_no_extension_build(
 				&mut mdb, &root, data.iter().map(|a| (a, Some(&a[..])))
 			);
 			assert!(calc_root != root);

@@ -405,7 +405,7 @@ pub fn fuzz_batch_update(input: &[u8], build_val: fn(&mut Vec<u8>), compare_db: 
 		}
 	}
 //println!("{:?}", sorted_data);
-	let (calc_root, payload) = reference_trie::trie_traverse_key_no_extension_build(
+	let (calc_root, payload, _detached) = reference_trie::trie_traverse_key_no_extension_build(
 		&mut initial_db,
 		&initial_root,
 		sorted_data.into_iter(),

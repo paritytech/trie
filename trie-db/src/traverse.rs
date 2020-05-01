@@ -16,6 +16,11 @@
 //!
 //! The traversal stack is updatable, and is therefore usable for
 //! batch update of ordered key values.
+//!
+//! Note that this part of trie crate currently do not support extension
+//! node. Regarding how the code is designed, implementing extension should
+//! be done by using a tuple of extension and branch node as a branch (storing
+//! an additional hash in branch and only adapting fetch and write methods).
 
 use crate::triedbmut::{Node, NibbleFullKey};
 use crate::triedbmut::NodeHandle as NodeHandleTrieMut;
@@ -575,7 +580,7 @@ trait ProcessStack<B, T>
 	fn exit(&mut self, prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>)
 		-> Option<Option<OwnedNodeHandle<TrieHash<T>>>>;
 	/// Callback on a detached node.
-	fn exit_detached(&mut self, prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>);
+	fn exit_detached(&mut self, key_element: &[u8], prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>);
 	/// Same as `exit` but for root (very last exit call).
 	fn exit_root(&mut self, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>);
 }
@@ -965,14 +970,14 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
 		T: TrieLayout,
 		C: FnMut((OwnedPrefix, TrieHash<T>, Option<Vec<u8>>)),
-		D: FnMut((OwnedPrefix, TrieHash<T>)),
+		D: FnMut((Vec<u8>, OwnedPrefix, TrieHash<T>)),
 {
 	fn enter_terminal(
 		&mut self,
 		stacked: &mut StackedItem<B, T>,
 		key_element: &[u8],
 		action: InputAction<&[u8], &TrieHash<T>>,
-		fetched_node: Option<OwnedNode<B>>,
+		fetched_node: Option<OwnedNode<B>>, // TODO EMCH try with unowned prefix or exit_detached with owned variant
 		state: TraverseState,
 	) -> Option<StackedItem<B, T>> {
 		match state {
@@ -985,24 +990,41 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 						stacked.item.node.remove_value();
 					},
 					InputAction::Attach(attach_root) => {
-						/*
-						// replace existing node, attached node is aligned
-						// so unchanged, but we write it as Changed to process parent
-						// hash change (not that in this case it cost us a unnecessary node delete
-						// and insert).
-						let attached_node = StackedNodeState::Changed(
-							fetch::<T, B>(db, &attach_root, EMPTY_PREFIX)
-						)?;
-						let detached = mem::replace(&mut stacked.item.node, attached_node);
-						// TODO remove prefix from detached and run exit_detached on it.
-						// : todo defined (probably will manage prefix resizet their and all.
-						register_detached(detached);
-							//), Some((hash, owned_prefix(&prefix))))
-*/
-						unimplemented!("TOOD ATTACH/DETACH")
+						let prefix_nibble = NibbleSlice::new_offset(&key_element[..], stacked.item.depth_prefix);
+						let prefix = prefix_nibble.left();
+						let to_attach = fetched_node.expect("Fetch node is always resolved"); // TODO EMCH make action ref another type to ensure resolution.
+						let mut to_attach = StackedNodeState::Unchanged(to_attach);
+						//if stacked.item.node.partial().map(|p| p.len()).unwrap_or(0) != 0 {
+						if stacked.item.depth_prefix != stacked.item.depth {
+							match to_attach.partial() {
+								Some(partial) if partial.len() > 0 => {
+									let mut build_partial: NodeKey = NibbleSlice::new_offset(key_element, stacked.item.depth_prefix).into();
+									crate::triedbmut::combine_key(&mut build_partial, partial.right_ref());
+									to_attach.set_partial(build_partial);
+								},
+								_ => {
+									if let Some(partial) = stacked.item.node.partial() {
+										to_attach.set_partial(partial.into());
+									}
+								},
+							}
+							stacked.item.node.advance_partial(stacked.item.depth - stacked.item.depth_prefix);
+						}
+						let detached = mem::replace(&mut stacked.item.node, to_attach);
+						let detached_hash = mem::replace(&mut stacked.item.hash, Some((attach_root.clone(), owned_prefix(&EMPTY_PREFIX))));
+						stacked.item.depth = stacked.item.depth_prefix + stacked.item.node.partial().map(|p| p.len()).unwrap_or(0);
+						self.exit_detached(key_element, prefix, detached, detached_hash);
 					},
 					InputAction::Detach => {
-unimplemented!("TOOD ATTACH/DETACH")
+						let prefix_nibble = NibbleSlice::new_offset(&key_element[..], stacked.item.depth_prefix);
+						let prefix = prefix_nibble.left();
+						let to_attach = StackedNodeState::Deleted;
+						if stacked.item.depth_prefix != stacked.item.depth {
+							stacked.item.node.advance_partial(stacked.item.depth - stacked.item.depth_prefix);
+						}
+						let detached = mem::replace(&mut stacked.item.node, to_attach);
+						let detached_hash = mem::replace(&mut stacked.item.hash, None);
+						self.exit_detached(key_element, prefix, detached, detached_hash);
 					},
 				}
 				None
@@ -1048,8 +1070,58 @@ unimplemented!("TOOD ATTACH/DETACH")
 						// nothing to delete.
 						None
 					},
-					InputAction::Attach(_attach_root) => unimplemented!("TOOD ATTACH/DETACH"),
-					InputAction::Detach => unimplemented!("TOOD ATTACH/DETACH"),
+					InputAction::Attach(attach_root) => {
+						// TODO factor with insert
+						let offset = if stacked.item.node.is_empty() {
+							0
+						} else {
+							1
+						};
+						let parent_index = NibbleSlice::new(key_element).at(stacked.item.depth);
+						let to_attach = fetched_node.expect("Fetch node is always resolved"); // TODO EMCH mack action ref another type to ensure resolution.
+						let mut to_attach = StackedNodeState::Unchanged(to_attach);
+						let depth_prefix = stacked.item.depth + offset;
+						match to_attach.partial() {
+							Some(partial) if partial.len() > 0 => {
+								let mut build_partial: NodeKey = NibbleSlice::new_offset(key_element, depth_prefix).into();
+								crate::triedbmut::combine_key(&mut build_partial, partial.right_ref());
+									to_attach.set_partial(build_partial);
+							},
+							_ => {
+								let partial: NodeKey = NibbleSlice::new_offset(key_element, depth_prefix).into();
+								to_attach.set_partial(partial.into());
+							},
+						};
+
+						let depth = depth_prefix + to_attach.partial().map(|p| p.len()).unwrap_or(0);
+						let prefix_nibble = NibbleSlice::new_offset(&key_element[..], depth_prefix);
+						let prefix = prefix_nibble.left();
+						let mut new_child = StackedItem {
+							item: StackedNode {
+								node: to_attach,
+								hash: Some((attach_root.clone(), owned_prefix(&prefix))),
+								depth_prefix,
+								depth,
+								parent_index,
+							},
+							split_child: None,
+							first_modified_child: None,
+							can_fuse: false,
+						};
+						return if stacked.item.node.is_empty() {
+							// replace empty.
+							new_child.item.hash = stacked.item.hash.take();
+							*stacked = new_child;
+							None
+						} else {
+							// append to parent is done on exit through changed nature of the new leaf.
+							Some(new_child)
+						}
+					},
+					InputAction::Detach => {
+						// nothing to detach
+						None
+					},
 				}
 			},
 			TraverseState::MidPartial(mid_index) => {
@@ -1098,8 +1170,44 @@ unimplemented!("TOOD ATTACH/DETACH")
 						// nothing to delete.
 						None
 					},
-					InputAction::Attach(_attach_root) => unimplemented!("TOOD ATTACH/DETACH"),
-					InputAction::Detach => unimplemented!("TOOD ATTACH/DETACH"),
+					InputAction::Attach(attach_root) => {
+						let prefix_nibble = NibbleSlice::new(&key_element[..]);
+						let prefix = prefix_nibble.left();
+						let to_attach = fetched_node.expect("Fetch node is always resolved"); // TODO EMCH make action ref another type to ensure resolution.
+						let mut to_attach = StackedNodeState::Unchanged(to_attach);
+						match to_attach.partial() {
+							Some(partial) if partial.len() > 0 => {
+								let mut build_partial: NodeKey = NibbleSlice::new_offset(key_element, stacked.item.depth_prefix + mid_index).into();
+								crate::triedbmut::combine_key(&mut build_partial, partial.right_ref());
+								to_attach.set_partial(build_partial);
+							},
+							_ => {
+								let build_partial = NibbleSlice::new_offset(key_element, stacked.item.depth_prefix + mid_index);
+								if build_partial.len() > 0 {
+									to_attach.set_partial(build_partial.into());
+								}
+							},
+						}
+						if mid_index > 0 {
+							stacked.item.node.advance_partial(mid_index);
+						}
+						let mut detached = mem::replace(&mut stacked.item.node, to_attach);
+						detached.advance_partial(mid_index);
+						let detached_hash = mem::replace(&mut stacked.item.hash, Some((attach_root.clone(), owned_prefix(&EMPTY_PREFIX))));
+						stacked.item.depth = stacked.item.depth_prefix + stacked.item.node.partial().map(|p| p.len()).unwrap_or(0);
+						self.exit_detached(key_element, prefix, detached, detached_hash);
+						None
+					},
+					InputAction::Detach => {
+						let prefix_nibble = NibbleSlice::new(&key_element[..]);
+						let prefix = prefix_nibble.left();
+						let to_attach = StackedNodeState::Deleted;
+						let mut detached = mem::replace(&mut stacked.item.node, to_attach);
+						detached.advance_partial(mid_index);
+						let detached_hash = mem::replace(&mut stacked.item.hash, None);
+						self.exit_detached(key_element, prefix, detached, detached_hash);
+						None
+					},
 				}
 			},
 		}
@@ -1156,23 +1264,32 @@ unimplemented!("TOOD ATTACH/DETACH")
 		}
 	}
 
-	fn exit_detached(&mut self, prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>) {
-		let register_del = &mut self.register_update;
+	fn exit_detached(&mut self, key_element: &[u8], prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>) {
+		let register_up = &mut self.register_update;
 		let register = &mut self.register_detached;
 		match stacked {
 			s@StackedNodeState::Deleted
 			| s@StackedNodeState::Changed(..) => {
 				// same as root: also hash inline nodes.
 				if let Some((h, p)) = prev_hash {
-					register_del((p, h.clone(), None));
+					register_up((p, h.clone(), None));
 				}
 				let encoded = s.into_encoded();
 				let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
-				register((owned_prefix(&prefix), hash));
+				// Note that those updates are messing the updates ordering, could be better to register
+				// them with the detached item (TODO would need a dedicated struct).
+				register_up((owned_prefix(&EMPTY_PREFIX), hash.clone(), Some(encoded)));
+				register((key_element.to_vec(), owned_prefix(&prefix), hash));
 			},
-			StackedNodeState::Unchanged(node) => {
-				let hash = <T::Hash as hash_db::Hasher>::hash(node.data());
-				register((owned_prefix(&prefix), hash));
+			s@StackedNodeState::Unchanged(..) => {
+				let hash = if let Some((not_inline, previous_prefix)) = prev_hash {
+					debug_assert!(prefix == from_owned_prefix(&previous_prefix));
+					not_inline
+				} else {
+					let encoded = s.into_encoded();
+					<T::Hash as hash_db::Hasher>::hash(&encoded[..])
+				};
+				register((key_element.to_vec(), owned_prefix(&prefix), hash));
 			},
 		}
 	}
@@ -1193,7 +1310,11 @@ pub fn batch_update<'a, T, I, K, V, B>(
 	db: &'a dyn HashDBRef<T::Hash, B>,
 	root_hash: &'a TrieHash<T>,
 	elements: I,
-) -> Result<(TrieHash<T>, Vec<(OwnedPrefix, TrieHash<T>, Option<Vec<u8>>)>), TrieHash<T>, CError<T>>
+) -> Result<(
+	TrieHash<T>,
+	Vec<(OwnedPrefix, TrieHash<T>, Option<Vec<u8>>)>,
+	Vec<(Vec<u8>, OwnedPrefix, TrieHash<T>)>,
+),TrieHash<T>, CError<T>>
 	where
 		T: TrieLayout,
 		I: Iterator<Item = (K, InputAction<V, TrieHash<T>>)>,
@@ -1202,17 +1323,18 @@ pub fn batch_update<'a, T, I, K, V, B>(
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
 {
 	let mut dest = Vec::new();
+	let mut dest_detached = Vec::new();
 	let mut batch_update = BatchUpdate {
 		register_update: |update| {
 			dest.push(update)
 		},
 		register_detached: |update| {
-			unimplemented!("TODO")
+			dest_detached.push(update)
 		},
 		root: root_hash.clone(),
 	};
 	trie_traverse_key::<T, _, _, _, _, _>(db, root_hash, elements, &mut batch_update)?;
-	Ok((batch_update.root, dest))
+	Ok((batch_update.root, dest, dest_detached))
 }
 
 #[cfg(test)]
@@ -1354,7 +1476,7 @@ mod tests {
 		}
 
 
-		let (calc_root, payload) = trie_traverse_key_no_extension_build(
+		let (calc_root, payload, _detached) = trie_traverse_key_no_extension_build(
 			&mut initial_db,
 			&initial_root,
 			v.iter().map(|(a, b)| (a, b.as_ref())),

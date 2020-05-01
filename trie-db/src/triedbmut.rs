@@ -1926,7 +1926,7 @@ where
 }
 
 /// combine two NodeKeys
-fn combine_key(start: &mut NodeKey, end: (usize, &[u8])) {
+pub(crate) fn combine_key(start: &mut NodeKey, end: (usize, &[u8])) {
 	debug_assert!(start.0 < nibble_ops::NIBBLE_PER_BYTE);
 	debug_assert!(end.0 < nibble_ops::NIBBLE_PER_BYTE);
 	let final_offset = (start.0 + end.0) % nibble_ops::NIBBLE_PER_BYTE;
