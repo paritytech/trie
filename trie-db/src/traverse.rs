@@ -1159,14 +1159,22 @@ mod tests {
 		delta: impl Iterator<Item = (OwnedPrefix, H256, Option<Vec<u8>>)>,
 		mdb: &mut MemoryDB<KeccakHasher, PrefixedKey<KeccakHasher>, DBValue>,
 	) {
-		let mut previous_prefix = None;
-		let cp_prefix = |previous: &OwnedPrefix, next: &OwnedPrefix, prev_delete: bool, is_delet: bool| {
+		// Ordering logic is almost always correct between delet and create (delete first in case of
+		// same location), there is one exception: deleting a node resulting to fusing a parent, then
+		// the parent fusing can write at a prior index.
+		// Therefore a `ProcessStack` that need ordering for delete will need a buffer.
+		// Such buffer will be at maximum the size of the stack depth minus one or the number of child
+		// in a branch (but since it is triggered by consecutive node fuse it should really be small).
+		// Then we limit this test to insert here.
+		let mut previous_prefix_insert = None;
+		//let cp_prefix = |previous: &OwnedPrefix, next: &OwnedPrefix, prev_delete: bool, is_delet: bool| {
+		let cp_prefix = |previous: &OwnedPrefix, next: &OwnedPrefix| {
 			println!("{:?} -> {:?}", previous, next);
-			if previous == next {
+/*			if previous == next {
 				// we can have two same value if it is deletion then creation
 				assert!(prev_delete && !is_delet);
 				return;
-			}
+			}*/
 			let prev_slice = NibbleSlice::new(previous.0.as_slice());
 			let p_at = |i| {
 				if i < prev_slice.len() {
@@ -1209,14 +1217,17 @@ mod tests {
 						panic!("Misordered results");
 					},
 					(None, None) => {
-						unreachable!("equality tested firsthand")
+						panic!("Two consecutive action at same node")
+						//unreachable!("equality tested firsthand")
 					},
 				}
 			}
 		};
 		for (p, h, v) in delta {
 			let is_delete = v.is_none();
-			previous_prefix.as_ref().map(|(prev, p_is_del)| cp_prefix(prev, &p, *p_is_del, is_delete));
+			if !is_delete {
+				previous_prefix_insert.as_ref().map(|prev| cp_prefix(prev, &p));
+			}
 
 			//println!("p{:?}, {:?}, {:?}", p, h, v);
 			if let Some(v) = v {
@@ -1227,7 +1238,9 @@ mod tests {
 				let prefix = (p.0.as_ref(), p.1);
 				mdb.remove(&h, prefix);
 			}
-			previous_prefix = Some((p, is_delete));
+			if !is_delete {
+				previous_prefix_insert = Some(p);
+			}
 		}
 	}
 
@@ -1360,6 +1373,7 @@ mod tests {
 
 	#[test]
 	fn dummy2() {
+		// TODO CHEME what happen if set same value as existing!!! -> could skip alloc
 		compare_with_triedbmut(
 			&[
 				(vec![0x01u8, 0x01u8, 0x23], vec![0x01u8; 32]),
