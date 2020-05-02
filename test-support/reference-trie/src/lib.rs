@@ -33,7 +33,7 @@ use trie_db::{
 };
 use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
-use trie_db::traverse::{batch_update, InputAction};
+pub use trie_db::traverse::{batch_update, InputAction};
 
 pub use trie_db::{
 	decode_compact, encode_compact,

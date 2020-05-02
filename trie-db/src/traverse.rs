@@ -22,6 +22,8 @@
 //! be done by using a tuple of extension and branch node as a branch (storing
 //! an additional hash in branch and only adapting fetch and write methods).
 
+// TODO CHEME what happen if set same value as existing!!! -> could skip alloc
+
 use crate::triedbmut::{Node, NibbleFullKey};
 use crate::triedbmut::NodeHandle as NodeHandleTrieMut;
 use crate::node::{OwnedNode, NodeHandle, NodeKey};
@@ -1339,8 +1341,8 @@ pub fn batch_update<'a, T, I, K, V, B>(
 
 #[cfg(test)]
 mod tests {
-	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBNoExt, TrieMut,
-		trie_traverse_key_no_extension_build,
+	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBNoExt, TrieMut, InputAction,
+		trie_traverse_key_no_extension_build, NoExtensionLayout, batch_update,
 	};
 
 	use memory_db::{MemoryDB, PrefixedKey};
@@ -1497,6 +1499,75 @@ mod tests {
 		assert!(db == batch_delta);
 	}
 
+	fn compare_with_triedbmut_detach(
+		x: &[(Vec<u8>, Vec<u8>)],
+		d: &Vec<u8>,
+	) {
+		let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut root = Default::default();
+		populate_trie_no_extension(&mut db, &mut root, x).commit();
+		{
+			let t = RefTrieDBNoExt::new(&db, &root);
+			println!("bef {:?}", t);
+		}
+		let initial_root = root.clone();
+		let mut initial_db = db.clone();
+		// reference
+		{
+			let mut t = RefTrieDBMutNoExt::from_existing(&mut db, &mut root).unwrap();
+			for i in 0..x.len() {
+				if x[i].0.starts_with(d) {
+					let key: &[u8]= &x[i].0;
+					t.remove(key).unwrap();
+				}
+			}
+		}
+		{
+			let t = RefTrieDBNoExt::new(&db, &root);
+			println!("aft {:?}", t);
+		}
+		let elements = Some(d.clone()).into_iter().map(|k| (k, InputAction::<Vec<u8>, _>::Detach));
+		let (calc_root, payload, detached_root) = batch_update::<NoExtensionLayout, _, _, _, _>(
+			&initial_db,
+			&initial_root,
+			elements,
+		).unwrap();
+		
+		assert_eq!(calc_root, root);
+
+		let mut batch_delta = initial_db.clone();
+		memory_db_from_delta(payload.into_iter(), &mut batch_delta);
+		// test by checking both triedb only
+		let t2 = RefTrieDBNoExt::new(&db, &root).unwrap();
+		println!("{:?}", t2);
+		let t2b = RefTrieDBNoExt::new(&batch_delta, &calc_root).unwrap();
+		println!("{:?}", t2b);
+
+		println!("{:?}", db.clone().drain());
+		println!("{:?}", batch_delta.clone().drain());
+		assert!(db == batch_delta);
+
+		// attach back
+		let elements = detached_root.into_iter().map(|(k, _prefix, root)| (k, InputAction::<Vec<u8>, _>::Attach(root)));
+		let (calc_root, payload, detached_root) = batch_update::<NoExtensionLayout, _, _, _, _>(
+			&db,
+			&root,
+			elements,
+		).unwrap();
+		assert!(detached_root.is_empty());
+		assert!(calc_root == initial_root);
+		memory_db_from_delta(payload.into_iter(), &mut batch_delta);
+		// test by checking both triedb only
+		let t2 = RefTrieDBNoExt::new(&db, &root).unwrap();
+		println!("{:?}", t2);
+		let t2b = RefTrieDBNoExt::new(&batch_delta, &calc_root).unwrap();
+		println!("{:?}", t2b);
+
+		println!("{:?}", db.clone().drain());
+		println!("{:?}", batch_delta.clone().drain());
+		assert!(initial_db == batch_delta);
+	}
+
 	#[test]
 	fn empty_node_null_key() {
 		compare_with_triedbmut(
@@ -1505,18 +1576,21 @@ mod tests {
 				(vec![], Some(vec![0xffu8, 0x33])),
 			],
 		);
+		compare_with_triedbmut_detach(&[], &vec![]);
 	}
 
 	#[test]
 	fn non_empty_node_null_key() {
+		let db = &[
+			(vec![0x0u8], vec![4, 32]),
+		];
 		compare_with_triedbmut(
-			&[
-				(vec![0x0u8], vec![4, 32]),
-			],
+			db,
 			&[
 				(vec![], Some(vec![0xffu8, 0x33])),
 			],
 		);
+		compare_with_triedbmut_detach(db, &vec![]);
 	}
 
 	#[test]
@@ -1545,15 +1619,19 @@ mod tests {
 
 	#[test]
 	fn dummy1() {
+		let db = &[
+			(vec![0x04u8], vec![4, 32]),
+		];
 		compare_with_triedbmut(
-			&[
-				(vec![0x04u8], vec![4, 32]),
-			],
+			db,
 			&[
 				(vec![0x06u8], Some(vec![0xffu8, 0x33])),
 				(vec![0x08u8], Some(vec![0xffu8, 0x33])),
 			],
 		);
+		compare_with_triedbmut_detach(db, &vec![0x04u8]);
+		compare_with_triedbmut_detach(db, &vec![0x04u8, 0x01]);
+		compare_with_triedbmut_detach(db, &vec![]);
 	}
 
 	#[test]
@@ -1571,19 +1649,34 @@ mod tests {
 
 	#[test]
 	fn dummy2() {
-		// TODO CHEME what happen if set same value as existing!!! -> could skip alloc
+		let db = &[
+			(vec![0x01u8, 0x01u8, 0x23], vec![0x01u8; 32]),
+			(vec![0x01u8, 0x81u8, 0x23], vec![0x02u8; 32]),
+			(vec![0x01u8, 0xf1u8, 0x23], vec![0x01u8, 0x24]),
+		];
 		compare_with_triedbmut(
-			&[
-				(vec![0x01u8, 0x01u8, 0x23], vec![0x01u8; 32]),
-				(vec![0x01u8, 0x81u8, 0x23], vec![0x02u8; 32]),
-				(vec![0x01u8, 0xf1u8, 0x23], vec![0x01u8, 0x24]),
-			],
+			db,
 			&[
 				(vec![0x01u8, 0x01u8, 0x23], Some(vec![0xffu8; 32])),
 				(vec![0x01u8, 0x81u8, 0x23], Some(vec![0xfeu8; 32])),
 				(vec![0x01u8, 0x81u8, 0x23], None),
 			],
 		);
+		compare_with_triedbmut_detach(db, &vec![]);
+		compare_with_triedbmut_detach(db, &vec![0x02]);
+		compare_with_triedbmut_detach(db, &vec![0x01u8]);
+		compare_with_triedbmut_detach(db, &vec![0x01u8, 0x81]);
+		compare_with_triedbmut_detach(db, &vec![0x01u8, 0x81, 0x23]);
+	}
+	#[test]
+	fn dettach_middle() {
+		let db = &[
+			(vec![0x00u8, 0x01, 0x23], vec![0x01u8; 32]),
+			(vec![0x00, 0x01, 0x81u8, 0x23], vec![0x02u8; 32]),
+			(vec![0x00, 0x01, 0xf1u8, 0x23], vec![0x01u8, 0x24]),
+		];
+		compare_with_triedbmut_detach(db, &vec![0x00u8]);
+		compare_with_triedbmut_detach(db, &vec![0x00u8, 0x01, 0x81]);
 	}
 
 	#[test]
