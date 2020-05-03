@@ -1120,7 +1120,8 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 						};
 						return if stacked.item.node.is_empty() {
 							// replace empty.
-							new_child.item.hash = stacked.item.hash.take();
+							let detached_hash = mem::replace(&mut new_child.item.hash, stacked.item.hash.take());
+							self.exit_detached(key_element, EMPTY_PREFIX, StackedNodeState::<B, T>::Deleted, detached_hash);
 							*stacked = new_child;
 							None
 						} else {
@@ -1209,16 +1210,19 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 						None
 					},
 					InputAction::Detach => {
-						if stacked.item.node.is_empty() {
-							unreachable!("we should not iterate in middle of an empty; this needs fix");
+						if mid_index == NibbleSlice::new(key_element).len() {
+							// on a path do a switch
+							if stacked.item.node.is_empty() {
+								unreachable!("we should not iterate in middle of an empty; this needs fix");
+							}
+							let prefix_nibble = NibbleSlice::new(&key_element[..]);
+							let prefix = prefix_nibble.left();
+							let to_attach = StackedNodeState::Deleted;
+							let mut detached = mem::replace(&mut stacked.item.node, to_attach);
+							detached.advance_partial(mid_index);
+							let detached_hash = mem::replace(&mut stacked.item.hash, None);
+							self.exit_detached(key_element, prefix, detached, detached_hash);
 						}
-						let prefix_nibble = NibbleSlice::new(&key_element[..]);
-						let prefix = prefix_nibble.left();
-						let to_attach = StackedNodeState::Deleted;
-						let mut detached = mem::replace(&mut stacked.item.node, to_attach);
-						detached.advance_partial(mid_index);
-						let detached_hash = mem::replace(&mut stacked.item.hash, None);
-						self.exit_detached(key_element, prefix, detached, detached_hash);
 						None
 					},
 				}
@@ -1600,6 +1604,7 @@ mod tests {
 
 		println!("{:?}", initial_db.clone().drain());
 		println!("{:?}", batch_delta.clone().drain());
+		batch_delta.purge();
 		assert!(initial_db == batch_delta);
 	}
 
@@ -1701,7 +1706,7 @@ mod tests {
 			],
 		);
 		compare_with_triedbmut_detach(db, &vec![]);
-		compare_with_triedbmut_detach(db, &vec![0x02]);
+		compare_with_triedbmut_detach(db, &vec![0x02]); // TODO !!!
 		compare_with_triedbmut_detach(db, &vec![0x01u8]);
 		compare_with_triedbmut_detach(db, &vec![0x01u8, 0x81]);
 		compare_with_triedbmut_detach(db, &vec![0x01u8, 0x81, 0x23]);
