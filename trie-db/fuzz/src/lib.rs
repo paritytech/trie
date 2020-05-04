@@ -20,7 +20,7 @@ use reference_trie::{
 	calc_root_no_extension,
 	compare_no_extension_insert_remove,
 	ExtensionLayout,
-	//NoExtensionLayout,
+	NoExtensionLayout, batch_update, InputAction,
 	proof::{generate_proof, verify_proof},
 	reference_trie_root,
 	RefTrieDBMut,
@@ -72,7 +72,7 @@ fn fuzz_to_data(input: &[u8]) -> Vec<(Vec<u8>,Vec<u8>)> {
 	result
 }
 
-fn fuzz_removal(data: Vec<(Vec<u8>,Vec<u8>)>) -> Vec<(bool, Vec<u8>,Vec<u8>)> {
+fn fuzz_removal(data: Vec<(Vec<u8>,Vec<u8>)>) -> Vec<(bool, Vec<u8>, Vec<u8>)> {
 	let mut res = Vec::new();
 	let mut torem = None;
 	for (a, d) in data.into_iter().enumerate() {
@@ -427,6 +427,92 @@ pub fn fuzz_batch_update(input: &[u8], build_val: fn(&mut Vec<u8>), compare_db: 
 		assert!(initial_db == db);
 	}
 }
+
+pub fn fuzz_detach_attach(input: &[u8], build_val: fn(&mut Vec<u8>), compare_db: bool) {
+	//x: &[(Vec<u8>, Vec<u8>)],
+	//d: &Vec<u8>,
+	let mut data = fuzz_to_data(input);
+	if data.len() == 0 {
+		return;
+	}
+	for i in data.iter_mut() {
+		build_val(&mut i.1);
+	}
+	let x = &data[1..];
+	let d = &data[0].0;
+	//println!("{:?}\n d {:?}", x, d);
+	let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+	let mut root = Default::default();
+	{
+		let mut t = reference_trie::RefTrieDBMutNoExt::new(&mut db, &mut root);
+		for i in 1..x.len() {
+			let key: &[u8]= &x[i].0;
+			let val: &[u8] = &x[i].1;
+			t.insert(key, val).unwrap();
+		}
+	}
+	let initial_root = root.clone();
+	let initial_db = db.clone();
+	// reference
+	{
+		let mut t = RefTrieDBMutNoExt::from_existing(&mut db, &mut root).unwrap();
+		for i in 1..x.len() {
+			if x[i].0.starts_with(d) {
+				let key: &[u8]= &x[i].0;
+				t.remove(key).unwrap();
+			}
+		}
+	}
+	let elements = Some(d.clone()).into_iter().map(|k| (k, InputAction::<Vec<u8>, _>::Detach));
+	let (calc_root, payload, detached_root) = batch_update::<NoExtensionLayout, _, _, _, _>(
+		&initial_db,
+		&initial_root,
+		elements,
+	).unwrap();
+
+	assert_eq!(calc_root, root);
+
+	let mut batch_delta = initial_db.clone();
+	for (p, h, v) in payload {
+		use hash_db::HashDB;
+		if let Some(v) = v {
+			let prefix = (p.0.as_ref(), p.1);
+			batch_delta.emplace(h, prefix, v[..].into());
+		} else {
+			let prefix = (p.0.as_ref(), p.1);
+			batch_delta.remove(&h, prefix);
+		}
+	}
+
+	// attach back
+	let elements = detached_root.into_iter().map(|(k, _prefix, root)| (k, InputAction::<Vec<u8>, _>::Attach(root)));
+	let (calc_root, payload, detached_root) = batch_update::<NoExtensionLayout, _, _, _, _>(
+		&batch_delta,
+		&calc_root,
+		elements,
+	).unwrap();
+	if detached_root.is_empty() {
+		if compare_db {
+			for (p, h, v) in payload {
+				use hash_db::HashDB;
+				if let Some(v) = v {
+					let prefix = (p.0.as_ref(), p.1);
+					batch_delta.emplace(h, prefix, v[..].into());
+				} else {
+					let prefix = (p.0.as_ref(), p.1);
+					batch_delta.remove(&h, prefix);
+				}
+			}
+			batch_delta.purge();
+			assert!(initial_db == batch_delta);
+		}
+		assert!(calc_root == initial_root);
+	} else {
+		// case where there was a node fuse due to dettach
+		// TODO inject manually detached node and compare
+	}
+}
+
 
 #[test]
 fn test() {

@@ -1187,14 +1187,20 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 						let prefix = prefix_nibble.left();
 						let to_attach = fetched_node.expect("Fetch node is always resolved"); // TODO EMCH make action ref another type to ensure resolution.
 						let mut to_attach = StackedNodeState::UnchangedAttached(to_attach);
+						/*let (offset, parent_index) = if stacked.item.depth_prefix == 0 {
+							// corner case of adding at top of trie
+							(0, 0)
+						} else {
+							(1, NibbleSlice::new(key_element).at(mid_index))
+						};*/
 						match to_attach.partial() {
 							Some(partial) if partial.len() > 0 => {
-								let mut build_partial: NodeKey = NibbleSlice::new_offset(key_element, stacked.item.depth_prefix + mid_index).into();
+								let mut build_partial: NodeKey = NibbleSlice::new_offset(key_element, stacked.item.depth_prefix).into();
 								crate::triedbmut::combine_key(&mut build_partial, partial.right_ref());
 								to_attach.set_partial(build_partial);
 							},
 							_ => {
-								let build_partial = NibbleSlice::new_offset(key_element, stacked.item.depth_prefix + mid_index);
+								let build_partial = NibbleSlice::new_offset(key_element, stacked.item.depth_prefix);
 								if build_partial.len() > 0 {
 									to_attach.set_partial(build_partial.into());
 								}
@@ -1311,6 +1317,7 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 					let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
 					// Note that those updates are messing the updates ordering, could be better to register
 					// them with the detached item (TODO would need a dedicated struct).
+					// TODO when implementing prefix migration: use a correct prefix here
 					register_up((owned_prefix(&EMPTY_PREFIX), hash.clone(), Some(encoded)));
 					register((key_element.to_vec(), owned_prefix(&prefix), hash));
 				}
@@ -1323,7 +1330,10 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 						not_inline
 					} else {
 						let encoded = s.into_encoded();
-						<T::Hash as hash_db::Hasher>::hash(&encoded[..])
+						let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
+						// TODO when implementing prefix migration: use a correct prefix here
+						register_up((owned_prefix(&EMPTY_PREFIX), hash.clone(), Some(encoded)));
+						hash
 					};
 					register((key_element.to_vec(), owned_prefix(&prefix), hash));
 				}
@@ -1712,6 +1722,23 @@ mod tests {
 		compare_with_triedbmut_detach(db, &vec![0x01u8, 0x81]);
 		compare_with_triedbmut_detach(db, &vec![0x01u8, 0x81, 0x23]);
 	}
+
+	#[test]
+	fn dummy2_2() {
+		compare_with_triedbmut_detach(&[
+			(vec![0], vec![0, 0]),
+			(vec![1], vec![0, 0]),
+			(vec![8], vec![1, 0]),
+		], &vec![0]);
+		/* Detach does fuse a branch, and
+		 * then when attaching it will swap.
+		 * compare_with_triedbmut_detach(&[
+			(vec![0], vec![50, 0]),
+			(vec![8], vec![0, 50]),
+			(vec![50], vec![0, 42]),
+		], &vec![0]);*/
+	}
+
 	#[test]
 	fn dettach_middle() {
 		let db = &[
