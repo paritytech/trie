@@ -1104,12 +1104,13 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 						};
 
 						let depth = depth_prefix + to_attach.partial().map(|p| p.len()).unwrap_or(0);
-						let prefix_nibble = NibbleSlice::new_offset(&key_element[..], depth_prefix);
-						let prefix = prefix_nibble.left();
+						//let prefix_nibble = NibbleSlice::new_offset(&key_element[..], depth_prefix);
+						//let prefix = prefix_nibble.left();
 						let mut new_child = StackedItem {
 							item: StackedNode {
 								node: to_attach,
-								hash: Some((attach_root.clone(), owned_prefix(&prefix))),
+								// Attach root is unprefixed
+								hash: Some((attach_root.clone(), owned_prefix(&EMPTY_PREFIX))),
 								depth_prefix,
 								depth,
 								parent_index,
@@ -1200,10 +1201,10 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 							},
 						}
 						if mid_index > 0 {
-							stacked.item.node.advance_partial(mid_index);
+							stacked.item.node.advance_partial(mid_index - stacked.item.depth_prefix);
 						}
 						let mut detached = mem::replace(&mut stacked.item.node, to_attach);
-						detached.advance_partial(mid_index);
+						//detached.advance_partial(mid_index);
 						let detached_hash = mem::replace(&mut stacked.item.hash, Some((attach_root.clone(), owned_prefix(&EMPTY_PREFIX))));
 						stacked.item.depth = stacked.item.depth_prefix + stacked.item.node.partial().map(|p| p.len()).unwrap_or(0);
 						self.exit_detached(key_element, prefix, detached, detached_hash);
@@ -1219,7 +1220,7 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 							let prefix = prefix_nibble.left();
 							let to_attach = StackedNodeState::Deleted;
 							let mut detached = mem::replace(&mut stacked.item.node, to_attach);
-							detached.advance_partial(mid_index);
+							detached.advance_partial(mid_index - stacked.item.depth_prefix);
 							let detached_hash = mem::replace(&mut stacked.item.hash, None);
 							self.exit_detached(key_element, prefix, detached, detached_hash);
 						}
@@ -1376,11 +1377,11 @@ pub fn batch_update<'a, T, I, K, V, B>(
 #[cfg(test)]
 mod tests {
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBNoExt, TrieMut, InputAction,
-		trie_traverse_key_no_extension_build, NoExtensionLayout, batch_update,
+	trie_traverse_key_no_extension_build, NoExtensionLayout, batch_update,
 	};
 
 	use memory_db::{MemoryDB, PrefixedKey};
-//	use memory_db::{MemoryDB, HashKey as PrefixedKey};
+	//	use memory_db::{MemoryDB, HashKey as PrefixedKey};
 	use keccak_hasher::KeccakHasher;
 	use crate::{DBValue, OwnedPrefix};
 	use hash_db::HashDB;
@@ -1406,10 +1407,10 @@ mod tests {
 		let cp_prefix = |previous: &OwnedPrefix, next: &OwnedPrefix| {
 			if check_order {
 				println!("{:?} -> {:?}", previous, next);
-	/*			if previous == next {
-					// we can have two same value if it is deletion then creation
-					assert!(prev_delete && !is_delet);
-					return;
+				/*			if previous == next {
+				// we can have two same value if it is deletion then creation
+				assert!(prev_delete && !is_delet);
+				return;
 				}*/
 				let prev_slice = NibbleSlice::new(previous.0.as_slice());
 				let p_at = |i| {
@@ -1454,7 +1455,7 @@ mod tests {
 						},
 						(None, None) => {
 							panic!("Two consecutive action at same node")
-							//unreachable!("equality tested firsthand")
+								//unreachable!("equality tested firsthand")
 						},
 					}
 				}
@@ -1520,7 +1521,7 @@ mod tests {
 			&initial_root,
 			v.iter().map(|(a, b)| (a, b.as_ref())),
 		);
-		
+
 		assert_eq!(calc_root, root);
 
 		let mut batch_delta = initial_db;
@@ -1569,7 +1570,7 @@ mod tests {
 			&initial_root,
 			elements,
 		).unwrap();
-		
+
 		assert_eq!(calc_root, root);
 
 		let mut batch_delta = initial_db.clone();
@@ -1613,7 +1614,7 @@ mod tests {
 		compare_with_triedbmut(
 			&[],
 			&[
-				(vec![], Some(vec![0xffu8, 0x33])),
+			(vec![], Some(vec![0xffu8, 0x33])),
 			],
 		);
 		compare_with_triedbmut_detach(&[], &vec![]);
@@ -1627,7 +1628,7 @@ mod tests {
 		compare_with_triedbmut(
 			db,
 			&[
-				(vec![], Some(vec![0xffu8, 0x33])),
+			(vec![], Some(vec![0xffu8, 0x33])),
 			],
 		);
 		compare_with_triedbmut_detach(db, &vec![]);
@@ -1641,7 +1642,7 @@ mod tests {
 		compare_with_triedbmut(
 			&[],
 			&[
-				(vec![0x04u8], Some(vec![0xffu8, 0x33])),
+			(vec![0x04u8], Some(vec![0xffu8, 0x33])),
 			],
 		);
 	}
@@ -1650,12 +1651,12 @@ mod tests {
 	fn simple_fuse() {
 		compare_with_triedbmut(
 			&[
-				(vec![0x04u8], vec![4, 32]),
-				(vec![0x04, 0x04], vec![4, 33]),
-				(vec![0x04, 0x04, 0x04], vec![4, 35]),
+			(vec![0x04u8], vec![4, 32]),
+			(vec![0x04, 0x04], vec![4, 33]),
+			(vec![0x04, 0x04, 0x04], vec![4, 35]),
 			],
 			&[
-				(vec![0x04u8, 0x04], None),
+			(vec![0x04u8, 0x04], None),
 			],
 		);
 	}
@@ -1668,8 +1669,8 @@ mod tests {
 		compare_with_triedbmut(
 			db,
 			&[
-				(vec![0x06u8], Some(vec![0xffu8, 0x33])),
-				(vec![0x08u8], Some(vec![0xffu8, 0x33])),
+			(vec![0x06u8], Some(vec![0xffu8, 0x33])),
+			(vec![0x08u8], Some(vec![0xffu8, 0x33])),
 			],
 		);
 		compare_with_triedbmut_detach(db, &vec![0x04u8]);
@@ -1681,11 +1682,11 @@ mod tests {
 	fn two_recursive_mid_insert() {
 		compare_with_triedbmut(
 			&[
-				(vec![0x0u8], vec![4, 32]),
+			(vec![0x0u8], vec![4, 32]),
 			],
 			&[
-				(vec![0x04u8], Some(vec![0xffu8, 0x33])),
-				(vec![0x20u8], Some(vec![0xffu8, 0x33])),
+			(vec![0x04u8], Some(vec![0xffu8, 0x33])),
+			(vec![0x20u8], Some(vec![0xffu8, 0x33])),
 			],
 		);
 	}
@@ -1700,13 +1701,13 @@ mod tests {
 		compare_with_triedbmut(
 			db,
 			&[
-				(vec![0x01u8, 0x01u8, 0x23], Some(vec![0xffu8; 32])),
-				(vec![0x01u8, 0x81u8, 0x23], Some(vec![0xfeu8; 32])),
-				(vec![0x01u8, 0x81u8, 0x23], None),
+			(vec![0x01u8, 0x01u8, 0x23], Some(vec![0xffu8; 32])),
+			(vec![0x01u8, 0x81u8, 0x23], Some(vec![0xfeu8; 32])),
+			(vec![0x01u8, 0x81u8, 0x23], None),
 			],
 		);
 		compare_with_triedbmut_detach(db, &vec![]);
-		compare_with_triedbmut_detach(db, &vec![0x02]); // TODO !!!
+		compare_with_triedbmut_detach(db, &vec![0x02]);
 		compare_with_triedbmut_detach(db, &vec![0x01u8]);
 		compare_with_triedbmut_detach(db, &vec![0x01u8, 0x81]);
 		compare_with_triedbmut_detach(db, &vec![0x01u8, 0x81, 0x23]);
@@ -1726,10 +1727,10 @@ mod tests {
 	fn delete_to_empty() {
 		compare_with_triedbmut(
 			&[
-				(vec![1, 254u8], vec![4u8; 33]),
+			(vec![1, 254u8], vec![4u8; 33]),
 			],
 			&[
-				(vec![1, 254u8], None),
+			(vec![1, 254u8], None),
 			],
 		);
 	}
@@ -1738,11 +1739,11 @@ mod tests {
 	fn fuse_root_node() {
 		compare_with_triedbmut(
 			&[
-				(vec![2, 254u8], vec![4u8; 33]),
-				(vec![1, 254u8], vec![4u8; 33]),
+			(vec![2, 254u8], vec![4u8; 33]),
+			(vec![1, 254u8], vec![4u8; 33]),
 			],
 			&[
-				(vec![1, 254u8], None),
+			(vec![1, 254u8], None),
 			],
 		);
 	}
@@ -1751,13 +1752,13 @@ mod tests {
 	fn dummy4() {
 		compare_with_triedbmut(
 			&[
-				(vec![255u8, 251, 127, 255, 255], vec![255, 255]),
-				(vec![255, 255, 127, 112, 255], vec![0, 4]),
-				(vec![255, 127, 114, 253, 195], vec![1, 2]),
+			(vec![255u8, 251, 127, 255, 255], vec![255, 255]),
+			(vec![255, 255, 127, 112, 255], vec![0, 4]),
+			(vec![255, 127, 114, 253, 195], vec![1, 2]),
 			],
 			&[
-				(vec![0u8], Some(vec![4; 251])),
-				(vec![255, 251, 127, 255, 255], Some(vec![1, 2])),
+			(vec![0u8], Some(vec![4; 251])),
+			(vec![255, 251, 127, 255, 255], Some(vec![1, 2])),
 			],
 		);
 	}
@@ -1766,15 +1767,15 @@ mod tests {
 	fn dummy6() {
 		compare_with_triedbmut(
 			&[
-				(vec![0, 144, 64, 212, 141, 1, 0, 0, 255, 144, 64, 212, 141, 1, 0, 141, 206, 0], vec![255, 255]),
-				(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], vec![0, 4]),
-				(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 208, 208, 208, 208, 208, 208, 208], vec![1, 2]),
+			(vec![0, 144, 64, 212, 141, 1, 0, 0, 255, 144, 64, 212, 141, 1, 0, 141, 206, 0], vec![255, 255]),
+			(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], vec![0, 4]),
+			(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 208, 208, 208, 208, 208, 208, 208], vec![1, 2]),
 			],
 			&[
-				(vec![0, 6, 8, 21, 1, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 35, 199, 215], Some(vec![4, 251])),
-				(vec![0, 144, 64, 212, 141, 1, 0, 0, 255, 144, 64, 212, 141, 1, 0, 141, 206, 0], None),
-				(vec![141, 135, 207, 0, 63, 203, 216, 185, 162, 77, 154, 214, 210, 0, 0, 0, 0, 128], Some(vec![49, 251])),
-				(vec![208, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 6, 8, 21, 1, 4, 0], Some(vec![4, 21])),
+			(vec![0, 6, 8, 21, 1, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 35, 199, 215], Some(vec![4, 251])),
+			(vec![0, 144, 64, 212, 141, 1, 0, 0, 255, 144, 64, 212, 141, 1, 0, 141, 206, 0], None),
+			(vec![141, 135, 207, 0, 63, 203, 216, 185, 162, 77, 154, 214, 210, 0, 0, 0, 0, 128], Some(vec![49, 251])),
+			(vec![208, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 6, 8, 21, 1, 4, 0], Some(vec![4, 21])),
 			],
 		);
 	}
@@ -1783,12 +1784,12 @@ mod tests {
 	fn fuse_with_child_partial() {
 		compare_with_triedbmut(
 			&[
-				(vec![212], vec![212, 212]),
+			(vec![212], vec![212, 212]),
 			],
 			&[
-				(vec![58], Some(vec![63, 0])),
-				(vec![63], None),
-				(vec![212], None),
+			(vec![58], Some(vec![63, 0])),
+			(vec![63], None),
+			(vec![212], None),
 			],
 		);
 	}
@@ -1797,13 +1798,13 @@ mod tests {
 	fn dummy7() {
 		compare_with_triedbmut(
 			&[
-				(vec![0], vec![0, 212]),
-				(vec![8, 8], vec![0, 212]),
+			(vec![0], vec![0, 212]),
+			(vec![8, 8], vec![0, 212]),
 			],
 			&[
-				(vec![0], None),
-				(vec![8, 0], Some(vec![63, 0])),
-				(vec![128], None),
+			(vec![0], None),
+			(vec![8, 0], Some(vec![63, 0])),
+			(vec![128], None),
 			],
 		);
 	}
@@ -1812,13 +1813,13 @@ mod tests {
 	fn dummy8() {
 		compare_with_triedbmut(
 			&[
-				(vec![0], vec![0, 212]),
-				(vec![8, 8], vec![0, 212]),
+			(vec![0], vec![0, 212]),
+			(vec![8, 8], vec![0, 212]),
 			],
 			&[
-				(vec![0], None),
-				(vec![8, 0], Some(vec![63, 0])),
-				(vec![128], Some(vec![63, 0])),
+			(vec![0], None),
+			(vec![8, 0], Some(vec![63, 0])),
+			(vec![128], Some(vec![63, 0])),
 			],
 		);
 	}
@@ -1827,14 +1828,14 @@ mod tests {
 	fn dummy9() {
 		compare_with_triedbmut(
 			&[
-				(vec![0], vec![0, 212]),
-				(vec![1], vec![111, 22]),
+			(vec![0], vec![0, 212]),
+			(vec![1], vec![111, 22]),
 			],
 			&[
-				(vec![0], None),
-				(vec![5], Some(vec![63, 0])),
-				(vec![14], None),
-				(vec![64], Some(vec![63, 0])),
+			(vec![0], None),
+			(vec![5], Some(vec![63, 0])),
+			(vec![14], None),
+			(vec![64], Some(vec![63, 0])),
 			],
 		);
 	}
@@ -1843,11 +1844,11 @@ mod tests {
 	fn dummy_51() {
 		compare_with_triedbmut(
 			&[
-				(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], vec![1, 2]),
+			(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], vec![1, 2]),
 			],
 			&[
-				(vec![9, 1, 141, 44, 212, 0, 0, 51, 138, 32], Some(vec![4, 251])),
-				(vec![128], Some(vec![49, 251])),
+			(vec![9, 1, 141, 44, 212, 0, 0, 51, 138, 32], Some(vec![4, 251])),
+			(vec![128], Some(vec![49, 251])),
 			],
 		);
 	}
@@ -1856,11 +1857,11 @@ mod tests {
 	fn emptied_then_insert() {
 		compare_with_triedbmut(
 			&[
-				(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], vec![1, 2]),
+			(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], vec![1, 2]),
 			],
 			&[
-				(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], None),
-				(vec![128], Some(vec![49, 251])),
+			(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], None),
+			(vec![128], Some(vec![49, 251])),
 			],
 		);
 	}
@@ -1869,12 +1870,12 @@ mod tests {
 	fn dummy5() {
 		compare_with_triedbmut(
 			&[
-				(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], vec![1, 2]),
+			(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], vec![1, 2]),
 			],
 			&[
-				(vec![9, 1, 141, 44, 212, 0, 0, 51, 138, 32], Some(vec![4, 251])),
-				(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], None),
-				(vec![128], Some(vec![49, 251])),
+			(vec![9, 1, 141, 44, 212, 0, 0, 51, 138, 32], Some(vec![4, 251])),
+			(vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9], None),
+			(vec![128], Some(vec![49, 251])),
 			],
 		);
 	}
@@ -1883,14 +1884,14 @@ mod tests {
 	fn dummy_big() {
 		compare_with_triedbmut(
 			&[
-				(vec![255, 255, 255, 255, 255, 255, 15, 0, 98, 34, 255, 0, 197, 193, 31, 5, 64, 0, 248, 197, 247, 231, 58, 0, 3, 214, 1, 192, 122, 39, 226, 0], vec![1, 2]),
-				(vec![144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144], vec![1, 2]),
+			(vec![255, 255, 255, 255, 255, 255, 15, 0, 98, 34, 255, 0, 197, 193, 31, 5, 64, 0, 248, 197, 247, 231, 58, 0, 3, 214, 1, 192, 122, 39, 226, 0], vec![1, 2]),
+			(vec![144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144], vec![1, 2]),
 
 			],
 			&[
-				(vec![144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144], None),
-				(vec![144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 208], Some(vec![4; 32])),
-				(vec![255, 255, 255, 255, 255, 255, 15, 0, 98, 34, 255, 0, 197, 193, 31, 5, 64, 0, 248, 197, 247, 231, 58, 0, 3, 214, 1, 192, 122, 39, 226, 0], None),
+			(vec![144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144], None),
+			(vec![144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 144, 208], Some(vec![4; 32])),
+			(vec![255, 255, 255, 255, 255, 255, 15, 0, 98, 34, 255, 0, 197, 193, 31, 5, 64, 0, 248, 197, 247, 231, 58, 0, 3, 214, 1, 192, 122, 39, 226, 0], None),
 			],
 		);
 	}
@@ -1899,20 +1900,20 @@ mod tests {
 	fn single_latest_change_value_does_not_work() {
 		compare_with_triedbmut(
 			&[
-				(vec![0, 0, 0, 0], vec![255;32]),
-				(vec![0, 0, 0, 3], vec![5; 32]),
-				(vec![0, 0, 6, 0], vec![6; 32]),
-				(vec![0, 0, 0, 170], vec![1; 32]),
-				(vec![0, 0, 73, 0], vec![2; 32]),
-				(vec![0, 0, 0, 0], vec![3; 32]),
-				(vec![0, 199, 141, 0], vec![4; 32]),
+			(vec![0, 0, 0, 0], vec![255;32]),
+			(vec![0, 0, 0, 3], vec![5; 32]),
+			(vec![0, 0, 6, 0], vec![6; 32]),
+			(vec![0, 0, 0, 170], vec![1; 32]),
+			(vec![0, 0, 73, 0], vec![2; 32]),
+			(vec![0, 0, 0, 0], vec![3; 32]),
+			(vec![0, 199, 141, 0], vec![4; 32]),
 			],
 			&[
-				(vec![0, 0, 0, 0], Some(vec![0; 32])),
-				(vec![0, 0, 199, 141], Some(vec![0; 32])),
-				(vec![0, 199, 141, 0], None),
-				(vec![12, 0, 128, 0, 0, 0, 0, 0, 0, 4, 64, 2, 4], Some(vec![0; 32])),
-				(vec![91], None),
+			(vec![0, 0, 0, 0], Some(vec![0; 32])),
+			(vec![0, 0, 199, 141], Some(vec![0; 32])),
+			(vec![0, 199, 141, 0], None),
+			(vec![12, 0, 128, 0, 0, 0, 0, 0, 0, 4, 64, 2, 4], Some(vec![0; 32])),
+			(vec![91], None),
 			],
 		);
 	}
@@ -1921,17 +1922,17 @@ mod tests {
 	fn chained_fuse() {
 		compare_with_triedbmut(
 			&[
-				(vec![0u8], vec![1; 32]),
-				(vec![0, 212], vec![2; 32]),
-				(vec![0, 212, 96], vec![3; 32]),
-				(vec![0, 212, 96, 88], vec![3; 32]),
+			(vec![0u8], vec![1; 32]),
+			(vec![0, 212], vec![2; 32]),
+			(vec![0, 212, 96], vec![3; 32]),
+			(vec![0, 212, 96, 88], vec![3; 32]),
 			],
 			&[
-				(vec![0u8], None),
-				(vec![0, 212], None),
-				(vec![0, 212, 96], None),
-				(vec![0, 212, 96, 88], Some(vec![3; 32])),
+			(vec![0u8], None),
+			(vec![0, 212], None),
+			(vec![0, 212, 96], None),
+			(vec![0, 212, 96, 88], Some(vec![3; 32])),
 			],
 		);
 	}
-}
+	}
