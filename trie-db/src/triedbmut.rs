@@ -541,7 +541,7 @@ where
 				NodeHandle::Hash(ref hash) => return Lookup::<L, _> {
 					db: &self.db,
 					query: |v: &[u8]| v.to_vec(),
-					hash: hash.clone(),
+					hash: *hash,
 				}.look_up(partial),
 				NodeHandle::InMemory(ref handle) => match self.storage[handle] {
 					Node::Empty => return Ok(None),
@@ -622,7 +622,7 @@ where
 		value: DBValue,
 		old_val: &mut Option<DBValue>,
 	) -> Result<InsertAction<TrieHash<L>>, TrieHash<L>, CError<L>> {
-		let partial = key.clone();
+		let partial = *key;
 
 		#[cfg(feature = "std")]
 		trace!(target: "trie", "augmented (partial: {:?}, value: {:?})", partial, ToHex(&value));
@@ -991,7 +991,7 @@ where
 		key: &mut NibbleFullKey,
 		old_val: &mut Option<DBValue>,
 	) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>> {
-		let partial = key.clone();
+		let partial = *key;
 		Ok(match (node, partial.is_empty()) {
 			(Node::Empty, _) => Action::Delete,
 			(Node::Branch(c, None), true) => Action::Restore(Node::Branch(c, None)),
@@ -1016,7 +1016,7 @@ where
 						"removing value out of branch child, partial={:?}",
 						partial,
 					);
-					let prefix = key.clone();
+					let prefix = *key;
 					key.advance(1);
 					match self.remove_at(child, key, old_val)? {
 						Some((new, changed)) => {
@@ -1072,7 +1072,7 @@ where
 							"removing value out of branch child, partial={:?}",
 							partial,
 						);
-						let prefix = key.clone();
+						let prefix = *key;
 						key.advance(common + 1);
 						match self.remove_at(child, key, old_val)? {
 							Some((new, changed)) => {
@@ -1131,7 +1131,7 @@ where
 					// try to remove from the child branch.
 					#[cfg(feature = "std")]
 					trace!(target: "trie", "removing from extension child, partial={:?}", partial);
-					let prefix = key.clone();
+					let prefix = *key;
 					key.advance(common);
 					match self.remove_at(child_branch, key, old_val)? {
 						Some((new_child, changed)) => {
@@ -1245,7 +1245,7 @@ where
 						// only one onward node. use child instead
 						let child = children[a as usize].take()
 							.expect("used_index only set if occupied; qed");
-						let mut key2 = key.clone();
+						let mut key2 = *key;
 						key2.advance((enc_nibble.1.len() * nibble_ops::NIBBLE_PER_BYTE) - enc_nibble.0);
 						let (start, alloc_start, prefix_end) = match key2.left() {
 							(start, None) => (start, None, Some(nibble_ops::push_at_left(0, a, 0))),
@@ -1319,7 +1319,7 @@ where
 				// We could advance key, but this code can also be called
 				// recursively, so there might be some prefix from branch.
 				let last = partial.1[partial.1.len() - 1] & (255 >> 4);
-				let mut key2 = key.clone();
+				let mut key2 = *key;
 				key2.advance((partial.1.len() * nibble_ops::NIBBLE_PER_BYTE) - partial.0 - 1);
 				let (start, alloc_start, prefix_end) = match key2.left() {
 					(start, None) => (start, None, Some(nibble_ops::push_at_left(0, last, 0))),

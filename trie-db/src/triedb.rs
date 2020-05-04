@@ -131,7 +131,7 @@ where
 		Lookup::<L, Q> {
 			db: self.db,
 			query: query,
-			hash: self.root.clone(),
+			hash: *self.root,
 		}.look_up(NibbleSlice::new(key))
 	}
 

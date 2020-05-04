@@ -122,7 +122,7 @@ impl<H: KeyHasher, KF: KeyFunction<H>, T: Clone> Clone for MemoryDB<H, KF, T> {
 	fn clone(&self) -> Self {
 		Self {
 			data: self.data.clone(),
-			hashed_null_node: self.hashed_null_node.clone(),
+			hashed_null_node: self.hashed_null_node,
 			null_node_data: self.null_node_data.clone(),
 			_kf: Default::default(),
 		}
@@ -187,7 +187,7 @@ impl<H: KeyHasher> KeyFunction<H> for HashKey<H> {
 
 /// Make database key from hash only.
 pub fn hash_key<H: KeyHasher>(key: &H::Out, _prefix: Prefix) -> H::Out {
-	key.clone()
+    *key
 }
 
 /// Key function that concatenates prefix and hash.
@@ -574,7 +574,7 @@ where
 
 	fn insert(&mut self, prefix: Prefix, value: &[u8]) -> H::Out {
 		if T::from(value) == self.null_node_data {
-			return self.hashed_null_node.clone();
+			return self.hashed_null_node;
 		}
 
 		let key = H::hash(value);
