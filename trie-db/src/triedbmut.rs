@@ -1690,7 +1690,7 @@ mod tests {
 			memtrie.commit();
 			if *memtrie.root() != real {
 				println!("TRIE MISMATCH");
-				println!("");
+				println!();
 				println!("{:?} vs {:?}", memtrie.root(), real);
 				for i in &x {
 					println!("{:#x?} -> {:#x?}", i.0, i.1);
@@ -1702,7 +1702,7 @@ mod tests {
 			let hashed_null_node = reference_hashed_null_node();
 			if *memtrie.root() != hashed_null_node {
 				println!("- TRIE MISMATCH");
-				println!("");
+				println!();
 				println!("{:#x?} vs {:#x?}", memtrie.root(), hashed_null_node);
 				for i in &x {
 					println!("{:#x?} -> {:#x?}", i.0, i.1);
@@ -1733,7 +1733,7 @@ mod tests {
 			memtrie.commit();
 			if *memtrie.root() != real {
 				println!("TRIE MISMATCH");
-				println!("");
+				println!();
 				println!("{:?} vs {:?}", memtrie.root(), real);
 				for i in &x {
 					println!("{:#x?} -> {:#x?}", i.0, i.1);
@@ -1745,7 +1745,7 @@ mod tests {
 			let hashed_null_node = reference_hashed_null_node();
 			if *memtrie.root() != hashed_null_node {
 				println!("- TRIE MISMATCH");
-				println!("");
+				println!();
 				println!("{:#x?} vs {:#x?}", memtrie.root(), hashed_null_node);
 				for i in &x {
 					println!("{:#x?} -> {:#x?}", i.0, i.1);
@@ -1992,7 +1992,7 @@ mod tests {
 			let mut memtrie_sorted = populate_trie(&mut memdb2, &mut root2, &y);
 			if *memtrie.root() != real || *memtrie_sorted.root() != real {
 				println!("TRIE MISMATCH");
-				println!("");
+				println!();
 				println!("ORIGINAL... {:#x?}", memtrie.root());
 				for i in &x {
 					println!("{:#x?} -> {:#x?}", i.0, i.1);
