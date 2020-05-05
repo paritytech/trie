@@ -187,7 +187,7 @@ impl<H: KeyHasher> KeyFunction<H> for HashKey<H> {
 
 /// Make database key from hash only.
 pub fn hash_key<H: KeyHasher>(key: &H::Out, _prefix: Prefix) -> H::Out {
-    *key
+	*key
 }
 
 /// Key function that concatenates prefix and hash.
