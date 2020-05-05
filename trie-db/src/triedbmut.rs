@@ -1245,7 +1245,7 @@ where
 						// only one onward node. use child instead
 						let child = children[a as usize].take()
 							.expect("used_index only set if occupied; qed");
-						let mut key2 = *key;
+						let mut key2 = key.clone();
 						key2.advance((enc_nibble.1.len() * nibble_ops::NIBBLE_PER_BYTE) - enc_nibble.0);
 						let (start, alloc_start, prefix_end) = match key2.left() {
 							(start, None) => (start, None, Some(nibble_ops::push_at_left(0, a, 0))),
@@ -1319,7 +1319,7 @@ where
 				// We could advance key, but this code can also be called
 				// recursively, so there might be some prefix from branch.
 				let last = partial.1[partial.1.len() - 1] & (255 >> 4);
-				let mut key2 = *key;
+				let mut key2 = key.clone();
 				key2.advance((partial.1.len() * nibble_ops::NIBBLE_PER_BYTE) - partial.0 - 1);
 				let (start, alloc_start, prefix_end) = match key2.left() {
 					(start, None) => (start, None, Some(nibble_ops::push_at_left(0, last, 0))),
