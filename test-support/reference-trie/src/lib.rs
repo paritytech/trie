@@ -918,7 +918,7 @@ pub fn compare_implementations<X : hash_db::HashDB<KeccakHasher, DBValue> + Eq> 
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
 		t.commit();
-		t.root().clone()
+		*t.root()
 	};
 	if root_new != root {
 		{
@@ -960,7 +960,7 @@ pub fn compare_root(
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
-		t.root().clone()
+		*t.root()
 	};
 
 	assert_eq!(root, root_new);
@@ -1075,7 +1075,7 @@ pub fn compare_implementations_no_extension(
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
-		t.root().clone()
+		*t.root()
 	};
 	
 	if root != root_new {
@@ -1115,7 +1115,7 @@ pub fn compare_implementations_no_extension_unordered(
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 			b_map.insert(data[i].0.clone(), data[i].1.clone());
 		}
-		t.root().clone()
+		*t.root()
 	};
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
