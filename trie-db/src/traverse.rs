@@ -22,7 +22,8 @@
 //! be done by using a tuple of extension and branch node as a branch (storing
 //! an additional hash in branch and only adapting fetch and write methods).
 
-// TODO CHEME what happen if set same value as existing!!! -> could skip alloc
+// TODO CHEME what happen if set same value as existing!!! -> could skip alloc -> ensure we keep
+// unchange!! -> Same for set_partial, it does change on setting identical value
 
 use crate::triedbmut::{Node, NibbleFullKey};
 use crate::triedbmut::NodeHandle as NodeHandleTrieMut;
@@ -722,9 +723,10 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 							};
 							continue;
 						},
-						Some((_key, InputAction::Attach(attach_root))) => {
+						Some((key, InputAction::Attach(attach_root))) => {
 							// TODO nooop on attach empty
-							let root_node = fetch::<T, B>(db, &attach_root, EMPTY_PREFIX)?;
+							let root_prefix = (key.as_ref(), None);
+							let root_node = fetch::<T, B>(db, &attach_root, root_prefix)?;
 							let depth = root_node.partial().map(|p| p.len()).unwrap_or(0);
 							current = StackedItem {
 								item: StackedNode {
@@ -928,8 +930,9 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 			};
 			let (value, do_fetch) = value.as_ref();
 			let fetch = if let Some(hash) = do_fetch {
-				 // This is fetching node to attach, it is a root and then uses EMPTY_PREFIX
-				let hash = fetch::<T, B>(db, &hash, EMPTY_PREFIX)?;
+				 // This is fetching node to attach
+				let root_prefix = (key.as_ref(), None);
+				let hash = fetch::<T, B>(db, &hash, root_prefix)?;
 				Some(hash)
 			} else {
 				None
@@ -1021,7 +1024,10 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 							stacked.item.node.advance_partial(stacked.item.depth - stacked.item.depth_prefix);
 						}
 						let detached = mem::replace(&mut stacked.item.node, to_attach);
-						let detached_hash = mem::replace(&mut stacked.item.hash, Some((attach_root.clone(), owned_prefix(&EMPTY_PREFIX))));
+						let detached_hash = mem::replace(
+							&mut stacked.item.hash,
+							Some((attach_root.clone(), owned_prefix(&(key_element, None)))),
+						);
 						stacked.item.depth = stacked.item.depth_prefix + stacked.item.node.partial().map(|p| p.len()).unwrap_or(0);
 						self.exit_detached(key_element, prefix, detached, detached_hash);
 					},
@@ -1109,8 +1115,8 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 						let mut new_child = StackedItem {
 							item: StackedNode {
 								node: to_attach,
-								// Attach root is unprefixed
-								hash: Some((attach_root.clone(), owned_prefix(&EMPTY_PREFIX))),
+								// Attach root is prefixed at attach key
+								hash: Some((attach_root.clone(), owned_prefix(&(key_element, None)))),
 								depth_prefix,
 								depth,
 								parent_index,
@@ -1211,7 +1217,10 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 						}
 						let mut detached = mem::replace(&mut stacked.item.node, to_attach);
 						//detached.advance_partial(mid_index);
-						let detached_hash = mem::replace(&mut stacked.item.hash, Some((attach_root.clone(), owned_prefix(&EMPTY_PREFIX))));
+						let detached_hash = mem::replace(
+							&mut stacked.item.hash, 
+							Some((attach_root.clone(), owned_prefix(&(key_element, None)))),
+						);
 						stacked.item.depth = stacked.item.depth_prefix + stacked.item.node.partial().map(|p| p.len()).unwrap_or(0);
 						self.exit_detached(key_element, prefix, detached, detached_hash);
 						None
@@ -1301,7 +1310,10 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 		}
 	}
 
+	// TODO EMCHh seems like prefix param is useless!!!
 	fn exit_detached(&mut self, key_element: &[u8], prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>) {
+		let detached_prefix = (key_element, None);
+
 		let is_empty_node = stacked.is_empty();
 		let register_up = &mut self.register_update;
 		let register = &mut self.register_detached;
@@ -1317,8 +1329,7 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 					let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
 					// Note that those updates are messing the updates ordering, could be better to register
 					// them with the detached item (TODO would need a dedicated struct).
-					// TODO when implementing prefix migration: use a correct prefix here
-					register_up((owned_prefix(&EMPTY_PREFIX), hash.clone(), Some(encoded)));
+					register_up((owned_prefix(&detached_prefix), hash.clone(), Some(encoded)));
 					register((key_element.to_vec(), owned_prefix(&prefix), hash));
 				}
 			},
@@ -1326,14 +1337,12 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 			| s@StackedNodeState::Unchanged(..) => {
 				if !is_empty_node {
 					let hash = if let Some((not_inline, previous_prefix)) = prev_hash {
-						// debug_assert!(prefix == from_owned_prefix(&previous_prefix)); TODO this does not
 						// hold in fuzzer, see what is wrong
 						not_inline
 					} else {
 						let encoded = s.into_encoded();
 						let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
-						// TODO when implementing prefix migration: use a correct prefix here
-						register_up((owned_prefix(&EMPTY_PREFIX), hash.clone(), Some(encoded)));
+						register_up((owned_prefix(&detached_prefix), hash.clone(), Some(encoded)));
 						hash
 					};
 					register((key_element.to_vec(), owned_prefix(&prefix), hash));
@@ -1741,6 +1750,15 @@ mod tests {
 	}
 
 	#[test]
+	fn dummy2_23() {
+		compare_with_triedbmut_detach(&[
+			(vec![0], vec![3; 40]),
+			(vec![1], vec![2; 40]),
+			(vec![8], vec![1; 40]),
+		], &vec![0]);
+	}
+
+	#[test]
 	fn dettach_middle() {
 		let db = &[
 			(vec![0x00u8, 0x01, 0x23], vec![0x01u8; 32]),
@@ -1963,4 +1981,4 @@ mod tests {
 			],
 		);
 	}
-	}
+}

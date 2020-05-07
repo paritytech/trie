@@ -33,6 +33,7 @@ use std::{
 	mem,
 	marker::PhantomData,
 	cmp::Eq,
+	cmp,
 	borrow::Borrow,
 };
 
@@ -48,6 +49,7 @@ use core::{
 	mem,
 	marker::PhantomData,
 	cmp::Eq,
+	cmp,
 	borrow::Borrow,
 };
 
@@ -162,9 +164,17 @@ impl<H, KF, T> Eq for MemoryDB<H, KF, T>
 {}
 
 pub trait KeyFunction<H: KeyHasher> {
-	type Key: Send + Sync + Clone + hash::Hash + Eq;
+	type Key: Send + Sync + Clone + hash::Hash + Eq + AsRef<[u8]>;
 
 	fn key(hash: &H::Out, prefix: Prefix) -> Self::Key;
+	fn hash(key: &Self::Key) -> H::Out {
+		let mut hash = H::Out::default();
+		let key_len = key.as_ref().len();
+		let l = cmp::min(H::LENGTH, key_len);
+		hash.as_mut()[H::LENGTH - l..].copy_from_slice(&key.as_ref()[key_len - l..]);
+		hash
+	}
+	fn unprefix(key: &Self::Key, prefix: Prefix) -> Option<Self::Key>;
 }
 
 /// Key function that only uses the hash
@@ -187,6 +197,9 @@ impl<H: KeyHasher> KeyFunction<H> for HashKey<H> {
 
 	fn key(hash: &H::Out, prefix: Prefix) -> H::Out {
 		hash_key::<H>(hash, prefix)
+	}
+	fn unprefix(key: &Self::Key, _prefix: Prefix) -> Option<Self::Key> {
+		Some(Self::hash(key))
 	}
 }
 
@@ -216,6 +229,19 @@ impl<H: KeyHasher> KeyFunction<H> for PrefixedKey<H> {
 	fn key(hash: &H::Out, prefix: Prefix) -> Vec<u8> {
 		prefixed_key::<H>(hash, prefix)
 	}
+	fn unprefix(key: &Self::Key, prefix: Prefix) -> Option<Self::Key> {
+		let prefix_len = prefix.0.len() + prefix.1.as_ref().map(|_| 1).unwrap_or(0);
+		if key.len() < H::LENGTH + prefix_len {
+			None
+		} else if key.len() == H::LENGTH + prefix_len {
+			Some(key[key.len() - H::LENGTH..].to_vec())
+		} else {
+			let other_prefix_len = key.len() - H::LENGTH - prefix_len;
+			let mut res = key[..other_prefix_len].to_vec();
+			res.extend_from_slice(&key[key.len() - H::LENGTH..]);
+			Some(res)
+		}
+	}
 }
 
 /// Derive a database key from hash value of the node (key) and  the node prefix.
@@ -241,6 +267,9 @@ impl<H: KeyHasher> KeyFunction<H> for LegacyPrefixedKey<H> {
 
 	fn key(hash: &H::Out, prefix: Prefix) -> Vec<u8> {
 		legacy_prefixed_key::<H>(hash, prefix)
+	}
+	fn unprefix(key: &Self::Key, _prefix: Prefix) -> Option<Self::Key> {
+		Some(Self::hash(key).as_ref().to_vec())
 	}
 }
 
