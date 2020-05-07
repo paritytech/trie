@@ -1394,10 +1394,109 @@ pub fn batch_update<'a, T, I, K, V, B>(
 	Ok((batch_update.root, dest, dest_detached))
 }
 
+
+
+/// For a dettached trie root, remove prefix.
+/// Usually the prefix is the key path used to detach the node
+/// for a key function that attach prefix.
+/// This transformation is not needed if there is no prefix
+/// added by the key function of the backend db.
+/// This method maitain all trie key in memory, a different implementation
+/// should be use if inner mutability is possible (trie iterator touch each
+/// key only once so it should be safe to delete immediatly).
+pub fn unprefixed_detached_trie<T: TrieLayout>(
+	source_db: &mut dyn hash_db::HashDB<T::Hash, Vec<u8>>,
+	mut target_db: Option<&mut dyn hash_db::HashDB<T::Hash, Vec<u8>>>,
+	root: TrieHash<T>,
+	prefix: &[u8],
+)  -> Result<(),TrieHash<T>, CError<T>>
+	where
+		T: TrieLayout,
+{
+	let mapped_source = PrefixedDBRef::<T>(source_db, prefix);
+	let input = crate::TrieDB::<T>::new(&mapped_source, &root)?;
+	let mut keys: Vec<(NibbleVec, TrieHash<T>)> = Vec::new();
+	for elt in crate::TrieDBNodeIterator::new(&input)? {
+		if let Ok((prefix, Some(hash), _)) = elt {
+			keys.push((prefix, hash));
+		}
+	}
+	let mut prefix_slice = prefix.to_vec();
+	let prefix_slice_len = prefix_slice.len();
+	for (prefix, hash) in keys.into_iter() {
+		let prefix = prefix.as_prefix();
+		prefix_slice.truncate(prefix_slice_len);
+		prefix_slice.extend_from_slice(prefix.0);
+		let prefix_source = (prefix_slice.as_ref(), prefix.1);
+		if let Some(value) = source_db.get(&hash, prefix_source) {
+			source_db.remove(&hash, prefix_source);
+			if let Some(target) = target_db.as_mut() {
+				target.emplace(hash, prefix, value);
+			} else {
+				source_db.emplace(hash, prefix, value);
+			}
+		}
+	}
+	Ok(())
+}
+
+struct PrefixedDBRef<'a, T: TrieLayout>(&'a mut dyn hash_db::HashDB<T::Hash, Vec<u8>>, &'a [u8]);
+
+impl<'a, T: TrieLayout> hash_db::HashDBRef<T::Hash, Vec<u8>> for PrefixedDBRef<'a, T> {
+	fn get(&self, key: &TrieHash<T>, prefix: Prefix) -> Option<Vec<u8>> {
+		let mut prefix_slice = self.1.to_vec();
+		prefix_slice.extend_from_slice(prefix.0);
+		self.0.get(key, (prefix_slice.as_ref(), prefix.1))
+	}
+
+	fn contains(&self, key: &TrieHash<T>, prefix: Prefix) -> bool {
+		let mut prefix_slice = self.1.to_vec();
+		prefix_slice.extend_from_slice(prefix.0);
+		self.0.contains(key, (prefix_slice.as_ref(), prefix.1))
+	}
+}
+
+pub fn prefixed_detached_trie<T: TrieLayout>(
+	source_db: &mut dyn hash_db::HashDB<T::Hash, Vec<u8>>,
+	mut target_db: Option<&mut dyn hash_db::HashDB<T::Hash, Vec<u8>>>,
+	root: TrieHash<T>,
+	prefix: &[u8],
+)  -> Result<(),TrieHash<T>, CError<T>>
+	where
+		T: TrieLayout,
+{
+	let input = crate::TrieDB::<T>::new(&source_db, &root)?;
+	let mut keys: Vec<(NibbleVec, TrieHash<T>)> = Vec::new();
+	for elt in crate::TrieDBNodeIterator::new(&input)? {
+		if let Ok((prefix, Some(hash), _)) = elt {
+			keys.push((prefix, hash));
+		}
+	}
+	let mut prefix_slice = prefix.to_vec();
+	let prefix_slice_len = prefix_slice.len();
+	for (prefix, hash) in keys.into_iter() {
+		let prefix = prefix.as_prefix();
+		if let Some(value) = source_db.get(&hash, prefix) {
+			prefix_slice.truncate(prefix_slice_len);
+			prefix_slice.extend_from_slice(prefix.0);
+			let prefix_dest = (prefix_slice.as_ref(), prefix.1);
+			source_db.remove(&hash, prefix);
+			if let Some(target) = target_db.as_mut() {
+				target.emplace(hash, prefix_dest, value);
+			} else {
+				source_db.emplace(hash, prefix_dest, value);
+			}
+		}
+	}
+	Ok(())
+}
+
+
 #[cfg(test)]
 mod tests {
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBNoExt, TrieMut, InputAction,
 	trie_traverse_key_no_extension_build, NoExtensionLayout, batch_update,
+	unprefixed_detached_trie, prefixed_detached_trie,
 	};
 
 	use memory_db::{MemoryDB, PrefixedKey};
@@ -1600,6 +1699,23 @@ mod tests {
 		println!("{:?}", t2);
 		let t2b = RefTrieDBNoExt::new(&batch_delta, &calc_root).unwrap();
 		println!("{:?}", t2b);
+
+		if let Some((k, _, d_root)) = detached_root.iter().next() {
+			unprefixed_detached_trie::<NoExtensionLayout>(
+				&mut batch_delta,
+				None,
+				d_root.clone(),
+				d.as_ref(),
+			).unwrap();
+			let t2b = RefTrieDBNoExt::new(&batch_delta, d_root).unwrap();
+			println!("{:?}", t2b);
+			prefixed_detached_trie::<NoExtensionLayout>(
+				&mut batch_delta,
+				None,
+				d_root.clone(),
+				d.as_ref(),
+			).unwrap();
+		}
 
 		println!("{:?}", db.clone().drain());
 		println!("{:?}", batch_delta.clone().drain());
