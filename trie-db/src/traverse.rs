@@ -1215,7 +1215,7 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 						if mid_index > 0 {
 							stacked.item.node.advance_partial(mid_index - stacked.item.depth_prefix);
 						}
-						let mut detached = mem::replace(&mut stacked.item.node, to_attach);
+						let detached = mem::replace(&mut stacked.item.node, to_attach);
 						//detached.advance_partial(mid_index);
 						let detached_hash = mem::replace(
 							&mut stacked.item.hash, 
@@ -1310,7 +1310,6 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 		}
 	}
 
-	// TODO EMCHh seems like prefix param is useless!!!
 	fn exit_detached(&mut self, key_element: &[u8], prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>) {
 		let detached_prefix = (key_element, None);
 
