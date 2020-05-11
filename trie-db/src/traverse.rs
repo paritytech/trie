@@ -22,9 +22,6 @@
 //! be done by using a tuple of extension and branch node as a branch (storing
 //! an additional hash in branch and only adapting fetch and write methods).
 
-// TODO CHEME what happen if set same value as existing!!! -> could skip alloc -> ensure we keep
-// unchange!! -> Same for set_partial, it does change on setting identical value
-
 use crate::triedbmut::{Node, NibbleFullKey};
 use crate::triedbmut::NodeHandle as NodeHandleTrieMut;
 use crate::node::{OwnedNode, NodeHandle, NodeKey};
@@ -1278,6 +1275,9 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 			StackedNodeState::UnchangedAttached(node) => Some(Some({
 				let encoded = node.data().to_vec();
 				if encoded.len() < <T::Hash as hash_db::Hasher>::LENGTH {
+					if let Some((h, p)) = prev_hash {
+						register((p, h, None));
+					}
 					OwnedNodeHandle::InMemory(encoded)
 				} else {
 					OwnedNodeHandle::Hash(<T::Hash as hash_db::Hasher>::hash(&encoded[..]))
@@ -1849,7 +1849,7 @@ mod tests {
 	}
 
 	#[test]
-	fn dummy2_2() {
+	fn dummy2_20() {
 		compare_with_triedbmut_detach(&[
 			(vec![0], vec![0, 0]),
 			(vec![1], vec![0, 0]),

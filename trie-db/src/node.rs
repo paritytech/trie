@@ -332,19 +332,27 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 	}
 
 	/// Set a partial TODO EMCH factor new node from existing on all those methods.
-	pub(crate) fn set_partial<H: AsMut<[u8]> + Default>(&mut self, partial: NodeKey) -> Option<TNode<H, Vec<u8>>> {
+	pub(crate) fn set_partial<H: AsMut<[u8]> + Default>(&mut self, new_partial: NodeKey) -> Option<TNode<H, Vec<u8>>> {
 		let data = &self.data.borrow();
 		match &self.plan {
-			NodePlan::Leaf { value, .. } => {
+			NodePlan::Leaf { value, partial } => {
+				let partial = partial.build(data);
+				if partial == NibbleSlice::from_stored(&new_partial) {
+					return None;
+				}
 				Some(TNode::Leaf(
-					partial,
+					new_partial,
 					data[value.clone()].into(),
 				))
 			},
 			NodePlan::Extension { .. } // TODO Extension
 			| NodePlan::Branch { .. } // TODO branch
 			| NodePlan::Empty => None,
-			NodePlan::NibbledBranch { value, children, .. } => {
+			NodePlan::NibbledBranch { value, children, partial } => {
+				let partial = partial.build(data);
+				if partial == NibbleSlice::from_stored(&new_partial) {
+					return None;
+				}
 				let mut child_slices = [
 					None, None, None, None,
 					None, None, None, None,
@@ -355,7 +363,7 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 					child_slices[i] = children[i].as_ref().map(|child| child.build_thandle(data));
 				}
 				Some(TNode::NibbledBranch(
-					partial,
+					new_partial,
 					Box::new(child_slices),
 					value.as_ref().map(|value| data[value.clone()].into()),
 				))
