@@ -33,7 +33,6 @@ use std::{
 	mem,
 	marker::PhantomData,
 	cmp::Eq,
-	cmp,
 	borrow::Borrow,
 };
 

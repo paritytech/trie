@@ -16,13 +16,20 @@ use hash_db::Hasher;
 use crate::nibble::{self, NibbleSlice};
 use crate::nibble::nibble_ops;
 use crate::node_codec::NodeCodec;
-use crate::triedbmut::Node as TNode;
-use crate::triedbmut::NodeHandle as TNodeHandle;
 use crate::rstd::{borrow::Borrow, ops::Range, boxed::Box, vec::Vec};
 
 
+/// This was only implemented for trie without extension, it could
+/// be implemented for trie and extension in the future but is not
+/// at this point.
+const NO_EXTENSION_ONLY: &str = "trie without extension implemented only";
+
 /// Owned handle to a node, to use when there is no caching.
 pub type StorageHandle = Vec<u8>;
+
+type TNode<H> = crate::triedbmut::NodeMut<H, StorageHandle>;
+
+type TNodeHandle<H> = crate::triedbmut::NodeHandleMut<H, StorageHandle>;
 
 /// Partial node key type: offset and owned value of a nibbleslice.
 /// Offset is applied on first byte of array (bytes are right aligned).
@@ -81,17 +88,16 @@ impl NodeHandlePlan {
 		}
 	}
 
-	fn build_owned_handle<H: AsMut<[u8]> + Default>(&self, data: &[u8]) -> crate::triedbmut::NodeHandle<H, StorageHandle> {
+	fn build_owned_handle<H: AsMut<[u8]> + Default>(&self, data: &[u8]) -> TNodeHandle<H> {
 		match self {
 			NodeHandlePlan::Hash(range) => {
 				let mut hash = H::default();
 				hash.as_mut().copy_from_slice(&data[range.clone()]);
-				crate::triedbmut::NodeHandle::Hash(hash)
+				TNodeHandle::Hash(hash)
 			},
-			NodeHandlePlan::Inline(range) => crate::triedbmut::NodeHandle::InMemory((&data[range.clone()]).into()),
+			NodeHandlePlan::Inline(range) => TNodeHandle::InMemory((&data[range.clone()]).into()),
 		}
 	}
-
 }
 
 /// A `NibbleSlicePlan` is a blueprint for decoding a nibble slice from a byte slice. The
@@ -300,7 +306,7 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 		data: &[u8],
 		children: &[Option<NodeHandlePlan>; nibble_ops::NIBBLE_LENGTH],
 		skip_index: Option<usize>,
-	) -> Box<[Option<TNodeHandle<H, StorageHandle>>; 16]> {
+	) -> Box<[Option<TNodeHandle<H>>; 16]> {
 		let mut child_slices = Box::new([
 			None, None, None, None,
 			None, None, None, None,
@@ -321,8 +327,8 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 		child_slices
 	}
 
-	/// Set a partial TODO EMCH factor new node from existing on all those methods.
-	pub(crate) fn advance_partial<H: AsMut<[u8]> + Default>(&mut self, nb: usize) -> Option<TNode<H, StorageHandle>> {
+	/// Remove n first byte from the existing partial, return updated node if updated.
+	pub(crate) fn advance_partial<H: AsMut<[u8]> + Default>(&mut self, nb: usize) -> Option<TNode<H>> {
 		if nb == 0 {
 			return None;
 		}
@@ -336,8 +342,8 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 					data[value.clone()].into(),
 				))
 			},
-			NodePlan::Extension { .. } // TODO Extension
-			| NodePlan::Branch { .. } // TODO branch
+			NodePlan::Extension { .. } => unimplemented!("{}", NO_EXTENSION_ONLY),
+			NodePlan::Branch { .. }
 			| NodePlan::Empty => None,
 			NodePlan::NibbledBranch { partial, value, children } => {
 				let mut partial = partial.build(data);
@@ -352,8 +358,8 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 		}
 	}
 
-	/// Set a partial TODO EMCH factor new node from existing on all those methods.
-	pub(crate) fn set_partial<H: AsMut<[u8]> + Default>(&mut self, new_partial: NodeKey) -> Option<TNode<H, StorageHandle>> {
+	/// Set a partial and return new node if changed.
+	pub(crate) fn set_partial<H: AsMut<[u8]> + Default>(&mut self, new_partial: NodeKey) -> Option<TNode<H>> {
 		let data = &self.data.borrow();
 		match &self.plan {
 			NodePlan::Leaf { value, partial } => {
@@ -366,8 +372,8 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 					data[value.clone()].into(),
 				))
 			},
-			NodePlan::Extension { .. } // TODO Extension
-			| NodePlan::Branch { .. } // TODO branch
+			NodePlan::Extension { .. } => unimplemented!("{}", NO_EXTENSION_ONLY),
+			NodePlan::Branch { .. }
 			| NodePlan::Empty => None,
 			NodePlan::NibbledBranch { value, children, partial } => {
 				let partial = partial.build(data);
@@ -383,8 +389,8 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 		}
 	}
 
-	/// Set a value.
-	pub(crate) fn set_value<H: AsMut<[u8]> + Default>(&mut self, new_value: &[u8]) -> Option<TNode<H, StorageHandle>> {
+	/// Set a value and return new node if changed.
+	pub(crate) fn set_value<H: AsMut<[u8]> + Default>(&mut self, new_value: &[u8]) -> Option<TNode<H>> {
 		let data = &self.data.borrow();
 		match &self.plan {
 			NodePlan::Empty => {
@@ -402,9 +408,8 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 					new_value.into(),
 				))
 			},
-			NodePlan::Extension { .. } // TODO Extension
-			// TODO branch
-			| NodePlan::Branch { .. } => None,
+			NodePlan::Extension { .. } => None,
+			NodePlan::Branch { .. } => unimplemented!("{}", NO_EXTENSION_ONLY),
 			NodePlan::NibbledBranch { partial, value, children } => {
 				if let Some(value) = value {
 					if &data[value.clone()] == new_value {
@@ -421,13 +426,16 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 		}
 	}
 
-	/// Remove a value.
-	pub(crate) fn remove_value<H: AsMut<[u8]> + Default>(&mut self) -> Option<Option<TNode<H, StorageHandle>>> {
+	/// Remove a value, return the change if something did change either node deleted or new value
+	/// for node.
+	/// Note that we are allowed to return a branch with no value and a single child (would need to
+	/// be fix depending on calling context (there could be some appending afterward)).
+	pub(crate) fn remove_value<H: AsMut<[u8]> + Default>(&mut self) -> Option<Option<TNode<H>>> {
 		let data = &self.data.borrow();
 		match &self.plan {
 			NodePlan::Leaf { .. } => Some(None),
-			NodePlan::Extension { .. } // TODO Extension
-			| NodePlan::Branch { .. } // TODO branch
+			NodePlan::Branch { .. } => unimplemented!("{}", NO_EXTENSION_ONLY),
+			NodePlan::Extension { .. }
 			| NodePlan::Empty => None,
 			NodePlan::NibbledBranch { partial, value, children } => {
 				if value.is_none() {
@@ -445,15 +453,15 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 
 	/// Set a handle to a child node or remove it if handle is none.
 	/// Return possibly updated node.
-	pub(crate) fn set_handle<H: AsMut<[u8]> + Default>(&mut self, handle: Option<TNodeHandle<H, StorageHandle>>, index: u8)
-		-> Option<TNode<H, StorageHandle>> {
+	pub(crate) fn set_handle<H: AsMut<[u8]> + Default>(&mut self, handle: Option<TNodeHandle<H>>, index: u8)
+		-> Option<TNode<H>> {
 
 		let index = index as usize;
 		let data = &self.data.borrow();
 		match &mut self.plan {
-			NodePlan::Empty => unreachable!("corner case cannot be handle in this function"),
-			NodePlan::Extension { .. } // TODO Extension
-			| NodePlan::Branch { .. } => unreachable!("function only for no extension trie"),
+			NodePlan::Empty => unreachable!("Do not add handle to empty but replace the node instead"),
+			NodePlan::Extension { .. }
+			| NodePlan::Branch { .. } => unimplemented!("{}", NO_EXTENSION_ONLY),
 			NodePlan::Leaf { partial, value } => {
 				if handle.is_some() {
 					let mut child_slices = Box::new([

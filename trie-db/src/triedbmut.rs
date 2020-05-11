@@ -42,24 +42,24 @@ pub(crate) struct StorageHandle(usize);
 
 // Handles to nodes in the trie.
 #[cfg_attr(feature = "std", derive(Debug))]
-pub enum NodeHandle<H, SH> {
+pub enum NodeHandleMut<H, SH> {
 	/// Loaded into memory.
 	InMemory(SH),
 	/// Either a hash or an inline node
 	Hash(H),
 }
 
-impl<H: AsRef<[u8]>, SH: AsRef<[u8]>> NodeHandle<H, SH> {
+impl<H: AsRef<[u8]>, SH: AsRef<[u8]>> NodeHandleMut<H, SH> {
 	/// Get a node handle ref to this handle.
 	pub(crate) fn as_ref(&self) -> crate::node::NodeHandle {
 		match self {
-			NodeHandle::InMemory(sh) => crate::node::NodeHandle::Inline(sh.as_ref()), 
-			NodeHandle::Hash(h) => crate::node::NodeHandle::Hash(h.as_ref()), 
+			NodeHandleMut::InMemory(sh) => crate::node::NodeHandle::Inline(sh.as_ref()), 
+			NodeHandleMut::Hash(h) => crate::node::NodeHandle::Hash(h.as_ref()), 
 		}
 	}
 }
 
-impl<H: AsRef<[u8]> + Send + Copy, SH: AsRef<[u8]>> NodeHandle<H, SH>
+impl<H: AsRef<[u8]> + Send + Copy, SH: AsRef<[u8]>> NodeHandleMut<H, SH>
 where
 	H: AsRef<[u8]> + AsMut<[u8]> + Default + crate::MaybeDebug
 		+ PartialEq + Eq + Hash + Send + Sync + Clone + Copy,
@@ -67,33 +67,30 @@ where
 {
 	/// Get a child reference (this has a cost but doing
 	/// otherwhise requires changing codec trait).
-	pub(crate) fn as_child_ref<H2>(&self) -> ChildReference<H>
+	pub(crate) fn into_child_ref<H2>(self) -> ChildReference<H>
 		where
 				H2: Hasher<Out = H>
 	{
 		match self {
-			NodeHandle::InMemory(sh) => {
+			NodeHandleMut::InMemory(sh) => {
 				let sh_ref = sh.as_ref();
-				// TODO EMCH consider keeping the encoded buffer
-				// of node handle (need to apply everywhere).
 				let mut h = H2::Out::default();
 				let len = sh_ref.len();
 				h.as_mut()[..len].copy_from_slice(&sh_ref[..len]);
 				ChildReference::Inline(h, len)
 			}, 
-			NodeHandle::Hash(h) => ChildReference::Hash(h.clone()),
+			NodeHandleMut::Hash(h) => ChildReference::Hash(h),
 		}
 	}
-
 }
 
-impl<H> From<StorageHandle> for NodeHandle<H, StorageHandle> {
+impl<H> From<StorageHandle> for NodeHandle<H> {
 	fn from(handle: StorageHandle) -> Self {
 		NodeHandle::InMemory(handle)
 	}
 }
 
-fn empty_children<H>() -> Box<[Option<NodeHandle<H, StorageHandle>>; 16]> {
+fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; 16]> {
 	Box::new([
 		None, None, None, None, None, None, None, None,
 		None, None, None, None, None, None, None, None,
@@ -104,9 +101,8 @@ fn empty_children<H>() -> Box<[Option<NodeHandle<H, StorageHandle>>; 16]> {
 /// therefore its left side is a full prefix.
 pub(crate) type NibbleFullKey<'key> = NibbleSlice<'key>;
 
-// TODO EMCH make a local type alias with only H!!
 /// Node types in the Trie.
-pub(crate) enum Node<H, SH> {
+pub(crate) enum NodeMut<H, SH> {
 	/// Empty node.
 	Empty,
 	/// A leaf node contains the end of a key and a value.
@@ -117,17 +113,17 @@ pub(crate) enum Node<H, SH> {
 	/// The shared portion is encoded from a `NibbleSlice` meaning it contains
 	/// a flag indicating it is an extension.
 	/// The child node is always a branch.
-	Extension(NodeKey, NodeHandle<H, SH>),
+	Extension(NodeKey, NodeHandleMut<H, SH>),
 	/// A branch has up to 16 children and an optional value.
-	Branch(Box<[Option<NodeHandle<H, SH>>; 16]>, Option<DBValue>),
+	Branch(Box<[Option<NodeHandleMut<H, SH>>; 16]>, Option<DBValue>),
 	/// Branch node with support for a nibble (to avoid extension node).
-	NibbledBranch(NodeKey, Box<[Option<NodeHandle<H, SH>>; 16]>, Option<DBValue>),
+	NibbledBranch(NodeKey, Box<[Option<NodeHandleMut<H, SH>>; 16]>, Option<DBValue>),
 }
 
-impl<H, SH> Node<H, SH> {
+impl<H, SH> NodeMut<H, SH> {
 	/// Tell if it is the empty node.
 	pub(crate) fn is_empty(&self) -> bool {
-		if let Node::Empty = &self {
+		if let NodeMut::Empty = &self {
 			true
 		} else {
 			false
@@ -137,11 +133,11 @@ impl<H, SH> Node<H, SH> {
 	/// Get extension part of the node (partial) if any.
 	pub(crate) fn partial(&self) -> Option<NibbleSlice> {
 		match self {
-			Node::Branch { .. }
-			| Node::Empty => None,
-			Node::NibbledBranch(partial, ..)
-			| Node::Extension(partial, ..)
-			| Node::Leaf(partial, ..)
+			NodeMut::Branch { .. }
+			| NodeMut::Empty => None,
+			NodeMut::NibbledBranch(partial, ..)
+			| NodeMut::Extension(partial, ..)
+			| NodeMut::Leaf(partial, ..)
 				=> Some(NibbleSlice::new_offset(&partial.1[..], partial.0)),
 		}
 	}
@@ -149,11 +145,11 @@ impl<H, SH> Node<H, SH> {
 	/// Advance partial offset if there is a partial.
 	pub(crate) fn advance_partial(&mut self, nb: usize) {
 		match self {
-			Node::Extension(..)
-			| Node::Branch ( .. )
-			| Node::Empty => (),
-			Node::NibbledBranch(partial, ..)
-			| Node::Leaf(partial, ..) => {
+			NodeMut::Extension(..)
+			| NodeMut::Branch ( .. )
+			| NodeMut::Empty => (),
+			NodeMut::NibbledBranch(partial, ..)
+			| NodeMut::Leaf(partial, ..) => {
 				let mut new_partial: NibbleSlice = NibbleSlice::new_offset(partial.1.as_ref(), partial.0);
 				new_partial.advance(nb);
 				*partial = new_partial.into();
@@ -164,11 +160,11 @@ impl<H, SH> Node<H, SH> {
 	/// Set partial if possible.
 	pub(crate) fn set_partial(&mut self, new_partial: NodeKey) {
 		match self {
-			Node::Branch ( .. )
-			| Node::Empty => (),
-			Node::Extension(partial, ..)
-			| Node::NibbledBranch(partial, ..)
-			| Node::Leaf(partial, ..) => {
+			NodeMut::Branch ( .. )
+			| NodeMut::Empty => (),
+			NodeMut::Extension(partial, ..)
+			| NodeMut::NibbledBranch(partial, ..)
+			| NodeMut::Leaf(partial, ..) => {
 				*partial = new_partial;
 			},
 		}
@@ -177,23 +173,23 @@ impl<H, SH> Node<H, SH> {
 	/// Set value to node if possible.
 	pub(crate) fn has_value(&self) -> bool {
 		match self {
-			Node::Extension(..)
-			| Node::Empty => false,
-			Node::Branch (_, val )
-			| Node::NibbledBranch(_, _, val) => val.is_some(),
-			Node::Leaf(_, _) => true,
+			NodeMut::Extension(..)
+			| NodeMut::Empty => false,
+			NodeMut::Branch (_, val )
+			| NodeMut::NibbledBranch(_, _, val) => val.is_some(),
+			NodeMut::Leaf(_, _) => true,
 		}
 	}
 
 	/// Set value to node if possible.
 	pub(crate) fn set_value(&mut self, value: &[u8]) {
 		match self {
-			Node::Extension(..)
-			| Node::Empty => (),
-			Node::Branch ( _, val )
-			| Node::NibbledBranch(_, _, val)
+			NodeMut::Extension(..)
+			| NodeMut::Empty => (),
+			NodeMut::Branch ( _, val )
+			| NodeMut::NibbledBranch(_, _, val)
 				=> *val = Some(value.into()),
-			Node::Leaf(_, val)
+			NodeMut::Leaf(_, val)
 				=> *val = value.into(),
 		}
 	}
@@ -201,17 +197,17 @@ impl<H, SH> Node<H, SH> {
 	/// Return true if the node can be removed to.
 	pub(crate) fn remove_value(&mut self) -> bool {
 		match self {
-			Node::Extension(..)
-			| Node::Empty => false,
-			Node::Branch(encoded_children, val)
-			| Node::NibbledBranch(_, encoded_children, val)
+			NodeMut::Extension(..)
+			| NodeMut::Empty => false,
+			NodeMut::Branch(encoded_children, val)
+			| NodeMut::NibbledBranch(_, encoded_children, val)
 				=> {
 					*val = None;
 					// TODO store a boolean state to indicate the current
 					// number of set children
 					!encoded_children.iter().any(Option::is_some)
 				},
-			Node::Leaf(..)
+			NodeMut::Leaf(..)
 				=> true,
 		}
 	}
@@ -220,28 +216,28 @@ impl<H, SH> Node<H, SH> {
 	/// needed for trie with extension).
 	pub(crate) fn set_handle(
 		&mut self,
-		handle: Option<NodeHandle<H, SH>>,
+		handle: Option<NodeHandleMut<H, SH>>,
 		index: u8,
 	) {
 		let index = index as usize;
-		let node = mem::replace(self, Node::Empty); 
+		let node = mem::replace(self, NodeMut::Empty); 
 		*self = match node {
-			Node::Extension(..)
-			| Node::Branch(..) => unreachable!("Only for no extension trie"),
+			NodeMut::Extension(..)
+			| NodeMut::Branch(..) => unreachable!("Only for no extension trie"),
 			// need to replace value before creating handle
 			// so it is a corner case TODO test case it
 			// (may be unreachable since changing to empty means
 			// we end the root process)
-			Node::Empty => unreachable!(),
-			Node::NibbledBranch(partial, encoded_children, val)
+			NodeMut::Empty => unreachable!(),
+			NodeMut::NibbledBranch(partial, encoded_children, val)
 				if handle.is_none() && encoded_children[index].is_none() => {
-				Node::NibbledBranch(partial, encoded_children, val)
+				NodeMut::NibbledBranch(partial, encoded_children, val)
 			},
-			Node::NibbledBranch(partial, mut encoded_children, val) => {
+			NodeMut::NibbledBranch(partial, mut encoded_children, val) => {
 				encoded_children[index] = handle;
-				Node::NibbledBranch(partial, encoded_children, val)
+				NodeMut::NibbledBranch(partial, encoded_children, val)
 			},
-			Node::Leaf(partial, val) if handle.is_some() => {
+			NodeMut::Leaf(partial, val) if handle.is_some() => {
 					let mut children = Box::new([
 						None, None, None, None,
 						None, None, None, None,
@@ -250,11 +246,9 @@ impl<H, SH> Node<H, SH> {
 					]);
 					children[index] = handle;
 
-					Node::NibbledBranch(partial, children, Some(val))
+					NodeMut::NibbledBranch(partial, children, Some(val))
 			},
-			n@Node::Leaf(..) => {
-				n
-			},
+			n@NodeMut::Leaf(..) => n,
 		};
 	}
 
@@ -271,17 +265,17 @@ impl<H, SH> Node<H, SH> {
 		&mut self,
 		pending: (Option<u8>, Option<u8>),
 	) -> (bool, Option<u8>) {
-		let node = mem::replace(self, Node::Empty); // TODO EMCH rewrite to avoid this mem replace.
+		let node = mem::replace(self, NodeMut::Empty); // TODO EMCH rewrite to avoid this mem replace.
 		let (node, fuse) = match node {
-			Node::Extension(..)
-			| Node::Branch(..) => unreachable!("Only for no extension trie"),
+			NodeMut::Extension(..)
+			| NodeMut::Branch(..) => unreachable!("Only for no extension trie"),
 			// need to replace value before creating handle
 			// so it is a corner case TODO test case it
 			// (may be unreachable since changing to empty means
 			// we end the root process)
-			n@Node::Empty
-			| n@Node::Leaf(..) => (n, None),
-			Node::NibbledBranch(partial, encoded_children, val) => {
+			n@NodeMut::Empty
+			| n@NodeMut::Leaf(..) => (n, None),
+			NodeMut::NibbledBranch(partial, encoded_children, val) => {
 				let mut count = 0;
 				let mut other_index = None;
 				if let Some(pending) = pending.0 {
@@ -305,20 +299,20 @@ impl<H, SH> Node<H, SH> {
 					}
 				}
 				if val.is_some() && count == 0 {
-					(Node::Leaf(partial, val.expect("Tested above")), None)
+					(NodeMut::Leaf(partial, val.expect("Tested above")), None)
 				} else if val.is_none() && count == 0 {
-					(Node::Empty, None)
+					(NodeMut::Empty, None)
 				} else if val.is_none() && count == 1 {
 					let child_ix = encoded_children.iter().position(Option::is_some)
 						.unwrap_or_else(|| other_index.expect("counted above") as usize);
-					(Node::NibbledBranch(partial, encoded_children, val), Some(child_ix as u8))
+					(NodeMut::NibbledBranch(partial, encoded_children, val), Some(child_ix as u8))
 				} else {
-					(Node::NibbledBranch(partial, encoded_children, val), None)
+					(NodeMut::NibbledBranch(partial, encoded_children, val), None)
 				}
 			},
 		};
 		*self = node;
-		(if let Node::Empty = self {
+		(if let NodeMut::Empty = self {
 			true
 		} else {
 			false
@@ -326,7 +320,7 @@ impl<H, SH> Node<H, SH> {
 	}
 
 	pub(crate) fn new_leaf(prefix: NibbleSlice, value: &[u8]) -> Self {
-		Node::Leaf(prefix.to_stored(), value.into())
+		NodeMut::Leaf(prefix.to_stored(), value.into())
 	}
 
 	// TODO rename to empty branch, branch placeholder or something
@@ -338,19 +332,19 @@ impl<H, SH> Node<H, SH> {
 			None, None, None, None,
 		]);
 
-		Node::NibbledBranch(prefix.to_stored(), children, None)
+		NodeMut::NibbledBranch(prefix.to_stored(), children, None)
 	}
 }
 
-impl<H: AsRef<[u8]>, SH: AsRef<[u8]>> Node<H, SH> {
+impl<H: AsRef<[u8]>, SH: AsRef<[u8]>> NodeMut<H, SH> {
 	/// Try to access child.
 	pub fn child(&self, ix: u8) -> Option<crate::node::NodeHandle> {
 		match self {
-			Node::Leaf { .. }
-			| Node::Extension { .. }
-			| Node::Empty => None,
-			Node::NibbledBranch ( _, children, _ )
-			| Node::Branch ( children, .. ) =>
+			NodeMut::Leaf { .. }
+			| NodeMut::Extension { .. }
+			| NodeMut::Empty => None,
+			NodeMut::NibbledBranch ( _, children, _ )
+			| NodeMut::Branch ( children, .. ) =>
 				children[ix as usize].as_ref().map(|child| child.as_ref()),
 		}
 	}
@@ -370,7 +364,7 @@ impl<'a> Debug for ToHex<'a> {
 }
 
 #[cfg(feature = "std")]
-impl<H: Debug, NH: Debug> Debug for Node<H, NH> {
+impl<H: Debug, SH: Debug> Debug for NodeMut<H, SH> {
 	fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
 		match *self {
 			Self::Empty => write!(fmt, "Empty"),
@@ -386,7 +380,12 @@ impl<H: Debug, NH: Debug> Debug for Node<H, NH> {
 	}
 }
 
-impl<O> Node<O, StorageHandle>
+
+type NodeHandle<O> = NodeHandleMut<O, StorageHandle>;
+
+type Node<O> = NodeMut<O, StorageHandle>;
+
+impl<O> Node<O>
 	where
 		O: AsRef<[u8]> + AsMut<[u8]> + Default + crate::MaybeDebug
 			+ PartialEq + Eq + Hash + Send + Sync + Clone + Copy
@@ -397,7 +396,7 @@ impl<O> Node<O, StorageHandle>
 		child: EncodedNodeHandle,
 		db: &dyn HashDB<H, DBValue>,
 		storage: &mut NodeStorage<H::Out>
-	) -> Result<NodeHandle<H::Out, StorageHandle>, H::Out, C::Error>
+	) -> Result<NodeHandle<H::Out>, H::Out, C::Error>
 	where
 		C: NodeCodec<HashOut=O>,
 		H: Hasher<Out=O>,
@@ -474,7 +473,7 @@ impl<O> Node<O, StorageHandle>
 	}
 }
 
-impl<O, SH> Node<O, SH>
+impl<O, SH> NodeMut<O, SH>
 where
 	O: AsRef<[u8]> + AsMut<[u8]> + Default + crate::MaybeDebug
 		+ PartialEq + Eq + Hash + Send + Sync + Clone + Copy
@@ -539,17 +538,17 @@ where
 	pub(crate) fn into_encoded<F, C, H>(self, mut child_cb: F) -> Vec<u8>
 	where
 		C: NodeCodec<HashOut = O>,
-		F: FnMut(NodeHandle<H::Out, SH>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
+		F: FnMut(NodeHandleMut<H::Out, SH>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
 		H: Hasher<Out = O>,
 	{
 		match self {
-			Node::Empty => C::empty_node().to_vec(),
-			Node::Leaf(partial, value) => {
+			NodeMut::Empty => C::empty_node().to_vec(),
+			NodeMut::Leaf(partial, value) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 //				println!("d{:?} {:?}", pr.right(), value);
 				C::leaf_node(pr.right(), &value)
 			},
-			Node::Extension(partial, child) => {
+			NodeMut::Extension(partial, child) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
 				let c = child_cb(child, Some(&pr), None);
@@ -559,7 +558,7 @@ where
 					c,
 				)
 			},
-			Node::Branch(mut children, value) => {
+			NodeMut::Branch(mut children, value) => {
 				C::branch_node(
 					// map the `NodeHandle`s from the Branch to `ChildReferences`
 					children.iter_mut()
@@ -571,7 +570,7 @@ where
 					value.as_ref().map(|v| &v[..])
 				)
 			},
-			Node::NibbledBranch(partial, mut children, value) => {
+			NodeMut::NibbledBranch(partial, mut children, value) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
 				C::branch_node_nibbled(
@@ -598,9 +597,9 @@ where
 // post-inspect action.
 enum Action<H> {
 	// Replace a node with a new one.
-	Replace(Node<H, StorageHandle>),
+	Replace(Node<H>),
 	// Restore the original node. This trusts that the node is actually the original.
-	Restore(Node<H,StorageHandle>),
+	Restore(Node<H>),
 	// if it is a new node, just clears the storage.
 	Delete,
 }
@@ -608,9 +607,9 @@ enum Action<H> {
 // post-insert action. Same as action without delete
 enum InsertAction<H> {
 	// Replace a node with a new one.
-	Replace(Node<H, StorageHandle>),
+	Replace(Node<H>),
 	// Restore the original node.
-	Restore(Node<H, StorageHandle>),
+	Restore(Node<H>),
 }
 
 impl<H> InsertAction<H> {
@@ -622,7 +621,7 @@ impl<H> InsertAction<H> {
 	}
 
 	// unwrap the node, disregarding replace or restore state.
-	fn unwrap_node(self) -> Node<H, StorageHandle> {
+	fn unwrap_node(self) -> Node<H> {
 		match self {
 			InsertAction::Replace(n) | InsertAction::Restore(n) => n,
 		}
@@ -632,9 +631,9 @@ impl<H> InsertAction<H> {
 // What kind of node is stored here.
 enum Stored<H> {
 	// A new node.
-	New(Node<H, StorageHandle>),
+	New(Node<H>),
 	// A cached node, loaded from the DB.
-	Cached(Node<H, StorageHandle>, H),
+	Cached(Node<H>, H),
 }
 
 /// Used to build a collection of child nodes from a collection of `NodeHandle`s
@@ -708,9 +707,9 @@ impl<H> NodeStorage<H> {
 }
 
 impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
-	type Output = Node<H, StorageHandle>;
+	type Output = Node<H>;
 
-	fn index(&self, handle: &'a StorageHandle) -> &Node<H, StorageHandle> {
+	fn index(&self, handle: &'a StorageHandle) -> &Node<H> {
 		match self.nodes[handle.0] {
 			Stored::New(ref node) => node,
 			Stored::Cached(ref node, _) => node,
@@ -752,7 +751,7 @@ where
 	storage: NodeStorage<TrieHash<L>>,
 	db: &'a mut dyn HashDB<L::Hash, DBValue>,
 	root: &'a mut TrieHash<L>,
-	root_handle: NodeHandle<TrieHash<L>, StorageHandle>,
+	root_handle: NodeHandle<TrieHash<L>>,
 	death_row: HashSet<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
 	/// The number of hash operations this trie has performed.
 	/// Note that none are performed until changes are committed.
@@ -836,7 +835,7 @@ where
 		where
 			F: FnOnce(
 				&mut Self,
-				Node<TrieHash<L>, StorageHandle>,
+				Node<TrieHash<L>>,
 				&mut NibbleFullKey,
 			) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>>,
 	{
@@ -865,7 +864,7 @@ where
 	fn lookup<'x, 'key>(
 		&'x self,
 		mut partial: NibbleSlice<'key>,
-		handle: &NodeHandle<TrieHash<L>, StorageHandle>,
+		handle: &NodeHandle<TrieHash<L>>,
 	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
 		where 'x: 'key
 	{
@@ -930,7 +929,7 @@ where
 	/// Insert a key-value pair into the trie, creating new nodes if necessary.
 	fn insert_at(
 		&mut self,
-		handle: NodeHandle<TrieHash<L>, StorageHandle>,
+		handle: NodeHandle<TrieHash<L>>,
 		key: &mut NibbleFullKey,
 		value: DBValue,
 		old_val: &mut Option<DBValue>,
@@ -951,7 +950,7 @@ where
 	/// The insertion inspector.
 	fn insert_inspector(
 		&mut self,
-		node: Node<TrieHash<L>, StorageHandle>,
+		node: Node<TrieHash<L>>,
 		key: &mut NibbleFullKey,
 		value: DBValue,
 		old_val: &mut Option<DBValue>,
@@ -1297,7 +1296,7 @@ where
 	/// Removes a node from the trie based on key.
 	fn remove_at(
 		&mut self,
-		handle: NodeHandle<TrieHash<L>, StorageHandle>,
+		handle: NodeHandle<TrieHash<L>>,
 		key: &mut NibbleFullKey,
 		old_val: &mut Option<DBValue>,
 	) -> Result<Option<(StorageHandle, bool)>, TrieHash<L>, CError<L>> {
@@ -1321,7 +1320,7 @@ where
 	/// The removal inspector.
 	fn remove_inspector(
 		&mut self,
-		node: Node<TrieHash<L>, StorageHandle>,
+		node: Node<TrieHash<L>>,
 		key: &mut NibbleFullKey,
 		old_val: &mut Option<DBValue>,
 	) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>> {
@@ -1502,9 +1501,9 @@ where
 	/// - Extension node followed by anything other than a Branch node.
 	fn fix(
 		&mut self,
-		node: Node<TrieHash<L>, StorageHandle>,
+		node: Node<TrieHash<L>>,
 		key: NibbleSlice,
-	) -> Result<Node<TrieHash<L>, StorageHandle>, TrieHash<L>, CError<L>> {
+	) -> Result<Node<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		match node {
 			Node::Branch(mut children, value) => {
 				// if only a single value, transmute to leaf/extension and feed through fixed.
@@ -1788,7 +1787,7 @@ where
 	/// `into_encoded` method of `Node`.
 	fn commit_child(
 		&mut self,
-		handle: NodeHandle<TrieHash<L>, StorageHandle>,
+		handle: NodeHandle<TrieHash<L>>,
 		prefix: &mut NibbleVec,
 	) -> ChildReference<TrieHash<L>> {
 		match handle {
@@ -1829,7 +1828,7 @@ where
 	}
 
 	// a hack to get the root node's handle
-	fn root_handle(&self) -> NodeHandle<TrieHash<L>, StorageHandle> {
+	fn root_handle(&self) -> NodeHandle<TrieHash<L>> {
 		match self.root_handle {
 			NodeHandle::Hash(h) => NodeHandle::Hash(h),
 			NodeHandle::InMemory(StorageHandle(x)) => NodeHandle::InMemory(StorageHandle(x)),
@@ -2426,7 +2425,7 @@ pub(crate) mod tests {
 	#[test]
 	fn nice_debug_for_node() {
 		use super::Node;
-		let e: Node<u32, super::StorageHandle> = Node::Leaf((1, vec![1, 2, 3].into()), vec![4, 5, 6]);
+		let e: Node<u32> = Node::Leaf((1, vec![1, 2, 3].into()), vec![4, 5, 6]);
 		assert_eq!(format!("{:?}", e), "Leaf((1, 010203), 040506)");
 	}
 

@@ -22,9 +22,8 @@
 //! be done by using a tuple of extension and branch node as a branch (storing
 //! an additional hash in branch and only adapting fetch and write methods).
 
-use crate::triedbmut::{Node, NibbleFullKey};
-use crate::triedbmut::NodeHandle as NodeHandleTrieMut;
-use crate::node::{OwnedNode, NodeHandle, NodeKey};
+use crate::triedbmut::{NibbleFullKey};
+use crate::node::{OwnedNode, NodeHandle, NodeKey, StorageHandle};
 use crate::nibble::{NibbleVec, nibble_ops, NibbleSlice};
 #[cfg(feature = "std")]
 use std::borrow::Borrow;
@@ -39,8 +38,10 @@ use crate::NodeCodec;
 use crate::rstd::mem;
 use crate::rstd::boxed::Box;
 
-type StorageHandle = Vec<u8>;
-type OwnedNodeHandle<H> = NodeHandleTrieMut<H, StorageHandle>;
+
+type Node<H> = crate::triedbmut::NodeMut<H, StorageHandle>;
+
+type OwnedNodeHandle<H> = crate::triedbmut::NodeHandleMut<H, StorageHandle>;
 
 /// StackedNodeState can be updated.
 /// A state can be use.
@@ -55,7 +56,7 @@ enum StackedNodeState<B, T>
 	/// parent hash or root.
 	UnchangedAttached(OwnedNode<B>),
 	/// Modified node.
-	Changed(Node<TrieHash<T>, StorageHandle>),
+	Changed(Node<TrieHash<T>>),
 	/// Deleted node.
 	Deleted,
 }
@@ -556,7 +557,7 @@ impl<B, T> StackedNodeState<B, T>
 			| StackedNodeState::Unchanged(node) => node.data().to_vec(),
 			StackedNodeState::Changed(node) => node.into_encoded::<_, T::Codec, T::Hash>(
 				|child, _o_slice, _o_index| {
-					child.as_child_ref::<T::Hash>()
+					child.into_child_ref::<T::Hash>()
 				}),
 			StackedNodeState::Deleted => T::Codec::empty_node().to_vec(),
 		}
@@ -1254,7 +1255,7 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 				}
 				let encoded = node.into_encoded::<_, T::Codec, T::Hash>(
 					|child, _o_slice, _o_index| {
-						child.as_child_ref::<T::Hash>()
+						child.into_child_ref::<T::Hash>()
 					}
 				);
 				if encoded.len() < <T::Hash as hash_db::Hasher>::LENGTH {
@@ -1335,7 +1336,7 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 			s@StackedNodeState::UnchangedAttached(..)
 			| s@StackedNodeState::Unchanged(..) => {
 				if !is_empty_node {
-					let hash = if let Some((not_inline, previous_prefix)) = prev_hash {
+					let hash = if let Some((not_inline, _previous_prefix)) = prev_hash {
 						not_inline
 					} else {
 						let encoded = s.into_encoded();
