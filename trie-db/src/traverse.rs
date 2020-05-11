@@ -845,7 +845,6 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 			let dest_slice = NibbleFullKey::new(key.as_ref());
 			let dest_depth = key.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
 			let mut descend_mid_index = None;
-
 			loop {
 				let common_index = current.item.node.partial()
 					.map(|current_partial| {
@@ -868,18 +867,18 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 					break;
 				}
 			}
+
 			let traverse_state = if let Some(mid_index) = descend_mid_index {
 				TraverseState::MidPartial(mid_index)
+			} else if dest_depth > current.item.depth {
+				// over callback
+				TraverseState::AfterNode
 			} else {
-				debug_assert!(dest_depth >= current.item.depth);
-				if dest_depth > current.item.depth {
-					// over callback
-					TraverseState::AfterNode
-				} else {
-					// value replace callback
-					TraverseState::ValueMatch
-				}
+				debug_assert!(dest_depth == current.item.depth);
+				// value replace callback
+				TraverseState::ValueMatch
 			};
+
 			let (value, do_fetch) = value.as_ref();
 			let fetch = if let Some(hash) = do_fetch {
 				 // This is fetching node to attach
