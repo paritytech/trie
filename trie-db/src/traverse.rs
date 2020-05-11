@@ -159,7 +159,7 @@ impl<B, T> StackedItem<B, T>
 			None
 		}
 	}
-	
+
 	fn descend_child(&mut self, index: u8, db: &dyn HashDBRef<T::Hash, B>, prefix: Prefix) -> Result<
 		Option<StackedItem<B, T>>,
 		TrieHash<T>,
@@ -374,10 +374,11 @@ impl<B, T> StackedItem<B, T>
 		key: &[u8],
 		db: &dyn HashDBRef<T::Hash, B>,
 		callback: &mut F,
-	) -> Result<(), TrieHash<T>, CError<T>> {
+	) -> Result<bool, TrieHash<T>, CError<T>> {
 		let first_modified_child_index = self.first_modified_child_index();
+		let (deleted, fuse_index) = self.item.node.fuse_node((first_modified_child_index, self.split_child_index()));
 		// needed also to resolve
-		if let Some(fuse_index) = self.item.node.fuse_node((first_modified_child_index, self.split_child_index())) {
+		if let Some(fuse_index) = fuse_index {
 			// try first child
 			if let Some(child) = self.take_first_modified_child() {
 				debug_assert!(child.item.parent_index == fuse_index);
@@ -393,8 +394,10 @@ impl<B, T> StackedItem<B, T>
 				child.item.node.partial().map(|p| prefix.append_partial(p.right()));
 				self.fuse_branch(child, prefix.inner(), callback);
 			}
+			Ok(true)
+		} else {
+			Ok(deleted)
 		}
-		Ok(())
 	}
 }
 
@@ -526,17 +529,17 @@ impl<B, T> StackedNodeState<B, T>
 	}
 
 	/// Returns index of node to fuse if node was fused.
-	fn fuse_node(&mut self, pending: (Option<u8>, Option<u8>)) -> Option<u8> {
+	fn fuse_node(&mut self, pending: (Option<u8>, Option<u8>)) -> (bool, Option<u8>) {
 		match self {
 			StackedNodeState::Deleted
 			| StackedNodeState::UnchangedAttached(..)
-			| StackedNodeState::Unchanged(..) => None,
+			| StackedNodeState::Unchanged(..) => (false, None),
 			StackedNodeState::Changed(node) => {
 				let (deleted, fuse) = node.try_fuse_node(pending);
 				if deleted {
 					*self = StackedNodeState::Deleted;
 				}
-				fuse
+				(deleted, fuse)
 			},
 		}
 	}
@@ -777,6 +780,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 			)).unwrap_or(0); // last element goes up to root
 
 			current.fuse_node(key.as_ref(), db, callback)?;
+
 			// unstack nodes if needed
 			while last || target_common_depth < current.item.depth_prefix {
 				// child change or addition
@@ -829,7 +833,10 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 					}
 				}
 
-				current.fuse_node(key.as_ref(), db, callback)?;
+				if current.fuse_node(key.as_ref(), db, callback)? {
+					// no need to try to go down when fuse succeed
+					continue;
+				}
 			}
 		}
 
@@ -838,6 +845,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 			let dest_slice = NibbleFullKey::new(key.as_ref());
 			let dest_depth = key.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
 			let mut descend_mid_index = None;
+
 			loop {
 				let common_index = current.item.node.partial()
 					.map(|current_partial| {
@@ -980,7 +988,7 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 				match action {
 					InputAction::Insert(val) => {
 						// corner case of empty trie.
-						let offset = if stacked.item.node.is_empty() { 0 } else { 1	};
+						let offset = if stacked.item.node.is_empty() { 0 } else { 1 };
 						// dest is a leaf appended to terminal
 						let dest_leaf = Node::new_leaf(
 							NibbleSlice::new_offset(key_element, stacked.item.depth + offset),
@@ -1014,7 +1022,7 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 						None
 					},
 					InputAction::Attach(attach_root) => {
-						let offset = if stacked.item.node.is_empty() { 0 } else { 1	};
+						let offset = if stacked.item.node.is_empty() { 0 } else { 1 };
 						let parent_index = NibbleSlice::new(key_element).at(stacked.item.depth);
 						let to_attach = to_attach_node
 							.expect("Attachment resolution must be done before calling this function");
@@ -1129,7 +1137,7 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 						let detached = mem::replace(&mut stacked.item.node, to_attach);
 						//detached.advance_partial(mid_index);
 						let detached_hash = mem::replace(
-							&mut stacked.item.hash, 
+							&mut stacked.item.hash,
 							Some((attach_root.clone(), owned_prefix(&(key_element, None)))),
 						);
 						stacked.item.depth = stacked.item.depth_prefix + stacked.item.node.partial().map(|p| p.len()).unwrap_or(0);
@@ -1199,7 +1207,7 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 			_ => None,
 		}
 	}
-	
+
 	fn exit_root(&mut self, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>) {
 		let prefix = EMPTY_PREFIX;
 		let register = &mut self.register_update;
@@ -1262,12 +1270,12 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 }
 
 
-fn owned_prefix(prefix: &Prefix) -> (BackingByteVec, Option<u8>) { 
+fn owned_prefix(prefix: &Prefix) -> (BackingByteVec, Option<u8>) {
 	(prefix.0.into(), prefix.1)
 }
 
 /// Extract prefix from a owned prefix.
-pub fn from_owned_prefix(prefix: &OwnedPrefix) -> Prefix { 
+pub fn from_owned_prefix(prefix: &OwnedPrefix) -> Prefix {
 	(&prefix.0[..], prefix.1)
 }
 
