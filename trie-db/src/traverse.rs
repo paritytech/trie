@@ -60,21 +60,7 @@ enum StackedNodeState<B, T>
 	/// Deleted node.
 	Deleted,
 }
-/*
-impl<B, T> StackedNodeState<B, T>
-	where
-		B: Borrow<[u8]>,
-		T: TrieLayout,
-{
-	fn is_deleted(&self) -> bool {
-		if let StackedNodeState::Deleted = self {
-			true
-		} else {
-			false
-		}
-	}
-}
-*/
+
 /// Item on stack it contains updatable traverse
 /// specific field to manage update that split
 /// partial from a node, and for buffering the first
@@ -118,7 +104,7 @@ struct StackedNode<B, T>
 	/// Internal node representation.
 	node: StackedNodeState<B, T>,
 	/// Hash and prefix used to access this node, for inline node (except root) and
-	/// new nodes this is None.
+	/// new nodes this is None. TODO EMCH rename
 	hash: Option<(TrieHash<T>, OwnedPrefix)>,
 	/// Index of prefix.
 	depth_prefix: usize,
@@ -708,13 +694,12 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 
 	for next_query in elements.into_iter().map(|e| Some(e)).chain(Some(None)) {
 
-		let mut skip_down = false;
 		let last = next_query.is_none();
 
 		// PATH UP over the previous key and value
 		if let Some(key) = previous_key.as_ref() {
 
-			// first remove deleted.
+			// Pop deleted (empty) nodes.
 			if current.item.node.is_empty() {
 				assert!(current.first_modified_child.is_none());
 				assert!(current.split_child.is_none());
@@ -723,8 +708,8 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 					parent.append_child(current.into(), prefix.left(), callback);
 					current = parent;
 				} else {
-					// empty trie, next additional value is therefore a leaf
-					// and delete this one (done in append_child otherwhise)
+					// Empty trie, next additional value is therefore a leaf.
+					// Also delete this entry (could have been something else than empty before).
 					debug_assert!(current.item.depth_prefix == 0);
 					match next_query.as_ref() {
 						Some((key, InputAction::Insert(value))) => {
@@ -840,17 +825,12 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						return Ok(());
 					} else {
 						// move to next key
-						skip_down = true;
 						break;
 					}
 				}
 
 				current.fuse_node(key.as_ref(), db, callback)?;
 			}
-		}
-
-		if skip_down {
-			continue;
 		}
 
 		// PATH DOWN descending in next_query.
