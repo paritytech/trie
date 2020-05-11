@@ -52,7 +52,7 @@ enum StackedNodeState<B, T>
 	/// Read node.
 	Unchanged(OwnedNode<B>),
 	/// Read node, attached, we need to update
-	/// parent hash or root. TODO EMCH add the old root!!(as vec maybe)
+	/// parent hash or root.
 	UnchangedAttached(OwnedNode<B>),
 	/// Modified node.
 	Changed(Node<TrieHash<T>, StorageHandle>),
@@ -1336,7 +1336,6 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 			| s@StackedNodeState::Unchanged(..) => {
 				if !is_empty_node {
 					let hash = if let Some((not_inline, previous_prefix)) = prev_hash {
-						// hold in fuzzer, see what is wrong
 						not_inline
 					} else {
 						let encoded = s.into_encoded();
