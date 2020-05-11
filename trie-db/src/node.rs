@@ -13,16 +13,12 @@
 // limitations under the License.
 
 use hash_db::Hasher;
+use crate::NO_EXTENSION_ONLY;
 use crate::nibble::{self, NibbleSlice};
 use crate::nibble::nibble_ops;
 use crate::node_codec::NodeCodec;
 use crate::rstd::{borrow::Borrow, ops::Range, boxed::Box, vec::Vec};
 
-
-/// This was only implemented for trie without extension, it could
-/// be implemented for trie and extension in the future but is not
-/// at this point.
-const NO_EXTENSION_ONLY: &str = "trie without extension implemented only";
 
 /// Owned handle to a node, to use when there is no caching.
 pub type StorageHandle = Vec<u8>;

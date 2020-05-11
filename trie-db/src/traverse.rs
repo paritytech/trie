@@ -248,15 +248,14 @@ impl<B, T> StackedItem<B, T>
 				&key[..mid_index / nibble_ops::NIBBLE_PER_BYTE],
 				self.item.depth_prefix,
 			);
-			Node::new_branch(new_slice)
+			Node::empty_branch(new_slice)
 		} else {
 			let new_slice = NibbleSlice::new_offset(
 				&key[..],
 				self.item.depth_prefix,
 			);
 			let owned = new_slice.to_stored_range(mid_index - self.item.depth_prefix);
-			// TODO EMCH refactor new_leaf to take BackingByteVec (stored) as input
-			Node::new_branch(NibbleSlice::from_stored(&owned))
+			Node::empty_branch(NibbleSlice::from_stored(&owned))
 		};
 
 		let old_depth = self.item.depth;

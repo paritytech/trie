@@ -14,10 +14,10 @@
 
 //! In-memory trie representation.
 
-use super::{DBValue, node::NodeKey};
-use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
-use super::lookup::Lookup;
-use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_hash};
+use crate::{DBValue, node::NodeKey, NO_EXTENSION_ONLY};
+use crate::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
+use crate::lookup::Lookup;
+use crate::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_hash};
 
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use hashbrown::HashSet;
@@ -223,12 +223,8 @@ impl<H, SH> NodeMut<H, SH> {
 		let node = mem::replace(self, NodeMut::Empty); 
 		*self = match node {
 			NodeMut::Extension(..)
-			| NodeMut::Branch(..) => unreachable!("Only for no extension trie"),
-			// need to replace value before creating handle
-			// so it is a corner case TODO test case it
-			// (may be unreachable since changing to empty means
-			// we end the root process)
-			NodeMut::Empty => unreachable!(),
+			| NodeMut::Branch(..) => unimplemented!("{}", NO_EXTENSION_ONLY),
+			NodeMut::Empty => unreachable!("Do not add handle to empty but replace the node instead"),
 			NodeMut::NibbledBranch(partial, encoded_children, val)
 				if handle.is_none() && encoded_children[index].is_none() => {
 				NodeMut::NibbledBranch(partial, encoded_children, val)
@@ -269,10 +265,6 @@ impl<H, SH> NodeMut<H, SH> {
 		let (node, fuse) = match node {
 			NodeMut::Extension(..)
 			| NodeMut::Branch(..) => unreachable!("Only for no extension trie"),
-			// need to replace value before creating handle
-			// so it is a corner case TODO test case it
-			// (may be unreachable since changing to empty means
-			// we end the root process)
 			n@NodeMut::Empty
 			| n@NodeMut::Leaf(..) => (n, None),
 			NodeMut::NibbledBranch(partial, encoded_children, val) => {
@@ -323,8 +315,7 @@ impl<H, SH> NodeMut<H, SH> {
 		NodeMut::Leaf(prefix.to_stored(), value.into())
 	}
 
-	// TODO rename to empty branch, branch placeholder or something
-	pub(crate) fn new_branch(prefix: NibbleSlice) -> Self {
+	pub(crate) fn empty_branch(prefix: NibbleSlice) -> Self {
 		let children = Box::new([
 			None, None, None, None,
 			None, None, None, None,

@@ -445,3 +445,8 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
 pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;
+
+/// This was only implemented for trie without extension, it could
+/// be implemented for trie and extension in the future but is not
+/// at this point.
+const NO_EXTENSION_ONLY: &str = "trie without extension implemented only";
