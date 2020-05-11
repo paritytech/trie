@@ -791,25 +791,16 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 				next.as_ref(),
 			)).unwrap_or(0); // last element goes up to root
 
-/*			let target_common_depth = if current.node.is_empty() {
-				min(target_common_depth, current.depth_prefix)
-			} else {
-				target_common_depth
-			};*/
-
 			current.fuse_node(key.as_ref(), db, callback)?;
 			// unstack nodes if needed
-			while last || target_common_depth < current.item.depth_prefix { // TODO EMCH rename is_empty to is deleted
-				
-				// TODO check if fuse (num child is 1).
+			while last || target_common_depth < current.item.depth_prefix {
 				// child change or addition
 				if let Some(mut parent) = stack.pop() {
 					if !parent.can_fuse {
 						// process exit, as we already assert two child, no need to store in case of parent
 						// fusing.
 						// Deletion case is guaranted by ordering of input (fix delete only if no first
-						// and no split). TODO the number of calls to process first and split is wrong:
-						// should be once after fix_node only: that is especially for append_child case.
+						// and no split).
 						current.process_first_modified_child(key.as_ref(), callback);
 						current.process_split_child(key.as_ref(), callback);
 						let prefix = NibbleSlice::new_offset(key.as_ref(), current.item.depth_prefix);
@@ -831,9 +822,8 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						if !parent.can_fuse {
 							parent.process_child(current, key.as_ref(), callback);
 						} else {
-							current.process_first_modified_child(key.as_ref(), callback); // TODO this is super confusing an assert no firt please
-							// split child is after first child (would be processed otherwhise).
-							current.process_split_child(key.as_ref(), callback); // TODO same
+							debug_assert!(current.first_modified_child.is_none());
+							debug_assert!(current.split_child.is_none());
 							// first node visited on a fusable element, store in parent first child and process later.
 							// Process an eventual split child (index after current).
 							parent.first_modified_child = Some(current.into());
