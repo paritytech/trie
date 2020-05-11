@@ -822,8 +822,10 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						if !parent.can_fuse {
 							parent.process_child(current, key.as_ref(), callback);
 						} else {
-							debug_assert!(current.first_modified_child.is_none());
-							debug_assert!(current.split_child.is_none());
+							current.process_first_modified_child(key.as_ref(), callback);
+							// split child is after first child (would be processed otherwhise), so no need to
+							// order the two instructions.
+							current.process_split_child(key.as_ref(), callback);
 							// first node visited on a fusable element, store in parent first child and process later.
 							// Process an eventual split child (index after current).
 							parent.first_modified_child = Some(current.into());
