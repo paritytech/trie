@@ -20,6 +20,10 @@ use crate::triedbmut::Node as TNode;
 use crate::triedbmut::NodeHandle as TNodeHandle;
 use crate::rstd::{borrow::Borrow, ops::Range, boxed::Box, vec::Vec};
 
+
+/// Owned handle to a node, to use when there is no caching.
+pub type StorageHandle = Vec<u8>;
+
 /// Partial node key type: offset and owned value of a nibbleslice.
 /// Offset is applied on first byte of array (bytes are right aligned).
 pub type NodeKey = (usize, nibble::BackingByteVec);
@@ -77,8 +81,7 @@ impl NodeHandlePlan {
 		}
 	}
 
-	/// TODO
-	pub fn build_thandle<H: AsMut<[u8]> + Default>(&self, data: &[u8]) -> crate::triedbmut::NodeHandle<H, Vec<u8>> {
+	fn build_owned_handle<H: AsMut<[u8]> + Default>(&self, data: &[u8]) -> crate::triedbmut::NodeHandle<H, StorageHandle> {
 		match self {
 			NodeHandlePlan::Hash(range) => {
 				let mut hash = H::default();
@@ -291,8 +294,35 @@ impl<D: Borrow<[u8]>> OwnedNode<D> {
 }
 
 impl<B: Borrow<[u8]>> OwnedNode<B> {
+
+
+	fn init_child_slice<H: AsMut<[u8]> + Default>(
+		data: &[u8],
+		children: &[Option<NodeHandlePlan>; nibble_ops::NIBBLE_LENGTH],
+		skip_index: Option<usize>,
+	) -> Box<[Option<TNodeHandle<H, StorageHandle>>; 16]> {
+		let mut child_slices = Box::new([
+			None, None, None, None,
+			None, None, None, None,
+			None, None, None, None,
+			None, None, None, None,
+		]);
+		if let Some(skip) = skip_index {
+			for i in 0..nibble_ops::NIBBLE_LENGTH {
+				if i != skip {
+					child_slices[i] = children[i].as_ref().map(|child| child.build_owned_handle(data));
+				}
+			}
+		} else {
+			for i in 0..nibble_ops::NIBBLE_LENGTH {
+				child_slices[i] = children[i].as_ref().map(|child| child.build_owned_handle(data));
+			}
+		}
+		child_slices
+	}
+
 	/// Set a partial TODO EMCH factor new node from existing on all those methods.
-	pub(crate) fn advance_partial<H: AsMut<[u8]> + Default>(&mut self, nb: usize) -> Option<TNode<H, Vec<u8>>> {
+	pub(crate) fn advance_partial<H: AsMut<[u8]> + Default>(&mut self, nb: usize) -> Option<TNode<H, StorageHandle>> {
 		if nb == 0 {
 			return None;
 		}
@@ -312,19 +342,10 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 			NodePlan::NibbledBranch { partial, value, children } => {
 				let mut partial = partial.build(data);
 				partial.advance(nb);
-				let mut child_slices = [
-					None, None, None, None,
-					None, None, None, None,
-					None, None, None, None,
-					None, None, None, None,
-				];
-				for i in 0..nibble_ops::NIBBLE_LENGTH {
-					child_slices[i] = children[i].as_ref().map(|child| child.build_thandle(data));
-				}
 
 				Some(TNode::NibbledBranch(
 					partial.into(),
-					Box::new(child_slices),
+					Self::init_child_slice(data, children, None),
 					value.as_ref().map(|value| data[value.clone()].into()),
 				))
 			},
@@ -332,7 +353,7 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 	}
 
 	/// Set a partial TODO EMCH factor new node from existing on all those methods.
-	pub(crate) fn set_partial<H: AsMut<[u8]> + Default>(&mut self, new_partial: NodeKey) -> Option<TNode<H, Vec<u8>>> {
+	pub(crate) fn set_partial<H: AsMut<[u8]> + Default>(&mut self, new_partial: NodeKey) -> Option<TNode<H, StorageHandle>> {
 		let data = &self.data.borrow();
 		match &self.plan {
 			NodePlan::Leaf { value, partial } => {
@@ -353,18 +374,9 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 				if partial == NibbleSlice::from_stored(&new_partial) {
 					return None;
 				}
-				let mut child_slices = [
-					None, None, None, None,
-					None, None, None, None,
-					None, None, None, None,
-					None, None, None, None,
-				];
-				for i in 0..nibble_ops::NIBBLE_LENGTH {
-					child_slices[i] = children[i].as_ref().map(|child| child.build_thandle(data));
-				}
 				Some(TNode::NibbledBranch(
 					new_partial,
-					Box::new(child_slices),
+					Self::init_child_slice(data, children, None),
 					value.as_ref().map(|value| data[value.clone()].into()),
 				))
 			},
@@ -372,7 +384,7 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 	}
 
 	/// Set a value.
-	pub(crate) fn set_value<H: AsMut<[u8]> + Default>(&mut self, new_value: &[u8]) -> Option<TNode<H, Vec<u8>>> {
+	pub(crate) fn set_value<H: AsMut<[u8]> + Default>(&mut self, new_value: &[u8]) -> Option<TNode<H, StorageHandle>> {
 		let data = &self.data.borrow();
 		match &self.plan {
 			NodePlan::Empty => {
@@ -399,28 +411,18 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 						return None;
 					}
 				}
-				let mut child_slices = [
-					None, None, None, None,
-					None, None, None, None,
-					None, None, None, None,
-					None, None, None, None,
-				];
-				for i in 0..nibble_ops::NIBBLE_LENGTH {
-					child_slices[i] = children[i].as_ref().map(|child| child.build_thandle(data));
-				}
 
 				Some(TNode::NibbledBranch(
 					partial.build(data).into(),
-					Box::new(child_slices),
+					Self::init_child_slice(data, children, None),
 					Some(new_value.into()),
 				))
-
 			},
 		}
 	}
 
 	/// Remove a value.
-	pub(crate) fn remove_value<H: AsMut<[u8]> + Default>(&mut self) -> Option<Option<TNode<H, Vec<u8>>>> {
+	pub(crate) fn remove_value<H: AsMut<[u8]> + Default>(&mut self) -> Option<Option<TNode<H, StorageHandle>>> {
 		let data = &self.data.borrow();
 		match &self.plan {
 			NodePlan::Leaf { .. } => Some(None),
@@ -431,19 +433,10 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 				if value.is_none() {
 					return None;
 				}
-				let mut child_slices = [
-					None, None, None, None,
-					None, None, None, None,
-					None, None, None, None,
-					None, None, None, None,
-				];
-				for i in 0..nibble_ops::NIBBLE_LENGTH {
-					child_slices[i] = children[i].as_ref().map(|child| child.build_thandle(data));
-				}
 
 				Some(Some(TNode::NibbledBranch(
 					partial.build(data).into(),
-					Box::new(child_slices),
+					Self::init_child_slice(data, children, None),
 					None,
 				)))
 			},
@@ -452,8 +445,8 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 
 	/// Set a handle to a child node or remove it if handle is none.
 	/// Return possibly updated node.
-	pub(crate) fn set_handle<H: AsMut<[u8]> + Default>(&mut self, handle: Option<TNodeHandle<H, Vec<u8>>>, index: u8)
-		-> Option<TNode<H, Vec<u8>>> {
+	pub(crate) fn set_handle<H: AsMut<[u8]> + Default>(&mut self, handle: Option<TNodeHandle<H, StorageHandle>>, index: u8)
+		-> Option<TNode<H, StorageHandle>> {
 
 		let index = index as usize;
 		let data = &self.data.borrow();
@@ -489,16 +482,7 @@ impl<B: Borrow<[u8]>> OwnedNode<B> {
 					} else {
 						None
 					};
-					let mut child_slices = Box::new([
-						None, None, None, None,
-						None, None, None, None,
-						None, None, None, None,
-						None, None, None, None,
-					]);
-					for i in 0..nibble_ops::NIBBLE_LENGTH { // TODO skip index
-						child_slices[i] = children[i].as_ref().map(|child| child.build_thandle(data));
-					}
-
+					let mut child_slices = Self::init_child_slice(data, children, Some(index));
 					child_slices[index] = handle;
 
 					Some(TNode::NibbledBranch(
