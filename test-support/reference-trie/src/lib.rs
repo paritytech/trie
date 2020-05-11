@@ -1211,8 +1211,8 @@ pub fn trie_traverse_key_no_extension_build<'a, I, K, V, B>(
 	} else {
 		InputAction::Delete
 	}));
-	let (root, values, detached_root) = batch_update::<NoExtensionLayout, _, _, _, _>(db, root, elements).unwrap();
-	(root, values.into_iter(), detached_root.into_iter())
+	let (root, values, values_detached, detached_root) = batch_update::<NoExtensionLayout, _, _, _, _>(db, root, elements).unwrap();
+	(root, values.into_iter().chain(values_detached.into_iter()), detached_root.into_iter())
 }
 
 #[cfg(test)]

@@ -847,20 +847,6 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 
 				current.fuse_node(key.as_ref(), db, callback)?;
 			}
-			// no fix if middle then process buffed
-			if target_common_depth < current.item.depth {
-				// TODO this can probably remove a lot of those calls TODO check especially
-				// calls in going down path at split child.
-				current.process_first_modified_child(key.as_ref(), callback);
-				current.process_split_child(key.as_ref(), callback)
-			}
-
-/*			if !current.test_can_fuse(key.as_ref(), None) {
-				current.process_first_modified_child(callback);
-				if target_common_depth < current.depth {
-					current.process_split_child(key.as_ref(), callback);
-				}
-			}*/
 		}
 
 		if skip_down {
@@ -872,43 +858,39 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 			let dest_slice = NibbleFullKey::new(key.as_ref());
 			let dest_depth = key.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE;
 			let mut descend_mid_index = None;
-			if !current.item.node.is_empty() {
-				// corner case do not descend in empty node (else condition) TODO covered by empty_trie??
-				loop {
-					// TODO check if first common index is simple target_common? of previous go up.
-					let common_index = current.item.node.partial()
-						.map(|current_partial| {
-							let target_partial = NibbleSlice::new_offset(key.as_ref(), current.item.depth_prefix);
-							current.item.depth_prefix + current_partial.common_prefix(&target_partial)
-						}).unwrap_or(current.item.depth_prefix);
-					// TODO not sure >= or just >.
-					if common_index == current.item.depth && dest_depth > current.item.depth {
-						let next_index = dest_slice.at(current.item.depth);
-						let prefix = NibbleSlice::new_offset(key.as_ref(), current.item.depth + 1);
-						if let Some(child) = current.descend_child(next_index, db, prefix.left())? {
-							stack.push(current);
-							current = child;
-						} else {
-							break;
-						}
+			loop {
+				let common_index = current.item.node.partial()
+					.map(|current_partial| {
+						let target_partial = NibbleSlice::new_offset(key.as_ref(), current.item.depth_prefix);
+						current.item.depth_prefix + current_partial.common_prefix(&target_partial)
+					}).unwrap_or(current.item.depth_prefix);
+				if common_index == current.item.depth && dest_depth > current.item.depth {
+					let next_index = dest_slice.at(current.item.depth);
+					let prefix = NibbleSlice::new_offset(key.as_ref(), current.item.depth + 1);
+					if let Some(child) = current.descend_child(next_index, db, prefix.left())? {
+						stack.push(current);
+						current = child;
 					} else {
-						if common_index < current.item.depth {
-							descend_mid_index = Some(common_index);
-						}
 						break;
 					}
+				} else {
+					if common_index < current.item.depth {
+						descend_mid_index = Some(common_index);
+					}
+					break;
 				}
 			}
 			let traverse_state = if let Some(mid_index) = descend_mid_index {
 				TraverseState::MidPartial(mid_index)
-			} else if dest_depth < current.item.depth {
-				unreachable!();
-			} else if dest_depth > current.item.depth {
-				// over callback
-				TraverseState::AfterNode
 			} else {
-				// value replace callback
-				TraverseState::ValueMatch
+				debug_assert!(dest_depth >= current.item.depth);
+				if dest_depth > current.item.depth {
+					// over callback
+					TraverseState::AfterNode
+				} else {
+					// value replace callback
+					TraverseState::ValueMatch
+				}
 			};
 			let (value, do_fetch) = value.as_ref();
 			let fetch = if let Some(hash) = do_fetch {
@@ -939,17 +921,19 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 /// Contains ordered node change for this iteration.
 /// The resulting root hash.
 /// The latest changed node.
-struct BatchUpdate<H, C, D> {
+struct BatchUpdate<H, C, CD, D> {
 	register_update: C,
+	register_update_attach_detach: CD,
 	register_detached: D,
 	root: H,
 }
 
-impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
+impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 	where
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
 		T: TrieLayout,
 		C: FnMut((OwnedPrefix, TrieHash<T>, Option<Vec<u8>>)),
+		CD: FnMut((OwnedPrefix, TrieHash<T>, Option<Vec<u8>>)),
 		D: FnMut((Vec<u8>, OwnedPrefix, TrieHash<T>)),
 {
 	fn enter_terminal(
@@ -957,7 +941,7 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 		stacked: &mut StackedItem<B, T>,
 		key_element: &[u8],
 		action: InputAction<&[u8], &TrieHash<T>>,
-		to_attach_node: Option<OwnedNode<B>>, // TODO EMCH try with unowned prefix or exit_detached with owned variant
+		to_attach_node: Option<OwnedNode<B>>,
 		state: TraverseState,
 	) -> Option<StackedItem<B, T>> {
 		match state {
@@ -972,9 +956,9 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 					InputAction::Attach(attach_root) => {
 						let prefix_nibble = NibbleSlice::new_offset(&key_element[..], stacked.item.depth_prefix);
 						let prefix = prefix_nibble.left();
-						let to_attach = to_attach_node.expect("Fetch node is always resolved"); // TODO EMCH make action ref another type to ensure resolution.
+						let to_attach = to_attach_node
+							.expect("Attachment resolution must be done before calling this function");
 						let mut to_attach = StackedNodeState::UnchangedAttached(to_attach);
-						//if stacked.item.node.partial().map(|p| p.len()).unwrap_or(0) != 0 {
 						if stacked.item.depth_prefix != stacked.item.depth {
 							match to_attach.partial() {
 								Some(partial) if partial.len() > 0 => {
@@ -1016,11 +1000,7 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 				match action {
 					InputAction::Insert(val) => {
 						// corner case of empty trie.
-						let offset = if stacked.item.node.is_empty() {
-							0
-						} else {
-							1
-						};
+						let offset = if stacked.item.node.is_empty() { 0 } else { 1	};
 						// dest is a leaf appended to terminal
 						let dest_leaf = Node::new_leaf(
 							NibbleSlice::new_offset(key_element, stacked.item.depth + offset),
@@ -1054,14 +1034,10 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 						None
 					},
 					InputAction::Attach(attach_root) => {
-						// TODO factor with insert
-						let offset = if stacked.item.node.is_empty() {
-							0
-						} else {
-							1
-						};
+						let offset = if stacked.item.node.is_empty() { 0 } else { 1	};
 						let parent_index = NibbleSlice::new(key_element).at(stacked.item.depth);
-						let to_attach = to_attach_node.expect("Fetch node is always resolved"); // TODO EMCH mack action ref another type to ensure resolution.
+						let to_attach = to_attach_node
+							.expect("Attachment resolution must be done before calling this function");
 						let mut to_attach = StackedNodeState::UnchangedAttached(to_attach);
 						let depth_prefix = stacked.item.depth + offset;
 						match to_attach.partial() {
@@ -1077,8 +1053,6 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 						};
 
 						let depth = depth_prefix + to_attach.partial().map(|p| p.len()).unwrap_or(0);
-						//let prefix_nibble = NibbleSlice::new_offset(&key_element[..], depth_prefix);
-						//let prefix = prefix_nibble.left();
 						let mut new_child = StackedItem {
 							item: StackedNode {
 								node: to_attach,
@@ -1118,11 +1092,9 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 							// corner case of adding at top of trie
 							(0, 0)
 						} else {
-							// TODO not sure on index
 							(1, NibbleSlice::new(key_element).at(mid_index))
 						};
 						let child = Node::new_leaf(
-							// TODO not sure on '1 +'
 							NibbleSlice::new_offset(key_element, offset + mid_index),
 							value.as_ref(),
 						);
@@ -1155,14 +1127,9 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 					InputAction::Attach(attach_root) => {
 						let prefix_nibble = NibbleSlice::new(&key_element[..]);
 						let prefix = prefix_nibble.left();
-						let to_attach = to_attach_node.expect("Fetch node is always resolved"); // TODO EMCH make action ref another type to ensure resolution.
+						let to_attach = to_attach_node
+							.expect("Attachment resolution must be done before calling this function");
 						let mut to_attach = StackedNodeState::UnchangedAttached(to_attach);
-						/*let (offset, parent_index) = if stacked.item.depth_prefix == 0 {
-							// corner case of adding at top of trie
-							(0, 0)
-						} else {
-							(1, NibbleSlice::new(key_element).at(mid_index))
-						};*/
 						match to_attach.partial() {
 							Some(partial) if partial.len() > 0 => {
 								let mut build_partial: NodeKey = NibbleSlice::new_offset(key_element, stacked.item.depth_prefix).into();
@@ -1193,7 +1160,7 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 						if mid_index == NibbleSlice::new(key_element).len() {
 							// on a path do a switch
 							if stacked.item.node.is_empty() {
-								unreachable!("we should not iterate in middle of an empty; this needs fix");
+								unreachable!("we should not iterate in middle of an empty; this is a bug");
 							}
 							let prefix_nibble = NibbleSlice::new(&key_element[..]);
 							let prefix = prefix_nibble.left();
@@ -1280,7 +1247,7 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 		let detached_prefix = (key_element, None);
 
 		let is_empty_node = stacked.is_empty();
-		let register_up = &mut self.register_update;
+		let register_up = &mut self.register_update_attach_detach;
 		let register = &mut self.register_detached;
 		match stacked {
 			s@StackedNodeState::Deleted
@@ -1292,8 +1259,6 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 				if !is_empty_node {
 					let encoded = s.into_encoded();
 					let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
-					// Note that those updates are messing the updates ordering, could be better to register
-					// them with the detached item (TODO would need a dedicated struct).
 					register_up((owned_prefix(&detached_prefix), hash.clone(), Some(encoded)));
 					register((key_element.to_vec(), owned_prefix(&prefix), hash));
 				}
@@ -1334,6 +1299,7 @@ pub fn batch_update<'a, T, I, K, V, B>(
 ) -> Result<(
 	TrieHash<T>,
 	Vec<(OwnedPrefix, TrieHash<T>, Option<Vec<u8>>)>,
+	Vec<(OwnedPrefix, TrieHash<T>, Option<Vec<u8>>)>,
 	Vec<(Vec<u8>, OwnedPrefix, TrieHash<T>)>,
 ),TrieHash<T>, CError<T>>
 	where
@@ -1344,10 +1310,14 @@ pub fn batch_update<'a, T, I, K, V, B>(
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
 {
 	let mut dest = Vec::new();
+	let mut dest2 = Vec::new();
 	let mut dest_detached = Vec::new();
 	let mut batch_update = BatchUpdate {
 		register_update: |update| {
 			dest.push(update)
+		},
+		register_update_attach_detach: |update| {
+			dest2.push(update)
 		},
 		register_detached: |update| {
 			dest_detached.push(update)
@@ -1355,7 +1325,7 @@ pub fn batch_update<'a, T, I, K, V, B>(
 		root: root_hash.clone(),
 	};
 	trie_traverse_key::<T, _, _, _, _, _>(db, root_hash, elements, &mut batch_update)?;
-	Ok((batch_update.root, dest, dest_detached))
+	Ok((batch_update.root, dest, dest2, dest_detached))
 }
 
 
@@ -1648,7 +1618,7 @@ mod tests {
 			println!("aft {:?}", t);
 		}
 		let elements = Some(d.clone()).into_iter().map(|k| (k, InputAction::<Vec<u8>, _>::Detach));
-		let (calc_root, payload, detached_root) = batch_update::<NoExtensionLayout, _, _, _, _>(
+		let (calc_root, payload, payload_detached, detached_root) = batch_update::<NoExtensionLayout, _, _, _, _>(
 			&initial_db,
 			&initial_root,
 			elements,
@@ -1657,7 +1627,8 @@ mod tests {
 		assert_eq!(calc_root, root);
 
 		let mut batch_delta = initial_db.clone();
-		memory_db_from_delta(payload.into_iter(), &mut batch_delta, false);
+		memory_db_from_delta(payload.into_iter(), &mut batch_delta, true);
+		memory_db_from_delta(payload_detached.into_iter(), &mut batch_delta, false);
 		// test by checking both triedb only
 		let t2 = RefTrieDBNoExt::new(&db, &root).unwrap();
 		println!("{:?}", t2);
@@ -1683,19 +1654,17 @@ mod tests {
 
 		println!("{:?}", db.clone().drain());
 		println!("{:?}", batch_delta.clone().drain());
-		// TODO this cannot be test because we have attached content
-		// in db TODO split batches of update (then we could compare ordering again).
-		//assert!(db == batch_delta);
 
 		// attach back
 		let elements = detached_root.into_iter().map(|(k, _prefix, root)| (k, InputAction::<Vec<u8>, _>::Attach(root)));
-		let (calc_root, payload, detached_root) = batch_update::<NoExtensionLayout, _, _, _, _>(
+		let (calc_root, payload, payload_detached, detached_root) = batch_update::<NoExtensionLayout, _, _, _, _>(
 			&batch_delta,
 			&calc_root,
 			elements,
 		).unwrap();
 		//assert!(detached_root.is_empty());
-		memory_db_from_delta(payload.into_iter(), &mut batch_delta, false);
+		memory_db_from_delta(payload.into_iter(), &mut batch_delta, true);
+		memory_db_from_delta(payload_detached.into_iter(), &mut batch_delta, false);
 		// test by checking both triedb only
 		let t2 = RefTrieDBNoExt::new(&initial_db, &initial_root).unwrap();
 		println!("{:?}", t2);

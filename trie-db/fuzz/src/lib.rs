@@ -464,7 +464,7 @@ pub fn fuzz_detach_attach(input: &[u8], build_val: fn(&mut Vec<u8>), compare_db:
 		}
 	}
 	let elements = Some(d.clone()).into_iter().map(|k| (k, InputAction::<Vec<u8>, _>::Detach));
-	let (calc_root, payload, detached_root) = batch_update::<NoExtensionLayout, _, _, _, _>(
+	let (calc_root, payload, payload_det, detached_root) = batch_update::<NoExtensionLayout, _, _, _, _>(
 		&initial_db,
 		&initial_root,
 		elements,
@@ -473,7 +473,7 @@ pub fn fuzz_detach_attach(input: &[u8], build_val: fn(&mut Vec<u8>), compare_db:
 	assert_eq!(calc_root, root);
 
 	let mut batch_delta = initial_db.clone();
-	for (p, h, v) in payload {
+	for (p, h, v) in payload.into_iter().chain(payload_det) {
 		use hash_db::HashDB;
 		if let Some(v) = v {
 			let prefix = (p.0.as_ref(), p.1);
@@ -486,14 +486,14 @@ pub fn fuzz_detach_attach(input: &[u8], build_val: fn(&mut Vec<u8>), compare_db:
 
 	// attach back
 	let elements = detached_root.into_iter().map(|(k, _prefix, root)| (k, InputAction::<Vec<u8>, _>::Attach(root)));
-	let (calc_root, payload, detached_root) = batch_update::<NoExtensionLayout, _, _, _, _>(
+	let (calc_root, payload, payload_det, detached_root) = batch_update::<NoExtensionLayout, _, _, _, _>(
 		&batch_delta,
 		&calc_root,
 		elements,
 	).unwrap();
 	if detached_root.is_empty() {
 		if compare_db {
-			for (p, h, v) in payload {
+			for (p, h, v) in payload.into_iter().chain(payload_det) {
 				use hash_db::HashDB;
 				if let Some(v) = v {
 					let prefix = (p.0.as_ref(), p.1);
@@ -509,7 +509,7 @@ pub fn fuzz_detach_attach(input: &[u8], build_val: fn(&mut Vec<u8>), compare_db:
 		assert!(calc_root == initial_root);
 	} else {
 		// case where there was a node fuse due to dettach
-		// TODO inject manually detached node and compare
+		// we could inject manually detached node and compare
 	}
 }
 
