@@ -104,8 +104,8 @@ struct StackedNode<B, T>
 	/// Internal node representation.
 	node: StackedNodeState<B, T>,
 	/// Hash and prefix used to access this node, for inline node (except root) and
-	/// new nodes this is None. TODO EMCH rename
-	hash: Option<(TrieHash<T>, OwnedPrefix)>,
+	/// new nodes this is None.
+	previous_db_handle: Option<(TrieHash<T>, OwnedPrefix)>,
 	/// Index of prefix.
 	depth_prefix: usize,
 	/// Depth of node, it is prefix depth and partial depth.
@@ -180,7 +180,7 @@ impl<B, T> StackedItem<B, T>
 		} else {
 			if let Some(node_handle) = self.item.node.child(index) {
 
-				let (node, hash) = match node_handle {
+				let (node, previous_db_handle) = match node_handle {
 					NodeHandle::Hash(handle_hash) => {
 						let mut hash = <TrieHash<T> as Default>::default();
 						hash.as_mut()[..].copy_from_slice(handle_hash.as_ref());
@@ -193,7 +193,7 @@ impl<B, T> StackedItem<B, T>
 						(StackedNodeState::Unchanged(
 							OwnedNode::new::<T::Codec>(B::from(node_encoded))
 								.map_err(|e| Box::new(TrieError::DecoderError(
-									self.item.hash.clone().map(|i| i.0).unwrap_or_else(Default::default),
+									self.item.previous_db_handle.clone().map(|i| i.0).unwrap_or_else(Default::default),
 									e,
 								)))?
 						), None)
@@ -204,7 +204,7 @@ impl<B, T> StackedItem<B, T>
 				Some(StackedItem {
 					item: StackedNode {
 						node,
-						hash,
+						previous_db_handle,
 						parent_index: index,
 						depth_prefix,
 						depth,
@@ -264,7 +264,7 @@ impl<B, T> StackedItem<B, T>
 		// not setting child relation (will be set on exit)
 		let child = StackedNode {
 			node: child,
-			hash: None,
+			previous_db_handle: None,
 			depth_prefix: 1 + mid_index,
 			depth: old_depth,
 			parent_index,
@@ -279,7 +279,7 @@ impl<B, T> StackedItem<B, T>
 		if let Some(handle) = callback.exit(
 			prefix,
 			child.node,
-			child.hash,
+			child.previous_db_handle,
 		) {
 			self.item.node.set_handle(handle, child.parent_index);
 		}
@@ -344,7 +344,7 @@ impl<B, T> StackedItem<B, T>
 		self.process_split_child(key, callback);
 		callback.exit_root(
 			self.item.node,
-			self.item.hash,
+			self.item.previous_db_handle,
 		)
 	}
 
@@ -357,7 +357,7 @@ impl<B, T> StackedItem<B, T>
 		// delete child
 		callback.exit(
 			EMPTY_PREFIX,
-			StackedNodeState::Deleted, child.item.hash.take(),
+			StackedNodeState::Deleted, child.item.previous_db_handle.take(),
 		).expect("no new node on empty");
 
 		let partial = NibbleSlice::new_offset(key, self.item.depth_prefix)
@@ -605,12 +605,12 @@ trait ProcessStack<B, T>
 	) -> Option<StackedItem<B, T>>;
 
 	/// Callback on exit a node, commit action on change node should be applied here.
-	fn exit(&mut self, prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>)
+	fn exit(&mut self, prefix: Prefix, stacked: StackedNodeState<B, T>, prev_db: Option<(TrieHash<T>, OwnedPrefix)>)
 		-> Option<Option<OwnedNodeHandle<TrieHash<T>>>>;
 	/// Callback on a detached node.
-	fn exit_detached(&mut self, key_element: &[u8], prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>);
+	fn exit_detached(&mut self, key_element: &[u8], prefix: Prefix, stacked: StackedNodeState<B, T>, prev_db: Option<(TrieHash<T>, OwnedPrefix)>);
 	/// Same as `exit` but for root (very last exit call).
-	fn exit_root(&mut self, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>);
+	fn exit_root(&mut self, stacked: StackedNodeState<B, T>, prev_db: Option<(TrieHash<T>, OwnedPrefix)>);
 }
 
 /// State when descending
@@ -683,7 +683,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 	let mut current = StackedItem {
 		item: StackedNode {
 			node: current,
-			hash: Some((*root_hash, owned_prefix(&EMPTY_PREFIX))),
+			previous_db_handle: Some((*root_hash, owned_prefix(&EMPTY_PREFIX))),
 			depth_prefix: 0,
 			depth,
 			parent_index: 0,
@@ -719,7 +719,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 							callback.exit(
 								EMPTY_PREFIX,
 								current.item.node,
-								current.item.hash,
+								current.item.previous_db_handle,
 							);
 							let leaf = Node::new_leaf(
 								NibbleSlice::new(key.as_ref()),
@@ -728,7 +728,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 							current = StackedItem {
 								item: StackedNode {
 									node: StackedNodeState::Changed(leaf),
-									hash: None,
+									previous_db_handle: None,
 									depth_prefix: 0,
 									depth: key.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
 									parent_index: 0,
@@ -747,7 +747,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 								current = StackedItem {
 									item: StackedNode {
 										node,
-										hash: None,
+										previous_db_handle: None,
 										depth_prefix: 0,
 										depth,
 										parent_index: 0,
@@ -766,7 +766,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						None => {
 							callback.exit_root(
 								current.item.node,
-								current.item.hash,
+								current.item.previous_db_handle,
 							);
 							return Ok(());
 						},
@@ -962,12 +962,12 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 							stacked.item.node.advance_partial(stacked.item.depth - stacked.item.depth_prefix);
 						}
 						let detached = mem::replace(&mut stacked.item.node, to_attach);
-						let detached_hash = mem::replace(
-							&mut stacked.item.hash,
+						let detached_db = mem::replace(
+							&mut stacked.item.previous_db_handle,
 							Some((attach_root.clone(), owned_prefix(&(key_element, None)))),
 						);
 						stacked.item.depth = stacked.item.depth_prefix + stacked.item.node.partial().map(|p| p.len()).unwrap_or(0);
-						self.exit_detached(key_element, prefix, detached, detached_hash);
+						self.exit_detached(key_element, prefix, detached, detached_db);
 					},
 					InputAction::Detach => {
 						let prefix_nibble = NibbleSlice::new_offset(&key_element[..], stacked.item.depth_prefix);
@@ -977,8 +977,8 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 							stacked.item.node.advance_partial(stacked.item.depth - stacked.item.depth_prefix);
 						}
 						let detached = mem::replace(&mut stacked.item.node, to_attach);
-						let detached_hash = mem::replace(&mut stacked.item.hash, None);
-						self.exit_detached(key_element, prefix, detached, detached_hash);
+						let detached_db = mem::replace(&mut stacked.item.previous_db_handle, None);
+						self.exit_detached(key_element, prefix, detached, detached_db);
 					},
 				}
 				None
@@ -997,7 +997,7 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 						let mut new_child = StackedItem {
 							item: StackedNode {
 								node: StackedNodeState::Changed(dest_leaf),
-								hash: None,
+								previous_db_handle: None,
 								depth_prefix: stacked.item.depth + offset,
 								depth: key_element.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
 								parent_index,
@@ -1008,7 +1008,7 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 						};
 						return if stacked.item.node.is_empty() {
 							// replace empty.
-							new_child.item.hash = stacked.item.hash.take();
+							new_child.item.previous_db_handle = stacked.item.previous_db_handle.take();
 							*stacked = new_child;
 							None
 						} else {
@@ -1044,7 +1044,7 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 							item: StackedNode {
 								node: to_attach,
 								// Attach root is prefixed at attach key
-								hash: Some((attach_root.clone(), owned_prefix(&(key_element, None)))),
+								previous_db_handle: Some((attach_root.clone(), owned_prefix(&(key_element, None)))),
 								depth_prefix,
 								depth,
 								parent_index,
@@ -1055,8 +1055,8 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 						};
 						return if stacked.item.node.is_empty() {
 							// replace empty.
-							let detached_hash = mem::replace(&mut new_child.item.hash, stacked.item.hash.take());
-							self.exit_detached(key_element, EMPTY_PREFIX, StackedNodeState::<B, T>::Deleted, detached_hash);
+							let detached_db = mem::replace(&mut new_child.item.previous_db_handle, stacked.item.previous_db_handle.take());
+							self.exit_detached(key_element, EMPTY_PREFIX, StackedNodeState::<B, T>::Deleted, detached_db);
 							*stacked = new_child;
 							None
 						} else {
@@ -1095,7 +1095,7 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 							let child = StackedItem {
 								item: StackedNode {
 									node: StackedNodeState::Changed(child),
-									hash: None,
+									previous_db_handle: None,
 									depth_prefix: offset + mid_index,
 									depth: key_element.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
 									parent_index,
@@ -1135,12 +1135,12 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 						}
 						let detached = mem::replace(&mut stacked.item.node, to_attach);
 						//detached.advance_partial(mid_index);
-						let detached_hash = mem::replace(
-							&mut stacked.item.hash,
+						let detached_db = mem::replace(
+							&mut stacked.item.previous_db_handle,
 							Some((attach_root.clone(), owned_prefix(&(key_element, None)))),
 						);
 						stacked.item.depth = stacked.item.depth_prefix + stacked.item.node.partial().map(|p| p.len()).unwrap_or(0);
-						self.exit_detached(key_element, prefix, detached, detached_hash);
+						self.exit_detached(key_element, prefix, detached, detached_db);
 						None
 					},
 					InputAction::Detach => {
@@ -1154,8 +1154,8 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 							let to_attach = StackedNodeState::Deleted;
 							let mut detached = mem::replace(&mut stacked.item.node, to_attach);
 							detached.advance_partial(mid_index - stacked.item.depth_prefix);
-							let detached_hash = mem::replace(&mut stacked.item.hash, None);
-							self.exit_detached(key_element, prefix, detached, detached_hash);
+							let detached_db = mem::replace(&mut stacked.item.previous_db_handle, None);
+							self.exit_detached(key_element, prefix, detached, detached_db);
 						}
 						None
 					},
@@ -1164,12 +1164,12 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 		}
 	}
 
-	fn exit(&mut self, prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>)
+	fn exit(&mut self, prefix: Prefix, stacked: StackedNodeState<B, T>, prev_db: Option<(TrieHash<T>, OwnedPrefix)>)
 		-> Option<Option<OwnedNodeHandle<TrieHash<T>>>> {
 		let register = &mut self.register_update;
 		match stacked {
 			StackedNodeState::Changed(node) => Some(Some({
-				if let Some((h, p)) = prev_hash {
+				if let Some((h, p)) = prev_db {
 					register((p, h, None));
 				}
 				let encoded = node.into_encoded::<_, T::Codec, T::Hash>(
@@ -1187,7 +1187,7 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 				}
 			})),
 			StackedNodeState::Deleted => {
-				if let Some((h, p)) = prev_hash {
+				if let Some((h, p)) = prev_db {
 					register((p, h.clone(), None));
 				}
 				Some(None)
@@ -1195,7 +1195,7 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 			StackedNodeState::UnchangedAttached(node) => Some(Some({
 				let encoded = node.data().to_vec();
 				if encoded.len() < <T::Hash as hash_db::Hasher>::LENGTH {
-					if let Some((h, p)) = prev_hash {
+					if let Some((h, p)) = prev_db {
 						register((p, h, None));
 					}
 					OwnedNodeHandle::InMemory(encoded)
@@ -1207,7 +1207,7 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 		}
 	}
 
-	fn exit_root(&mut self, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>) {
+	fn exit_root(&mut self, stacked: StackedNodeState<B, T>, prev_db: Option<(TrieHash<T>, OwnedPrefix)>) {
 		let prefix = EMPTY_PREFIX;
 		let register = &mut self.register_update;
 		match stacked {
@@ -1216,7 +1216,7 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 				let encoded = s.into_encoded();
 				let hash = <T::Hash as hash_db::Hasher>::hash(&encoded[..]);
 				self.root = hash.clone();
-				if let Some((h, p)) = prev_hash {
+				if let Some((h, p)) = prev_db {
 					register((p, h.clone(), None));
 				}
 				register((owned_prefix(&prefix), hash, Some(encoded)));
@@ -1230,7 +1230,7 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 		}
 	}
 
-	fn exit_detached(&mut self, key_element: &[u8], prefix: Prefix, stacked: StackedNodeState<B, T>, prev_hash: Option<(TrieHash<T>, OwnedPrefix)>) {
+	fn exit_detached(&mut self, key_element: &[u8], prefix: Prefix, stacked: StackedNodeState<B, T>, prev_db: Option<(TrieHash<T>, OwnedPrefix)>) {
 		let detached_prefix = (key_element, None);
 
 		let is_empty_node = stacked.is_empty();
@@ -1240,7 +1240,7 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 			s@StackedNodeState::Deleted
 			| s@StackedNodeState::Changed(..) => {
 				// same as root: also hash inline nodes.
-				if let Some((h, p)) = prev_hash {
+				if let Some((h, p)) = prev_db {
 					register_up((p, h.clone(), None));
 				}
 				if !is_empty_node {
@@ -1253,7 +1253,7 @@ impl<B, T, C, CD, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, CD, D>
 			s@StackedNodeState::UnchangedAttached(..)
 			| s@StackedNodeState::Unchanged(..) => {
 				if !is_empty_node {
-					let hash = if let Some((not_inline, _previous_prefix)) = prev_hash {
+					let hash = if let Some((not_inline, _previous_prefix)) = prev_db {
 						not_inline
 					} else {
 						let encoded = s.into_encoded();
