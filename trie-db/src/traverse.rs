@@ -829,7 +829,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 							// first node visited on a fusable element, store in parent first child and process later.
 							// Process an eventual split child (index after current).
 							parent.first_modified_child = Some(current.into());
-//							debug_assert!(parent.split_child.is_none());
+							debug_assert!(parent.split_child.is_none());
 						}
 					}
 					current = parent;
