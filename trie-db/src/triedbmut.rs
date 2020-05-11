@@ -203,8 +203,6 @@ impl<H, SH> NodeMut<H, SH> {
 			| NodeMut::NibbledBranch(_, encoded_children, val)
 				=> {
 					*val = None;
-					// TODO store a boolean state to indicate the current
-					// number of set children
 					!encoded_children.iter().any(Option::is_some)
 				},
 			NodeMut::Leaf(..)
@@ -261,7 +259,7 @@ impl<H, SH> NodeMut<H, SH> {
 		&mut self,
 		pending: (Option<u8>, Option<u8>),
 	) -> (bool, Option<u8>) {
-		let node = mem::replace(self, NodeMut::Empty); // TODO EMCH rewrite to avoid this mem replace.
+		let node = mem::replace(self, NodeMut::Empty);
 		let (node, fuse) = match node {
 			NodeMut::Extension(..)
 			| NodeMut::Branch(..) => unreachable!("Only for no extension trie"),
@@ -282,7 +280,7 @@ impl<H, SH> NodeMut<H, SH> {
 						other_index = Some(pending);
 					}
 				}
-				for c in encoded_children.iter() { // that is damn costy, a bitmap would be better TODO EMCH consider storing a bitmap
+				for c in encoded_children.iter() {
 					if c.is_some() {
 						count += 1;
 					}
