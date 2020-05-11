@@ -246,16 +246,11 @@ impl<H, SH> NodeMut<H, SH> {
 		};
 	}
 
-	/// Branch in invalid state should only be updated before write
-	/// to avoid multiple change of state.
-	/// Return true if the node can be removed,
-	/// and index of node to fuse with in case after removal of handle
-	/// a branch with a single child and no value remain.
-	/// This is only for no extension trie (a variant would be
-	/// needed for trie with extension).
-	/// Pending parameter indicates a node to be added or modified due to buffered
-	/// addition or split child).
-	pub(crate) fn fix_node(
+	/// Try to fuse a node, possibly changing a branch into a leaf.
+	/// If node was deleted, true is returned.
+	/// If node can be fused with a child, it is unchanged and the
+	/// child index is returned.
+	pub(crate) fn try_fuse_node(
 		&mut self,
 		pending: (Option<u8>, Option<u8>),
 	) -> (bool, Option<u8>) {

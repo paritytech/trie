@@ -382,6 +382,34 @@ impl<B, T> StackedItem<B, T>
 		self.first_modified_child = None;
 		self.split_child = None;
 	}
+
+	fn fuse_node<F: ProcessStack<B, T>>(
+		&mut self,
+		key: &[u8],
+		db: &dyn HashDBRef<T::Hash, B>,
+		callback: &mut F,
+	) -> Result<(), TrieHash<T>, CError<T>> {
+		let first_modified_child_index = self.first_modified_child_index();
+		// needed also to resolve
+		if let Some(fuse_index) = self.item.node.fuse_node((first_modified_child_index, self.split_child_index())) {
+			// try first child
+			if let Some(child) = self.take_first_modified_child() {
+				debug_assert!(child.item.parent_index == fuse_index);
+				let mut prefix = NibbleVec::from(key.as_ref(), self.item.depth);
+				prefix.push(fuse_index);
+				child.item.node.partial().map(|p| prefix.append_partial(p.right()));
+				self.fuse_branch(child, prefix.inner(), callback);
+			} else {
+				let mut prefix = NibbleVec::from(key.as_ref(), self.item.depth);
+				prefix.push(fuse_index);
+				let child = self.descend_child(fuse_index, db, prefix.as_prefix())?
+					.expect("result of first child is define if consistent db");
+				child.item.node.partial().map(|p| prefix.append_partial(p.right()));
+				self.fuse_branch(child, prefix.inner(), callback);
+			}
+		}
+		Ok(())
+	}
 }
 
 impl<B, T> StackedNodeState<B, T>
@@ -511,14 +539,14 @@ impl<B, T> StackedNodeState<B, T>
 		}
 	}
 
-	/// Returns index of node to fuse with if fused require.
-	fn fix_node(&mut self, pending: (Option<u8>, Option<u8>)) -> Option<u8> {
+	/// Returns index of node to fuse if node was fused.
+	fn fuse_node(&mut self, pending: (Option<u8>, Option<u8>)) -> Option<u8> {
 		match self {
 			StackedNodeState::Deleted
 			| StackedNodeState::UnchangedAttached(..)
 			| StackedNodeState::Unchanged(..) => None,
 			StackedNodeState::Changed(node) => {
-				let (deleted, fuse) = node.fix_node(pending);
+				let (deleted, fuse) = node.try_fuse_node(pending);
 				if deleted {
 					*self = StackedNodeState::Deleted;
 				}
@@ -652,6 +680,7 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
 		F: ProcessStack<B, T>,
 {
+
 	// Stack of traversed nodes
 	let mut stack: smallvec::SmallVec<[StackedItem<B, T>; 16]> = Default::default();
 
@@ -687,8 +716,8 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 
 			// first remove deleted.
 			if current.item.node.is_empty() {
-				current.process_first_modified_child(key.as_ref(), callback); // TODO is it of any use in a deleted node
-				current.process_split_child(key.as_ref(), callback); // TODO is it of any use?? (assert none instead??)
+				assert!(current.first_modified_child.is_none());
+				assert!(current.split_child.is_none());
 				if let Some(mut parent) = stack.pop() {
 					let prefix = NibbleSlice::new_offset(key.as_ref(), current.item.depth_prefix);
 					parent.append_child(current.into(), prefix.left(), callback);
@@ -723,28 +752,27 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 							continue;
 						},
 						Some((key, InputAction::Attach(attach_root))) => {
-							// TODO nooop on attach empty
 							let root_prefix = (key.as_ref(), None);
 							let node = StackedNodeState::<B, T>::fetch(db, &attach_root, root_prefix)?;
-							let depth = node.partial().map(|p| p.len()).unwrap_or(0);
-							current = StackedItem {
-								item: StackedNode {
-									node,
-									hash: None,
-									depth_prefix: 0,
-									depth,
-									parent_index: 0,
-								},
-								first_modified_child: None,
-								split_child: None,
-								can_fuse: true,
-							};
+							if !node.is_empty() {
+								let depth = node.partial().map(|p| p.len()).unwrap_or(0);
+								current = StackedItem {
+									item: StackedNode {
+										node,
+										hash: None,
+										depth_prefix: 0,
+										depth,
+										parent_index: 0,
+									},
+									first_modified_child: None,
+									split_child: None,
+									can_fuse: true,
+								};
+							}
 							continue;
 						},
 						Some((_key, InputAction::Detach))
 						| Some((_key, InputAction::Delete)) => {
-							// TODO EMCH could also detach a empty trie root (way to match a serie of detach with
-							// their keys)
 							continue;
 						},
 						None => {
@@ -768,25 +796,8 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 			} else {
 				target_common_depth
 			};*/
-			let first_modified_child_index = current.first_modified_child.as_ref().map(|c| c.parent_index); // TODO function for that to use
-			// needed also to resolve
-			if let Some(fuse_index) = current.item.node.fix_node((first_modified_child_index, current.split_child_index())) { // TODO EMCH rename fix_node to need_fuse
-				// try first child
-				if let Some(child) = current.take_first_modified_child() {
-					debug_assert!(child.item.parent_index == fuse_index);
-					let mut prefix = NibbleVec::from(key.as_ref(), current.item.depth);
-					prefix.push(fuse_index);
-					child.item.node.partial().map(|p| prefix.append_partial(p.right()));
-					current.fuse_branch(child, prefix.inner(), callback);
-				} else {
-					let mut prefix = NibbleVec::from(key.as_ref(), current.item.depth);
-					prefix.push(fuse_index);
-					let child = current.descend_child(fuse_index, db, prefix.as_prefix())?
-						.expect("result of first child is define if consistent db"); // TODO EMCH Error here do!!!
-					child.item.node.partial().map(|p| prefix.append_partial(p.right()));
-					current.fuse_branch(child, prefix.inner(), callback);
-				}
-			}
+
+			current.fuse_node(key.as_ref(), db, callback)?;
 			// unstack nodes if needed
 			while last || target_common_depth < current.item.depth_prefix { // TODO EMCH rename is_empty to is deleted
 				
@@ -842,27 +853,8 @@ fn trie_traverse_key<'a, T, I, K, V, B, F>(
 						break;
 					}
 				}
-				let first_modified_child_index = current.first_modified_child.as_ref().map(|c| c.parent_index); // TODO there is a function for that
-				// needed also to resolve
-				if let Some(fuse_index) = current.item.node.fix_node((first_modified_child_index, current.split_child_index())) {
-					// try first child
-					if let Some(child) = current.take_first_modified_child() {
-						debug_assert!(child.item.parent_index == fuse_index);
-						let mut prefix = NibbleVec::from(key.as_ref(), current.item.depth);
-						prefix.push(fuse_index);
-						child.item.node.partial().map(|p| prefix.append_partial(p.right()));
-						current.fuse_branch(child, prefix.inner(), callback);
-					} else {
-						let mut prefix = NibbleVec::from(key.as_ref(), current.item.depth);
-						prefix.push(fuse_index);
-						let child = current.descend_child(fuse_index, db, prefix.as_prefix())?
-							.expect("result of first child is define if consistent db");
-						child.item.node.partial().map(|p| prefix.append_partial(p.right()));
-						current.fuse_branch(child, prefix.inner(), callback);
-					}
-					// fuse child operation did switch current context.
-					continue;
-				}
+
+				current.fuse_node(key.as_ref(), db, callback)?;
 			}
 			// no fix if middle then process buffed
 			if target_common_depth < current.item.depth {
@@ -1129,43 +1121,40 @@ impl<B, T, C, D> ProcessStack<B, T> for BatchUpdate<TrieHash<T>, C, D>
 			TraverseState::MidPartial(mid_index) => {
 				match action {
 					InputAction::Insert(value) => {
-						if stacked.item.node.is_empty() {
-							unreachable!();
+						assert!(!stacked.item.node.is_empty());
+						stacked.do_split_child(mid_index, key_element, self);
+						let (offset, parent_index) = if key_element.len() == 0 {
+							// corner case of adding at top of trie
+							(0, 0)
 						} else {
-							stacked.do_split_child(mid_index, key_element, self);
-							let (offset, parent_index) = if key_element.len() == 0 {
-								// corner case of adding at top of trie
-								(0, 0)
-							} else {
-								// TODO not sure on index
-								(1, NibbleSlice::new(key_element).at(mid_index))
-							};
-							let child = Node::new_leaf(
-								// TODO not sure on '1 +'
-								NibbleSlice::new_offset(key_element, offset + mid_index),
-								value.as_ref(),
-							);
-							return if mid_index == key_element.len() * nibble_ops::NIBBLE_PER_BYTE {
+							// TODO not sure on index
+							(1, NibbleSlice::new(key_element).at(mid_index))
+						};
+						let child = Node::new_leaf(
+							// TODO not sure on '1 +'
+							NibbleSlice::new_offset(key_element, offset + mid_index),
+							value.as_ref(),
+						);
+						return if mid_index == key_element.len() * nibble_ops::NIBBLE_PER_BYTE {
 
-								// set value in new branch
-								stacked.item.node.set_value(value);
-								stacked.can_fuse = false;
-								None
-							} else {
-								let child = StackedItem {
-									item: StackedNode {
-										node: StackedNodeState::Changed(child),
-										hash: None,
-										depth_prefix: offset + mid_index,
-										depth: key_element.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
-										parent_index,
-									},
-									split_child: None,
-									first_modified_child: None,
-									can_fuse: false,
-								};
-								Some(child)
-							}
+							// set value in new branch
+							stacked.item.node.set_value(value);
+							stacked.can_fuse = false;
+							None
+						} else {
+							let child = StackedItem {
+								item: StackedNode {
+									node: StackedNodeState::Changed(child),
+									hash: None,
+									depth_prefix: offset + mid_index,
+									depth: key_element.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE,
+									parent_index,
+								},
+								split_child: None,
+								first_modified_child: None,
+								can_fuse: false,
+							};
+							Some(child)
 						}
 					},
 					InputAction::Delete => {
