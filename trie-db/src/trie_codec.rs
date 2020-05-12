@@ -588,7 +588,7 @@ pub fn binary_additional_hashes<H: HasherHybrid>(
 	hash_buf: &mut H::Buffer,
 ) -> Vec<H::Out> {
 	let nb_children = children.iter().filter(|v| v.is_some()).count();
-	let tree = SequenceBinaryTree::new(0, 0, nb_children);
+	let tree = SequenceBinaryTree::new(0, nb_children);
 
 	let to_prove = children.iter().zip(in_proof_children.iter())
 		.filter_map(|(o_child, in_proof)| o_child.as_ref().map(|_| *in_proof))
