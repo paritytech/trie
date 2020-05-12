@@ -48,7 +48,8 @@ pub mod node {
 }
 
 /// Reference hasher is a keccak hasher with hybrid ordered trie implementation.
-pub type RefHasher = ordered_trie::OrderedTrieHasher<keccak_hasher::KeccakHasher>;
+pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher>;
+//pub type RefHasher = ordered_trie::OrderedTrieHasher<keccak_hasher::KeccakHasher>;
 
 /// Trie layout using extension nodes.
 pub struct ExtensionLayout;
@@ -1681,5 +1682,58 @@ mod tests {
 			let s_dec = decode_size(encs[i][0], &mut &encs[i][1..]);
 			assert_eq!(s_dec, Ok(sizes[i]));
 		}
+	}
+}
+
+pub mod blake2 {
+	use hash_db::{Hasher, BinaryHasher};
+	use hash256_std_hasher::Hash256StdHasher;
+
+	/// Concrete implementation of Hasher using Blake2b 256-bit hashes
+	#[derive(Debug)]
+	pub struct Blake2Hasher;
+
+	impl Hasher for Blake2Hasher {
+		type Out = [u8; 32];
+		type StdHasher = Hash256StdHasher;
+		const LENGTH: usize = 32;
+
+		fn hash(x: &[u8]) -> Self::Out {
+			let mut dest = [0u8; 32];
+			dest.copy_from_slice(blake2_rfc::blake2b::blake2b(32, &[], x).as_bytes());
+			dest
+		}
+	}
+
+	impl BinaryHasher for Blake2Hasher {
+		const NULL_HASH: &'static [u8] = &[14, 87, 81, 192, 38, 229,
+			67, 178, 232, 171, 46, 176, 96, 153, 218, 161, 209, 229, 223,
+			71, 119, 143, 119, 135, 250, 171, 69, 205, 241, 47, 227, 168];
+		type Buffer = blake2_rfc::blake2b::Blake2b;
+
+		fn init_buffer() -> Self::Buffer {
+			blake2_rfc::blake2b::Blake2b::new(32)
+		}
+
+		fn reset_buffer(buff: &mut Self::Buffer) {
+			let _ = core::mem::replace(buff, Self::init_buffer());
+		}
+
+		fn buffer_hash(buff: &mut Self::Buffer, x: &[u8]) {
+			buff.update(&x[..])
+		}
+
+		fn buffer_finalize(buff: &mut Self::Buffer) -> Self::Out {
+			let mut res: [u8; 32] = [0; 32];
+			let k = core::mem::replace(buff, Self::init_buffer());
+			res.copy_from_slice(k.finalize().as_bytes());
+			res
+		}
+
+	}
+
+	#[test]
+	fn test_blake2b_hasher() {
+		hash_db::test_binary_hasher::<Blake2Hasher>()
 	}
 }
