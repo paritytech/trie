@@ -39,10 +39,9 @@ mod rstd {
 }
 
 
-use hash_db::{Prefix, HashDB};
 use crate::rstd::vec::Vec;
 
-use hash_db::{Hasher, BinaryHasher};
+use hash_db::{Hasher, HasherHybrid, BinaryHasher};
 use crate::rstd::marker::PhantomData;
 
 
@@ -1129,6 +1128,76 @@ pub fn trie_root_from_proof<HO, KN, I, I2, F>(
 	}
 }
 
+#[repr(transparent)]
+/// Hasher hybrid using an ordered trie
+pub struct OrderedTrieHasher<H>(H);
+
+impl<H: BinaryHasher> HasherHybrid for OrderedTrieHasher<H> {
+	fn hash_hybrid<
+		I: Iterator<Item = Option<<Self as Hasher>::Out>>,
+		I2: Iterator<Item = <Self as Hasher>::Out>,
+	>(
+		header: &[u8],
+		nb_children: usize,
+		children: I,
+		additional_hashes: I2,
+		proof: bool,
+	) -> Option<H::Out> {
+		let seq_trie = SequenceBinaryTree::new(0, 0, nb_children);
+
+		let mut hash_buf2 = <H as BinaryHasher>::Buffer::default();
+		let mut callback_read_proof = HashOnly::<H>::new(&mut hash_buf2);
+		let hash = if !proof {
+			// full node
+			let iter = children.filter_map(|v| v); // TODO assert same number as count
+			crate::trie_root::<_, UsizeKeyNode, _, _>(&seq_trie, iter, &mut callback_read_proof)
+		} else {
+			// proof node, UsizeKeyNode should be big enough for hasher hybrid
+			// case.
+			let iter_key = seq_trie.iter_path_node_key::<UsizeKeyNode>(None);
+			let iter = children
+				.zip(iter_key)
+				.filter_map(|(value, key)| if let Some(value) = value {
+					Some((key, value))
+				} else {
+					None
+				});
+			if let Some(hash) = crate::trie_root_from_proof(
+				&seq_trie,
+				iter,
+				additional_hashes,
+				&mut callback_read_proof,
+				false,
+			) {
+				hash
+			} else {
+				return None;
+			}
+		};
+		// TODO really need a real hash trait
+		let mut buf = Vec::with_capacity(header.len() + hash.as_ref().len());
+		buf.extend_from_slice(header);
+		buf.extend_from_slice(hash.as_ref());
+		Some(H::hash(buf.as_slice()))
+	}
+}
+
+impl<H: BinaryHasher> BinaryHasher for OrderedTrieHasher<H> {
+	const NULL_HASH: &'static [u8] = <H as BinaryHasher>::NULL_HASH;
+	type Buffer = <H as BinaryHasher>::Buffer;
+}
+
+impl<H: Hasher> Hasher for OrderedTrieHasher<H> {
+	type Out = <H as Hasher>::Out;
+	type StdHasher = <H as Hasher>::StdHasher;
+	const LENGTH: usize = <H as Hasher>::LENGTH;
+
+	#[inline]
+	fn hash(x: &[u8]) -> Self::Out {
+		<H as Hasher>::hash(x)
+	}
+}
+
 #[cfg(test)]
 mod test {
 	use keccak_hasher::KeccakHasher;
@@ -1446,107 +1515,4 @@ mod test {
 			assert_eq!(root.unwrap().as_ref(), &result[l][..]);
 		}
 	}
-}
-
-pub trait HasherHybrid: BinaryHasher {
-
-	/// Alternate hash with hybrid proof allowed
-	/// TODO expose buffer !! (then memory db use a single buf)
-	/// TODO EMCH also split depending on proof or not!!
-	fn hash_hybrid<
-		I: Iterator<Item = Option<<Self as Hasher>::Out>>,
-		I2: Iterator<Item = <Self as Hasher>::Out>,
-	>(
-		x: &[u8],
-		nb_children: usize,
-		children: I,
-		additional_hashes: I2,
-		proof: bool,
-	) -> Option<Self::Out>;
-}
-
-impl<H: BinaryHasher> HasherHybrid for H {
-	fn hash_hybrid<
-		I: Iterator<Item = Option<<Self as Hasher>::Out>>,
-		I2: Iterator<Item = <Self as Hasher>::Out>,
-	>(
-		header: &[u8],
-		nb_children: usize,
-		children: I,
-		additional_hashes: I2,
-		proof: bool,
-	) -> Option<H::Out> {
-		let seq_trie = SequenceBinaryTree::new(0, 0, nb_children);
-
-		let mut hash_buf2 = <H as BinaryHasher>::Buffer::default();
-		let mut callback_read_proof = HashOnly::<H>::new(&mut hash_buf2);
-		let hash = if !proof {
-			// full node
-			let iter = children.filter_map(|v| v); // TODO assert same number as count
-			crate::trie_root::<_, UsizeKeyNode, _, _>(&seq_trie, iter, &mut callback_read_proof)
-		} else {
-			// proof node, UsizeKeyNode should be big enough for hasher hybrid
-			// case.
-			let iter_key = seq_trie.iter_path_node_key::<UsizeKeyNode>(None);
-			let iter = children
-				.zip(iter_key)
-				.filter_map(|(value, key)| if let Some(value) = value {
-					Some((key, value))
-				} else {
-					None
-				});
-			if let Some(hash) = crate::trie_root_from_proof(
-				&seq_trie,
-				iter,
-				additional_hashes,
-				&mut callback_read_proof,
-				false,
-			) {
-				hash
-			} else {
-				return None;
-			}
-		};
-		// TODO really need a real hash trait
-		let mut buf = Vec::with_capacity(header.len() + hash.as_ref().len());
-		buf.extend_from_slice(header);
-		buf.extend_from_slice(hash.as_ref());
-		Some(H::hash(buf.as_slice()))
-	}
-}
-
-/// Same as HashDB but can modify the value upon storage, and apply
-/// `HasherHybrid`.
-pub trait HashDBHybrid<H: HasherHybrid, T>: Send + Sync + HashDB<H, T> {
-	/// `HashDB` is often use to load content from encoded node.
-	/// This will not preserve insertion done through `insert_branch_hybrid` calls
-	/// and break the proof.
-	/// This function allows to use a callback (usually the call back
-	/// will check the encoded value with codec and for branch it will
-	/// emplace over the hash_hybrid key) for changing key of some content.
-	/// Callback is allow to fail (since it will decode some node this indicates
-	/// invalid content earlier), in this case we return false.
-	fn insert_hybrid(
-		&mut self,
-		prefix: Prefix,
-		value: &[u8],
-		callback: fn(&[u8]) -> rstd::result::Result<Option<H::Out>, ()>,
-	) -> bool;
-	
-	/// Insert a datum item into the DB and return the datum's hash for a later lookup. Insertions
-	/// are counted and the equivalent number of `remove()`s must be performed before the data
-	/// is considered dead.
-	fn insert_branch_hybrid<
-		I: Iterator<Item = Option<H::Out>>,
-		I2: Iterator<Item = H::Out>,
-	>(
-		&mut self,
-		prefix: Prefix,
-		value: &[u8],
-		no_child_value: &[u8],
-		nb_children: usize,
-		children: I,
-		additional_hashes: I2,
-		proof: bool,
-	) -> H::Out;
 }

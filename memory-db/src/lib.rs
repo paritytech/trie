@@ -19,9 +19,8 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-use ordered_trie::{HashDBHybrid, HasherHybrid};
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher,
-	AsHashDB, AsPlainDB, Prefix};
+	AsHashDB, AsPlainDB, Prefix, HashDBHybrid, HasherHybrid};
 use parity_util_mem::{MallocSizeOf, MallocSizeOfOps};
 #[cfg(feature = "deprecated")]
 #[cfg(feature = "std")]

@@ -17,8 +17,7 @@
 //! implementation.
 //! See `trie_visit` function.
 
-use hash_db::{Hasher, HashDB, Prefix};
-use ordered_trie::{HashDBHybrid, HasherHybrid};
+use hash_db::{Hasher, HashDB, Prefix, HasherHybrid, HashDBHybrid};
 use crate::rstd::{cmp::max, marker::PhantomData, vec::Vec, EmptyIter, ops::Range};
 use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
@@ -708,7 +707,9 @@ impl<H: HasherHybrid> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashe
 mod test {
 	use crate::DBValue;
 	use memory_db::{MemoryDB, HashKey, PrefixedKey};
-	use keccak_hasher::KeccakHasher;
+
+	type KeccakHasher = ordered_trie::OrderedTrieHasher<keccak_hasher::KeccakHasher>;
+
 
 	#[test]
 	fn trie_root_empty () {

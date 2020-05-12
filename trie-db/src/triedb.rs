@@ -35,9 +35,8 @@ use crate::rstd::{fmt, vec::Vec};
 /// # Example
 /// ```
 /// use hash_db::Hasher;
-/// use reference_trie::{RefTrieDBMut, RefTrieDB, Trie, TrieMut};
+/// use reference_trie::{RefTrieDBMut, RefTrieDB, Trie, TrieMut, KeccakHasher};
 /// use trie_db::DBValue;
-/// use keccak_hasher::KeccakHasher;
 /// use memory_db::*;
 ///
 /// let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
@@ -332,10 +331,9 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 #[cfg(test)]
 mod tests {
 	use memory_db::{MemoryDB, PrefixedKey};
-	use keccak_hasher::KeccakHasher;
 	use crate::DBValue;
 	use reference_trie::{RefTrieDB, RefTrieDBMut, RefLookup, Trie, TrieMut, NibbleSlice};
-	use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt};
+	use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt, KeccakHasher};
 	use hex_literal::hex;
 
 	#[test]

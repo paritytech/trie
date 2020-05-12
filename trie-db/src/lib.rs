@@ -60,7 +60,7 @@ mod nibble;
 mod node_codec;
 mod trie_codec;
 
-pub use hash_db::{HashDB, HashDBRef, Hasher, BinaryHasher};
+pub use hash_db::{HashDB, HashDBRef, Hasher, BinaryHasher, HasherHybrid, HashDBHybrid};
 pub use self::triedb::{TrieDB, TrieDBIterator};
 pub use self::triedbmut::{TrieDBMut, ChildReference};
 pub use self::sectriedbmut::SecTrieDBMut;
@@ -76,7 +76,6 @@ pub use crate::iter_build::{trie_visit, ProcessEncodedNode, TrieRootUnhashedHybr
 	 TrieBuilder, TrieRoot, TrieRootUnhashed, TrieRootHybrid, TrieBuilderHybrid};
 pub use crate::iterator::TrieDBNodeIterator;
 pub use crate::trie_codec::{decode_compact, encode_compact, binary_additional_hashes};
-pub use ordered_trie::{HashDBHybrid, HasherHybrid};
 
 #[cfg(feature = "std")]
 pub use crate::iter_build::TrieRootPrint;
@@ -390,7 +389,7 @@ pub trait TrieLayout {
 	/// and dummy implementation can be used.
 	const HYBRID_HASH: bool;
 	/// Hasher to use for this trie.
-	type Hash: BinaryHasher;
+	type Hash: HasherHybrid;
 	/// Codec to use (needs to match hasher and nibble ops).
 	type Codec: NodeCodecHybrid<HashOut=<Self::Hash as Hasher>::Out>;
 }

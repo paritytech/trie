@@ -18,7 +18,7 @@ use crate::rstd::{
 	boxed::Box, convert::TryInto, marker::PhantomData, ops::Range, vec, vec::Vec,
 };
 
-use hash_db::{Hasher, BinaryHasher};
+use hash_db::{Hasher, HasherHybrid};
 
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH, NibbleSlice, node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode}, NodeCodec, Recorder,
@@ -45,9 +45,9 @@ struct StackEntry<'a, C: NodeCodec, H> {
 	_marker: PhantomData<(C, H)>,
 }
 
-impl<'a, C: NodeCodecHybrid, H: BinaryHasher> StackEntry<'a, C, H>
+impl<'a, C: NodeCodecHybrid, H: HasherHybrid> StackEntry<'a, C, H>
 	where
-		H: BinaryHasher<Out = C::HashOut>,
+		H: HasherHybrid<Out = C::HashOut>,
 {
 	fn new(
 		prefix: LeftNibbleSlice<'a>,
@@ -268,7 +268,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 		.collect::<Vec<_>>();
 	keys.sort();
 	keys.dedup();
-	let mut hash_buf = <L::Hash as BinaryHasher>::Buffer::default();
+	let mut hash_buf = <L::Hash as hash_db::BinaryHasher>::Buffer::default();
 	let hash_buf = &mut hash_buf;
 
 
@@ -537,7 +537,7 @@ fn value_with_omission<'a>(
 /// Unwind the stack until the given key is prefixed by the entry at the top of the stack. If the
 /// key is None, unwind the stack completely. As entries are popped from the stack, they are
 /// encoded into proof nodes and added to the finalized proof.
-fn unwind_stack<C: NodeCodecHybrid, H: BinaryHasher>(
+fn unwind_stack<C: NodeCodecHybrid, H: HasherHybrid>(
 	stack: &mut Vec<StackEntry<C, H>>,
 	proof_nodes: &mut Vec<Vec<u8>>,
 	maybe_key: Option<&LeftNibbleSlice>,
@@ -545,7 +545,7 @@ fn unwind_stack<C: NodeCodecHybrid, H: BinaryHasher>(
 	hash_buf: &mut H::Buffer,
 ) -> TrieResult<(), C::HashOut, C::Error>
 	where
-		H: BinaryHasher<Out = C::HashOut>,
+		H: HasherHybrid<Out = C::HashOut>,
 {
 	while let Some(entry) = stack.pop() {
 		match maybe_key {

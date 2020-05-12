@@ -79,8 +79,7 @@ impl<HO: Copy> Recorder<HO> {
 mod tests {
 	use memory_db::{MemoryDB, HashKey};
 	use hash_db::Hasher;
-	use keccak_hasher::KeccakHasher;
-	use reference_trie::{RefTrieDB, RefTrieDBMut, Trie, TrieMut, Recorder, Record};
+	use reference_trie::{RefTrieDB, RefTrieDBMut, Trie, TrieMut, Recorder, Record, KeccakHasher};
 
 	#[test]
 	fn basic_recorder() {

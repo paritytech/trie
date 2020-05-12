@@ -18,7 +18,7 @@
 use crate::MaybeDebug;
 use crate::node::{Node, NodePlan};
 use crate::ChildReference;
-use hash_db::BinaryHasher;
+use hash_db::HasherHybrid;
 
 use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec, EmptyIter, ops::Range};
 
@@ -131,7 +131,7 @@ pub trait NodeCodecHybrid: NodeCodec {
 	/// inline nodes only.
 	/// The other children value are needed because they can be included into the additional
 	/// hash, and are required for intermediate hash calculation.
-	fn encode_compact_proof<H: BinaryHasher>(
+	fn encode_compact_proof<H: HasherHybrid>(
 		hash_proof_header: Vec<u8>,
 		children: &[Option<ChildReference<H::Out>>],
 		hash_buf: &mut H::Buffer,
@@ -203,8 +203,7 @@ impl ChildProofHeader {
 	}
 }
 
-use ordered_trie::{HashDBHybrid, HasherHybrid};
-use hash_db::{HashDB, Prefix, HashDBRef, Hasher};
+use hash_db::{HashDB, Prefix, HashDBRef, Hasher, HashDBHybrid};
 
 pub trait HashDBHybridDyn<H: Hasher, T>: Send + Sync + HashDB<H, T> {
 	/// Insert a datum item into the DB and return the datum's hash for a later lookup. Insertions
@@ -391,7 +390,7 @@ pub fn hybrid_hash_node_adapter<Codec: NodeCodecHybrid<HashOut = Hasher::Out>, H
 					dest.as_mut()[..range.len()].copy_from_slice(&encoded_node[range]);
 					dest
 				}));
-				Some(Hasher::hash_hybrid(
+				Some(ordered_trie::OrderedTrieHasher::<Hasher>::hash_hybrid(
 					common.header(encoded_node),
 					nb_children,
 					children,
@@ -408,10 +407,9 @@ pub fn hybrid_hash_node_adapter<Codec: NodeCodecHybrid<HashOut = Hasher::Out>, H
 
 #[test]
 fn test_hybrid_hash_node_adapter() {
-	use reference_trie::{RefTrieDBMutNoExt, TrieMut, hybrid_hash_node_adapter_no_ext};
+	use reference_trie::{RefTrieDBMutNoExt, TrieMut, hybrid_hash_node_adapter_no_ext, KeccakHasher};
 	use crate::DBValue;
 	use memory_db::{MemoryDB, HashKey};
-	use keccak_hasher::KeccakHasher;
 	use hash_db::EMPTY_PREFIX;
 
 

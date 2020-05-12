@@ -93,8 +93,7 @@ where
 mod test {
 	use memory_db::{MemoryDB, HashKey};
 	use hash_db::Hasher;
-	use keccak_hasher::KeccakHasher;
-	use reference_trie::{RefTrieDB, RefSecTrieDBMut, Trie, TrieMut};
+	use reference_trie::{RefTrieDB, RefSecTrieDBMut, Trie, TrieMut, KeccakHasher};
 	use crate::DBValue;
 
 	#[test]

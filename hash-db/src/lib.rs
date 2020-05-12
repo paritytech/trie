@@ -219,3 +219,56 @@ impl<'a, K, V> AsPlainDB<K, V> for &'a mut dyn PlainDB<K, V> {
 	fn as_plain_db(&self) -> &dyn PlainDB<K, V> { &**self }
 	fn as_plain_db_mut<'b>(&'b mut self) -> &'b mut (dyn PlainDB<K, V> + 'b) { &mut **self }
 }
+
+/// Same as HashDB but can modify the value upon storage, and apply
+/// `HasherHybrid`.
+pub trait HashDBHybrid<H: Hasher, T>: Send + Sync + HashDB<H, T> {
+	/// `HashDB` is often use to load content from encoded node.
+	/// This will not preserve insertion done through `insert_branch_hybrid` calls
+	/// and break the proof.
+	/// This function allows to use a callback (usually the call back
+	/// will check the encoded value with codec and for branch it will
+	/// emplace over the hash_hybrid key) for changing key of some content.
+	/// Callback is allow to fail (since it will decode some node this indicates
+	/// invalid content earlier), in this case we return false.
+	fn insert_hybrid(
+		&mut self,
+		prefix: Prefix,
+		value: &[u8],
+		callback: fn(&[u8]) -> core::result::Result<Option<H::Out>, ()>,
+	) -> bool;
+
+	/// Insert a datum item into the DB and return the datum's hash for a later lookup. Insertions
+	/// are counted and the equivalent number of `remove()`s must be performed before the data
+	/// is considered dead.
+	fn insert_branch_hybrid<
+		I: Iterator<Item = Option<H::Out>>,
+		I2: Iterator<Item = H::Out>,
+	>(
+		&mut self,
+		prefix: Prefix,
+		value: &[u8],
+		no_child_value: &[u8],
+		nb_children: usize,
+		children: I,
+		additional_hashes: I2,
+		proof: bool,
+	) -> H::Out;
+}
+
+pub trait HasherHybrid: BinaryHasher {
+
+	/// Alternate hash with hybrid proof allowed
+	/// TODO expose buffer !! (then memory db use a single buf)
+	/// TODO EMCH also split depending on proof or not!!
+	fn hash_hybrid<
+		I: Iterator<Item = Option<<Self as Hasher>::Out>>,
+		I2: Iterator<Item = <Self as Hasher>::Out>,
+	>(
+		x: &[u8],
+		nb_children: usize,
+		children: I,
+		additional_hashes: I2,
+		proof: bool,
+	) -> Option<Self::Out>;
+}

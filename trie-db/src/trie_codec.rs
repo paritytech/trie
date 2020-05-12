@@ -25,8 +25,7 @@
 //! expected to save roughly (n - 1) hashes in size where n is the number of nodes in the partial
 //! trie.
 
-use ordered_trie::HashDBHybrid;
-use hash_db::BinaryHasher;
+use hash_db::{HasherHybrid, HashDBHybrid};
 use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout, NodeCodecHybrid,
@@ -104,7 +103,7 @@ impl<C: NodeCodecHybrid> EncoderStackEntry<C> {
 		hash_buf: &mut H::Buffer,
 	) -> Result<Vec<u8>, C::HashOut, C::Error>
 		where
-				H: BinaryHasher<Out = C::HashOut>,
+				H: HasherHybrid<Out = C::HashOut>,
 	{
 		let node_data = self.node.data();
 		Ok(match self.node.node_plan() {
@@ -210,7 +209,7 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 	let mut output = Vec::new();
 
 	// TODO make it optional and replace boolean is_hybrid
-	let mut hash_buf = <L::Hash as BinaryHasher>::Buffer::default();
+	let mut hash_buf = <L::Hash as hash_db::BinaryHasher>::Buffer::default();
 	let hash_buf = &mut hash_buf;
 
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
@@ -579,7 +578,7 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 /// indicates if it is included in the proof (inline node or
 /// compacted node).
 /// - `hash_buf` a buffer of the right size to compute the hash.
-pub fn binary_additional_hashes<H: BinaryHasher>(
+pub fn binary_additional_hashes<H: HasherHybrid>(
 	children: &[Option<ChildReference<H::Out>>],
 	in_proof_children: &[bool],
 	hash_buf: &mut H::Buffer,

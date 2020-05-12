@@ -19,9 +19,9 @@ use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH,
 	node::{Node, NodeHandle}, NodeCodecHybrid, TrieHash, TrieLayout, ChildProofHeader,
 };
-use hash_db::{Hasher, BinaryHasher};
-use ordered_trie::HasherHybrid;
+use hash_db::{Hasher, BinaryHasher, HasherHybrid};
 use crate::node_codec::{Bitmap, HashesIter};
+use ordered_trie::OrderedTrieHasher;
 
 
 /// Errors that may occur during proof verification. Most of the errors types simply indicate that
@@ -503,7 +503,7 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 								}
 							});
 
-						if let Some(h) = L::Hash::hash_hybrid(
+						if let Some(h) = OrderedTrieHasher::<L::Hash>::hash_hybrid(
 							&common.header(node_data.as_slice())[..],
 							nb_children,
 							children,

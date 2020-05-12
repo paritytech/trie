@@ -422,9 +422,8 @@ impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
 /// # Example
 /// ```
 /// use hash_db::Hasher;
-/// use reference_trie::{RefTrieDBMut, TrieMut};
+/// use reference_trie::{RefTrieDBMut, TrieMut, KeccakHasher};
 /// use trie_db::DBValue;
-/// use keccak_hasher::KeccakHasher;
 /// use memory_db::*;
 ///
 /// let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
@@ -1678,9 +1677,8 @@ mod tests {
 	use crate::DBValue;
 	use memory_db::{MemoryDB, PrefixedKey};
 	use hash_db::Hasher;
-	use keccak_hasher::KeccakHasher;
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, NodeCodec, HashDBHybridDyn,
-		ReferenceNodeCodec, reference_trie_root_iter_build as reference_trie_root,
+		ReferenceNodeCodec, reference_trie_root_iter_build as reference_trie_root, KeccakHasher,
 		reference_trie_root_no_extension_iter_build as reference_trie_root_no_extension};
 	use crate::nibble::BackingByteVec;
 

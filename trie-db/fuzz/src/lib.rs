@@ -14,7 +14,6 @@
 
 
 use hash_db::Hasher;
-use keccak_hasher::KeccakHasher;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
 	calc_root_no_extension,
@@ -27,6 +26,7 @@ use reference_trie::{
 	RefTrieDBMutNoExt,
 	RefTrieDBNoExt,
 	TrieDBIterator,
+	KeccakHasher,
 };
 use std::convert::TryInto;
 use trie_db::{DBValue, Trie, TrieDB, TrieDBMut, TrieLayout, TrieMut};
