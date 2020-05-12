@@ -20,7 +20,7 @@ use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_hash};
 
 use crate::node_codec::HashDBHybridDyn;
-use hash_db::{Hasher, Prefix, EMPTY_PREFIX};
+use hash_db::{Hasher, Prefix, EMPTY_PREFIX, BinaryHasher};
 use hashbrown::HashSet;
 
 use crate::node_codec::{NodeCodec, NodeCodecHybrid, ChildProofHeader};
@@ -449,6 +449,7 @@ where
 	/// The number of hash operations this trie has performed.
 	/// Note that none are performed until changes are committed.
 	hash_count: usize,
+	hybrid_hash_buffer: Option<<L::Hash as BinaryHasher>::Buffer>,
 }
 
 impl<'a, L> TrieDBMut<'a, L>
@@ -479,6 +480,13 @@ where
 			root_handle,
 			death_row: HashSet::new(),
 			hash_count: 0,
+			hybrid_hash_buffer: None,
+		}
+	}
+
+	fn hybrid_hash_buffer_lazy_init(&mut self) {
+		if self.hybrid_hash_buffer.is_none() {
+			self.hybrid_hash_buffer = Some(L::Hash::init_buffer())
 		}
 	}
 
@@ -500,6 +508,7 @@ where
 			root_handle,
 			death_row: HashSet::new(),
 			hash_count: 0,
+			hybrid_hash_buffer: None,
 		})
 	}
 	/// Get the backing database.
@@ -1472,11 +1481,13 @@ where
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
 				if let Some(children) = register_children {
+					self.hybrid_hash_buffer_lazy_init();
 					*self.root = self.db.insert_branch_hybrid(
 						EMPTY_PREFIX,
 						&encoded_root[..],
 						&children[..],
 						no_node,
+						self.hybrid_hash_buffer.as_mut().expect("Lazy init above"),
 					);
 				} else {
 					*self.root = self.db.insert(EMPTY_PREFIX, &encoded_root[..]);
@@ -1530,11 +1541,13 @@ where
 						};
 						if encoded.len() >= L::Hash::LENGTH {
 							let hash = if let Some(children) = register_children {
+								self.hybrid_hash_buffer_lazy_init();
 								self.db.insert_branch_hybrid(
 									prefix.as_prefix(),
 									&encoded[..],
 									&children[..],
 									no_node,
+									self.hybrid_hash_buffer.as_mut().expect("Lazy init above"),
 								)
 							} else {
 								self.db.insert(prefix.as_prefix(), &encoded[..])

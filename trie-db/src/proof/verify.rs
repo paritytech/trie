@@ -457,6 +457,9 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 		false,
 		L::HYBRID_HASH,
 	)?;
+	let mut hybrid_buf = if L::HYBRID_HASH {
+		Some(L::Hash::init_buffer())
+	} else { None };
 	loop {
 		// Insert omitted value.
 		match last_entry.advance_item(&mut items_iter)? {
@@ -509,6 +512,7 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 							children,
 							additional_hash.into_iter(),
 							true,
+							hybrid_buf.as_mut().expect("Initialized for hybrid above"),
 						) {
 							h
 						} else {

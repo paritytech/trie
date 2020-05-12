@@ -268,7 +268,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 		.collect::<Vec<_>>();
 	keys.sort();
 	keys.dedup();
-	let mut hash_buf = <L::Hash as hash_db::BinaryHasher>::Buffer::default();
+	let mut hash_buf = <L::Hash as hash_db::BinaryHasher>::init_buffer();
 	let hash_buf = &mut hash_buf;
 
 

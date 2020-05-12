@@ -639,6 +639,7 @@ where
 		children: I,
 		additional_hashes: I2,
 		proof: bool,
+		buff: &mut H::Buffer,
 	) -> H::Out {
 		if T::from(value) == self.null_node_data {
 			return self.hashed_null_node.clone();
@@ -650,6 +651,7 @@ where
 			children,
 			additional_hashes,
 			proof,
+			buff,
 		) {
 			key
 		} else {

@@ -25,7 +25,7 @@
 //! expected to save roughly (n - 1) hashes in size where n is the number of nodes in the partial
 //! trie.
 
-use hash_db::{HasherHybrid, HashDBHybrid};
+use hash_db::{HasherHybrid, HashDBHybrid, BinaryHasher};
 use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout, NodeCodecHybrid,
@@ -209,7 +209,7 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 	let mut output = Vec::new();
 
 	// TODO make it optional and replace boolean is_hybrid
-	let mut hash_buf = <L::Hash as hash_db::BinaryHasher>::Buffer::default();
+	let mut hash_buf = <L::Hash as hash_db::BinaryHasher>::init_buffer();
 	let hash_buf = &mut hash_buf;
 
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
@@ -508,6 +508,9 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 			_marker: PhantomData::default(),
 		};
 
+		let mut hybrid_buf = if L::HYBRID_HASH {
+			Some(L::Hash::init_buffer())
+		} else { None };
 		loop {
 			if !last_entry.advance_child_index()? {
 				last_entry.push_to_prefix(&mut prefix);
@@ -552,6 +555,7 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 					children,
 					additional_hashes,
 					true,
+					hybrid_buf.as_mut().expect("Initialized for hybrid above"),
 				)
 			} else {
 				db.insert(prefix.as_prefix(), node_data.as_ref())

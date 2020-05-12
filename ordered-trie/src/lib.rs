@@ -731,14 +731,11 @@ pub trait ProcessNodeProof<HO, KN>: ProcessNode<HO, KN> {
 
 /// Does only proccess hash on its buffer.
 /// Correct buffer size is expected, this is unchecked. 
-pub struct HashOnly<'a, H>(&'a mut [u8], PhantomData<H>);
+pub struct HashOnly<'a, H: BinaryHasher>(&'a mut H::Buffer);
 
 impl<'a, H: BinaryHasher> HashOnly<'a, H> {
 	pub fn new(buff: &'a mut H::Buffer) -> Self {
-		HashOnly(buff.as_mut(), PhantomData)
-	}
-	pub fn new_unchecked(buff: &'a mut [u8]) -> Self {
-		HashOnly(buff, PhantomData)
+		HashOnly(buff)
 	}
 }
 
@@ -747,18 +744,16 @@ impl<'a, H: BinaryHasher, KN> ProcessNode<H::Out, KN> for HashOnly<'a, H> {
 		H::NULL_HASH
 	}
 	fn process(&mut self, _key: &KN, child1: &[u8], child2: &[u8]) -> H::Out {
-		// Should use lower level trait than Hasher to avoid copies.
-		self.0[..H::LENGTH].copy_from_slice(child1);
-		self.0[H::LENGTH..].copy_from_slice(child2);
-		H::hash(&self.0[..])
+		H::reset_buffer(&mut self.0);
+		H::buffer_hash(&mut self.0, child1);
+		H::buffer_hash(&mut self.0, child2);
+		H::buffer_finalize(&mut self.0)
 	}
 	fn register_root(&mut self, _root: &H::Out) { }
 }
 
-/// Buffer length need to be right and is unchecked, proof elements are
-/// stored in memory (no streaming). 
-pub struct HashProof<'a, H: Hasher, I, KN> {
-	buffer: &'a mut [u8],
+pub struct HashProof<'a, H: BinaryHasher, I, KN> {
+	buffer: &'a mut H::Buffer,
 	// `I` is a iterator over the depth of every element included in the proof.
 	// Can be obtain from `iter_path_node_key` filtered by contained elements.
 	to_prove: I,
@@ -916,13 +911,13 @@ impl<'a, H: BinaryHasher, KN: KeyNode, I: Iterator<Item = KN>> HashProof<'a, H, 
 	// with either depth_at or the depth_iterator skipping undesired elements (second
 	// seems better as it filters out of range.
 	pub fn new(
-		buff: &'a mut H::Buffer,
+		buffer: &'a mut H::Buffer,
 		mut to_prove: I,
 		additional_hash_only: bool,
 	) -> Self {
 		let state = MultiProofState::new(&mut to_prove);
 		HashProof {
-			buffer: buff.as_mut(),
+			buffer,
 			to_prove,
 			state,
 			additional_hash: Vec::new(),
@@ -962,9 +957,8 @@ impl<'a, H: BinaryHasher, KN: KeyNode, I: Iterator<Item = KN>> ProcessNode<H::Ou
 		if skip_hashing {
 			Default::default()
 		} else {
-			self.buffer[..H::LENGTH].copy_from_slice(child1);
-			self.buffer[H::LENGTH..].copy_from_slice(child2);
-			H::hash(&self.buffer[..])
+			let mut h = HashOnly::<H>::new(self.buffer);
+			h.process(key, child1, child2)
 		}
 	}
 	fn register_root(&mut self, root: &H::Out) {
@@ -1142,11 +1136,11 @@ impl<H: BinaryHasher> HasherHybrid for OrderedTrieHasher<H> {
 		children: I,
 		additional_hashes: I2,
 		proof: bool,
+		buffer: &mut H::Buffer,
 	) -> Option<H::Out> {
 		let seq_trie = SequenceBinaryTree::new(0, 0, nb_children);
 
-		let mut hash_buf2 = <H as BinaryHasher>::Buffer::default();
-		let mut callback_read_proof = HashOnly::<H>::new(&mut hash_buf2);
+		let mut callback_read_proof = HashOnly::<H>::new(buffer);
 		let hash = if !proof {
 			// full node
 			let iter = children.filter_map(|v| v); // TODO assert same number as count
@@ -1174,17 +1168,28 @@ impl<H: BinaryHasher> HasherHybrid for OrderedTrieHasher<H> {
 				return None;
 			}
 		};
-		// TODO really need a real hash trait
-		let mut buf = Vec::with_capacity(header.len() + hash.as_ref().len());
-		buf.extend_from_slice(header);
-		buf.extend_from_slice(hash.as_ref());
-		Some(H::hash(buf.as_slice()))
+		let mut hash_buf2 = <H as BinaryHasher>::init_buffer();
+		<H as BinaryHasher>::buffer_hash(&mut hash_buf2, header);
+		<H as BinaryHasher>::buffer_hash(&mut hash_buf2, hash.as_ref());
+		Some(H::buffer_finalize(&mut hash_buf2))
 	}
 }
 
 impl<H: BinaryHasher> BinaryHasher for OrderedTrieHasher<H> {
 	const NULL_HASH: &'static [u8] = <H as BinaryHasher>::NULL_HASH;
 	type Buffer = <H as BinaryHasher>::Buffer;
+	fn init_buffer() -> Self::Buffer {
+		<H as BinaryHasher>::init_buffer()
+	}
+	fn reset_buffer(buf: &mut Self::Buffer) {
+		<H as BinaryHasher>::reset_buffer(buf)
+	}
+	fn buffer_hash(buff: &mut Self::Buffer, x: &[u8]) {
+		<H as BinaryHasher>::buffer_hash(buff, x)
+	}
+	fn buffer_finalize(buff: &mut Self::Buffer) -> Self::Out {
+		<H as BinaryHasher>::buffer_finalize(buff)
+	}
 }
 
 impl<H: Hasher> Hasher for OrderedTrieHasher<H> {
@@ -1416,7 +1421,7 @@ mod test {
 		let result = base16_roots();
 		for l in 0..17 {
 			let tree = Tree::new(0, 0, l);
-			let mut hash_buf = <KeccakHasher as BinaryHasher>::Buffer::default();
+			let mut hash_buf = <KeccakHasher as BinaryHasher>::init_buffer();
 			let mut callback = HashOnly::<KeccakHasher>::new(&mut hash_buf);
 			let hashes: Vec<_> = hashes(l);
 			let root = trie_root::<_, UsizeKeyNode, _, _>(&tree, hashes.into_iter(), &mut callback);
@@ -1429,9 +1434,9 @@ mod test {
 		let result = base16_roots();
 		for l in 0..17 {
 			let tree = Tree::new(0, 0, l);
-			let mut hash_buf = <KeccakHasher as BinaryHasher>::Buffer::default();
-			let mut hash_buf2 = <KeccakHasher as BinaryHasher>::Buffer::default();
-			let mut hash_buf3 = <KeccakHasher as BinaryHasher>::Buffer::default();
+			let mut hash_buf = <KeccakHasher as BinaryHasher>::init_buffer();
+			let mut hash_buf2 = <KeccakHasher as BinaryHasher>::init_buffer();
+			let mut hash_buf3 = <KeccakHasher as BinaryHasher>::init_buffer();
 			let mut callback_read_proof = HashOnly::<KeccakHasher>::new(&mut hash_buf2);
 			let hashes: Vec<_> = hashes(l);
 			for p in 0..l {
@@ -1483,9 +1488,9 @@ mod test {
 			let l = *l;
 			let ps = *ps;
 			let tree = Tree::new(0, 0, l);
-			let mut hash_buf = <KeccakHasher as BinaryHasher>::Buffer::default();
-			let mut hash_buf2 = <KeccakHasher as BinaryHasher>::Buffer::default();
-			let mut hash_buf3 = <KeccakHasher as BinaryHasher>::Buffer::default();
+			let mut hash_buf = <KeccakHasher as BinaryHasher>::init_buffer();
+			let mut hash_buf2 = <KeccakHasher as BinaryHasher>::init_buffer();
+			let mut hash_buf3 = <KeccakHasher as BinaryHasher>::init_buffer();
 			let mut callback_read_proof = HashOnly::<KeccakHasher>::new(&mut hash_buf2);
 			let hashes: Vec<_> = hashes(l);
 			let mut to_prove = Vec::new();

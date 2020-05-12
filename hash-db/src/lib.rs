@@ -68,34 +68,41 @@ pub trait Hasher: Sync + Send {
 pub trait BinaryHasher: Hasher {
 	/// Hash for the empty content (is hash(&[])).
 	const NULL_HASH: &'static [u8];
-	type Buffer: AsRef<[u8]> + AsMut<[u8]> + Default;
+
+	/// State buffer for hashing.
+	type Buffer;
+
+	fn init_buffer() -> Self::Buffer;
+	fn reset_buffer(buf: &mut Self::Buffer);
+	fn buffer_hash(buff: &mut Self::Buffer, x: &[u8]);
+
+	/// After calling `buffer_finalize`, one do not have to call `reset_buffer`.
+	fn buffer_finalize(buff: &mut Self::Buffer) -> Self::Out;
 }
 
-/// Test function to use on every binary buffer implementation.
+/// Test function to use on any binary buffer implementation.
 pub fn test_binary_hasher<H: BinaryHasher>() {
 	let size = <H as Hasher>::LENGTH * 2;
-	let buf = <H as BinaryHasher>::Buffer::default();
-	assert_eq!(buf.as_ref().len(), size);
+	let half_size = <H as Hasher>::LENGTH / 2;
+	let mut val = vec![0u8; size];
+	val[0] = 1;
+	let mut buf = <H as BinaryHasher>::init_buffer();
+	H::buffer_hash(&mut buf, &val[..half_size]);
+	H::buffer_hash(&mut buf, &val[half_size..<H as Hasher>::LENGTH]);
+	let three = core::cmp::min(3, half_size);
+	H::buffer_hash(&mut buf, &val[<H as Hasher>::LENGTH..<H as Hasher>::LENGTH + three]);
+	H::buffer_hash(&mut buf, &val[<H as Hasher>::LENGTH + three..]);
+	let h = H::buffer_finalize(&mut buf);
+	let h2 = H::hash(&val[..]);
+	assert_eq!(h, h2);
+	H::buffer_hash(&mut buf, &val[..]);
+	let h = H::buffer_finalize(&mut buf);
+	assert_eq!(h, h2);
 	let null_hash = H::hash(&[]);
+	H::reset_buffer(&mut buf);
+	let null_hash2 = H::buffer_finalize(&mut buf);
 	assert_eq!(H::NULL_HASH, null_hash.as_ref());
-}
-
-/// A buffer for binary hasher of size 64.
-pub struct Buffer64([u8; 64]);
-impl AsRef<[u8]> for Buffer64 {
-	fn as_ref(&self) -> &[u8] {
-		&self.0[..]
-	}
-}
-impl AsMut<[u8]> for Buffer64 {
-	fn as_mut(&mut self) -> &mut [u8] {
-		&mut self.0[..]
-	}
-}
-impl Default for Buffer64 {
-	fn default() -> Self {
-		Buffer64([0; 64])
-	}
+	assert_eq!(H::NULL_HASH, null_hash2.as_ref());
 }
 
 /// Trait modelling a plain datastore whose key is a fixed type.
@@ -222,7 +229,7 @@ impl<'a, K, V> AsPlainDB<K, V> for &'a mut dyn PlainDB<K, V> {
 
 /// Same as HashDB but can modify the value upon storage, and apply
 /// `HasherHybrid`.
-pub trait HashDBHybrid<H: Hasher, T>: Send + Sync + HashDB<H, T> {
+pub trait HashDBHybrid<H: BinaryHasher, T>: Send + Sync + HashDB<H, T> {
 	/// `HashDB` is often use to load content from encoded node.
 	/// This will not preserve insertion done through `insert_branch_hybrid` calls
 	/// and break the proof.
@@ -253,14 +260,13 @@ pub trait HashDBHybrid<H: Hasher, T>: Send + Sync + HashDB<H, T> {
 		children: I,
 		additional_hashes: I2,
 		proof: bool,
+		buffer: &mut H::Buffer,
 	) -> H::Out;
 }
 
 pub trait HasherHybrid: BinaryHasher {
 
 	/// Alternate hash with hybrid proof allowed
-	/// TODO expose buffer !! (then memory db use a single buf)
-	/// TODO EMCH also split depending on proof or not!!
 	fn hash_hybrid<
 		I: Iterator<Item = Option<<Self as Hasher>::Out>>,
 		I2: Iterator<Item = <Self as Hasher>::Out>,
@@ -270,5 +276,6 @@ pub trait HasherHybrid: BinaryHasher {
 		children: I,
 		additional_hashes: I2,
 		proof: bool,
+		buffer: &mut Self::Buffer,
 	) -> Option<Self::Out>;
 }

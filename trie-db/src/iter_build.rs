@@ -17,7 +17,7 @@
 //! implementation.
 //! See `trie_visit` function.
 
-use hash_db::{Hasher, HashDB, Prefix, HasherHybrid, HashDBHybrid};
+use hash_db::{Hasher, HashDB, Prefix, HasherHybrid, HashDBHybrid, BinaryHasher};
 use crate::rstd::{cmp::max, marker::PhantomData, vec::Vec, EmptyIter, ops::Range};
 use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
@@ -395,15 +395,16 @@ impl<'a, H, HO, V, DB> TrieBuilder<'a, H, HO, V, DB> {
 /// Get trie root and insert visited node in a hash_db.
 /// As for all `ProcessEncodedNode` implementation, it
 /// is only for full trie parsing (not existing trie).
-pub struct TrieBuilderHybrid<'a, H, HO, V, DB> {
+pub struct TrieBuilderHybrid<'a, H: BinaryHasher, HO, V, DB> {
 	db: &'a mut DB,
 	pub root: Option<HO>,
+	buffer: H::Buffer,
 	_ph: PhantomData<(H, V)>,
 }
 
-impl<'a, H, HO, V, DB> TrieBuilderHybrid<'a, H, HO, V, DB> {
+impl<'a, H: BinaryHasher, HO, V, DB> TrieBuilderHybrid<'a, H, HO, V, DB> {
 	pub fn new(db: &'a mut DB) -> Self {
-		TrieBuilderHybrid { db, root: None, _ph: PhantomData }
+		TrieBuilderHybrid { db, root: None, buffer: H::init_buffer(), _ph: PhantomData }
 	}
 }
 
@@ -465,6 +466,7 @@ impl<'a, H: HasherHybrid, V, DB: HashDBHybrid<H, V>> ProcessEncodedNode<<H as Ha
 				iter,
 				EmptyIter::default(),
 				false,
+				&mut self.buffer,
 			)
 		} else {
 			self.db.insert(prefix, &encoded_node[..])
@@ -514,15 +516,15 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRoot<H, <H as Has
 }
 
 /// Calculate the trie root of the trie.
-pub struct TrieRootHybrid<H, HO> {
+pub struct TrieRootHybrid<H: BinaryHasher, HO> {
 	/// The resulting root.
 	pub root: Option<HO>,
-	_ph: PhantomData<H>,
+	buffer: H::Buffer,
 }
 
-impl<H, HO> Default for TrieRootHybrid<H, HO> {
+impl<H: BinaryHasher, HO> Default for TrieRootHybrid<H, HO> {
 	fn default() -> Self {
-		TrieRootHybrid { root: None, _ph: PhantomData }
+		TrieRootHybrid { root: None, buffer: H::init_buffer() }
 	}
 }
 
@@ -554,6 +556,7 @@ impl<H: HasherHybrid> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootHybrid<
 				iter,
 				EmptyIter::default(),
 				false,
+				&mut self.buffer,
 			).expect("only proof fails: TODO two primitives")
 		} else {
 			<H as Hasher>::hash(&encoded_node[..])
@@ -581,15 +584,15 @@ impl<H> Default for TrieRootUnhashed<H> {
 }
 
 /// Get the trie root node encoding.
-pub struct TrieRootUnhashedHybrid<H> {
+pub struct TrieRootUnhashedHybrid<H: BinaryHasher> {
 	/// The resulting encoded root.
 	pub root: Option<Vec<u8>>,
-	_ph: PhantomData<H>,
+	buffer: H::Buffer,
 }
 
-impl<H> Default for TrieRootUnhashedHybrid<H> {
+impl<H: BinaryHasher> Default for TrieRootUnhashedHybrid<H> {
 	fn default() -> Self {
-		TrieRootUnhashedHybrid { root: None, _ph: PhantomData }
+		TrieRootUnhashedHybrid { root: None, buffer: H::init_buffer() }
 	}
 }
 
@@ -690,6 +693,7 @@ impl<H: HasherHybrid> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashe
 				iter,
 				EmptyIter::default(),
 				false,
+				&mut self.buffer,
 			).expect("only proof fails: TODO two primitives")
 		} else {
 			<H as Hasher>::hash(&encoded_node[..])
