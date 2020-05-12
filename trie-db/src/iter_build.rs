@@ -395,16 +395,16 @@ impl<'a, H, HO, V, DB> TrieBuilder<'a, H, HO, V, DB> {
 /// Get trie root and insert visited node in a hash_db.
 /// As for all `ProcessEncodedNode` implementation, it
 /// is only for full trie parsing (not existing trie).
-pub struct TrieBuilderHybrid<'a, H: BinaryHasher, HO, V, DB> {
+pub struct TrieBuilderHybrid<'a, H: HasherHybrid, HO, V, DB> {
 	db: &'a mut DB,
 	pub root: Option<HO>,
-	buffer: H::Buffer,
+	buffer: <H::InnerHasher as BinaryHasher>::Buffer,
 	_ph: PhantomData<(H, V)>,
 }
 
-impl<'a, H: BinaryHasher, HO, V, DB> TrieBuilderHybrid<'a, H, HO, V, DB> {
+impl<'a, H: HasherHybrid, HO, V, DB> TrieBuilderHybrid<'a, H, HO, V, DB> {
 	pub fn new(db: &'a mut DB) -> Self {
-		TrieBuilderHybrid { db, root: None, buffer: H::init_buffer(), _ph: PhantomData }
+		TrieBuilderHybrid { db, root: None, buffer: H::InnerHasher::init_buffer(), _ph: PhantomData }
 	}
 }
 
@@ -516,15 +516,15 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRoot<H, <H as Has
 }
 
 /// Calculate the trie root of the trie.
-pub struct TrieRootHybrid<H: BinaryHasher, HO> {
+pub struct TrieRootHybrid<H: HasherHybrid, HO> {
 	/// The resulting root.
 	pub root: Option<HO>,
-	buffer: H::Buffer,
+	buffer: <H::InnerHasher as BinaryHasher>::Buffer,
 }
 
-impl<H: BinaryHasher, HO> Default for TrieRootHybrid<H, HO> {
+impl<H: HasherHybrid, HO> Default for TrieRootHybrid<H, HO> {
 	fn default() -> Self {
-		TrieRootHybrid { root: None, buffer: H::init_buffer() }
+		TrieRootHybrid { root: None, buffer: H::InnerHasher::init_buffer() }
 	}
 }
 
@@ -584,15 +584,15 @@ impl<H> Default for TrieRootUnhashed<H> {
 }
 
 /// Get the trie root node encoding.
-pub struct TrieRootUnhashedHybrid<H: BinaryHasher> {
+pub struct TrieRootUnhashedHybrid<H: HasherHybrid> {
 	/// The resulting encoded root.
 	pub root: Option<Vec<u8>>,
-	buffer: H::Buffer,
+	buffer: <H::InnerHasher as BinaryHasher>::Buffer,
 }
 
-impl<H: BinaryHasher> Default for TrieRootUnhashedHybrid<H> {
+impl<H: HasherHybrid> Default for TrieRootUnhashedHybrid<H> {
 	fn default() -> Self {
-		TrieRootUnhashedHybrid { root: None, buffer: H::init_buffer() }
+		TrieRootUnhashedHybrid { root: None, buffer: H::InnerHasher::init_buffer() }
 	}
 }
 

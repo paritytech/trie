@@ -458,7 +458,7 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 		L::HYBRID_HASH,
 	)?;
 	let mut hybrid_buf = if L::HYBRID_HASH {
-		Some(L::Hash::init_buffer())
+		Some(<L::Hash as HasherHybrid>::InnerHasher::init_buffer())
 	} else { None };
 	loop {
 		// Insert omitted value.
@@ -506,7 +506,7 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 								}
 							});
 
-						if let Some(h) = OrderedTrieHasher::<L::Hash>::hash_hybrid(
+						if let Some(h) = OrderedTrieHasher::<L::Hash, <L::Hash as HasherHybrid>::InnerHasher>::hash_hybrid(
 							&common.header(node_data.as_slice())[..],
 							nb_children,
 							children,

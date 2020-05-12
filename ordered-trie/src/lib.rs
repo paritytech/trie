@@ -906,11 +906,12 @@ pub fn trie_root_from_proof<HO, KN, I, I2, F>(
 	}
 }
 
-#[repr(transparent)]
 /// Hasher hybrid using an ordered trie
-pub struct OrderedTrieHasher<H>(H);
+pub struct OrderedTrieHasher<H, HH>(PhantomData<(H, HH)>);
 
-impl<H: BinaryHasher> HasherHybrid for OrderedTrieHasher<H> {
+impl<H: BinaryHasher, HH: BinaryHasher<Out = H::Out>> HasherHybrid for OrderedTrieHasher<H, HH> {
+	type InnerHasher = HH;
+
 	fn hash_hybrid<
 		I: Iterator<Item = Option<<Self as Hasher>::Out>>,
 		I2: Iterator<Item = <Self as Hasher>::Out>,
@@ -920,11 +921,11 @@ impl<H: BinaryHasher> HasherHybrid for OrderedTrieHasher<H> {
 		children: I,
 		additional_hashes: I2,
 		proof: bool,
-		buffer: &mut H::Buffer,
+		buffer: &mut HH::Buffer,
 	) -> Option<H::Out> {
 		let seq_trie = SequenceBinaryTree::new(0, nb_children);
 
-		let mut callback_read_proof = HashOnly::<H>::new(buffer);
+		let mut callback_read_proof = HashOnly::<HH>::new(buffer);
 		let hash = if !proof {
 			// full node
 			let iter = children.filter_map(|v| v); // TODO assert same number as count
@@ -959,7 +960,7 @@ impl<H: BinaryHasher> HasherHybrid for OrderedTrieHasher<H> {
 	}
 }
 
-impl<H: BinaryHasher> BinaryHasher for OrderedTrieHasher<H> {
+impl<H: BinaryHasher, HH: Send + Sync> BinaryHasher for OrderedTrieHasher<H, HH> {
 	const NULL_HASH: &'static [u8] = <H as BinaryHasher>::NULL_HASH;
 	type Buffer = <H as BinaryHasher>::Buffer;
 	fn init_buffer() -> Self::Buffer {
@@ -976,7 +977,7 @@ impl<H: BinaryHasher> BinaryHasher for OrderedTrieHasher<H> {
 	}
 }
 
-impl<H: Hasher> Hasher for OrderedTrieHasher<H> {
+impl<H: Hasher, HH: Send + Sync> Hasher for OrderedTrieHasher<H, HH> {
 	type Out = <H as Hasher>::Out;
 	type StdHasher = <H as Hasher>::StdHasher;
 	const LENGTH: usize = <H as Hasher>::LENGTH;

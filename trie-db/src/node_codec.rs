@@ -205,7 +205,7 @@ impl ChildProofHeader {
 
 use hash_db::{HashDB, Prefix, HashDBRef, Hasher, HashDBHybrid};
 
-pub trait HashDBHybridDyn<H: BinaryHasher, T>: Send + Sync + HashDB<H, T> {
+pub trait HashDBHybridDyn<H: HasherHybrid, T>: Send + Sync + HashDB<H, T> {
 	/// Insert a datum item into the DB and return the datum's hash for a later lookup. Insertions
 	/// are counted and the equivalent number of `remove()`s must be performed before the data
 	/// is considered dead.
@@ -218,7 +218,7 @@ pub trait HashDBHybridDyn<H: BinaryHasher, T>: Send + Sync + HashDB<H, T> {
 		value: &[u8],
 		children: &[Option<Range<usize>>],
 		common: ChildProofHeader,
-		buffer: &mut H::Buffer,
+		buffer: &mut <H::InnerHasher as BinaryHasher>::Buffer,
 	) -> H::Out;
 }
 
@@ -229,7 +229,7 @@ impl<H: HasherHybrid, T, C: HashDBHybrid<H, T>> HashDBHybridDyn<H, T> for C {
 		value: &[u8],
 		children: &[Option<Range<usize>>],
 		common: ChildProofHeader,
-		buffer: &mut H::Buffer,
+		buffer: &mut <H::InnerHasher as BinaryHasher>::Buffer,
 	) -> H::Out {
 
 		// TODO factor this with iter_build (just use the trait) also use in adapter from codec
@@ -394,8 +394,8 @@ pub fn hybrid_hash_node_adapter<Codec: NodeCodecHybrid<HashOut = Hasher::Out>, H
 					dest.as_mut()[..range.len()].copy_from_slice(&encoded_node[range]);
 					dest
 				}));
-				let mut buf = Hasher::init_buffer();
-				Some(ordered_trie::OrderedTrieHasher::<Hasher>::hash_hybrid(
+				let mut buf = <Hasher as HasherHybrid>::InnerHasher::init_buffer();
+				Some(ordered_trie::OrderedTrieHasher::<Hasher, Hasher::InnerHasher>::hash_hybrid(
 					common.header(encoded_node),
 					nb_children,
 					children,

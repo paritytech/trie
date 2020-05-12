@@ -229,7 +229,7 @@ impl<'a, K, V> AsPlainDB<K, V> for &'a mut dyn PlainDB<K, V> {
 
 /// Same as HashDB but can modify the value upon storage, and apply
 /// `HasherHybrid`.
-pub trait HashDBHybrid<H: BinaryHasher, T>: Send + Sync + HashDB<H, T> {
+pub trait HashDBHybrid<H: HasherHybrid, T>: Send + Sync + HashDB<H, T> {
 	/// `HashDB` is often use to load content from encoded node.
 	/// This will not preserve insertion done through `insert_branch_hybrid` calls
 	/// and break the proof.
@@ -260,22 +260,23 @@ pub trait HashDBHybrid<H: BinaryHasher, T>: Send + Sync + HashDB<H, T> {
 		children: I,
 		additional_hashes: I2,
 		proof: bool,
-		buffer: &mut H::Buffer,
+		buffer: &mut <H::InnerHasher as BinaryHasher>::Buffer,
 	) -> H::Out;
 }
 
 pub trait HasherHybrid: BinaryHasher {
+	type InnerHasher: BinaryHasher<Out = Self::Out>;
 
 	/// Alternate hash with hybrid proof allowed
 	fn hash_hybrid<
 		I: Iterator<Item = Option<<Self as Hasher>::Out>>,
-		I2: Iterator<Item = <Self as Hasher>::Out>,
+		I2: Iterator<Item = <Self::InnerHasher as Hasher>::Out>,
 	>(
 		x: &[u8],
 		nb_children: usize,
 		children: I,
 		additional_hashes: I2,
 		proof: bool,
-		buffer: &mut Self::Buffer,
+		buffer: &mut <Self::InnerHasher as BinaryHasher>::Buffer,
 	) -> Option<Self::Out>;
 }

@@ -509,7 +509,7 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 		};
 
 		let mut hybrid_buf = if L::HYBRID_HASH {
-			Some(L::Hash::init_buffer())
+			Some(<L::Hash as HasherHybrid>::InnerHasher::init_buffer())
 		} else { None };
 		loop {
 			if !last_entry.advance_child_index()? {

@@ -20,7 +20,7 @@
 extern crate alloc;
 
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher,
-	AsHashDB, AsPlainDB, Prefix, HashDBHybrid, HasherHybrid};
+	AsHashDB, AsPlainDB, Prefix, HashDBHybrid, HasherHybrid, BinaryHasher};
 use parity_util_mem::{MallocSizeOf, MallocSizeOfOps};
 #[cfg(feature = "deprecated")]
 #[cfg(feature = "std")]
@@ -639,7 +639,7 @@ where
 		children: I,
 		additional_hashes: I2,
 		proof: bool,
-		buff: &mut H::Buffer,
+		buff: &mut <H::InnerHasher as BinaryHasher>::Buffer,
 	) -> H::Out {
 		if T::from(value) == self.null_node_data {
 			return self.hashed_null_node.clone();

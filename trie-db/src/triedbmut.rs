@@ -20,7 +20,7 @@ use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_hash};
 
 use crate::node_codec::HashDBHybridDyn;
-use hash_db::{Hasher, Prefix, EMPTY_PREFIX, BinaryHasher};
+use hash_db::{Hasher, Prefix, EMPTY_PREFIX, BinaryHasher, HasherHybrid};
 use hashbrown::HashSet;
 
 use crate::node_codec::{NodeCodec, NodeCodecHybrid, ChildProofHeader};
@@ -449,7 +449,7 @@ where
 	/// The number of hash operations this trie has performed.
 	/// Note that none are performed until changes are committed.
 	hash_count: usize,
-	hybrid_hash_buffer: Option<<L::Hash as BinaryHasher>::Buffer>,
+	hybrid_hash_buffer: Option<<<L::Hash as HasherHybrid>::InnerHasher as BinaryHasher>::Buffer>,
 }
 
 impl<'a, L> TrieDBMut<'a, L>
@@ -486,7 +486,7 @@ where
 
 	fn hybrid_hash_buffer_lazy_init(&mut self) {
 		if self.hybrid_hash_buffer.is_none() {
-			self.hybrid_hash_buffer = Some(L::Hash::init_buffer())
+			self.hybrid_hash_buffer = Some(<L::Hash as HasherHybrid>::InnerHasher::init_buffer())
 		}
 	}
 
