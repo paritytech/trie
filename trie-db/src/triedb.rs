@@ -35,11 +35,11 @@ use crate::rstd::{fmt, vec::Vec};
 /// # Example
 /// ```
 /// use hash_db::Hasher;
-/// use reference_trie::{RefTrieDBMut, RefTrieDB, Trie, TrieMut, KeccakHasher};
+/// use reference_trie::{RefTrieDBMut, RefTrieDB, Trie, TrieMut, RefHasher};
 /// use trie_db::DBValue;
 /// use memory_db::*;
 ///
-/// let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
+/// let mut memdb = MemoryDB::<RefHasher, HashKey<_>, _>::default();
 /// let mut root = Default::default();
 /// RefTrieDBMut::new(&mut memdb, &mut root).insert(b"foo", b"bar").unwrap();
 /// let t = RefTrieDB::new(&memdb, &root).unwrap();
@@ -333,7 +333,7 @@ mod tests {
 	use memory_db::{MemoryDB, PrefixedKey};
 	use crate::DBValue;
 	use reference_trie::{RefTrieDB, RefTrieDBMut, RefLookup, Trie, TrieMut, NibbleSlice};
-	use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt, KeccakHasher};
+	use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt, RefHasher};
 	use hex_literal::hex;
 
 	#[test]
@@ -343,7 +343,7 @@ mod tests {
 			(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
 		];
 
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
@@ -399,7 +399,7 @@ mod tests {
 			(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
 		];
 
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
@@ -480,7 +480,7 @@ mod tests {
 			b"B".to_vec(),
 		];
 
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
@@ -511,7 +511,7 @@ mod tests {
 			b"B".to_vec(),
 		];
 
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
@@ -537,7 +537,7 @@ mod tests {
 			b"B".to_vec(),
 		];
 
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
@@ -576,7 +576,7 @@ mod tests {
 
 	#[test]
 	fn get_length_with_extension() {
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
@@ -592,7 +592,7 @@ mod tests {
 
 	#[test]
 	fn get_length_without_extension() {
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
@@ -615,7 +615,7 @@ mod tests {
 			b"B".to_vec(),
 		];
 
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let root = {
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
@@ -683,7 +683,7 @@ mod tests {
 	#[test]
 	fn test_lookup_with_corrupt_data_returns_decoder_error() {
 
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut memdb, &mut root);

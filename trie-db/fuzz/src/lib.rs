@@ -26,7 +26,7 @@ use reference_trie::{
 	RefTrieDBMutNoExt,
 	RefTrieDBNoExt,
 	TrieDBIterator,
-	KeccakHasher,
+	RefHasher,
 };
 use std::convert::TryInto;
 use trie_db::{DBValue, Trie, TrieDB, TrieDBMut, TrieLayout, TrieMut};
@@ -145,7 +145,7 @@ pub fn fuzz_that_compare_implementations(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data(input));
 	//println!("data:{:?}", &data);
 	let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
-	let hashdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+	let hashdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 	reference_trie::compare_implementations(data, memdb, hashdb);
 }
 

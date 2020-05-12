@@ -407,13 +407,13 @@ pub fn hybrid_hash_node_adapter<Codec: NodeCodecHybrid<HashOut = Hasher::Out>, H
 
 #[test]
 fn test_hybrid_hash_node_adapter() {
-	use reference_trie::{RefTrieDBMutNoExt, TrieMut, hybrid_hash_node_adapter_no_ext, KeccakHasher};
+	use reference_trie::{RefTrieDBMutNoExt, TrieMut, hybrid_hash_node_adapter_no_ext, RefHasher};
 	use crate::DBValue;
 	use memory_db::{MemoryDB, HashKey};
 	use hash_db::EMPTY_PREFIX;
 
 
-	let mut db = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+	let mut db = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
 	let data = vec![
 		(vec![0], vec![251; 34]),
 		(vec![0, 1], vec![252; 34]),
@@ -429,7 +429,7 @@ fn test_hybrid_hash_node_adapter() {
 			t.insert(key, value).unwrap();
 		}
 	}
-	let mut db2 = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+	let mut db2 = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
 	for (_key, (value, rc)) in db.clone().drain() {
 		if rc > 0 {
 			if !db2.insert_hybrid(

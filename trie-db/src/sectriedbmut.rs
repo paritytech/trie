@@ -93,12 +93,12 @@ where
 mod test {
 	use memory_db::{MemoryDB, HashKey};
 	use hash_db::Hasher;
-	use reference_trie::{RefTrieDB, RefSecTrieDBMut, Trie, TrieMut, KeccakHasher};
+	use reference_trie::{RefTrieDB, RefSecTrieDBMut, Trie, TrieMut, RefHasher};
 	use crate::DBValue;
 
 	#[test]
 	fn sectrie_to_trie() {
-		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefSecTrieDBMut::new(&mut memdb, &mut root);
@@ -106,7 +106,7 @@ mod test {
 		}
 		let t = RefTrieDB::new(&memdb, &root).unwrap();
 		assert_eq!(
-			t.get(&KeccakHasher::hash(&[0x01u8, 0x23])).unwrap().unwrap(),
+			t.get(&RefHasher::hash(&[0x01u8, 0x23])).unwrap().unwrap(),
 			vec![0x01u8, 0x23],
 		);
 	}

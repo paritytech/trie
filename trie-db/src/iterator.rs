@@ -391,14 +391,14 @@ mod tests {
 	use reference_trie::{
 		RefTrieDB, RefTrieDBMut,
 		TrieError, TrieMut, TrieIterator, TrieDBNodeIterator, NibbleSlice, NibbleVec,
-		node::Node, KeccakHasher,
+		node::Node, RefHasher,
 	};
 	use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt};
 
-	type MemoryDB = memory_db::MemoryDB<KeccakHasher, memory_db::PrefixedKey<KeccakHasher>, DBValue>;
+	type MemoryDB = memory_db::MemoryDB<RefHasher, memory_db::PrefixedKey<RefHasher>, DBValue>;
 
 	fn build_trie_db_with_extension(pairs: &[(Vec<u8>, Vec<u8>)])
-		-> (MemoryDB, <KeccakHasher as Hasher>::Out)
+		-> (MemoryDB, <RefHasher as Hasher>::Out)
 	{
 		let mut memdb = MemoryDB::default();
 		let mut root = Default::default();
@@ -412,7 +412,7 @@ mod tests {
 	}
 
 	fn build_trie_db_without_extension(pairs: &[(Vec<u8>, Vec<u8>)])
-		-> (MemoryDB, <KeccakHasher as Hasher>::Out)
+		-> (MemoryDB, <RefHasher as Hasher>::Out)
 	{
 		let mut memdb = MemoryDB::default();
 		let mut root = Default::default();

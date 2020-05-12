@@ -707,9 +707,7 @@ impl<H: HasherHybrid> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashe
 mod test {
 	use crate::DBValue;
 	use memory_db::{MemoryDB, HashKey, PrefixedKey};
-
-	type KeccakHasher = ordered_trie::OrderedTrieHasher<keccak_hasher::KeccakHasher>;
-
+	use reference_trie::RefHasher;
 
 	#[test]
 	fn trie_root_empty () {
@@ -734,7 +732,7 @@ mod test {
 	fn test_iter(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		use reference_trie::{RefTrieDBMut, TrieMut, RefTrieDB, Trie};
 
-		let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut db = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut db, &mut root);
@@ -760,7 +758,7 @@ mod test {
 	fn test_iter_no_extension(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		use reference_trie::{RefTrieDBMutNoExt, TrieMut, RefTrieDBNoExt, Trie};
 
-		let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut db = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMutNoExt::new(&mut db, &mut root);
@@ -794,27 +792,27 @@ mod test {
 
 	fn compare_implementations_prefixed(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
-		let hashdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let hashdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		reference_trie::compare_implementations(data, memdb, hashdb);
 	}
 	fn compare_implementations_h(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
-		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+		let hashdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
 		reference_trie::compare_implementations(data, memdb, hashdb);
 	}
 	fn compare_implementations_no_extension(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
-		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+		let hashdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
 		reference_trie::compare_implementations_no_extension(data, memdb, hashdb);
 	}
 	fn compare_implementations_no_extension_prefixed(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
-		let hashdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let hashdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		reference_trie::compare_implementations_no_extension(data, memdb, hashdb);
 	}
 	fn compare_implementations_no_extension_unordered(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
-		let hashdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+		let hashdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
 		reference_trie::compare_implementations_no_extension_unordered(data, memdb, hashdb);
 	}
 	fn compare_no_extension_insert_remove(data: Vec<(bool, Vec<u8>, Vec<u8>)>) {

@@ -422,15 +422,15 @@ impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
 /// # Example
 /// ```
 /// use hash_db::Hasher;
-/// use reference_trie::{RefTrieDBMut, TrieMut, KeccakHasher};
+/// use reference_trie::{RefTrieDBMut, TrieMut, RefHasher};
 /// use trie_db::DBValue;
 /// use memory_db::*;
 ///
-/// let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+/// let mut memdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
 /// let mut root = Default::default();
 /// let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 /// assert!(t.is_empty());
-/// assert_eq!(*t.root(), KeccakHasher::hash(&[0u8][..]));
+/// assert_eq!(*t.root(), RefHasher::hash(&[0u8][..]));
 /// t.insert(b"foo", b"bar").unwrap();
 /// assert!(t.contains(b"foo").unwrap());
 /// assert_eq!(t.get(b"foo").unwrap().unwrap(), b"bar".to_vec());
@@ -1678,13 +1678,13 @@ mod tests {
 	use memory_db::{MemoryDB, PrefixedKey};
 	use hash_db::Hasher;
 	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, NodeCodec, HashDBHybridDyn,
-		ReferenceNodeCodec, reference_trie_root_iter_build as reference_trie_root, KeccakHasher,
+		ReferenceNodeCodec, reference_trie_root_iter_build as reference_trie_root, RefHasher,
 		reference_trie_root_no_extension_iter_build as reference_trie_root_no_extension};
 	use crate::nibble::BackingByteVec;
 
 	fn populate_trie<'db>(
-		db: &'db mut dyn HashDBHybridDyn<KeccakHasher, DBValue>,
-		root: &'db mut <KeccakHasher as Hasher>::Out,
+		db: &'db mut dyn HashDBHybridDyn<RefHasher, DBValue>,
+		root: &'db mut <RefHasher as Hasher>::Out,
 		v: &[(Vec<u8>, Vec<u8>)]
 	) -> RefTrieDBMut<'db> {
 		let mut t = RefTrieDBMut::new(db, root);
@@ -1704,8 +1704,8 @@ mod tests {
 	}
 
 	fn populate_trie_no_extension<'db>(
-		db: &'db mut dyn HashDBHybridDyn<KeccakHasher, DBValue>,
-		root: &'db mut <KeccakHasher as Hasher>::Out,
+		db: &'db mut dyn HashDBHybridDyn<RefHasher, DBValue>,
+		root: &'db mut <RefHasher as Hasher>::Out,
 		v: &[(Vec<u8>, Vec<u8>)]
 	) -> RefTrieDBMutNoExt<'db> {
 		let mut t = RefTrieDBMutNoExt::new(db, root);
@@ -1724,8 +1724,8 @@ mod tests {
 		}
 	}
 
-	fn reference_hashed_null_node() -> <KeccakHasher as Hasher>::Out {
-		<ReferenceNodeCodec<KeccakHasher> as NodeCodec>::hashed_null_node()
+	fn reference_hashed_null_node() -> <RefHasher as Hasher>::Out {
+		<ReferenceNodeCodec<RefHasher> as NodeCodec>::hashed_null_node()
 	}
 
 	#[test]
@@ -1745,7 +1745,7 @@ mod tests {
 			}.make_with(&mut seed);
 
 			let real = reference_trie_root(x.clone());
-			let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+			let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 			let mut root = Default::default();
 			let mut memtrie = populate_trie(&mut memdb, &mut root, &x);
 
@@ -1788,7 +1788,7 @@ mod tests {
 			}.make_with(&mut seed);
 
 			let real = reference_trie_root_no_extension(x.clone());
-			let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+			let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 			let mut root = Default::default();
 			let mut memtrie = populate_trie_no_extension(&mut memdb, &mut root, &x);
 
@@ -1819,7 +1819,7 @@ mod tests {
 
 	#[test]
 	fn init() {
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		let hashed_null_node = reference_hashed_null_node();
@@ -1828,7 +1828,7 @@ mod tests {
 
 	#[test]
 	fn insert_on_empty() {
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
@@ -1842,7 +1842,7 @@ mod tests {
 	fn remove_to_empty() {
 		let big_value = b"00000000000000000000000000000000";
 
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 
@@ -1877,7 +1877,7 @@ mod tests {
 
 	#[test]
 	fn insert_replace_root() {
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
@@ -1890,7 +1890,7 @@ mod tests {
 
 	#[test]
 	fn insert_make_branch_root() {
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
@@ -1903,7 +1903,7 @@ mod tests {
 
 	#[test]
 	fn insert_into_branch_root() {
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
@@ -1918,7 +1918,7 @@ mod tests {
 
 	#[test]
 	fn insert_value_into_branch_root() {
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
@@ -1931,7 +1931,7 @@ mod tests {
 
 	#[test]
 	fn insert_split_leaf() {
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
@@ -1944,7 +1944,7 @@ mod tests {
 
 	#[test]
 	fn insert_split_extenstion() {
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01, 0x23, 0x45], &[0x01]).unwrap();
@@ -1962,7 +1962,7 @@ mod tests {
 		let big_value0 = b"00000000000000000000000000000000";
 		let big_value1 = b"11111111111111111111111111111111";
 
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], big_value0).unwrap();
@@ -1977,7 +1977,7 @@ mod tests {
 	fn insert_duplicate_value() {
 		let big_value = b"00000000000000000000000000000000";
 
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], big_value).unwrap();
@@ -1990,7 +1990,7 @@ mod tests {
 
 	#[test]
 	fn test_at_empty() {
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let t = RefTrieDBMut::new(&mut memdb, &mut root);
 		assert_eq!(t.get(&[0x5]).unwrap(), None);
@@ -1998,7 +1998,7 @@ mod tests {
 
 	#[test]
 	fn test_at_one() {
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
@@ -2009,7 +2009,7 @@ mod tests {
 
 	#[test]
 	fn test_at_three() {
-		let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
@@ -2039,12 +2039,12 @@ mod tests {
 			}.make_with(&mut seed);
 
 			let real = reference_trie_root(x.clone());
-			let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+			let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 			let mut root = Default::default();
 			let mut memtrie = populate_trie(&mut memdb, &mut root, &x);
 			let mut y = x.clone();
 			y.sort_by(|ref a, ref b| a.0.cmp(&b.0));
-			let mut memdb2 = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+			let mut memdb2 = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 			let mut root2 = Default::default();
 			let mut memtrie_sorted = populate_trie(&mut memdb2, &mut root2, &y);
 			if *memtrie.root() != real || *memtrie_sorted.root() != real {
@@ -2066,7 +2066,7 @@ mod tests {
 
 	#[test]
 	fn test_trie_existing() {
-		let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut db = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefTrieDBMut::new(&mut db, &mut root);
@@ -2089,7 +2089,7 @@ mod tests {
 				count: 4,
 		}.make_with(&mut seed);
 
-		let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut db = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut db, &mut root);
 		for &(ref key, ref value) in &x {
@@ -2118,7 +2118,7 @@ mod tests {
 				count: 2,
 		}.make_with(&mut seed);
 
-		let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut db = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		let mut t = RefTrieDBMut::new(&mut db, &mut root);
 		for &(ref key, ref value) in &x {
