@@ -94,6 +94,14 @@ impl NodeHandlePlan {
 			NodeHandlePlan::Inline(range) => range.clone(),
 		}
 	}
+
+	/// Check if it is an inline node.
+	pub fn is_inline(&self) -> bool {
+		match self {
+			NodeHandlePlan::Hash(_) => false,
+			NodeHandlePlan::Inline(_) => true,
+		}
+	}
 }
 
 /// A `NibbleSlicePlan` is a blueprint for decoding a nibble slice from a byte slice. The

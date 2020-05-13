@@ -18,7 +18,7 @@ use crate::rstd::{
 	boxed::Box, convert::TryInto, marker::PhantomData, ops::Range, vec, vec::Vec,
 };
 
-use hash_db::{Hasher, HasherHybrid};
+use hash_db::{Hasher, BinaryHasher, HasherHybrid};
 
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH, NibbleSlice, node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode}, NodeCodec, Recorder,
@@ -42,6 +42,9 @@ struct StackEntry<'a, C: NodeCodec, H> {
 	/// The index into the proof vector that the encoding of this entry should be placed at.
 	output_index: Option<usize>,
 	is_inline: bool,
+	/// Flags indicating whether each child is into the proof, this is all `omit_children`
+	/// child plus inline nodes.
+	in_proof_children: [bool; NIBBLE_LENGTH],
 	_marker: PhantomData<(C, H)>,
 }
 
@@ -75,6 +78,7 @@ impl<'a, C: NodeCodecHybrid, H: HasherHybrid> StackEntry<'a, C, H>
 			children: vec![None; children_len],
 			output_index,
 			is_inline,
+			in_proof_children: [false; NIBBLE_LENGTH],
 			_marker: PhantomData::default(),
 		})
 	}
@@ -83,7 +87,7 @@ impl<'a, C: NodeCodecHybrid, H: HasherHybrid> StackEntry<'a, C, H>
 	fn encode_node(
 		mut self,
 		hybrid: bool,
-		hash_buf: &mut H::Buffer,
+		hash_buf: &mut <H::InnerHasher as BinaryHasher>::Buffer,
 	) -> TrieResult<Vec<u8>, C::HashOut, C::Error> {
 		let node_data = self.node.data();
 		Ok(match self.node.node_plan() {
@@ -120,10 +124,11 @@ impl<'a, C: NodeCodecHybrid, H: HasherHybrid> StackEntry<'a, C, H>
 						self.children.iter(),
 						value_with_omission(node_data, value, self.omit_value),
 					);
-					C::encode_compact_proof::<H>(
+					C::encode_compact_proof::<H::InnerHasher>(
 						hash_proof_header,
 						&self.children[..],
 						hash_buf,
+						&self.in_proof_children[..],
 					)
 				} else {
 					C::branch_node(
@@ -147,10 +152,11 @@ impl<'a, C: NodeCodecHybrid, H: HasherHybrid> StackEntry<'a, C, H>
 						self.children.iter(),
 						value_with_omission(node_data, value, self.omit_value),
 					);
-					C::encode_compact_proof::<H>(
+					C::encode_compact_proof::<H::InnerHasher>(
 						hash_proof_header,
 						&self.children[..],
 						hash_buf,
+						&self.in_proof_children[..],
 					)
 				} else {
 					C::branch_node_nibbled(
@@ -209,7 +215,7 @@ impl<'a, C: NodeCodecHybrid, H: HasherHybrid> StackEntry<'a, C, H>
 					set_child is called when the only child is popped from the stack; \
 					child_index is 0 before child is pushed to the stack; qed"
 				);
-				Some(Self::replacement_child_ref(encoded_child, child))
+				(false, Some(Self::replacement_child_ref(encoded_child, child)))
 			}
 			NodePlan::Branch { children, .. } | NodePlan::NibbledBranch { children, .. } => {
 				assert!(
@@ -218,12 +224,15 @@ impl<'a, C: NodeCodecHybrid, H: HasherHybrid> StackEntry<'a, C, H>
 					set_child is called when the only child is popped from the stack; \
 					child_index is <NIBBLE_LENGTH before child is pushed to the stack; qed"
 				);
-				children[self.child_index]
-					.as_ref()
-					.map(|child| Self::replacement_child_ref(encoded_child, child))
+				if let Some(child) = children[self.child_index].as_ref() {
+					(true, Some(Self::replacement_child_ref(encoded_child, child)))
+				} else {
+					(false, None)
+				}
 			}
 		};
-		self.children[self.child_index] = child_ref;
+		self.in_proof_children[self.child_index] = child_ref.0;
+		self.children[self.child_index] = child_ref.1;
 		self.child_index += 1;
 	}
 
@@ -268,7 +277,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 		.collect::<Vec<_>>();
 	keys.sort();
 	keys.dedup();
-	let mut hash_buf = <L::Hash as hash_db::BinaryHasher>::init_buffer();
+	let mut hash_buf = <<L::Hash as HasherHybrid>::InnerHasher as hash_db::BinaryHasher>::init_buffer();
 	let hash_buf = &mut hash_buf;
 
 
@@ -542,7 +551,7 @@ fn unwind_stack<C: NodeCodecHybrid, H: HasherHybrid>(
 	proof_nodes: &mut Vec<Vec<u8>>,
 	maybe_key: Option<&LeftNibbleSlice>,
 	hybrid: bool,
-	hash_buf: &mut H::Buffer,
+	hash_buf: &mut <H::InnerHasher as BinaryHasher>::Buffer,
 ) -> TrieResult<(), C::HashOut, C::Error>
 	where
 		H: HasherHybrid<Out = C::HashOut>,

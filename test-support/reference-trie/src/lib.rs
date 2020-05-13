@@ -30,6 +30,7 @@ use trie_db::{
 	TrieRootHybrid,
 	Partial,
 	HasherHybrid,
+	BinaryHasher,
 	ChildProofHeader,
 	HashesPlan,
 	binary_additional_hashes,
@@ -49,6 +50,7 @@ pub mod node {
 
 /// Reference hasher is a keccak hasher with hybrid ordered trie implementation.
 pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, keccak_hasher::KeccakHasher>;
+//pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, blake2::Blake2Hasher>;
 //pub type RefHasher = ordered_trie::OrderedTrieHasher<keccak_hasher::KeccakHasher>;
 
 /// Trie layout using extension nodes.
@@ -515,7 +517,7 @@ impl Decode for NodeHeader {
 impl NodeHeaderNoExt {
 	fn is_branch(first_byte: u8) -> bool {
 		let first_byte = first_byte & (0b11 << 6);
-		first_byte == BRANCH_WITHOUT_MASK_NO_EXT 
+		first_byte == BRANCH_WITHOUT_MASK_NO_EXT
 			|| first_byte == BRANCH_WITH_MASK_NO_EXT
 	}
 }
@@ -853,12 +855,13 @@ impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodec<H> {
 		unreachable!()
 	}
 
-	fn encode_compact_proof<BH: HasherHybrid>(
+	fn encode_compact_proof<BH: BinaryHasher>(
 		hash_proof_header: Vec<u8>,
 		children: &[Option<ChildReference<BH::Out>>],
 		hash_buf: &mut BH::Buffer,
+		in_proof: &[bool],
 	) -> Vec<u8> {
-		encode_proof_internal::<BH>(hash_proof_header, children, hash_buf)
+		encode_proof_internal::<BH>(hash_proof_header, children, hash_buf, in_proof)
 	}
 
 	fn need_hybrid_proof(data: &[u8]) -> Option<(NodePlan, ChildProofHeader)> {
@@ -999,37 +1002,40 @@ fn decode_plan_compact_proof_internal(
 	Ok((node, hashes_plan))
 }
 
-fn encode_proof_internal<H: HasherHybrid>(
+fn encode_proof_internal<H: BinaryHasher>(
 	mut result: Vec<u8>,
 	children: &[Option<ChildReference<H::Out>>],
 	hash_buf: &mut H::Buffer,
+	in_proof: &[bool],
 ) -> Vec<u8> {
-	let mut	in_proof_children = [false; nibble_ops::NIBBLE_LENGTH];
 	let bitmap_start = result.len();
 	result.push(0u8);
 	result.push(0u8);
-	// Write all inline nodes.
+	// Write all inline nodes, that need to be proved.
 	for (ix, child) in children.iter().enumerate() {
 		if let Some(ChildReference::Inline(h, nb)) = child.borrow() {
 			if *nb > 0 {
-				// TODO do not write inline of null size, these are defined
-				// in the bitmap and from the algos.
-				debug_assert!(*nb < 128);
-				result.push(*nb as u8);
-				result.push(ix as u8);
-				result.extend_from_slice(&h.as_ref()[..*nb]);
+				if in_proof[ix] {
+					// TODO do not write inline of null size, these are defined
+					// in the bitmap and from the algos.
+					debug_assert!(*nb < 128);
+					result.push(*nb as u8);
+					result.push(ix as u8);
+					result.extend_from_slice(&h.as_ref()[..*nb]);
+				}
+			} else {
+				debug_assert!(in_proof[ix]);
 			}
-			in_proof_children[ix] = true;
 		}
 	}
 	// We write a bitmap containing all children node that are included in the binary
 	// child proof construction.
 	// In practice, that is inline values and ommited compacted values).
-	Bitmap::encode(in_proof_children.iter().map(|b| *b), &mut result[bitmap_start..]);
+	Bitmap::encode(in_proof.iter().map(|b| *b), &mut result[bitmap_start..]);
 
 	let additional_hashes = binary_additional_hashes::<H>(
 		&children[..],
-		&in_proof_children[..],
+		&in_proof[..],
 		hash_buf,
 	);
 	result.push((additional_hashes.len() as u8) | 128); // first bit at one indicates we are on additional hashes
@@ -1309,12 +1315,13 @@ impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodecNoExt<H> {
 		).0
 	}
 
-	fn encode_compact_proof<BH: HasherHybrid>(
+	fn encode_compact_proof<BH: BinaryHasher>(
 		hash_proof_header: Vec<u8>,
 		children: &[Option<ChildReference<BH::Out>>],
 		hash_buf: &mut BH::Buffer,
+		in_proof: &[bool],
 	) -> Vec<u8> {
-		encode_proof_internal::<BH>(hash_proof_header, children, hash_buf)
+		encode_proof_internal::<BH>(hash_proof_header, children, hash_buf, in_proof)
 	}
 
 	fn need_hybrid_proof(data: &[u8]) -> Option<(NodePlan, ChildProofHeader)> {
@@ -1510,7 +1517,7 @@ pub fn compare_implementations_no_extension(
 		}
 		t.root().clone()
 	};
-	
+
 	if root != root_new {
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &memdb;

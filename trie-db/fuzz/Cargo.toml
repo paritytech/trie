@@ -62,5 +62,9 @@ name = "trie_proof_valid"
 path = "fuzz_targets/trie_proof_valid.rs"
 
 [[bin]]
+name = "trie_codec_proof"
+path = "fuzz_targets/trie_codec_proof.rs"
+
+[[bin]]
 name = "trie_proof_invalid"
 path = "fuzz_targets/trie_proof_invalid.rs"

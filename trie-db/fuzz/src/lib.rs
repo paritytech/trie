@@ -293,6 +293,25 @@ pub fn fuzz_that_verify_accepts_valid_proofs(input: &[u8]) {
 	assert!(verify_proof::<ExtensionLayout, _, _, _>(&root, &proof, items.iter()).is_ok());
 }
 
+pub fn fuzz_that_trie_codec_proofs(input: &[u8]) {
+	let mut data = fuzz_to_data(input);
+	// Split data into 3 parts:
+	// - the first 1/3 is added to the trie and not included in the proof
+	// - the second 1/3 is added to the trie and included in the proof
+	// - the last 1/3 is not added to the trie and the proof proves non-inclusion of them
+	let mut keys = data[(data.len() / 3)..]
+		.iter()
+		.map(|(key, _)| key.clone())
+		.collect::<Vec<_>>();
+	data.truncate(data.len() * 2 / 3);
+
+	let data = data_sorted_unique(data);
+	keys.sort();
+	keys.dedup();
+
+	test_trie_codec_proof::<ExtensionLayout>(data, keys);
+}
+
 pub fn fuzz_that_verify_rejects_invalid_proofs(input: &[u8]) {
 	if input.len() < 4 {
 		return;
@@ -364,9 +383,74 @@ fn test_generate_proof<L: TrieLayout>(
 	(root, proof, items)
 }
 
-/*
+fn test_trie_codec_proof<L: TrieLayout>(
+	entries: Vec<(Vec<u8>, Vec<u8>)>,
+	keys: Vec<Vec<u8>>,
+)
+{
+	use hash_db::{HashDB, EMPTY_PREFIX};
+	use reference_trie::{
+		Recorder,
+		encode_compact, decode_compact,
+	};
+
+	// Populate DB with full trie from entries.
+	let (db, root) = {
+		let mut db = <MemoryDB<L::Hash, HashKey<_>, _>>::default();
+		let mut root = Default::default();
+		{
+			let mut trie = <TrieDBMut<L>>::new(&mut db, &mut root);
+			for (key, value) in entries {
+				trie.insert(&key, &value).unwrap();
+			}
+		}
+		(db, root)
+	};
+	let expected_root = root;
+	// Lookup items in trie while recording traversed nodes.
+	let mut recorder = Recorder::new();
+	let items = {
+		let mut items = Vec::with_capacity(keys.len());
+		let trie = <TrieDB<L>>::new(&db, &root).unwrap();
+		for key in keys {
+			let value = trie.get_with(key.as_slice(), &mut recorder).unwrap();
+			items.push((key, value));
+		}
+		items
+	};
+
+	// Populate a partial trie DB with recorded nodes.
+	let mut partial_db = <MemoryDB<L::Hash, HashKey<_>, _>>::default();
+	for record in recorder.drain() {
+		partial_db.emplace(record.hash, EMPTY_PREFIX, record.data);
+	}
+
+	// Compactly encode the partial trie DB.
+	let compact_trie = {
+		let trie = <TrieDB<L>>::new(&partial_db, &root).unwrap();
+		encode_compact::<L>(&trie).unwrap()
+	};
+
+	let expected_used = compact_trie.len();
+	// Reconstruct the partial DB from the compact encoding.
+	let mut db = <MemoryDB<L::Hash, HashKey<_>, _>>::default();
+	let (root, used) = decode_compact::<L, _, _>(&mut db, &compact_trie).unwrap();
+	assert_eq!(root, expected_root);
+	assert_eq!(used, expected_used);
+
+	// Check that lookups for all items succeed.
+	let trie = <TrieDB<L>>::new(&db, &root).unwrap();
+	for (key, expected_value) in items {
+		assert_eq!(trie.get(key.as_slice()).unwrap(), expected_value);
+	}
+}
+
+
+
 #[test]
 fn debug_error() {
-	let input = [0x40,0x0,0xe6,0xff,0xff,0x40,0x0,0xe6,0xff,0xff,0x2b];
+	let input = [0x0,0x0,0x0,0xcd,0xf8,0xff,0xff,0xff,0x0,0xcd,0x2];
+//	let input = [0x40,0x0,0xe6,0xff,0xff,0x40,0x0,0xe6,0xff,0xff,0x2b];
 	fuzz_that_verify_accepts_valid_proofs(&input[..]);
-}*/
+	fuzz_that_trie_codec_proofs(&input[..]);
+}

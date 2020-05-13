@@ -46,6 +46,9 @@ struct EncoderStackEntry<C: NodeCodec> {
 	child_index: usize,
 	/// Flags indicating whether each child is omitted in the encoded node.
 	omit_children: [bool; NIBBLE_LENGTH],
+	/// Flags indicating whether each child is into the proof, this is all `omit_children`
+	/// child plus inline nodes.
+	in_proof_children: [bool; NIBBLE_LENGTH],
 	/// The encoding of the subtrie nodes rooted at this entry, which is built up in
 	/// `encode_compact`.
 	output_index: usize,
@@ -96,6 +99,7 @@ impl<C: NodeCodecHybrid> EncoderStackEntry<C> {
 		Ok(())
 	}
 
+
 	/// Generates the encoding of the subtrie rooted at this entry.
 	fn encode_node<H>(
 		&self,
@@ -128,6 +132,7 @@ impl<C: NodeCodecHybrid> EncoderStackEntry<C> {
 						hash_proof_header,
 						&children[..],
 						hash_buf,
+						&self.in_proof_children[..],
 					)
 				} else {
 					C::branch_node(
@@ -150,6 +155,7 @@ impl<C: NodeCodecHybrid> EncoderStackEntry<C> {
 						hash_proof_header,
 						&children[..],
 						hash_buf,
+						&self.in_proof_children,
 					)
 				} else {
 					C::branch_node_nibbled(
@@ -232,6 +238,26 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 				// Skip inline nodes, as they cannot contain hash references to other nodes by
 				// assumption.
 				if node_hash.is_none() {
+					// still need to register them when in proof path for hybrid.
+					if L::HYBRID_HASH {
+						loop {
+							if let Some(last_entry) = stack.last_mut() {
+								if prefix.starts_with(&last_entry.prefix) {
+									let child_index = prefix.at(prefix.len() - 1) as usize;
+									last_entry.in_proof_children[child_index] = true;
+									break;
+								} else {
+									// unstack as in not inline case
+									if let Some(last_entry) = stack.pop() {
+										output[last_entry.output_index] = last_entry.encode_node::<L::Hash>(
+											L::HYBRID_HASH,
+											hash_buf,
+										)?;
+									}
+								}
+							} else { break; }
+						}
+					}
 					continue;
 				}
 
@@ -249,6 +275,7 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 								TrieDBNodeIterator or this function"
 							);
 						last_entry.omit_children[last_entry.child_index] = true;
+						last_entry.in_proof_children[last_entry.child_index] = true;
 						last_entry.child_index += 1;
 						stack.push(last_entry);
 						break;
@@ -265,6 +292,7 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 					node,
 					child_index: 0,
 					omit_children: [false; NIBBLE_LENGTH],
+					in_proof_children: [false; NIBBLE_LENGTH],
 					output_index: output.len(),
 					_marker: PhantomData::default(),
 				});
@@ -582,7 +610,7 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 /// indicates if it is included in the proof (inline node or
 /// compacted node).
 /// - `hash_buf` a buffer of the right size to compute the hash.
-pub fn binary_additional_hashes<H: HasherHybrid>(
+pub fn binary_additional_hashes<H: BinaryHasher>(
 	children: &[Option<ChildReference<H::Out>>],
 	in_proof_children: &[bool],
 	hash_buf: &mut H::Buffer,
@@ -648,6 +676,7 @@ mod tests {
 		let items = {
 			let mut items = Vec::with_capacity(keys.len());
 			let trie = <TrieDB<L>>::new(&db, &root).unwrap();
+			println!("{:?}", trie);
 			for key in keys {
 				let value = trie.get_with(key, &mut recorder).unwrap();
 				items.push((key, value));
@@ -664,6 +693,7 @@ mod tests {
 		// Compactly encode the partial trie DB.
 		let compact_trie = {
 			let trie = <TrieDB<L>>::new(&partial_db, &root).unwrap();
+			println!("{:?}", trie);
 			encode_compact::<L>(&trie).unwrap()
 		};
 
@@ -684,6 +714,7 @@ mod tests {
 
 		// Check that lookups for all items succeed.
 		let trie = <TrieDB<L>>::new(&db, &root).unwrap();
+		println!("{:?}", trie);
 		for (key, expected_value) in items {
 			assert_eq!(trie.get(key).unwrap(), expected_value);
 		}

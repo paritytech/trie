@@ -106,11 +106,11 @@ pub trait NodeCodecHybrid: NodeCodec {
 	/// are not use by the proof, in this case they are stored as an inline
 	/// zero length child.
 	///
-	/// Accompanying resulting node, is also a bitmap of children included in 
+	/// With resulting node is attached a bitmap of children included in 
 	/// the proof calculation and a sequence of additianal node for proof
 	/// verification.
-	/// In practice this contains inline node (inline nodes are always added
-	/// to the proof) and ommitted children hash (compacted hash).
+	/// In practice this contains inline node that are in the proof and
+	/// and ommitted children hash (compacted hash).
 	fn decode_compact_proof(data: &[u8]) -> Result<(
 		Node,
 		Option<(Bitmap, HashesIter<Self::AdditionalHashesPlan, Self::HashOut>)>,
@@ -127,14 +127,19 @@ pub trait NodeCodecHybrid: NodeCodec {
 	/// `ChildProofHeader` call, or directly by `branch_node_for_hash`.
 	/// - `children`: contains all children, with compact (ommited children) defined as
 	/// a null length inline node.
+	/// - `hash_buff`: technical buffer for the hasher of the second level proof.
+	/// - `in_proof`: position of nodes that are included in proof, this includes
+	/// hash nodes (can be deducted from unsized children) and inline nodes.
 	/// The children to be include in the proof are therefore the compacted one and the
 	/// inline nodes only.
 	/// The other children value are needed because they can be included into the additional
 	/// hash, and are required for intermediate hash calculation.
-	fn encode_compact_proof<H: HasherHybrid>(
+	fn encode_compact_proof<H: BinaryHasher>(
 		hash_proof_header: Vec<u8>,
 		children: &[Option<ChildReference<H::Out>>],
+		// TODO EMCH siwtch position on 2 last params
 		hash_buf: &mut H::Buffer,
+		in_proof: &[bool],
 	) -> Vec<u8>;
 
 	/// Does the encoded content need a hybrid proof.
