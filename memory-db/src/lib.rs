@@ -626,7 +626,7 @@ where
 			false
 		}
 	}
-	
+
 	fn insert_branch_hybrid<
 		I: Iterator<Item = Option<H::Out>>,
 		I2: Iterator<Item = H::Out>,
@@ -640,27 +640,22 @@ where
 		additional_hashes: I2,
 		proof: bool,
 		buff: &mut <H::InnerHasher as BinaryHasher>::Buffer,
-	) -> H::Out {
+	) -> Option<H::Out> {
 		if T::from(value) == self.null_node_data {
-			return self.hashed_null_node.clone();
+			return Some(self.hashed_null_node.clone());
 		}
 
-		let key = if let Some(key) = H::hash_hybrid(
+		H::hash_hybrid(
 			child_proof_header,
 			nb_children,
 			children,
 			additional_hashes,
 			proof,
 			buff,
-		) {
+		).map(|key| {
+			HashDB::emplace(self, key, prefix, value.into());
 			key
-		} else {
-			// invalid proof TODO handle error properly
-			return self.hashed_null_node.clone();
-		};
-
-		HashDB::emplace(self, key, prefix, value.into());
-		key
+		})
 	}
 }
 

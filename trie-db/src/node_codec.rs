@@ -184,6 +184,11 @@ pub trait NodeCodecHybrid: NodeCodec {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Option<&[u8]>,
 	) -> Vec<u8>;
+
+	/// Return a error from a static description.
+	/// Depending on implementation it is fine drop the description
+	/// and act as a default error semantic.
+	fn codec_error(desc: &'static str) -> Self::Error;
 }
 
 /// Information to fetch bytes that needs to be include when calculating a node hash.
@@ -224,7 +229,7 @@ pub trait HashDBHybridDyn<H: HasherHybrid, T>: Send + Sync + HashDB<H, T> {
 		children: &[Option<Range<usize>>],
 		common: ChildProofHeader,
 		buffer: &mut <H::InnerHasher as BinaryHasher>::Buffer,
-	) -> H::Out;
+	) -> Option<H::Out>;
 }
 
 impl<H: HasherHybrid, T, C: HashDBHybrid<H, T>> HashDBHybridDyn<H, T> for C {
@@ -235,7 +240,7 @@ impl<H: HasherHybrid, T, C: HashDBHybrid<H, T>> HashDBHybridDyn<H, T> for C {
 		children: &[Option<Range<usize>>],
 		common: ChildProofHeader,
 		buffer: &mut <H::InnerHasher as BinaryHasher>::Buffer,
-	) -> H::Out {
+	) -> Option<H::Out> {
 
 		// TODO factor this with iter_build (just use the trait) also use in adapter from codec
 		let nb_children = children.iter().filter(|v| v.is_some()).count();

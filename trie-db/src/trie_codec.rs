@@ -575,7 +575,7 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 							None
 						}
 					});
-				db.insert_branch_hybrid(
+				if let Some(hash) = db.insert_branch_hybrid(
 					prefix.as_prefix(),
 					&node_data[..],
 					common.header(&node_data[..]),
@@ -584,7 +584,14 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 					additional_hashes,
 					true,
 					hybrid_buf.as_mut().expect("Initialized for hybrid above"),
-				)
+				) {
+					hash
+				} else {
+					return Err(Box::new(TrieError::DecoderError(
+						<TrieHash<L>>::default(),
+						L::Codec::codec_error("Invalid encoding on hybrid hash calculation"),
+					)))
+				}
 			} else {
 				db.insert(prefix.as_prefix(), node_data.as_ref())
 			};

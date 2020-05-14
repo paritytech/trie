@@ -248,6 +248,7 @@ pub trait HashDBHybrid<H: HasherHybrid, T>: Send + Sync + HashDB<H, T> {
 	/// Insert a datum item into the DB and return the datum's hash for a later lookup. Insertions
 	/// are counted and the equivalent number of `remove()`s must be performed before the data
 	/// is considered dead.
+	/// This function can fail on condition from insert_hybrid, in this case we return `None`. 
 	fn insert_branch_hybrid<
 		I: Iterator<Item = Option<H::Out>>,
 		I2: Iterator<Item = H::Out>,
@@ -261,7 +262,7 @@ pub trait HashDBHybrid<H: HasherHybrid, T>: Send + Sync + HashDB<H, T> {
 		additional_hashes: I2,
 		proof: bool,
 		buffer: &mut <H::InnerHasher as BinaryHasher>::Buffer,
-	) -> H::Out;
+	) -> Option<H::Out>;
 }
 
 pub trait HasherHybrid: BinaryHasher {

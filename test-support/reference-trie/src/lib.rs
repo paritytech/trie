@@ -878,6 +878,10 @@ impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodec<H> {
 		}
 		None
 	}
+
+	fn codec_error(desc: &'static str) -> Self::Error {
+		desc.into()
+	}
 }
 
 impl<H: Hasher> ReferenceNodeCodec<H> {
@@ -1337,6 +1341,10 @@ impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodecNoExt<H> {
 			}
 		}
 		None
+	}
+
+	fn codec_error(desc: &'static str) -> Self::Error {
+		desc.into()
 	}
 }
 
