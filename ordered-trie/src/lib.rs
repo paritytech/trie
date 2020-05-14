@@ -396,8 +396,6 @@ impl KeyNode for UsizeKeyNode {
 		if self.depth == 0 {
 			return None;
 		}
-		// TODO is pop returned value of any use:
-		// most likely not -> change trait and test
 		let result = self.value & 1;
 		self.depth -= 1;
 		self.value = self.value >> 1;
@@ -412,8 +410,6 @@ impl KeyNode for UsizeKeyNode {
 		if self.depth == 0 {
 			return None;
 		}
-		// TODO is pop returned value of any use:
-		// most likely not -> change trait and test
 		let result = self.value & (1 << (self.depth - 1));
 		self.value = self.value & !(1 << (self.depth - 1));
 		self.depth -= 1;
@@ -604,11 +600,14 @@ impl<KN: KeyNode> MultiProofState<KN> {
 					}
 				}
 				// from stack
-				if let Some((stack_hash, _stack_join)) = self.stack.pop() {
+				if let Some((stack_hash, stack_join)) = self.stack.pop() {
 					// current is dropped.
 					self.current_key = Some(stack_hash);
-					// TODO check if stack depth == this new depth (should be?).
-					self.refresh_join1();
+					debug_assert!({
+						self.refresh_join1();
+						Some(stack_join) == self.join1
+					});
+					self.join1 = Some(stack_join);
 				} else {
 					// fuse last interval
 					self.join1 = None;
@@ -653,7 +652,12 @@ impl<KN: KeyNode> MultiProofState<KN> {
 						self.current_key = self.next_key1.take();
 						self.next_key1 = self.next_key2.take();
 						self.next_key2 = next_keys.next();
-						self.refresh_join1(); // TODO could also use join2 for join1 would be fastest
+
+						debug_assert!({
+							self.refresh_join1();
+							self.join1 == self.join2
+						});
+						self.join1 = self.join2;
 						self.refresh_join2();
 					} else {
 						// keep interval
@@ -678,9 +682,6 @@ impl<KN: KeyNode> MultiProofState<KN> {
 }
 
 impl<'a, H: BinaryHasher, KN: KeyNode, I: Iterator<Item = KN>> HashProof<'a, H, I, KN> {
-	// TODO write function to build from iter of unchecked usize indexes: map iter
-	// with either depth_at or the depth_iterator skipping undesired elements (second
-	// seems better as it filters out of range.
 	pub fn new(
 		buffer: &'a mut H::Buffer,
 		mut to_prove: I,
@@ -838,8 +839,7 @@ pub fn trie_root_from_proof<HO, KN, I, I2, F>(
 	if let Some(c) = items.next() {
 		current = c;
 	} else {
-		// TODO check if we even can produce such proof.
-		// no item case root is directly in additional
+		// when no item, root is first from additional hashes
 		if let Some(h) = additional_hash.next() {
 			if allow_additionals_hashes || additional_hash.next().is_none() {
 				callback.register_root(&h);
@@ -866,7 +866,7 @@ pub fn trie_root_from_proof<HO, KN, I, I2, F>(
 		}
 		if Some(depth) == common_depth {
 			let (key_next, hash_next) = next.take().expect("common depth is some");
-			stack.push((current, depth)); // TODO process sibling without stack? or all on stack
+			stack.push((current, depth));
 			current = (key_next, hash_next);
 			next = items.next();
 			common_depth = calc_common_depth(&current, &next);
@@ -949,8 +949,7 @@ impl<H: BinaryHasher, HH: BinaryHasher<Out = H::Out>> HasherHybrid for OrderedTr
 		let seq_trie = SequenceBinaryTree::new(nb_children);
 
 		let mut callback_read_proof = HashOnly::<HH>::new(buffer);
-		// full node
-		let iter = children.filter_map(|v| v); // TODO assert same number as count
+		let iter = children.filter_map(|v| v);
 		let hash = crate::trie_root::<_, UsizeKeyNode, _, _>(&seq_trie, iter, &mut callback_read_proof);
 		let mut hash_buf2 = <H as BinaryHasher>::init_buffer();
 		<H as BinaryHasher>::buffer_hash(&mut hash_buf2, header);
@@ -1125,7 +1124,6 @@ mod test {
 	#[test]
 	fn test_depth_iter() {
 		// cases corresponding to test_depth, TODO add more
-//		let cases = [7, 6, 5, 12, 11, 10, 9];
 		for nb in 0usize..16 {
 			let mut n = 0;
 			let tree = Tree::new(nb);
