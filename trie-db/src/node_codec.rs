@@ -20,7 +20,7 @@ use crate::node::{Node, NodePlan};
 use crate::ChildReference;
 use hash_db::{HasherHybrid, BinaryHasher};
 
-use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec, EmptyIter, ops::Range};
+use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec, ops::Range};
 
 /// Representation of a nible slice (right aligned).
 /// It contains a right aligned padded first byte (first pair element is the number of nibbles
@@ -229,7 +229,7 @@ pub trait HashDBHybridDyn<H: HasherHybrid, T>: Send + Sync + HashDB<H, T> {
 		children: &[Option<Range<usize>>],
 		common: ChildProofHeader,
 		buffer: &mut <H::InnerHasher as BinaryHasher>::Buffer,
-	) -> Option<H::Out>;
+	) -> H::Out;
 }
 
 impl<H: HasherHybrid, T, C: HashDBHybrid<H, T>> HashDBHybridDyn<H, T> for C {
@@ -240,7 +240,7 @@ impl<H: HasherHybrid, T, C: HashDBHybrid<H, T>> HashDBHybridDyn<H, T> for C {
 		children: &[Option<Range<usize>>],
 		common: ChildProofHeader,
 		buffer: &mut <H::InnerHasher as BinaryHasher>::Buffer,
-	) -> Option<H::Out> {
+	) -> H::Out {
 
 		// TODO factor this with iter_build (just use the trait) also use in adapter from codec
 		let nb_children = children.iter().filter(|v| v.is_some()).count();
@@ -257,8 +257,6 @@ impl<H: HasherHybrid, T, C: HashDBHybrid<H, T>> HashDBHybridDyn<H, T> for C {
 			common.header(value),
 			nb_children,
 			children,
-			EmptyIter::default(),
-			false,
 			buffer,
 		)
 	}
@@ -390,10 +388,9 @@ impl Iterator for HashesPlan {
 }
 
 /// Adapter standard implementation to use with `HashDBInsertComplex` function.
-/// TODO EMCH seems unused (there is test but??)
 pub fn hybrid_hash_node_adapter<Codec: NodeCodecHybrid<HashOut = Hasher::Out>, Hasher: HasherHybrid>(
 	encoded_node: &[u8]
-) -> crate::rstd::result::Result<Option<Hasher::Out>, ()> {
+) -> crate::rstd::result::Result<Option<Hasher::Out>, ()> { // TODO EMCH why returning result?
 	Ok(if let Some((node, common)) = Codec::need_hybrid_proof(encoded_node) {
 		match node {
 			NodePlan::Branch { children, .. } | NodePlan::NibbledBranch { children, .. } => {
@@ -409,10 +406,8 @@ pub fn hybrid_hash_node_adapter<Codec: NodeCodecHybrid<HashOut = Hasher::Out>, H
 					common.header(encoded_node),
 					nb_children,
 					children,
-					EmptyIter::default(),
-					false, // not a proof, will not fail
 					&mut buf,
-				).expect("not a proof, does not fail")) //  TODO EMCH split function in two variants!
+				))
 			},
 			_ => unreachable!("hybrid only touch branch node"),
 		}

@@ -248,8 +248,21 @@ pub trait HashDBHybrid<H: HasherHybrid, T>: Send + Sync + HashDB<H, T> {
 	/// Insert a datum item into the DB and return the datum's hash for a later lookup. Insertions
 	/// are counted and the equivalent number of `remove()`s must be performed before the data
 	/// is considered dead.
-	/// This function can fail on condition from insert_hybrid, in this case we return `None`. 
 	fn insert_branch_hybrid<
+		I: Iterator<Item = Option<H::Out>>,
+	>(
+		&mut self,
+		prefix: Prefix,
+		value: &[u8],
+		no_child_value: &[u8],
+		nb_children: usize,
+		children: I,
+		buffer: &mut <H::InnerHasher as BinaryHasher>::Buffer,
+	) -> H::Out;
+
+	/// Insert with data from a proof.
+	/// As a result, this function can fail.
+	fn insert_branch_hybrid_proof<
 		I: Iterator<Item = Option<H::Out>>,
 		I2: Iterator<Item = H::Out>,
 	>(
@@ -260,7 +273,6 @@ pub trait HashDBHybrid<H: HasherHybrid, T>: Send + Sync + HashDB<H, T> {
 		nb_children: usize,
 		children: I,
 		additional_hashes: I2,
-		proof: bool,
 		buffer: &mut <H::InnerHasher as BinaryHasher>::Buffer,
 	) -> Option<H::Out>;
 }
@@ -268,8 +280,18 @@ pub trait HashDBHybrid<H: HasherHybrid, T>: Send + Sync + HashDB<H, T> {
 pub trait HasherHybrid: BinaryHasher {
 	type InnerHasher: BinaryHasher<Out = Self::Out>;
 
-	/// Alternate hash with hybrid proof allowed
+	/// Alternate hash with hybrid hashing allowed.
 	fn hash_hybrid<
+		I: Iterator<Item = Option<<Self as Hasher>::Out>>,
+	>(
+		x: &[u8],
+		nb_children: usize,
+		children: I,
+		buffer: &mut <Self::InnerHasher as BinaryHasher>::Buffer,
+	) -> Self::Out;
+
+	/// Calculate hash from a proof, this can fail.
+	fn hash_hybrid_proof<
 		I: Iterator<Item = Option<<Self as Hasher>::Out>>,
 		I2: Iterator<Item = <Self::InnerHasher as Hasher>::Out>,
 	>(
@@ -277,7 +299,7 @@ pub trait HasherHybrid: BinaryHasher {
 		nb_children: usize,
 		children: I,
 		additional_hashes: I2,
-		proof: bool,
 		buffer: &mut <Self::InnerHasher as BinaryHasher>::Buffer,
 	) -> Option<Self::Out>;
+
 }

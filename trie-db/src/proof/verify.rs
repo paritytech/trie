@@ -506,12 +506,11 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 								}
 							});
 
-						if let Some(h) = OrderedTrieHasher::<L::Hash, <L::Hash as HasherHybrid>::InnerHasher>::hash_hybrid(
+						if let Some(h) = OrderedTrieHasher::<L::Hash, <L::Hash as HasherHybrid>::InnerHasher>::hash_hybrid_proof(
 							&common.header(node_data.as_slice())[..],
 							nb_children,
 							children,
 							additional_hash.into_iter(),
-							true,
 							hybrid_buf.as_mut().expect("Initialized for hybrid above"),
 						) {
 							h

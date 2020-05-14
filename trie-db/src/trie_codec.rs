@@ -575,14 +575,13 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 							None
 						}
 					});
-				if let Some(hash) = db.insert_branch_hybrid(
+				if let Some(hash) = db.insert_branch_hybrid_proof(
 					prefix.as_prefix(),
 					&node_data[..],
 					common.header(&node_data[..]),
 					nb_children,
 					children,
 					additional_hashes,
-					true,
 					hybrid_buf.as_mut().expect("Initialized for hybrid above"),
 				) {
 					hash

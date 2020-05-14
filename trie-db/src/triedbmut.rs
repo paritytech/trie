@@ -1488,7 +1488,7 @@ where
 						&children[..],
 						no_node,
 						self.hybrid_hash_buffer.as_mut().expect("Lazy init above"),
-					).expect("Trusted encoded value (was change earlier)")
+					)
 				} else {
 					*self.root = self.db.insert(EMPTY_PREFIX, &encoded_root[..]);
 				}
@@ -1548,7 +1548,7 @@ where
 									&children[..],
 									no_node,
 									self.hybrid_hash_buffer.as_mut().expect("Lazy init above"),
-								).expect("Trusted encoded value (was change earlier)")
+								)
 							} else {
 								self.db.insert(prefix.as_prefix(), &encoded[..])
 							};

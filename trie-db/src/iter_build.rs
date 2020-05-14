@@ -464,10 +464,8 @@ impl<'a, H: HasherHybrid, V, DB: HashDBHybrid<H, V>> ProcessEncodedNode<<H as Ha
 				common.header(&encoded_node[..]),
 				nb_children,
 				iter,
-				EmptyIter::default(),
-				false,
 				&mut self.buffer,
-			).expect("This node encoding is trusted")
+			)
 		} else {
 			self.db.insert(prefix, &encoded_node[..])
 		};
@@ -554,10 +552,8 @@ impl<H: HasherHybrid> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootHybrid<
 				common.header(&encoded_node[..]),
 				nb_children,
 				iter,
-				EmptyIter::default(),
-				false,
 				&mut self.buffer,
-			).expect("This node encoding is trusted")
+			)
 		} else {
 			<H as Hasher>::hash(&encoded_node[..])
 		};
@@ -691,10 +687,8 @@ impl<H: HasherHybrid> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashe
 				common.header(&encoded_node[..]),
 				nb_children,
 				iter,
-				EmptyIter::default(),
-				false,
 				&mut self.buffer,
-			).expect("only proof fails: TODO two primitives")
+			)
 		} else {
 			<H as Hasher>::hash(&encoded_node[..])
 		};

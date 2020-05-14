@@ -912,7 +912,7 @@ pub struct OrderedTrieHasher<H, HH>(PhantomData<(H, HH)>);
 impl<H: BinaryHasher, HH: BinaryHasher<Out = H::Out>> HasherHybrid for OrderedTrieHasher<H, HH> {
 	type InnerHasher = HH;
 
-	fn hash_hybrid<
+	fn hash_hybrid_proof<
 		I: Iterator<Item = Option<<Self as Hasher>::Out>>,
 		I2: Iterator<Item = <Self as Hasher>::Out>,
 	>(
@@ -920,44 +920,58 @@ impl<H: BinaryHasher, HH: BinaryHasher<Out = H::Out>> HasherHybrid for OrderedTr
 		nb_children: usize,
 		children: I,
 		additional_hashes: I2,
-		proof: bool,
 		buffer: &mut HH::Buffer,
 	) -> Option<H::Out> {
 		let seq_trie = SequenceBinaryTree::new(0, nb_children);
 
 		let mut callback_read_proof = HashOnly::<HH>::new(buffer);
-		let hash = if !proof {
-			// full node
-			let iter = children.filter_map(|v| v); // TODO assert same number as count
-			crate::trie_root::<_, UsizeKeyNode, _, _>(&seq_trie, iter, &mut callback_read_proof)
-		} else {
-			// proof node, UsizeKeyNode should be big enough for hasher hybrid
-			// case.
-			let iter_key = seq_trie.iter_path_node_key::<UsizeKeyNode>(None);
-			let iter = children
-				.zip(iter_key)
-				.filter_map(|(value, key)| if let Some(value) = value {
-					Some((key, value))
-				} else {
-					None
-				});
-			if let Some(hash) = crate::trie_root_from_proof(
-				&seq_trie,
-				iter,
-				additional_hashes,
-				&mut callback_read_proof,
-				false,
-			) {
-				hash
+		// proof node, UsizeKeyNode should be big enough for hasher hybrid
+		// case.
+		let iter_key = seq_trie.iter_path_node_key::<UsizeKeyNode>(None);
+		let iter = children
+			.zip(iter_key)
+			.filter_map(|(value, key)| if let Some(value) = value {
+				Some((key, value))
 			} else {
-				return None;
-			}
+				None
+			});
+		let hash = if let Some(hash) = crate::trie_root_from_proof(
+			&seq_trie,
+			iter,
+			additional_hashes,
+			&mut callback_read_proof,
+			false,
+		) {
+			hash
+		} else {
+			return None;
 		};
 		let mut hash_buf2 = <H as BinaryHasher>::init_buffer();
 		<H as BinaryHasher>::buffer_hash(&mut hash_buf2, header);
 		<H as BinaryHasher>::buffer_hash(&mut hash_buf2, hash.as_ref());
 		Some(H::buffer_finalize(&mut hash_buf2))
 	}
+
+	fn hash_hybrid<
+		I: Iterator<Item = Option<<Self as Hasher>::Out>>,
+	>(
+		header: &[u8],
+		nb_children: usize,
+		children: I,
+		buffer: &mut HH::Buffer,
+	) -> H::Out {
+		let seq_trie = SequenceBinaryTree::new(0, nb_children);
+
+		let mut callback_read_proof = HashOnly::<HH>::new(buffer);
+		// full node
+		let iter = children.filter_map(|v| v); // TODO assert same number as count
+		let hash = crate::trie_root::<_, UsizeKeyNode, _, _>(&seq_trie, iter, &mut callback_read_proof);
+		let mut hash_buf2 = <H as BinaryHasher>::init_buffer();
+		<H as BinaryHasher>::buffer_hash(&mut hash_buf2, header);
+		<H as BinaryHasher>::buffer_hash(&mut hash_buf2, hash.as_ref());
+		H::buffer_finalize(&mut hash_buf2)
+	}
+
 }
 
 impl<H: BinaryHasher, HH: Send + Sync> BinaryHasher for OrderedTrieHasher<H, HH> {

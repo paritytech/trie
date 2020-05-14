@@ -629,6 +629,31 @@ where
 
 	fn insert_branch_hybrid<
 		I: Iterator<Item = Option<H::Out>>,
+	> (
+		&mut self,
+		prefix: Prefix,
+		value: &[u8],
+		child_proof_header: &[u8],
+		nb_children: usize,
+		children: I,
+		buff: &mut <H::InnerHasher as BinaryHasher>::Buffer,
+	) -> H::Out {
+		if T::from(value) == self.null_node_data {
+			return self.hashed_null_node.clone();
+		}
+
+		let key = H::hash_hybrid(
+			child_proof_header,
+			nb_children,
+			children,
+			buff,
+		);
+		HashDB::emplace(self, key, prefix, value.into());
+		key
+	}
+
+	fn insert_branch_hybrid_proof<
+		I: Iterator<Item = Option<H::Out>>,
 		I2: Iterator<Item = H::Out>,
 	> (
 		&mut self,
@@ -638,25 +663,24 @@ where
 		nb_children: usize,
 		children: I,
 		additional_hashes: I2,
-		proof: bool,
 		buff: &mut <H::InnerHasher as BinaryHasher>::Buffer,
 	) -> Option<H::Out> {
 		if T::from(value) == self.null_node_data {
 			return Some(self.hashed_null_node.clone());
 		}
 
-		H::hash_hybrid(
+		H::hash_hybrid_proof(
 			child_proof_header,
 			nb_children,
 			children,
 			additional_hashes,
-			proof,
 			buff,
 		).map(|key| {
 			HashDB::emplace(self, key, prefix, value.into());
 			key
 		})
 	}
+
 }
 
 impl<H, KF, T> HashDBRef<H, T> for MemoryDB<H, KF, T>
