@@ -212,7 +212,7 @@ impl<T, V> CacheAccum<T, V>
 			T::Codec::branch_node_common(
 				self.0[last].0.as_ref().iter(),
 				v.as_ref().map(|v| v.as_ref()),
-				register_children.as_mut()
+				Some(register_children.as_mut())
 			)
 		} else {
 			(T::Codec::branch_node(
@@ -264,7 +264,7 @@ impl<T, V> CacheAccum<T, V>
 				pr.right_range_iter(nkeyix.1),
 				nkeyix.1,
 				self.0[last].0.as_ref().iter(), v.as_ref().map(|v| v.as_ref()),
-				register_children.as_mut(),
+				Some(register_children.as_mut()),
 			)
 		} else {
 			(T::Codec::branch_node_nibbled(

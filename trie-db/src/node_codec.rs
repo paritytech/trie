@@ -152,7 +152,7 @@ pub trait NodeCodecHybrid: NodeCodec {
 	fn branch_node_common(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Option<&[u8]>,
-		register_children: &mut [Option<Range<usize>>],
+		register_children: Option<&mut [Option<Range<usize>>]>,
 	) -> (Vec<u8>, ChildProofHeader);
 
 	/// Variant of `branch_node_common` but with a nibble.
@@ -164,7 +164,7 @@ pub trait NodeCodecHybrid: NodeCodec {
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Option<&[u8]>,
-		register_children: &mut [Option<Range<usize>>],
+		register_children: Option<&mut [Option<Range<usize>>]>,
 	) -> (Vec<u8>, ChildProofHeader);
 
 	/// Returns branch node encoded information for hash.

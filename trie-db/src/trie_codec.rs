@@ -458,7 +458,7 @@ impl<'a, C: NodeCodecHybrid, F> DecoderStackEntry<'a, C, F> {
 				C::branch_node_common(
 					self.children.into_iter(),
 					value,
-					register_children,
+					Some(register_children),
 				)
 			} else {
 				(C::branch_node(
@@ -472,7 +472,7 @@ impl<'a, C: NodeCodecHybrid, F> DecoderStackEntry<'a, C, F> {
 					partial.len(),
 					self.children.iter(),
 					value,
-					register_children,
+					Some(register_children),
 				)
 			} else {
 				(C::branch_node_nibbled(

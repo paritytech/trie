@@ -799,7 +799,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
 	) -> Vec<u8> {
-		Self::branch_node_internal(children, maybe_value, None, true).0
+		Self::branch_node_internal(children, maybe_value, None, false, true).0
 	}
 
 	fn branch_node_nibbled(
@@ -824,9 +824,9 @@ impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodec<H> {
 	fn branch_node_common(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
-		register_children: &mut [Option<Range<usize>>],
+		register_children: Option<&mut [Option<Range<usize>>]>,
 	) -> (Vec<u8>, ChildProofHeader) {
-		Self::branch_node_internal(children, maybe_value, Some(register_children), true)
+		Self::branch_node_internal(children, maybe_value, register_children, true, true)
 	}
 
 	fn branch_node_nibbled_common(
@@ -834,7 +834,7 @@ impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodec<H> {
 		_number_nibble: usize,
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		_maybe_value: Option<&[u8]>,
-		_register_children: &mut [Option<Range<usize>>],
+		_register_children: Option<&mut [Option<Range<usize>>]>,
 	) -> (Vec<u8>, ChildProofHeader) {
 		unreachable!()
 	}
@@ -843,7 +843,7 @@ impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodec<H> {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
 	) -> Vec<u8> {
-		Self::branch_node_internal(children, maybe_value, None, false).0
+		Self::branch_node_internal(children, maybe_value, None, true, false).0
 	}
 
 	fn branch_node_nibbled_for_hash(
@@ -888,6 +888,7 @@ impl<H: Hasher> ReferenceNodeCodec<H> {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<Self as NodeCodec>::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
 		mut register_children: Option<&mut [Option<Range<usize>>]>,
+		hybrid: bool,
 		encode_children: bool,
 	) -> (Vec<u8>, ChildProofHeader) {
 		let mut output = vec![0; BITMAP_LENGTH + 1];
@@ -902,7 +903,7 @@ impl<H: Hasher> ReferenceNodeCodec<H> {
 		let ix = &mut ix;
 		let mut register_children = register_children.as_mut();
 		let register_children = &mut register_children;
-		let common = if encode_children && register_children.is_some() {
+		let common = if encode_children && hybrid {
 			ChildProofHeader::Range(Range {
 				start: 0,
 				end: output.len(),
@@ -1168,7 +1169,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
 	) -> Vec<u8> {
-		Self::branch_node_nibbled_internal(partial, number_nibble, children, maybe_value, None, true).0
+		Self::branch_node_nibbled_internal(partial, number_nibble, children, maybe_value, None, false, true).0
 	}
 }
 
@@ -1179,6 +1180,7 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<Self as NodeCodec>::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
 		mut register_children: Option<&mut [Option<Range<usize>>]>,
+		hybrid: bool,
 		encode_children: bool,
 	) -> (Vec<u8>, ChildProofHeader) {
 		let mut output = if maybe_value.is_some() {
@@ -1204,7 +1206,7 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 		let ix = &mut ix;
 		let mut register_children = register_children.as_mut();
 		let register_children = &mut register_children;
-		let common = if encode_children && register_children.is_some() {
+		let common = if encode_children && hybrid {
 			ChildProofHeader::Range(Range {
 				start: 0,
 				end: output.len(),
@@ -1271,7 +1273,7 @@ impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodecNoExt<H> {
 	fn branch_node_common(
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		_maybe_value: Option<&[u8]>,
-		_register_children: &mut [Option<Range<usize>>],
+		_register_children: Option<&mut [Option<Range<usize>>]>,
 	) -> (Vec<u8>, ChildProofHeader) {
 		unreachable!()
 	}
@@ -1281,14 +1283,15 @@ impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodecNoExt<H> {
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
-		register_children: &mut [Option<Range<usize>>],
+		register_children: Option<&mut [Option<Range<usize>>]>,
 	) -> (Vec<u8>, ChildProofHeader) {
 		Self::branch_node_nibbled_internal(
 			partial,
 			number_nibble,
 			children,
 			maybe_value,
-			Some(register_children),
+			register_children,
+			true,
 			true,
 		)
 	}
@@ -1312,6 +1315,7 @@ impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodecNoExt<H> {
 			children,
 			maybe_value,
 			None,
+			true,
 			false,
 		).0
 	}

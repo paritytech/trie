@@ -243,7 +243,7 @@ where
 						// map the `NodeHandle`s from the Branch to `ChildReferences`
 						children,
 						value.as_ref().map(|v| &v[..]),
-						register_children,
+						Some(register_children),
 					)
 				} else {
 					(C::branch_node(
@@ -273,7 +273,7 @@ where
 						pr.len(),
 						children,
 						value.as_ref().map(|v| &v[..]),
-						register_children,
+						Some(register_children),
 					)
 				} else {
 					(C::branch_node_nibbled(

@@ -13,7 +13,7 @@
 //! Verification of compact proofs for Merkle-Patricia tries.
 
 use crate::rstd::{
-	convert::TryInto, iter::Peekable, marker::PhantomData, result::Result, vec, vec::Vec,
+	convert::TryInto, iter::Peekable, marker::PhantomData, result::Result, vec::Vec,
 };
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH,
@@ -107,7 +107,7 @@ struct StackEntry<'a, C: NodeCodecHybrid, H> {
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
 	/// The child references to use in reconstructing the trie nodes.
-	children: Vec<Option<ChildReference<C::HashOut>>>,
+	children: [Option<ChildReference<C::HashOut>>; NIBBLE_LENGTH],
 	/// Proof info if a hybrid proof is needed.
 	hybrid: Option<(Bitmap, HashesIter<'a, C::AdditionalHashesPlan, C::HashOut>)>,
 	_marker: PhantomData<(C, H)>,
@@ -120,9 +120,8 @@ impl<'a, C: NodeCodecHybrid, H: BinaryHasher> StackEntry<'a, C, H>
 	fn new(node_data: &'a [u8], prefix: LeftNibbleSlice<'a>, is_inline: bool, hybrid: bool)
 		   -> Result<Self, Error<C::HashOut, C::Error>>
 	{
-		let children = vec![None; NIBBLE_LENGTH]; // TODO use array
+		let children = [None; NIBBLE_LENGTH];
 		let (node, hybrid) = if !is_inline && hybrid {
-			// TODO factorize with trie_codec
 			let encoded_node = node_data;
 			C::decode_compact_proof(encoded_node)
 				.map_err(Error::DecodeError)?
@@ -173,23 +172,19 @@ impl<'a, C: NodeCodecHybrid, H: BinaryHasher> StackEntry<'a, C, H>
 				), ChildProofHeader::Unused)
 			}
 			Node::Branch(_, _) => {
-				let mut register_children: [Option<_>; NIBBLE_LENGTH] = Default::default();
-				let register_children = &mut register_children[..];
 				C::branch_node_common(
 					self.children.iter(),
 					self.value,
-					register_children, // TODO unused register result
+					None,
 				)
 			},
 			Node::NibbledBranch(partial, _, _) => {
-				let mut register_children: [Option<_>; NIBBLE_LENGTH] = Default::default();
-				let register_children = &mut register_children[..];
 				C::branch_node_nibbled_common(
 					partial.right_iter(),
 					partial.len(),
 					self.children.iter(),
 					self.value,
-					register_children, // TODO again unused register result
+					None,
 				)
 			},
 		})
@@ -487,7 +482,7 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 					ChildReference::Hash(if let Some((bitmap_keys, additional_hash)) = last_entry.hybrid {
 						let children = last_entry.children;
 						let nb_children = children.iter().filter(|v| v.is_some()).count();
-						let children = children.into_iter()
+						let children = children.iter()
 							.enumerate()
 							.filter_map(|(ix, v)| {
 								v.as_ref().map(|v| (ix, v.clone()))
