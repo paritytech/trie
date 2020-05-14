@@ -103,8 +103,7 @@ impl<C: NodeCodecHybrid> EncoderStackEntry<C> {
 	/// Generates the encoding of the subtrie rooted at this entry.
 	fn encode_node<H>(
 		&self,
-		hybrid_hash: bool,
-		hash_buf: &mut H::Buffer,
+		hybrid: &mut Option<H::Buffer>,
 	) -> Result<Vec<u8>, C::HashOut, C::Error>
 		where
 				H: HasherHybrid<Out = C::HashOut>,
@@ -123,7 +122,7 @@ impl<C: NodeCodecHybrid> EncoderStackEntry<C> {
 			},
 			NodePlan::Branch { value, children } => {
 				let children = Self::branch_children(node_data, &children, &self.omit_children[..])?;
-				if hybrid_hash {
+				if let Some(hash_buf) = hybrid.as_mut() {
 					let hash_proof_header = C::branch_node_for_hash(
 						children.iter(),
 						value.clone().map(|range| &node_data[range]),
@@ -144,7 +143,7 @@ impl<C: NodeCodecHybrid> EncoderStackEntry<C> {
 			NodePlan::NibbledBranch { partial, value, children } => {
 				let children = Self::branch_children(node_data, &children, &self.omit_children[..])?;
 				let partial = partial.build(node_data);
-				if hybrid_hash {
+				if let Some(hash_buf) = hybrid.as_mut() {
 					let hash_proof_header = C::branch_node_nibbled_for_hash(
 						partial.right_iter(),
 						partial.len(),
@@ -214,9 +213,12 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 {
 	let mut output = Vec::new();
 
-	// TODO make it optional and replace boolean is_hybrid
-	let mut hash_buf = <L::Hash as hash_db::BinaryHasher>::init_buffer();
-	let hash_buf = &mut hash_buf;
+	let mut hybrid = if L::HYBRID_HASH {
+		Some(<L::Hash as hash_db::BinaryHasher>::init_buffer())
+	} else {
+		None
+	};
+	let hybrid = &mut hybrid;
 
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
@@ -250,8 +252,7 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 									// unstack as in not inline case
 									if let Some(last_entry) = stack.pop() {
 										output[last_entry.output_index] = last_entry.encode_node::<L::Hash>(
-											L::HYBRID_HASH,
-											hash_buf,
+											hybrid,
 										)?;
 									}
 								}
@@ -281,8 +282,7 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 						break;
 					} else {
 						output[last_entry.output_index] = last_entry.encode_node::<L::Hash>(
-							L::HYBRID_HASH,
-							hash_buf,
+							hybrid,
 						)?;
 					}
 				}
@@ -312,8 +312,7 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 
 	while let Some(entry) = stack.pop() {
 		output[entry.output_index] = entry.encode_node::<L::Hash>(
-			L::HYBRID_HASH,
-			hash_buf,
+			hybrid,
 		)?;
 	}
 
@@ -633,7 +632,6 @@ pub fn binary_additional_hashes<H: BinaryHasher>(
 		} else {
 			None
 		});
-
 
 	let mut callback = HashProof::<H, _, _>::new(hash_buf, to_prove, true);
 	let hashes = children.iter()

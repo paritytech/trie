@@ -86,8 +86,7 @@ impl<'a, C: NodeCodecHybrid, H: HasherHybrid> StackEntry<'a, C, H>
 	/// Encode this entry to an encoded trie node with data properly omitted.
 	fn encode_node(
 		mut self,
-		hybrid: bool,
-		hash_buf: &mut <H::InnerHasher as BinaryHasher>::Buffer,
+		hybrid: &mut Option<<H::InnerHasher as BinaryHasher>::Buffer>,
 	) -> TrieResult<Vec<u8>, C::HashOut, C::Error> {
 		let node_data = self.node.data();
 		Ok(match self.node.node_plan() {
@@ -113,6 +112,8 @@ impl<'a, C: NodeCodecHybrid, H: HasherHybrid> StackEntry<'a, C, H>
 				)
 			}
 			NodePlan::Branch { value, children } => {
+				let mut hash_buf = hybrid.as_mut();
+				let hybrid = hash_buf.is_some();
 				Self::complete_branch_children(
 					node_data,
 					children,
@@ -127,7 +128,7 @@ impl<'a, C: NodeCodecHybrid, H: HasherHybrid> StackEntry<'a, C, H>
 					C::encode_compact_proof::<H::InnerHasher>(
 						hash_proof_header,
 						&self.children[..],
-						hash_buf,
+						hash_buf.as_mut().expect("hybrid is true"),
 						&self.in_proof_children[..],
 					)
 				} else {
@@ -138,6 +139,8 @@ impl<'a, C: NodeCodecHybrid, H: HasherHybrid> StackEntry<'a, C, H>
 				}
 			},
 			NodePlan::NibbledBranch { partial: partial_plan, value, children } => {
+				let mut hash_buf = hybrid.as_mut();
+				let hybrid = hash_buf.is_some();
 				let partial = partial_plan.build(node_data);
 				Self::complete_branch_children(
 					node_data,
@@ -155,7 +158,7 @@ impl<'a, C: NodeCodecHybrid, H: HasherHybrid> StackEntry<'a, C, H>
 					C::encode_compact_proof::<H::InnerHasher>(
 						hash_proof_header,
 						&self.children[..],
-						hash_buf,
+						hash_buf.as_mut().expect("hybrid is true"),
 						&self.in_proof_children[..],
 					)
 				} else {
@@ -277,8 +280,12 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 		.collect::<Vec<_>>();
 	keys.sort();
 	keys.dedup();
-	let mut hash_buf = <<L::Hash as HasherHybrid>::InnerHasher as hash_db::BinaryHasher>::init_buffer();
-	let hash_buf = &mut hash_buf;
+	let mut hybrid = if L::HYBRID_HASH {
+		Some(<<L::Hash as HasherHybrid>::InnerHasher as hash_db::BinaryHasher>::init_buffer())
+	} else {
+		None
+	};
+	let hybrid = &mut hybrid;
 
 
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
@@ -292,7 +299,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 		let key = LeftNibbleSlice::new(key_bytes);
 
 		// Unwind the stack until the new entry is a child of the last entry on the stack.
-		unwind_stack(&mut stack, &mut proof_nodes, Some(&key), L::HYBRID_HASH, hash_buf)?;
+		unwind_stack(&mut stack, &mut proof_nodes, Some(&key), hybrid)?;
 
 		// Perform the trie lookup for the next key, recording the sequence of nodes traversed.
 		let mut recorder = Recorder::new();
@@ -400,7 +407,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 		}
 	}
 
-	unwind_stack(&mut stack, &mut proof_nodes, None, L::HYBRID_HASH, hash_buf)?;
+	unwind_stack(&mut stack, &mut proof_nodes, None, hybrid)?;
 	Ok(proof_nodes)
 }
 
@@ -550,8 +557,7 @@ fn unwind_stack<C: NodeCodecHybrid, H: HasherHybrid>(
 	stack: &mut Vec<StackEntry<C, H>>,
 	proof_nodes: &mut Vec<Vec<u8>>,
 	maybe_key: Option<&LeftNibbleSlice>,
-	hybrid: bool,
-	hash_buf: &mut <H::InnerHasher as BinaryHasher>::Buffer,
+	hybrid: &mut Option<<H::InnerHasher as BinaryHasher>::Buffer>,
 ) -> TrieResult<(), C::HashOut, C::Error>
 	where
 		H: HasherHybrid<Out = C::HashOut>,
@@ -566,7 +572,7 @@ fn unwind_stack<C: NodeCodecHybrid, H: HasherHybrid>(
 			_ => {
 				// Pop and finalize node from the stack.
 				let index = entry.output_index;
-				let encoded = entry.encode_node(hybrid, hash_buf)?;
+				let encoded = entry.encode_node(hybrid)?;
 				if let Some(parent_entry) = stack.last_mut() {
 					parent_entry.set_child(&encoded);
 				}
