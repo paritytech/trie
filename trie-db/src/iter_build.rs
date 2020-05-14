@@ -416,7 +416,6 @@ impl<'a, H: Hasher, V, DB: HashDB<H, V>> ProcessEncodedNode<<H as Hasher>::Out>
 		prefix: Prefix,
 		(encoded_node, _common): (Vec<u8>, ChildProofHeader),
 		is_root: bool,
-		// TODO different trait??
 		_hybrid_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {
 		let len = encoded_node.len();
@@ -495,7 +494,6 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRoot<H, <H as Has
 		_: Prefix,
 		(encoded_node, _common): (Vec<u8>, ChildProofHeader),
 		is_root: bool,
-		// TODO different trait
 		_hybrid_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {
 		let len = encoded_node.len();
@@ -615,7 +613,6 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootPrint<H, <H a
 		p: Prefix,
 		(encoded_node, _common): (Vec<u8>, ChildProofHeader),
 		is_root: bool,
-		// TODO different trait?
 		_hybrid_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {
 		println!("Encoded node: {:x?}", &encoded_node);
@@ -643,7 +640,6 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashed<H> {
 		_: Prefix,
 		(encoded_node, _common): (Vec<u8>, ChildProofHeader),
 		is_root: bool,
-		// TODO different trait
 		_hybrid_hash: Option<(impl Iterator<Item = impl Borrow<Option<ChildReference<H::Out>>>>, usize)>,
 	) -> ChildReference<<H as Hasher>::Out> {
 		let len = encoded_node.len();

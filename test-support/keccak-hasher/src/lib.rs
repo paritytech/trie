@@ -67,29 +67,6 @@ fn test_keccack_hasher() {
 	hash_db::test_binary_hasher::<KeccakHasher>()
 }
 
-/* TODO this is rather bad trait see if delete??
-#[derive(Default, Debug, Clone, PartialEq)]
-pub struct FixKeccakHasher([u8;32]);
-impl FixHash for FixKeccakHasher {
-	type Hasher = KeccakHasher;
-	const NEED_FIRST_HASHED: bool = true;
-	const EMPTY_HASHES: &'static [&'static [u8]] = &[];
-
-	fn new(first: <Self::Hasher as Hasher>::Out) -> Self {
-		FixKeccakHasher(first)
-	}
-	fn hash(&mut self, second: &<Self::Hasher as Hasher>::Out) {
-		unimplemented!()
-	}
-	fn current_state(&self) -> &<Self::Hasher as Hasher>::Out {
-		&self.0
-	}
-	fn finalize(self) -> <Self::Hasher as Hasher>::Out {
-		unimplemented!()
-	}
-}
-*/
-
 #[cfg(test)]
 mod tests {
 	use super::*;

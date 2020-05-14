@@ -1020,8 +1020,6 @@ fn encode_proof_internal<H: BinaryHasher>(
 		if let Some(ChildReference::Inline(h, nb)) = child.borrow() {
 			if *nb > 0 {
 				if in_proof[ix] {
-					// TODO do not write inline of null size, these are defined
-					// in the bitmap and from the algos.
 					debug_assert!(*nb < 128);
 					result.push(*nb as u8);
 					result.push(ix as u8);

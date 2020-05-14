@@ -396,10 +396,7 @@ pub fn hybrid_hash_node_adapter<Codec: NodeCodecHybrid<HashOut = Hasher::Out>, H
 			NodePlan::Branch { children, .. } | NodePlan::NibbledBranch { children, .. } => {
 				let nb_children = children.iter().filter(|v| v.is_some()).count();
 				let children = children.iter().map(|o_range| o_range.as_ref().map(|range| {
-					let range = range.range();
-					let mut dest = Hasher::Out::default();
-					dest.as_mut()[..range.len()].copy_from_slice(&encoded_node[range]);
-					dest
+					range.as_hash(encoded_node)
 				}));
 				let mut buf = <Hasher as HasherHybrid>::InnerHasher::init_buffer();
 				Some(ordered_trie::OrderedTrieHasher::<Hasher, Hasher::InnerHasher>::hash_hybrid(

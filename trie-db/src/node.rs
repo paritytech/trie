@@ -85,14 +85,18 @@ impl NodeHandlePlan {
 			NodeHandlePlan::Inline(range) => NodeHandle::Inline(&data[range.clone()]),
 		}
 	}
+
 	/// Range of node handle definition in encoded data.
-	/// TODO EMCH this breaks design a bit, maybe return H::Out
-	/// or put a util function.
-	pub fn range<'a, 'b>(&'a self) -> Range<usize> {
+	pub fn as_hash<'a, 'b, HOut: Default + AsMut<[u8]>>(&'a self, encoded_node: &[u8]) -> HOut {
+		let mut dest = HOut::default();
+
 		match self {
-			NodeHandlePlan::Hash(range) => range.clone(),
-			NodeHandlePlan::Inline(range) => range.clone(),
+			NodeHandlePlan::Inline(range)
+			| NodeHandlePlan::Hash(range) => {
+				dest.as_mut()[..range.len()].copy_from_slice(&encoded_node[range.clone()]);
+			},
 		}
+		dest
 	}
 
 	/// Check if it is an inline node.
