@@ -121,8 +121,8 @@ impl SequenceBinaryTree<usize> {
 		self.length - self.end
 	}
 
-	#[cfg(test)] // TODO is in implementation but unused, should be rename to resize
-	fn push(&mut self, mut nb: usize) {
+	#[cfg(test)]
+	fn resize(&mut self, mut nb: usize) {
 		if nb == 0 {
 			return;
 		}
