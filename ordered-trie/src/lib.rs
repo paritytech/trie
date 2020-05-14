@@ -16,7 +16,7 @@
 
 //! This crate contains implementation of trie/tree based on ordered sequential key only.
 //!
-//! Targetted use case is a stack or a fifo.
+//! Current use case is a fixed length tree.
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
@@ -80,11 +80,6 @@ impl Default for SequenceBinaryTree<usize> {
 
 fn depth(nb: usize) -> usize {
 	(0usize.leading_zeros() - nb.leading_zeros()) as usize
-/*	if nb == 0 {
-		return 0;
-	}
-
-	((0usize.leading_zeros() - (nb - 1).leading_zeros()) as usize) + 1*/
 }
 
 fn right_at(value: usize, index: usize) -> bool {
@@ -122,7 +117,7 @@ impl SequenceBinaryTree<usize> {
 	}
 
 	#[cfg(test)]
-	fn resize(&mut self, mut nb: usize) {
+	fn resize_append(&mut self, mut nb: usize) {
 		if nb == 0 {
 			return;
 		}
@@ -140,7 +135,6 @@ impl SequenceBinaryTree<usize> {
 				self.end = self.length;
 				self.length *= 2;
 			}
-
 		}
 		self.end -= nb;
 		self.end_depth = depth(self.end);
@@ -151,7 +145,8 @@ impl SequenceBinaryTree<usize> {
 		if !tmp == 0 {
 			let mut nb_skip = 0;
 			for i in 0..self.end_depth {
-				let ix = self.end_depth - i - 1; // - 1 from the fact that main depth is 1 less due to redundancy of first level (depth in number of change of level)
+				// -1 related to redundancy of first level of main depth (depth in number of change of level)
+				let ix = self.end_depth - i - 1;
 				if self.end & (1 << ix) != 0 {
 					// this is a skip
 					nb_skip += 1;
@@ -174,7 +169,8 @@ impl SequenceBinaryTree<usize> {
 		if !tmp == 0 {
 			let mut result: KN = (index, self.depth).into();
 			for i in 0..self.end_depth {
-				let ix = self.end_depth - i - 1; // - 1 from the fact that main depth is 1 less due to redundancy of first level (depth in number of change of level)
+				// -1 related to redundancy of first level of main depth (depth in number of change of level)
+				let ix = self.end_depth - i - 1;
 				if self.end & (1 << ix) != 0 {
 					// this is a skip
 					let ix = result.depth() - ix - 1;
@@ -227,15 +223,11 @@ impl SequenceBinaryTree<usize> {
 		})
 	}
 
-	pub fn iter_path_node_key<KN>(&self, from: Option<usize>) -> impl Iterator<Item = KN>
+	pub fn iter_path_node_key<KN>(&self) -> impl Iterator<Item = KN>
 		where
 			KN: KeyNode + From<(usize, usize)> + Clone,
 	{
-		if let Some(_from) = from {
-			unimplemented!();
-		}
 		let nb_elements = self.nb_elements();
-		// TODO index should not be use but key.value, this is double counting things
 		let mut index = 0;
 		let length = self.length;
 		let mut end = KN::from((self.end, self.end_depth));
@@ -758,7 +750,7 @@ pub fn trie_root<HO, KN, I, F>(layout: &SequenceBinaryTree<usize>, input: I, cal
 		I: Iterator<Item = HO>,
 		F: ProcessNode<HO, KN>,
 {
-	let mut iter = input.into_iter().zip(layout.iter_path_node_key::<KN>(None));
+	let mut iter = input.into_iter().zip(layout.iter_path_node_key::<KN>());
 	debug_assert!({
 		let (r, s) = iter.size_hint();
 		if s == Some(r) {
@@ -921,7 +913,7 @@ impl<H: BinaryHasher, HH: BinaryHasher<Out = H::Out>> HasherHybrid for OrderedTr
 		let mut callback_read_proof = HashOnly::<HH>::new(buffer);
 		// proof node, UsizeKeyNode should be big enough for hasher hybrid
 		// case.
-		let iter_key = seq_trie.iter_path_node_key::<UsizeKeyNode>(None);
+		let iter_key = seq_trie.iter_path_node_key::<UsizeKeyNode>();
 		let iter = children
 			.zip(iter_key)
 			.filter_map(|(value, key)| if let Some(value) = value {
@@ -1087,7 +1079,7 @@ mod test {
 		for (nb, depth) in values.iter().cloned() {
 			let inc = nb - prev;
 			prev = nb;
-			tree.push(inc);
+			tree.resize_append(inc);
 			assert_eq!(tree.depth, depth);
 			let tree2 = Tree::new(nb);
 			assert_eq!(tree2.depth, depth);
@@ -1138,7 +1130,7 @@ mod test {
 			let mut n = 0;
 			let tree = Tree::new(nb);
 			for (i, (d, k)) in tree.iter_depth(None)
-				.zip(tree.iter_path_node_key::<UsizeKeyNode>(None))
+				.zip(tree.iter_path_node_key::<UsizeKeyNode>())
 				.enumerate() {
 				n += 1;
 				assert_eq!(d, tree.depth_index(i));

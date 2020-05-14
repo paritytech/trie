@@ -626,7 +626,7 @@ pub fn binary_additional_hashes<H: BinaryHasher>(
 	let to_prove = children.iter().zip(in_proof_children.iter())
 		.filter_map(|(o_child, in_proof)| o_child.as_ref().map(|_| *in_proof))
 		// correct iteration over binary tree
-		.zip(tree.iter_path_node_key::<UsizeKeyNode>(None))
+		.zip(tree.iter_path_node_key::<UsizeKeyNode>())
 		.filter_map(|(in_proof, ix_key)| if in_proof {
 			Some(ix_key)
 		} else {
