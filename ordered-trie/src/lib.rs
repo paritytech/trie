@@ -54,8 +54,6 @@ pub type DBValue = Vec<u8>;
 pub struct SequenceBinaryTree<K> {
 	// Metadata (needs to be validated)
 
-	/// global offset for index.
-	offset: K,
 	/// Nb deleted values at end.
 	end: K,
 	end_depth: usize,
@@ -71,7 +69,6 @@ pub struct SequenceBinaryTree<K> {
 impl Default for SequenceBinaryTree<usize> {
 	fn default() -> Self {
 		SequenceBinaryTree {
-			offset: 0,
 			end: 0,
 			end_depth: 0,
 			depth: 0,
@@ -95,11 +92,10 @@ fn right_at(value: usize, index: usize) -> bool {
 }
 
 impl SequenceBinaryTree<usize> {
-	pub fn new(offset: usize, number: usize) -> Self {
+	pub fn new(number: usize) -> Self {
 		let len = number;
 		if len == 0 {
 			SequenceBinaryTree {
-				offset,
 				end: 0,
 				end_depth: 0,
 				depth: 0,
@@ -112,7 +108,6 @@ impl SequenceBinaryTree<usize> {
 			let end_depth = depth(end);
 			let depth = depth(length - 1);
 			SequenceBinaryTree {
-				offset,
 				end,
 				end_depth,
 				depth,
@@ -122,7 +117,6 @@ impl SequenceBinaryTree<usize> {
 		}
 	}
 
-	// TODO consider storing that
 	fn nb_elements(&self) -> usize {
 		self.length - self.end
 	}
@@ -133,7 +127,7 @@ impl SequenceBinaryTree<usize> {
 			return;
 		}
 		if self.length == 0 {
-			*self = Self::new(self.offset, nb);
+			*self = Self::new(nb);
 			return;
 		}
 		while nb > self.end {
@@ -922,7 +916,7 @@ impl<H: BinaryHasher, HH: BinaryHasher<Out = H::Out>> HasherHybrid for OrderedTr
 		additional_hashes: I2,
 		buffer: &mut HH::Buffer,
 	) -> Option<H::Out> {
-		let seq_trie = SequenceBinaryTree::new(0, nb_children);
+		let seq_trie = SequenceBinaryTree::new(nb_children);
 
 		let mut callback_read_proof = HashOnly::<HH>::new(buffer);
 		// proof node, UsizeKeyNode should be big enough for hasher hybrid
@@ -960,7 +954,7 @@ impl<H: BinaryHasher, HH: BinaryHasher<Out = H::Out>> HasherHybrid for OrderedTr
 		children: I,
 		buffer: &mut HH::Buffer,
 	) -> H::Out {
-		let seq_trie = SequenceBinaryTree::new(0, nb_children);
+		let seq_trie = SequenceBinaryTree::new(nb_children);
 
 		let mut callback_read_proof = HashOnly::<HH>::new(buffer);
 		// full node
@@ -1095,7 +1089,7 @@ mod test {
 			prev = nb;
 			tree.push(inc);
 			assert_eq!(tree.depth, depth);
-			let tree2 = Tree::new(0, nb);
+			let tree2 = Tree::new(nb);
 			assert_eq!(tree2.depth, depth);
 			assert_eq!(tree, tree2);
 		}
@@ -1104,33 +1098,33 @@ mod test {
 	#[test]
 	fn test_depth_index() {
 		// 8 trie
-		let tree = Tree::new(0, 7);
+		let tree = Tree::new(7);
 		assert_eq!(tree.depth_index(3), 3);
 		assert_eq!(tree.depth_index(4), 3);
 		assert_eq!(tree.depth_index(6), 2);
-		let tree = Tree::new(0, 6);
+		let tree = Tree::new(6);
 		assert_eq!(tree.depth_index(0), 3);
 		assert_eq!(tree.depth_index(3), 3);
 		assert_eq!(tree.depth_index(4), 2);
 		assert_eq!(tree.depth_index(5), 2);
-		let tree = Tree::new(0, 5);
+		let tree = Tree::new(5);
 		assert_eq!(tree.depth_index(3), 3);
 		assert_eq!(tree.depth_index(4), 1);
 		// 16 trie
-		let tree = Tree::new(0, 12);
+		let tree = Tree::new(12);
 		assert_eq!(tree.depth_index(7), 4);
 		assert_eq!(tree.depth_index(8), 3);
 		assert_eq!(tree.depth_index(11), 3);
-		let tree = Tree::new(0, 11);
+		let tree = Tree::new(11);
 		assert_eq!(tree.depth_index(7), 4);
 		assert_eq!(tree.depth_index(8), 3);
 		assert_eq!(tree.depth_index(9), 3);
 		assert_eq!(tree.depth_index(10), 2);
-		let tree = Tree::new(0, 10);
+		let tree = Tree::new(10);
 		assert_eq!(tree.depth_index(7), 4);
 		assert_eq!(tree.depth_index(8), 2);
 		assert_eq!(tree.depth_index(9), 2);
-		let tree = Tree::new(0, 9);
+		let tree = Tree::new(9);
 		assert_eq!(tree.depth_index(7), 4);
 		assert_eq!(tree.depth_index(8), 1);
 		// 32 trie TODO
@@ -1142,7 +1136,7 @@ mod test {
 //		let cases = [7, 6, 5, 12, 11, 10, 9];
 		for nb in 0usize..16 {
 			let mut n = 0;
-			let tree = Tree::new(0, nb);
+			let tree = Tree::new(nb);
 			for (i, (d, k)) in tree.iter_depth(None)
 				.zip(tree.iter_path_node_key::<UsizeKeyNode>(None))
 				.enumerate() {
@@ -1281,7 +1275,7 @@ mod test {
 	fn test_hash_only() {
 		let result = base16_roots();
 		for l in 0..17 {
-			let tree = Tree::new(0, l);
+			let tree = Tree::new(l);
 			let mut hash_buf = <KeccakHasher as BinaryHasher>::init_buffer();
 			let mut callback = HashOnly::<KeccakHasher>::new(&mut hash_buf);
 			let hashes: Vec<_> = hashes(l);
@@ -1294,7 +1288,7 @@ mod test {
 	fn test_one_element_proof() {
 		let result = base16_roots();
 		for l in 0..17 {
-			let tree = Tree::new(0, l);
+			let tree = Tree::new(l);
 			let mut hash_buf = <KeccakHasher as BinaryHasher>::init_buffer();
 			let mut hash_buf2 = <KeccakHasher as BinaryHasher>::init_buffer();
 			let mut hash_buf3 = <KeccakHasher as BinaryHasher>::init_buffer();
@@ -1348,7 +1342,7 @@ mod test {
 		for (l, ps) in tests.iter() {
 			let l = *l;
 			let ps = *ps;
-			let tree = Tree::new(0, l);
+			let tree = Tree::new(l);
 			let mut hash_buf = <KeccakHasher as BinaryHasher>::init_buffer();
 			let mut hash_buf2 = <KeccakHasher as BinaryHasher>::init_buffer();
 			let mut hash_buf3 = <KeccakHasher as BinaryHasher>::init_buffer();
