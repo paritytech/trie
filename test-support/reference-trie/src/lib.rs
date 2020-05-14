@@ -858,25 +858,24 @@ impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodec<H> {
 	fn encode_compact_proof<BH: BinaryHasher>(
 		hash_proof_header: Vec<u8>,
 		children: &[Option<ChildReference<BH::Out>>],
-		hash_buf: &mut BH::Buffer,
 		in_proof: &[bool],
+		hash_buf: &mut BH::Buffer,
 	) -> Vec<u8> {
 		encode_proof_internal::<BH>(hash_proof_header, children, hash_buf, in_proof)
 	}
 
-	fn need_hybrid_proof(data: &[u8]) -> Option<(NodePlan, ChildProofHeader)> {
+	fn need_hybrid_proof(data: &[u8]) -> Result<Option<(NodePlan, ChildProofHeader)>, ()> {
 		if data.len() > 0 {
 			if NodeHeader::is_branch(data[0]) {
-				if let Ok((node, offset)) = Self::decode_plan_internal(data, false) {
-					let header = ChildProofHeader::Range( Range {
-						start: 0,
-						end: offset,
-					});
-					return Some((node, header))
-				}
+				let (node, offset) = Self::decode_plan_internal(data, false).map_err(|_| ())?;
+				let header = ChildProofHeader::Range( Range {
+					start: 0,
+					end: offset,
+				});
+				return Ok(Some((node, header)))
 			}
 		}
-		None
+		Ok(None)
 	}
 
 	fn codec_error(desc: &'static str) -> Self::Error {
@@ -1320,25 +1319,24 @@ impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodecNoExt<H> {
 	fn encode_compact_proof<BH: BinaryHasher>(
 		hash_proof_header: Vec<u8>,
 		children: &[Option<ChildReference<BH::Out>>],
-		hash_buf: &mut BH::Buffer,
 		in_proof: &[bool],
+		hash_buf: &mut BH::Buffer,
 	) -> Vec<u8> {
 		encode_proof_internal::<BH>(hash_proof_header, children, hash_buf, in_proof)
 	}
 
-	fn need_hybrid_proof(data: &[u8]) -> Option<(NodePlan, ChildProofHeader)> {
+	fn need_hybrid_proof(data: &[u8]) -> Result<Option<(NodePlan, ChildProofHeader)>, ()> {
 		if data.len() > 0 {
 			if NodeHeaderNoExt::is_branch(data[0]) {
-				if let Ok((node, offset)) = Self::decode_plan_internal(data, false) {
-					let header = ChildProofHeader::Range( Range {
-						start: 0,
-						end: offset,
-					});
-					return Some((node, header))
-				}
+				let (node, offset) = Self::decode_plan_internal(data, false).map_err(|_| ())?;
+				let header = ChildProofHeader::Range( Range {
+					start: 0,
+					end: offset,
+				});
+				return Ok(Some((node, header)))
 			}
 		}
-		None
+		Ok(None)
 	}
 
 	fn codec_error(desc: &'static str) -> Self::Error {

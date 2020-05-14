@@ -128,8 +128,8 @@ impl<'a, C: NodeCodecHybrid, H: HasherHybrid> StackEntry<'a, C, H>
 					C::encode_compact_proof::<H::InnerHasher>(
 						hash_proof_header,
 						&self.children[..],
-						hash_buf.as_mut().expect("hybrid is true"),
 						&self.in_proof_children[..],
+						hash_buf.as_mut().expect("hybrid is true"),
 					)
 				} else {
 					C::branch_node(
@@ -158,8 +158,8 @@ impl<'a, C: NodeCodecHybrid, H: HasherHybrid> StackEntry<'a, C, H>
 					C::encode_compact_proof::<H::InnerHasher>(
 						hash_proof_header,
 						&self.children[..],
-						hash_buf.as_mut().expect("hybrid is true"),
 						&self.in_proof_children[..],
+						hash_buf.as_mut().expect("hybrid is true"),
 					)
 				} else {
 					C::branch_node_nibbled(

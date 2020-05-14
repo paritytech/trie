@@ -45,8 +45,6 @@ pub trait NodeCodec: Sized {
 
 	/// Decode bytes to a `Node`. Returns `Self::E` on failure.
 	fn decode(data: &[u8]) -> Result<Node, Self::Error> {
-		// TODO ensure real use codec have their own implementation
-		// as this can be slower
 		Ok(Self::decode_plan(data)?.build(data))
 	}
 
@@ -106,7 +104,7 @@ pub trait NodeCodecHybrid: NodeCodec {
 	/// are not use by the proof, in this case they are stored as an inline
 	/// zero length child.
 	///
-	/// With resulting node is attached a bitmap of children included in 
+	/// With resulting node is attached a bitmap of children included in
 	/// the proof calculation and a sequence of additianal node for proof
 	/// verification.
 	/// In practice this contains inline node that are in the proof and
@@ -137,19 +135,18 @@ pub trait NodeCodecHybrid: NodeCodec {
 	fn encode_compact_proof<H: BinaryHasher>(
 		hash_proof_header: Vec<u8>,
 		children: &[Option<ChildReference<H::Out>>],
-		// TODO EMCH siwtch position on 2 last params
-		hash_buf: &mut H::Buffer,
 		in_proof: &[bool],
+		hash_buf: &mut H::Buffer,
 	) -> Vec<u8>;
 
 	/// Does the encoded content need a hybrid proof.
 	/// With current hybrid proof capability this is strictly
 	/// the same as checking if the node is a branch.
 	/// It return the proof header and the NodePlan if hybrid proof is needed.
-	fn need_hybrid_proof(data: &[u8]) -> Option<(NodePlan, ChildProofHeader)>;
+	fn need_hybrid_proof(data: &[u8]) -> crate::rstd::result::Result<Option<(NodePlan, ChildProofHeader)>, ()>;
 
 	/// Returns branch node encoded for storage, and additional information for hash calculation.
-	/// 
+	///
 	/// Takes an iterator yielding `ChildReference<Self::HashOut>` and an optional value
 	/// as input, the third input is an output container needed for hash calculation.
 	fn branch_node_common(
@@ -219,9 +216,6 @@ pub trait HashDBHybridDyn<H: HasherHybrid, T>: Send + Sync + HashDB<H, T> {
 	/// Insert a datum item into the DB and return the datum's hash for a later lookup. Insertions
 	/// are counted and the equivalent number of `remove()`s must be performed before the data
 	/// is considered dead.
-	///
-	/// TODO warn semantic of children differs from HashDBHybrid (in HashDBHybrid it is the
-	/// children of the binary hasher, here it is the children of the patricia merkle trie).
 	fn insert_branch_hybrid(
 		&mut self,
 		prefix: Prefix,
@@ -241,8 +235,6 @@ impl<H: HasherHybrid, T, C: HashDBHybrid<H, T>> HashDBHybridDyn<H, T> for C {
 		common: ChildProofHeader,
 		buffer: &mut <H::InnerHasher as BinaryHasher>::Buffer,
 	) -> H::Out {
-
-		// TODO factor this with iter_build (just use the trait) also use in adapter from codec
 		let nb_children = children.iter().filter(|v| v.is_some()).count();
 		let children = children.iter().map(|o_range| o_range.as_ref().map(|range| {
 			let mut dest = H::Out::default();
@@ -352,7 +344,7 @@ impl<'a, I, HO: Default> HashesIter<'a, I, HO> {
 impl<'a, I, HO> Iterator for HashesIter<'a, I, HO>
 	where
 		I: Iterator<Item = Range<usize>>,
-		HO: AsMut<[u8]> + Clone, 
+		HO: AsMut<[u8]> + Clone,
 {
 	type Item = HO;
 
@@ -390,27 +382,29 @@ impl Iterator for HashesPlan {
 /// Adapter standard implementation to use with `HashDBInsertComplex` function.
 pub fn hybrid_hash_node_adapter<Codec: NodeCodecHybrid<HashOut = Hasher::Out>, Hasher: HasherHybrid>(
 	encoded_node: &[u8]
-) -> crate::rstd::result::Result<Option<Hasher::Out>, ()> { // TODO EMCH why returning result?
-	Ok(if let Some((node, common)) = Codec::need_hybrid_proof(encoded_node) {
-		match node {
-			NodePlan::Branch { children, .. } | NodePlan::NibbledBranch { children, .. } => {
-				let nb_children = children.iter().filter(|v| v.is_some()).count();
-				let children = children.iter().map(|o_range| o_range.as_ref().map(|range| {
-					range.as_hash(encoded_node)
-				}));
-				let mut buf = <Hasher as HasherHybrid>::InnerHasher::init_buffer();
-				Some(ordered_trie::OrderedTrieHasher::<Hasher, Hasher::InnerHasher>::hash_hybrid(
-					common.header(encoded_node),
-					nb_children,
-					children,
-					&mut buf,
-				))
-			},
-			_ => unreachable!("hybrid only touch branch node"),
+) -> crate::rstd::result::Result<Option<Hasher::Out>, ()> {
+	Codec::need_hybrid_proof(encoded_node).map(|hybrid|
+		if let Some((node, common)) = hybrid {
+			match node {
+				NodePlan::Branch { children, .. } | NodePlan::NibbledBranch { children, .. } => {
+					let nb_children = children.iter().filter(|v| v.is_some()).count();
+					let children = children.iter().map(|o_range| o_range.as_ref().map(|range| {
+						range.as_hash(encoded_node)
+					}));
+					let mut buf = <Hasher as HasherHybrid>::InnerHasher::init_buffer();
+					Some(ordered_trie::OrderedTrieHasher::<Hasher, Hasher::InnerHasher>::hash_hybrid(
+						common.header(encoded_node),
+						nb_children,
+						children,
+						&mut buf,
+					))
+				},
+				_ => unreachable!("hybrid only touch branch node"),
+			}
+		} else {
+			None
 		}
-	} else {
-		None
-	})
+	)
 }
 
 #[test]

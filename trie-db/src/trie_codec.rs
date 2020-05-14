@@ -130,8 +130,8 @@ impl<C: NodeCodecHybrid> EncoderStackEntry<C> {
 					C::encode_compact_proof::<H>(
 						hash_proof_header,
 						&children[..],
-						hash_buf,
 						&self.in_proof_children[..],
+						hash_buf,
 					)
 				} else {
 					C::branch_node(
@@ -153,8 +153,8 @@ impl<C: NodeCodecHybrid> EncoderStackEntry<C> {
 					C::encode_compact_proof::<H>(
 						hash_proof_header,
 						&children[..],
-						hash_buf,
 						&self.in_proof_children,
+						hash_buf,
 					)
 				} else {
 					C::branch_node_nibbled(
