@@ -510,9 +510,7 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 						) {
 							h
 						} else {
-							// TODO better error for the invalid
-							// hybrid hash
-							return Err(Error::RootMismatch(Default::default()));
+							return Err(Error::DecodeError(L::Codec::codec_error("Invalid branch encoding for proof")));
 						}
 					} else {
 						L::Hash::hash(&node_data)

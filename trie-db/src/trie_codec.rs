@@ -325,7 +325,6 @@ struct DecoderStackEntry<'a, C: NodeCodec, F> {
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
 	/// The reconstructed child references.
-	/// TODO remove Vec here!!!
 	children: Vec<Option<ChildReference<C::HashOut>>>,
 	/// Hybrid proof input
 	hybrid: Option<(Bitmap, F)>,
