@@ -16,20 +16,20 @@
 use hash_db::Hasher;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
-	calc_root_no_extension,
-	compare_no_extension_insert_remove,
+	calc_root,
 	ExtensionLayout,
 	NoExtensionLayout,
 	proof::{generate_proof, verify_proof},
 	reference_trie_root_iter_build as reference_trie_root,
-	RefTrieDBMut,
+	TrieDBMut,
 	RefTrieDBMutNoExt,
 	RefTrieDBNoExt,
 	TrieDBIterator,
 	RefHasher,
+	compare_insert_remove,
 };
 use std::convert::TryInto;
-use trie_db::{DBValue, Trie, TrieDB, TrieDBMut, TrieLayout, TrieMut};
+use trie_db::{DBValue, Trie, TrieDB, TrieLayout, TrieMut};
 
 fn fuzz_to_data(input: &[u8]) -> Vec<(Vec<u8>,Vec<u8>)> {
 	let mut result = Vec::new();
@@ -94,26 +94,26 @@ fn fuzz_removal(data: Vec<(Vec<u8>,Vec<u8>)>) -> Vec<(bool, Vec<u8>,Vec<u8>)> {
 	res
 }
 
-pub fn fuzz_that_reference_trie_root(input: &[u8]) {
+pub fn fuzz_that_reference_trie_root<T: TrieLayout>(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data(input));
 	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+	let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 	for a in 0..data.len() {
 		t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
 	}
-	assert_eq!(*t.root(), reference_trie_root(data));
+	assert_eq!(*t.root(), reference_trie_root::<T, _, _, _>(data));
 }
 
-pub fn fuzz_that_reference_trie_root_fix_length(input: &[u8]) {
+pub fn fuzz_that_reference_trie_root_fix_length<T: TrieLayout>(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data_fix_length(input));
 	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+	let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 	for a in 0..data.len() {
 		t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
 	}
-	assert_eq!(*t.root(), reference_trie_root(data));
+	assert_eq!(*t.root(), reference_trie_root::<T, _, _, _>(data));
 }
 
 fn fuzz_to_data_fix_length(input: &[u8]) -> Vec<(Vec<u8>,Vec<u8>)> {
@@ -149,11 +149,6 @@ pub fn fuzz_that_compare_implementations(input: &[u8]) {
 	reference_trie::compare_implementations(data, memdb, hashdb);
 }
 
-pub fn fuzz_that_unhashed_no_extension(input: &[u8]) {
-	let data = data_sorted_unique(fuzz_to_data(input));
-	reference_trie::compare_unhashed_no_extension(data);
-}
-
 pub fn fuzz_that_no_extension_insert(input: &[u8]) {
 	let data = fuzz_to_data(input);
 	//println!("data{:?}", data);
@@ -167,7 +162,7 @@ pub fn fuzz_that_no_extension_insert(input: &[u8]) {
 	// before.
 	let data = data_sorted_unique(fuzz_to_data(input));
 	//println!("data{:?}", data);
-	assert_eq!(*t.root(), calc_root_no_extension(data));
+	assert_eq!(*t.root(), calc_root::<NoExtensionLayout, _, _, _>(data));
 }
 
 pub fn fuzz_that_no_extension_insert_remove(input: &[u8]) {
@@ -175,7 +170,7 @@ pub fn fuzz_that_no_extension_insert_remove(input: &[u8]) {
 	let data = fuzz_removal(data);
 
 	let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
-	compare_no_extension_insert_remove(data, memdb);
+	compare_insert_remove::<NoExtensionLayout, _>(data, memdb);
 }
 
 pub fn fuzz_seek_iter(input: &[u8]) {
