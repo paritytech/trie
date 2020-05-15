@@ -378,31 +378,3 @@ impl Iterator for HashesPlan {
 		(size, Some(size))
 	}
 }
-
-/// Adapter standard implementation to use with `HashDBInsertComplex` function.
-pub fn hybrid_hash_node_adapter<Codec: NodeCodecHybrid<HashOut = Hasher::Out>, Hasher: HasherHybrid>(
-	encoded_node: &[u8]
-) -> crate::rstd::result::Result<Option<Hasher::Out>, ()> {
-	Codec::need_hybrid_proof(encoded_node).map(|hybrid|
-		if let Some((node, common)) = hybrid {
-			match node {
-				NodePlan::Branch { children, .. } | NodePlan::NibbledBranch { children, .. } => {
-					let nb_children = children.iter().filter(|v| v.is_some()).count();
-					let children = children.iter().map(|o_range| o_range.as_ref().map(|range| {
-						range.as_hash(encoded_node)
-					}));
-					let mut buf = <Hasher as HasherHybrid>::InnerHasher::init_buffer();
-					Some(Hasher::hash_hybrid(
-						common.header(encoded_node),
-						nb_children,
-						children,
-						&mut buf,
-					))
-				},
-				_ => unreachable!("hybrid only touch branch node"),
-			}
-		} else {
-			None
-		}
-	)
-}
