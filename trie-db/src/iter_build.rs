@@ -701,7 +701,20 @@ impl<H: HasherHybrid> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashe
 mod test {
 	use crate::DBValue;
 	use memory_db::{MemoryDB, HashKey, PrefixedKey};
-	use reference_trie::RefHasher;
+	use reference_trie::{RefHasher, TrieLayout};
+	use reference_trie::{ExtensionLayout, ExtensionLayoutHybrid, NoExtensionLayout, NoExtensionLayoutHybrid};
+
+	macro_rules! all_layout {
+		($test:ident, $test_internal:ident) => {
+			#[test]
+			fn $test() {
+				$test_internal::<NoExtensionLayout>();
+				$test_internal::<ExtensionLayout>();
+				$test_internal::<NoExtensionLayoutHybrid>();
+				$test_internal::<ExtensionLayoutHybrid>();
+			}
+		};
+	}
 
 	#[test]
 	fn trie_root_empty () {
@@ -809,19 +822,13 @@ mod test {
 		let hashdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
 		reference_trie::compare_implementations_no_extension_unordered(data, memdb, hashdb);
 	}
-	fn compare_no_extension_insert_remove(data: Vec<(bool, Vec<u8>, Vec<u8>)>) {
+	fn compare_insert_remove<T: TrieLayout>(data: Vec<(bool, Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
-		reference_trie::compare_no_extension_insert_remove(data, memdb);
+		reference_trie::compare_insert_remove::<T, _>(data, memdb);
 	}
-	fn compare_root(data: Vec<(Vec<u8>, Vec<u8>)>) {
-		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
-		reference_trie::compare_root(data, memdb);
-	}
-	fn compare_unhashed(data: Vec<(Vec<u8>, Vec<u8>)>) {
-		reference_trie::compare_unhashed(data);
-	}
-	fn compare_unhashed_no_extension(data: Vec<(Vec<u8>, Vec<u8>)>) {
-		reference_trie::compare_unhashed_no_extension(data);
+	fn compare_root<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) {
+		let memdb = MemoryDB::<T::Hash, HashKey<_>, _>::default();
+		reference_trie::compare_root::<T, _>(data, memdb);
 	}
 
 	// Following tests are a bunch of detected issue here for non regression.
@@ -843,31 +850,11 @@ mod test {
 			(vec![1u8, 2u8, 3u8, 5u8, 3u8], vec![7u8;32]),
 		]);
 	}
-	#[test]
-	fn root_extension_bis () {
-		compare_root(vec![
+	all_layout!(root_extension_bis, root_extension_bis_internal);
+	fn root_extension_bis_internal<T: TrieLayout>() {
+		compare_root::<T>(vec![
 			(vec![1u8, 2u8, 3u8, 3u8], vec![8u8;32]),
 			(vec![1u8, 2u8, 3u8, 4u8], vec![7u8;32]),
-		]);
-	}
-	#[test]
-	fn root_extension_tierce () {
-		let d = vec![
-			(vec![1u8, 2u8, 3u8, 3u8], vec![8u8;2]),
-			(vec![1u8, 2u8, 3u8, 4u8], vec![7u8;2]),
-		];
-		compare_unhashed(d.clone());
-		compare_unhashed_no_extension(d);
-	}
-	#[test]
-	fn root_extension_tierce_big () {
-		// on more content unhashed would hash
-		compare_unhashed(vec![
-			(vec![1u8, 2u8, 3u8, 3u8], vec![8u8;32]),
-			(vec![1u8, 2u8, 3u8, 4u8], vec![7u8;32]),
-			(vec![1u8, 6u8, 3u8, 3u8], vec![8u8;32]),
-			(vec![6u8, 2u8, 3u8, 3u8], vec![8u8;32]),
-			(vec![6u8, 2u8, 3u8, 13u8], vec![8u8;32]),
 		]);
 	}
 	#[test]
@@ -955,25 +942,25 @@ mod test {
 			(vec![0x02, 0x50], vec![0x3]),
 		]);
 	}
-	#[test]
-	fn fuzz_no_extension_insert_remove_1 () {
+	all_layout!(fuzz_no_extension_insert_remove_1, fuzz_no_extension_insert_remove_1_internal);
+	fn fuzz_no_extension_insert_remove_1_internal<T: TrieLayout>() {
 		let data = vec![
 			(false, vec![0], vec![251, 255]),
 			(false, vec![0, 1], vec![251, 255]),
 			(false, vec![0, 1, 2], vec![255; 32]),
 			(true, vec![0, 1], vec![0, 251]),
 		];
-		compare_no_extension_insert_remove(data);
+		compare_insert_remove::<T>(data);
 	}
-	#[test]
-	fn fuzz_no_extension_insert_remove_2 () {
+	all_layout!(fuzz_no_extension_insert_remove_2, fuzz_no_extension_insert_remove_2_internal);
+	fn fuzz_no_extension_insert_remove_2_internal<T: TrieLayout>() {
 		let data = vec![
 			(false, vec![0x00], vec![0xfd, 0xff]),
 			(false, vec![0x10, 0x00], vec![1;32]),
 			(false, vec![0x11, 0x10], vec![0;32]),
 			(true, vec![0x10, 0x00], vec![])
 		];
-		compare_no_extension_insert_remove(data);
+		compare_insert_remove::<T>(data);
 	}
 	#[test]
 	fn two_bytes_nibble_length () {
@@ -1005,5 +992,4 @@ mod test {
 			(vec![105, 97, 48, 77, 101, 105, 121, 101], vec![69, 109, 111, 111, 82, 49, 97, 105]),
 		]);
 	}
-
 }

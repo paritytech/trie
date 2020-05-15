@@ -1690,17 +1690,32 @@ mod tests {
 	use crate::DBValue;
 	use memory_db::{MemoryDB, PrefixedKey};
 	use hash_db::Hasher;
-	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, NodeCodec, HashDBHybridDyn,
-		ReferenceNodeCodec, reference_trie_root_iter_build as reference_trie_root, RefHasher,
-		reference_trie_root_no_extension_iter_build as reference_trie_root_no_extension};
+	use reference_trie::{TrieDBMut, TrieMut, NodeCodec, HashDBHybridDyn,
+		ReferenceNodeCodec, ReferenceNodeCodecNoExt, reference_trie_root_iter_build as reference_trie_root, TrieLayout};
+	use reference_trie::{ExtensionLayout, ExtensionLayoutHybrid, NoExtensionLayout, NoExtensionLayoutHybrid};
+
 	use crate::nibble::BackingByteVec;
 
-	fn populate_trie<'db>(
-		db: &'db mut dyn HashDBHybridDyn<RefHasher, DBValue>,
-		root: &'db mut <RefHasher as Hasher>::Out,
+
+	macro_rules! all_layout {
+		($test:ident, $test_internal:ident) => {
+			#[test]
+			fn $test() {
+				$test_internal::<NoExtensionLayout>();
+				$test_internal::<ExtensionLayout>();
+				$test_internal::<NoExtensionLayoutHybrid>();
+				$test_internal::<ExtensionLayoutHybrid>();
+			}
+		};
+	}
+
+
+	fn populate_trie<'db, T: TrieLayout>(
+		db: &'db mut dyn HashDBHybridDyn<T::Hash, DBValue>,
+		root: &'db mut <T::Hash as Hasher>::Out,
 		v: &[(Vec<u8>, Vec<u8>)]
-	) -> RefTrieDBMut<'db> {
-		let mut t = RefTrieDBMut::new(db, root);
+	) -> TrieDBMut<'db, T> {
+		let mut t = TrieDBMut::<T>::new(db, root);
 		for i in 0..v.len() {
 			let key: &[u8]= &v[i].0;
 			let val: &[u8] = &v[i].1;
@@ -1709,41 +1724,30 @@ mod tests {
 		t
 	}
 
-	fn unpopulate_trie<'db>(t: &mut RefTrieDBMut<'db>, v: &[(Vec<u8>, Vec<u8>)]) {
+	fn unpopulate_trie<'db, T: TrieLayout>(t: &mut TrieDBMut<'db, T>, v: &[(Vec<u8>, Vec<u8>)]) {
 		for i in v {
 			let key: &[u8]= &i.0;
 			t.remove(key).unwrap();
 		}
 	}
 
-	fn populate_trie_no_extension<'db>(
-		db: &'db mut dyn HashDBHybridDyn<RefHasher, DBValue>,
-		root: &'db mut <RefHasher as Hasher>::Out,
-		v: &[(Vec<u8>, Vec<u8>)]
-	) -> RefTrieDBMutNoExt<'db> {
-		let mut t = RefTrieDBMutNoExt::new(db, root);
-		for i in 0..v.len() {
-			let key: &[u8]= &v[i].0;
-			let val: &[u8] = &v[i].1;
-			t.insert(key, val).unwrap();
+	fn reference_hashed_null_node<T: TrieLayout>() -> <T::Hash as Hasher>::Out {
+		if T::USE_EXTENSION {
+			<ReferenceNodeCodec<T::Hash> as NodeCodec>::hashed_null_node()
+		} else {
+			<ReferenceNodeCodecNoExt<T::Hash> as NodeCodec>::hashed_null_node()
 		}
-		t
-	}
-
-	fn unpopulate_trie_no_extension<'db>(t: &mut RefTrieDBMutNoExt<'db>, v: &[(Vec<u8>, Vec<u8>)]) {
-		for i in v {
-			let key: &[u8]= &i.0;
-			t.remove(key).unwrap();
-		}
-	}
-
-	fn reference_hashed_null_node() -> <RefHasher as Hasher>::Out {
-		<ReferenceNodeCodec<RefHasher> as NodeCodec>::hashed_null_node()
 	}
 
 	#[test]
 	fn playpen() {
 		env_logger::init();
+		playpen_internal::<NoExtensionLayout>();
+		playpen_internal::<ExtensionLayout>();
+		playpen_internal::<NoExtensionLayoutHybrid>();
+		playpen_internal::<ExtensionLayoutHybrid>();
+	}
+	fn playpen_internal<T: TrieLayout>() {
 		let mut seed = Default::default();
 		for test_i in 0..10 {
 			if test_i % 50 == 0 {
@@ -1757,10 +1761,10 @@ mod tests {
 				count: 100,
 			}.make_with(&mut seed);
 
-			let real = reference_trie_root(x.clone());
-			let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+			let real = reference_trie_root::<T, _, _, _>(x.clone());
+			let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 			let mut root = Default::default();
-			let mut memtrie = populate_trie(&mut memdb, &mut root, &x);
+			let mut memtrie = populate_trie::<T>(&mut memdb, &mut root, &x);
 
 			memtrie.commit();
 			if *memtrie.root() != real {
@@ -1774,50 +1778,7 @@ mod tests {
 			assert_eq!(*memtrie.root(), real);
 			unpopulate_trie(&mut memtrie, &x);
 			memtrie.commit();
-			let hashed_null_node = reference_hashed_null_node();
-			if *memtrie.root() != hashed_null_node {
-				println!("- TRIE MISMATCH");
-				println!("");
-				println!("{:#x?} vs {:#x?}", memtrie.root(), hashed_null_node);
-				for i in &x {
-					println!("{:#x?} -> {:#x?}", i.0, i.1);
-				}
-			}
-			assert_eq!(*memtrie.root(), hashed_null_node);
-		}
-
-		// no_extension
-		let mut seed = Default::default();
-		for test_i in 0..100 {
-			if test_i % 50 == 0 {
-				debug!("{:?} of 10000 stress tests done", test_i);
-			}
-			let x = StandardMap {
-				alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
-				min_key: 5,
-				journal_key: 0,
-				value_mode: ValueMode::Index,
-				count: 100,
-			}.make_with(&mut seed);
-
-			let real = reference_trie_root_no_extension(x.clone());
-			let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
-			let mut root = Default::default();
-			let mut memtrie = populate_trie_no_extension(&mut memdb, &mut root, &x);
-
-			memtrie.commit();
-			if *memtrie.root() != real {
-				println!("TRIE MISMATCH");
-				println!("");
-				println!("{:?} vs {:?}", memtrie.root(), real);
-				for i in &x {
-					println!("{:#x?} -> {:#x?}", i.0, i.1);
-				}
-			}
-			assert_eq!(*memtrie.root(), real);
-			unpopulate_trie_no_extension(&mut memtrie, &x);
-			memtrie.commit();
-			let hashed_null_node = reference_hashed_null_node();
+			let hashed_null_node = reference_hashed_null_node::<T>();
 			if *memtrie.root() != hashed_null_node {
 				println!("- TRIE MISMATCH");
 				println!("");
@@ -1830,34 +1791,34 @@ mod tests {
 		}
 	}
 
-	#[test]
-	fn init() {
-		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+	all_layout!(init, init_internal);
+	fn init_internal<T: TrieLayout>() {
+		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
-		let hashed_null_node = reference_hashed_null_node();
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
+		let hashed_null_node = reference_hashed_null_node::<T>();
 		assert_eq!(*t.root(), hashed_null_node);
 	}
 
-	#[test]
-	fn insert_on_empty() {
-		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+	all_layout!(insert_on_empty, insert_on_empty_internal);
+	fn insert_on_empty_internal<T: TrieLayout>() {
+		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		assert_eq!(
 			*t.root(),
-			reference_trie_root(vec![ (vec![0x01u8, 0x23], vec![0x01u8, 0x23]) ]),
+			reference_trie_root::<T, _, _, _>(vec![ (vec![0x01u8, 0x23], vec![0x01u8, 0x23]) ]),
 		);
 	}
 
-	#[test]
-	fn remove_to_empty() {
+	all_layout!(remove_to_empty, remove_to_empty_internal);
+	fn remove_to_empty_internal<T: TrieLayout>() {
 		let big_value = b"00000000000000000000000000000000";
 
-		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 
 		t.insert(&[0x01], big_value).unwrap();
 		t.insert(&[0x01, 0x23], big_value).unwrap();
@@ -1865,8 +1826,8 @@ mod tests {
 		t.remove(&[0x01]).unwrap();
 	}
 
-	#[test]
-	fn remove_to_empty_no_extension() {
+	all_layout!(remove_to_empty_no_extension, remove_to_empty_no_extension_internal);
+	fn remove_to_empty_no_extension_internal<T: TrieLayout>() {
 		let big_value = b"00000000000000000000000000000000";
 		let big_value2 = b"00000000000000000000000000000002";
 		let big_value3 = b"00000000000000000000000000000004";
@@ -1874,7 +1835,7 @@ mod tests {
 		let mut memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+			let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 
 			t.insert(&[0x01, 0x23], big_value3).unwrap();
 			t.insert(&[0x01], big_value2).unwrap();
@@ -1882,149 +1843,149 @@ mod tests {
 			t.remove(&[0x01]).unwrap();
 			// commit on drop
 		}
-		assert_eq!(&root[..], &reference_trie::calc_root_no_extension(vec![
+		assert_eq!(&root, &reference_trie::calc_root::<T, _, _, _>(vec![
 		 (vec![0x01u8, 0x23], big_value3.to_vec()),
 		 (vec![0x01u8, 0x34], big_value.to_vec()),
-		])[..]);
+		]));
 	}
 
-	#[test]
-	fn insert_replace_root() {
-		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+	all_layout!(insert_replace_root, insert_replace_root_internal);
+	fn insert_replace_root_internal<T: TrieLayout>() {
+		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[0x01u8, 0x23], &[0x23u8, 0x45]).unwrap();
 		assert_eq!(
 			*t.root(),
-			reference_trie_root(vec![ (vec![0x01u8, 0x23], vec![0x23u8, 0x45]) ]),
+			reference_trie_root::<T, _, _, _>(vec![ (vec![0x01u8, 0x23], vec![0x23u8, 0x45]) ]),
 		);
 	}
 
-	#[test]
-	fn insert_make_branch_root() {
-		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+	all_layout!(insert_make_branch_root, insert_make_branch_root_internal);
+	fn insert_make_branch_root_internal<T: TrieLayout>() {
+		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[0x11u8, 0x23], &[0x11u8, 0x23]).unwrap();
-		assert_eq!(*t.root(), reference_trie_root(vec![
+		assert_eq!(*t.root(), reference_trie_root::<T, _, _, _>(vec![
 			(vec![0x01u8, 0x23], vec![0x01u8, 0x23]),
 			(vec![0x11u8, 0x23], vec![0x11u8, 0x23])
 		]));
 	}
 
-	#[test]
-	fn insert_into_branch_root() {
-		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+	all_layout!(insert_into_branch_root, insert_into_branch_root_internal);
+	fn insert_into_branch_root_internal<T: TrieLayout>() {
+		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[0xf1u8, 0x23], &[0xf1u8, 0x23]).unwrap();
 		t.insert(&[0x81u8, 0x23], &[0x81u8, 0x23]).unwrap();
-		assert_eq!(*t.root(), reference_trie_root(vec![
+		assert_eq!(*t.root(), reference_trie_root::<T, _, _, _>(vec![
 			(vec![0x01u8, 0x23], vec![0x01u8, 0x23]),
 			(vec![0x81u8, 0x23], vec![0x81u8, 0x23]),
 			(vec![0xf1u8, 0x23], vec![0xf1u8, 0x23]),
 		]));
 	}
 
-	#[test]
-	fn insert_value_into_branch_root() {
-		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+	all_layout!(insert_value_into_branch_root, insert_value_into_branch_root_internal);
+	fn insert_value_into_branch_root_internal<T: TrieLayout>() {
+		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[], &[0x0]).unwrap();
-		assert_eq!(*t.root(), reference_trie_root(vec![
+		assert_eq!(*t.root(), reference_trie_root::<T, _, _, _>(vec![
 			(vec![], vec![0x0]),
 			(vec![0x01u8, 0x23], vec![0x01u8, 0x23]),
 		]));
 	}
 
-	#[test]
-	fn insert_split_leaf() {
-		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+	all_layout!(insert_split_leaf, insert_split_leaf_internal);
+	fn insert_split_leaf_internal<T: TrieLayout>() {
+		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[0x01u8, 0x34], &[0x01u8, 0x34]).unwrap();
-		assert_eq!(*t.root(), reference_trie_root(vec![
+		assert_eq!(*t.root(), reference_trie_root::<T, _, _, _>(vec![
 			(vec![0x01u8, 0x23], vec![0x01u8, 0x23]),
 			(vec![0x01u8, 0x34], vec![0x01u8, 0x34]),
 		]));
 	}
 
-	#[test]
-	fn insert_split_extenstion() {
-		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+	all_layout!(insert_split_extenstion, insert_split_extenstion_internal);
+	fn insert_split_extenstion_internal<T: TrieLayout>() {
+		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		t.insert(&[0x01, 0x23, 0x45], &[0x01]).unwrap();
 		t.insert(&[0x01, 0xf3, 0x45], &[0x02]).unwrap();
 		t.insert(&[0x01, 0xf3, 0xf5], &[0x03]).unwrap();
-		assert_eq!(*t.root(), reference_trie_root(vec![
+		assert_eq!(*t.root(), reference_trie_root::<T, _, _, _>(vec![
 			(vec![0x01, 0x23, 0x45], vec![0x01]),
 			(vec![0x01, 0xf3, 0x45], vec![0x02]),
 			(vec![0x01, 0xf3, 0xf5], vec![0x03]),
 		]));
 	}
 
-	#[test]
-	fn insert_big_value() {
+	all_layout!(insert_big_value, insert_big_value_internal);
+	fn insert_big_value_internal<T: TrieLayout>() {
 		let big_value0 = b"00000000000000000000000000000000";
 		let big_value1 = b"11111111111111111111111111111111";
 
-		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], big_value0).unwrap();
 		t.insert(&[0x11u8, 0x23], big_value1).unwrap();
-		assert_eq!(*t.root(), reference_trie_root(vec![
+		assert_eq!(*t.root(), reference_trie_root::<T, _, _, _>(vec![
 			(vec![0x01u8, 0x23], big_value0.to_vec()),
 			(vec![0x11u8, 0x23], big_value1.to_vec())
 		]));
 	}
 
-	#[test]
-	fn insert_duplicate_value() {
+	all_layout!(insert_duplicate_value, insert_duplicate_value_internal);
+	fn insert_duplicate_value_internal<T: TrieLayout>() {
 		let big_value = b"00000000000000000000000000000000";
 
-		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], big_value).unwrap();
 		t.insert(&[0x11u8, 0x23], big_value).unwrap();
-		assert_eq!(*t.root(), reference_trie_root(vec![
+		assert_eq!(*t.root(), reference_trie_root::<T, _, _, _>(vec![
 			(vec![0x01u8, 0x23], big_value.to_vec()),
 			(vec![0x11u8, 0x23], big_value.to_vec())
 		]));
 	}
 
-	#[test]
-	fn test_at_empty() {
-		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+	all_layout!(test_at_empty, test_at_empty_internal);
+	fn test_at_empty_internal<T: TrieLayout>() {
+		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		assert_eq!(t.get(&[0x5]).unwrap(), None);
 	}
 
-	#[test]
-	fn test_at_one() {
-		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+	all_layout!(test_at_one, test_at_one_internal);
+	fn test_at_one_internal<T: TrieLayout>() {
+		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), vec![0x1u8, 0x23]);
 		t.commit();
 		assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), vec![0x1u8, 0x23]);
 	}
 
-	#[test]
-	fn test_at_three() {
-		let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+	all_layout!(test_at_three, test_at_three_internal);
+	fn test_at_three_internal<T: TrieLayout>() {
+		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		t.insert(&[0xf1u8, 0x23], &[0xf1u8, 0x23]).unwrap();
 		t.insert(&[0x81u8, 0x23], &[0x81u8, 0x23]).unwrap();
@@ -2039,8 +2000,8 @@ mod tests {
 		assert_eq!(t.get(&[0x82, 0x23]).unwrap(), None);
 	}
 
-	#[test]
-	fn stress() {
+	all_layout!(stress, stress_internal);
+	fn stress_internal<T: TrieLayout>() {
 		let mut seed = Default::default();
 		for _ in 0..50 {
 			let x = StandardMap {
@@ -2051,15 +2012,15 @@ mod tests {
 				count: 4,
 			}.make_with(&mut seed);
 
-			let real = reference_trie_root(x.clone());
-			let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+			let real = reference_trie_root::<T, _, _, _>(x.clone());
+			let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 			let mut root = Default::default();
-			let mut memtrie = populate_trie(&mut memdb, &mut root, &x);
+			let mut memtrie = populate_trie::<T>(&mut memdb, &mut root, &x);
 			let mut y = x.clone();
 			y.sort_by(|ref a, ref b| a.0.cmp(&b.0));
-			let mut memdb2 = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+			let mut memdb2 = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 			let mut root2 = Default::default();
-			let mut memtrie_sorted = populate_trie(&mut memdb2, &mut root2, &y);
+			let mut memtrie_sorted = populate_trie::<T>(&mut memdb2, &mut root2, &y);
 			if *memtrie.root() != real || *memtrie_sorted.root() != real {
 				println!("TRIE MISMATCH");
 				println!("");
@@ -2077,22 +2038,22 @@ mod tests {
 		}
 	}
 
-	#[test]
-	fn test_trie_existing() {
-		let mut db = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+	all_layout!(test_trie_existing, test_trie_existing_internal);
+	fn test_trie_existing_internal<T: TrieLayout>() {
+		let mut db = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMut::new(&mut db, &mut root);
+			let mut t = TrieDBMut::<T>::new(&mut db, &mut root);
 			t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 		}
 
 		{
-			 let _ = RefTrieDBMut::from_existing(&mut db, &mut root);
+			 let _ = TrieDBMut::<T>::from_existing(&mut db, &mut root);
 		}
 	}
 
-	#[test]
-	fn insert_empty() {
+	all_layout!(insert_empty, insert_empty_internal);
+	fn insert_empty_internal<T: TrieLayout>() {
 		let mut seed = Default::default();
 		let x = StandardMap {
 				alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
@@ -2102,26 +2063,26 @@ mod tests {
 				count: 4,
 		}.make_with(&mut seed);
 
-		let mut db = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+		let mut db = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut db, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut db, &mut root);
 		for &(ref key, ref value) in &x {
 			t.insert(key, value).unwrap();
 		}
 
-		assert_eq!(*t.root(), reference_trie_root(x.clone()));
+		assert_eq!(*t.root(), reference_trie_root::<T, _, _, _>(x.clone()));
 
 		for &(ref key, _) in &x {
 			t.insert(key, &[]).unwrap();
 		}
 
 		assert!(t.is_empty());
-		let hashed_null_node = reference_hashed_null_node();
+		let hashed_null_node = reference_hashed_null_node::<T>();
 		assert_eq!(*t.root(), hashed_null_node);
 	}
 
-	#[test]
-	fn return_old_values() {
+	all_layout!(return_old_values, return_old_values_internal);
+	fn return_old_values_internal<T: TrieLayout>() {
 		let mut seed = Default::default();
 		let x = StandardMap {
 				alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
@@ -2131,9 +2092,9 @@ mod tests {
 				count: 2,
 		}.make_with(&mut seed);
 
-		let mut db = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+		let mut db = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut db, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut db, &mut root);
 		for &(ref key, ref value) in &x {
 			assert!(t.insert(key, value).unwrap().is_none());
 			assert_eq!(t.insert(key, value).unwrap(), Some(value.clone()));
