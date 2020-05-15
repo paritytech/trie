@@ -1358,19 +1358,15 @@ impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodecNoExt<H> {
 }
 
 /// Compare trie builder and in memory trie.
-pub fn compare_implementations<X : hash_db::HashDB<RefHasher, DBValue> + HashDBHybrid<RefHasher, DBValue> + Eq> (
+pub fn compare_implementations<T: TrieLayout, X : HashDBHybrid<T::Hash, DBValue> + Eq> (
 	data: Vec<(Vec<u8>, Vec<u8>)>,
 	mut memdb: X,
 	mut hashdb: X,
 ) {
-	let root_new = {
-		let mut cb = TrieBuilderHybrid::new(&mut hashdb);
-		trie_visit::<ExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
-	};
+	let root_new = calc_root_build::<T, _, _, _, _>(data.clone(), &mut hashdb);
 	let root = {
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
@@ -1380,7 +1376,7 @@ pub fn compare_implementations<X : hash_db::HashDB<RefHasher, DBValue> + HashDBH
 	if root_new != root {
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = RefTrieDB::new(&db, &root_new).unwrap();
+			let t = TrieDB::<T>::new(&db, &root_new).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:x?}", a);
@@ -1388,7 +1384,7 @@ pub fn compare_implementations<X : hash_db::HashDB<RefHasher, DBValue> + HashDBH
 		}
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = RefTrieDB::new(&db, &root).unwrap();
+			let t = TrieDB::<T>::new(&db, &root).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:x?}", a);
@@ -1450,7 +1446,7 @@ pub fn calc_root_build<T, I, A, B, DB>(
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord + fmt::Debug,
 		B: AsRef<[u8]> + fmt::Debug,
-		DB: hash_db::HashDB<T::Hash, DBValue> + HashDBHybrid<T::Hash, DBValue>,
+		DB: HashDBHybrid<T::Hash, DBValue>,
 {
 	if T::HYBRID_HASH {
 		let mut cb = TrieBuilderHybrid::new(hashdb);
@@ -1473,7 +1469,7 @@ pub fn calc_root_build_no_extension<I, A, B, DB>(
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord + fmt::Debug,
 		B: AsRef<[u8]> + fmt::Debug,
-		DB: hash_db::HashDB<RefHasher, DBValue> + HashDBHybrid<RefHasher, DBValue>,
+		DB: HashDBHybrid<RefHasher, DBValue>,
 {
 	let mut cb = TrieBuilderHybrid::new(hashdb);
 	trie_db::trie_visit::<NoExtensionLayout, _, _, _, _>(data.into_iter(), &mut cb);
@@ -1527,8 +1523,8 @@ pub fn compare_implementations_no_extension(
 /// ordering before running when trie_build expect correct ordering).
 pub fn compare_implementations_no_extension_unordered(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
-	mut memdb: impl hash_db::HashDB<RefHasher, DBValue> + HashDBHybrid<RefHasher, DBValue>,
-	mut hashdb: impl hash_db::HashDB<RefHasher, DBValue> + HashDBHybrid<RefHasher, DBValue>,
+	mut memdb: impl HashDBHybrid<RefHasher, DBValue>,
+	mut hashdb: impl HashDBHybrid<RefHasher, DBValue>,
 ) {
 	let mut b_map = std::collections::btree_map::BTreeMap::new();
 	let root = {

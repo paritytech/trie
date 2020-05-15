@@ -256,7 +256,7 @@ impl<T, V> CacheAccum<T, V>
 		debug_assert!(self.0[last].2 == branch_d);
 		// encode branch
 		let v = self.0[last].1.take();
-		let nkeyix = nkey.unwrap_or((0, 0));
+		let nkeyix = nkey.unwrap_or((branch_d, 0));
 		let mut register_children = register_children_buf::<T>();
 		let pr = NibbleSlice::new_offset(&key_branch, nkeyix.0);
 		let encoded = if let Some(register_children) = register_children.as_mut() {
@@ -273,11 +273,6 @@ impl<T, V> CacheAccum<T, V>
 				self.0[last].0.as_ref().iter(), v.as_ref().map(|v| v.as_ref()),
 			), ChildProofHeader::Unused)
 		};
-		let ext_length = nkey.as_ref().map(|nkeyix| nkeyix.0).unwrap_or(0);
-		let pr = NibbleSlice::new_offset(
-			&key_branch,
-			branch_d - ext_length,
-		);
 		let result = if T::HYBRID_HASH {
 			let len = self.0[last].0.as_ref().iter().filter(|v| v.is_some()).count();
 			let children = self.0[last].0.as_ref().iter();
@@ -798,14 +793,26 @@ mod test {
 	}
 
 	fn compare_implementations_prefixed(data: Vec<(Vec<u8>, Vec<u8>)>) {
+		compare_implementations_prefixed_internal::<NoExtensionLayout>(data.clone());
+		compare_implementations_prefixed_internal::<ExtensionLayout>(data.clone());
+		compare_implementations_prefixed_internal::<NoExtensionLayoutHybrid>(data.clone());
+		compare_implementations_prefixed_internal::<ExtensionLayoutHybrid>(data.clone());
+	}
+	fn compare_implementations_prefixed_internal<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
-		let hashdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
-		reference_trie::compare_implementations(data, memdb, hashdb);
+		let hashdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
+		reference_trie::compare_implementations::<T, _>(data, memdb, hashdb);
 	}
 	fn compare_implementations_h(data: Vec<(Vec<u8>, Vec<u8>)>) {
+		compare_implementations_h_internal::<NoExtensionLayout>(data.clone());
+		compare_implementations_h_internal::<ExtensionLayout>(data.clone());
+		compare_implementations_h_internal::<NoExtensionLayoutHybrid>(data.clone());
+		compare_implementations_h_internal::<ExtensionLayoutHybrid>(data.clone());
+	}
+	fn compare_implementations_h_internal<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
-		let hashdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
-		reference_trie::compare_implementations(data, memdb, hashdb);
+		let hashdb = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
+		reference_trie::compare_implementations::<T, _>(data.clone(), memdb, hashdb);
 	}
 	fn compare_implementations_no_extension(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
