@@ -93,16 +93,6 @@ pub type RefLookup<'a, Q> = trie_db::Lookup<'a, ExtensionLayout, Q>;
 pub type RefLookupNoExt<'a, Q> = trie_db::Lookup<'a, NoExtensionLayout, Q>;
 
 
-/// Typed version of hybrid_hash_node_adapter.
-pub fn hybrid_hash_node_adapter_no_ext(
-	encoded_node: &[u8]
-) -> std::result::Result<Option<<RefHasher as Hasher>::Out>, ()> {
-	trie_db::hybrid_hash_node_adapter::<
-		ReferenceNodeCodecNoExt<RefHasher>,
-		RefHasher,
-	> (encoded_node)
-}
-
 pub fn reference_trie_root<I, A, B>(input: I) -> <RefHasher as Hasher>::Out where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord + fmt::Debug,

@@ -392,7 +392,7 @@ pub fn hybrid_hash_node_adapter<Codec: NodeCodecHybrid<HashOut = Hasher::Out>, H
 						range.as_hash(encoded_node)
 					}));
 					let mut buf = <Hasher as HasherHybrid>::InnerHasher::init_buffer();
-					Some(ordered_trie::OrderedTrieHasher::<Hasher, Hasher::InnerHasher>::hash_hybrid(
+					Some(Hasher::hash_hybrid(
 						common.header(encoded_node),
 						nb_children,
 						children,
@@ -405,44 +405,4 @@ pub fn hybrid_hash_node_adapter<Codec: NodeCodecHybrid<HashOut = Hasher::Out>, H
 			None
 		}
 	)
-}
-
-#[test]
-fn test_hybrid_hash_node_adapter() {
-	use reference_trie::{RefTrieDBMutNoExt, TrieMut, hybrid_hash_node_adapter_no_ext, RefHasher};
-	use crate::DBValue;
-	use memory_db::{MemoryDB, HashKey};
-	use hash_db::EMPTY_PREFIX;
-
-
-	let mut db = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
-	let data = vec![
-		(vec![0], vec![251; 34]),
-		(vec![0, 1], vec![252; 34]),
-		(vec![0, 1, 2], vec![255; 32]),
-		(vec![0, 1], vec![0; 38]),
-	];
-	let mut root = Default::default();
-	{
-		let mut t = RefTrieDBMutNoExt::new(&mut db, &mut root);
-		for i in 0..data.len() {
-			let key: &[u8]= &data[i].0;
-			let value: &[u8] = &data[i].1;
-			t.insert(key, value).unwrap();
-		}
-	}
-	let mut db2 = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
-	for (_key, (value, rc)) in db.clone().drain() {
-		if rc > 0 {
-			if !db2.insert_hybrid(
-				EMPTY_PREFIX,
-				&value[..],
-				hybrid_hash_node_adapter_no_ext,
-			) {
-				panic!("invalid encoded node in proof");
-			}
-		}
-	}
-
-	assert!(db == db2);
 }

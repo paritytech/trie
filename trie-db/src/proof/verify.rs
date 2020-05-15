@@ -21,7 +21,6 @@ use crate::{
 };
 use hash_db::{Hasher, BinaryHasher, HasherHybrid};
 use crate::node_codec::{Bitmap, HashesIter};
-use ordered_trie::OrderedTrieHasher;
 
 
 /// Errors that may occur during proof verification. Most of the errors types simply indicate that
@@ -501,7 +500,7 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 								}
 							});
 
-						if let Some(h) = OrderedTrieHasher::<L::Hash, <L::Hash as HasherHybrid>::InnerHasher>::hash_hybrid_proof(
+						if let Some(h) = L::Hash::hash_hybrid_proof(
 							&common.header(node_data.as_slice())[..],
 							nb_children,
 							children,
