@@ -43,7 +43,7 @@ pub use trie_db::{
 	decode_compact, encode_compact, HashDBHybrid, HashDBHybridDyn,
 	nibble_ops, NibbleSlice, NibbleVec, NodeCodec, proof, Record, Recorder, NodeCodecHybrid,
 	Trie, TrieConfiguration, TrieDB, TrieDBIterator, TrieDBMut, TrieDBNodeIterator, TrieError,
-	TrieIterator, TrieLayout, TrieMut, Bitmap, BITMAP_LENGTH,
+	TrieIterator, TrieLayout, TrieMut, Bitmap, BITMAP_LENGTH, Lookup,
 };
 pub use trie_root::TrieStream;
 pub mod node {
@@ -115,13 +115,7 @@ pub type NoExtensionLayoutHybrid = GenericNoExtensionLayoutHybrid<RefHasher>;
 
 
 pub type RefTrieDB<'a> = trie_db::TrieDB<'a, ExtensionLayout>;
-pub type RefTrieDBHybrid<'a> = trie_db::TrieDB<'a, ExtensionLayoutHybrid>;
-pub type RefTrieDBNoExt<'a> = trie_db::TrieDB<'a, NoExtensionLayout>;
-pub type RefTrieDBNoExtHybrid<'a> = trie_db::TrieDB<'a, NoExtensionLayoutHybrid>;
 pub type RefTrieDBMut<'a> = trie_db::TrieDBMut<'a, ExtensionLayout>;
-pub type RefTrieDBMutHybrid<'a> = trie_db::TrieDBMut<'a, ExtensionLayoutHybrid>;
-pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMut<'a, NoExtensionLayout>;
-pub type RefTrieDBMutNoExtHybrid<'a> = trie_db::TrieDBMut<'a, NoExtensionLayoutHybrid>;
 pub type RefFatDB<'a> = trie_db::FatDB<'a, ExtensionLayout>;
 pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, ExtensionLayout>;
 pub type RefSecTrieDB<'a> = trie_db::SecTrieDB<'a, ExtensionLayout>;
@@ -132,37 +126,20 @@ pub type RefLookupNoExt<'a, Q> = trie_db::Lookup<'a, NoExtensionLayout, Q>;
 pub type RefLookupNoExtHybrid<'a, Q> = trie_db::Lookup<'a, NoExtensionLayoutHybrid, Q>;
 
 
-pub fn reference_trie_root<I, A, B>(input: I) -> <RefHasher as Hasher>::Out where
+pub fn reference_trie_root<T: TrieLayout, I, A, B>(input: I) -> <T::Hash as Hasher>::Out where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	trie_root::trie_root::<RefHasher, ReferenceTrieStream, _, _, _>(input)
+	if T::HYBRID_HASH {
+		unimplemented!("trie_root does not implement hybrid hash, iter_build does")
+	}
+	if T::USE_EXTENSION {
+		trie_root::trie_root::<T::Hash, ReferenceTrieStream, _, _, _>(input)
+	} else {
+		trie_root::trie_root_no_extension::<T::Hash, ReferenceTrieStreamNoExt, _, _, _>(input)
+	}
 }
-
-/*fn reference_trie_root_unhashed<I, A, B>(input: I) -> Vec<u8> where
-	I: IntoIterator<Item = (A, B)>,
-	A: AsRef<[u8]> + Ord + fmt::Debug,
-	B: AsRef<[u8]> + fmt::Debug,
-{
-	trie_root::unhashed_trie::<RefHasher, ReferenceTrieStream, _, _, _>(input)
-}*/
-
-pub fn reference_trie_root_no_extension<I, A, B>(input: I) -> <RefHasher as Hasher>::Out where
-	I: IntoIterator<Item = (A, B)>,
-	A: AsRef<[u8]> + Ord + fmt::Debug,
-	B: AsRef<[u8]> + fmt::Debug,
-{
-	trie_root::trie_root_no_extension::<RefHasher, ReferenceTrieStreamNoExt, _, _, _>(input)
-}
-
-/*fn reference_trie_root_unhashed_no_extension<I, A, B>(input: I) -> Vec<u8> where
-	I: IntoIterator<Item = (A, B)>,
-	A: AsRef<[u8]> + Ord + fmt::Debug,
-	B: AsRef<[u8]> + fmt::Debug,
-{
-	trie_root::unhashed_trie_no_extension::<RefHasher, ReferenceTrieStreamNoExt, _, _, _>(input)
-}*/
 
 fn data_sorted_unique<I, A: Ord, B>(input: I) -> Vec<(A, B)>
 	where
@@ -1459,77 +1436,17 @@ pub fn calc_root_build<T, I, A, B, DB>(
 	}
 }
 
-/// Trie builder trie building utility.
-/// This uses the variant without extension nodes.
-pub fn calc_root_build_no_extension<I, A, B, DB>(
-	data: I,
-	hashdb: &mut DB,
-) -> <RefHasher as Hasher>::Out
-	where
-		I: IntoIterator<Item = (A, B)>,
-		A: AsRef<[u8]> + Ord + fmt::Debug,
-		B: AsRef<[u8]> + fmt::Debug,
-		DB: HashDBHybrid<RefHasher, DBValue>,
-{
-	let mut cb = TrieBuilderHybrid::new(hashdb);
-	trie_db::trie_visit::<NoExtensionLayout, _, _, _, _>(data.into_iter(), &mut cb);
-	cb.root.unwrap_or(Default::default())
-}
-
-/// Compare trie builder and in memory trie.
-/// This uses the variant without extension nodes.
-pub fn compare_implementations_no_extension(
-	data: Vec<(Vec<u8>, Vec<u8>)>,
-	mut memdb: impl hash_db::HashDB<RefHasher, DBValue> + HashDBHybrid<RefHasher, DBValue>,
-	mut hashdb: impl hash_db::HashDB<RefHasher, DBValue> + HashDBHybrid<RefHasher, DBValue>,
-) {
-	let root_new = {
-		let mut cb = TrieBuilderHybrid::new(&mut hashdb);
-		trie_visit::<NoExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
-	};
-	let root = {
-		let mut root = Default::default();
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
-		for i in 0..data.len() {
-			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
-		}
-		t.root().clone()
-	};
-
-	if root != root_new {
-		{
-			let db : &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = RefTrieDBNoExt::new(&db, &root).unwrap();
-			println!("{:?}", t);
-			for a in t.iter().unwrap() {
-				println!("a:{:?}", a);
-			}
-		}
-		{
-			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = RefTrieDBNoExt::new(&db, &root_new).unwrap();
-			println!("{:?}", t);
-			for a in t.iter().unwrap() {
-				println!("a:{:?}", a);
-			}
-		}
-	}
-
-	assert_eq!(root, root_new);
-}
-
 /// `compare_implementations_no_extension` for unordered input (trie_root does
 /// ordering before running when trie_build expect correct ordering).
-pub fn compare_implementations_no_extension_unordered(
+pub fn compare_implementations_unordered<T: TrieLayout, X : HashDBHybrid<T::Hash, DBValue> + Eq> (
 	data: Vec<(Vec<u8>, Vec<u8>)>,
-	mut memdb: impl HashDBHybrid<RefHasher, DBValue>,
-	mut hashdb: impl HashDBHybrid<RefHasher, DBValue>,
+	mut memdb: X,
+	mut hashdb: X,
 ) {
 	let mut b_map = std::collections::btree_map::BTreeMap::new();
 	let root = {
 		let mut root = Default::default();
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 			b_map.insert(data[i].0.clone(), data[i].1.clone());
@@ -1538,14 +1455,14 @@ pub fn compare_implementations_no_extension_unordered(
 	};
 	let root_new = {
 		let mut cb = TrieBuilderHybrid::new(&mut hashdb);
-		trie_visit::<NoExtensionLayout, _, _, _, _>(b_map.into_iter(), &mut cb);
+		trie_visit::<T, _, _, _, _>(b_map.into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 
 	if root != root_new {
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = RefTrieDBNoExt::new(&db, &root).unwrap();
+			let t = TrieDB::<T>::new(&db, &root).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
@@ -1553,7 +1470,7 @@ pub fn compare_implementations_no_extension_unordered(
 		}
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = RefTrieDBNoExt::new(&db, &root_new).unwrap();
+			let t = TrieDB::<T>::new(&db, &root_new).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);

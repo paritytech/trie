@@ -731,46 +731,20 @@ mod test {
 		]);
 	}
 
-	fn test_iter(data: Vec<(Vec<u8>, Vec<u8>)>) {
-		use reference_trie::{RefTrieDBMut, TrieMut, RefTrieDB, Trie};
+	fn test_iter<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) {
+		use reference_trie::{TrieMut, Trie, TrieDBMut, TrieDB};
 
-		let mut db = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+		let mut db = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
-			let mut t = RefTrieDBMut::new(&mut db, &mut root);
+			let mut t = TrieDBMut::<T>::new(&mut db, &mut root);
 			for i in 0..data.len() {
 				let key: &[u8]= &data[i].0;
 				let value: &[u8] = &data[i].1;
 				t.insert(key, value).unwrap();
 			}
 		}
-		let t = RefTrieDB::new(&db, &root).unwrap();
-		for (i, kv) in t.iter().unwrap().enumerate() {
-			let (k, v) = kv.unwrap();
-			let key: &[u8]= &data[i].0;
-			let value: &[u8] = &data[i].1;
-			assert_eq!(k, key);
-			assert_eq!(v, value);
-		}
-		for (k, v) in data.into_iter() {
-			assert_eq!(&t.get(&k[..]).unwrap().unwrap()[..], &v[..]);
-		}
-	}
-
-	fn test_iter_no_extension(data: Vec<(Vec<u8>, Vec<u8>)>) {
-		use reference_trie::{RefTrieDBMutNoExt, TrieMut, RefTrieDBNoExt, Trie};
-
-		let mut db = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
-		let mut root = Default::default();
-		{
-			let mut t = RefTrieDBMutNoExt::new(&mut db, &mut root);
-			for i in 0..data.len() {
-				let key: &[u8]= &data[i].0;
-				let value: &[u8] = &data[i].1;
-				t.insert(key, value).unwrap();
-			}
-		}
-		let t = RefTrieDBNoExt::new(&db, &root).unwrap();
+		let t = TrieDB::<T>::new(&db, &root).unwrap();
 		for (i, kv) in t.iter().unwrap().enumerate() {
 			let (k, v) = kv.unwrap();
 			let key: &[u8]= &data[i].0;
@@ -784,12 +758,12 @@ mod test {
 	}
 
 	fn compare_implementations(data: Vec<(Vec<u8>, Vec<u8>)>) {
-		test_iter(data.clone());
-		test_iter_no_extension(data.clone());
+		test_iter::<ExtensionLayout>(data.clone());
+		test_iter::<NoExtensionLayout>(data.clone());
+		test_iter::<ExtensionLayoutHybrid>(data.clone());
+		test_iter::<NoExtensionLayoutHybrid>(data.clone());
 		compare_implementations_h(data.clone());
 		compare_implementations_prefixed(data.clone());
-		compare_implementations_no_extension(data.clone());
-		compare_implementations_no_extension_prefixed(data.clone());
 	}
 
 	fn compare_implementations_prefixed(data: Vec<(Vec<u8>, Vec<u8>)>) {
@@ -814,20 +788,10 @@ mod test {
 		let hashdb = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
 		reference_trie::compare_implementations::<T, _>(data.clone(), memdb, hashdb);
 	}
-	fn compare_implementations_no_extension(data: Vec<(Vec<u8>, Vec<u8>)>) {
-		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
-		let hashdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
-		reference_trie::compare_implementations_no_extension(data, memdb, hashdb);
-	}
-	fn compare_implementations_no_extension_prefixed(data: Vec<(Vec<u8>, Vec<u8>)>) {
-		let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
-		let hashdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
-		reference_trie::compare_implementations_no_extension(data, memdb, hashdb);
-	}
 	fn compare_implementations_no_extension_unordered(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, HashKey<_>, _>::default();
 		let hashdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
-		reference_trie::compare_implementations_no_extension_unordered(data, memdb, hashdb);
+		reference_trie::compare_implementations_unordered::<NoExtensionLayout, _>(data, memdb, hashdb);
 	}
 	fn compare_insert_remove<T: TrieLayout>(data: Vec<(bool, Vec<u8>, Vec<u8>)>) {
 		let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
@@ -943,7 +907,7 @@ mod test {
 	}
 	#[test]
 	fn fuzz_no_extension4 () {
-		compare_implementations_no_extension(vec![
+		compare_implementations(vec![
 			(vec![0x01, 0x56], vec![0x1]),
 			(vec![0x02, 0x42], vec![0x2]),
 			(vec![0x02, 0x50], vec![0x3]),
@@ -975,21 +939,24 @@ mod test {
 			(vec![00u8], vec![0]),
 			(vec![01u8;64], vec![0;32]),
 		];
-		compare_implementations_no_extension(data.clone());
-		compare_implementations_no_extension_prefixed(data.clone());
+		compare_implementations_prefixed(data.clone());
 	}
 	#[test]
 	#[should_panic]
 	fn too_big_nibble_length_old () {
-		compare_implementations_h(vec![
-			(vec![01u8;64], vec![0;32]),
-		]);
+		compare_implementations_prefixed_internal::<ExtensionLayout>(
+			vec![(vec![01u8;64], vec![0;32])],
+		);
 	}
 	#[test]
 	fn too_big_nibble_length_new () {
-		compare_implementations_no_extension(vec![
+		// this is valid for no_ext code only,
+		// the other one got maximal length in encoding.
+		let data = vec![
 			(vec![01u8;((u16::max_value() as usize + 1) / 2) + 1], vec![0;32]),
-		]);
+		];
+		compare_implementations_prefixed_internal::<NoExtensionLayout>(data.clone());
+		compare_implementations_prefixed_internal::<NoExtensionLayoutHybrid>(data.clone());
 	}
 	#[test]
 	fn polka_re_test () {

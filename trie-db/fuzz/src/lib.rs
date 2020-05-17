@@ -18,14 +18,10 @@ use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
 	calc_root,
 	ExtensionLayout,
-	NoExtensionLayout,
 	proof::{generate_proof, verify_proof},
 	reference_trie_root_iter_build as reference_trie_root,
 	TrieDBMut,
-	RefTrieDBMutNoExt,
-	RefTrieDBNoExt,
 	TrieDBIterator,
-	RefHasher,
 	compare_insert_remove,
 };
 use std::convert::TryInto;
@@ -141,20 +137,20 @@ fn data_sorted_unique(input: Vec<(Vec<u8>,Vec<u8>)>) -> Vec<(Vec<u8>,Vec<u8>)> {
 	m.into_iter().collect()
 }
 
-pub fn fuzz_that_compare_implementations(input: &[u8]) {
+pub fn fuzz_that_compare_implementations<T: TrieLayout>(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data(input));
 	//println!("data:{:?}", &data);
 	let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
-	let hashdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
-	reference_trie::compare_implementations(data, memdb, hashdb);
+	let hashdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
+	reference_trie::compare_implementations::<T, _>(data, memdb, hashdb);
 }
 
-pub fn fuzz_that_no_extension_insert(input: &[u8]) {
+pub fn fuzz_that_no_extension_insert<T: TrieLayout>(input: &[u8]) {
 	let data = fuzz_to_data(input);
 	//println!("data{:?}", data);
 	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+	let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 	for a in 0..data.len() {
 		t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
 	}
@@ -162,24 +158,24 @@ pub fn fuzz_that_no_extension_insert(input: &[u8]) {
 	// before.
 	let data = data_sorted_unique(fuzz_to_data(input));
 	//println!("data{:?}", data);
-	assert_eq!(*t.root(), calc_root::<NoExtensionLayout, _, _, _>(data));
+	assert_eq!(*t.root(), calc_root::<T, _, _, _>(data));
 }
 
-pub fn fuzz_that_no_extension_insert_remove(input: &[u8]) {
+pub fn fuzz_that_no_extension_insert_remove<T: TrieLayout>(input: &[u8]) {
 	let data = fuzz_to_data(input);
 	let data = fuzz_removal(data);
 
 	let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
-	compare_insert_remove::<NoExtensionLayout, _>(data, memdb);
+	compare_insert_remove::<T, _>(data, memdb);
 }
 
-pub fn fuzz_seek_iter(input: &[u8]) {
+pub fn fuzz_seek_iter<T: TrieLayout>(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data_fix_length(input));
 
 	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
 	let mut root = Default::default();
 	{
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		for a in 0..data.len() {
 			t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
 		}
@@ -198,7 +194,7 @@ pub fn fuzz_seek_iter(input: &[u8]) {
 	let mut iter_res = Vec::new();
 	let mut error = 0;
 	{
-			let trie = RefTrieDBNoExt::new(&memdb, &root).unwrap();
+			let trie = TrieDB::<T>::new(&memdb, &root).unwrap();
 			let mut iter =  trie.iter().unwrap();
 			if let Ok(_) = iter.seek(prefix) {
 			} else {
@@ -222,13 +218,13 @@ pub fn fuzz_seek_iter(input: &[u8]) {
 	assert_eq!(error, 0);
 }
 
-pub fn fuzz_prefix_iter(input: &[u8]) {
+pub fn fuzz_prefix_iter<T: TrieLayout>(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data_fix_length(input));
 
 	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
 	let mut root = Default::default();
 	{
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		for a in 0..data.len() {
 			t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
 		}
@@ -247,7 +243,7 @@ pub fn fuzz_prefix_iter(input: &[u8]) {
 	let mut iter_res = Vec::new();
 	let mut error = 0;
 	{
-			let trie = RefTrieDBNoExt::new(&memdb, &root).unwrap();
+			let trie = TrieDB::<T>::new(&memdb, &root).unwrap();
 			let iter = TrieDBIterator::new_prefixed(&trie, prefix).unwrap();
 
 			for x in iter {
@@ -268,7 +264,7 @@ pub fn fuzz_prefix_iter(input: &[u8]) {
 	assert_eq!(error, 0);
 }
 
-pub fn fuzz_that_verify_accepts_valid_proofs(input: &[u8]) {
+pub fn fuzz_that_verify_accepts_valid_proofs<T: TrieLayout>(input: &[u8]) {
 	let mut data = fuzz_to_data(input);
 	// Split data into 3 parts:
 	// - the first 1/3 is added to the trie and not included in the proof
@@ -284,11 +280,11 @@ pub fn fuzz_that_verify_accepts_valid_proofs(input: &[u8]) {
 	keys.sort();
 	keys.dedup();
 
-	let (root, proof, items) = test_generate_proof::<ExtensionLayout>(data, keys);
-	assert!(verify_proof::<ExtensionLayout, _, _, _>(&root, &proof, items.iter()).is_ok());
+	let (root, proof, items) = test_generate_proof::<T>(data, keys);
+	assert!(verify_proof::<T, _, _, _>(&root, &proof, items.iter()).is_ok());
 }
 
-pub fn fuzz_that_trie_codec_proofs(input: &[u8]) {
+pub fn fuzz_that_trie_codec_proofs<T: TrieLayout>(input: &[u8]) {
 	let mut data = fuzz_to_data(input);
 	// Split data into 3 parts:
 	// - the first 1/3 is added to the trie and not included in the proof
@@ -304,7 +300,7 @@ pub fn fuzz_that_trie_codec_proofs(input: &[u8]) {
 	keys.sort();
 	keys.dedup();
 
-	test_trie_codec_proof::<ExtensionLayout>(data, keys);
+	test_trie_codec_proof::<T>(data, keys);
 }
 
 pub fn fuzz_that_verify_rejects_invalid_proofs(input: &[u8]) {
@@ -446,6 +442,6 @@ fn test_trie_codec_proof<L: TrieLayout>(
 fn debug_error() {
 	let input = [0x0,0x0,0x0,0xcd,0xf8,0xff,0xff,0xff,0x0,0xcd,0x2];
 //	let input = [0x40,0x0,0xe6,0xff,0xff,0x40,0x0,0xe6,0xff,0xff,0x2b];
-	fuzz_that_verify_accepts_valid_proofs(&input[..]);
-	fuzz_that_trie_codec_proofs(&input[..]);
+	fuzz_that_verify_accepts_valid_proofs::<reference_trie::ExtensionLayout>(&input[..]);
+	fuzz_that_trie_codec_proofs::<reference_trie::ExtensionLayout>(&input[..]);
 }
