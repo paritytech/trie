@@ -17,7 +17,6 @@ use hash_db::Hasher;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
 	calc_root,
-	ExtensionLayout,
 	proof::{generate_proof, verify_proof},
 	reference_trie_root_iter_build as reference_trie_root,
 	TrieDBMut,
@@ -303,7 +302,7 @@ pub fn fuzz_that_trie_codec_proofs<T: TrieLayout>(input: &[u8]) {
 	test_trie_codec_proof::<T>(data, keys);
 }
 
-pub fn fuzz_that_verify_rejects_invalid_proofs(input: &[u8]) {
+pub fn fuzz_that_verify_rejects_invalid_proofs<T: TrieLayout>(input: &[u8]) {
 	if input.len() < 4 {
 		return;
 	}
@@ -331,7 +330,7 @@ pub fn fuzz_that_verify_rejects_invalid_proofs(input: &[u8]) {
 		return;
 	}
 
-	let (root, proof, mut items) = test_generate_proof::<ExtensionLayout>(data, keys);
+	let (root, proof, mut items) = test_generate_proof::<T>(data, keys);
 
 	// Make one item at random incorrect.
 	let items_idx = random_int % items.len();
@@ -340,7 +339,7 @@ pub fn fuzz_that_verify_rejects_invalid_proofs(input: &[u8]) {
 		(_, value) if value.is_some() => *value = None,
 		(_, value) => *value = Some(DBValue::new()),
 	}
-	assert!(verify_proof::<ExtensionLayout, _, _, _>(&root, &proof, items.iter()).is_err());
+	assert!(verify_proof::<T, _, _, _>(&root, &proof, items.iter()).is_err());
 }
 
 fn test_generate_proof<L: TrieLayout>(
