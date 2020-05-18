@@ -341,7 +341,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 					crumb.increment();
 					return Some(Ok((
 						self.key_nibbles.clone(),
-						crumb.hash.clone(),
+						crumb.hash,
 						crumb.node.clone()
 					)));
 				},

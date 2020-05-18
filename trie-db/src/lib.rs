@@ -408,11 +408,11 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 		if Self::HYBRID_HASH {
 			let mut cb = TrieBuilderHybrid::new(db);
 			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
-			cb.root.unwrap_or(Default::default())
+			cb.root.unwrap_or_default()
 		} else {
 			let mut cb = TrieBuilder::new(db);
 			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
-			cb.root.unwrap_or(Default::default())
+			cb.root.unwrap_or_default()
 		}
 	}
 	/// Determines a trie root given its ordered contents, closed form.
@@ -424,11 +424,11 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 		if Self::HYBRID_HASH {
 			let mut cb = TrieRootHybrid::<Self::Hash, _>::default();
 			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
-			cb.root.unwrap_or(Default::default())
+			cb.root.unwrap_or_default()
 		} else {
 			let mut cb = TrieRoot::<Self::Hash, _>::default();
 			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
-			cb.root.unwrap_or(Default::default())
+			cb.root.unwrap_or_default()
 		}
 	}
 	/// Determines a trie root node's data given its ordered contents, closed form.
@@ -440,11 +440,11 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 		if Self::HYBRID_HASH {
 			let mut cb = TrieRootUnhashedHybrid::<Self::Hash>::default();
 			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
-			cb.root.unwrap_or(Default::default())
+			cb.root.unwrap_or_default()
 		} else {
 			let mut cb = TrieRootUnhashed::<Self::Hash>::default();
 			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
-			cb.root.unwrap_or(Default::default())
+			cb.root.unwrap_or_default()
 		}
 	}
 	/// Encoding of index as a key (when reusing general trie for

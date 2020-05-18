@@ -422,7 +422,7 @@ impl<'a, H: Hasher, V, DB: HashDB<H, V>> ProcessEncodedNode<<H as Hasher>::Out>
 		}
 		let hash = self.db.insert(prefix, &encoded_node[..]);
 		if is_root {
-			self.root = Some(hash.clone());
+			self.root = Some(hash);
 		};
 		ChildReference::Hash(hash)
 	}
@@ -500,7 +500,7 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRoot<H, <H as Has
 		}
 		let hash = <H as Hasher>::hash(&encoded_node[..]);
 		if is_root {
-			self.root = Some(hash.clone());
+			self.root = Some(hash);
 		};
 		ChildReference::Hash(hash)
 	}
@@ -622,7 +622,7 @@ impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootPrint<H, <H a
 		}
 		let hash = <H as Hasher>::hash(&encoded_node[..]);
 		if is_root {
-			self.root = Some(hash.clone());
+			self.root = Some(hash);
 		};
 		println!("	hashed to {:x?}", hash.as_ref());
 		ChildReference::Hash(hash)

@@ -553,6 +553,7 @@ where
 				&mut NibbleFullKey,
 			) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>>,
 	{
+		let current_key = key.clone();
 		Ok(match stored {
 			Stored::New(node) => match inspector(self, node, key)? {
 				Action::Restore(node) => Some((Stored::New(node), false)),
@@ -562,11 +563,11 @@ where
 			Stored::Cached(node, hash) => match inspector(self, node, key)? {
 				Action::Restore(node) => Some((Stored::Cached(node, hash), false)),
 				Action::Replace(node) => {
-					self.death_row.insert((hash, key.left_owned()));
+					self.death_row.insert((hash, current_key.left_owned()));
 					Some((Stored::New(node), true))
 				}
 				Action::Delete => {
-					self.death_row.insert((hash, key.left_owned()));
+					self.death_row.insert((hash, current_key.left_owned()));
 					None
 				}
 			},
@@ -587,7 +588,7 @@ where
 				NodeHandle::Hash(ref hash) => return Lookup::<L, _> {
 					db: &self.db,
 					query: |v: &[u8]| v.to_vec(),
-					hash: hash.clone(),
+					hash: *hash,
 				}.look_up(partial),
 				NodeHandle::InMemory(ref handle) => match self.storage[handle] {
 					Node::Empty => return Ok(None),
@@ -668,7 +669,7 @@ where
 		value: DBValue,
 		old_val: &mut Option<DBValue>,
 	) -> Result<InsertAction<TrieHash<L>>, TrieHash<L>, CError<L>> {
-		let partial = key.clone();
+		let partial = *key;
 
 		#[cfg(feature = "std")]
 		trace!(target: "trie", "augmented (partial: {:?}, value: {:?})", partial, ToHex(&value));
@@ -1037,7 +1038,7 @@ where
 		key: &mut NibbleFullKey,
 		old_val: &mut Option<DBValue>,
 	) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>> {
-		let partial = key.clone();
+		let partial = *key;
 		Ok(match (node, partial.is_empty()) {
 			(Node::Empty, _) => Action::Delete,
 			(Node::Branch(c, None), true) => Action::Restore(Node::Branch(c, None)),
@@ -1062,7 +1063,7 @@ where
 						"removing value out of branch child, partial={:?}",
 						partial,
 					);
-					let prefix = key.clone();
+					let prefix = *key;
 					key.advance(1);
 					match self.remove_at(child, key, old_val)? {
 						Some((new, changed)) => {
@@ -1118,7 +1119,7 @@ where
 							"removing value out of branch child, partial={:?}",
 							partial,
 						);
-						let prefix = key.clone();
+						let prefix = *key;
 						key.advance(common + 1);
 						match self.remove_at(child, key, old_val)? {
 							Some((new, changed)) => {
@@ -1177,7 +1178,7 @@ where
 					// try to remove from the child branch.
 					#[cfg(feature = "std")]
 					trace!(target: "trie", "removing from extension child, partial={:?}", partial);
-					let prefix = key.clone();
+					let prefix = *key;
 					key.advance(common);
 					match self.remove_at(child_branch, key, old_val)? {
 						Some((new_child, changed)) => {
@@ -1746,7 +1747,7 @@ mod tests {
 			memtrie.commit();
 			if *memtrie.root() != real {
 				println!("TRIE MISMATCH");
-				println!("");
+				println!();
 				println!("{:?} vs {:?}", memtrie.root(), real);
 				for i in &x {
 					println!("{:#x?} -> {:#x?}", i.0, i.1);
@@ -1758,7 +1759,7 @@ mod tests {
 			let hashed_null_node = reference_hashed_null_node::<T>();
 			if *memtrie.root() != hashed_null_node {
 				println!("- TRIE MISMATCH");
-				println!("");
+				println!();
 				println!("{:#x?} vs {:#x?}", memtrie.root(), hashed_null_node);
 				for i in &x {
 					println!("{:#x?} -> {:#x?}", i.0, i.1);
@@ -1795,12 +1796,17 @@ mod tests {
 
 		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
-		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
+		{
+			let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 
-		t.insert(&[0x01], big_value).unwrap();
-		t.insert(&[0x01, 0x23], big_value).unwrap();
-		t.insert(&[0x01, 0x34], big_value).unwrap();
-		t.remove(&[0x01]).unwrap();
+			t.insert(&[0x01], big_value).unwrap();
+			t.insert(&[0x01, 0x23], big_value).unwrap();
+			t.insert(&[0x01, 0x34], big_value).unwrap();
+			t.remove(&[0x01]).unwrap();
+			t.remove(&[0x01, 0x23]).unwrap();
+			t.remove(&[0x01, 0x34]).unwrap();
+		}
+		assert_eq!(memdb.keys().len(), 0);
 	}
 
 	test_layouts!(remove_to_empty_no_extension, remove_to_empty_no_extension_internal);
@@ -2000,7 +2006,7 @@ mod tests {
 			let mut memtrie_sorted = populate_trie::<T>(&mut memdb2, &mut root2, &y);
 			if *memtrie.root() != real || *memtrie_sorted.root() != real {
 				println!("TRIE MISMATCH");
-				println!("");
+				println!();
 				println!("ORIGINAL... {:#x?}", memtrie.root());
 				for i in &x {
 					println!("{:#x?} -> {:#x?}", i.0, i.1);
