@@ -506,7 +506,7 @@ where
 				&mut NibbleFullKey,
 			) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>>,
 	{
-		let current_key = key.clone();
+		let current_key = *key;
 		Ok(match stored {
 			Stored::New(node) => match inspector(self, node, key)? {
 				Action::Restore(node) => Some((Stored::New(node), false)),
@@ -1000,12 +1000,12 @@ where
 			(Node::Branch(children, Some(val)), true) => {
 				*old_val = Some(val);
 				// always replace since we took the value out.
-				Action::Replace(self.fix(Node::Branch(children, None), key.clone())?)
+				Action::Replace(self.fix(Node::Branch(children, None), *key)?)
 			},
 			(Node::NibbledBranch(n, children, Some(val)), true) => {
 				*old_val = Some(val);
 				// always replace since we took the value out.
-				Action::Replace(self.fix(Node::NibbledBranch(n, children, None), key.clone())?)
+				Action::Replace(self.fix(Node::NibbledBranch(n, children, None), *key)?)
 			},
 			(Node::Branch(mut children, value), false) => {
 				let idx = partial.at(0) as usize;
@@ -1053,7 +1053,7 @@ where
 					if let Some(val) = value {
 						*old_val = Some(val);
 
-						let f = self.fix(Node::NibbledBranch(encoded, children, None), key.clone());
+						let f = self.fix(Node::NibbledBranch(encoded, children, None), *key);
 						Action::Replace(f?)
 					} else {
 						Action::Restore(Node::NibbledBranch(encoded, children, None))
