@@ -1648,7 +1648,12 @@ mod tests {
 		}
 	}
 
-	test_layouts!(playpen, playpen_internal);
+	#[test]
+	fn playpen() {
+		env_logger::init();
+		playpen_internal::<reference_trie::NoExtensionLayout>();
+		playpen_internal::<reference_trie::ExtensionLayout>();
+	}
 	fn playpen_internal<T: TrieLayout>() {
 		let mut seed = Default::default();
 		for test_i in 0..10 {

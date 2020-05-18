@@ -152,7 +152,7 @@ pub fn reference_trie_root_iter_build<T, I, A, B>(input: I) -> <T::Hash as Hashe
 {
 	let mut cb = trie_db::TrieRoot::<T::Hash, _>::default();
 	trie_visit::<T, _, _, _, _>(data_sorted_unique(input), &mut cb);
-	cb.root.unwrap_or(Default::default())
+	cb.root.unwrap_or_default()
 }
 
 const EMPTY_TRIE: u8 = 0;
@@ -987,7 +987,7 @@ pub fn calc_root<T, I, A, B>(
 {
 	let mut cb = TrieRoot::<T::Hash, _>::default();
 	trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
-	cb.root.unwrap_or(Default::default())
+	cb.root.unwrap_or_default()
 }
 
 /// Trie builder trie building utility.
@@ -1004,7 +1004,7 @@ pub fn calc_root_build<T, I, A, B, DB>(
 {
 	let mut cb = TrieBuilder::new(hashdb);
 	trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
-	cb.root.unwrap_or(Default::default())
+	cb.root.unwrap_or_default()
 }
 
 /// `compare_implementations_no_extension` for unordered input (trie_root does
@@ -1031,7 +1031,7 @@ pub fn compare_implementations_unordered<T, DB> (
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);
 		trie_visit::<T, _, _, _, _>(b_map.into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
+		cb.root.unwrap_or_default()
 	};
 
 	if root != root_new {

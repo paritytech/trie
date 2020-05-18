@@ -40,7 +40,7 @@ mod verify;
 mod tests {
 	use hash_db::Hasher;
 	use reference_trie::{
-		ExtensionLayout, NoExtensionLayout,
+		NoExtensionLayout, test_layouts,
 		proof::{generate_proof, verify_proof, VerifyError}, Trie, TrieDB, TrieDBMut, TrieLayout,
 		TrieMut,
 	};
@@ -95,9 +95,9 @@ mod tests {
 		(root, proof, items)
 	}
 
-	#[test]
-	fn trie_proof_works_with_ext() {
-		let (root, proof, items) = test_generate_proof::<ExtensionLayout>(
+	test_layouts!(trie_proof_works, trie_proof_works_internal);
+	fn trie_proof_works_internal<T: TrieLayout>() {
+		let (root, proof, items) = test_generate_proof::<T>(
 			test_entries(),
 			vec![
 				b"do",
@@ -111,31 +111,12 @@ mod tests {
 			],
 		);
 
-		verify_proof::<ExtensionLayout, _, _, _>(&root, &proof, items.iter()).unwrap();
+		verify_proof::<T, _, _, _>(&root, &proof, items.iter()).unwrap();
 	}
 
-	#[test]
-	fn trie_proof_works_without_ext() {
-		let (root, proof, items) = test_generate_proof::<NoExtensionLayout>(
-			test_entries(),
-			vec![
-				b"do",
-				b"dog",
-				b"doge",
-				b"bravo",
-				b"alfabet", // None, not found under leaf node
-				b"d", // None, witness is extension node with omitted child
-				b"do\x10", // None, empty branch child
-				b"halp", // None, witness is extension node with non-omitted child
-			],
-		);
-
-		verify_proof::<NoExtensionLayout, _, _, _>(&root, &proof, items.iter()).unwrap();
-	}
-
-	#[test]
-	fn trie_proof_works_for_empty_trie() {
-		let (root, proof, items) = test_generate_proof::<NoExtensionLayout>(
+	test_layouts!(trie_proof_works_for_empty_trie, trie_proof_works_for_empty_trie_internal);
+	fn trie_proof_works_for_empty_trie_internal<T: TrieLayout>() {
+		let (root, proof, items) = test_generate_proof::<T>(
 			vec![],
 			vec![
 				b"alpha",
@@ -144,12 +125,12 @@ mod tests {
 			],
 		);
 
-		verify_proof::<NoExtensionLayout, _, _, _>(&root, &proof, items.iter()).unwrap();
+		verify_proof::<T, _, _, _>(&root, &proof, items.iter()).unwrap();
 	}
 
-	#[test]
-	fn test_verify_duplicate_keys() {
-		let (root, proof, _) = test_generate_proof::<NoExtensionLayout>(
+	test_layouts!(test_verify_duplicate_keys, test_verify_duplicate_keys_internal);
+	fn test_verify_duplicate_keys_internal<T: TrieLayout>() {
+		let (root, proof, _) = test_generate_proof::<T>(
 			test_entries(),
 			vec![b"bravo"],
 		);
@@ -158,15 +139,18 @@ mod tests {
 			(b"bravo", Some(b"bravo")),
 			(b"bravo", Some(b"bravo")),
 		];
-		assert_eq!(
-			verify_proof::<NoExtensionLayout, _, _, _>(&root, &proof, items.iter()),
-			Err(VerifyError::DuplicateKey(b"bravo".to_vec()))
+		assert!(
+			if let Err(VerifyError::DuplicateKey(key)) = verify_proof::<T, _, _, _>(&root, &proof, items.iter()) {
+				key == b"bravo".to_vec()
+			} else {
+				false
+			}
 		);
 	}
 
-	#[test]
-	fn test_verify_extraneous_node() {
-		let (root, proof, _) = test_generate_proof::<NoExtensionLayout>(
+	test_layouts!(test_verify_extraneaous_node, test_verify_extraneaous_node_internal);
+	fn test_verify_extraneaous_node_internal<T: TrieLayout>() {
+		let (root, proof, _) = test_generate_proof::<T>(
 			test_entries(),
 			vec![b"bravo", b"do"],
 		);
@@ -174,15 +158,15 @@ mod tests {
 		let items = vec![
 			(b"bravo", Some(b"bravo")),
 		];
-		assert_eq!(
-			verify_proof::<NoExtensionLayout, _, _, _>(&root, &proof, items.iter()),
+		assert!(matches!(
+			verify_proof::<T, _, _, _>(&root, &proof, items.iter()),
 			Err(VerifyError::ExtraneousNode)
-		);
+		));
 	}
 
-	#[test]
-	fn test_verify_extraneous_value() {
-		let (root, proof, _) = test_generate_proof::<NoExtensionLayout>(
+	test_layouts!(test_verify_extraneaous_value, test_verify_extraneaous_value_internal);
+	fn test_verify_extraneaous_value_internal<T: TrieLayout>() {
+		let (root, proof, _) = test_generate_proof::<T>(
 			test_entries(),
 			vec![b"doge"],
 		);
@@ -191,14 +175,18 @@ mod tests {
 			(&b"do"[..], Some(&b"verb"[..])),
 			(&b"doge"[..], Some(&[0; 32][..])),
 		];
-		assert_eq!(
-			verify_proof::<NoExtensionLayout, _, _, _>(&root, &proof, items.iter()),
-			Err(VerifyError::ExtraneousValue(b"do".to_vec()))
+		assert!(
+			if let Err(VerifyError::ExtraneousValue(val)) = verify_proof::<T, _, _, _>(&root, &proof, items.iter()) {
+				val == b"do".to_vec()
+			} else {
+				false
+			}
 		);
 	}
 
 	#[test]
 	fn test_verify_extraneous_hash_reference() {
+		// This is not valid for hybrid
 		let (root, proof, _) = test_generate_proof::<NoExtensionLayout>(
 			test_entries(),
 			vec![b"do"],
@@ -214,9 +202,9 @@ mod tests {
 		}
 	}
 
-	#[test]
-	fn test_verify_invalid_child_reference() {
-		let (root, proof, _) = test_generate_proof::<NoExtensionLayout>(
+	test_layouts!(test_verify_invalid_child_reference, test_verify_invalid_child_reference_internal);
+	fn test_verify_invalid_child_reference_internal<T: TrieLayout>() {
+		let (root, proof, _) = test_generate_proof::<T>(
 			test_entries(),
 			vec![b"bravo"],
 		);
@@ -226,15 +214,15 @@ mod tests {
 		let items = vec![
 			(b"bravo", Some([0; 32])),
 		];
-		match verify_proof::<NoExtensionLayout, _, _, _>(&root, &proof, items.iter()) {
+		match verify_proof::<T, _, _, _>(&root, &proof, items.iter()) {
 			Err(VerifyError::InvalidChildReference(_)) => {}
 			result => panic!("expected VerifyError::InvalidChildReference, got {:?}", result),
 		}
 	}
 
-	#[test]
-	fn test_verify_value_mismatch_some_to_none() {
-		let (root, proof, _) = test_generate_proof::<NoExtensionLayout>(
+	test_layouts!(test_verify_value_mismatch_some_to_none, test_verify_value_mismatch_some_to_none_internal);
+	fn test_verify_value_mismatch_some_to_none_internal<T: TrieLayout>() {
+		let (root, proof, _) = test_generate_proof::<T>(
 			test_entries(),
 			vec![b"horse"],
 		);
@@ -243,15 +231,18 @@ mod tests {
 			(&b"horse"[..], Some(&b"stallion"[..])),
 			(&b"halp"[..], Some(&b"plz"[..])),
 		];
-		assert_eq!(
-			verify_proof::<NoExtensionLayout, _, _, _>(&root, &proof, items.iter()),
-			Err(VerifyError::ValueMismatch(b"halp".to_vec()))
+		assert!(
+			if let Err(VerifyError::ValueMismatch(val)) = verify_proof::<T, _, _, _>(&root, &proof, items.iter()) {
+				val == b"halp".to_vec()
+			} else {
+				false
+			}
 		);
 	}
 
-	#[test]
-	fn test_verify_value_mismatch_none_to_some() {
-		let (root, proof, _) = test_generate_proof::<NoExtensionLayout>(
+	test_layouts!(test_verify_value_mismatch_none_to_some, test_verify_value_mismatch_none_to_some_internal);
+	fn test_verify_value_mismatch_none_to_some_internal<T: TrieLayout>() {
+		let (root, proof, _) = test_generate_proof::<T>(
 			test_entries(),
 			vec![b"alfa", b"bravo"],
 		);
@@ -260,29 +251,32 @@ mod tests {
 			(&b"alfa"[..], Some(&[0; 32][..])),
 			(&b"bravo"[..], None),
 		];
-		assert_eq!(
-			verify_proof::<NoExtensionLayout, _, _, _>(&root, &proof, items.iter()),
-			Err(VerifyError::ValueMismatch(b"bravo".to_vec()))
+		assert!(
+			if let Err(VerifyError::ValueMismatch(val)) = verify_proof::<T, _, _, _>(&root, &proof, items.iter()) {
+				val == b"bravo".to_vec()
+			} else {
+				false
+			}
 		);
 	}
 
-	#[test]
-	fn test_verify_incomplete_proof() {
-		let (root, mut proof, items) = test_generate_proof::<NoExtensionLayout>(
+	test_layouts!(test_verify_incomplete_proof, test_verify_incomplete_proof_internal);
+	fn test_verify_incomplete_proof_internal<T: TrieLayout>() {
+		let (root, mut proof, items) = test_generate_proof::<T>(
 			test_entries(),
 			vec![b"alfa"],
 		);
 
 		proof.pop();
-		assert_eq!(
-			verify_proof::<NoExtensionLayout, _, _, _>(&root, &proof, items.iter()),
+		assert!(matches!(
+			verify_proof::<T, _, _, _>(&root, &proof, items.iter()),
 			Err(VerifyError::IncompleteProof)
-		);
+		));
 	}
 
-	#[test]
-	fn test_verify_root_mismatch() {
-		let (root, proof, _) = test_generate_proof::<NoExtensionLayout>(
+	test_layouts!(test_verify_root_mismatch, test_verify_root_mismatch_internal);
+	fn test_verify_root_mismatch_internal<T: TrieLayout>() {
+		let (root, proof, _) = test_generate_proof::<T>(
 			test_entries(),
 			vec![b"bravo"],
 		);
@@ -290,21 +284,21 @@ mod tests {
 		let items = vec![
 			(b"bravo", Some("incorrect")),
 		];
-		match verify_proof::<NoExtensionLayout, _, _, _>(&root, &proof, items.iter()) {
+		match verify_proof::<T, _, _, _>(&root, &proof, items.iter()) {
 			Err(VerifyError::RootMismatch(_)) => {}
 			result => panic!("expected VerifyError::RootMismatch, got {:?}", result),
 		}
 	}
 
-	#[test]
-	fn test_verify_decode_error() {
-		let (root, mut proof, items) = test_generate_proof::<NoExtensionLayout>(
+	test_layouts!(test_verify_decode_error, test_verify_decode_error_internal);
+	fn test_verify_decode_error_internal<T: TrieLayout>() {
+		let (root, mut proof, items) = test_generate_proof::<T>(
 			test_entries(),
 			vec![b"bravo"],
 		);
 
 		proof.insert(0, b"this is not a trie node".to_vec());
-		match verify_proof::<NoExtensionLayout, _, _, _>(&root, &proof, items.iter()) {
+		match verify_proof::<T, _, _, _>(&root, &proof, items.iter()) {
 			Err(VerifyError::DecodeError(_)) => {}
 			result => panic!("expected VerifyError::DecodeError, got {:?}", result),
 		}
