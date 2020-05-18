@@ -1692,22 +1692,7 @@ mod tests {
 	use hash_db::Hasher;
 	use reference_trie::{TrieDBMut, TrieMut, NodeCodec, HashDBHybridDyn, test_layouts,
 		ReferenceNodeCodec, ReferenceNodeCodecNoExt, reference_trie_root_iter_build as reference_trie_root, TrieLayout};
-	use reference_trie::{ExtensionLayout, ExtensionLayoutHybrid, NoExtensionLayout, NoExtensionLayoutHybrid};
 	use crate::nibble::BackingByteVec;
-
-
-	macro_rules! test_layouts {
-		($test:ident, $test_internal:ident) => {
-			#[test]
-			fn $test() {
-				$test_internal::<NoExtensionLayout>();
-				$test_internal::<ExtensionLayout>();
-				$test_internal::<NoExtensionLayoutHybrid>();
-				$test_internal::<ExtensionLayoutHybrid>();
-			}
-		};
-	}
-
 
 	fn populate_trie<'db, T: TrieLayout>(
 		db: &'db mut dyn HashDBHybridDyn<T::Hash, DBValue>,
@@ -1738,14 +1723,7 @@ mod tests {
 		}
 	}
 
-	#[test]
-	fn playpen() {
-		env_logger::init();
-		playpen_internal::<NoExtensionLayout>();
-		playpen_internal::<ExtensionLayout>();
-		playpen_internal::<NoExtensionLayoutHybrid>();
-		playpen_internal::<ExtensionLayoutHybrid>();
-	}
+	test_layouts!(playpen, playpen_internal);
 	fn playpen_internal<T: TrieLayout>() {
 		let mut seed = Default::default();
 		for test_i in 0..10 {
