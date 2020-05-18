@@ -130,12 +130,11 @@ where
 mod test {
 	use memory_db::{MemoryDB, HashKey};
 	use crate::DBValue;
-	use keccak_hasher::KeccakHasher;
-	use reference_trie::{RefFatDBMut, RefFatDB, Trie, TrieMut};
+	use reference_trie::{RefFatDBMut, RefFatDB, Trie, TrieMut, RefHasher};
 
 	#[test]
 	fn fatdb_to_trie() {
-		let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+		let mut memdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
 		let mut root = Default::default();
 		{
 			let mut t = RefFatDBMut::new(&mut memdb, &mut root);
