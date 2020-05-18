@@ -1690,14 +1690,13 @@ mod tests {
 	use crate::DBValue;
 	use memory_db::{MemoryDB, PrefixedKey};
 	use hash_db::Hasher;
-	use reference_trie::{TrieDBMut, TrieMut, NodeCodec, HashDBHybridDyn,
+	use reference_trie::{TrieDBMut, TrieMut, NodeCodec, HashDBHybridDyn, test_layouts,
 		ReferenceNodeCodec, ReferenceNodeCodecNoExt, reference_trie_root_iter_build as reference_trie_root, TrieLayout};
 	use reference_trie::{ExtensionLayout, ExtensionLayoutHybrid, NoExtensionLayout, NoExtensionLayoutHybrid};
-
 	use crate::nibble::BackingByteVec;
 
 
-	macro_rules! all_layout {
+	macro_rules! test_layouts {
 		($test:ident, $test_internal:ident) => {
 			#[test]
 			fn $test() {
@@ -1791,7 +1790,7 @@ mod tests {
 		}
 	}
 
-	all_layout!(init, init_internal);
+	test_layouts!(init, init_internal);
 	fn init_internal<T: TrieLayout>() {
 		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
@@ -1800,7 +1799,7 @@ mod tests {
 		assert_eq!(*t.root(), hashed_null_node);
 	}
 
-	all_layout!(insert_on_empty, insert_on_empty_internal);
+	test_layouts!(insert_on_empty, insert_on_empty_internal);
 	fn insert_on_empty_internal<T: TrieLayout>() {
 		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
@@ -1812,7 +1811,7 @@ mod tests {
 		);
 	}
 
-	all_layout!(remove_to_empty, remove_to_empty_internal);
+	test_layouts!(remove_to_empty, remove_to_empty_internal);
 	fn remove_to_empty_internal<T: TrieLayout>() {
 		let big_value = b"00000000000000000000000000000000";
 
@@ -1826,7 +1825,7 @@ mod tests {
 		t.remove(&[0x01]).unwrap();
 	}
 
-	all_layout!(remove_to_empty_no_extension, remove_to_empty_no_extension_internal);
+	test_layouts!(remove_to_empty_no_extension, remove_to_empty_no_extension_internal);
 	fn remove_to_empty_no_extension_internal<T: TrieLayout>() {
 		let big_value = b"00000000000000000000000000000000";
 		let big_value2 = b"00000000000000000000000000000002";
@@ -1849,7 +1848,7 @@ mod tests {
 		]));
 	}
 
-	all_layout!(insert_replace_root, insert_replace_root_internal);
+	test_layouts!(insert_replace_root, insert_replace_root_internal);
 	fn insert_replace_root_internal<T: TrieLayout>() {
 		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
@@ -1862,7 +1861,7 @@ mod tests {
 		);
 	}
 
-	all_layout!(insert_make_branch_root, insert_make_branch_root_internal);
+	test_layouts!(insert_make_branch_root, insert_make_branch_root_internal);
 	fn insert_make_branch_root_internal<T: TrieLayout>() {
 		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
@@ -1875,7 +1874,7 @@ mod tests {
 		]));
 	}
 
-	all_layout!(insert_into_branch_root, insert_into_branch_root_internal);
+	test_layouts!(insert_into_branch_root, insert_into_branch_root_internal);
 	fn insert_into_branch_root_internal<T: TrieLayout>() {
 		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
@@ -1890,7 +1889,7 @@ mod tests {
 		]));
 	}
 
-	all_layout!(insert_value_into_branch_root, insert_value_into_branch_root_internal);
+	test_layouts!(insert_value_into_branch_root, insert_value_into_branch_root_internal);
 	fn insert_value_into_branch_root_internal<T: TrieLayout>() {
 		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
@@ -1903,7 +1902,7 @@ mod tests {
 		]));
 	}
 
-	all_layout!(insert_split_leaf, insert_split_leaf_internal);
+	test_layouts!(insert_split_leaf, insert_split_leaf_internal);
 	fn insert_split_leaf_internal<T: TrieLayout>() {
 		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
@@ -1916,7 +1915,7 @@ mod tests {
 		]));
 	}
 
-	all_layout!(insert_split_extenstion, insert_split_extenstion_internal);
+	test_layouts!(insert_split_extenstion, insert_split_extenstion_internal);
 	fn insert_split_extenstion_internal<T: TrieLayout>() {
 		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
@@ -1931,7 +1930,7 @@ mod tests {
 		]));
 	}
 
-	all_layout!(insert_big_value, insert_big_value_internal);
+	test_layouts!(insert_big_value, insert_big_value_internal);
 	fn insert_big_value_internal<T: TrieLayout>() {
 		let big_value0 = b"00000000000000000000000000000000";
 		let big_value1 = b"11111111111111111111111111111111";
@@ -1947,7 +1946,7 @@ mod tests {
 		]));
 	}
 
-	all_layout!(insert_duplicate_value, insert_duplicate_value_internal);
+	test_layouts!(insert_duplicate_value, insert_duplicate_value_internal);
 	fn insert_duplicate_value_internal<T: TrieLayout>() {
 		let big_value = b"00000000000000000000000000000000";
 
@@ -1962,7 +1961,7 @@ mod tests {
 		]));
 	}
 
-	all_layout!(test_at_empty, test_at_empty_internal);
+	test_layouts!(test_at_empty, test_at_empty_internal);
 	fn test_at_empty_internal<T: TrieLayout>() {
 		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
@@ -1970,7 +1969,7 @@ mod tests {
 		assert_eq!(t.get(&[0x5]).unwrap(), None);
 	}
 
-	all_layout!(test_at_one, test_at_one_internal);
+	test_layouts!(test_at_one, test_at_one_internal);
 	fn test_at_one_internal<T: TrieLayout>() {
 		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
@@ -1981,7 +1980,7 @@ mod tests {
 		assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), vec![0x1u8, 0x23]);
 	}
 
-	all_layout!(test_at_three, test_at_three_internal);
+	test_layouts!(test_at_three, test_at_three_internal);
 	fn test_at_three_internal<T: TrieLayout>() {
 		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
@@ -2000,7 +1999,7 @@ mod tests {
 		assert_eq!(t.get(&[0x82, 0x23]).unwrap(), None);
 	}
 
-	all_layout!(stress, stress_internal);
+	test_layouts!(stress, stress_internal);
 	fn stress_internal<T: TrieLayout>() {
 		let mut seed = Default::default();
 		for _ in 0..50 {
@@ -2038,7 +2037,7 @@ mod tests {
 		}
 	}
 
-	all_layout!(test_trie_existing, test_trie_existing_internal);
+	test_layouts!(test_trie_existing, test_trie_existing_internal);
 	fn test_trie_existing_internal<T: TrieLayout>() {
 		let mut db = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 		let mut root = Default::default();
@@ -2052,7 +2051,7 @@ mod tests {
 		}
 	}
 
-	all_layout!(insert_empty, insert_empty_internal);
+	test_layouts!(insert_empty, insert_empty_internal);
 	fn insert_empty_internal<T: TrieLayout>() {
 		let mut seed = Default::default();
 		let x = StandardMap {
@@ -2081,7 +2080,7 @@ mod tests {
 		assert_eq!(*t.root(), hashed_null_node);
 	}
 
-	all_layout!(return_old_values, return_old_values_internal);
+	test_layouts!(return_old_values, return_old_values_internal);
 	fn return_old_values_internal<T: TrieLayout>() {
 		let mut seed = Default::default();
 		let x = StandardMap {

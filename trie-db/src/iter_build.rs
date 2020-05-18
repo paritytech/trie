@@ -696,20 +696,8 @@ impl<H: HasherHybrid> ProcessEncodedNode<<H as Hasher>::Out> for TrieRootUnhashe
 mod test {
 	use crate::DBValue;
 	use memory_db::{MemoryDB, HashKey, PrefixedKey};
-	use reference_trie::{RefHasher, TrieLayout};
+	use reference_trie::{RefHasher, TrieLayout, test_layouts};
 	use reference_trie::{ExtensionLayout, ExtensionLayoutHybrid, NoExtensionLayout, NoExtensionLayoutHybrid};
-
-	macro_rules! all_layout {
-		($test:ident, $test_internal:ident) => {
-			#[test]
-			fn $test() {
-				$test_internal::<NoExtensionLayout>();
-				$test_internal::<ExtensionLayout>();
-				$test_internal::<NoExtensionLayoutHybrid>();
-				$test_internal::<ExtensionLayoutHybrid>();
-			}
-		};
-	}
 
 	#[test]
 	fn trie_root_empty () {
@@ -821,7 +809,7 @@ mod test {
 			(vec![1u8, 2u8, 3u8, 5u8, 3u8], vec![7u8;32]),
 		]);
 	}
-	all_layout!(root_extension_bis, root_extension_bis_internal);
+	test_layouts!(root_extension_bis, root_extension_bis_internal);
 	fn root_extension_bis_internal<T: TrieLayout>() {
 		compare_root::<T>(vec![
 			(vec![1u8, 2u8, 3u8, 3u8], vec![8u8;32]),
@@ -913,7 +901,7 @@ mod test {
 			(vec![0x02, 0x50], vec![0x3]),
 		]);
 	}
-	all_layout!(fuzz_no_extension_insert_remove_1, fuzz_no_extension_insert_remove_1_internal);
+	test_layouts!(fuzz_no_extension_insert_remove_1, fuzz_no_extension_insert_remove_1_internal);
 	fn fuzz_no_extension_insert_remove_1_internal<T: TrieLayout>() {
 		let data = vec![
 			(false, vec![0], vec![251, 255]),
@@ -923,7 +911,7 @@ mod test {
 		];
 		compare_insert_remove::<T>(data);
 	}
-	all_layout!(fuzz_no_extension_insert_remove_2, fuzz_no_extension_insert_remove_2_internal);
+	test_layouts!(fuzz_no_extension_insert_remove_2, fuzz_no_extension_insert_remove_2_internal);
 	fn fuzz_no_extension_insert_remove_2_internal<T: TrieLayout>() {
 		let data = vec![
 			(false, vec![0x00], vec![0xfd, 0xff]),

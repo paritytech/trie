@@ -55,6 +55,21 @@ pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, kecca
 //pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, blake2::Blake2Hasher>;
 //pub type RefHasher = ordered_trie::OrderedTrieHasher<keccak_hasher::KeccakHasher>;
 
+#[macro_export]
+macro_rules! test_layouts {
+	($test:ident, $test_internal:ident) => {
+		#[test]
+		fn $test() {
+			$test_internal::<reference_trie::NoExtensionLayout>();
+			$test_internal::<reference_trie::ExtensionLayout>();
+			$test_internal::<reference_trie::NoExtensionLayoutHybrid>();
+			$test_internal::<reference_trie::ExtensionLayoutHybrid>();
+		}
+	};
+}
+
+
+
 /// Trie layout using extension nodes.
 pub struct ExtensionLayout;
 
