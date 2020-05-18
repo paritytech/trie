@@ -68,11 +68,8 @@ macro_rules! test_layouts {
 	};
 }
 
-
-
 /// Trie layout using extension nodes.
 pub struct ExtensionLayout;
-
 
 impl TrieLayout for ExtensionLayout {
 	const USE_EXTENSION: bool = true;
