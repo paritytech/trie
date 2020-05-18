@@ -174,12 +174,12 @@ pub fn reference_trie_root_iter_build<T, I, A, B>(input: I) -> <T::Hash as Hashe
 		true => {
 			let mut cb = trie_db::TrieRootHybrid::<T::Hash, _>::default();
 			trie_visit::<T, _, _, _, _>(data_sorted_unique(input), &mut cb);
-			cb.root.unwrap_or(Default::default())
+			cb.root.unwrap_or_default()
 		},
 		false => {
 			let mut cb = trie_db::TrieRoot::<T::Hash, _>::default();
 			trie_visit::<T, _, _, _, _>(data_sorted_unique(input), &mut cb);
-			cb.root.unwrap_or(Default::default())
+			cb.root.unwrap_or_default()
 		},
 	}
 }
@@ -1417,11 +1417,11 @@ pub fn calc_root<T, I, A, B>(
 	if T::HYBRID_HASH {
 		let mut cb = TrieRootHybrid::<T::Hash, _>::default();
 		trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
+		cb.root.unwrap_or_default()
 	} else {
 		let mut cb = TrieRoot::<T::Hash, _>::default();
 		trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
+		cb.root.unwrap_or_default()
 	}
 }
 
@@ -1440,11 +1440,11 @@ pub fn calc_root_build<T, I, A, B, DB>(
 	if T::HYBRID_HASH {
 		let mut cb = TrieBuilderHybrid::new(hashdb);
 		trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
+		cb.root.unwrap_or_default()
 	} else {
 		let mut cb = TrieBuilder::new(hashdb);
 		trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
+		cb.root.unwrap_or_default()
 	}
 }
 
@@ -1465,11 +1465,7 @@ pub fn compare_implementations_unordered<T: TrieLayout, X : HashDBHybrid<T::Hash
 		}
 		*t.root()
 	};
-	let root_new = {
-		let mut cb = TrieBuilderHybrid::new(&mut hashdb);
-		trie_visit::<T, _, _, _, _>(b_map.into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
-	};
+	let root_new = calc_root_build::<T, _, _, _, _>(b_map.into_iter(), &mut hashdb);
 
 	if root != root_new {
 		{
