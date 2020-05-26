@@ -49,6 +49,7 @@ pub struct ExtensionLayout;
 
 impl TrieLayout for ExtensionLayout {
 	const USE_EXTENSION: bool = true;
+	const ALLOW_EMPTY: bool = false;
 	type Hash = KeccakHasher;
 	type Codec = ReferenceNodeCodec<KeccakHasher>;
 }
@@ -61,8 +62,19 @@ pub struct GenericNoExtensionLayout<H>(PhantomData<H>);
 
 impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	const USE_EXTENSION: bool = false;
+	const ALLOW_EMPTY: bool = false;
 	type Hash = H;
 	type Codec = ReferenceNodeCodecNoExt<H>;
+}
+
+/// Trie that allows empty values
+pub struct AllowEmptyLayout;
+
+impl TrieLayout for AllowEmptyLayout {
+	const USE_EXTENSION: bool = true;
+	const ALLOW_EMPTY: bool = true;
+	type Hash = KeccakHasher;
+	type Codec = ReferenceNodeCodec<KeccakHasher>;
 }
 
 impl<H: Hasher> TrieConfiguration for GenericNoExtensionLayout<H> { }
@@ -102,6 +114,7 @@ pub type RefTrieDB<'a> = trie_db::TrieDB<'a, ExtensionLayout>;
 pub type RefTrieDBNoExt<'a> = trie_db::TrieDB<'a, NoExtensionLayout>;
 pub type RefTrieDBMut<'a> = trie_db::TrieDBMut<'a, ExtensionLayout>;
 pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMut<'a, NoExtensionLayout>;
+pub type RefTrieDBMutAllowEmpty<'a> = trie_db::TrieDBMut<'a, AllowEmptyLayout>;
 pub type RefFatDB<'a> = trie_db::FatDB<'a, ExtensionLayout>;
 pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, ExtensionLayout>;
 pub type RefSecTrieDB<'a> = trie_db::SecTrieDB<'a, ExtensionLayout>;
