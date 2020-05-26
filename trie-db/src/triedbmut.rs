@@ -423,6 +423,7 @@ where
 	/// The number of hash operations this trie has performed.
 	/// Note that none are performed until changes are committed.
 	hash_count: usize,
+	allow_empty: bool, // Allow inserting empty values into the trie
 }
 
 impl<'a, L> TrieDBMut<'a, L>
@@ -441,7 +442,12 @@ where
 			root_handle,
 			death_row: HashSet::new(),
 			hash_count: 0,
+			allow_empty: false,
 		}
+	}
+
+	pub fn allow_empty(&mut self) {
+		self.allow_empty = true;
 	}
 
 	/// Create a new trie with the backing database `db` and `root.
@@ -462,6 +468,7 @@ where
 			root_handle,
 			death_row: HashSet::new(),
 			hash_count: 0,
+			allow_empty: false,
 		})
 	}
 	/// Get the backing database.
@@ -1534,7 +1541,7 @@ where
 		key: &[u8],
 		value: &[u8],
 	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
-		if value.is_empty() { return self.remove(key) }
+		if !self.allow_empty && value.is_empty() { return self.remove(key) }
 
 		let mut old_val = None;
 
