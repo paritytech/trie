@@ -51,9 +51,9 @@ pub mod node {
 }
 
 /// Reference hasher is a keccak hasher with hybrid ordered trie implementation.
-pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, keccak_hasher::KeccakHasher>;
-//pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, blake2::Blake2Hasher>;
-//pub type RefHasher = ordered_trie::OrderedTrieHasher<keccak_hasher::KeccakHasher>;
+pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, blake2::Blake2Hasher>;
+//pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, keccak_hasher::KeccakHasher>;
+//pub type RefHasher = ordered_trie::OrderedTrieHasher<keccak_hasher::KeccakHasher, keccak_hasher::KeccakHasher>;
 
 #[macro_export]
 macro_rules! test_layouts {

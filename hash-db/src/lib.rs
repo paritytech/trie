@@ -284,7 +284,7 @@ pub trait HasherHybrid: BinaryHasher {
 	fn hash_hybrid<
 		I: Iterator<Item = Option<<Self as Hasher>::Out>>,
 	>(
-		x: &[u8],
+		encoded_node: &[u8],
 		nb_children: usize,
 		children: I,
 		buffer: &mut <Self::InnerHasher as BinaryHasher>::Buffer,

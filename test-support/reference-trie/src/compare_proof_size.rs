@@ -33,23 +33,25 @@ use reference_trie::{
 	Recorder,
 	encode_compact,
 };
-use parity_scale_codec::{Decode, Input, Output, Encode, Compact, Error as CodecError};
+use parity_scale_codec::{Encode, Compact};
 
 type DBValue = Vec<u8>;
 
 fn main() {
 	let trie_size = [100, 1000, 10_000, 100_000];
 	let number_key = [1, 10, 100, 1000, 10_000];
+	let size_value = 32;
 	for s in trie_size.iter() {
-		compare(*s, &number_key[..])
+		compare(*s, &number_key[..], size_value)
 	}
 }
-fn compare(trie_size: u32, number_key: &[usize]) {
+
+fn compare(trie_size: u32, number_key: &[usize], size_value: usize) {
 
 	let mut seed = Default::default();
 	let x = StandardMap {
 		alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
-		min_key: 5,
+		min_key: size_value,
 		journal_key: 0,
 		value_mode: ValueMode::Index,
 		count: trie_size,
@@ -76,18 +78,18 @@ fn compare(trie_size: u32, number_key: &[usize]) {
 	let mut memdb = MemoryDB::<<ExtensionLayoutHybrid as TrieLayout>::Hash, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
 	{
-		let mut tcomp = TrieDBMut::<ExtensionLayoutHybrid>::new(&mut memdb, &mut root);
+		let mut thyb = TrieDBMut::<ExtensionLayoutHybrid>::new(&mut memdb, &mut root);
 		for i in 0..x.len() {
 			let key: &[u8]= &x[i].0;
 			let val: &[u8] = &x[i].1;
-			tcomp.insert(key, val).unwrap();
+			thyb.insert(key, val).unwrap();
 		}
-		tcomp.commit();
+		thyb.commit();
 	}
 	let trie = <TrieDB<ExtensionLayoutHybrid>>::new(&memdb, &root).unwrap();
 	for n in number_key {
 		if *n < trie_size as usize {
-			compare_inner(&trie, trie_size, &x[..*n], "complex")
+			compare_inner(&trie, trie_size, &x[..*n], "hybrid")
 		}
 	}
 }
@@ -95,23 +97,20 @@ fn compare(trie_size: u32, number_key: &[usize]) {
 
 fn compare_inner<L: TrieLayout>(trie: &TrieDB<L>, trie_size: u32, keys: &[(Vec<u8>, Vec<u8>)], lay: &str) {
 	let mut recorder = Recorder::new();
-	let items = {
-		let mut items = Vec::with_capacity(keys.len());
-		for (key, _) in keys {
-			let value = trie.get_with(key.as_slice(), &mut recorder).unwrap();
-			items.push((key, value));
-		}
-		items
-	};
+	for (key, _) in keys {
+		let _ = trie.get_with(key.as_slice(), &mut recorder).unwrap();
+	}
 
-	let mut std_proof_len = compact_size(items.len());
+	let mut std_proof_len = 0;
 	let mut partial_db = <MemoryDB<L::Hash, HashKey<_>, _>>::default();
+	let mut nb_elt = 0;
 	for record in recorder.drain() {
 		std_proof_len += compact_size(record.data.len());
 		std_proof_len += record.data.len();
 		partial_db.emplace(record.hash, EMPTY_PREFIX, record.data);
+		nb_elt += 1;
 	}
-
+	std_proof_len += compact_size(nb_elt);
 	let compact_trie = {
 		let partial_trie = <TrieDB<L>>::new(&partial_db, &trie.root()).unwrap();
 		encode_compact::<L>(&partial_trie).unwrap()
