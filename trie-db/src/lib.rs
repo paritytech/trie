@@ -71,7 +71,7 @@ pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
 pub use self::nibble::{NibbleSlice, NibbleVec, nibble_ops};
 pub use crate::node_codec::{NodeCodec, NodeCodecHybrid, Partial, HashDBHybridDyn, ChildProofHeader,
-	Bitmap, BITMAP_LENGTH, HashesPlan};
+	Bitmap, BITMAP_LENGTH, HashesPlan, hybrid_hash_node_adapter};
 pub use crate::iter_build::{trie_visit, ProcessEncodedNode, TrieRootUnhashedHybrid,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed, TrieRootHybrid, TrieBuilderHybrid};
 pub use crate::iterator::TrieDBNodeIterator;
