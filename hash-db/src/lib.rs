@@ -80,6 +80,7 @@ pub trait BinaryHasher: Hasher {
 	fn buffer_finalize(buff: &mut Self::Buffer) -> Self::Out;
 }
 
+#[cfg(std)]
 /// Test function to use on any binary buffer implementation.
 pub fn test_binary_hasher<H: BinaryHasher>() {
 	let size = <H as Hasher>::LENGTH * 2;
