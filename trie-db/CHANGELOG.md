@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.21.0] - 2020-06-04
+- Added `ALLOW_EMPTY` to `TrieLayout`. [#92](https://github.com/paritytech/trie/pull/92)
+
 ## [0.20.0] - 2020-02-07
 - Prefix iterator. [#39](https://github.com/paritytech/trie/pull/39)
 - Update trie-root to v0.16.0 and memory-db to v0.19.0 and reference-trie to v0.20.0 [#78](https://github.com/paritytech/trie/pull/78)
