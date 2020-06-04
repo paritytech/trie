@@ -1534,7 +1534,7 @@ where
 		key: &[u8],
 		value: &[u8],
 	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
-		if value.is_empty() { return self.remove(key) }
+		if !L::ALLOW_EMPTY && value.is_empty() { return self.remove(key) }
 
 		let mut old_val = None;
 
@@ -1616,8 +1616,8 @@ mod tests {
 	use memory_db::{MemoryDB, PrefixedKey};
 	use hash_db::{Hasher, HashDB};
 	use keccak_hasher::KeccakHasher;
-	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, TrieMut, NodeCodec,
-		ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension};
+	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMutAllowEmpty, RefTrieDBMut, TrieMut,
+		NodeCodec, ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension};
 	use crate::nibble::BackingByteVec;
 
 	fn populate_trie<'db>(
@@ -2022,7 +2022,7 @@ mod tests {
 	}
 
 	#[test]
-	fn insert_empty() {
+	fn insert_empty_denied() {
 		let mut seed = Default::default();
 		let x = StandardMap {
 				alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
@@ -2048,6 +2048,16 @@ mod tests {
 		assert!(t.is_empty());
 		let hashed_null_node = reference_hashed_null_node();
 		assert_eq!(*t.root(), hashed_null_node);
+	}
+
+	#[test]
+	fn insert_empty_allowed() {
+		let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+		let mut root = Default::default();
+		let mut t = RefTrieDBMutAllowEmpty::new(&mut db, &mut root);
+		t.insert(b"test", &[]).unwrap();
+		assert_eq!(*t.root(), reference_trie_root(vec![(b"test".to_vec(), Vec::new())]));
+		assert_eq!(t.get(b"test").unwrap(), Some(Vec::new()));
 	}
 
 	#[test]
