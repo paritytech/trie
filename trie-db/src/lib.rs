@@ -393,7 +393,7 @@ pub trait TrieLayout {
 	/// use branch and node with partials in both.
 	const USE_EXTENSION: bool;
 	/// If true, the trie will allow empty values into `TrieDBMut`
-	const ALLOW_EMPTY: bool;
+	const ALLOW_EMPTY: bool = false;
 	/// Hasher to use for this trie.
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
