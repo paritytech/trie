@@ -1,4 +1,4 @@
-// Copyright 2017, 2018 Parity Technologies
+// Copyright 2017-2020 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,9 +19,12 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
+mod malloc_size_of;
+pub use malloc_size_of::*;
+
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher,
 	AsHashDB, AsPlainDB, Prefix};
-use parity_util_mem::{malloc_size, MallocSizeOf, MallocSizeOfOps, MallocShallowSizeOf};
+use parity_util_mem::{MallocSizeOf, MallocSizeOfOps, MallocShallowSizeOf};
 #[cfg(feature = "deprecated")]
 #[cfg(feature = "std")]
 use heapsize::HeapSizeOf;
@@ -70,6 +73,9 @@ impl<T> MaybeDebug for T {}
 /// the data with `get()`. Clear with `clear()` and purge the portions of the data
 /// that have no references with `purge()`.
 ///
+/// If you're not using `MallocSizeOf` implementation, set the `M` type parameter to
+/// `NoopCallback`.
+///
 /// # Example
 /// ```rust
 ///
@@ -107,41 +113,48 @@ impl<T> MaybeDebug for T {}
 ///   assert!(!m.contains(&k, EMPTY_PREFIX));
 /// }
 /// ```
-pub struct MemoryDB<H, KF, T>
-	where
+pub struct MemoryDB<H, KF, T, M = CountingCallback<T>>
+where
 	H: KeyHasher,
 	KF: KeyFunction<H>,
+	M: MallocSizeOfCallback<T>,
 {
 	data: HashMap<KF::Key, (T, i32)>,
-	// We cache `MallocSizeOf::size_of(data) - MallocShallowSizeOf::size_of(data)`
-	// to compute the `MallocSizeOf::size_of(data)` incrementally and
-	// avoid iterating over the `data`.
-	malloc_size_of_values: usize,
+	// We cache `size_of(data) - shallow_size_of(data)` to compute
+	// `size_of(data)` incrementally and avoid iterating over the `data`.
+	malloc_callback: M,
 	hashed_null_node: H::Out,
 	null_node_data: T,
 	_kf: PhantomData<KF>,
 }
 
-impl<H: KeyHasher, KF: KeyFunction<H>, T: Clone> Clone for MemoryDB<H, KF, T> {
+impl<H, KF, T, M> Clone for MemoryDB<H, KF, T, M>
+where
+	H: KeyHasher,
+	KF: KeyFunction<H>,
+	T: Clone,
+	M: MallocSizeOfCallback<T> + Copy,
+{
 	fn clone(&self) -> Self {
 		Self {
 			data: self.data.clone(),
 			hashed_null_node: self.hashed_null_node,
 			null_node_data: self.null_node_data.clone(),
-			malloc_size_of_values: self.malloc_size_of_values,
+			malloc_callback: self.malloc_callback,
 			_kf: Default::default(),
 		}
 	}
 }
 
-impl<H, KF, T> PartialEq<MemoryDB<H, KF, T>> for MemoryDB<H, KF, T>
+impl<H, KF, T, M> PartialEq<MemoryDB<H, KF, T, M>> for MemoryDB<H, KF, T, M>
 	where
 	H: KeyHasher,
 	KF: KeyFunction<H>,
 	<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
 	T: Eq + MaybeDebug,
+	M: MallocSizeOfCallback<T> + PartialEq,
 {
-	fn eq(&self, other: &MemoryDB<H, KF, T>) -> bool {
+	fn eq(&self, other: &MemoryDB<H, KF, T, M>) -> bool {
 		for a in self.data.iter() {
 			match other.data.get(&a.0) {
 				Some(v) if v != a.1 => return false,
@@ -153,12 +166,13 @@ impl<H, KF, T> PartialEq<MemoryDB<H, KF, T>> for MemoryDB<H, KF, T>
 	}
 }
 
-impl<H, KF, T> Eq for MemoryDB<H, KF, T>
+impl<H, KF, T, M> Eq for MemoryDB<H, KF, T, M>
 	where
 		H: KeyHasher,
 		KF: KeyFunction<H>,
 		<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
 		T: Eq + MaybeDebug,
+		M: MallocSizeOfCallback<T> + Eq,
 {}
 
 pub trait KeyFunction<H: KeyHasher> {
@@ -263,11 +277,12 @@ pub fn legacy_prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8
 	prefixed_key
 }
 
-impl<'a, H, KF, T> Default for MemoryDB<H, KF, T>
+impl<'a, H, KF, T, M> Default for MemoryDB<H, KF, T, M>
 where
 	H: KeyHasher,
 	T: From<&'a [u8]>,
 	KF: KeyFunction<H>,
+	M: MallocSizeOfCallback<T> + Default,
 {
 	fn default() -> Self {
 		Self::from_null_node(&[0u8][..], [0u8][..].into())
@@ -275,11 +290,12 @@ where
 }
 
 /// Create a new `MemoryDB` from a given null key/data
-impl<H, KF, T> MemoryDB<H, KF, T>
+impl<H, KF, T, M> MemoryDB<H, KF, T, M>
 where
 	H: KeyHasher,
-	T: Default + MallocSizeOf,
+	T: Default,
 	KF: KeyFunction<H>,
+	M: MallocSizeOfCallback<T>,
 {
 	/// Remove an element and delete it from storage if reference count reaches zero.
 	/// If the value was purged, return the old value.
@@ -292,7 +308,7 @@ where
 			Entry::Occupied(mut entry) =>
 				if entry.get().1 == 1 {
 					let (value, _) = entry.remove();
-					Self::on_value_removed(&mut self.malloc_size_of_values, &value);
+					self.malloc_callback.on_value_removed(&value);
 					Some(value)
 				} else {
 					entry.get_mut().1 -= 1;
@@ -300,7 +316,7 @@ where
 				},
 			Entry::Vacant(entry) => {
 				let value = T::default();
-				Self::on_value_inserted(&mut self.malloc_size_of_values, &value);
+				self.malloc_callback.on_value_inserted(&value);
 				entry.insert((value, -1)); // FIXME: shouldn't it be purged?
 				None
 			}
@@ -308,32 +324,12 @@ where
 	}
 }
 
-// `MallocSizeOf` helper methods.
-impl<H, KF, T> MemoryDB<H, KF, T>
-where
-	H: KeyHasher,
-	T: MallocSizeOf,
-	KF: KeyFunction<H>,
-{
-	// Update the `malloc_size_of_values` when a value is removed.
-	fn on_value_removed(malloc_size_of_values: &mut usize, value: &T) {
-		*malloc_size_of_values -= malloc_size(value);
-	}
-	// Update the `malloc_size_of_values` when a value is inserted.
-	fn on_value_inserted(malloc_size_of_values: &mut usize, value: &T) {
-		*malloc_size_of_values += malloc_size(value);
-	}
-	// Reset `malloc_size_of_values` to zero.
-	fn on_clear(malloc_size_of_values: &mut usize) {
-		*malloc_size_of_values = 0;
-	}
-}
-
-impl<'a, H: KeyHasher, KF, T> MemoryDB<H, KF, T>
+impl<'a, H, KF, T, M> MemoryDB<H, KF, T, M>
 where
 	H: KeyHasher,
 	T: From<&'a [u8]>,
 	KF: KeyFunction<H>,
+	M: MallocSizeOfCallback<T> + Default,
 {
 	/// Create a new `MemoryDB` from a given null key/data
 	pub fn from_null_node(null_key: &'a [u8], null_node_data: T) -> Self {
@@ -341,7 +337,7 @@ where
 			data: HashMap::default(),
 			hashed_null_node: H::hash(null_key),
 			null_node_data,
-			malloc_size_of_values: 0,
+			malloc_callback: M::default(),
 			_kf: Default::default(),
 		}
 	}
@@ -358,14 +354,6 @@ where
 
 		(db, root)
 	}
-}
-
-impl<'a, H: KeyHasher, KF, T> MemoryDB<H, KF, T>
-where
-	H: KeyHasher,
-	T: From<&'a [u8]> + MallocSizeOf,
-	KF: KeyFunction<H>,
-{
 	
 	/// Clear all data from the database.
 	///
@@ -389,17 +377,17 @@ where
 	/// }
 	/// ```
 	pub fn clear(&mut self) {
-		Self::on_clear(&mut self.malloc_size_of_values);
+		self.malloc_callback.on_clear();
 		self.data.clear();
 	}
 
 	/// Purge all zero-referenced data from the database.
 	pub fn purge(&mut self) {
-		let malloc_size_of_values = &mut self.malloc_size_of_values;
+		let malloc_callback = &mut self.malloc_callback;
 		self.data.retain(|_, (v, rc)| {
 			let to_retain = *rc != 0;
 			if !to_retain {
-				Self::on_value_removed(malloc_size_of_values, v);
+				malloc_callback.on_value_removed(v);
 			}
 			to_retain
 		});
@@ -407,7 +395,7 @@ where
 
 	/// Return the internal map of hashes to data, clearing the current state.
 	pub fn drain(&mut self) -> HashMap<KF::Key, (T, i32)> {
-		Self::on_clear(&mut self.malloc_size_of_values);
+		self.malloc_callback.on_clear();
 		mem::replace(&mut self.data, Default::default())
 	}
 
@@ -429,15 +417,15 @@ where
 			match self.data.entry(key) {
 				Entry::Occupied(mut entry) => {
 					if entry.get().1 < 0 {
-						Self::on_value_inserted(&mut self.malloc_size_of_values, &value);
-						Self::on_value_removed(&mut self.malloc_size_of_values, &entry.get().0);
+						self.malloc_callback.on_value_inserted(&value);
+						self.malloc_callback.on_value_removed(&entry.get().0);
 						entry.get_mut().0 = value;
 					}
 
 					entry.get_mut().1 += rc;
 				}
 				Entry::Vacant(entry) => {
-					Self::on_value_inserted(&mut self.malloc_size_of_values, &value);
+					self.malloc_callback.on_value_inserted(&value);
 					entry.insert((value, rc));
 				}
 			}
@@ -472,28 +460,30 @@ where
 	}
 }
 
-impl<H, KF, T> MallocSizeOf for MemoryDB<H, KF, T>
+impl<H, KF, T, M> MallocSizeOf for MemoryDB<H, KF, T, M>
 where
 	H: KeyHasher,
 	H::Out: MallocSizeOf,
 	T: MallocSizeOf,
 	KF: KeyFunction<H>,
 	KF::Key: MallocSizeOf,
+	M: MallocSizeOfCallback<T>,
 {
 	fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
 		self.data.shallow_size_of(ops)
-			+ self.malloc_size_of_values
+			+ self.malloc_callback.get()
 			+ self.null_node_data.size_of(ops)
 			+ self.hashed_null_node.size_of(ops)
 	}
 }
 
-impl<H, KF, T> PlainDB<H::Out, T> for MemoryDB<H, KF, T>
+impl<H, KF, T, M> PlainDB<H::Out, T> for MemoryDB<H, KF, T, M>
 where
 	H: KeyHasher,
-	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + MallocSizeOf + Clone + Send + Sync,
+	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: Send + Sync + KeyFunction<H>,
 	KF::Key: Borrow<[u8]> + for <'a> From<&'a [u8]>,
+	M: MallocSizeOfCallback<T> + Send + Sync,
 {
 	fn get(&self, key: &H::Out) -> Option<T> {
 		match self.data.get(key.as_ref()) {
@@ -514,14 +504,14 @@ where
 			Entry::Occupied(mut entry) => {
 				let &mut (ref mut old_value, ref mut rc) = entry.get_mut();
 				if *rc <= 0 {
-					Self::on_value_inserted(&mut self.malloc_size_of_values, &value);
-					Self::on_value_removed(&mut self.malloc_size_of_values, old_value);
+					self.malloc_callback.on_value_inserted(&value);
+					self.malloc_callback.on_value_removed(old_value);
 					*old_value = value;
 				}
 				*rc += 1;
 			},
 			Entry::Vacant(entry) => {
-				Self::on_value_inserted(&mut self.malloc_size_of_values, &value);
+				self.malloc_callback.on_value_inserted(&value);
 				entry.insert((value, 1));
 			},
 		}
@@ -535,29 +525,31 @@ where
 			},
 			Entry::Vacant(entry) => {
 				let value = T::default();
-				Self::on_value_inserted(&mut self.malloc_size_of_values, &value);
+				self.malloc_callback.on_value_inserted(&value);
 				entry.insert((value, -1));
 			},
 		}
 	}
 }
 
-impl<H, KF, T> PlainDBRef<H::Out, T> for MemoryDB<H, KF, T>
+impl<H, KF, T, M> PlainDBRef<H::Out, T> for MemoryDB<H, KF, T, M>
 where
 	H: KeyHasher,
-	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + MallocSizeOf + Clone + Send + Sync,
+	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: Send + Sync + KeyFunction<H>,
 	KF::Key: Borrow<[u8]> + for <'a> From<&'a [u8]>,
+	M: MallocSizeOfCallback<T> + Send + Sync,
 {
 	fn get(&self, key: &H::Out) -> Option<T> { PlainDB::get(self, key) }
 	fn contains(&self, key: &H::Out) -> bool { PlainDB::contains(self, key) }
 }
 
-impl<H, KF, T> HashDB<H, T> for MemoryDB<H, KF, T>
+impl<H, KF, T, M> HashDB<H, T> for MemoryDB<H, KF, T, M>
 where
 	H: KeyHasher,
-	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + MallocSizeOf + Clone + Send + Sync,
+	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: Send + Sync + KeyFunction<H>,
+	M: MallocSizeOfCallback<T> + Send + Sync,
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
 		if key == &self.hashed_null_node {
@@ -593,14 +585,14 @@ where
 			Entry::Occupied(mut entry) => {
 				let &mut (ref mut old_value, ref mut rc) = entry.get_mut();
 				if *rc <= 0 {
-					Self::on_value_inserted(&mut self.malloc_size_of_values, &value);
-					Self::on_value_removed(&mut self.malloc_size_of_values, old_value);
+					self.malloc_callback.on_value_inserted(&value);
+					self.malloc_callback.on_value_removed(old_value);
 					*old_value = value;
 				}
 				*rc += 1;
 			},
 			Entry::Vacant(entry) => {
-				Self::on_value_inserted(&mut self.malloc_size_of_values, &value);
+				self.malloc_callback.on_value_inserted(&value);
 				entry.insert((value, 1));
 			},
 		}
@@ -629,39 +621,42 @@ where
 			},
 			Entry::Vacant(entry) => {
 				let value = T::default();
-				Self::on_value_inserted(&mut self.malloc_size_of_values, &value);
+				self.malloc_callback.on_value_inserted(&value);
 				entry.insert((value, -1));
 			},
 		}
 	}
 }
 
-impl<H, KF, T> HashDBRef<H, T> for MemoryDB<H, KF, T>
+impl<H, KF, T, M> HashDBRef<H, T> for MemoryDB<H, KF, T, M>
 where
 	H: KeyHasher,
-	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + MallocSizeOf + Clone + Send + Sync,
-	KF: Send + Sync + KeyFunction<H>,
+	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
+	KF: KeyFunction<H> + Send + Sync,
+	M: MallocSizeOfCallback<T> + Send + Sync,
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(self, key, prefix) }
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool { HashDB::contains(self, key, prefix) }
 }
 
-impl<H, KF, T> AsPlainDB<H::Out, T> for MemoryDB<H, KF, T>
+impl<H, KF, T, M> AsPlainDB<H::Out, T> for MemoryDB<H, KF, T, M>
 where
 	H: KeyHasher,
-	T: Default + PartialEq<T> + for<'a> From<&'a[u8]> + MallocSizeOf + Clone + Send + Sync,
-	KF: Send + Sync + KeyFunction<H>,
+	T: Default + PartialEq<T> + for<'a> From<&'a[u8]> + Clone + Send + Sync,
+	KF: KeyFunction<H> + Send + Sync,
 	KF::Key: Borrow<[u8]> + for <'a> From<&'a [u8]>,
+	M: MallocSizeOfCallback<T> + Send + Sync,
 {
 	fn as_plain_db(&self) -> &dyn PlainDB<H::Out, T> { self }
 	fn as_plain_db_mut(&mut self) -> &mut dyn PlainDB<H::Out, T> { self }
 }
 
-impl<H, KF, T> AsHashDB<H, T> for MemoryDB<H, KF, T>
+impl<H, KF, T, M> AsHashDB<H, T> for MemoryDB<H, KF, T, M>
 where
 	H: KeyHasher,
-	T: Default + PartialEq<T> + for<'a> From<&'a[u8]> + MallocSizeOf + Clone + Send + Sync,
-	KF: Send + Sync + KeyFunction<H>,
+	T: Default + PartialEq<T> + for<'a> From<&'a[u8]> + Clone + Send + Sync,
+	KF: KeyFunction<H> + Send + Sync,
+	M: MallocSizeOfCallback<T> + Send + Sync,
 {
 	fn as_hash_db(&self) -> &dyn HashDB<H, T> { self }
 	fn as_hash_db_mut(&mut self) -> &mut dyn HashDB<H, T> { self }
@@ -669,7 +664,8 @@ where
 
 #[cfg(test)]
 mod tests {
-	use super::{MemoryDB, HashDB, KeyHasher, HashKey, malloc_size};
+	use super::{MemoryDB, HashDB, KeyHasher, HashKey};
+	use parity_util_mem::malloc_size;
 	use hash_db::EMPTY_PREFIX;
 	use keccak_hasher::KeccakHasher;
 
