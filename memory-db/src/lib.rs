@@ -354,7 +354,7 @@ where
 
 		(db, root)
 	}
-	
+
 	/// Clear all data from the database.
 	///
 	/// # Examples
@@ -740,7 +740,7 @@ mod tests {
 			db.insert(prefix, &bytes);
 		}
 		assert_eq!(
-			malloc_size(&db), 
+			malloc_size(&db),
 			malloc_size(&db.data) + malloc_size(&db.null_node_data) + malloc_size(&db.hashed_null_node)
 		);
 	}
