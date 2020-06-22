@@ -12,4 +12,4 @@ members = [
 ]
 
 [patch.crates-io]
-parity-util-mem = { git = "https://github.com/paritytech/parity-common", branch = "ao-export-shallow-size-of" }
+parity-util-mem = { git = "https://github.com/paritytech/parity-common", branch = "ao-bump-parity-util-mem" }
