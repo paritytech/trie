@@ -32,6 +32,7 @@ use reference_trie::{
 	TrieLayout,
 	Recorder,
 	encode_compact,
+	decode_compact,
 };
 use parity_scale_codec::{Encode, Compact};
 
@@ -42,11 +43,11 @@ fn main() {
 	let number_key = [1, 10, 100, 1000, 10_000];
 	let size_value = 32;
 	for s in trie_size.iter() {
-		compare(*s, &number_key[..], size_value)
+		compare(*s, &number_key[..], size_value, true)
 	}
 }
 
-fn compare(trie_size: u32, number_key: &[usize], size_value: usize) {
+fn compare(trie_size: u32, number_key: &[usize], size_value: usize, check_proof: bool) {
 
 	let mut seed = Default::default();
 	let x = StandardMap {
@@ -71,7 +72,7 @@ fn compare(trie_size: u32, number_key: &[usize], size_value: usize) {
 	for n in number_key {
 		if *n < trie_size as usize {
 			// we test only existing key, missing key should have better overall compression(could try with pure random)
-			compare_inner(&trie, trie_size, &x[..*n], "standard")
+			compare_inner(&trie, trie_size, &x[..*n], "standard", check_proof)
 		}
 	}
 
@@ -89,13 +90,13 @@ fn compare(trie_size: u32, number_key: &[usize], size_value: usize) {
 	let trie = <TrieDB<ExtensionLayoutHybrid>>::new(&memdb, &root).unwrap();
 	for n in number_key {
 		if *n < trie_size as usize {
-			compare_inner(&trie, trie_size, &x[..*n], "hybrid")
+			compare_inner(&trie, trie_size, &x[..*n], "hybrid", check_proof)
 		}
 	}
 }
 
 
-fn compare_inner<L: TrieLayout>(trie: &TrieDB<L>, trie_size: u32, keys: &[(Vec<u8>, Vec<u8>)], lay: &str) {
+fn compare_inner<L: TrieLayout>(trie: &TrieDB<L>, trie_size: u32, keys: &[(Vec<u8>, Vec<u8>)], lay: &str, check_proof: bool) {
 	let mut recorder = Recorder::new();
 	for (key, _) in keys {
 		let _ = trie.get_with(key.as_slice(), &mut recorder).unwrap();
@@ -116,6 +117,16 @@ fn compare_inner<L: TrieLayout>(trie: &TrieDB<L>, trie_size: u32, keys: &[(Vec<u
 		encode_compact::<L>(&partial_trie).unwrap()
 	};
 
+	if check_proof {
+		let mut memdb = <MemoryDB<L::Hash, HashKey<_>, _>>::default();
+		let (root, nbs) = decode_compact::<L, _, _>(&mut memdb, &compact_trie).unwrap();
+		println!("nb node in proof {}", nbs);
+		let trie = <TrieDB<L>>::new(&memdb, &root).unwrap();
+		for (key, value) in keys {
+			let v = trie.get(key).unwrap();
+			assert_eq!(v.as_ref(), Some(value));
+		}
+	}
 	let mut compact_proof_len = compact_size(compact_trie.len());
 	for node in compact_trie.iter() {
 		compact_proof_len += compact_size(node.len());
