@@ -33,13 +33,13 @@ pub trait MemTracker<T> {
 /// `MemTracker` implementation for types
 /// which implement `MallocSizeOf`.
 #[derive(Eq, PartialEq)]
-pub struct CountingCallback<T> {
+pub struct MemCounter<T> {
 	malloc_size_of_values: usize,
 	_phantom: PhantomData<T>,
 }
 
-impl<T> CountingCallback<T> {
-	// Create a new instance of CountingCallback<T>.
+impl<T> MemCounter<T> {
+	// Create a new instance of MemCounter<T>.
 	pub fn new() -> Self {
 		Self {
 			malloc_size_of_values: 0,
@@ -48,13 +48,13 @@ impl<T> CountingCallback<T> {
 	}
 }
 
-impl<T> Default for CountingCallback<T> {
+impl<T> Default for MemCounter<T> {
 	fn default() -> Self {
 		Self::new()
 	}
 }
 
-impl<T> Clone for CountingCallback<T> {
+impl<T> Clone for MemCounter<T> {
 	fn clone(&self) -> Self {
 		Self {
 			malloc_size_of_values: self.malloc_size_of_values,
@@ -63,9 +63,9 @@ impl<T> Clone for CountingCallback<T> {
 	}
 }
 
-impl<T> Copy for CountingCallback<T> {}
+impl<T> Copy for MemCounter<T> {}
 
-impl<T: MallocSizeOf> MemTracker<T> for CountingCallback<T> {
+impl<T: MallocSizeOf> MemTracker<T> for MemCounter<T> {
 	fn on_removed(&mut self, value: &T) {
 		self.malloc_size_of_values -= malloc_size(value);
 	}

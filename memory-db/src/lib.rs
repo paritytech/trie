@@ -113,7 +113,7 @@ impl<T> MaybeDebug for T {}
 ///   assert!(!m.contains(&k, EMPTY_PREFIX));
 /// }
 /// ```
-pub struct MemoryDB<H, KF, T, M = CountingCallback<T>>
+pub struct MemoryDB<H, KF, T, M = MemCounter<T>>
 where
 	H: KeyHasher,
 	KF: KeyFunction<H>,
@@ -122,7 +122,7 @@ where
 	data: HashMap<KF::Key, (T, i32)>,
 	// We cache `size_of(data) - shallow_size_of(data)` to compute
 	// `size_of(data)` incrementally and avoid iterating over the `data`.
-	malloc_callback: M,
+	malloc_tracker: M,
 	hashed_null_node: H::Out,
 	null_node_data: T,
 	_kf: PhantomData<KF>,
@@ -140,7 +140,7 @@ where
 			data: self.data.clone(),
 			hashed_null_node: self.hashed_null_node,
 			null_node_data: self.null_node_data.clone(),
-			malloc_callback: self.malloc_callback,
+			malloc_tracker: self.malloc_tracker,
 			_kf: Default::default(),
 		}
 	}
@@ -311,7 +311,7 @@ where
 			Entry::Occupied(mut entry) =>
 				if entry.get().1 == 1 {
 					let (value, _) = entry.remove();
-					self.malloc_callback.on_removed(&value);
+					self.malloc_tracker.on_removed(&value);
 					Some(value)
 				} else {
 					entry.get_mut().1 -= 1;
@@ -319,7 +319,7 @@ where
 				},
 			Entry::Vacant(entry) => {
 				let value = T::default();
-				self.malloc_callback.on_inserted(&value);
+				self.malloc_tracker.on_inserted(&value);
 				entry.insert((value, -1)); // FIXME: shouldn't it be purged?
 				None
 			}
@@ -340,7 +340,7 @@ where
 			data: HashMap::default(),
 			hashed_null_node: H::hash(null_key),
 			null_node_data,
-			malloc_callback: M::default(),
+			malloc_tracker: M::default(),
 			_kf: Default::default(),
 		}
 	}
@@ -380,17 +380,17 @@ where
 	/// }
 	/// ```
 	pub fn clear(&mut self) {
-		self.malloc_callback.on_clear();
+		self.malloc_tracker.on_clear();
 		self.data.clear();
 	}
 
 	/// Purge all zero-referenced data from the database.
 	pub fn purge(&mut self) {
-		let malloc_callback = &mut self.malloc_callback;
+		let malloc_tracker = &mut self.malloc_tracker;
 		self.data.retain(|_, (v, rc)| {
 			let keep = *rc != 0;
 			if !keep {
-				malloc_callback.on_removed(v);
+				malloc_tracker.on_removed(v);
 			}
 			keep
 		});
@@ -398,7 +398,7 @@ where
 
 	/// Return the internal key-value HashMap, clearing the current state.
 	pub fn drain(&mut self) -> HashMap<KF::Key, (T, i32)> {
-		self.malloc_callback.on_clear();
+		self.malloc_tracker.on_clear();
 		mem::replace(&mut self.data, Default::default())
 	}
 
@@ -420,15 +420,15 @@ where
 			match self.data.entry(key) {
 				Entry::Occupied(mut entry) => {
 					if entry.get().1 < 0 {
-						self.malloc_callback.on_inserted(&value);
-						self.malloc_callback.on_removed(&entry.get().0);
+						self.malloc_tracker.on_inserted(&value);
+						self.malloc_tracker.on_removed(&entry.get().0);
 						entry.get_mut().0 = value;
 					}
 
 					entry.get_mut().1 += rc;
 				}
 				Entry::Vacant(entry) => {
-					self.malloc_callback.on_inserted(&value);
+					self.malloc_tracker.on_inserted(&value);
 					entry.insert((value, rc));
 				}
 			}
@@ -474,7 +474,7 @@ where
 {
 	fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
 		self.data.shallow_size_of(ops)
-			+ self.malloc_callback.get_size()
+			+ self.malloc_tracker.get_size()
 			+ self.null_node_data.size_of(ops)
 			+ self.hashed_null_node.size_of(ops)
 	}
@@ -507,14 +507,14 @@ where
 			Entry::Occupied(mut entry) => {
 				let &mut (ref mut old_value, ref mut rc) = entry.get_mut();
 				if *rc <= 0 {
-					self.malloc_callback.on_inserted(&value);
-					self.malloc_callback.on_removed(old_value);
+					self.malloc_tracker.on_inserted(&value);
+					self.malloc_tracker.on_removed(old_value);
 					*old_value = value;
 				}
 				*rc += 1;
 			},
 			Entry::Vacant(entry) => {
-				self.malloc_callback.on_inserted(&value);
+				self.malloc_tracker.on_inserted(&value);
 				entry.insert((value, 1));
 			},
 		}
@@ -528,7 +528,7 @@ where
 			},
 			Entry::Vacant(entry) => {
 				let value = T::default();
-				self.malloc_callback.on_inserted(&value);
+				self.malloc_tracker.on_inserted(&value);
 				entry.insert((value, -1));
 			},
 		}
@@ -588,14 +588,14 @@ where
 			Entry::Occupied(mut entry) => {
 				let &mut (ref mut old_value, ref mut rc) = entry.get_mut();
 				if *rc <= 0 {
-					self.malloc_callback.on_inserted(&value);
-					self.malloc_callback.on_removed(old_value);
+					self.malloc_tracker.on_inserted(&value);
+					self.malloc_tracker.on_removed(old_value);
 					*old_value = value;
 				}
 				*rc += 1;
 			},
 			Entry::Vacant(entry) => {
-				self.malloc_callback.on_inserted(&value);
+				self.malloc_tracker.on_inserted(&value);
 				entry.insert((value, 1));
 			},
 		}
@@ -624,7 +624,7 @@ where
 			},
 			Entry::Vacant(entry) => {
 				let value = T::default();
-				self.malloc_callback.on_inserted(&value);
+				self.malloc_tracker.on_inserted(&value);
 				entry.insert((value, -1));
 			},
 		}
