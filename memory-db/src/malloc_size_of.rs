@@ -19,18 +19,18 @@ use parity_util_mem::{malloc_size, MallocSizeOf};
 
 
 /// Used to implement incremental evaluation of `MallocSizeOf` for a collection.
-pub trait MallocSizeOfCallback<T> {
+pub trait MemTracker<T> {
 	/// Update `malloc_size_of` when a value is removed.
-	fn on_value_removed(&mut self, _value: &T) {}
+	fn on_removed(&mut self, _value: &T) {}
 	/// Update `malloc_size_of` when a value is inserted.
-	fn on_value_inserted(&mut self, _value: &T) {}
+	fn on_inserted(&mut self, _value: &T) {}
 	/// Reset `malloc_size_of` to zero.
 	fn on_clear(&mut self) {}
 	/// Get the allocated size of the values.
-	fn get(&self) -> usize { 0 }
+	fn get_size(&self) -> usize { 0 }
 }
 
-/// `MallocSizeOfCallback` implementation for types
+/// `MemTracker` implementation for types
 /// which implement `MallocSizeOf`.
 #[derive(Eq, PartialEq)]
 pub struct CountingCallback<T> {
@@ -65,23 +65,24 @@ impl<T> Clone for CountingCallback<T> {
 
 impl<T> Copy for CountingCallback<T> {}
 
-impl<T: MallocSizeOf> MallocSizeOfCallback<T> for CountingCallback<T> {
-	fn on_value_removed(&mut self, value: &T) {
+impl<T: MallocSizeOf> MemTracker<T> for CountingCallback<T> {
+	fn on_removed(&mut self, value: &T) {
 		self.malloc_size_of_values -= malloc_size(value);
 	}
-	fn on_value_inserted(&mut self, value: &T) {
+	fn on_inserted(&mut self, value: &T) {
 		self.malloc_size_of_values += malloc_size(value);
 	}
 	fn on_clear(&mut self) {
 		self.malloc_size_of_values = 0;
 	}
-	fn get(&self) -> usize {
+	fn get_size(&self) -> usize {
 		self.malloc_size_of_values
 	}
 }
 
-/// No-op `MallocSizeOfCallback` implementation.
+/// No-op `MemTracker` implementation for when we want to
+/// construct a `MemoryDB` instance that does not track memory usage.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct NoopCallback;
+pub struct NoopTracker;
 
-impl<T> MallocSizeOfCallback<T> for NoopCallback {}
+impl<T> MemTracker<T> for NoopTracker {}
