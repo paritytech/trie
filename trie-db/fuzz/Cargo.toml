@@ -10,8 +10,8 @@ cargo-fuzz = true
 
 [dependencies]
 hash-db = { path = "../../hash-db", version = "0.15.2" }
-memory-db = { path = "../../memory-db", version = "0.18.1" }
-reference-trie = { path = "../../test-support/reference-trie", version = "0.19.0" }
+memory-db = { path = "../../memory-db", version = "0.21.0" }
+reference-trie = { path = "../../test-support/reference-trie", version = "0.21.0" }
 keccak-hasher = { path = "../../test-support/keccak-hasher", version = "0.15.2" }
 
 [dependencies.trie-db]
@@ -64,3 +64,6 @@ path = "fuzz_targets/trie_proof_valid.rs"
 [[bin]]
 name = "trie_proof_invalid"
 path = "fuzz_targets/trie_proof_invalid.rs"
+
+[patch.crates-io]
+parity-util-mem = { git = "https://github.com/paritytech/parity-common", branch = "ao-bump-parity-util-mem" }
