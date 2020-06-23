@@ -70,7 +70,7 @@ fn compare(trie_size: u32, number_key: &[usize], size_value: usize, check_proof:
 	}
 	let trie = <TrieDB<ExtensionLayout>>::new(&memdb, &root).unwrap();
 	for n in number_key {
-		if *n < trie_size as usize {
+		if *n <= trie_size as usize {
 			// we test only existing key, missing key should have better overall compression(could try with pure random)
 			compare_inner(&trie, trie_size, &x[..*n], "standard", check_proof)
 		}
@@ -89,7 +89,7 @@ fn compare(trie_size: u32, number_key: &[usize], size_value: usize, check_proof:
 	}
 	let trie = <TrieDB<ExtensionLayoutHybrid>>::new(&memdb, &root).unwrap();
 	for n in number_key {
-		if *n < trie_size as usize {
+		if *n <= trie_size as usize {
 			compare_inner(&trie, trie_size, &x[..*n], "hybrid", check_proof)
 		}
 	}
