@@ -21,9 +21,9 @@ use parity_util_mem::{malloc_size, MallocSizeOf};
 /// Used to implement incremental evaluation of `MallocSizeOf` for a collection.
 pub trait MemTracker<T> {
 	/// Update `malloc_size_of` when a value is removed.
-	fn on_removed(&mut self, _value: &T) {}
+	fn on_remove(&mut self, _value: &T) {}
 	/// Update `malloc_size_of` when a value is inserted.
-	fn on_inserted(&mut self, _value: &T) {}
+	fn on_insert(&mut self, _value: &T) {}
 	/// Reset `malloc_size_of` to zero.
 	fn on_clear(&mut self) {}
 	/// Get the allocated size of the values.
@@ -66,10 +66,10 @@ impl<T> Clone for MemCounter<T> {
 impl<T> Copy for MemCounter<T> {}
 
 impl<T: MallocSizeOf> MemTracker<T> for MemCounter<T> {
-	fn on_removed(&mut self, value: &T) {
+	fn on_remove(&mut self, value: &T) {
 		self.malloc_size_of_values -= malloc_size(value);
 	}
-	fn on_inserted(&mut self, value: &T) {
+	fn on_insert(&mut self, value: &T) {
 		self.malloc_size_of_values += malloc_size(value);
 	}
 	fn on_clear(&mut self) {

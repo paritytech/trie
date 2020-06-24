@@ -311,7 +311,7 @@ where
 			Entry::Occupied(mut entry) =>
 				if entry.get().1 == 1 {
 					let (value, _) = entry.remove();
-					self.malloc_tracker.on_removed(&value);
+					self.malloc_tracker.on_remove(&value);
 					Some(value)
 				} else {
 					entry.get_mut().1 -= 1;
@@ -319,7 +319,7 @@ where
 				},
 			Entry::Vacant(entry) => {
 				let value = T::default();
-				self.malloc_tracker.on_inserted(&value);
+				self.malloc_tracker.on_insert(&value);
 				entry.insert((value, -1)); // FIXME: shouldn't it be purged?
 				None
 			}
@@ -390,7 +390,7 @@ where
 		self.data.retain(|_, (v, rc)| {
 			let keep = *rc != 0;
 			if !keep {
-				malloc_tracker.on_removed(v);
+				malloc_tracker.on_remove(v);
 			}
 			keep
 		});
@@ -420,15 +420,15 @@ where
 			match self.data.entry(key) {
 				Entry::Occupied(mut entry) => {
 					if entry.get().1 < 0 {
-						self.malloc_tracker.on_inserted(&value);
-						self.malloc_tracker.on_removed(&entry.get().0);
+						self.malloc_tracker.on_insert(&value);
+						self.malloc_tracker.on_remove(&entry.get().0);
 						entry.get_mut().0 = value;
 					}
 
 					entry.get_mut().1 += rc;
 				}
 				Entry::Vacant(entry) => {
-					self.malloc_tracker.on_inserted(&value);
+					self.malloc_tracker.on_insert(&value);
 					entry.insert((value, rc));
 				}
 			}
@@ -507,14 +507,14 @@ where
 			Entry::Occupied(mut entry) => {
 				let &mut (ref mut old_value, ref mut rc) = entry.get_mut();
 				if *rc <= 0 {
-					self.malloc_tracker.on_inserted(&value);
-					self.malloc_tracker.on_removed(old_value);
+					self.malloc_tracker.on_insert(&value);
+					self.malloc_tracker.on_remove(old_value);
 					*old_value = value;
 				}
 				*rc += 1;
 			},
 			Entry::Vacant(entry) => {
-				self.malloc_tracker.on_inserted(&value);
+				self.malloc_tracker.on_insert(&value);
 				entry.insert((value, 1));
 			},
 		}
@@ -528,7 +528,7 @@ where
 			},
 			Entry::Vacant(entry) => {
 				let value = T::default();
-				self.malloc_tracker.on_inserted(&value);
+				self.malloc_tracker.on_insert(&value);
 				entry.insert((value, -1));
 			},
 		}
@@ -588,14 +588,14 @@ where
 			Entry::Occupied(mut entry) => {
 				let &mut (ref mut old_value, ref mut rc) = entry.get_mut();
 				if *rc <= 0 {
-					self.malloc_tracker.on_inserted(&value);
-					self.malloc_tracker.on_removed(old_value);
+					self.malloc_tracker.on_insert(&value);
+					self.malloc_tracker.on_remove(old_value);
 					*old_value = value;
 				}
 				*rc += 1;
 			},
 			Entry::Vacant(entry) => {
-				self.malloc_tracker.on_inserted(&value);
+				self.malloc_tracker.on_insert(&value);
 				entry.insert((value, 1));
 			},
 		}
@@ -624,7 +624,7 @@ where
 			},
 			Entry::Vacant(entry) => {
 				let value = T::default();
-				self.malloc_tracker.on_inserted(&value);
+				self.malloc_tracker.on_insert(&value);
 				entry.insert((value, -1));
 			},
 		}
