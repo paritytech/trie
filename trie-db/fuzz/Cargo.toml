@@ -64,6 +64,3 @@ path = "fuzz_targets/trie_proof_valid.rs"
 [[bin]]
 name = "trie_proof_invalid"
 path = "fuzz_targets/trie_proof_invalid.rs"
-
-[patch.crates-io]
-parity-util-mem = { git = "https://github.com/paritytech/parity-common", branch = "ao-bump-parity-util-mem" }

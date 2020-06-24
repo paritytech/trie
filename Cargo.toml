@@ -10,6 +10,3 @@ members = [
 	"trie-db",
 	"trie-root"
 ]
-
-[patch.crates-io]
-parity-util-mem = { git = "https://github.com/paritytech/parity-common", branch = "ao-bump-parity-util-mem" }
