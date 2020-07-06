@@ -320,7 +320,7 @@ where
 			Entry::Vacant(entry) => {
 				let value = T::default();
 				self.malloc_tracker.on_insert(&value);
-				entry.insert((value, -1)); // FIXME: shouldn't it be purged?
+				entry.insert((value, -1));
 				None
 			}
 		}
