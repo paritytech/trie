@@ -5,7 +5,10 @@ The format is based on [Keep a Changelog].
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
 ## [Unreleased]
-- Type parameter to count malloc_size_of on memory-db [#94](https://github.com/paritytech/trie/pull/94)
+
+## [0.21.0] - 2020-07-06
+- Type parameter to count `malloc_size_of` on memory-db. [#94](https://github.com/paritytech/trie/pull/94)
+- Update hashbrown to 0.8. [#97](https://github.com/paritytech/trie/pull/97)
 
 ## [0.20.0] - 2020-03-21
 - Update parity-util-mem to v0.6 [#82](https://github.com/paritytech/trie/pull/82)
