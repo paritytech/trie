@@ -1,6 +1,6 @@
 [package]
 name = "trie-db"
-version = "0.21.0"
+version = "0.21.1"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Merkle-Patricia Trie generic over key hasher and node encoding"
 repository = "https://github.com/paritytech/trie"
@@ -11,7 +11,7 @@ edition = "2018"
 log = "0.4"
 smallvec = "1.0.0"
 hash-db = { path = "../hash-db", default-features = false, version = "0.15.2"}
-hashbrown = { version = "0.6.3", default-features = false }
+hashbrown = { version = "0.8.0", default-features = false }
 rustc-hex = { version = "2.1.0", default-features = false, optional = true }
 
 [dev-dependencies]
