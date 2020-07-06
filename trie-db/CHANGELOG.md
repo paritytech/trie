@@ -7,7 +7,6 @@ The format is based on [Keep a Changelog].
 ## [Unreleased]
 
 ## [0.22.0] - 2020-07-06
-- Update memory-db to 0.21. [#94](https://github.com/paritytech/trie/pull/94)
 - Update hashbrown to 0.8. [#97](https://github.com/paritytech/trie/pull/97)
 
 ## [0.21.0] - 2020-06-04
