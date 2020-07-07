@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.24.0] - 2020-07-07
+- Update memory-db to 0.24. [#99](https://github.com/paritytech/trie/pull/99)
+
 ## [0.23.0] - 2020-07-06
 - Update memory-db to 0.22. [#98](https://github.com/paritytech/trie/pull/98)
 
