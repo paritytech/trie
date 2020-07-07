@@ -66,6 +66,13 @@ pub trait MaybeDebug {}
 #[cfg(not(feature = "std"))]
 impl<T> MaybeDebug for T {}
 
+/// The default memory tracker used by [`MemoryDB`].
+#[cfg(feature = "std")]
+pub type DefaultMemTracker<T> = MemCounter<T>;
+/// The default memory tracker used by [`MemoryDB`].
+#[cfg(not(feature = "std"))]
+pub type DefaultMemTracker<T> = NoopTracker<T>;
+
 /// Reference-counted memory-based `HashDB` implementation.
 ///
 /// Use `new()` to create a new database. Insert items with `insert()`, remove items
@@ -113,7 +120,7 @@ impl<T> MaybeDebug for T {}
 ///   assert!(!m.contains(&k, EMPTY_PREFIX));
 /// }
 /// ```
-pub struct MemoryDB<H, KF, T, M = MemCounter<T>>
+pub struct MemoryDB<H, KF, T, M = DefaultMemTracker<T>>
 where
 	H: KeyHasher,
 	KF: KeyFunction<H>,
