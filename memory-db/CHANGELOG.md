@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.24.0] - 2020-07-07
+- Disable memory tracking for no_std target by default. [#99](https://github.com/paritytech/trie/pull/99)
+
 ## [0.22.0] - 2020-07-06
 - Type parameter to count `malloc_size_of` on memory-db. [#94](https://github.com/paritytech/trie/pull/94)
 - Update hashbrown to 0.8. [#97](https://github.com/paritytech/trie/pull/97)

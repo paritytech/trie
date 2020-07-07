@@ -82,7 +82,21 @@ impl<T: MallocSizeOf> MemTracker<T> for MemCounter<T> {
 
 /// No-op `MemTracker` implementation for when we want to
 /// construct a `MemoryDB` instance that does not track memory usage.
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct NoopTracker;
+#[derive(PartialEq, Eq)]
+pub struct NoopTracker<T>(PhantomData<T>);
 
-impl<T> MemTracker<T> for NoopTracker {}
+impl<T> Default for NoopTracker<T> {
+	fn default() -> Self {
+		Self(PhantomData)
+	}
+}
+
+impl<T> Clone for NoopTracker<T> {
+	fn clone(&self) -> Self {
+        Self::default()
+	}
+}
+
+impl<T> Copy for NoopTracker<T> {}
+
+impl<T> MemTracker<T> for NoopTracker<T> {}
