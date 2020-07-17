@@ -85,6 +85,10 @@ pub type DefaultMemTracker<T> = NoopTracker<T>;
 ///
 /// # Example
 /// ```rust
+///   use hash_db::{Hasher, HashDB, EMPTY_PREFIX};
+///   use keccak_hasher::KeccakHasher;
+///   use memory_db::{MemoryDB, HashKey};
+///
 ///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default();
 ///   let d = "Hello world!".as_bytes();
 ///
