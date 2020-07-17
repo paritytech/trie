@@ -62,7 +62,7 @@ impl<HO: Copy> Recorder<HO> {
 	pub fn record(&mut self, hash: &HO, data: &[u8], depth: u32) {
 		if depth >= self.min_depth {
 			self.nodes.push(Record {
-				depth: depth,
+				depth,
 				data: data.into(),
 				hash: *hash,
 			})

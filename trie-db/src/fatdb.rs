@@ -90,7 +90,7 @@ where
 	pub fn new(trie: &'db TrieDB<L>) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(FatDBIterator {
 			trie_iterator: TrieDBIterator::new(trie)?,
-			trie: trie,
+			trie,
 		})
 	}
 }
