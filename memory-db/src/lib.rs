@@ -330,6 +330,14 @@ where
 			}
 		}
 	}
+
+	/// Shrinks the capacity of the map as much as possible. It will drop
+	/// down as much as possible while maintaining the internal rules
+	/// and possibly leaving some space in accordance with the resize policy.
+	#[inline]
+	pub fn shrink_to_fit(&mut self) {
+		self.data.shrink_to_fit();
+	}
 }
 
 impl<'a, H, KF, T, M> MemoryDB<H, KF, T, M>
