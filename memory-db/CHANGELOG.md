@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.24.1] - 2020-07-20
+- Add `shrink_to_fit` method. [#102](https://github.com/paritytech/trie/pull/102)
+
 ## [0.24.0] - 2020-07-07
 - Disable memory tracking for no_std target by default. [#99](https://github.com/paritytech/trie/pull/99)
 
