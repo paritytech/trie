@@ -23,14 +23,9 @@ use std::hash;
 #[cfg(not(feature = "std"))]
 use core::hash;
 
-#[cfg(feature = "std")]
-pub trait MaybeDebug: Debug {}
-#[cfg(feature = "std")]
-impl<T: Debug> MaybeDebug for T {}
-#[cfg(not(feature = "std"))]
-pub trait MaybeDebug {}
-#[cfg(not(feature = "std"))]
-impl<T> MaybeDebug for T {}
+pub trait MaybeDebug: core::fmt::Debug {}
+impl<T: core::fmt::Debug> MaybeDebug for T {}
+
 
 
 /// A trie node prefix, it is the nibble path from the trie root

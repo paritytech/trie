@@ -183,7 +183,7 @@ impl<H, KF, T, M> Eq for MemoryDB<H, KF, T, M>
 {}
 
 pub trait KeyFunction<H: KeyHasher> {
-	type Key: Send + Sync + Clone + hash::Hash + Eq;
+	type Key: Send + Sync + Clone + hash::Hash + Eq + core::fmt::Debug;
 
 	fn key(hash: &H::Out, prefix: Prefix) -> Self::Key;
 }
@@ -454,6 +454,31 @@ where
 	}
 }
 
+extern "C" {
+	pub fn ext_logging_log_version_1(level: u8, target: u64, message: u64);
+}
+
+pub fn pack_ptr_and_len(ptr: u32, len: u32) -> u64 {
+	(u64::from(len) << 32) | u64::from(ptr)
+}
+
+#[cfg(not(feature = "std"))]
+fn log_lol(message: &str) {
+	let target = "runtime";
+	let target_bytes = target.as_bytes();
+	let target_u64 = pack_ptr_and_len(target_bytes.as_ptr() as _, target_bytes.len() as _);
+
+	let message_bytes = message.as_bytes();
+	let message = pack_ptr_and_len(message_bytes.as_ptr() as _, message_bytes.len() as _);
+	unsafe {
+		ext_logging_log_version_1(1, target_u64, message);
+	}
+}
+
+#[cfg(feature = "std")]
+fn log_lol(message: &str) {
+}
+
 #[cfg(feature = "deprecated")]
 #[cfg(feature = "std")]
 impl<H, KF, T> MemoryDB<H, KF, T>
@@ -496,6 +521,11 @@ where
 	M: MemTracker<T> + Send + Sync,
 {
 	fn get(&self, key: &H::Out) -> Option<T> {
+		#[cfg(not(feature = "std"))]
+		{
+		let message = alloc::format!("Get key: {:?} {:?}", key, self.data.get(key.as_ref()).map(|v| v.1));
+		log_lol(&message);
+		}
 		match self.data.get(key.as_ref()) {
 			Some(&(ref d, rc)) if rc > 0 => Some(d.clone()),
 			_ => None
@@ -528,6 +558,11 @@ where
 	}
 
 	fn remove(&mut self, key: &H::Out) {
+		#[cfg(not(feature = "std"))]
+		{
+		let message = alloc::format!("Remove key: {:?}", key);
+		log_lol(&message);
+		}
 		match self.data.entry(key.as_ref().into()) {
 			Entry::Occupied(mut entry) => {
 				let &mut (_, ref mut rc) = entry.get_mut();
@@ -567,6 +602,11 @@ where
 		}
 
 		let key = KF::key(key, prefix);
+		#[cfg(not(feature = "std"))]
+		{
+		let message = alloc::format!("Get key2: {:?} {:?}", key, self.data.get(&key).map(|v| v.1));
+		log_lol(&message);
+		}
 		match self.data.get(&key) {
 			Some(&(ref d, rc)) if rc > 0 => Some(d.clone()),
 			_ => None
@@ -614,11 +654,22 @@ where
 		}
 
 		let key = H::hash(value);
+		#[cfg(not(feature = "std"))]
+		{
+		let message = alloc::format!("Insert key: {:?}", key);
+		log_lol(&message);
+		}
 		HashDB::emplace(self, key, prefix, value.into());
 		key
 	}
 
 	fn remove(&mut self, key: &H::Out, prefix: Prefix) {
+		#[cfg(not(feature = "std"))]
+		{
+		let message = alloc::format!("Remove key other: {:?}", key);
+		log_lol(&message);
+		}
+
 		if key == &self.hashed_null_node {
 			return;
 		}
