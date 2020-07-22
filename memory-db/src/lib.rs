@@ -85,11 +85,10 @@ pub type DefaultMemTracker<T> = NoopTracker<T>;
 ///
 /// # Example
 /// ```rust
+///   use hash_db::{Hasher, HashDB, EMPTY_PREFIX};
+///   use keccak_hasher::KeccakHasher;
+///   use memory_db::{MemoryDB, HashKey};
 ///
-/// use hash_db::{Hasher, HashDB, EMPTY_PREFIX};
-/// use keccak_hasher::KeccakHasher;
-/// use memory_db::{MemoryDB, HashKey};
-/// fn main() {
 ///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default();
 ///   let d = "Hello world!".as_bytes();
 ///
@@ -118,7 +117,6 @@ pub type DefaultMemTracker<T> = NoopTracker<T>;
 ///
 ///   m.remove(&k, EMPTY_PREFIX);
 ///   assert!(!m.contains(&k, EMPTY_PREFIX));
-/// }
 /// ```
 pub struct MemoryDB<H, KF, T, M = DefaultMemTracker<T>>
 where
@@ -332,6 +330,14 @@ where
 			}
 		}
 	}
+
+	/// Shrinks the capacity of the map as much as possible. It will drop
+	/// down as much as possible while maintaining the internal rules
+	/// and possibly leaving some space in accordance with the resize policy.
+	#[inline]
+	pub fn shrink_to_fit(&mut self) {
+		self.data.shrink_to_fit();
+	}
 }
 
 impl<'a, H, KF, T, M> MemoryDB<H, KF, T, M>
@@ -406,7 +412,7 @@ where
 	/// Return the internal key-value HashMap, clearing the current state.
 	pub fn drain(&mut self) -> HashMap<KF::Key, (T, i32)> {
 		self.malloc_tracker.on_clear();
-		mem::replace(&mut self.data, Default::default())
+		mem::take(&mut self.data)
 	}
 
 	/// Grab the raw information associated with a key. Returns None if the key
