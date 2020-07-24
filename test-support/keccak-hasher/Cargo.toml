@@ -8,7 +8,7 @@ license = "Apache-2.0"
 edition = "2018"
 
 [dependencies]
-tiny-keccak = "1.4.2"
+tiny-keccak = { version = "2.0.2", features = ["keccak"] }
 hash-db = { path = "../../hash-db", default-features = false, version = "0.15.2" }
 hash256-std-hasher = { path = "../../hash256-std-hasher", version = "0.15.2" }
 
