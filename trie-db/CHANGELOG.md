@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.22.1] - 2020-07-24
+- Use `ahash` feature of hashbrown. [#103](https://github.com/paritytech/trie/pull/103)
+
 ## [0.22.0] - 2020-07-06
 - Update hashbrown to 0.8. [#97](https://github.com/paritytech/trie/pull/97)
 
