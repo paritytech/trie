@@ -15,7 +15,7 @@ hashbrown = { version = "0.8.0", default-features = false, features = [ "ahash" 
 
 [dev-dependencies]
 keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.15.2"}
-criterion = "0.2.8"
+criterion = "0.3.3"
 
 [features]
 default = ["std"]

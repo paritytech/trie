@@ -15,7 +15,7 @@ hashbrown = { version = "0.8.0", default-features = false, features = ["ahash"] 
 rustc-hex = { version = "2.1.0", default-features = false, optional = true }
 
 [dev-dependencies]
-env_logger = "0.6"
+env_logger = "0.7"
 memory-db = { path = "../memory-db", version = "0.24.0" }
 rand = { version = "0.7", default-features = false, features = ["small_rng"] }
 trie-root = { path = "../trie-root", version = "0.16.0"}
@@ -23,10 +23,8 @@ trie-standardmap = { path = "../test-support/trie-standardmap", version = "0.15.
 keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.15.2" }
 # DISABLE the following line when publishing until cyclic dependencies are resolved https://github.com/rust-lang/cargo/issues/4242
 reference-trie = { path = "../test-support/reference-trie", default-features = false, version = "0.22.0" }
-hex-literal = "0.2"
+hex-literal = "0.3"
 criterion = "0.3"
-parity-codec = "3.0"
-parity-codec-derive = "3.0"
 
 [features]
 default = ["std"]
