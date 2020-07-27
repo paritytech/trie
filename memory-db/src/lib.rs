@@ -67,10 +67,10 @@ pub trait MaybeDebug {}
 impl<T> MaybeDebug for T {}
 
 /// The default memory tracker used by [`MemoryDB`].
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", feature = "memory-tracker"))]
 pub type DefaultMemTracker<T> = MemCounter<T>;
 /// The default memory tracker used by [`MemoryDB`].
-#[cfg(not(feature = "std"))]
+#[cfg(not(all(feature = "std", feature = "memory-tracker")))]
 pub type DefaultMemTracker<T> = NoopTracker<T>;
 
 /// Reference-counted memory-based `HashDB` implementation.
