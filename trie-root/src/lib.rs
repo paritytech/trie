@@ -1,4 +1,4 @@
-// Copyright 2017, 2018 Parity Technologies
+// Copyright 2017, 2020 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -78,7 +78,7 @@ fn shared_prefix_length<T: Eq>(first: &[T], second: &[T]) -> usize {
 
 /// Generates a trie root hash for a vector of key-value tuples
 ///
-/// ```rust
+/// ```ignore
 /// use hex_literal::hex;
 /// use trie_root::trie_root;
 /// use reference_trie::ReferenceTrieStream;
@@ -210,7 +210,7 @@ pub fn unhashed_trie_no_extension<H, S, I, A, B>(input: I) -> Vec<u8> where
 
 /// Generates a key-hashed (secure) trie root hash for a vector of key-value tuples.
 ///
-/// ```rust
+/// ```ignore
 /// use hex_literal::hex;
 /// use trie_root::sec_trie_root;
 /// use keccak_hasher::KeccakHasher;

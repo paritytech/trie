@@ -11,13 +11,6 @@ edition = "2018"
 [dependencies]
 hash-db = { path = "../hash-db", default-features = false, version = "0.15.2" }
 
-[dev-dependencies]
-hex-literal = "0.3"
-keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.15.2" }
-trie-standardmap = { path = "../test-support/trie-standardmap", version = "0.15.2" }
-# DISABLE the following line when publishing until cyclic dependencies are resolved https://github.com/rust-lang/cargo/issues/4242
-reference-trie = { path = "../test-support/reference-trie", default-features = false, version = "0.22.0" }
-
 [features]
 default = ["std"]
 std = [
