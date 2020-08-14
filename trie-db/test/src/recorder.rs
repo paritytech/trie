@@ -17,7 +17,8 @@
 use memory_db::{MemoryDB, HashKey};
 use hash_db::Hasher;
 use keccak_hasher::KeccakHasher;
-use reference_trie::{RefTrieDB, RefTrieDBMut, Trie, TrieMut, Recorder, Record};
+use reference_trie::{RefTrieDB, RefTrieDBMut};
+use trie_db::{Trie, TrieMut, Recorder, Record};
 
 #[test]
 fn basic_recorder() {

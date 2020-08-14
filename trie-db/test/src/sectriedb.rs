@@ -15,8 +15,8 @@
 use memory_db::{MemoryDB, HashKey};
 use hash_db::Hasher;
 use keccak_hasher::KeccakHasher;
-use reference_trie::{RefTrieDBMut, RefSecTrieDB, Trie, TrieMut};
-use trie_db::DBValue;
+use reference_trie::{RefTrieDBMut, RefSecTrieDB};
+use trie_db::{DBValue, Trie, TrieMut};
 
 #[test]
 fn trie_to_sectrie() {

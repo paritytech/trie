@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use memory_db::{MemoryDB, HashKey};
-use trie_db::DBValue;
+use trie_db::{DBValue, Trie, TrieMut};
 use keccak_hasher::KeccakHasher;
-use reference_trie::{RefFatDBMut, RefFatDB, Trie, TrieMut};
+use reference_trie::{RefFatDBMut, RefFatDB};
 
 #[test]
 fn fatdb_to_trie() {

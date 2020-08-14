@@ -15,12 +15,12 @@
 use env_logger;
 use trie_standardmap::*;
 use log::debug;
-use trie_db::DBValue;
+use trie_db::{DBValue, TrieMut, NodeCodec,};
 use memory_db::{MemoryDB, PrefixedKey};
 use hash_db::{Hasher, HashDB};
 use keccak_hasher::KeccakHasher;
-use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMutAllowEmpty, RefTrieDBMut, TrieMut,
-	NodeCodec, ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension};
+use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMutAllowEmpty, RefTrieDBMut,
+	ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension};
 
 fn populate_trie<'db>(
 	db: &'db mut dyn HashDB<KeccakHasher, DBValue>,

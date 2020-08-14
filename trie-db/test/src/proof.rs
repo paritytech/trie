@@ -15,11 +15,12 @@
 use hash_db::Hasher;
 use reference_trie::{
 	ExtensionLayout, NoExtensionLayout,
-	proof::{generate_proof, verify_proof, VerifyError}, Trie, TrieDB, TrieDBMut, TrieLayout,
-	TrieMut,
 };
 
-use trie_db::DBValue;
+use trie_db::{
+	DBValue, TrieDB, TrieDBMut, TrieLayout, TrieMut,
+	proof::{generate_proof, verify_proof, VerifyError}, Trie,
+};
 
 type MemoryDB<H> = memory_db::MemoryDB<H, memory_db::HashKey<H>, DBValue>;
 

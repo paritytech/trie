@@ -37,7 +37,8 @@ fn root_extension_one () {
 }
 
 fn test_iter(data: Vec<(Vec<u8>, Vec<u8>)>) {
-	use reference_trie::{RefTrieDBMut, TrieMut, RefTrieDB, Trie};
+	use reference_trie::{RefTrieDBMut, RefTrieDB};
+	use trie_db::{TrieMut, Trie};
 
 	let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
@@ -63,7 +64,8 @@ fn test_iter(data: Vec<(Vec<u8>, Vec<u8>)>) {
 }
 
 fn test_iter_no_extension(data: Vec<(Vec<u8>, Vec<u8>)>) {
-	use reference_trie::{RefTrieDBMutNoExt, TrieMut, RefTrieDBNoExt, Trie};
+	use reference_trie::{RefTrieDBMutNoExt, RefTrieDBNoExt};
+	use trie_db::{TrieMut, Trie};
 
 	let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();

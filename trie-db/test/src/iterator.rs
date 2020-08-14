@@ -12,14 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use trie_db::DBValue;
+use trie_db::{
+	DBValue, TrieError, TrieMut,
+	TrieIterator, TrieDBNodeIterator, NibbleSlice, NibbleVec,
+	node::Node,
+};
 use hex_literal::hex;
 use hash_db::{HashDB, Hasher};
 use keccak_hasher::KeccakHasher;
 use reference_trie::{
 	RefTrieDB, RefTrieDBMut,
-	TrieError, TrieMut, TrieIterator, TrieDBNodeIterator, NibbleSlice, NibbleVec,
-	node::Node,
 };
 use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt};
 

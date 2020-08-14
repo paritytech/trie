@@ -15,7 +15,8 @@
 use memory_db::{MemoryDB, HashKey};
 use hash_db::{Hasher, EMPTY_PREFIX};
 use keccak_hasher::KeccakHasher;
-use reference_trie::{RefFatDBMut, RefTrieDB, Trie, TrieMut};
+use reference_trie::{RefFatDBMut, RefTrieDB};
+use trie_db::{Trie, TrieMut};
 
 #[test]
 fn fatdbmut_to_trie() {
