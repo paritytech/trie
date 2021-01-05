@@ -38,8 +38,8 @@ use trie_db::{
 	Trie, TrieConfiguration,
 	TrieLayout, TrieMut,
 };
-use trie_root::TrieStream;
-mod node {
+pub use trie_root::TrieStream;
+pub mod node {
 	pub use trie_db::node::Node;
 }
 
