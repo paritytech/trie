@@ -25,9 +25,6 @@ pub use malloc_size_of::*;
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher,
 	AsHashDB, AsPlainDB, Prefix};
 use parity_util_mem::{MallocSizeOf, MallocSizeOfOps, MallocShallowSizeOf};
-#[cfg(feature = "deprecated")]
-#[cfg(feature = "std")]
-use heapsize::HeapSizeOf;
 #[cfg(feature = "std")]
 use std::{
 	collections::hash_map::Entry,
@@ -457,22 +454,6 @@ where
 				None
 			})
 			.collect()
-	}
-}
-
-#[cfg(feature = "deprecated")]
-#[cfg(feature = "std")]
-impl<H, KF, T> MemoryDB<H, KF, T>
-where
-	H: KeyHasher,
-	T: HeapSizeOf,
-	KF: KeyFunction<H>,
-{
-	#[deprecated(since="0.12.0", note="please use `size_of` instead")]
-	/// Returns the size of allocated heap memory
-	pub fn mem_used(&self) -> usize {
-		0//self.data.heap_size_of_children()
-		// TODO Reenable above when HeapSizeOf supports arrays.
 	}
 }
 
