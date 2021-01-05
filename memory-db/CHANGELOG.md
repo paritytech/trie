@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.25.0] - 2021-01-05
+- Update `parity-util-mem` and `hashbrown`, removed `heapsize`. [#118](https://github.com/paritytech/trie/pull/118)
+
 ## [0.24.1] - 2020-07-20
 - Add `shrink_to_fit` method. [#102](https://github.com/paritytech/trie/pull/102)
 
