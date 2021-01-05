@@ -33,11 +33,10 @@ use trie_db::{
 use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
 
-pub use trie_db::{
-	decode_compact, encode_compact,
-	nibble_ops, NibbleSlice, NibbleVec, NodeCodec, proof, Record, Recorder,
-	Trie, TrieConfiguration, TrieDB, TrieDBIterator, TrieDBMut, TrieDBNodeIterator, TrieError,
-	TrieIterator, TrieLayout, TrieMut,
+use trie_db::{
+	nibble_ops, NodeCodec,
+	Trie, TrieConfiguration,
+	TrieLayout, TrieMut,
 };
 pub use trie_root::TrieStream;
 pub mod node {
