@@ -409,8 +409,8 @@ pub fn decode_compact_from_iter<'a, L, DB, T, I>(db: &mut DB, encoded: &'a mut I
 	// The prefix of the next item to be read from the slice of encoded items.
 	let mut prefix = NibbleVec::new();
 
-	for (i, mut encoded_node) in encoded.enumerate() {
-		let node = L::Codec::decode(&mut encoded_node)
+	for (i, encoded_node) in encoded.into_iter().enumerate() {
+		let node = L::Codec::decode(encoded_node)
 			.map_err(|err| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), err)))?;
 
 		let children_len = match node {
