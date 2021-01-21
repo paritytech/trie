@@ -338,6 +338,60 @@ impl<'a, I: Iterator<Item = &'a [u8]>> SkipKeys<'a, I> {
 	}
 }
 
+struct SkipKeyValues<'a, I> {
+	key_values: I,
+	next_key_value: Option<(&'a [u8], &'a [u8])>,
+}
+
+impl<'a, I: Iterator<Item = (&'a [u8], &'a [u8])>> SkipKeyValues<'a, I> {
+	fn new(mut key_values: I) -> Self {
+		let next_key_value = key_values.next();
+		SkipKeyValues {
+			key_values,
+			next_key_value,
+		}
+	}
+
+	fn skip_new_node_value<C: NodeCodec>(
+		&mut self,
+		prefix: &mut NibbleVec,
+		entry: &mut DecoderStackEntry<'a, C>,
+	) {
+		if let Some((next, next_value)) = self.next_key_value {
+			let original_length = prefix.len();
+			match entry.node {
+				Node::Leaf(partial, _) => {
+					prefix.append_partial(partial.right());
+				}
+				Node::NibbledBranch(partial, _, Some(_value)) => {
+					prefix.append_partial(partial.right());
+				}
+				_ => return,
+			}
+			// comparison is redundant with previous checks, could be optimized.
+			let node_key = LeftNibbleSlice::new(prefix.inner()).truncate(prefix.len());
+			let next = LeftNibbleSlice::new(next);
+			let (move_next, result) = match next.cmp(&node_key) {
+				Ordering::Less => (true, false),
+				Ordering::Greater => (false, false),
+				Ordering::Equal => {
+					(true, true)
+				},
+			};
+			prefix.drop_lasts(prefix.len() - original_length);
+			if result {
+				entry.inserted_value = Some(next_value);
+			}
+			if move_next {
+				self.next_key_value = self.key_values.next();
+				if !result {
+					self.skip_new_node_value(prefix, entry);
+				}
+			}
+		}
+	}
+}
+
 struct DecoderStackEntry<'a, C: NodeCodec> {
 	node: Node<'a>,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
@@ -345,6 +399,8 @@ struct DecoderStackEntry<'a, C: NodeCodec> {
 	child_index: usize,
 	/// The reconstructed child references.
 	children: Vec<Option<ChildReference<C::HashOut>>>,
+	/// Value to insert.
+	inserted_value: Option<&'a [u8]>,
 	_marker: PhantomData<C>,
 }
 
@@ -435,12 +491,16 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	///
 	/// Preconditions:
 	/// - if node is an extension node, then `children[0]` is Some.
-	fn encode_node(self) -> Vec<u8> {
+	fn encode_node(mut self) -> Vec<u8> {
 		match self.node {
 			Node::Empty =>
 				C::empty_node().to_vec(),
-			Node::Leaf(partial, value) =>
-				C::leaf_node(partial.right(), value),
+			Node::Leaf(partial, mut value) => {
+				if let Some(inserted_value) = self.inserted_value.take() {
+					value = inserted_value;
+				}
+				C::leaf_node(partial.right(), value)
+			},
 			Node::Extension(partial, _) =>
 				C::extension_node(
 					partial.right_iter(),
@@ -448,15 +508,23 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 					self.children[0]
 						.expect("required by method precondition; qed"),
 				),
-			Node::Branch(_, value) =>
-				C::branch_node(self.children.into_iter(), value),
-			Node::NibbledBranch(partial, _, value) =>
+			Node::Branch(_, mut value) => {
+				if let Some(inserted_value) = self.inserted_value.take() {
+					value = Some(inserted_value);
+				}
+				C::branch_node(self.children.into_iter(), value)
+			},
+			Node::NibbledBranch(partial, _, mut value) => {
+				if let Some(inserted_value) = self.inserted_value.take() {
+					value = Some(inserted_value);
+				}
 				C::branch_node_nibbled(
 					partial.right_iter(),
 					partial.len(),
 					self.children.iter(),
 					value,
-				),
+				)
+			},
 		}
 	}
 }
@@ -490,9 +558,27 @@ pub fn decode_compact_from_iter<'a, L, DB, T, I>(db: &mut DB, encoded: I)
 		DB: HashDB<L::Hash, T>,
 		I: IntoIterator<Item = &'a [u8]>,
 {
+	decode_compact_with_skipped_values::<L, DB, T, I, _>(db, encoded, core::iter::empty())
+}
+
+/// Variant of 'decode_compact' that inject some known key values.
+/// Values are only added if the existing one is a zero length value,
+/// to match 'encode_compact_skip_values'.
+///
+/// Skipped key values must be ordered.
+pub fn decode_compact_with_skipped_values<'a, L, DB, T, I, V>(db: &mut DB, encoded: I, skipped: V)
+	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
+	where
+		L: TrieLayout,
+		DB: HashDB<L::Hash, T>,
+		I: IntoIterator<Item = &'a [u8]>,
+		V: IntoIterator<Item = (&'a [u8], &'a [u8])>,
+{
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
 	let mut stack: Vec<DecoderStackEntry<L::Codec>> = Vec::new();
+
+	let mut skipped = SkipKeyValues::new(skipped.into_iter());
 
 	// The prefix of the next item to be read from the slice of encoded items.
 	let mut prefix = NibbleVec::new();
@@ -510,10 +596,12 @@ pub fn decode_compact_from_iter<'a, L, DB, T, I>(db: &mut DB, encoded: I)
 			node,
 			child_index: 0,
 			children: vec![None; children_len],
+			inserted_value: None,
 			_marker: PhantomData::default(),
 		};
 
 		loop {
+			skipped.skip_new_node_value(&mut prefix, &mut last_entry);
 			if !last_entry.advance_child_index()? {
 				last_entry.push_to_prefix(&mut prefix);
 				stack.push(last_entry);

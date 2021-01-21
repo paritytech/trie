@@ -14,8 +14,9 @@
 
 
 use trie_db::{
-	DBValue, encode_compact_skip_values, decode_compact,
+	DBValue, encode_compact_skip_values, decode_compact_with_skipped_values,
 	Trie, TrieMut, TrieDB, TrieError, TrieDBMut, TrieLayout, Recorder,
+	decode_compact,
 };
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 use reference_trie::{
@@ -28,7 +29,7 @@ type MemoryDB<H> = memory_db::MemoryDB<H, memory_db::HashKey<H>, DBValue>;
 fn test_encode_compact<L: TrieLayout>(
 	entries: Vec<(&'static [u8], &'static [u8])>,
 	keys: Vec<&'static [u8]>,
-	skip_keys: BTreeSet<&'static [u8]>,
+	skip_keys: &BTreeSet<&'static [u8]>,
 ) -> (<L::Hash as Hasher>::Out, Vec<Vec<u8>>, Vec<(&'static [u8], Option<DBValue>)>)
 {
 	// Populate DB with full trie from entries.
@@ -76,10 +77,15 @@ fn test_decode_compact<L: TrieLayout>(
 	items: Vec<(&'static [u8], Option<DBValue>)>,
 	expected_root: <L::Hash as Hasher>::Out,
 	expected_used: usize,
+	skipped_values: &BTreeSet<(&'static [u8], &'static [u8])>,
 ) {
 	// Reconstruct the partial DB from the compact encoding.
 	let mut db = MemoryDB::default();
-	let (root, used) = decode_compact::<L, _, _>(&mut db, encoded).unwrap();
+	let (root, used) = decode_compact_with_skipped_values::<L, _, _, _, _>(
+		&mut db,
+		encoded.iter().map(Vec::as_slice),
+		skipped_values.iter().map(|kv| (kv.0, kv.1)),
+	).unwrap();
 	assert_eq!(root, expected_root);
 	assert_eq!(used, expected_used);
 
@@ -121,11 +127,11 @@ fn trie_compact_encoding_works_with_ext() {
 			b"do\x10", // None, empty branch child
 			b"halp", // None, witness is extension node with non-omitted child
 		],
-		BTreeSet::new(),
+		&BTreeSet::new(),
 	);
 
 	encoded.push(Vec::new()); // Add an extra item to ensure it is not read.
-	test_decode_compact::<ExtensionLayout>(&encoded, items, root, encoded.len() - 1);
+	test_decode_compact::<ExtensionLayout>(&encoded, items, root, encoded.len() - 1, &BTreeSet::new());
 }
 
 #[test]
@@ -141,11 +147,11 @@ fn trie_compact_encoding_works_without_ext() {
 			b"do\x10", // None, witness is empty branch child
 			b"halp", // None, witness is branch partial
 		],
-		BTreeSet::new(),
+		&BTreeSet::new(),
 	);
 
 	encoded.push(Vec::new()); // Add an extra item to ensure it is not read.
-	test_decode_compact::<NoExtensionLayout>(&encoded, items, root, encoded.len() - 1);
+	test_decode_compact::<NoExtensionLayout>(&encoded, items, root, encoded.len() - 1, &BTreeSet::new());
 }
 
 #[test]
@@ -165,7 +171,7 @@ fn trie_compact_encoding_skip_values() {
 			b"do\x10", // None, witness is empty branch child
 			b"halp", // None, witness is branch partial
 		],
-		BTreeSet::new(),
+		&BTreeSet::new(),
 	);
 	let (root, encoded, items) = test_encode_compact::<NoExtensionLayout>(
 		test_set(),
@@ -178,13 +184,29 @@ fn trie_compact_encoding_skip_values() {
 			b"do\x10", // None, witness is empty branch child
 			b"halp", // None, witness is branch partial
 		],
-		to_skip,
+		&to_skip,
 	);
 	assert_eq!(root_no_skip, root);
 	assert_eq!(items_no_skip, items);
 	assert_eq!(
 		encoded_no_skip.iter().map(|e| e.len()).sum::<usize>(),
 		encoded.iter().map(|e| e.len()).sum::<usize>() + skip_len,
+	);
+	let mut encoded = encoded;
+	encoded.push(Vec::new()); // Add an extra item to ensure it is not read.
+	let mut skipped_values = BTreeSet::new();
+	skipped_values.extend(&[
+		(&b"doge"[..], &[0; 32][..]),
+		(&b"do"[..], &b"verb"[..]),
+		(&b"aaaa"[..], &b"dummy"[..]),
+		(&b"b"[..], &b"dummy"[..]),
+	]);
+	test_decode_compact::<NoExtensionLayout>(
+		&encoded,
+		items,
+		root,
+		encoded.len() - 1,
+		&skipped_values,
 	);
 }
 
@@ -195,7 +217,7 @@ fn trie_decoding_fails_with_incomplete_database() {
 		vec![
 			b"alfa",
 		],
-		BTreeSet::new(),
+		&BTreeSet::new(),
 	);
 
 	assert!(encoded.len() > 1);
