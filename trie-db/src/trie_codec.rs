@@ -30,10 +30,12 @@ use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout,
 	nibble_ops::NIBBLE_LENGTH, node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode},
+	nibble::LeftNibbleSlice,
 };
 use crate::rstd::{
 	boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec, vec::Vec,
 };
+use crate::rstd::cmp::Ordering;
 
 struct EncoderStackEntry<C: NodeCodec> {
 	/// The prefix is the nibble path to the node in the trie.
@@ -44,6 +46,8 @@ struct EncoderStackEntry<C: NodeCodec> {
 	child_index: usize,
 	/// Flags indicating whether each child is omitted in the encoded node.
 	omit_children: Vec<bool>,
+	/// Flags indicating whether we should omit value in the encoded node.
+	omit_value: bool,
 	/// The encoding of the subtrie nodes rooted at this entry, which is built up in
 	/// `encode_compact`.
 	output_index: usize,
@@ -96,8 +100,13 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 
 	/// Generates the encoding of the subtrie rooted at this entry.
 	fn encode_node(&self) -> Result<Vec<u8>, C::HashOut, C::Error> {
+		let empty_value = Some(&[][..]);
 		let node_data = self.node.data();
 		Ok(match self.node.node_plan() {
+			NodePlan::Leaf { partial, value: _value } if self.omit_value => {
+				let partial = partial.build(node_data);
+				C::leaf_node(partial.right(), &[][..])
+			},
 			NodePlan::Empty | NodePlan::Leaf { .. } => node_data.to_vec(),
 			NodePlan::Extension { partial, child: _ } => {
 				if !self.omit_children[0] {
@@ -109,18 +118,28 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 				}
 			}
 			NodePlan::Branch { value, children } => {
+				let value = if self.omit_value {
+					empty_value
+				} else {
+					value.clone().map(|range| &node_data[range])
+				};
 				C::branch_node(
 					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
-					value.clone().map(|range| &node_data[range])
+					value,
 				)
 			}
 			NodePlan::NibbledBranch { partial, value, children } => {
+				let value = if self.omit_value {
+					empty_value
+				} else {
+					value.clone().map(|range| &node_data[range])
+				};
 				let partial = partial.build(node_data);
 				C::branch_node_nibbled(
 					partial.right_iter(),
 					partial.len(),
 					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
-					value.clone().map(|range| &node_data[range])
+					value,
 				)
 			}
 		})
@@ -167,8 +186,24 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 /// references.
 pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 	where
-		L: TrieLayout
+		L: TrieLayout,
 {
+	encode_compact_skip_values(db, core::iter::empty())
+}
+
+/// Variant of 'encode_compact' where values for given key (those are required to be already know
+/// when checking the produce proof with 'decode_compact_with_values') are skipped.
+/// Skipped values are encoded as a 0 length value.
+///
+/// The iterator need to be sorted.
+pub fn encode_compact_skip_values<'a, L, I>(db: &TrieDB<L>, to_skip: I) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+	where
+		L: TrieLayout,
+		I: IntoIterator<Item = &'a [u8]>,
+{
+
+	let mut to_skip = SkipKeys::new(to_skip.into_iter());
+
 	let mut output = Vec::new();
 
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
@@ -221,11 +256,13 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 					NodePlan::Extension { .. } => 1,
 					NodePlan::Branch { .. } | NodePlan::NibbledBranch { .. } => NIBBLE_LENGTH,
 				};
+				let omit_value = to_skip.skip_new_node_value(&prefix, &node);
 				stack.push(EncoderStackEntry {
 					prefix,
 					node,
 					child_index: 0,
 					omit_children: vec![false; children_len],
+					omit_value,
 					output_index: output.len(),
 					_marker: PhantomData::default(),
 				});
@@ -248,6 +285,57 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 	}
 
 	Ok(output)
+}
+
+struct SkipKeys<'a, I> {
+	keys: I,
+	next_key: Option<&'a [u8]>,
+}
+
+impl<'a, I: Iterator<Item = &'a [u8]>> SkipKeys<'a, I> {
+	fn new(mut keys: I) -> Self {
+		let next_key = keys.next();
+		SkipKeys {
+			keys,
+			next_key,
+		}
+	}
+
+	fn skip_new_node_value(&mut self, prefix: &NibbleVec, node: &Rc<OwnedNode<DBValue>>) -> bool {
+		if let Some(next) = self.next_key {
+
+			let mut node_key = prefix.clone();
+			match node.node_plan() {
+				NodePlan::NibbledBranch{partial, value: Some(_), ..}
+				| NodePlan::Leaf {partial, ..} => {
+					let node_data = node.data();
+					let partial = partial.build(node_data);
+					node_key.append_partial(partial.right());
+				},
+				_ => (),
+			};
+
+			// comparison is redundant with previous checks, could be optimized.
+			let node_key = LeftNibbleSlice::new(node_key.inner()).truncate(node_key.len());
+			let next = LeftNibbleSlice::new(next);
+			let (move_next, result) = match next.cmp(&node_key) {
+				Ordering::Less => (true, false),
+				Ordering::Greater => (false, false),
+				Ordering::Equal => {
+					(true, true)
+				},
+			};
+			if move_next {
+				self.next_key = self.keys.next();
+				if !result {
+					return self.skip_new_node_value(prefix, node);
+				}
+			}
+			result
+		} else {
+			false
+		}
+	}
 }
 
 struct DecoderStackEntry<'a, C: NodeCodec> {

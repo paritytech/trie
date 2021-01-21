@@ -257,6 +257,8 @@ impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
 }
 
 impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
+	// TODO should be Result<(&'a NibbleVec, ...)> also rc is useless: should be &'a
+	// Also should return direction (down up or sibling), many time we recheck externally.
 	type Item = Result<(NibbleVec, Option<TrieHash<L>>, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {

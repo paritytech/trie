@@ -14,19 +14,21 @@
 
 
 use trie_db::{
-	DBValue, encode_compact, decode_compact,
+	DBValue, encode_compact_skip_values, decode_compact,
 	Trie, TrieMut, TrieDB, TrieError, TrieDBMut, TrieLayout, Recorder,
 };
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 use reference_trie::{
 	ExtensionLayout, NoExtensionLayout,
 };
+use std::collections::BTreeSet;
 
 type MemoryDB<H> = memory_db::MemoryDB<H, memory_db::HashKey<H>, DBValue>;
 
 fn test_encode_compact<L: TrieLayout>(
 	entries: Vec<(&'static [u8], &'static [u8])>,
 	keys: Vec<&'static [u8]>,
+	skip_keys: BTreeSet<&'static [u8]>,
 ) -> (<L::Hash as Hasher>::Out, Vec<Vec<u8>>, Vec<(&'static [u8], Option<DBValue>)>)
 {
 	// Populate DB with full trie from entries.
@@ -63,7 +65,7 @@ fn test_encode_compact<L: TrieLayout>(
 	// Compactly encode the partial trie DB.
 	let compact_trie = {
 		let trie = <TrieDB<L>>::new(&partial_db, &root).unwrap();
-		encode_compact::<L>(&trie).unwrap()
+		encode_compact_skip_values::<L, _>(&trie, skip_keys.iter().map(|k| *k)).unwrap()
 	};
 
 	(root, compact_trie, items)
@@ -88,24 +90,28 @@ fn test_decode_compact<L: TrieLayout>(
 	}
 }
 
+fn test_set() -> Vec<(&'static [u8], &'static [u8])> {
+	vec![
+		// "alfa" is at a hash-referenced leaf node.
+		(b"alfa", &[0; 32]),
+		// "bravo" is at an inline leaf node.
+		(b"bravo", b"bravo"),
+		// "do" is at a hash-referenced branch node.
+		(b"do", b"verb"),
+		// "dog" is at an inline leaf node.
+		(b"dog", b"puppy"),
+		// "doge" is at a hash-referenced leaf node.
+		(b"doge", &[0; 32]),
+		// extension node "o" (plus nibble) to next branch.
+		(b"horse", b"stallion"),
+		(b"house", b"building"),
+	]
+}
+
 #[test]
 fn trie_compact_encoding_works_with_ext() {
 	let (root, mut encoded, items) = test_encode_compact::<ExtensionLayout>(
-		vec![
-			// "alfa" is at a hash-referenced leaf node.
-			(b"alfa", &[0; 32]),
-			// "bravo" is at an inline leaf node.
-			(b"bravo", b"bravo"),
-			// "do" is at a hash-referenced branch node.
-			(b"do", b"verb"),
-			// "dog" is at an inline leaf node.
-			(b"dog", b"puppy"),
-			// "doge" is at a hash-referenced leaf node.
-			(b"doge", &[0; 32]),
-			// extension node "o" (plus nibble) to next branch.
-			(b"horse", b"stallion"),
-			(b"house", b"building"),
-		],
+		test_set(),
 		vec![
 			b"do",
 			b"dog",
@@ -115,6 +121,7 @@ fn trie_compact_encoding_works_with_ext() {
 			b"do\x10", // None, empty branch child
 			b"halp", // None, witness is extension node with non-omitted child
 		],
+		BTreeSet::new(),
 	);
 
 	encoded.push(Vec::new()); // Add an extra item to ensure it is not read.
@@ -124,21 +131,7 @@ fn trie_compact_encoding_works_with_ext() {
 #[test]
 fn trie_compact_encoding_works_without_ext() {
 	let (root, mut encoded, items) = test_encode_compact::<NoExtensionLayout>(
-		vec![
-			// "alfa" is at a hash-referenced leaf node.
-			(b"alfa", &[0; 32]),
-			// "bravo" is at an inline leaf node.
-			(b"bravo", b"bravo"),
-			// "do" is at a hash-referenced branch node.
-			(b"do", b"verb"),
-			// "dog" is at an inline leaf node.
-			(b"dog", b"puppy"),
-			// "doge" is at a hash-referenced leaf node.
-			(b"doge", &[0; 32]),
-			// extension node "o" (plus nibble) to next branch.
-			(b"horse", b"stallion"),
-			(b"house", b"building"),
-		],
+		test_set(),
 		vec![
 			b"do",
 			b"dog",
@@ -148,6 +141,7 @@ fn trie_compact_encoding_works_without_ext() {
 			b"do\x10", // None, witness is empty branch child
 			b"halp", // None, witness is branch partial
 		],
+		BTreeSet::new(),
 	);
 
 	encoded.push(Vec::new()); // Add an extra item to ensure it is not read.
@@ -155,15 +149,53 @@ fn trie_compact_encoding_works_without_ext() {
 }
 
 #[test]
+fn trie_compact_encoding_skip_values() {
+	let mut to_skip = BTreeSet::new();
+	to_skip.extend(&[&b"doge"[..], &b"aaaaaa"[..], &b"do"[..], &b"b"[..]]); 
+	// doge and do will be skip (32 + 4 bytes)
+	let skip_len = 36;
+	let (root_no_skip, encoded_no_skip, items_no_skip) = test_encode_compact::<NoExtensionLayout>(
+		test_set(),
+		vec![
+			b"do",
+			b"dog",
+			b"doge",
+			b"bravo",
+			b"d", // None, witness is a branch partial
+			b"do\x10", // None, witness is empty branch child
+			b"halp", // None, witness is branch partial
+		],
+		BTreeSet::new(),
+	);
+	let (root, encoded, items) = test_encode_compact::<NoExtensionLayout>(
+		test_set(),
+		vec![
+			b"do",
+			b"dog",
+			b"doge",
+			b"bravo",
+			b"d", // None, witness is a branch partial
+			b"do\x10", // None, witness is empty branch child
+			b"halp", // None, witness is branch partial
+		],
+		to_skip,
+	);
+	assert_eq!(root_no_skip, root);
+	assert_eq!(items_no_skip, items);
+	assert_eq!(
+		encoded_no_skip.iter().map(|e| e.len()).sum::<usize>(),
+		encoded.iter().map(|e| e.len()).sum::<usize>() + skip_len,
+	);
+}
+
+#[test]
 fn trie_decoding_fails_with_incomplete_database() {
 	let (_, encoded, _) = test_encode_compact::<ExtensionLayout>(
-		vec![
-			(b"alfa", &[0; 32]),
-			(b"bravo", b"bravo"),
-		],
+		test_set(),
 		vec![
 			b"alfa",
 		],
+		BTreeSet::new(),
 	);
 
 	assert!(encoded.len() > 1);
