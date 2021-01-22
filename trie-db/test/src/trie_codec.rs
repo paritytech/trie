@@ -81,7 +81,7 @@ fn test_decode_compact<L: TrieLayout>(
 ) {
 	// Reconstruct the partial DB from the compact encoding.
 	let mut db = MemoryDB::default();
-	let (root, used) = decode_compact_with_skipped_values::<L, _, _, _, _>(
+	let (root, used) = decode_compact_with_skipped_values::<L, _, _, _, _, _>(
 		&mut db,
 		encoded.iter().map(Vec::as_slice),
 		skipped_values.iter().map(|kv| (kv.0, kv.1)),
