@@ -34,8 +34,8 @@ use crate::{
 };
 use crate::rstd::{
 	boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec, vec::Vec,
+	borrow::Cow, cmp::Ordering, mem,
 };
-use crate::rstd::cmp::Ordering;
 
 struct EncoderStackEntry<C: NodeCodec> {
 	/// The prefix is the nibble path to the node in the trie.
@@ -361,7 +361,7 @@ impl<
 		prefix: &mut NibbleVec,
 		entry: &mut DecoderStackEntry<'a, C, F>,
 	) {
-		if let Some((next, next_value)) = self.next_key_value {
+		if let Some((next, _next_value)) = &self.next_key_value {
 			let original_length = prefix.len();
 			match entry.node {
 				Node::Leaf(partial, _) => {
@@ -384,7 +384,7 @@ impl<
 			};
 			prefix.drop_lasts(prefix.len() - original_length);
 			if result {
-				entry.inserted_value = Some(next_value);
+				entry.inserted_value = mem::take(&mut self.next_key_value).map(|next| next.1);
 			}
 			if move_next {
 				self.next_key_value = self.key_values.next();
@@ -499,11 +499,13 @@ impl<'a, C: NodeCodec, F: LazyValue<'a>> DecoderStackEntry<'a, C, F> {
 		Some(match self.node {
 			Node::Empty =>
 				C::empty_node().to_vec(),
-			Node::Leaf(partial, mut value) => {
+			Node::Leaf(partial, value) => {
 				if let Some(inserted_value) = self.inserted_value.take() {
-					value = inserted_value.fetch()?;
+					let value = inserted_value.fetch()?;
+					C::leaf_node(partial.right(), value.as_ref())
+				} else {
+					C::leaf_node(partial.right(), value)
 				}
-				C::leaf_node(partial.right(), value)
 			},
 			Node::Extension(partial, _) =>
 				C::extension_node(
@@ -512,22 +514,31 @@ impl<'a, C: NodeCodec, F: LazyValue<'a>> DecoderStackEntry<'a, C, F> {
 					self.children[0]
 						.expect("required by method precondition; qed"),
 				),
-			Node::Branch(_, mut value) => {
+			Node::Branch(_, value) => {
 				if let Some(inserted_value) = self.inserted_value.take() {
-					value = Some(inserted_value.fetch()?);
+					let value = inserted_value.fetch()?;
+					C::branch_node(self.children.into_iter(), Some(value.as_ref()))
+				} else {
+					C::branch_node(self.children.into_iter(), value)
 				}
-				C::branch_node(self.children.into_iter(), value)
 			},
-			Node::NibbledBranch(partial, _, mut value) => {
+			Node::NibbledBranch(partial, _, value) => {
 				if let Some(inserted_value) = self.inserted_value.take() {
-					value = Some(inserted_value.fetch()?);
+					let value = inserted_value.fetch()?;
+					C::branch_node_nibbled(
+						partial.right_iter(),
+						partial.len(),
+						self.children.iter(),
+						Some(value.as_ref()),
+					)
+				} else {
+					C::branch_node_nibbled(
+						partial.right_iter(),
+						partial.len(),
+						self.children.iter(),
+						value,
+					)
 				}
-				C::branch_node_nibbled(
-					partial.right_iter(),
-					partial.len(),
-					self.children.iter(),
-					value,
-				)
 			},
 		})
 	}
@@ -568,16 +579,16 @@ pub fn decode_compact_from_iter<'a, L, DB, T, I>(db: &mut DB, encoded: I)
 
 /// Simple fetcher for values to insert in proof when running
 /// `decode_compact_with_skipped_values`.
-pub trait LazyValue<'a>: Copy {
+pub trait LazyValue<'a> {
 	/// Get actual value as bytes.
 	/// If value cannot be fetch return `None`, resulting
 	/// in an error in `decode_compact_with_skipped_values`.
-	fn fetch(&self) -> Option<&'a [u8]>;
+	fn fetch(&self) -> Option<Cow<'a, [u8]>>;
 }
 
 impl<'a> LazyValue<'a> for &'a [u8] {
-	fn fetch(&self) -> Option<&'a [u8]> {
-		Some(self)
+	fn fetch(&self) -> Option<Cow<'a, [u8]>> {
+		Some(Cow::Borrowed(self))
 	}
 }
 
