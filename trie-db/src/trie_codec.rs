@@ -391,6 +391,17 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 		L: TrieLayout,
 		DB: HashDB<L::Hash, T>,
 {
+	decode_compact_from_iter::<L, DB, T, _>(db, encoded.iter().map(Vec::as_slice))
+}
+
+/// Variant of 'decode_compact' that accept an iterator of encoded nodes as input.
+pub fn decode_compact_from_iter<'a, L, DB, T, I>(db: &mut DB, encoded: I)
+	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
+	where
+		L: TrieLayout,
+		DB: HashDB<L::Hash, T>,
+		I: IntoIterator<Item = &'a [u8]>,
+{
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
 	let mut stack: Vec<DecoderStackEntry<L::Codec>> = Vec::new();
@@ -398,7 +409,7 @@ pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
 	// The prefix of the next item to be read from the slice of encoded items.
 	let mut prefix = NibbleVec::new();
 
-	for (i, encoded_node) in encoded.iter().enumerate() {
+	for (i, encoded_node) in encoded.into_iter().enumerate() {
 		let node = L::Codec::decode(encoded_node)
 			.map_err(|err| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), err)))?;
 
