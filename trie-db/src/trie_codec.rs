@@ -340,7 +340,8 @@ impl<'a, I: Iterator<Item = &'a [u8]>> SkipKeys<'a, I> {
 
 enum ValuesInsert<'a, I, F> {
 	KnownKeys(SkipKeyValues<'a, I, F>),
-	// EncodedKeys
+	// TODO knownkeys with escaping.
+	EncodedKeys(F),
 }
 
 struct SkipKeyValues<'a, I, F> {
@@ -360,43 +361,55 @@ impl<
 			next_key_value,
 		}
 	}
+}
 
+impl<
+	'a,
+	F: LazyFetcher<'a>,
+	I: Iterator<Item = (&'a [u8], F)>
+> ValuesInsert<'a, I, F> {
 	fn skip_new_node_value<C: NodeCodec>(
 		&mut self,
 		prefix: &mut NibbleVec,
 		entry: &mut DecoderStackEntry<'a, C, F>,
 	) {
-		if let Some((next, _next_value)) = &self.next_key_value {
-			let original_length = prefix.len();
-			match entry.node {
-				Node::Leaf(partial, _) => {
-					prefix.append_partial(partial.right());
+		match self {
+			ValuesInsert::KnownKeys(skipped_keys) => {
+				if let Some((next, _next_value)) = &skipped_keys.next_key_value {
+					let original_length = prefix.len();
+					match entry.node {
+						Node::Leaf(partial, _) => {
+							prefix.append_partial(partial.right());
+						}
+						Node::NibbledBranch(partial, _, Some(_value)) => {
+							prefix.append_partial(partial.right());
+						}
+						_ => return,
+					}
+					// comparison is redundant with previous checks, could be optimized.
+					let node_key = LeftNibbleSlice::new(prefix.inner()).truncate(prefix.len());
+					let next = LeftNibbleSlice::new(next);
+					let (move_next, result) = match next.cmp(&node_key) {
+						Ordering::Less => (true, false),
+						Ordering::Greater => (false, false),
+						Ordering::Equal => {
+							(true, true)
+						},
+					};
+					prefix.drop_lasts(prefix.len() - original_length);
+					if result {
+						entry.inserted_value = mem::take(&mut skipped_keys.next_key_value);
+					}
+					if move_next {
+						skipped_keys.next_key_value = skipped_keys.key_values.next();
+						if !result {
+							self.skip_new_node_value(prefix, entry);
+						}
+					}
 				}
-				Node::NibbledBranch(partial, _, Some(_value)) => {
-					prefix.append_partial(partial.right());
-				}
-				_ => return,
-			}
-			// comparison is redundant with previous checks, could be optimized.
-			let node_key = LeftNibbleSlice::new(prefix.inner()).truncate(prefix.len());
-			let next = LeftNibbleSlice::new(next);
-			let (move_next, result) = match next.cmp(&node_key) {
-				Ordering::Less => (true, false),
-				Ordering::Greater => (false, false),
-				Ordering::Equal => {
-					(true, true)
-				},
-			};
-			prefix.drop_lasts(prefix.len() - original_length);
-			if result {
-				entry.inserted_value = mem::take(&mut self.next_key_value);
-			}
-			if move_next {
-				self.next_key_value = self.key_values.next();
-				if !result {
-					self.skip_new_node_value(prefix, entry);
-				}
-			}
+			},
+			ValuesInsert::EncodedKeys(_fetcher) => {
+			},
 		}
 	}
 }
@@ -619,7 +632,7 @@ pub fn decode_compact_with_skipped_values<'a, L, DB, T, I, F, V>(db: &mut DB, en
 	// entry.
 	let mut stack: Vec<DecoderStackEntry<L::Codec, F>> = Vec::new();
 
-	let mut skipped = SkipKeyValues::new(skipped.into_iter());
+	let mut skipped = ValuesInsert::KnownKeys(SkipKeyValues::new(skipped.into_iter()));
 
 	// The prefix of the next item to be read from the slice of encoded items.
 	let mut prefix = NibbleVec::new();
