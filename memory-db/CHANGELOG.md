@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.26.0] - 2021-01-27
+- Update `parity-util-mem`.
+
 ## [0.25.0] - 2021-01-05
 - Update `parity-util-mem` and `hashbrown`, removed `heapsize`. [#118](https://github.com/paritytech/trie/pull/118)
 
