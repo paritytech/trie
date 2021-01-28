@@ -340,7 +340,7 @@ impl<'a, I: Iterator<Item = &'a [u8]>> SkipKeys<'a, I> {
 
 enum ValuesInsert<'a, I, F> {
 	KnownKeys(SkipKeyValues<'a, I, F>),
-	EncodedKeys(F),
+	EscapedKeys(F),
 }
 
 struct SkipKeyValues<'a, I, F> {
@@ -459,26 +459,38 @@ impl<
 	F: LazyFetcher<'a>,
 	V: Iterator<Item = &'a [u8]>
 > ValuesInsert<'a, V, F> {
+	fn escaped_value(
+		&self,
+	) -> bool {
+		match self {
+			ValuesInsert::KnownKeys(..) => false,
+			ValuesInsert::EscapedKeys(..) => true
+		}
+	}
+
 	fn skip_new_node_value<C: NodeCodec>(
 		&mut self,
 		prefix: &mut NibbleVec,
 		entry: &mut DecoderStackEntry<'a, C>,
 	) -> bool {
+
+		let original_length = prefix.len();
+		let (partial, empty_value, escaped_value) = match entry.node {
+			Node::Leaf(partial, value)
+			| Node::NibbledBranch(partial, _, Some(value)) => {
+				(partial, value.is_empty(), if self.escaped_value() {
+					decode_empty_escaped(value)
+				} else {
+					None
+				})
+			},
+			_ => return true,
+		};
+
 		match self {
 			ValuesInsert::KnownKeys(skipped_keys) => {
 				if let Some(next) = &skipped_keys.next_key_value {
-					let original_length = prefix.len();
-					let mut empty_value = false;
-					match entry.node {
-						Node::Leaf(partial, value)
-						| Node::NibbledBranch(partial, _, Some(value)) => {
-							if value.len() == 0 {
-								empty_value = true;
-							}
-							prefix.append_partial(partial.right());
-						}
-						_ => return true,
-					}
+					prefix.append_partial(partial.right());
 					// comparison is redundant with previous checks, could be optimized.
 					let node_key = LeftNibbleSlice::new(prefix.inner()).truncate(prefix.len());
 					let next = LeftNibbleSlice::new(next);
@@ -506,35 +518,27 @@ impl<
 					if move_next {
 						skipped_keys.next_key_value = skipped_keys.key_values.next();
 						if !result {
-							self.skip_new_node_value(prefix, entry);
+							return self.skip_new_node_value(prefix, entry);
 						}
 					}
 				}
 			},
-			ValuesInsert::EncodedKeys(fetcher) => {
-				match entry.node {
-					Node::Leaf(partial, value)
-					| Node::NibbledBranch(partial, _, Some(value)) => {
-						if value.len() == 0 {
-							let original_length = prefix.len();
-							prefix.append_partial(partial.right());
-							let key = LeftNibbleSlice::new(prefix.inner()).truncate(prefix.len());
-							if let Some(value) = fetcher.fetch(key.as_slice().expect("Values have keys")) {
-								entry.inserted_value = Some(value);
-								prefix.drop_lasts(prefix.len() - original_length);
-							} else {
-								prefix.drop_lasts(prefix.len() - original_length);
-								return false;
-							}
-						} else if let Some(new_value) = decode_empty_escaped(value) {
-							entry.inserted_value = Some(new_value.into());
-						} else {
-							return true;
-						}
+			ValuesInsert::EscapedKeys(fetcher) => {
+				if empty_value {
+					prefix.append_partial(partial.right());
+					let key = LeftNibbleSlice::new(prefix.inner()).truncate(prefix.len());
+					if let Some(value) = fetcher.fetch(key.as_slice().expect("Values have keys")) {
+						entry.inserted_value = Some(value);
+						prefix.drop_lasts(prefix.len() - original_length);
+					} else {
+						prefix.drop_lasts(prefix.len() - original_length);
+						return false;
 					}
-					_ => return true,
 				}
 			},
+		}
+		if let Some(new_value) = escaped_value {
+			entry.inserted_value = Some(new_value.into());
 		}
 		true
 	}
@@ -780,7 +784,7 @@ pub fn decode_compact_with_encoded_skipped_values<'a, L, DB, T, I, F>(db: &mut D
 		I: IntoIterator<Item = &'a [u8]>,
 		F: LazyFetcher<'a>,
 {
-	let skipped = ValuesInsert::EncodedKeys(fetcher);
+	let skipped = ValuesInsert::EscapedKeys(fetcher);
 	decode_compact_with_skipped_inner::<L, DB, T, _, F, core::iter::Empty<_>>(db, encoded.into_iter(), skipped)
 }
 
