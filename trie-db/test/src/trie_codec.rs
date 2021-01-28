@@ -212,6 +212,12 @@ fn trie_compact_encoding_skip_values() {
 }
 
 #[test]
+fn trie_compact_encoding_skip_all_values() {
+	let mut values = BTreeMap::new();
+	values.extend(test_set());
+}
+
+#[test]
 fn trie_decoding_fails_with_incomplete_database() {
 	let (_, encoded, _) = test_encode_compact::<ExtensionLayout>(
 		test_set(),

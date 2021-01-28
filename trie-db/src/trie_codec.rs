@@ -48,6 +48,8 @@ struct EncoderStackEntry<C: NodeCodec> {
 	omit_children: Vec<bool>,
 	/// Flags indicating whether we should omit value in the encoded node.
 	omit_value: bool,
+	/// Flags indicating whether we should escape a value.
+	escape_value: bool,
 	/// The encoding of the subtrie nodes rooted at this entry, which is built up in
 	/// `encode_compact`.
 	output_index: usize,
@@ -103,11 +105,21 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 		let empty_value = Some(&[][..]);
 		let node_data = self.node.data();
 		Ok(match self.node.node_plan() {
-			NodePlan::Leaf { partial, value: _value } if self.omit_value => {
+			NodePlan::Empty => node_data.to_vec(),
+			NodePlan::Leaf { partial, value } => {
 				let partial = partial.build(node_data);
-				C::leaf_node(partial.right(), &[][..])
+				if self.omit_value {
+					C::leaf_node(partial.right(), &[][..])
+				} else if self.escape_value {
+					if let Some(escaped) = encode_empty_escape(&node_data[value.clone()]) {
+						C::leaf_node(partial.right(), &escaped[..])
+					} else {
+						node_data.to_vec()
+					}
+				} else {
+					node_data.to_vec()
+				}
 			},
-			NodePlan::Empty | NodePlan::Leaf { .. } => node_data.to_vec(),
 			NodePlan::Extension { partial, child: _ } => {
 				if !self.omit_children[0] {
 					node_data.to_vec()
@@ -119,13 +131,24 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 			}
 			NodePlan::Branch { value, children } => {
 				let value = if self.omit_value {
-					empty_value
+					empty_value.map(Cow::Borrowed)
 				} else {
-					value.clone().map(|range| &node_data[range])
+					value.clone().map(|range| {
+						let node_data = &node_data[range];
+						if self.escape_value {
+							if let Some(escaped) = encode_empty_escape(node_data) {
+								escaped
+							} else {
+								node_data.into()
+							}
+						} else {
+							node_data.into()
+						}
+					})
 				};
 				C::branch_node(
 					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
-					value,
+					value.as_ref().map(|v| &v[..]),
 				)
 			}
 			NodePlan::NibbledBranch { partial, value, children } => {
@@ -201,9 +224,25 @@ pub fn encode_compact_skip_values<'a, L, I>(db: &TrieDB<L>, to_skip: I) -> Resul
 		L: TrieLayout,
 		I: IntoIterator<Item = &'a [u8]>,
 {
+	let to_skip = ValuesRemove::KnownKeys(SkipKeys::new(to_skip.into_iter()));
+	encode_compact_skip_values_inner(db, to_skip)
+}
 
-	let mut to_skip = SkipKeys::new(to_skip.into_iter());
+/// Variant of 'encode_compact' where all values are removed and replace by empty value.
+pub fn encode_compact_skip_all_values<'a, L, I>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+	where
+		L: TrieLayout,
+{
+	let to_skip = ValuesRemove::AllEscaped;
+	encode_compact_skip_values_inner::<L, core::iter::Empty<_>>(db, to_skip)
+}
 
+
+fn encode_compact_skip_values_inner<'a, L, I>(db: &TrieDB<L>, mut to_skip: ValuesRemove<'a, I>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+	where
+		L: TrieLayout,
+		I: Iterator<Item = &'a [u8]>,
+{
 	let mut output = Vec::new();
 
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
@@ -256,13 +295,14 @@ pub fn encode_compact_skip_values<'a, L, I>(db: &TrieDB<L>, to_skip: I) -> Resul
 					NodePlan::Extension { .. } => 1,
 					NodePlan::Branch { .. } | NodePlan::NibbledBranch { .. } => NIBBLE_LENGTH,
 				};
-				let omit_value = to_skip.skip_new_node_value(&prefix, &node);
+				let (omit_value, escape_value) = to_skip.skip_new_node_value(&prefix, &node);
 				stack.push(EncoderStackEntry {
 					prefix,
 					node,
 					child_index: 0,
 					omit_children: vec![false; children_len],
 					omit_value,
+					escape_value,
 					output_index: output.len(),
 					_marker: PhantomData::default(),
 				});
@@ -287,6 +327,11 @@ pub fn encode_compact_skip_values<'a, L, I>(db: &TrieDB<L>, to_skip: I) -> Resul
 	Ok(output)
 }
 
+enum ValuesRemove<'a, I> {
+	KnownKeys(SkipKeys<'a, I>),
+	AllEscaped,
+}
+
 struct SkipKeys<'a, I> {
 	keys: I,
 	next_key: Option<&'a [u8]>,
@@ -300,41 +345,45 @@ impl<'a, I: Iterator<Item = &'a [u8]>> SkipKeys<'a, I> {
 			next_key,
 		}
 	}
+}
 
-	fn skip_new_node_value(&mut self, prefix: &NibbleVec, node: &Rc<OwnedNode<DBValue>>) -> bool {
-		if let Some(next) = self.next_key {
+impl<'a, I: Iterator<Item = &'a [u8]>> ValuesRemove<'a, I> {
+	fn skip_new_node_value(&mut self, prefix: &NibbleVec, node: &Rc<OwnedNode<DBValue>>) -> (bool, bool) {
+		match self {
+			ValuesRemove::KnownKeys(to_skip) => {
+				if let Some(next) = to_skip.next_key {
+					let mut node_key = prefix.clone();
+					match node.node_plan() {
+						NodePlan::NibbledBranch{partial, value: Some(_), ..}
+						| NodePlan::Leaf {partial, ..} => {
+							let node_data = node.data();
+							let partial = partial.build(node_data);
+							node_key.append_partial(partial.right());
+						},
+						_ => (),
+					};
 
-			let mut node_key = prefix.clone();
-			match node.node_plan() {
-				NodePlan::NibbledBranch{partial, value: Some(_), ..}
-				| NodePlan::Leaf {partial, ..} => {
-					let node_data = node.data();
-					let partial = partial.build(node_data);
-					node_key.append_partial(partial.right());
-				},
-				_ => (),
-			};
-
-			// comparison is redundant with previous checks, could be optimized.
-			let node_key = LeftNibbleSlice::new(node_key.inner()).truncate(node_key.len());
-			let next = LeftNibbleSlice::new(next);
-			let (move_next, result) = match next.cmp(&node_key) {
-				Ordering::Less => (true, false),
-				Ordering::Greater => (false, false),
-				Ordering::Equal => {
-					(true, true)
-				},
-			};
-			if move_next {
-				self.next_key = self.keys.next();
-				if !result {
-					return self.skip_new_node_value(prefix, node);
+					// comparison is redundant with previous checks, could be optimized.
+					let node_key = LeftNibbleSlice::new(node_key.inner()).truncate(node_key.len());
+					let next = LeftNibbleSlice::new(next);
+					match next.cmp(&node_key) {
+						Ordering::Less => {
+							to_skip.next_key = to_skip.keys.next();
+							return self.skip_new_node_value(prefix, node);
+						},
+						Ordering::Equal => {
+							to_skip.next_key = to_skip.keys.next();
+							return (true, false);
+						},
+						Ordering::Greater => (),
+					};
 				}
-			}
-			result
-		} else {
-			false
+			},
+			ValuesRemove::AllEscaped => {
+				return (true, false);
+			},
 		}
+		(false, false)
 	}
 }
 

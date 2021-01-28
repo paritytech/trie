@@ -75,7 +75,8 @@ pub use crate::iter_build::{trie_visit, ProcessEncodedNode,
 pub use crate::iterator::TrieDBNodeIterator;
 pub use crate::trie_codec::{encode_compact, encode_compact_skip_values, 
 	decode_compact, decode_compact_from_iter, decode_compact_with_skipped_values,
-	decode_compact_with_encoded_skipped_values, LazyFetcher};
+	decode_compact_with_encoded_skipped_values, encode_compact_skip_all_values,
+	LazyFetcher};
 
 #[cfg(feature = "std")]
 pub use crate::iter_build::TrieRootPrint;
