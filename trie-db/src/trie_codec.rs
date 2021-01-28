@@ -338,6 +338,11 @@ impl<'a, I: Iterator<Item = &'a [u8]>> SkipKeys<'a, I> {
 	}
 }
 
+enum ValuesInsert<'a, I, F> {
+	KnownKeys(SkipKeyValues<'a, I, F>),
+	// EncodedKeys
+}
+
 struct SkipKeyValues<'a, I, F> {
 	key_values: I,
 	next_key_value: Option<(&'a [u8], F)>,
@@ -345,7 +350,7 @@ struct SkipKeyValues<'a, I, F> {
 
 impl<
 	'a,
-	F: LazyValue<'a>,
+	F: LazyFetcher<'a>,
 	I: Iterator<Item = (&'a [u8], F)>
 > SkipKeyValues<'a, I, F> {
 	fn new(mut key_values: I) -> Self {
@@ -384,7 +389,7 @@ impl<
 			};
 			prefix.drop_lasts(prefix.len() - original_length);
 			if result {
-				entry.inserted_value = mem::take(&mut self.next_key_value).map(|next| next.1);
+				entry.inserted_value = mem::take(&mut self.next_key_value);
 			}
 			if move_next {
 				self.next_key_value = self.key_values.next();
@@ -404,11 +409,11 @@ struct DecoderStackEntry<'a, C: NodeCodec, F> {
 	/// The reconstructed child references.
 	children: Vec<Option<ChildReference<C::HashOut>>>,
 	/// Value to insert.
-	inserted_value: Option<F>,
+	inserted_value: Option<(&'a [u8], F)>,
 	_marker: PhantomData<C>,
 }
 
-impl<'a, C: NodeCodec, F: LazyValue<'a>> DecoderStackEntry<'a, C, F> {
+impl<'a, C: NodeCodec, F: LazyFetcher<'a>> DecoderStackEntry<'a, C, F> {
 	/// Advance the child index until either it exceeds the number of children or the child is
 	/// marked as omitted. Omitted children are indicated by an empty inline reference. For each
 	/// child that is passed over and not omitted, copy over the child reference from the node to
@@ -501,7 +506,7 @@ impl<'a, C: NodeCodec, F: LazyValue<'a>> DecoderStackEntry<'a, C, F> {
 				C::empty_node().to_vec(),
 			Node::Leaf(partial, value) => {
 				if let Some(inserted_value) = self.inserted_value.take() {
-					let value = inserted_value.fetch()?;
+					let value = inserted_value.1.fetch(inserted_value.0)?;
 					C::leaf_node(partial.right(), value.as_ref())
 				} else {
 					C::leaf_node(partial.right(), value)
@@ -516,7 +521,7 @@ impl<'a, C: NodeCodec, F: LazyValue<'a>> DecoderStackEntry<'a, C, F> {
 				),
 			Node::Branch(_, value) => {
 				if let Some(inserted_value) = self.inserted_value.take() {
-					let value = inserted_value.fetch()?;
+					let value = inserted_value.1.fetch(inserted_value.0)?;
 					C::branch_node(self.children.into_iter(), Some(value.as_ref()))
 				} else {
 					C::branch_node(self.children.into_iter(), value)
@@ -524,7 +529,7 @@ impl<'a, C: NodeCodec, F: LazyValue<'a>> DecoderStackEntry<'a, C, F> {
 			},
 			Node::NibbledBranch(partial, _, value) => {
 				if let Some(inserted_value) = self.inserted_value.take() {
-					let value = inserted_value.fetch()?;
+					let value = inserted_value.1.fetch(inserted_value.0)?;
 					C::branch_node_nibbled(
 						partial.right_iter(),
 						partial.len(),
@@ -573,22 +578,26 @@ pub fn decode_compact_from_iter<'a, L, DB, T, I>(db: &mut DB, encoded: I)
 		DB: HashDB<L::Hash, T>,
 		I: IntoIterator<Item = &'a [u8]>,
 {
-	decode_compact_with_skipped_values::<L, DB, T, I, &[u8], _>(db, encoded, core::iter::empty())
+	decode_compact_with_skipped_values::<L, DB, T, I, (&[u8], &[u8]), _>(db, encoded, core::iter::empty())
 }
 
 
 /// Simple fetcher for values to insert in proof when running
 /// `decode_compact_with_skipped_values`.
-pub trait LazyValue<'a> {
+pub trait LazyFetcher<'a> {
 	/// Get actual value as bytes.
 	/// If value cannot be fetch return `None`, resulting
 	/// in an error in `decode_compact_with_skipped_values`.
-	fn fetch(&self) -> Option<Cow<'a, [u8]>>;
+	fn fetch(&self, key: &[u8]) -> Option<Cow<'a, [u8]>>;
 }
 
-impl<'a> LazyValue<'a> for &'a [u8] {
-	fn fetch(&self) -> Option<Cow<'a, [u8]>> {
-		Some(Cow::Borrowed(self))
+impl<'a> LazyFetcher<'a> for (&'a [u8], &'a [u8]) {
+	fn fetch(&self, key: &[u8]) -> Option<Cow<'a, [u8]>> {
+		if key == self.0 {
+			Some(Cow::Borrowed(self.1))
+		} else {
+			None
+		}
 	}
 }
 
@@ -603,7 +612,7 @@ pub fn decode_compact_with_skipped_values<'a, L, DB, T, I, F, V>(db: &mut DB, en
 		L: TrieLayout,
 		DB: HashDB<L::Hash, T>,
 		I: IntoIterator<Item = &'a [u8]>,
-		F: LazyValue<'a>,
+		F: LazyFetcher<'a>,
 		V: IntoIterator<Item = (&'a [u8], F)>,
 {
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
