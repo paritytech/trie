@@ -345,18 +345,20 @@ enum ValuesInsert<'a, I, F> {
 
 struct SkipKeyValues<'a, I, F> {
 	key_values: I,
-	next_key_value: Option<(&'a [u8], F)>,
+	fetcher: F,
+	next_key_value: Option<&'a [u8]>,
 }
 
 impl<
 	'a,
 	F: LazyFetcher<'a>,
-	I: Iterator<Item = (&'a [u8], F)>
+	I: Iterator<Item = &'a [u8]>
 > SkipKeyValues<'a, I, F> {
-	fn new(mut key_values: I) -> Self {
+	fn new(mut key_values: I, fetcher: F) -> Self {
 		let next_key_value = key_values.next();
 		SkipKeyValues {
 			key_values,
+			fetcher,
 			next_key_value,
 		}
 	}
@@ -455,8 +457,8 @@ fn escape_empty_value() {
 impl<
 	'a,
 	F: LazyFetcher<'a>,
-	I: Iterator<Item = (&'a [u8], F)>
-> ValuesInsert<'a, I, F> {
+	V: Iterator<Item = &'a [u8]>
+> ValuesInsert<'a, V, F> {
 	fn skip_new_node_value<C: NodeCodec>(
 		&mut self,
 		prefix: &mut NibbleVec,
@@ -464,11 +466,15 @@ impl<
 	) -> bool {
 		match self {
 			ValuesInsert::KnownKeys(skipped_keys) => {
-				if let Some((next, _next_value)) = &skipped_keys.next_key_value {
+				if let Some(next) = &skipped_keys.next_key_value {
 					let original_length = prefix.len();
+					let mut empty_value = false;
 					match entry.node {
-						Node::Leaf(partial, _value)
-						| Node::NibbledBranch(partial, _, Some(_value)) => {
+						Node::Leaf(partial, value)
+						| Node::NibbledBranch(partial, _, Some(value)) => {
+							if value.len() == 0 {
+								empty_value = true;
+							}
 							prefix.append_partial(partial.right());
 						}
 						_ => return true,
@@ -484,14 +490,18 @@ impl<
 						},
 					};
 					prefix.drop_lasts(prefix.len() - original_length);
-					if result {
-						if let Some((key, fetcher)) = mem::take(&mut skipped_keys.next_key_value) {
-							if let Some(value) = fetcher.fetch(key) {
+					if result && empty_value {
+						if let Some(key) = mem::take(&mut skipped_keys.next_key_value) {
+							if let Some(value) = skipped_keys.fetcher.fetch(key) {
 								entry.inserted_value = Some(value);
 							} else {
 								return false;
 							}
 						}
+					}
+					if result && !empty_value {
+						// expected skip value was not skip, can be harmless, but consider invalid
+						return false;
 					}
 					if move_next {
 						skipped_keys.next_key_value = skipped_keys.key_values.next();
@@ -704,7 +714,7 @@ pub fn decode_compact_from_iter<'a, L, DB, T, I>(db: &mut DB, encoded: I)
 		DB: HashDB<L::Hash, T>,
 		I: IntoIterator<Item = &'a [u8]>,
 {
-	decode_compact_with_skipped_values::<L, DB, T, I, (&[u8], &[u8]), _>(db, encoded, core::iter::empty())
+	decode_compact_with_skipped_values::<L, DB, T, I, (), _>(db, encoded, (), core::iter::empty())
 }
 
 
@@ -717,6 +727,12 @@ pub trait LazyFetcher<'a> {
 	fn fetch(&self, key: &[u8]) -> Option<Cow<'a, [u8]>>;
 }
 
+impl<'a> LazyFetcher<'a> for () {
+	fn fetch(&self, _key: &[u8]) -> Option<Cow<'a, [u8]>> {
+		None
+	}
+}
+
 impl<'a> LazyFetcher<'a> for (&'a [u8], &'a [u8]) {
 	fn fetch(&self, key: &[u8]) -> Option<Cow<'a, [u8]>> {
 		if key == self.0 {
@@ -727,21 +743,28 @@ impl<'a> LazyFetcher<'a> for (&'a [u8], &'a [u8]) {
 	}
 }
 
+impl<'a> LazyFetcher<'a> for &'a crate::rstd::BTreeMap<&'a [u8], &'a [u8]> {
+	fn fetch(&self, key: &[u8]) -> Option<Cow<'a, [u8]>> {
+		self.get(key).map(|value| Cow::Borrowed(*value))
+	}
+}
+
+
 /// Variant of 'decode_compact' that inject some known key values.
 /// Values are only added if the existing one is a zero length value,
 /// to match 'encode_compact_skip_values'.
 ///
 /// Skipped key values must be ordered.
-pub fn decode_compact_with_skipped_values<'a, L, DB, T, I, F, V>(db: &mut DB, encoded: I, skipped: V)
+pub fn decode_compact_with_skipped_values<'a, L, DB, T, I, F, V>(db: &mut DB, encoded: I, fetcher: F, skipped: V)
 	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
 		DB: HashDB<L::Hash, T>,
 		I: IntoIterator<Item = &'a [u8]>,
 		F: LazyFetcher<'a>,
-		V: IntoIterator<Item = (&'a [u8], F)>,
+		V: IntoIterator<Item = &'a [u8]>,
 {
-	let skipped = ValuesInsert::KnownKeys(SkipKeyValues::new(skipped.into_iter()));
+	let skipped = ValuesInsert::KnownKeys(SkipKeyValues::new(skipped.into_iter(), fetcher));
 	decode_compact_with_skipped_inner::<L, DB, T, _, F, _>(db, encoded.into_iter(), skipped)
 }
 
@@ -771,7 +794,7 @@ fn decode_compact_with_skipped_inner<'a, L, DB, T, I, F, V>(
 		DB: HashDB<L::Hash, T>,
 		I: Iterator<Item = &'a [u8]>,
 		F: LazyFetcher<'a>,
-		V: Iterator<Item = (&'a [u8], F)>,
+		V: Iterator<Item = &'a [u8]>,
 {
 	
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding

@@ -22,6 +22,7 @@ extern crate alloc;
 mod rstd {
 	pub use std::{borrow, boxed, cmp, convert, fmt, hash, iter, marker, mem, ops, rc, result, vec};
 	pub use std::collections::VecDeque;
+	pub use std::collections::BTreeMap;
 	pub use std::error::Error;
 }
 
@@ -30,6 +31,7 @@ mod rstd {
 	pub use core::{convert, cmp, iter, fmt, hash, marker, mem, ops, result};
 	pub use alloc::{borrow, boxed, rc, vec};
 	pub use alloc::collections::VecDeque;
+	pub use alloc::collections::btree_map::BTreeMap;
 	pub trait Error {}
 	impl<T> Error for T {}
 }
@@ -73,7 +75,7 @@ pub use crate::iter_build::{trie_visit, ProcessEncodedNode,
 pub use crate::iterator::TrieDBNodeIterator;
 pub use crate::trie_codec::{encode_compact, encode_compact_skip_values, 
 	decode_compact, decode_compact_from_iter, decode_compact_with_skipped_values,
-	LazyFetcher};
+	decode_compact_with_encoded_skipped_values, LazyFetcher};
 
 #[cfg(feature = "std")]
 pub use crate::iter_build::TrieRootPrint;

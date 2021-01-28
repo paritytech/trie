@@ -22,7 +22,7 @@ use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 use reference_trie::{
 	ExtensionLayout, NoExtensionLayout,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, BTreeMap};
 
 type MemoryDB<H> = memory_db::MemoryDB<H, memory_db::HashKey<H>, DBValue>;
 
@@ -77,14 +77,15 @@ fn test_decode_compact<L: TrieLayout>(
 	items: Vec<(&'static [u8], Option<DBValue>)>,
 	expected_root: <L::Hash as Hasher>::Out,
 	expected_used: usize,
-	skipped_values: &BTreeSet<(&'static [u8], &'static [u8])>,
+	skipped_values: &BTreeMap<&'static [u8], &'static [u8]>,
 ) {
 	// Reconstruct the partial DB from the compact encoding.
 	let mut db = MemoryDB::default();
 	let (root, used) = decode_compact_with_skipped_values::<L, _, _, _, _, _>(
 		&mut db,
 		encoded.iter().map(Vec::as_slice),
-		skipped_values.iter().map(|kv| (kv.0, (kv.0, kv.1))),
+		skipped_values,
+		skipped_values.keys().map(|k| *k),
 	).unwrap();
 	assert_eq!(root, expected_root);
 	assert_eq!(used, expected_used);
@@ -131,7 +132,7 @@ fn trie_compact_encoding_works_with_ext() {
 	);
 
 	encoded.push(Vec::new()); // Add an extra item to ensure it is not read.
-	test_decode_compact::<ExtensionLayout>(&encoded, items, root, encoded.len() - 1, &BTreeSet::new());
+	test_decode_compact::<ExtensionLayout>(&encoded, items, root, encoded.len() - 1, &BTreeMap::new());
 }
 
 #[test]
@@ -151,7 +152,7 @@ fn trie_compact_encoding_works_without_ext() {
 	);
 
 	encoded.push(Vec::new()); // Add an extra item to ensure it is not read.
-	test_decode_compact::<NoExtensionLayout>(&encoded, items, root, encoded.len() - 1, &BTreeSet::new());
+	test_decode_compact::<NoExtensionLayout>(&encoded, items, root, encoded.len() - 1, &BTreeMap::new());
 }
 
 #[test]
@@ -194,8 +195,8 @@ fn trie_compact_encoding_skip_values() {
 	);
 	let mut encoded = encoded;
 	encoded.push(Vec::new()); // Add an extra item to ensure it is not read.
-	let mut skipped_values = BTreeSet::new();
-	skipped_values.extend(&[
+	let mut skipped_values = BTreeMap::new();
+	skipped_values.extend(vec![
 		(&b"doge"[..], &[0; 32][..]),
 		(&b"do"[..], &b"verb"[..]),
 		(&b"aaaa"[..], &b"dummy"[..]),
