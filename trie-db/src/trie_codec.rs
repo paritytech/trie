@@ -340,7 +340,6 @@ impl<'a, I: Iterator<Item = &'a [u8]>> SkipKeys<'a, I> {
 
 enum ValuesInsert<'a, I, F> {
 	KnownKeys(SkipKeyValues<'a, I, F>),
-	// TODO knownkeys with escaping.
 	EncodedKeys(F),
 }
 
@@ -742,11 +741,42 @@ pub fn decode_compact_with_skipped_values<'a, L, DB, T, I, F, V>(db: &mut DB, en
 		F: LazyFetcher<'a>,
 		V: IntoIterator<Item = (&'a [u8], F)>,
 {
+	let skipped = ValuesInsert::KnownKeys(SkipKeyValues::new(skipped.into_iter()));
+	decode_compact_with_skipped_inner::<L, DB, T, _, F, _>(db, encoded.into_iter(), skipped)
+}
+
+/// Variant of 'decode_compact' that try to fetch value when they where
+/// skipped.
+/// Skipped values are identified by being a 0 length value, the actual 0 length value
+/// is escaped.
+pub fn decode_compact_with_encoded_skipped_values<'a, L, DB, T, I, F>(db: &mut DB, encoded: I, fetcher: F)
+	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
+	where
+		L: TrieLayout,
+		DB: HashDB<L::Hash, T>,
+		I: IntoIterator<Item = &'a [u8]>,
+		F: LazyFetcher<'a>,
+{
+	let skipped = ValuesInsert::EncodedKeys(fetcher);
+	decode_compact_with_skipped_inner::<L, DB, T, _, F, core::iter::Empty<_>>(db, encoded.into_iter(), skipped)
+}
+
+fn decode_compact_with_skipped_inner<'a, L, DB, T, I, F, V>(
+	db: &mut DB,
+	encoded: I,
+	mut skipped: ValuesInsert<'a, V, F>,
+)	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
+	where
+		L: TrieLayout,
+		DB: HashDB<L::Hash, T>,
+		I: Iterator<Item = &'a [u8]>,
+		F: LazyFetcher<'a>,
+		V: Iterator<Item = (&'a [u8], F)>,
+{
+	
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
 	let mut stack: Vec<DecoderStackEntry<L::Codec>> = Vec::new();
-
-	let mut skipped = ValuesInsert::KnownKeys(SkipKeyValues::new(skipped.into_iter()));
 
 	// The prefix of the next item to be read from the slice of encoded items.
 	let mut prefix = NibbleVec::new();
