@@ -92,6 +92,15 @@ impl<'a> LeftNibbleSlice<'a> {
 		// If common nibble prefix is the same, finally compare lengths.
 		self.len().cmp(&other.len())
 	}
+
+	/// If nibble are aligned (true for any value), return slice to the key.
+	pub fn as_slice(&self) -> Option<&'a [u8]> {
+		if self.len % NIBBLE_PER_BYTE == 0 {
+			Some(&self.bytes[..self.len / NIBBLE_PER_BYTE])
+		} else {
+			None
+		}
+	}
 }
 
 impl<'a> PartialEq for LeftNibbleSlice<'a> {

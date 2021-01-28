@@ -377,12 +377,80 @@ fn escape_bytes_check() {
 	assert_eq!(EMPTY_ESCAPE_SEQUENCE, [27, 69, 115, 99]);
 }
 
+/// Escape encode value.
+/// This allows using the encoded empty value to define
+/// a skipped value.
+///
+/// So we redefine the empty value as a sequence of byte.
+/// Se we redefine this sequence with n character appended by appending another character.
+/// Such that:
+/// [] -> [27, 69, 115, 99]
+/// [27, 69, 115, 99] -> [27, 69, 115, 99, 27]
+/// [27, 69, 115, 99, 27] -> [27, 69, 115, 99, 27, 27]
+///
+/// When escaped return the escaped value.
+fn encode_empty_escape(value: &[u8]) -> Option<Cow<[u8]>> {
+	if value.len() == 0 {
+		return Some(EMPTY_ESCAPE_SEQUENCE.into());
+	}
+
+	if value.starts_with(EMPTY_ESCAPE_SEQUENCE) {
+		let mut i = EMPTY_ESCAPE_SEQUENCE.len();
+		while Some(&EMPTY_ESCAPE_SEQUENCE[0]) == value.get(i) {
+			i += 1;
+		}
+		if i == value.len() {
+			let mut value = value.to_vec();
+			value.push(EMPTY_ESCAPE_SEQUENCE[0]);
+			// escaped escape sequence
+			return Some(value.into());
+		}
+	}
+	None
+}
+
 /// Get empty escaped value (either empty or value starting with
 /// empty prefix minus end escape character).
 ///
 /// If escaped return the decoded value.
 fn decode_empty_escaped(value: &[u8]) -> Option<&[u8]> {
-	unimplemented!()
+	if value.starts_with(EMPTY_ESCAPE_SEQUENCE) {
+		let mut i = EMPTY_ESCAPE_SEQUENCE.len();
+		if value.len() == i {
+			// escaped empty
+			return Some(&[])
+		}
+		while Some(&EMPTY_ESCAPE_SEQUENCE[0]) == value.get(i) {
+			i += 1;
+		}
+		if i == value.len() {
+			// escaped escape sequence
+			return Some(&value[..value.len() - 1]);
+		}
+	}
+	None
+}
+
+#[test]
+fn escape_empty_value() {
+	let test_set = [
+		(&[][..], Some(&[27u8, 69, 115, 99][..])),
+		(&[27u8, 69, 115], None),
+		(&[27, 69, 115, 100], None),
+		(&[27, 69, 115, 99], Some(&[27, 69, 115, 99, 27])),
+		(&[27, 69, 115, 99, 100], None),
+		(&[27, 69, 115, 99, 27], Some(&[27, 69, 115, 99, 27, 27])),
+		(&[27, 69, 115, 99, 27, 100], None),
+	];
+
+	for (input, output) in test_set.iter() {
+		let encoded = encode_empty_escape(input);
+		assert_eq!(&encoded.as_ref().map(Cow::as_ref), output);
+		if let Some(encoded) = output {
+			let decoded = decode_empty_escaped(encoded);
+			assert_eq!(decoded, Some(*input));
+		}
+	}
 }
 
 impl<
@@ -434,21 +502,29 @@ impl<
 					}
 				}
 			},
-			ValuesInsert::EncodedKeys(_fetcher) => {
-				unimplemented!()
-/*				match entry.node {
+			ValuesInsert::EncodedKeys(fetcher) => {
+				match entry.node {
 					Node::Leaf(partial, value)
 					| Node::NibbledBranch(partial, _, Some(value)) => {
-						let new_value: Cow<[u8]> = if value.len() == 0 {
+						if value.len() == 0 {
+							let original_length = prefix.len();
+							prefix.append_partial(partial.right());
+							let key = LeftNibbleSlice::new(prefix.inner()).truncate(prefix.len());
+							if let Some(value) = fetcher.fetch(key.as_slice().expect("Values have keys")) {
+								entry.inserted_value = Some(value);
+								prefix.drop_lasts(prefix.len() - original_length);
+							} else {
+								prefix.drop_lasts(prefix.len() - original_length);
+								return false;
+							}
 						} else if let Some(new_value) = decode_empty_escaped(value) {
-							new_value.into()
+							entry.inserted_value = Some(new_value.into());
 						} else {
-							return;
+							return true;
 						}
 					}
-					_ => return,
+					_ => return true,
 				}
-*/	
 			},
 		}
 		true
