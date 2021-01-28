@@ -363,6 +363,28 @@ impl<
 	}
 }
 
+/// Since empty value is not a very common case, its encoding
+/// will start by a byte sequence to avoid escaping too often
+/// on valid value.
+/// 
+/// The sequence is escape character followed by 'Esc'.
+/// The repeating character for case where the sequence is part
+/// of the content, is the first bit defined here.
+const EMPTY_ESCAPE_SEQUENCE: &'static [u8] = b"Esc";
+
+#[test]
+fn escape_bytes_check() {
+	assert_eq!(EMPTY_ESCAPE_SEQUENCE, [27, 69, 115, 99]);
+}
+
+/// Get empty escaped value (either empty or value starting with
+/// empty prefix minus end escape character).
+///
+/// If escaped return the decoded value.
+fn decode_empty_escaped(value: &[u8]) -> Option<&[u8]> {
+	unimplemented!()
+}
+
 impl<
 	'a,
 	F: LazyFetcher<'a>,
@@ -371,20 +393,18 @@ impl<
 	fn skip_new_node_value<C: NodeCodec>(
 		&mut self,
 		prefix: &mut NibbleVec,
-		entry: &mut DecoderStackEntry<'a, C, F>,
-	) {
+		entry: &mut DecoderStackEntry<'a, C>,
+	) -> bool {
 		match self {
 			ValuesInsert::KnownKeys(skipped_keys) => {
 				if let Some((next, _next_value)) = &skipped_keys.next_key_value {
 					let original_length = prefix.len();
 					match entry.node {
-						Node::Leaf(partial, _) => {
+						Node::Leaf(partial, _value)
+						| Node::NibbledBranch(partial, _, Some(_value)) => {
 							prefix.append_partial(partial.right());
 						}
-						Node::NibbledBranch(partial, _, Some(_value)) => {
-							prefix.append_partial(partial.right());
-						}
-						_ => return,
+						_ => return true,
 					}
 					// comparison is redundant with previous checks, could be optimized.
 					let node_key = LeftNibbleSlice::new(prefix.inner()).truncate(prefix.len());
@@ -398,7 +418,13 @@ impl<
 					};
 					prefix.drop_lasts(prefix.len() - original_length);
 					if result {
-						entry.inserted_value = mem::take(&mut skipped_keys.next_key_value);
+						if let Some((key, fetcher)) = mem::take(&mut skipped_keys.next_key_value) {
+							if let Some(value) = fetcher.fetch(key) {
+								entry.inserted_value = Some(value);
+							} else {
+								return false;
+							}
+						}
 					}
 					if move_next {
 						skipped_keys.next_key_value = skipped_keys.key_values.next();
@@ -409,12 +435,27 @@ impl<
 				}
 			},
 			ValuesInsert::EncodedKeys(_fetcher) => {
+				unimplemented!()
+/*				match entry.node {
+					Node::Leaf(partial, value)
+					| Node::NibbledBranch(partial, _, Some(value)) => {
+						let new_value: Cow<[u8]> = if value.len() == 0 {
+						} else if let Some(new_value) = decode_empty_escaped(value) {
+							new_value.into()
+						} else {
+							return;
+						}
+					}
+					_ => return,
+				}
+*/	
 			},
 		}
+		true
 	}
 }
 
-struct DecoderStackEntry<'a, C: NodeCodec, F> {
+struct DecoderStackEntry<'a, C: NodeCodec> {
 	node: Node<'a>,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
@@ -422,11 +463,11 @@ struct DecoderStackEntry<'a, C: NodeCodec, F> {
 	/// The reconstructed child references.
 	children: Vec<Option<ChildReference<C::HashOut>>>,
 	/// Value to insert.
-	inserted_value: Option<(&'a [u8], F)>,
+	inserted_value: Option<Cow<'a, [u8]>>,
 	_marker: PhantomData<C>,
 }
 
-impl<'a, C: NodeCodec, F: LazyFetcher<'a>> DecoderStackEntry<'a, C, F> {
+impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	/// Advance the child index until either it exceeds the number of children or the child is
 	/// marked as omitted. Omitted children are indicated by an empty inline reference. For each
 	/// child that is passed over and not omitted, copy over the child reference from the node to
@@ -519,8 +560,7 @@ impl<'a, C: NodeCodec, F: LazyFetcher<'a>> DecoderStackEntry<'a, C, F> {
 				C::empty_node().to_vec(),
 			Node::Leaf(partial, value) => {
 				if let Some(inserted_value) = self.inserted_value.take() {
-					let value = inserted_value.1.fetch(inserted_value.0)?;
-					C::leaf_node(partial.right(), value.as_ref())
+					C::leaf_node(partial.right(), inserted_value.as_ref())
 				} else {
 					C::leaf_node(partial.right(), value)
 				}
@@ -534,20 +574,18 @@ impl<'a, C: NodeCodec, F: LazyFetcher<'a>> DecoderStackEntry<'a, C, F> {
 				),
 			Node::Branch(_, value) => {
 				if let Some(inserted_value) = self.inserted_value.take() {
-					let value = inserted_value.1.fetch(inserted_value.0)?;
-					C::branch_node(self.children.into_iter(), Some(value.as_ref()))
+					C::branch_node(self.children.into_iter(), Some(inserted_value.as_ref()))
 				} else {
 					C::branch_node(self.children.into_iter(), value)
 				}
 			},
 			Node::NibbledBranch(partial, _, value) => {
 				if let Some(inserted_value) = self.inserted_value.take() {
-					let value = inserted_value.1.fetch(inserted_value.0)?;
 					C::branch_node_nibbled(
 						partial.right_iter(),
 						partial.len(),
 						self.children.iter(),
-						Some(value.as_ref()),
+						Some(inserted_value.as_ref()),
 					)
 				} else {
 					C::branch_node_nibbled(
@@ -630,7 +668,7 @@ pub fn decode_compact_with_skipped_values<'a, L, DB, T, I, F, V>(db: &mut DB, en
 {
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
-	let mut stack: Vec<DecoderStackEntry<L::Codec, F>> = Vec::new();
+	let mut stack: Vec<DecoderStackEntry<L::Codec>> = Vec::new();
 
 	let mut skipped = ValuesInsert::KnownKeys(SkipKeyValues::new(skipped.into_iter()));
 
@@ -655,7 +693,9 @@ pub fn decode_compact_with_skipped_values<'a, L, DB, T, I, F, V>(db: &mut DB, en
 		};
 
 		loop {
-			skipped.skip_new_node_value(&mut prefix, &mut last_entry);
+			if !skipped.skip_new_node_value(&mut prefix, &mut last_entry) {
+				return Err(Box::new(TrieError::IncompleteDatabase(<TrieHash<L>>::default())));
+			}
 			if !last_entry.advance_child_index()? {
 				last_entry.push_to_prefix(&mut prefix);
 				stack.push(last_entry);
