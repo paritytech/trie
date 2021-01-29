@@ -508,7 +508,8 @@ impl<'a, F> ValuesRemoveCondition for &'a mut F
 enum ValuesInsert<'a, I, F> {
 	None,
 	KnownKeys(InsertAt<'a, I, F>),
-	EscapedKeys(F),
+	EscapedValues(F),
+	NonEscapedValues(F),
 }
 
 struct InsertAt<'a, I, F> {
@@ -631,9 +632,10 @@ impl<
 		&self,
 	) -> bool {
 		match self {
-			ValuesInsert::None => false,
-			ValuesInsert::KnownKeys(..) => false,
-			ValuesInsert::EscapedKeys(..) => true
+			ValuesInsert::NonEscapedValues(..)
+			| ValuesInsert::KnownKeys(..)
+			| ValuesInsert::None => false,
+			ValuesInsert::EscapedValues(..) => true
 		}
 	}
 
@@ -700,7 +702,8 @@ impl<
 					}
 				}
 			},
-			ValuesInsert::EscapedKeys(fetcher) => {
+			ValuesInsert::NonEscapedValues(fetcher)
+			| ValuesInsert::EscapedValues(fetcher) => {
 				if empty_value {
 					prefix.append_partial(partial.right());
 					let key = LeftNibbleSlice::new(prefix.inner()).truncate(prefix.len());
@@ -924,17 +927,24 @@ pub fn decode_compact_with_known_values<'a, L, DB, T, I, F, K>(
 
 /// Variant of 'decode_compact' that try to fetch value when they are
 /// skipped.
-/// Skipped values are encoded into a 0 length value,
-/// actual 0 length value is escaped.
-pub fn decode_compact_for_encoded_skipped_values<'a, L, DB, T, I, F>(db: &mut DB, encoded: I, fetcher: F)
-	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
+/// Skipped values are encoded into a 0 length value.
+pub fn decode_compact_for_encoded_skipped_values<'a, L, DB, T, I, F>(
+	db: &mut DB,
+	encoded: I,
+	fetcher: F,
+	escaped_value: bool,
+) -> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
 		DB: HashDB<L::Hash, T>,
 		I: IntoIterator<Item = &'a [u8]>,
 		F: LazyFetcher<'a>,
 {
-	let skipped = ValuesInsert::EscapedKeys(fetcher);
+	let skipped = if escaped_value {
+		ValuesInsert::EscapedValues(fetcher)
+	} else {
+		ValuesInsert::NonEscapedValues(fetcher)
+	};
 	decode_compact_inner::<L, DB, T, _, F, core::iter::Empty<_>>(db, encoded.into_iter(), skipped)
 }
 

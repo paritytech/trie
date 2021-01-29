@@ -145,6 +145,7 @@ fn test_decode_compact<L: TrieLayout>(
 				&mut db,
 				encoded.iter().map(Vec::as_slice),
 				fetcher,
+				true,
 			)
 		},
 	}.unwrap();
