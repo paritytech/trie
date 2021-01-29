@@ -229,7 +229,7 @@ pub fn encode_compact_skip_values<'a, L, I>(db: &TrieDB<L>, to_skip: I) -> Resul
 }
 
 /// Variant of 'encode_compact' where all values are removed and replace by empty value.
-pub fn encode_compact_skip_all_values<'a, L, I>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+pub fn encode_compact_skip_all_values<'a, L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
 {
@@ -380,7 +380,13 @@ impl<'a, I: Iterator<Item = &'a [u8]>> ValuesRemove<'a, I> {
 				}
 			},
 			ValuesRemove::AllEscaped => {
-				return (true, false);
+				match node.node_plan() {
+					NodePlan::NibbledBranch{value: Some(_), ..}
+					| NodePlan::Leaf {..} => {
+						return (true, false);
+					},
+					_ => (),
+				};
 			},
 		}
 		(false, false)

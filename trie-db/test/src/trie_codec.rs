@@ -14,7 +14,7 @@
 
 
 use trie_db::{
-	DBValue, encode_compact_skip_values, decode_compact_with_skipped_values,
+	DBValue,
 	Trie, TrieMut, TrieDB, TrieError, TrieDBMut, TrieLayout, Recorder,
 	decode_compact,
 };
@@ -26,10 +26,15 @@ use std::collections::{BTreeSet, BTreeMap};
 
 type MemoryDB<H> = memory_db::MemoryDB<H, memory_db::HashKey<H>, DBValue>;
 
+enum EncodeType<'a> {
+	SkipKeys(&'a BTreeSet<&'static [u8]>),
+	All,
+	None,
+}
 fn test_encode_compact<L: TrieLayout>(
 	entries: Vec<(&'static [u8], &'static [u8])>,
 	keys: Vec<&'static [u8]>,
-	skip_keys: &BTreeSet<&'static [u8]>,
+	encode_type: EncodeType,
 ) -> (<L::Hash as Hasher>::Out, Vec<Vec<u8>>, Vec<(&'static [u8], Option<DBValue>)>)
 {
 	// Populate DB with full trie from entries.
@@ -66,27 +71,59 @@ fn test_encode_compact<L: TrieLayout>(
 	// Compactly encode the partial trie DB.
 	let compact_trie = {
 		let trie = <TrieDB<L>>::new(&partial_db, &root).unwrap();
-		encode_compact_skip_values::<L, _>(&trie, skip_keys.iter().map(|k| *k)).unwrap()
+		match encode_type {
+			EncodeType::None => {
+				trie_db::encode_compact::<L>(&trie).unwrap()
+			},
+			EncodeType::All => {
+				trie_db::encode_compact_skip_all_values::<L>(&trie).unwrap()
+			},
+			EncodeType::SkipKeys(skip_keys) => {
+				trie_db::encode_compact_skip_values::<L, _>(&trie, skip_keys.iter().map(|k| *k)).unwrap()
+			},
+		}
 	};
 
 	(root, compact_trie, items)
 }
-
+enum DecodeType<'a> {
+	None,
+	SkippedValues(&'a BTreeMap<&'static [u8], &'static [u8]>),
+	Escaped(&'a BTreeMap<&'static [u8], &'static [u8]>),
+}
 fn test_decode_compact<L: TrieLayout>(
 	encoded: &[Vec<u8>],
 	items: Vec<(&'static [u8], Option<DBValue>)>,
 	expected_root: <L::Hash as Hasher>::Out,
 	expected_used: usize,
-	skipped_values: &BTreeMap<&'static [u8], &'static [u8]>,
+	decode_type: DecodeType,
 ) {
 	// Reconstruct the partial DB from the compact encoding.
 	let mut db = MemoryDB::default();
-	let (root, used) = decode_compact_with_skipped_values::<L, _, _, _, _, _>(
-		&mut db,
-		encoded.iter().map(Vec::as_slice),
-		skipped_values,
-		skipped_values.keys().map(|k| *k),
-	).unwrap();
+	let (root, used) = match decode_type {
+		DecodeType::SkippedValues(skipped_values) => {
+			trie_db::decode_compact_with_skipped_values::<L, _, _, _, _, _>(
+				&mut db,
+				encoded.iter().map(Vec::as_slice),
+				skipped_values,
+				skipped_values.keys().map(|k| *k),
+			)
+		},
+		DecodeType::None => {
+			trie_db::decode_compact_from_iter::<L, _, _, _>(
+				&mut db,
+				encoded.iter().map(Vec::as_slice),
+			)
+		},
+		DecodeType::Escaped(fetcher) => {
+			trie_db::decode_compact_with_encoded_skipped_values::<L, _, _, _, _>(
+				&mut db,
+				encoded.iter().map(Vec::as_slice),
+				fetcher,
+			)
+		},
+	}.unwrap();
+
 	assert_eq!(root, expected_root);
 	assert_eq!(used, expected_used);
 
@@ -115,6 +152,19 @@ fn test_set() -> Vec<(&'static [u8], &'static [u8])> {
 	]
 }
 
+// ok proof elements to test with test_set
+fn test_proof_default() -> Vec<&'static [u8]> {
+	vec![
+		b"do",
+		b"dog",
+		b"doge",
+		b"bravo",
+		b"d", // None, witness is a branch partial
+		b"do\x10", // None, witness is empty branch child
+		b"halp", // None, witness is branch partial
+	]
+}
+
 #[test]
 fn trie_compact_encoding_works_with_ext() {
 	let (root, mut encoded, items) = test_encode_compact::<ExtensionLayout>(
@@ -128,31 +178,23 @@ fn trie_compact_encoding_works_with_ext() {
 			b"do\x10", // None, empty branch child
 			b"halp", // None, witness is extension node with non-omitted child
 		],
-		&BTreeSet::new(),
+		EncodeType::None,
 	);
 
 	encoded.push(Vec::new()); // Add an extra item to ensure it is not read.
-	test_decode_compact::<ExtensionLayout>(&encoded, items, root, encoded.len() - 1, &BTreeMap::new());
+	test_decode_compact::<ExtensionLayout>(&encoded, items, root, encoded.len() - 1, DecodeType::None);
 }
 
 #[test]
 fn trie_compact_encoding_works_without_ext() {
 	let (root, mut encoded, items) = test_encode_compact::<NoExtensionLayout>(
 		test_set(),
-		vec![
-			b"do",
-			b"dog",
-			b"doge",
-			b"bravo",
-			b"d", // None, witness is a branch partial
-			b"do\x10", // None, witness is empty branch child
-			b"halp", // None, witness is branch partial
-		],
-		&BTreeSet::new(),
+		test_proof_default(),
+		EncodeType::None,
 	);
 
 	encoded.push(Vec::new()); // Add an extra item to ensure it is not read.
-	test_decode_compact::<NoExtensionLayout>(&encoded, items, root, encoded.len() - 1, &BTreeMap::new());
+	test_decode_compact::<NoExtensionLayout>(&encoded, items, root, encoded.len() - 1, DecodeType::None);
 }
 
 #[test]
@@ -163,29 +205,13 @@ fn trie_compact_encoding_skip_values() {
 	let skip_len = 36;
 	let (root_no_skip, encoded_no_skip, items_no_skip) = test_encode_compact::<NoExtensionLayout>(
 		test_set(),
-		vec![
-			b"do",
-			b"dog",
-			b"doge",
-			b"bravo",
-			b"d", // None, witness is a branch partial
-			b"do\x10", // None, witness is empty branch child
-			b"halp", // None, witness is branch partial
-		],
-		&BTreeSet::new(),
+		test_proof_default(),
+		EncodeType::None,
 	);
 	let (root, encoded, items) = test_encode_compact::<NoExtensionLayout>(
 		test_set(),
-		vec![
-			b"do",
-			b"dog",
-			b"doge",
-			b"bravo",
-			b"d", // None, witness is a branch partial
-			b"do\x10", // None, witness is empty branch child
-			b"halp", // None, witness is branch partial
-		],
-		&to_skip,
+		test_proof_default(),
+		EncodeType::SkipKeys(&to_skip),
 	);
 	assert_eq!(root_no_skip, root);
 	assert_eq!(items_no_skip, items);
@@ -207,7 +233,7 @@ fn trie_compact_encoding_skip_values() {
 		items,
 		root,
 		encoded.len() - 1,
-		&skipped_values,
+		DecodeType::SkippedValues(&skipped_values),
 	);
 }
 
@@ -215,6 +241,34 @@ fn trie_compact_encoding_skip_values() {
 fn trie_compact_encoding_skip_all_values() {
 	let mut values = BTreeMap::new();
 	values.extend(test_set());
+	let (root_no_skip, _encoded_no_skip, items_no_skip) = test_encode_compact::<NoExtensionLayout>(
+		test_set(),
+		test_proof_default(),
+		EncodeType::None,
+	);
+	let (root, encoded, items) = test_encode_compact::<NoExtensionLayout>(
+		test_set(),
+		test_proof_default(),
+		EncodeType::All,
+	);
+	assert_eq!(root_no_skip, root);
+	assert_eq!(items_no_skip, items);
+	let mut encoded = encoded;
+	encoded.push(Vec::new()); // Add an extra item to ensure it is not read.
+	test_decode_compact::<NoExtensionLayout>(
+		&encoded,
+		items.clone(),
+		root,
+		encoded.len() - 1,
+		DecodeType::Escaped(&values),
+	);
+	test_decode_compact::<NoExtensionLayout>(
+		&encoded,
+		items,
+		root,
+		encoded.len() - 1,
+		DecodeType::SkippedValues(&values),
+	);
 }
 
 #[test]
@@ -224,7 +278,7 @@ fn trie_decoding_fails_with_incomplete_database() {
 		vec![
 			b"alfa",
 		],
-		&BTreeSet::new(),
+		EncodeType::None,
 	);
 
 	assert!(encoded.len() > 1);
