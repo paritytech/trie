@@ -211,7 +211,8 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 	where
 		L: TrieLayout,
 {
-	encode_compact_skip_values(db, core::iter::empty())
+	let to_skip = ValuesRemove::None;
+	encode_compact_skip_values_inner::<L, core::iter::Empty<_>>(db, to_skip)
 }
 
 /// Variant of 'encode_compact' where values for given key (those are required to be already know
@@ -330,6 +331,7 @@ fn encode_compact_skip_values_inner<'a, L, I>(db: &TrieDB<L>, mut to_skip: Value
 enum ValuesRemove<'a, I> {
 	KnownKeys(SkipKeys<'a, I>),
 	AllEscaped,
+	None,
 }
 
 struct SkipKeys<'a, I> {
@@ -350,6 +352,7 @@ impl<'a, I: Iterator<Item = &'a [u8]>> SkipKeys<'a, I> {
 impl<'a, I: Iterator<Item = &'a [u8]>> ValuesRemove<'a, I> {
 	fn skip_new_node_value(&mut self, prefix: &NibbleVec, node: &Rc<OwnedNode<DBValue>>) -> (bool, bool) {
 		match self {
+			ValuesRemove::None => (),
 			ValuesRemove::KnownKeys(to_skip) => {
 				if let Some(next) = to_skip.next_key {
 					let mut node_key = prefix.clone();
@@ -394,6 +397,7 @@ impl<'a, I: Iterator<Item = &'a [u8]>> ValuesRemove<'a, I> {
 }
 
 enum ValuesInsert<'a, I, F> {
+	None,
 	KnownKeys(SkipKeyValues<'a, I, F>),
 	EscapedKeys(F),
 }
@@ -518,6 +522,7 @@ impl<
 		&self,
 	) -> bool {
 		match self {
+			ValuesInsert::None => false,
 			ValuesInsert::KnownKeys(..) => false,
 			ValuesInsert::EscapedKeys(..) => true
 		}
@@ -543,6 +548,7 @@ impl<
 		};
 
 		match self {
+			ValuesInsert::None => (),
 			ValuesInsert::KnownKeys(skipped_keys) => {
 				if let Some(next) = &skipped_keys.next_key_value {
 					prefix.append_partial(partial.right());
@@ -773,41 +779,9 @@ pub fn decode_compact_from_iter<'a, L, DB, T, I>(db: &mut DB, encoded: I)
 		DB: HashDB<L::Hash, T>,
 		I: IntoIterator<Item = &'a [u8]>,
 {
-	decode_compact_with_skipped_values::<L, DB, T, I, (), _>(db, encoded, (), core::iter::empty())
+	let skipped = ValuesInsert::<core::iter::Empty<_>, ()>::None;
+	decode_compact_with_skipped_inner::<L, DB, T, _, _, _>(db, encoded.into_iter(), skipped)
 }
-
-
-/// Simple fetcher for values to insert in proof when running
-/// `decode_compact_with_skipped_values`.
-pub trait LazyFetcher<'a> {
-	/// Get actual value as bytes.
-	/// If value cannot be fetch return `None`, resulting
-	/// in an error in `decode_compact_with_skipped_values`.
-	fn fetch(&self, key: &[u8]) -> Option<Cow<'a, [u8]>>;
-}
-
-impl<'a> LazyFetcher<'a> for () {
-	fn fetch(&self, _key: &[u8]) -> Option<Cow<'a, [u8]>> {
-		None
-	}
-}
-
-impl<'a> LazyFetcher<'a> for (&'a [u8], &'a [u8]) {
-	fn fetch(&self, key: &[u8]) -> Option<Cow<'a, [u8]>> {
-		if key == self.0 {
-			Some(Cow::Borrowed(self.1))
-		} else {
-			None
-		}
-	}
-}
-
-impl<'a> LazyFetcher<'a> for &'a crate::rstd::BTreeMap<&'a [u8], &'a [u8]> {
-	fn fetch(&self, key: &[u8]) -> Option<Cow<'a, [u8]>> {
-		self.get(key).map(|value| Cow::Borrowed(*value))
-	}
-}
-
 
 /// Variant of 'decode_compact' that inject some known key values.
 /// Values are only added if the existing one is a zero length value,
@@ -910,3 +884,36 @@ fn decode_compact_with_skipped_inner<'a, L, DB, T, I, F, V>(
 
 	Err(Box::new(TrieError::IncompleteDatabase(<TrieHash<L>>::default())))
 }
+
+/// Simple fetcher for values to insert in proof when running
+/// `decode_compact_with_skipped_values`.
+pub trait LazyFetcher<'a> {
+	/// Get actual value as bytes.
+	/// If value cannot be fetch return `None`, resulting
+	/// in an error in `decode_compact_with_skipped_values`.
+	fn fetch(&self, key: &[u8]) -> Option<Cow<'a, [u8]>>;
+}
+
+impl<'a> LazyFetcher<'a> for () {
+	fn fetch(&self, _key: &[u8]) -> Option<Cow<'a, [u8]>> {
+		None
+	}
+}
+
+impl<'a> LazyFetcher<'a> for (&'a [u8], &'a [u8]) {
+	fn fetch(&self, key: &[u8]) -> Option<Cow<'a, [u8]>> {
+		if key == self.0 {
+			Some(Cow::Borrowed(self.1))
+		} else {
+			None
+		}
+	}
+}
+
+impl<'a> LazyFetcher<'a> for &'a crate::rstd::BTreeMap<&'a [u8], &'a [u8]> {
+	fn fetch(&self, key: &[u8]) -> Option<Cow<'a, [u8]>> {
+		self.get(key).map(|value| Cow::Borrowed(*value))
+	}
+}
+
+
