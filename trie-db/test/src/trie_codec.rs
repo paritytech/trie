@@ -28,8 +28,6 @@ type MemoryDB<H> = memory_db::MemoryDB<H, memory_db::HashKey<H>, DBValue>;
 
 enum EncodeType<'a> {
 	SkipKeys(&'a BTreeSet<&'static [u8]>),
-	SkipKeysEscaped(&'a BTreeSet<&'static [u8]>),
-	Treshold(usize),
 	TresholdEscaped(usize),
 	TresholdCollect(usize, &'a mut Vec<Vec<u8>>),
 	All,
@@ -89,22 +87,6 @@ fn test_encode_compact<L: TrieLayout>(
 					&mut trie_db::compact_conditions::skip_given_ordered_keys(
 						skip_keys.iter().map(|k| *k),
 					),
-					false,
-				).unwrap()
-			},
-			EncodeType::SkipKeysEscaped(skip_keys) => {
-				trie_db::encode_compact_skip_conditional_with_key::<L, _>(
-					&trie,
-					&mut trie_db::compact_conditions::skip_given_ordered_keys(
-						skip_keys.iter().map(|k| *k),
-					),
-					true,
-				).unwrap()
-			},
-			EncodeType::Treshold(treshold) => {
-				trie_db::encode_compact_skip_conditional::<L, _>(
-					&trie,
-					&mut trie_db::compact_conditions::skip_treshold(treshold),
 					false,
 				).unwrap()
 			},

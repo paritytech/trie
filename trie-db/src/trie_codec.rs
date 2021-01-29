@@ -236,29 +236,7 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 		L: TrieLayout,
 {
 	let to_skip = ValuesRemove::None;
-	encode_compact_skip_values_inner::<L, core::iter::Empty<_>, ()>(db, to_skip)
-}
-
-/// Variant of 'encode_compact' where values for given key (those are required to be already know
-/// when checking the produce proof with 'decode_compact_with_skipped_values') are skipped.
-/// Skipped values are encoded as a 0 length value.
-///
-/// The iterator need to be sorted.
-pub fn encode_compact_skip_values<'a, L, I>(
-	db: &TrieDB<L>,
-	to_skip: I,
-	escape_empty: bool,
-) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
-	where
-		L: TrieLayout,
-		I: IntoIterator<Item = &'a [u8]>,
-{
-	let to_skip = if escape_empty {
-		ValuesRemove::KnownKeysEscaped(SkipKeys::new(to_skip.into_iter()))
-	} else {
-		ValuesRemove::KnownKeys(SkipKeys::new(to_skip.into_iter()))
-	};
-	encode_compact_skip_values_inner::<_, _, ()>(db, to_skip)
+	encode_compact_skip_values_inner::<L, ()>(db, to_skip)
 }
 
 /// Variant of 'encode_compact' where all values are removed and replace by empty value.
@@ -267,7 +245,7 @@ pub fn encode_compact_skip_all_values<'a, L>(db: &TrieDB<L>) -> Result<Vec<Vec<u
 		L: TrieLayout,
 {
 	let to_skip = ValuesRemove::AllEscaped;
-	encode_compact_skip_values_inner::<L, core::iter::Empty<_>, ()>(db, to_skip)
+	encode_compact_skip_values_inner::<L, ()>(db, to_skip)
 }
 
 /// Variant of 'encode_compact' where values are removed
@@ -288,7 +266,7 @@ pub fn encode_compact_skip_conditional<'a, L, F>(
 	} else {
 		ValuesRemove::ConditionalNoEscape(NoKeyCondition(value_skip_condition))
 	};
-	encode_compact_skip_values_inner::<L, core::iter::Empty<_>, _>(db, to_skip)
+	encode_compact_skip_values_inner::<L, _>(db, to_skip)
 }
 
 /// Variant of 'encode_compact' where values are removed
@@ -308,13 +286,12 @@ pub fn encode_compact_skip_conditional_with_key<'a, L, F>(
 	} else {
 		ValuesRemove::ConditionalNoEscape(value_skip_condition)
 	};
-	encode_compact_skip_values_inner::<L, core::iter::Empty<_>, _>(db, to_skip)
+	encode_compact_skip_values_inner::<L, _>(db, to_skip)
 }
 
-fn encode_compact_skip_values_inner<'a, L, I, F>(db: &TrieDB<L>, mut to_skip: ValuesRemove<'a, I, F>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+fn encode_compact_skip_values_inner<'a, L, F>(db: &TrieDB<L>, mut to_skip: ValuesRemove<F>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
-		I: Iterator<Item = &'a [u8]>,
 		F: ValuesRemoveCondition,
 {
 	let mut output = Vec::new();
@@ -400,25 +377,29 @@ fn encode_compact_skip_values_inner<'a, L, I, F>(db: &TrieDB<L>, mut to_skip: Va
 	Ok(output)
 }
 
-enum ValuesRemove<'a, I, F> {
+enum ValuesRemove<F> {
 	Conditional(F),
 	// only make sense if the condition does collect the keys.
 	// so they are known.
 	ConditionalNoEscape(F),
-	KnownKeys(SkipKeys<'a, I>),
-	KnownKeysEscaped(SkipKeys<'a, I>),
 	AllEscaped,
 	None,
 }
 
 trait ValuesRemoveCondition {
+	const ESCAPE: bool;
+	const REMOVE_NONE: bool;
+	const REMOVE_ALL: bool;
 	const NEED_KEY: bool;
 
 	fn check(&mut self, key: &NibbleVec, value: &[u8]) -> bool; 
 }
 
 impl ValuesRemoveCondition for () {
+	const REMOVE_NONE: bool = true;
+	const REMOVE_ALL: bool = false;
 	const NEED_KEY: bool = false;
+	const ESCAPE: bool = false;
 
 	fn check(&mut self, _key: &NibbleVec, _value: &[u8]) -> bool {
 		false
@@ -428,7 +409,10 @@ impl ValuesRemoveCondition for () {
 impl<F> ValuesRemoveCondition for F
 	where F: FnMut(&NibbleVec, &[u8]) -> bool,
 {
+	const REMOVE_NONE: bool = false;
+	const REMOVE_ALL: bool = false;
 	const NEED_KEY: bool = true;
+	const ESCAPE: bool = false;
 
 	fn check(&mut self, key: &NibbleVec, value: &[u8]) -> bool {
 		self(key, value)
@@ -440,44 +424,42 @@ struct NoKeyCondition<'a, F>(&'a mut F);
 impl<'a, F> ValuesRemoveCondition for NoKeyCondition<'a, F>
 	where F: FnMut(&[u8]) -> bool,
 {
+	const REMOVE_NONE: bool = false;
+	const REMOVE_ALL: bool = false;
 	const NEED_KEY: bool = false;
+	const ESCAPE: bool = false;
 
 	fn check(&mut self, _key: &NibbleVec, value: &[u8]) -> bool {
 		self.0(value)
 	}
 }
 
-struct SkipKeys<'a, I> {
-	keys: I,
-	next_key: Option<&'a [u8]>,
-}
+struct Escape<'a, F>(&'a mut F);
 
-impl<'a, I: Iterator<Item = &'a [u8]>> SkipKeys<'a, I> {
-	fn new(mut keys: I) -> Self {
-		let next_key = keys.next();
-		SkipKeys {
-			keys,
-			next_key,
-		}
+impl<'a, F> ValuesRemoveCondition for Escape<'a, F>
+	where F: ValuesRemoveCondition,
+{
+	const REMOVE_NONE: bool = F::REMOVE_NONE;
+	const REMOVE_ALL: bool = F::REMOVE_ALL;
+	const NEED_KEY: bool = F::NEED_KEY;
+	const ESCAPE: bool = true;
+
+	fn check(&mut self, key: &NibbleVec, value: &[u8]) -> bool {
+		self.0.check(key, value)
 	}
 }
 
-impl<'a, I: Iterator<Item = &'a [u8]>, F> ValuesRemove<'a, I, F>
-	where
-		F: ValuesRemoveCondition,
-{
+impl<'a, F: ValuesRemoveCondition> ValuesRemove<F> {
 	fn escaped_value(
 		&self,
 	) -> OmitValue {
 		match self {
-			ValuesRemove::KnownKeysEscaped(..)
-			| ValuesRemove::Conditional(..) => OmitValue::EscapeValue,
+			ValuesRemove::Conditional(..) => OmitValue::EscapeValue,
 			// all remove means that escape on remaining values
 			// is not needed.
 			ValuesRemove::AllEscaped
 			| ValuesRemove::ConditionalNoEscape(..)
-			| ValuesRemove::None
-			| ValuesRemove::KnownKeys(..) => OmitValue::None,
+			| ValuesRemove::None => OmitValue::None,
 		}
 	}
 
@@ -497,30 +479,6 @@ impl<'a, I: Iterator<Item = &'a [u8]>, F> ValuesRemove<'a, I, F>
 
 		match self {
 			ValuesRemove::None => (),
-			ValuesRemove::KnownKeysEscaped(to_skip)
-			| ValuesRemove::KnownKeys(to_skip) => {
-				if let Some(next) = to_skip.next_key {
-					let mut node_key = prefix.clone(); // TODO use &mut prefix??
-					let node_data = node.data();
-					let partial = partial.build(node_data);
-					node_key.append_partial(partial.right());
-
-					// comparison is redundant with previous checks, could be optimized.
-					let node_key = LeftNibbleSlice::new(node_key.inner()).truncate(node_key.len());
-					let next = LeftNibbleSlice::new(next);
-					match next.cmp(&node_key) {
-						Ordering::Less => {
-							to_skip.next_key = to_skip.keys.next();
-							return self.skip_new_node_value(prefix, node);
-						},
-						Ordering::Equal => {
-							to_skip.next_key = to_skip.keys.next();
-							return OmitValue::OmitValue;
-						},
-						Ordering::Greater => (),
-					};
-				}
-			},
 			ValuesRemove::AllEscaped => {
 				return OmitValue::OmitValue;
 			},
