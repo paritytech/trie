@@ -20,7 +20,7 @@ use trie_db::{
 };
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 use reference_trie::{
-	ExtensionLayout, NoExtensionLayout,
+	ExtensionLayout, NoExtensionLayout, AllowEmptyLayout,
 };
 use std::collections::{BTreeSet, BTreeMap};
 
@@ -29,6 +29,9 @@ type MemoryDB<H> = memory_db::MemoryDB<H, memory_db::HashKey<H>, DBValue>;
 enum EncodeType<'a> {
 	SkipKeys(&'a BTreeSet<&'static [u8]>),
 	SkipKeysEscaped(&'a BTreeSet<&'static [u8]>),
+	Treshold(usize),
+	TresholdEscaped(usize),
+	TresholdCollect(usize, &'a mut Vec<Vec<u8>>),
 	All,
 	None,
 }
@@ -94,16 +97,39 @@ fn test_encode_compact<L: TrieLayout>(
 					true,
 				).unwrap()
 			},
+			EncodeType::Treshold(treshold) => {
+				trie_db::encode_compact_skip_conditional::<L, _>(
+					&trie,
+					&mut trie_db::compact_conditions::skip_treshold(treshold),
+					false,
+				).unwrap()
+			},
+			EncodeType::TresholdCollect(treshold, keys) => {
+				trie_db::encode_compact_skip_conditional_with_key::<L, _>(
+					&trie,
+					&mut trie_db::compact_conditions::skip_treshold_collect_keys(treshold, keys),
+					false,
+				).unwrap()
+			},
+			EncodeType::TresholdEscaped(treshold) => {
+				trie_db::encode_compact_skip_conditional::<L, _>(
+					&trie,
+					&mut trie_db::compact_conditions::skip_treshold(treshold),
+					true,
+				).unwrap()
+			},
 		}
 	};
 
 	(root, compact_trie, items)
 }
+
 enum DecodeType<'a> {
 	None,
 	SkippedValues(&'a BTreeMap<&'static [u8], &'static [u8]>),
 	Escaped(&'a BTreeMap<&'static [u8], &'static [u8]>),
 }
+
 fn test_decode_compact<L: TrieLayout>(
 	encoded: &[Vec<u8>],
 	items: Vec<(&'static [u8], Option<DBValue>)>,
@@ -305,4 +331,57 @@ fn trie_decoding_fails_with_incomplete_database() {
 		}
 		_ => panic!("decode was unexpectedly successful"),
 	}
+}
+
+
+#[test]
+fn trie_encode_skip_condition() {
+	let additional_values = vec![
+		(&b"dumy1"[..], &b""[..]),
+		(&b"dumy1_"[..], &[1; 32]), // force parent to be not inline
+		(b"dumy2", b"Esc"),
+		(&b"dumy2_"[..], &[2; 32]), // force parent to be not inline
+		(b"dumy3", b"Esc"),
+		(&b"dumy3_"[..], &[3; 32]), // force parent to be not inline
+		(b"dumy4", b"Esc"),
+		(&b"dumy4_"[..], &[4; 32]), // force parent to be not inline
+		(b"dumy5", b"Escd"),
+		(&b"dumy5_"[..], &[5; 32]), // force parent to be not inline
+	];
+	let mut test_set = test_set();
+	test_set.extend(additional_values.iter().cloned());
+	let mut test_proof_default = test_proof_default(); 
+	test_proof_default.extend(additional_values.iter().filter_map(|kv|
+		if kv.0.len() == 5 {
+			Some(kv.0)
+		} else {
+			None
+		}
+	));
+	let (_, encoded, _) = test_encode_compact::<AllowEmptyLayout>(
+		test_set.clone(),
+		test_proof_default.clone(),
+		EncodeType::None,
+	);
+
+	let none_size = encoded.iter().map(|e| e.len()).sum::<usize>();
+	let mut keys = Vec::new();
+	let (_, encoded, _) = test_encode_compact::<AllowEmptyLayout>(
+		test_set.clone(),
+		test_proof_default.clone(),
+		EncodeType::TresholdCollect(26, &mut keys),
+	);
+	let six_size = encoded.iter().map(|e| e.len()).sum::<usize>();
+	assert_eq!(keys, vec![b"doge".to_vec()]);
+	// only one 32 byte value skipped
+	assert_eq!(none_size, six_size + 32);
+	let (_, encoded, _) = test_encode_compact::<AllowEmptyLayout>(
+		test_set.clone(),
+		test_proof_default.clone(),
+		EncodeType::TresholdEscaped(26),
+	);
+	let six_escaped_size = encoded.iter().map(|e| e.len()).sum::<usize>();
+	// from additional value: +4 for escapped empty and +3 for each starting
+	// escape seq
+	assert_eq!(none_size, six_escaped_size + 32 - 4 - 3);
 }

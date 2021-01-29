@@ -153,16 +153,27 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 			}
 			NodePlan::NibbledBranch { partial, value, children } => {
 				let value = if self.omit_value {
-					empty_value
+					empty_value.map(Cow::Borrowed)
 				} else {
-					value.clone().map(|range| &node_data[range])
+					value.clone().map(|range| {
+						let node_data = &node_data[range];
+						if self.escape_value {
+							if let Some(escaped) = encode_empty_escape(node_data) {
+								escaped
+							} else {
+								node_data.into()
+							}
+						} else {
+							node_data.into()
+						}
+					})
 				};
 				let partial = partial.build(node_data);
 				C::branch_node_nibbled(
 					partial.right_iter(),
 					partial.len(),
 					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
-					value,
+					value.as_ref().map(|v| &v[..]),
 				)
 			}
 		})
@@ -212,7 +223,7 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 		L: TrieLayout,
 {
 	let to_skip = ValuesRemove::None;
-	encode_compact_skip_values_inner::<L, core::iter::Empty<_>>(db, to_skip)
+	encode_compact_skip_values_inner::<L, core::iter::Empty<_>, ()>(db, to_skip)
 }
 
 /// Variant of 'encode_compact' where values for given key (those are required to be already know
@@ -234,7 +245,7 @@ pub fn encode_compact_skip_values<'a, L, I>(
 	} else {
 		ValuesRemove::KnownKeys(SkipKeys::new(to_skip.into_iter()))
 	};
-	encode_compact_skip_values_inner(db, to_skip)
+	encode_compact_skip_values_inner::<_, _, ()>(db, to_skip)
 }
 
 /// Variant of 'encode_compact' where all values are removed and replace by empty value.
@@ -243,14 +254,55 @@ pub fn encode_compact_skip_all_values<'a, L>(db: &TrieDB<L>) -> Result<Vec<Vec<u
 		L: TrieLayout,
 {
 	let to_skip = ValuesRemove::AllEscaped;
-	encode_compact_skip_values_inner::<L, core::iter::Empty<_>>(db, to_skip)
+	encode_compact_skip_values_inner::<L, core::iter::Empty<_>, ()>(db, to_skip)
 }
 
+/// Variant of 'encode_compact' where values are removed
+/// for a given condition.
+/// Condition uses values as parameters.
+pub fn encode_compact_skip_conditional<'a, L, F>(
+	db: &TrieDB<L>,
+	// TODO not &mut and implement for &mut.
+	value_skip_condition: &mut F,
+	escape_values: bool,
+) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+	where
+		L: TrieLayout,
+		F: FnMut(&[u8]) -> bool,
+{
+	let to_skip = if escape_values {
+		ValuesRemove::Conditional(NoKeyCondition(value_skip_condition))
+	} else {
+		ValuesRemove::ConditionalNoEscape(NoKeyCondition(value_skip_condition))
+	};
+	encode_compact_skip_values_inner::<L, core::iter::Empty<_>, _>(db, to_skip)
+}
 
-fn encode_compact_skip_values_inner<'a, L, I>(db: &TrieDB<L>, mut to_skip: ValuesRemove<'a, I>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+/// Variant of 'encode_compact' where values are removed
+/// for a given condition.
+/// Condition uses key and values as parameters.
+pub fn encode_compact_skip_conditional_with_key<'a, L, F>(
+	db: &TrieDB<L>,
+	value_skip_condition: &mut F,
+	escape_values: bool,
+) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+	where
+		L: TrieLayout,
+		F: FnMut(&NibbleVec, &[u8]) -> bool,
+{
+	let to_skip = if escape_values {
+		ValuesRemove::Conditional(value_skip_condition)
+	} else {
+		ValuesRemove::ConditionalNoEscape(value_skip_condition)
+	};
+	encode_compact_skip_values_inner::<L, core::iter::Empty<_>, _>(db, to_skip)
+}
+
+fn encode_compact_skip_values_inner<'a, L, I, F>(db: &TrieDB<L>, mut to_skip: ValuesRemove<'a, I, F>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
 		I: Iterator<Item = &'a [u8]>,
+		F: ValuesRemoveCondition,
 {
 	let mut output = Vec::new();
 
@@ -336,11 +388,51 @@ fn encode_compact_skip_values_inner<'a, L, I>(db: &TrieDB<L>, mut to_skip: Value
 	Ok(output)
 }
 
-enum ValuesRemove<'a, I> {
+enum ValuesRemove<'a, I, F> {
+	Conditional(F),
+	// only make sense if the condition does collect the keys.
+	// so they are known.
+	ConditionalNoEscape(F),
 	KnownKeys(SkipKeys<'a, I>),
 	KnownKeysEscaped(SkipKeys<'a, I>),
 	AllEscaped,
 	None,
+}
+
+trait ValuesRemoveCondition {
+	const NEED_KEY: bool;
+
+	fn check(&mut self, key: &NibbleVec, value: &[u8]) -> bool; 
+}
+
+impl ValuesRemoveCondition for () {
+	const NEED_KEY: bool = false;
+
+	fn check(&mut self, _key: &NibbleVec, _value: &[u8]) -> bool {
+		false
+	}
+}
+
+impl<F> ValuesRemoveCondition for F
+	where F: FnMut(&NibbleVec, &[u8]) -> bool,
+{
+	const NEED_KEY: bool = true;
+
+	fn check(&mut self, key: &NibbleVec, value: &[u8]) -> bool {
+		self(key, value)
+	}
+}
+
+struct NoKeyCondition<'a, F>(&'a mut F);
+
+impl<'a, F> ValuesRemoveCondition for NoKeyCondition<'a, F>
+	where F: FnMut(&[u8]) -> bool,
+{
+	const NEED_KEY: bool = false;
+
+	fn check(&mut self, _key: &NibbleVec, value: &[u8]) -> bool {
+		self.0(value)
+	}
 }
 
 struct SkipKeys<'a, I> {
@@ -358,27 +450,35 @@ impl<'a, I: Iterator<Item = &'a [u8]>> SkipKeys<'a, I> {
 	}
 }
 
-impl<'a, I: Iterator<Item = &'a [u8]>> ValuesRemove<'a, I> {
+impl<'a, I: Iterator<Item = &'a [u8]>, F> ValuesRemove<'a, I, F>
+	where
+		F: ValuesRemoveCondition,
+{
 	fn escaped_value(
 		&self,
 	) -> bool {
 		match self {
-			ValuesRemove::KnownKeysEscaped(..) => true,
+			ValuesRemove::KnownKeysEscaped(..)
+			| ValuesRemove::Conditional(..) => true,
 			// all remove means that escape on remaining values
 			// is not needed.
-			ValuesRemove::AllEscaped => false,
-			ValuesRemove::None => false,
-			ValuesRemove::KnownKeys(..) => false,
+			ValuesRemove::AllEscaped
+			| ValuesRemove::ConditionalNoEscape(..)
+			| ValuesRemove::None
+			| ValuesRemove::KnownKeys(..) => false,
 		}
 	}
 
 	// return (omit_value, escape_value)
 	fn skip_new_node_value(&mut self, prefix: &NibbleVec, node: &Rc<OwnedNode<DBValue>>) -> (bool, bool) {
 
-		let (partial, escaped_value) = match node.node_plan() {
-			NodePlan::NibbledBranch{partial, value: Some(_), ..}
-			| NodePlan::Leaf {partial, ..} => {
-				(partial, self.escaped_value())
+		let (partial, escaped_value, value) = match node.node_plan() {
+			NodePlan::NibbledBranch{ partial, value: Some(value), ..}
+			| NodePlan::Leaf {partial, value} => {
+				(partial.clone(), self.escaped_value(), value)
+			},
+			NodePlan::Branch{ value: Some(value), ..} => {
+				(crate::node::NibbleSlicePlan::empty(), self.escaped_value(), value)
 			},
 			_ => return (false, false),
 		};
@@ -388,7 +488,7 @@ impl<'a, I: Iterator<Item = &'a [u8]>> ValuesRemove<'a, I> {
 			ValuesRemove::KnownKeysEscaped(to_skip)
 			| ValuesRemove::KnownKeys(to_skip) => {
 				if let Some(next) = to_skip.next_key {
-					let mut node_key = prefix.clone();
+					let mut node_key = prefix.clone(); // TODO use &mut prefix??
 					let node_data = node.data();
 					let partial = partial.build(node_data);
 					node_key.append_partial(partial.right());
@@ -410,13 +510,20 @@ impl<'a, I: Iterator<Item = &'a [u8]>> ValuesRemove<'a, I> {
 				}
 			},
 			ValuesRemove::AllEscaped => {
-				match node.node_plan() {
-					NodePlan::NibbledBranch{value: Some(_), ..}
-					| NodePlan::Leaf {..} => {
-						return (true, false);
-					},
-					_ => (),
-				};
+				return (true, false);
+			},
+			ValuesRemove::ConditionalNoEscape(condition)
+			| ValuesRemove::Conditional(condition) => {
+				let node_data = node.data();
+				let value = &node_data[value.clone()];
+				if F::NEED_KEY {
+					let mut node_key = prefix.clone();
+					let partial = partial.build(node_data);
+					node_key.append_partial(partial.right());
+					return (condition.check(&node_key, value), escaped_value);
+				} else {
+					return (condition.check(prefix, value), escaped_value);
+				}
 			},
 		}
 
@@ -567,6 +674,13 @@ impl<
 			Node::Leaf(partial, value)
 			| Node::NibbledBranch(partial, _, Some(value)) => {
 				(partial, value.is_empty(), if self.escaped_value() {
+					decode_empty_escaped(value)
+				} else {
+					None
+				})
+			},
+			Node::Branch(_, Some(value)) => {
+				(crate::nibble::NibbleSlice::new(&[]), value.is_empty(), if self.escaped_value() {
 					decode_empty_escaped(value)
 				} else {
 					None
@@ -945,5 +1059,32 @@ impl<'a> LazyFetcher<'a> for (&'a [u8], &'a [u8]) {
 impl<'a> LazyFetcher<'a> for &'a crate::rstd::BTreeMap<&'a [u8], &'a [u8]> {
 	fn fetch(&self, key: &[u8]) -> Option<Cow<'a, [u8]>> {
 		self.get(key).map(|value| Cow::Borrowed(*value))
+	}
+}
+
+/// Implementation of condition to use for removing values.
+pub mod compact_conditions {
+	use super::*;
+
+	/// Treshold size condition for removing values from proof.
+	pub fn skip_treshold(treshold: usize) -> impl FnMut(&[u8]) -> bool {
+		move |value: &[u8]| {
+			value.len() > treshold
+		}
+	}
+
+	/// Treshold size condition for removing values from proof.
+	pub fn skip_treshold_collect_keys<'a>(
+		treshold: usize,
+		keys: &'a mut Vec<Vec<u8>>,
+	) -> impl FnMut(&NibbleVec, &[u8]) -> bool + 'a {
+		move |key: &NibbleVec, value: &[u8]| {
+			if value.len() > treshold {
+				keys.push(key.as_prefix().0.to_vec());
+				true
+			} else {
+				false
+			}
+		}
 	}
 }
