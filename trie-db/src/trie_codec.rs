@@ -37,6 +37,12 @@ use crate::rstd::{
 	borrow::Cow, cmp::Ordering, mem,
 };
 
+enum OmitValue {
+	OmitValue,
+	EscapValue,
+	None,
+}
+
 struct EncoderStackEntry<C: NodeCodec> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: NibbleVec,
@@ -46,10 +52,8 @@ struct EncoderStackEntry<C: NodeCodec> {
 	child_index: usize,
 	/// Flags indicating whether each child is omitted in the encoded node.
 	omit_children: Vec<bool>,
-	/// Flags indicating whether we should omit value in the encoded node.
-	omit_value: bool,
-	/// Flags indicating whether we should escape a value.
-	escape_value: bool,
+	/// Enum indicating whether we should omit value in the encoded node.
+	omit_value: OmitValue,
 	/// The encoding of the subtrie nodes rooted at this entry, which is built up in
 	/// `encode_compact`.
 	output_index: usize,
@@ -102,22 +106,26 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 
 	/// Generates the encoding of the subtrie rooted at this entry.
 	fn encode_node(&self) -> Result<Vec<u8>, C::HashOut, C::Error> {
-		let empty_value = Some(&[][..]);
 		let node_data = self.node.data();
 		Ok(match self.node.node_plan() {
 			NodePlan::Empty => node_data.to_vec(),
 			NodePlan::Leaf { partial, value } => {
 				let partial = partial.build(node_data);
-				if self.omit_value {
-					C::leaf_node(partial.right(), &[][..])
-				} else if self.escape_value {
-					if let Some(escaped) = encode_empty_escape(&node_data[value.clone()]) {
-						C::leaf_node(partial.right(), &escaped[..])
-					} else {
+
+				match self.omit_value {
+					OmitValue::OmitValue => {
+						C::leaf_node(partial.right(), &[][..])
+					},
+					OmitValue::EscapValue => {
+						if let Some(escaped) = encode_empty_escape(&node_data[value.clone()]) {
+							C::leaf_node(partial.right(), &escaped[..])
+						} else {
+							node_data.to_vec()
+						}
+					},
+					OmitValue::None => {
 						node_data.to_vec()
-					}
-				} else {
-					node_data.to_vec()
+					},
 				}
 			},
 			NodePlan::Extension { partial, child: _ } => {
@@ -130,44 +138,48 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 				}
 			}
 			NodePlan::Branch { value, children } => {
-				let value = if self.omit_value {
-					empty_value.map(Cow::Borrowed)
-				} else {
-					value.clone().map(|range| {
-						let node_data = &node_data[range];
-						if self.escape_value {
+				let value = value.clone().map(|range| {
+					let node_data = &node_data[range];
+					match self.omit_value {
+						OmitValue::OmitValue => {
+							Cow::Borrowed(&[][..])
+						},
+						OmitValue::EscapValue => {
 							if let Some(escaped) = encode_empty_escape(node_data) {
 								escaped
 							} else {
 								node_data.into()
 							}
-						} else {
+						},
+						OmitValue::None => {
 							node_data.into()
-						}
-					})
-				};
+						},
+					}
+				});
 				C::branch_node(
 					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
 					value.as_ref().map(|v| &v[..]),
 				)
 			}
 			NodePlan::NibbledBranch { partial, value, children } => {
-				let value = if self.omit_value {
-					empty_value.map(Cow::Borrowed)
-				} else {
-					value.clone().map(|range| {
-						let node_data = &node_data[range];
-						if self.escape_value {
+				let value = value.clone().map(|range| {
+					let node_data = &node_data[range];
+					match self.omit_value {
+						OmitValue::OmitValue => {
+							Cow::Borrowed(&[][..])
+						},
+						OmitValue::EscapValue => {
 							if let Some(escaped) = encode_empty_escape(node_data) {
 								escaped
 							} else {
 								node_data.into()
 							}
-						} else {
+						},
+						OmitValue::None => {
 							node_data.into()
-						}
-					})
-				};
+						},
+					}
+				});
 				let partial = partial.build(node_data);
 				C::branch_node_nibbled(
 					partial.right_iter(),
@@ -356,14 +368,13 @@ fn encode_compact_skip_values_inner<'a, L, I, F>(db: &TrieDB<L>, mut to_skip: Va
 					NodePlan::Extension { .. } => 1,
 					NodePlan::Branch { .. } | NodePlan::NibbledBranch { .. } => NIBBLE_LENGTH,
 				};
-				let (omit_value, escape_value) = to_skip.skip_new_node_value(&prefix, &node);
+				let omit_value = to_skip.skip_new_node_value(&prefix, &node);
 				stack.push(EncoderStackEntry {
 					prefix,
 					node,
 					child_index: 0,
 					omit_children: vec![false; children_len],
 					omit_value,
-					escape_value,
 					output_index: output.len(),
 					_marker: PhantomData::default(),
 				});
@@ -456,21 +467,21 @@ impl<'a, I: Iterator<Item = &'a [u8]>, F> ValuesRemove<'a, I, F>
 {
 	fn escaped_value(
 		&self,
-	) -> bool {
+	) -> OmitValue {
 		match self {
 			ValuesRemove::KnownKeysEscaped(..)
-			| ValuesRemove::Conditional(..) => true,
+			| ValuesRemove::Conditional(..) => OmitValue::EscapValue,
 			// all remove means that escape on remaining values
 			// is not needed.
 			ValuesRemove::AllEscaped
 			| ValuesRemove::ConditionalNoEscape(..)
 			| ValuesRemove::None
-			| ValuesRemove::KnownKeys(..) => false,
+			| ValuesRemove::KnownKeys(..) => OmitValue::None,
 		}
 	}
 
 	// return (omit_value, escape_value)
-	fn skip_new_node_value(&mut self, prefix: &NibbleVec, node: &Rc<OwnedNode<DBValue>>) -> (bool, bool) {
+	fn skip_new_node_value(&mut self, prefix: &NibbleVec, node: &Rc<OwnedNode<DBValue>>) -> OmitValue {
 
 		let (partial, escaped_value, value) = match node.node_plan() {
 			NodePlan::NibbledBranch{ partial, value: Some(value), ..}
@@ -480,7 +491,7 @@ impl<'a, I: Iterator<Item = &'a [u8]>, F> ValuesRemove<'a, I, F>
 			NodePlan::Branch{ value: Some(value), ..} => {
 				(crate::node::NibbleSlicePlan::empty(), self.escaped_value(), value)
 			},
-			_ => return (false, false),
+			_ => return OmitValue::None,
 		};
 
 		match self {
@@ -503,14 +514,14 @@ impl<'a, I: Iterator<Item = &'a [u8]>, F> ValuesRemove<'a, I, F>
 						},
 						Ordering::Equal => {
 							to_skip.next_key = to_skip.keys.next();
-							return (true, false);
+							return OmitValue::OmitValue;
 						},
 						Ordering::Greater => (),
 					};
 				}
 			},
 			ValuesRemove::AllEscaped => {
-				return (true, false);
+				return OmitValue::OmitValue;
 			},
 			ValuesRemove::ConditionalNoEscape(condition)
 			| ValuesRemove::Conditional(condition) => {
@@ -520,14 +531,22 @@ impl<'a, I: Iterator<Item = &'a [u8]>, F> ValuesRemove<'a, I, F>
 					let mut node_key = prefix.clone();
 					let partial = partial.build(node_data);
 					node_key.append_partial(partial.right());
-					return (condition.check(&node_key, value), escaped_value);
+					return if condition.check(&node_key, value) {
+						OmitValue::OmitValue
+					} else {
+						escaped_value
+					};
 				} else {
-					return (condition.check(prefix, value), escaped_value);
+					return if condition.check(&prefix, value) {
+						OmitValue::OmitValue
+					} else {
+						escaped_value
+					};
 				}
 			},
 		}
 
-		(false, escaped_value)
+		escaped_value
 	}
 }
 
