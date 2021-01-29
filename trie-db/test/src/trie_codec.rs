@@ -84,7 +84,7 @@ fn test_encode_compact<L: TrieLayout>(
 			EncodeType::SkipKeys(skip_keys) => {
 				trie_db::encode_compact_skip_conditional_with_key::<L, _>(
 					&trie,
-					&mut trie_db::compact_conditions::skip_given_ordered_keys(
+					trie_db::compact_conditions::skip_given_ordered_keys(
 						skip_keys.iter().map(|k| *k),
 					),
 					false,
@@ -127,7 +127,7 @@ fn test_decode_compact<L: TrieLayout>(
 	let mut db = MemoryDB::default();
 	let (root, used) = match decode_type {
 		DecodeType::SkippedValues(skipped_values) => {
-			trie_db::decode_compact_with_skipped_values::<L, _, _, _, _, _>(
+			trie_db::decode_compact_with_known_values::<L, _, _, _, _, _>(
 				&mut db,
 				encoded.iter().map(Vec::as_slice),
 				skipped_values,
@@ -141,7 +141,7 @@ fn test_decode_compact<L: TrieLayout>(
 			)
 		},
 		DecodeType::Escaped(fetcher) => {
-			trie_db::decode_compact_with_encoded_skipped_values::<L, _, _, _, _>(
+			trie_db::decode_compact_for_encoded_skipped_values::<L, _, _, _, _>(
 				&mut db,
 				encoded.iter().map(Vec::as_slice),
 				fetcher,
@@ -225,7 +225,7 @@ fn trie_compact_encoding_works_without_ext() {
 #[test]
 fn trie_compact_encoding_skip_values() {
 	let mut to_skip = BTreeSet::new();
-	to_skip.extend(&[&b"doge"[..], &b"aaaaaa"[..], &b"do"[..], &b"b"[..]]); 
+	to_skip.extend(&[&b"doge"[..], &b"aaaaaa"[..], &b"do"[..], &b"b"[..]]);
 	// doge and do will be skip (32 + 4 bytes)
 	let skip_len = 36;
 	let (root_no_skip, encoded_no_skip, items_no_skip) = test_encode_compact::<NoExtensionLayout>(
@@ -336,7 +336,7 @@ fn trie_encode_skip_condition() {
 	];
 	let mut test_set = test_set();
 	test_set.extend(additional_values.iter().cloned());
-	let mut test_proof_default = test_proof_default(); 
+	let mut test_proof_default = test_proof_default();
 	test_proof_default.extend(additional_values.iter().filter_map(|kv|
 		if kv.0.len() == 5 {
 			Some(kv.0)
