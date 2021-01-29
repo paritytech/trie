@@ -28,9 +28,11 @@ type MemoryDB<H> = memory_db::MemoryDB<H, memory_db::HashKey<H>, DBValue>;
 
 enum EncodeType<'a> {
 	SkipKeys(&'a BTreeSet<&'static [u8]>),
+	SkipKeysEscaped(&'a BTreeSet<&'static [u8]>),
 	All,
 	None,
 }
+
 fn test_encode_compact<L: TrieLayout>(
 	entries: Vec<(&'static [u8], &'static [u8])>,
 	keys: Vec<&'static [u8]>,
@@ -79,7 +81,18 @@ fn test_encode_compact<L: TrieLayout>(
 				trie_db::encode_compact_skip_all_values::<L>(&trie).unwrap()
 			},
 			EncodeType::SkipKeys(skip_keys) => {
-				trie_db::encode_compact_skip_values::<L, _>(&trie, skip_keys.iter().map(|k| *k)).unwrap()
+				trie_db::encode_compact_skip_values::<L, _>(
+					&trie,
+					skip_keys.iter().map(|k| *k),
+					false,
+				).unwrap()
+			},
+			EncodeType::SkipKeysEscaped(skip_keys) => {
+				trie_db::encode_compact_skip_values::<L, _>(
+					&trie,
+					skip_keys.iter().map(|k| *k),
+					true,
+				).unwrap()
 			},
 		}
 	};

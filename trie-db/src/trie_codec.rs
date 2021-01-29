@@ -220,12 +220,20 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 /// Skipped values are encoded as a 0 length value.
 ///
 /// The iterator need to be sorted.
-pub fn encode_compact_skip_values<'a, L, I>(db: &TrieDB<L>, to_skip: I) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+pub fn encode_compact_skip_values<'a, L, I>(
+	db: &TrieDB<L>,
+	to_skip: I,
+	escape_empty: bool,
+) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
 		I: IntoIterator<Item = &'a [u8]>,
 {
-	let to_skip = ValuesRemove::KnownKeys(SkipKeys::new(to_skip.into_iter()));
+	let to_skip = if escape_empty {
+		ValuesRemove::KnownKeysEscaped(SkipKeys::new(to_skip.into_iter()))
+	} else {
+		ValuesRemove::KnownKeys(SkipKeys::new(to_skip.into_iter()))
+	};
 	encode_compact_skip_values_inner(db, to_skip)
 }
 
@@ -330,6 +338,7 @@ fn encode_compact_skip_values_inner<'a, L, I>(db: &TrieDB<L>, mut to_skip: Value
 
 enum ValuesRemove<'a, I> {
 	KnownKeys(SkipKeys<'a, I>),
+	KnownKeysEscaped(SkipKeys<'a, I>),
 	AllEscaped,
 	None,
 }
@@ -350,21 +359,39 @@ impl<'a, I: Iterator<Item = &'a [u8]>> SkipKeys<'a, I> {
 }
 
 impl<'a, I: Iterator<Item = &'a [u8]>> ValuesRemove<'a, I> {
+	fn escaped_value(
+		&self,
+	) -> bool {
+		match self {
+			ValuesRemove::KnownKeysEscaped(..) => true,
+			// all remove means that escape on remaining values
+			// is not needed.
+			ValuesRemove::AllEscaped => false,
+			ValuesRemove::None => false,
+			ValuesRemove::KnownKeys(..) => false,
+		}
+	}
+
+	// return (omit_value, escape_value)
 	fn skip_new_node_value(&mut self, prefix: &NibbleVec, node: &Rc<OwnedNode<DBValue>>) -> (bool, bool) {
+
+		let (partial, escaped_value) = match node.node_plan() {
+			NodePlan::NibbledBranch{partial, value: Some(_), ..}
+			| NodePlan::Leaf {partial, ..} => {
+				(partial, self.escaped_value())
+			},
+			_ => return (false, false),
+		};
+
 		match self {
 			ValuesRemove::None => (),
-			ValuesRemove::KnownKeys(to_skip) => {
+			ValuesRemove::KnownKeysEscaped(to_skip)
+			| ValuesRemove::KnownKeys(to_skip) => {
 				if let Some(next) = to_skip.next_key {
 					let mut node_key = prefix.clone();
-					match node.node_plan() {
-						NodePlan::NibbledBranch{partial, value: Some(_), ..}
-						| NodePlan::Leaf {partial, ..} => {
-							let node_data = node.data();
-							let partial = partial.build(node_data);
-							node_key.append_partial(partial.right());
-						},
-						_ => (),
-					};
+					let node_data = node.data();
+					let partial = partial.build(node_data);
+					node_key.append_partial(partial.right());
 
 					// comparison is redundant with previous checks, could be optimized.
 					let node_key = LeftNibbleSlice::new(node_key.inner()).truncate(node_key.len());
@@ -392,7 +419,8 @@ impl<'a, I: Iterator<Item = &'a [u8]>> ValuesRemove<'a, I> {
 				};
 			},
 		}
-		(false, false)
+
+		(false, escaped_value)
 	}
 }
 
@@ -788,14 +816,18 @@ pub fn decode_compact_from_iter<'a, L, DB, T, I>(db: &mut DB, encoded: I)
 /// to match 'encode_compact_skip_values'.
 ///
 /// Skipped key values must be ordered.
-pub fn decode_compact_with_skipped_values<'a, L, DB, T, I, F, V>(db: &mut DB, encoded: I, fetcher: F, skipped: V)
-	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
+pub fn decode_compact_with_skipped_values<'a, L, DB, T, I, F, K>(
+	db: &mut DB,
+	encoded: I,
+	fetcher: F,
+	skipped: K,
+) -> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
 		DB: HashDB<L::Hash, T>,
 		I: IntoIterator<Item = &'a [u8]>,
 		F: LazyFetcher<'a>,
-		V: IntoIterator<Item = &'a [u8]>,
+		K: IntoIterator<Item = &'a [u8]>,
 {
 	let skipped = ValuesInsert::KnownKeys(SkipKeyValues::new(skipped.into_iter(), fetcher));
 	decode_compact_with_skipped_inner::<L, DB, T, _, F, _>(db, encoded.into_iter(), skipped)
@@ -915,5 +947,3 @@ impl<'a> LazyFetcher<'a> for &'a crate::rstd::BTreeMap<&'a [u8], &'a [u8]> {
 		self.get(key).map(|value| Cow::Borrowed(*value))
 	}
 }
-
-
