@@ -93,14 +93,14 @@ fn test_encode_compact<L: TrieLayout>(
 			EncodeType::TresholdCollect(treshold, keys) => {
 				trie_db::encode_compact_skip_conditional_with_key::<L, _>(
 					&trie,
-					&mut trie_db::compact_conditions::skip_treshold_collect_keys(treshold, keys),
+					trie_db::compact_conditions::skip_treshold_collect_keys(treshold, keys),
 					false,
 				).unwrap()
 			},
 			EncodeType::TresholdEscaped(treshold) => {
 				trie_db::encode_compact_skip_conditional::<L, _>(
 					&trie,
-					&mut trie_db::compact_conditions::skip_treshold(treshold),
+					trie_db::compact_conditions::skip_treshold(treshold),
 					true,
 				).unwrap()
 			},
