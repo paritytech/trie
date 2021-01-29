@@ -37,15 +37,10 @@ use crate::rstd::{
 	borrow::Cow, cmp::Ordering, mem,
 };
 
-enum OmitValue {
-	OmitValue,
-	EscapValue,
-	None,
-}
-
 struct EncoderStackEntry<C: NodeCodec> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: NibbleVec,
+	/// Node stacked.
 	node: Rc<OwnedNode<DBValue>>,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
@@ -58,6 +53,12 @@ struct EncoderStackEntry<C: NodeCodec> {
 	/// `encode_compact`.
 	output_index: usize,
 	_marker: PhantomData<C>,
+}
+
+enum OmitValue {
+	OmitValue,
+	EscapeValue,
+	None,
 }
 
 impl<C: NodeCodec> EncoderStackEntry<C> {
@@ -116,7 +117,7 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 					OmitValue::OmitValue => {
 						C::leaf_node(partial.right(), &[][..])
 					},
-					OmitValue::EscapValue => {
+					OmitValue::EscapeValue => {
 						if let Some(escaped) = encode_empty_escape(&node_data[value.clone()]) {
 							C::leaf_node(partial.right(), &escaped[..])
 						} else {
@@ -144,7 +145,7 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 						OmitValue::OmitValue => {
 							Cow::Borrowed(&[][..])
 						},
-						OmitValue::EscapValue => {
+						OmitValue::EscapeValue => {
 							if let Some(escaped) = encode_empty_escape(node_data) {
 								escaped
 							} else {
@@ -168,7 +169,7 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 						OmitValue::OmitValue => {
 							Cow::Borrowed(&[][..])
 						},
-						OmitValue::EscapValue => {
+						OmitValue::EscapeValue => {
 							if let Some(escaped) = encode_empty_escape(node_data) {
 								escaped
 							} else {
@@ -470,7 +471,7 @@ impl<'a, I: Iterator<Item = &'a [u8]>, F> ValuesRemove<'a, I, F>
 	) -> OmitValue {
 		match self {
 			ValuesRemove::KnownKeysEscaped(..)
-			| ValuesRemove::Conditional(..) => OmitValue::EscapValue,
+			| ValuesRemove::Conditional(..) => OmitValue::EscapeValue,
 			// all remove means that escape on remaining values
 			// is not needed.
 			ValuesRemove::AllEscaped
@@ -1104,6 +1105,35 @@ pub mod compact_conditions {
 			} else {
 				false
 			}
+		}
+	}
+
+	/// Skip keys from an iterator.
+	pub fn skip_given_ordered_keys<'a>(
+		iter: impl IntoIterator<Item = &'a [u8]> + 'a,
+	) -> impl FnMut(&NibbleVec, &[u8]) -> bool + 'a {
+		let mut iter = iter.into_iter();
+		let mut next_key = iter.next();
+		move |node_key: &NibbleVec, _value: &[u8]| {
+			loop {
+				if let Some(next) = next_key {
+					// comparison is redundant with previous checks, could be optimized.
+					let node_key = LeftNibbleSlice::new(node_key.inner()).truncate(node_key.len());
+					let next = LeftNibbleSlice::new(next);
+					match next.cmp(&node_key) {
+						Ordering::Less => {
+							next_key = iter.next();
+						},
+						Ordering::Equal => {
+							next_key = iter.next();
+							return true;
+						},
+						Ordering::Greater => break,
+					};
+				}
+			}
+
+			false
 		}
 	}
 }

@@ -84,16 +84,20 @@ fn test_encode_compact<L: TrieLayout>(
 				trie_db::encode_compact_skip_all_values::<L>(&trie).unwrap()
 			},
 			EncodeType::SkipKeys(skip_keys) => {
-				trie_db::encode_compact_skip_values::<L, _>(
+				trie_db::encode_compact_skip_conditional_with_key::<L, _>(
 					&trie,
-					skip_keys.iter().map(|k| *k),
+					&mut trie_db::compact_conditions::skip_given_ordered_keys(
+						skip_keys.iter().map(|k| *k),
+					),
 					false,
 				).unwrap()
 			},
 			EncodeType::SkipKeysEscaped(skip_keys) => {
-				trie_db::encode_compact_skip_values::<L, _>(
+				trie_db::encode_compact_skip_conditional_with_key::<L, _>(
 					&trie,
-					skip_keys.iter().map(|k| *k),
+					&mut trie_db::compact_conditions::skip_given_ordered_keys(
+						skip_keys.iter().map(|k| *k),
+					),
 					true,
 				).unwrap()
 			},
