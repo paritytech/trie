@@ -635,9 +635,9 @@ impl<
 		match self {
 			ValuesInsert::NonEscapedValues(..)
 			| ValuesInsert::KnownKeys(..)
-			| ValuesInsert::EscapedKnownKeys(..)
 			| ValuesInsert::None => false,
-			ValuesInsert::EscapedValues(..) => true
+			ValuesInsert::EscapedKnownKeys(..)
+			| ValuesInsert::EscapedValues(..) => true
 		}
 	}
 
