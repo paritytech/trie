@@ -1086,22 +1086,20 @@ pub mod compact_conditions {
 		let mut iter = iter.into_iter();
 		let mut next_key = iter.next();
 		move |node_key: &NibbleVec, _value: &[u8]| {
-			loop {
-				if let Some(next) = next_key {
-					// comparison is redundant with previous checks, could be optimized.
-					let node_key = LeftNibbleSlice::new(node_key.inner()).truncate(node_key.len());
-					let next = LeftNibbleSlice::new(next);
-					match next.cmp(&node_key) {
-						Ordering::Less => {
-							next_key = iter.next();
-						},
-						Ordering::Equal => {
-							next_key = iter.next();
-							return true;
-						},
-						Ordering::Greater => break,
-					};
-				}
+			while let Some(next) = next_key {
+				// comparison is redundant with previous checks, could be optimized.
+				let node_key = LeftNibbleSlice::new(node_key.inner()).truncate(node_key.len());
+				let next = LeftNibbleSlice::new(next);
+				match next.cmp(&node_key) {
+					Ordering::Less => {
+						next_key = iter.next();
+					},
+					Ordering::Equal => {
+						next_key = iter.next();
+						return true;
+					},
+					Ordering::Greater => break,
+				};
 			}
 
 			false
