@@ -508,6 +508,7 @@ impl<'a, F> ValuesRemoveCondition for &'a mut F
 enum ValuesInsert<'a, I, F> {
 	None,
 	KnownKeys(InsertAt<'a, I, F>),
+	EscapedKnownKeys(InsertAt<'a, I, F>),
 	EscapedValues(F),
 	NonEscapedValues(F),
 }
@@ -634,6 +635,7 @@ impl<
 		match self {
 			ValuesInsert::NonEscapedValues(..)
 			| ValuesInsert::KnownKeys(..)
+			| ValuesInsert::EscapedKnownKeys(..)
 			| ValuesInsert::None => false,
 			ValuesInsert::EscapedValues(..) => true
 		}
@@ -667,7 +669,8 @@ impl<
 
 		match self {
 			ValuesInsert::None => (),
-			ValuesInsert::KnownKeys(skipped_keys) => {
+			ValuesInsert::EscapedKnownKeys(skipped_keys)
+			| ValuesInsert::KnownKeys(skipped_keys) => {
 				if let Some(next) = &skipped_keys.next_key_value {
 					prefix.append_partial(partial.right());
 					// comparison is redundant with previous checks, could be optimized.
@@ -913,6 +916,7 @@ pub fn decode_compact_with_known_values<'a, L, DB, T, I, F, K>(
 	encoded: I,
 	fetcher: F,
 	known_keys: K,
+	escaped_value: bool,
 ) -> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
@@ -921,7 +925,11 @@ pub fn decode_compact_with_known_values<'a, L, DB, T, I, F, K>(
 		F: LazyFetcher<'a>,
 		K: IntoIterator<Item = &'a [u8]>,
 {
-	let known = ValuesInsert::KnownKeys(InsertAt::new(known_keys.into_iter(), fetcher));
+	let known = if escaped_value {
+		ValuesInsert::EscapedKnownKeys(InsertAt::new(known_keys.into_iter(), fetcher))
+	} else {
+		ValuesInsert::KnownKeys(InsertAt::new(known_keys.into_iter(), fetcher))
+	};
 	decode_compact_inner::<L, DB, T, _, F, _>(db, encoded.into_iter(), known)
 }
 

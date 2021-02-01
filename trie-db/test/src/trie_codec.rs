@@ -132,6 +132,7 @@ fn test_decode_compact<L: TrieLayout>(
 				encoded.iter().map(Vec::as_slice),
 				skipped_values,
 				skipped_values.keys().map(|k| *k),
+				false,
 			)
 		},
 		DecodeType::None => {
