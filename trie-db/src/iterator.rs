@@ -250,31 +250,30 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 	/// Warning prefix iterator may embed non prefix node when there is inline nodes.
 	pub fn prefix_then_seek(&mut self, prefix: &[u8], seek: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		if seek.starts_with(prefix) {
-			if self.seek_prefix(seek)? {
-				let prefix_len = prefix.len() * crate::nibble::nibble_ops::NIBBLE_PER_BYTE;
-				let mut len = 0;
-				// look first prefix in trail
-				for i in 0..self.trail.len() {
-					match self.trail[i].node.node_plan() {
-						NodePlan::Empty => {},
-						NodePlan::Branch { .. } => {
-							len += 1;
-						},
-						NodePlan::Leaf { partial, .. } => {
-							len += partial.len();
-						},
-						NodePlan::Extension { partial, .. } => {
-							len += partial.len();
-						},
-						NodePlan::NibbledBranch { partial, .. } => {
-							len += 1;
-							len += partial.len();
-						},
-					}
-					if len > prefix_len {
-						self.trail = self.trail.split_off(i);
-						return Ok(());
-					}
+			self.seek_prefix(seek)?;
+			let prefix_len = prefix.len() * crate::nibble::nibble_ops::NIBBLE_PER_BYTE;
+			let mut len = 0;
+			// look first prefix in trail
+			for i in 0..self.trail.len() {
+				match self.trail[i].node.node_plan() {
+					NodePlan::Empty => {},
+					NodePlan::Branch { .. } => {
+						len += 1;
+					},
+					NodePlan::Leaf { partial, .. } => {
+						len += partial.len();
+					},
+					NodePlan::Extension { partial, .. } => {
+						len += partial.len();
+					},
+					NodePlan::NibbledBranch { partial, .. } => {
+						len += 1;
+						len += partial.len();
+					},
+				}
+				if len > prefix_len {
+					self.trail = self.trail.split_off(i);
+					return Ok(());
 				}
 			}
 		}
