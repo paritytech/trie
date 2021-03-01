@@ -212,49 +212,65 @@ fn iterator_without_extension() {
 }
 
 #[test]
-fn iterator_seek() {
+fn iterator_seek2() {
 	let d = vec![
 		b"A".to_vec(),
 		b"AA".to_vec(),
 		b"AB".to_vec(),
 		b"B".to_vec(),
 	];
+	let vals = vec![
+		vec![0; 32],
+		vec![1; 32],
+		vec![2; 32],
+		vec![3; 32],
+	];
 
 	let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
 	{
 		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
-		for x in &d {
-			t.insert(x, x).unwrap();
+		for (k, val) in d.iter().zip(vals.iter()) {
+			t.insert(k, val.as_slice()).unwrap();
 		}
 	}
 
 	let t = RefTrieDBNoExt::new(&memdb, &root).unwrap();
 	let mut iter = t.iter().unwrap();
-	assert_eq!(iter.next().unwrap().unwrap(), (b"A".to_vec(), b"A".to_vec()));
+	assert_eq!(iter.next().unwrap().unwrap(), (b"A".to_vec(), vals[0].clone()));
 	iter.seek(b"!").unwrap();
-	assert_eq!(d, iter.map(|x| x.unwrap().1).collect::<Vec<_>>());
+	assert_eq!(vals, iter.map(|x| x.unwrap().1).collect::<Vec<_>>());
 	let mut iter = t.iter().unwrap();
 	iter.seek(b"A").unwrap();
-	assert_eq!(d, &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
+	assert_eq!(vals, &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
 	let mut iter = t.iter().unwrap();
 	iter.seek(b"AA").unwrap();
-	assert_eq!(&d[1..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
+	assert_eq!(&vals[1..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
+	let iter = trie_db::TrieDBIterator::new_prefixed(&t, b"aaaaa").unwrap();
+	assert_eq!(&vals[..0], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
+	let iter = trie_db::TrieDBIterator::new_prefixed(&t, b"A").unwrap();
+	assert_eq!(&vals[..3], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
+	let iter = trie_db::TrieDBIterator::new_prefixed_then_seek(&t, b"A", b"AA").unwrap();
+	assert_eq!(&vals[1..3], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
+	let iter = trie_db::TrieDBIterator::new_prefixed_then_seek(&t, b"A", b"AB").unwrap();
+	assert_eq!(&vals[2..3], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
+	let iter = trie_db::TrieDBIterator::new_prefixed_then_seek(&t, b"", b"AB").unwrap();
+	assert_eq!(&vals[2..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
 	let mut iter = t.iter().unwrap();
 	iter.seek(b"A!").unwrap();
-	assert_eq!(&d[1..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
+	assert_eq!(&vals[1..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
 	let mut iter = t.iter().unwrap();
 	iter.seek(b"AB").unwrap();
-	assert_eq!(&d[2..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
+	assert_eq!(&vals[2..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
 	let mut iter = t.iter().unwrap();
 	iter.seek(b"AB!").unwrap();
-	assert_eq!(&d[3..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
+	assert_eq!(&vals[3..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
 	let mut iter = t.iter().unwrap();
 	iter.seek(b"B").unwrap();
-	assert_eq!(&d[3..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
+	assert_eq!(&vals[3..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
 	let mut iter = t.iter().unwrap();
 	iter.seek(b"C").unwrap();
-	assert_eq!(&d[4..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
+	assert_eq!(&vals[4..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
 }
 
 #[test]
