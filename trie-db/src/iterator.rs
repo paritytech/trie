@@ -231,6 +231,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 
 	/// Advance the iterator into a prefix, no value out of the prefix will be accessed
 	/// or returned after this operation.
+	/// Warning prefix iterator may embed non prefix node when there is inline nodes.
 	pub fn prefix(&mut self, prefix: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		if self.seek_prefix(prefix)? {
 			if let Some(v) = self.trail.pop() {
@@ -246,6 +247,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 
 	/// Advance the iterator into a prefix, no value out of the prefix will be accessed
 	/// or returned after this operation.
+	/// Warning prefix iterator may embed non prefix node when there is inline nodes.
 	pub fn prefix_then_seek(&mut self, prefix: &[u8], seek: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		if seek.starts_with(prefix) {
 			if self.seek_prefix(seek)? {
