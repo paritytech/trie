@@ -1,0 +1,27 @@
+[package]
+name = "trie-db-test"
+version = "0.23.0"
+authors = ["Parity Technologies <admin@parity.io>"]
+description = "Tests for trie-db crate"
+repository = "https://github.com/paritytech/trie"
+license = "Apache-2.0"
+edition = "2018"
+
+[[bench]]
+name = "bench"
+harness = false
+
+[dependencies]
+trie-db = { path = "..", version = "0.22.1"}
+hash-db = { path = "../../hash-db", version = "0.15.2"}
+rustc-hex = { version = "2.1.0" }
+memory-db = { path = "../../memory-db", version = "0.26.0" }
+rand = { version = "0.8", default-features = false, features = ["small_rng"] }
+trie-root = { path = "../../trie-root", version = "0.16.0"}
+trie-standardmap = { path = "../../test-support/trie-standardmap", version = "0.15.2" }
+keccak-hasher = { path = "../../test-support/keccak-hasher", version = "0.15.2" }
+reference-trie = { path = "../../test-support/reference-trie", version = "0.23.0" }
+hex-literal = "0.3"
+criterion = "0.3"
+env_logger = "0.8"
+log = "0.4"

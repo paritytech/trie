@@ -71,7 +71,7 @@ pub use crate::node_codec::{NodeCodec, Partial};
 pub use crate::iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed};
 pub use crate::iterator::TrieDBNodeIterator;
-pub use crate::trie_codec::{decode_compact, encode_compact};
+pub use crate::trie_codec::{decode_compact, decode_compact_from_iter, encode_compact};
 
 #[cfg(feature = "std")]
 pub use crate::iter_build::TrieRootPrint;
@@ -122,17 +122,7 @@ impl<T, E> fmt::Display for TrieError<T, E> where T: MaybeDebug, E: MaybeDebug {
 }
 
 #[cfg(feature = "std")]
-impl<T, E> Error for TrieError<T, E> where T: fmt::Debug, E: Error {
-	fn description(&self) -> &str {
-		match *self {
-			TrieError::InvalidStateRoot(_) => "Invalid state root",
-			TrieError::IncompleteDatabase(_) => "Incomplete database",
-			TrieError::ValueAtIncompleteKey(_, _) => "Value at incomplete key",
-			TrieError::DecoderError(_, ref err) => err.description(),
-			TrieError::InvalidHash(_, _) => "Encoded node contains invalid hash reference",
-		}
-	}
-}
+impl<T, E> Error for TrieError<T, E> where T: fmt::Debug, E: Error {}
 
 /// Trie result type.
 /// Boxed to avoid copying around extra space for the `Hasher`s `Out` on successful queries.
@@ -392,6 +382,8 @@ pub trait TrieLayout {
 	/// no partial in branch, if false the trie will only
 	/// use branch and node with partials in both.
 	const USE_EXTENSION: bool;
+	/// If true, the trie will allow empty values into `TrieDBMut`
+	const ALLOW_EMPTY: bool = false;
 	/// Hasher to use for this trie.
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).

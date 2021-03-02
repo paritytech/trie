@@ -1,4 +1,4 @@
-// Copyright 2017, 2018 Parity Technologies
+// Copyright 2017, 2020 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -85,28 +85,5 @@ where
 
 	 fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
 		self.raw.remove(&L::Hash::hash(key).as_ref())
-	}
-}
-
-#[cfg(test)]
-mod test {
-	use memory_db::{MemoryDB, HashKey};
-	use hash_db::Hasher;
-	use reference_trie::{RefTrieDB, RefSecTrieDBMut, Trie, TrieMut, RefHasher};
-	use crate::DBValue;
-
-	#[test]
-	fn sectrie_to_trie() {
-		let mut memdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
-		let mut root = Default::default();
-		{
-			let mut t = RefSecTrieDBMut::new(&mut memdb, &mut root);
-			t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
-		}
-		let t = RefTrieDB::new(&memdb, &root).unwrap();
-		assert_eq!(
-			t.get(&RefHasher::hash(&[0x01u8, 0x23])).unwrap().unwrap(),
-			vec![0x01u8, 0x23],
-		);
 	}
 }
