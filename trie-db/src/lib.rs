@@ -75,7 +75,8 @@ pub use crate::node_codec::{NodeCodec, NodeCodecHybrid, Partial, HashDBHybridDyn
 pub use crate::iter_build::{trie_visit, ProcessEncodedNode, TrieRootUnhashedHybrid,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed, TrieRootHybrid, TrieBuilderHybrid};
 pub use crate::iterator::TrieDBNodeIterator;
-pub use crate::trie_codec::{decode_compact, encode_compact, binary_additional_hashes};
+pub use crate::trie_codec::{decode_compact, decode_compact_from_iter,
+	encode_compact, binary_additional_hashes};
 
 #[cfg(feature = "std")]
 pub use crate::iter_build::TrieRootPrint;
@@ -124,6 +125,9 @@ impl<T, E> fmt::Display for TrieError<T, E> where T: MaybeDebug, E: MaybeDebug {
 		}
 	}
 }
+
+#[cfg(feature = "std")]
+impl<T, E> Error for TrieError<T, E> where T: fmt::Debug, E: Error {}
 
 /// Trie result type.
 /// Boxed to avoid copying around extra space for the `Hasher`s `Out` on successful queries.
@@ -383,6 +387,8 @@ pub trait TrieLayout {
 	/// no partial in branch, if false the trie will only
 	/// use branch and node with partials in both.
 	const USE_EXTENSION: bool;
+	/// If true, the trie will allow empty values into `TrieDBMut`
+	const ALLOW_EMPTY: bool = false;
 	/// Does the layout implement a hybrid hash.
 	/// Note that if does not, the `NodeCodecHybrid` hash
 	/// associated codec only really need to implement `NodeCodec`
@@ -408,11 +414,11 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 		if Self::HYBRID_HASH {
 			let mut cb = TrieBuilderHybrid::new(db);
 			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
-			cb.root.unwrap_or(Default::default())
+			cb.root.unwrap_or_default()
 		} else {
 			let mut cb = TrieBuilder::new(db);
 			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
-			cb.root.unwrap_or(Default::default())
+			cb.root.unwrap_or_default()
 		}
 	}
 	/// Determines a trie root given its ordered contents, closed form.
@@ -424,11 +430,11 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 		if Self::HYBRID_HASH {
 			let mut cb = TrieRootHybrid::<Self::Hash, _>::default();
 			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
-			cb.root.unwrap_or(Default::default())
+			cb.root.unwrap_or_default()
 		} else {
 			let mut cb = TrieRoot::<Self::Hash, _>::default();
 			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
-			cb.root.unwrap_or(Default::default())
+			cb.root.unwrap_or_default()
 		}
 	}
 	/// Determines a trie root node's data given its ordered contents, closed form.
@@ -440,11 +446,11 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 		if Self::HYBRID_HASH {
 			let mut cb = TrieRootUnhashedHybrid::<Self::Hash>::default();
 			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
-			cb.root.unwrap_or(Default::default())
+			cb.root.unwrap_or_default()
 		} else {
 			let mut cb = TrieRootUnhashed::<Self::Hash>::default();
 			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
-			cb.root.unwrap_or(Default::default())
+			cb.root.unwrap_or_default()
 		}
 	}
 	/// Encoding of index as a key (when reusing general trie for

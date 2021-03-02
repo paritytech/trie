@@ -1,0 +1,56 @@
+name: build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  build:
+    name: Build
+    strategy:
+      matrix:
+        platform: [ubuntu-latest, macos-latest]
+        toolchain: [stable]
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout Sources
+        uses: actions/checkout@v2
+
+      - name: Install Rust Toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.toolchain }}
+          override: true
+
+      - name: Check
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --workspace --all-targets
+
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --workspace
+
+      - name: Check trie-db Without Std
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --manifest-path trie-db/Cargo.toml --no-default-features
+
+      - name: Check memory-db Without Std
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --manifest-path memory-db/Cargo.toml --no-default-features
+
+      - name: Check trie-root Without Std
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --manifest-path trie-root/Cargo.toml --no-default-features

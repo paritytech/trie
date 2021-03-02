@@ -39,11 +39,10 @@ use trie_db::{
 };
 use std::borrow::Borrow;
 
-pub use trie_db::{
-	decode_compact, encode_compact, HashDBHybrid, HashDBHybridDyn,
-	nibble_ops, NibbleSlice, NibbleVec, NodeCodec, proof, Record, Recorder, NodeCodecHybrid,
-	Trie, TrieConfiguration, TrieDB, TrieDBIterator, TrieDBMut, TrieDBNodeIterator, TrieError,
-	TrieIterator, TrieLayout, TrieMut, Bitmap, BITMAP_LENGTH, Lookup,
+use trie_db::{
+	nibble_ops, NodeCodec, NodeCodecHybrid,
+	Trie, TrieConfiguration,
+	TrieLayout, TrieMut,
 };
 pub use trie_root::TrieStream;
 pub mod node {
@@ -61,6 +60,7 @@ pub struct ExtensionLayout;
 
 impl TrieLayout for ExtensionLayout {
 	const USE_EXTENSION: bool = true;
+	const ALLOW_EMPTY: bool = false;
 	const HYBRID_HASH: bool = false;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
@@ -87,12 +87,24 @@ pub struct GenericNoExtensionLayout<H>(PhantomData<H>);
 
 impl<H: HasherHybrid> TrieLayout for GenericNoExtensionLayout<H> {
 	const USE_EXTENSION: bool = false;
+	const ALLOW_EMPTY: bool = false;
 	const HYBRID_HASH: bool = false;
 	type Hash = H;
 	type Codec = ReferenceNodeCodecNoExt<H>;
 }
 
 impl<H: HasherHybrid> TrieConfiguration for GenericNoExtensionLayout<H> { }
+
+/// Trie that allows empty values
+pub struct AllowEmptyLayout;
+
+impl TrieLayout for AllowEmptyLayout {
+	const USE_EXTENSION: bool = true;
+	const ALLOW_EMPTY: bool = true;
+	const HYBRID_HASH: bool = false;
+	type Hash = RefHasher;
+	type Codec = ReferenceNodeCodec<RefHasher>;
+}
 
 /// Trie layout without extension nodes.
 pub type NoExtensionLayout = GenericNoExtensionLayout<RefHasher>;
@@ -116,6 +128,8 @@ pub type NoExtensionLayoutHybrid = GenericNoExtensionLayoutHybrid<RefHasher>;
 
 pub type RefTrieDB<'a> = trie_db::TrieDB<'a, ExtensionLayout>;
 pub type RefTrieDBMut<'a> = trie_db::TrieDBMut<'a, ExtensionLayout>;
+pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMut<'a, NoExtensionLayout>;
+pub type RefTrieDBMutAllowEmpty<'a> = trie_db::TrieDBMut<'a, AllowEmptyLayout>;
 pub type RefFatDB<'a> = trie_db::FatDB<'a, ExtensionLayout>;
 pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, ExtensionLayout>;
 pub type RefSecTrieDB<'a> = trie_db::SecTrieDB<'a, ExtensionLayout>;
@@ -409,7 +423,7 @@ impl NodeHeader {
 }
 
 impl Encode for NodeHeader {
-	fn encode_to<T: Output>(&self, output: &mut T) {
+	fn encode_to<T: Output + ?Sized>(&self, output: &mut T) {
 		match self {
 			NodeHeader::Null => output.push_byte(EMPTY_TRIE),
 			NodeHeader::Branch(true) => output.push_byte(BRANCH_NODE_WITH_VALUE),
@@ -450,7 +464,7 @@ fn size_and_prefix_iterator(size: usize, prefix: u8) -> impl Iterator<Item = u8>
 	first_byte.chain(::std::iter::from_fn(next_bytes))
 }
 
-fn encode_size_and_prefix(size: usize, prefix: u8, out: &mut impl Output) {
+fn encode_size_and_prefix(size: usize, prefix: u8, out: &mut (impl Output + ?Sized)) {
 	for b in size_and_prefix_iterator(size, prefix) {
 		out.push_byte(b)
 	}
@@ -473,7 +487,7 @@ fn decode_size<I: Input>(first: u8, input: &mut I) -> Result<usize, CodecError> 
 }
 
 impl Encode for NodeHeaderNoExt {
-	fn encode_to<T: Output>(&self, output: &mut T) {
+	fn encode_to<T: Output + ?Sized>(&self, output: &mut T) {
 		match self {
 			NodeHeaderNoExt::Null => output.push_byte(EMPTY_TRIE_NO_EXT),
 			NodeHeaderNoExt::Branch(true, nibble_count)	=>
@@ -1348,7 +1362,7 @@ pub fn compare_implementations<T: TrieLayout, X : HashDBHybrid<T::Hash, DBValue>
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
 		t.commit();
-		t.root().clone()
+		*t.root()
 	};
 	if root_new != root {
 		{
@@ -1386,7 +1400,7 @@ pub fn compare_root<T: TrieLayout, DB: HashDBHybrid<T::Hash, DBValue>>(
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
-		t.root().clone()
+		*t.root()
 	};
 
 	assert_eq!(root, root_new);
@@ -1428,11 +1442,11 @@ pub fn calc_root_build<T, I, A, B, DB>(
 	if T::HYBRID_HASH {
 		let mut cb = TrieBuilderHybrid::new(hashdb);
 		trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
+		cb.root.unwrap_or_default()
 	} else {
 		let mut cb = TrieBuilder::new(hashdb);
 		trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
+		cb.root.unwrap_or_default()
 	}
 }
 
@@ -1451,7 +1465,7 @@ pub fn compare_implementations_unordered<T: TrieLayout, X : HashDBHybrid<T::Hash
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 			b_map.insert(data[i].0.clone(), data[i].1.clone());
 		}
-		t.root().clone()
+		*t.root()
 	};
 	let root_new = {
 		let mut cb = TrieBuilderHybrid::new(&mut hashdb);

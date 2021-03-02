@@ -16,7 +16,7 @@
 
 use hash_db::{Hasher, BinaryHasher};
 //use hash_db::FixHash;
-use tiny_keccak::Keccak;
+use tiny_keccak::{Hasher as _, Keccak};
 use hash256_std_hasher::Hash256StdHasher;
 
 /// Concrete `Hasher` impl for the Keccak-256 hash
@@ -30,8 +30,10 @@ impl Hasher for KeccakHasher {
 	const LENGTH: usize = 32;
 
 	fn hash(x: &[u8]) -> Self::Out {
+		let mut keccak = Keccak::v256();
+		keccak.update(x);
 		let mut out = [0u8; 32];
-		Keccak::keccak256(x, &mut out);
+		keccak.finalize(&mut out);
 		out
 	}
 }
