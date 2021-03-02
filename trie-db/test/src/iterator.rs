@@ -15,14 +15,11 @@
 use trie_db::{
 	DBValue, TrieError, TrieMut,
 	TrieIterator, TrieDBNodeIterator, NibbleSlice, NibbleVec,
-	node::Node,
+	node::Node, TrieDB, TrieLayout,
 };
 use hex_literal::hex;
 use hash_db::{HashDB, Hasher};
-use reference_trie::{
-	RefTrieDB, RefTrieDBMut, RefHasher,
-};
-use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt, test_layouts};
+use reference_trie::test_layouts;
 
 type MemoryDB<T> = memory_db::MemoryDB<<T as TrieLayout>::Hash, memory_db::PrefixedKey<<T as TrieLayout>::Hash>, DBValue>;
 
@@ -33,7 +30,7 @@ fn build_trie_db<T: TrieLayout>(pairs: &[(Vec<u8>, Vec<u8>)])
 	let mut memdb = MemoryDB::<T>::default();
 	let mut root = Default::default();
 	{
-		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
+		let mut t = trie_db::TrieDBMut::<T>::new(&mut memdb, &mut root);
 		for (x, y) in pairs.iter() {
 			t.insert(x, y).unwrap();
 		}

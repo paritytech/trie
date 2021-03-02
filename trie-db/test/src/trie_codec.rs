@@ -18,9 +18,7 @@ use trie_db::{
 	Trie, TrieMut, TrieDB, TrieError, TrieDBMut, TrieLayout, Recorder,
 };
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
-use reference_trie::{
-	ExtensionLayout, NoExtensionLayout,
-};
+use reference_trie::test_layouts;
 
 type MemoryDB<H> = memory_db::MemoryDB<H, memory_db::HashKey<H>, DBValue>;
 

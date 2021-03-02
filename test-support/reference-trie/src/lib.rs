@@ -36,12 +36,16 @@ use trie_db::{
 	ChildProofHeader,
 	HashesPlan,
 	binary_additional_hashes,
+	TrieDB,
+	TrieDBMut,
+	Bitmap, BITMAP_LENGTH,
 };
 use std::borrow::Borrow;
 
 use trie_db::{
+//	decode_compact, encode_compact, HashDBHybridDyn,
 	nibble_ops, NodeCodec, NodeCodecHybrid,
-	Trie, TrieConfiguration,
+	Trie, TrieConfiguration, HashDBHybrid,
 	TrieLayout, TrieMut,
 };
 pub use trie_root::TrieStream;
@@ -52,6 +56,7 @@ pub mod node {
 /// Reference hasher is a keccak hasher with hybrid ordered trie implementation.
 pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, blake2::Blake2Hasher>;
 //pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, keccak_hasher::KeccakHasher>;
+//use keccak_hasher::KeccakHasher;
 //pub type RefHasher = ordered_trie::OrderedTrieHasher<keccak_hasher::KeccakHasher, keccak_hasher::KeccakHasher>;
 
 #[macro_export]
@@ -85,13 +90,13 @@ pub struct ExtensionLayoutHybrid;
 
 impl TrieLayout for ExtensionLayoutHybrid {
 	const USE_EXTENSION: bool = true;
+	const ALLOW_EMPTY: bool = false;
 	const HYBRID_HASH: bool = true;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
 }
 
 impl TrieConfiguration for ExtensionLayoutHybrid { }
-
 
 /// Trie layout without extension nodes, allowing
 /// generic hasher.
@@ -137,11 +142,10 @@ impl<H: HasherHybrid> TrieConfiguration for GenericNoExtensionLayoutHybrid<H> { 
 /// Trie layout without extension nodes.
 pub type NoExtensionLayoutHybrid = GenericNoExtensionLayoutHybrid<RefHasher>;
 
-
-pub type RefTrieDB<'a> = trie_db::TrieDB<'a, ExtensionLayout>;
-pub type RefTrieDBMut<'a> = trie_db::TrieDBMut<'a, ExtensionLayout>;
-pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMut<'a, NoExtensionLayout>;
-pub type RefTrieDBMutAllowEmpty<'a> = trie_db::TrieDBMut<'a, AllowEmptyLayout>;
+pub type RefTrieDB<'a> = TrieDB<'a, ExtensionLayout>;
+pub type RefTrieDBMut<'a> = TrieDBMut<'a, ExtensionLayout>;
+pub type RefTrieDBMutNoExt<'a> = TrieDBMut<'a, NoExtensionLayout>;
+pub type RefTrieDBMutAllowEmpty<'a> = TrieDBMut<'a, AllowEmptyLayout>;
 pub type RefFatDB<'a> = trie_db::FatDB<'a, ExtensionLayout>;
 pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, ExtensionLayout>;
 pub type RefSecTrieDB<'a> = trie_db::SecTrieDB<'a, ExtensionLayout>;
@@ -165,6 +169,14 @@ pub fn reference_trie_root<T: TrieLayout, I, A, B>(input: I) -> <T::Hash as Hash
 	} else {
 		trie_root::trie_root_no_extension::<T::Hash, ReferenceTrieStreamNoExt, _, _, _>(input)
 	}
+}
+
+fn reference_trie_root_unhashed<I, A, B>(input: I) -> Vec<u8> where
+	I: IntoIterator<Item = (A, B)>,
+	A: AsRef<[u8]> + Ord + fmt::Debug,
+	B: AsRef<[u8]> + fmt::Debug,
+{
+	trie_root::unhashed_trie::<RefHasher, ReferenceTrieStream, _, _, _>(input)
 }
 
 fn data_sorted_unique<I, A: Ord, B>(input: I) -> Vec<(A, B)>
@@ -196,6 +208,14 @@ pub fn reference_trie_root_iter_build<T, I, A, B>(input: I) -> <T::Hash as Hashe
 			cb.root.unwrap_or_default()
 		},
 	}
+}
+
+fn reference_trie_root_unhashed_no_extension<I, A, B>(input: I) -> Vec<u8> where
+	I: IntoIterator<Item = (A, B)>,
+	A: AsRef<[u8]> + Ord + fmt::Debug,
+	B: AsRef<[u8]> + fmt::Debug,
+{
+	trie_root::unhashed_trie_no_extension::<RefHasher, ReferenceTrieStreamNoExt, _, _, _>(input)
 }
 
 const EMPTY_TRIE: u8 = 0;
@@ -1414,6 +1434,35 @@ pub fn compare_root<T: TrieLayout, DB: HashDBHybrid<T::Hash, DBValue>>(
 		}
 		*t.root()
 	};
+
+	assert_eq!(root, root_new);
+}
+
+/// Compare trie builder and trie root unhashed implementations.
+pub fn compare_unhashed(
+	data: Vec<(Vec<u8>, Vec<u8>)>,
+) {
+	let root_new = {
+		let mut cb = trie_db::TrieRootUnhashed::<RefHasher>::default();
+		trie_visit::<ExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		cb.root.unwrap_or(Default::default())
+	};
+	let root = reference_trie_root_unhashed(data);
+
+	assert_eq!(root, root_new);
+}
+
+/// Compare trie builder and trie root unhashed implementations.
+/// This uses the variant without extension nodes.
+pub fn compare_unhashed_no_extension(
+	data: Vec<(Vec<u8>, Vec<u8>)>,
+) {
+	let root_new = {
+		let mut cb = trie_db::TrieRootUnhashed::<RefHasher>::default();
+		trie_visit::<NoExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
+		cb.root.unwrap_or(Default::default())
+	};
+	let root = reference_trie_root_unhashed_no_extension(data);
 
 	assert_eq!(root, root_new);
 }

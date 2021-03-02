@@ -24,7 +24,7 @@ pub use malloc_size_of::*;
 
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher,
 	AsHashDB, AsPlainDB, Prefix, HashDBHybrid, HasherHybrid, BinaryHasher};
-use parity_util_mem::{MallocSizeOf, MallocSizeOfOps};
+use parity_util_mem::{MallocSizeOf, MallocSizeOfOps, MallocShallowSizeOf};
 #[cfg(feature = "std")]
 use std::{
 	collections::hash_map::Entry,

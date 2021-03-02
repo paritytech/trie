@@ -13,11 +13,9 @@
 // limitations under the License.
 
 use memory_db::{MemoryDB, PrefixedKey};
-use trie_db::{DBValue, Trie, TrieMut, NibbleSlice};
-use reference_trie::{RefTrieDB, RefTrieDBMut, RefLookup};
-use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt};
-use reference_trie::{TrieDB, TrieDBMut, Lookup, Trie, TrieMut, NibbleSlice, TrieLayout};
-use reference_trie::{ExtensionLayout, ExtensionLayoutHybrid, NoExtensionLayout, NoExtensionLayoutHybrid};
+use trie_db::{TrieDB, TrieDBMut, Lookup, Trie, TrieMut, NibbleSlice, TrieLayout,
+	DBValue};
+use reference_trie::test_layouts;
 use hex_literal::hex;
 
 test_layouts!(iterator_works, iterator_works_internal);
@@ -66,7 +64,7 @@ fn iterator_seek_works_internal<T: TrieLayout>() {
 
 	let t = TrieDB::<T>::new(&memdb, &root).unwrap();
 
-	let iter = trie.iter().unwrap();
+	let mut iter = t.iter().unwrap();
 	assert_eq!(
 		iter.next().unwrap().unwrap(),
 		(

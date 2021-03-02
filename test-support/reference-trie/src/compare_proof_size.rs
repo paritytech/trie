@@ -25,6 +25,8 @@ use memory_db::{
 use reference_trie::{
 	ExtensionLayoutHybrid,
 	ExtensionLayout,
+};
+use trie_db::{
 	TrieDBMut,
 	TrieMut,
 	TrieDB,

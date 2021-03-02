@@ -15,22 +15,19 @@
 use env_logger;
 use trie_standardmap::*;
 use log::debug;
-use trie_db::{DBValue, TrieMut, NodeCodec,};
 use memory_db::{MemoryDB, PrefixedKey};
-use hash_db::{Hasher, HashDB};
-use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMutAllowEmpty, RefTrieDBMut,
-	ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension};
-use reference_trie::{TrieDBMut, TrieMut, NodeCodec, HashDBHybridDyn,
-	ReferenceNodeCodec, ReferenceNodeCodecNoExt, reference_trie_root_iter_build as reference_trie_root, TrieLayout};
-use reference_trie::{ExtensionLayout, ExtensionLayoutHybrid, NoExtensionLayout, NoExtensionLayoutHybrid};
-
-use crate::nibble::BackingByteVec;
+use hash_db::Hasher;
+use trie_db::{TrieDBMut, TrieMut, NodeCodec, HashDBHybridDyn,
+	TrieLayout, DBValue};
+use reference_trie::{ExtensionLayout, ExtensionLayoutHybrid, NoExtensionLayout,
+	NoExtensionLayoutHybrid, RefHasher, test_layouts, ReferenceNodeCodec,
+	ReferenceNodeCodecNoExt, reference_trie_root_iter_build as reference_trie_root};
 
 fn populate_trie<'db, T: TrieLayout>(
 	db: &'db mut dyn HashDBHybridDyn<T::Hash, DBValue>,
 	root: &'db mut <T::Hash as Hasher>::Out,
 	v: &[(Vec<u8>, Vec<u8>)]
-) -> RefTrieDBMut<'db> {
+) -> TrieDBMut<'db, T> {
 	let mut t = TrieDBMut::<T>::new(db, root);
 	for i in 0..v.len() {
 		let key: &[u8]= &v[i].0;
@@ -187,7 +184,7 @@ test_layouts!(insert_make_branch_root, insert_make_branch_root_internal);
 fn insert_make_branch_root_internal<T: TrieLayout>() {
 	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+	let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	t.insert(&[0x11u8, 0x23], &[0x11u8, 0x23]).unwrap();
 	assert_eq!(*t.root(), reference_trie_root::<T, _, _, _>(vec![
@@ -430,8 +427,11 @@ fn return_old_values_internal<T: TrieLayout>() {
 fn insert_empty_allowed() {
 	let mut db = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMutAllowEmpty::new(&mut db, &mut root);
+	let mut t = reference_trie::RefTrieDBMutAllowEmpty::new(&mut db, &mut root);
 	t.insert(b"test", &[]).unwrap();
-	assert_eq!(*t.root(), reference_trie_root(vec![(b"test".to_vec(), Vec::new())]));
+
+	assert_eq!(*t.root(), reference_trie_root::<reference_trie::AllowEmptyLayout, _, _, _>(
+		vec![(b"test".to_vec(), Vec::new())],
+	));
 	assert_eq!(t.get(b"test").unwrap(), Some(Vec::new()));
 }

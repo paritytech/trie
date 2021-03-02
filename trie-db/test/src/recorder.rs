@@ -16,7 +16,7 @@
 
 use memory_db::{MemoryDB, HashKey};
 use hash_db::Hasher;
-use reference_trie::{RefTrieDB, RefTrieDBMut, RefHasher};
+use reference_trie::RefHasher;
 use trie_db::{Trie, TrieMut, Recorder, Record};
 
 #[test]
@@ -74,19 +74,19 @@ fn trie_record() {
 	type KeccakHasher = ordered_trie::OrderedTrieHasher<keccak_hasher::KeccakHasher, keccak_hasher::KeccakHasher>;
 	struct Layout;
 
-	impl reference_trie::TrieLayout for Layout {
+	impl trie_db::TrieLayout for Layout {
 		const USE_EXTENSION: bool = true;
 		const HYBRID_HASH: bool = false;
 		type Hash = KeccakHasher;
 		type Codec = reference_trie::ReferenceNodeCodec<KeccakHasher>;
 	}
 
-	impl reference_trie::TrieConfiguration for Layout { }
+	impl trie_db::TrieConfiguration for Layout { }
 
 	let mut db = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
 	let mut root = Default::default();
 	{
-		let mut x = reference_trie::TrieDBMut::<Layout>::new(&mut db, &mut root);
+		let mut x = trie_db::TrieDBMut::<Layout>::new(&mut db, &mut root);
 
 		x.insert(b"dog", b"cat").unwrap();
 		x.insert(b"lunch", b"time").unwrap();
@@ -98,7 +98,7 @@ fn trie_record() {
 		x.insert(b"yo ho ho", b"and a bottle of rum").unwrap();
 	}
 
-	let trie = RefTrieDB::new(&db, &root).unwrap();
+	let trie = trie_db::TrieDB::<Layout>::new(&db, &root).unwrap();
 	let mut recorder = Recorder::new();
 
 	trie.get_with(b"pirate", &mut recorder).unwrap().unwrap();

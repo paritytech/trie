@@ -38,7 +38,7 @@ mod rstd {
 }
 
 #[cfg(feature = "std")]
-use self::rstd::fmt;
+use self::rstd::{fmt, Error};
 
 use hash_db::MaybeDebug;
 use self::rstd::{boxed::Box, vec::Vec};

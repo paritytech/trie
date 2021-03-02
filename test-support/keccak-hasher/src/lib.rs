@@ -45,7 +45,7 @@ impl BinaryHasher for KeccakHasher {
 	type Buffer = Keccak;
 
 	fn init_buffer() -> Self::Buffer {
-		Keccak::new_keccak256()
+		Keccak::v256()
 	}
 
 	fn reset_buffer(buff: &mut Self::Buffer) {

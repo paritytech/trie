@@ -14,7 +14,7 @@
 
 use hash_db::Hasher;
 use reference_trie::{
-	ExtensionLayout, NoExtensionLayout,
+	NoExtensionLayout, test_layouts,
 };
 
 use trie_db::{
@@ -86,7 +86,7 @@ fn trie_proof_works_internal<T: TrieLayout>() {
 		],
 	);
 
-	verify_proof::<ExtensionLayout, _, _, _>(&root, &proof, items.iter()).unwrap();
+	verify_proof::<T, _, _, _>(&root, &proof, items.iter()).unwrap();
 }
 
 test_layouts!(trie_proof_works_for_empty_trie, trie_proof_works_for_empty_trie_internal);
@@ -114,9 +114,12 @@ fn test_verify_duplicate_keys_internal<T: TrieLayout>() {
 		(b"bravo", Some(b"bravo")),
 		(b"bravo", Some(b"bravo")),
 	];
-	assert_eq!(
-		verify_proof::<T, _, _, _>(&root, &proof, items.iter()),
-		Err(VerifyError::DuplicateKey(b"bravo".to_vec()))
+	assert!(
+		if let Err(VerifyError::DuplicateKey(key)) = verify_proof::<T, _, _, _>(&root, &proof, items.iter()) {
+			key == b"bravo".to_vec()
+		} else {
+			false
+		}
 	);
 }
 
@@ -130,10 +133,10 @@ fn test_verify_extraneaous_node_internal<T: TrieLayout>() {
 	let items = vec![
 		(b"bravo", Some(b"bravo")),
 	];
-	assert_eq!(
+	assert!(matches!(
 		verify_proof::<T, _, _, _>(&root, &proof, items.iter()),
 		Err(VerifyError::ExtraneousNode)
-	);
+	));
 }
 
 test_layouts!(test_verify_extraneaous_value, test_verify_extraneaous_value_internal);
@@ -147,9 +150,12 @@ fn test_verify_extraneaous_value_internal<T: TrieLayout>() {
 		(&b"do"[..], Some(&b"verb"[..])),
 		(&b"doge"[..], Some(&[0; 32][..])),
 	];
-	assert_eq!(
-		verify_proof::<T, _, _, _>(&root, &proof, items.iter()),
-		Err(VerifyError::ExtraneousValue(b"do".to_vec()))
+	assert!(
+		if let Err(VerifyError::ExtraneousValue(val)) = verify_proof::<T, _, _, _>(&root, &proof, items.iter()) {
+			val == b"do".to_vec()
+		} else {
+			false
+		}
 	);
 }
 
@@ -182,7 +188,7 @@ fn test_verify_invalid_child_reference_internal<T: TrieLayout>() {
 	let items = vec![
 		(b"bravo", Some([0; 32])),
 	];
-	match verify_proof::<NoExtensionLayout, _, _, _>(&root, &proof, items.iter()) {
+	match verify_proof::<T, _, _, _>(&root, &proof, items.iter()) {
 		Err(VerifyError::InvalidChildReference(_)) => {}
 		result => panic!("expected VerifyError::InvalidChildReference, got {:?}", result),
 	}
@@ -199,15 +205,18 @@ fn test_verify_value_mismatch_some_to_none_internal<T: TrieLayout>() {
 		(&b"horse"[..], Some(&b"stallion"[..])),
 		(&b"halp"[..], Some(&b"plz"[..])),
 	];
-	assert_eq!(
-		verify_proof::<NoExtensionLayout, _, _, _>(&root, &proof, items.iter()),
-		Err(VerifyError::ValueMismatch(b"halp".to_vec()))
+	assert!(
+		if let Err(VerifyError::ValueMismatch(val)) = verify_proof::<T, _, _, _>(&root, &proof, items.iter()) {
+			val == b"halp".to_vec()
+		} else {
+			false
+		}
 	);
 }
 
 test_layouts!(test_verify_value_mismatch_none_to_some, test_verify_value_mismatch_none_to_some_internal);
 fn test_verify_value_mismatch_none_to_some_internal<T: TrieLayout>() {
-	let (root, proof, _) = test_generate_proof::<NoExtensionLayout>(
+	let (root, proof, _) = test_generate_proof::<T>(
 		test_entries(),
 		vec![b"alfa", b"bravo"],
 	);
@@ -216,9 +225,12 @@ fn test_verify_value_mismatch_none_to_some_internal<T: TrieLayout>() {
 		(&b"alfa"[..], Some(&[0; 32][..])),
 		(&b"bravo"[..], None),
 	];
-	assert_eq!(
-		verify_proof::<T, _, _, _>(&root, &proof, items.iter()),
-		Err(VerifyError::ValueMismatch(b"bravo".to_vec()))
+	assert!(
+		if let Err(VerifyError::ValueMismatch(val)) = verify_proof::<T, _, _, _>(&root, &proof, items.iter()) {
+			val == b"bravo".to_vec()
+		} else {
+			false
+		}
 	);
 }
 
@@ -230,10 +242,10 @@ fn test_verify_incomplete_proof_internal<T: TrieLayout>() {
 	);
 
 	proof.pop();
-	assert_eq!(
+	assert!(matches!(
 		verify_proof::<T, _, _, _>(&root, &proof, items.iter()),
 		Err(VerifyError::IncompleteProof)
-	);
+	));
 }
 
 test_layouts!(test_verify_root_mismatch, test_verify_root_mismatch_internal);
