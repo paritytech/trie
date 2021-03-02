@@ -69,13 +69,24 @@ fn basic_recorder_min_depth() {
 	});
 }
 
-// #[test] TODO put it back for reftriedb not complex
 #[test]
 fn trie_record() {
-	let mut db = MemoryDB::<RefHasher, HashKey<_>, _>::default();
+	type KeccakHasher = ordered_trie::OrderedTrieHasher<keccak_hasher::KeccakHasher, keccak_hasher::KeccakHasher>;
+	struct Layout;
+
+	impl reference_trie::TrieLayout for Layout {
+		const USE_EXTENSION: bool = true;
+		const HYBRID_HASH: bool = false;
+		type Hash = KeccakHasher;
+		type Codec = reference_trie::ReferenceNodeCodec<KeccakHasher>;
+	}
+
+	impl reference_trie::TrieConfiguration for Layout { }
+
+	let mut db = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
 	let mut root = Default::default();
 	{
-		let mut x = RefTrieDBMut::new(&mut db, &mut root);
+		let mut x = reference_trie::TrieDBMut::<Layout>::new(&mut db, &mut root);
 
 		x.insert(b"dog", b"cat").unwrap();
 		x.insert(b"lunch", b"time").unwrap();

@@ -14,7 +14,7 @@
 
 use criterion::{criterion_group, criterion_main, Bencher, black_box, Criterion};
 
-use trie_db::{NibbleSlice, proof::{generate_proof, verify_proof}, Trie};
+use trie_db::{NibbleSlice, proof::{generate_proof, verify_proof}, TrieLayout};
 use trie_standardmap::{Alphabet, StandardMap, ValueMode};
 use reference_trie::ExtensionLayout as Layout;
 
@@ -36,6 +36,12 @@ criterion_group!(benches,
 	trie_iteration,
 	nibble_common_prefix,
 	trie_proof_verification,
+	proof_build_dataset_standard,
+	proof_build_dataset_hybrid,
+	proof_build_compacting_standard,
+	proof_build_compacting_hybrid,
+	proof_build_change_standard,
+	proof_build_change_hybrid,
 );
 criterion_main!(benches);
 
@@ -463,6 +469,7 @@ fn trie_iteration(c: &mut Criterion) {
 
 fn trie_proof_verification(c: &mut Criterion) {
 	use memory_db::HashKey;
+	use trie_db::Trie;
 
 	let mut data = input_unsorted(29, 204800, 32);
 	let mut keys = data[(data.len() / 3)..]
@@ -496,4 +503,163 @@ fn trie_proof_verification(c: &mut Criterion) {
 			).unwrap();
 		})
 	);
+}
+
+// bench build triedbmut as in proof size main from reference trie
+// parameters are hadcoded.
+fn proof_build_dataset<L: TrieLayout>(c: &mut Criterion, trie_size: u32, size_value: usize) {
+	use memory_db::PrefixedKey;
+	use trie_db::TrieMut;
+
+	let mut seed = Default::default();
+	let x = StandardMap {
+		alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
+		min_key: size_value,
+		journal_key: 0,
+		value_mode: ValueMode::Index,
+		count: trie_size,
+	}.make_with(&mut seed);
+	let mut memdb = memory_db::MemoryDB::<<L as TrieLayout>::Hash, PrefixedKey<_>, Vec<u8>>::default();
+	let mut root = Default::default();
+
+	c.bench_function("proof_build_dataset", move |b: &mut Bencher|
+		b.iter(|| {
+			let mut t = reference_trie::TrieDBMut::<L>::new(&mut memdb, &mut root);
+			for i in 0..x.len() {
+				let key: &[u8]= &x[i].0;
+				let val: &[u8] = &x[i].1;
+				t.insert(key, val).unwrap();
+			}
+			t.commit();
+		})
+	);
+}
+
+fn proof_build_dataset_standard(c: &mut Criterion) {
+	let trie_size = 1000;
+	let values_size = 32;
+	proof_build_dataset::<reference_trie::NoExtensionLayout>(c, trie_size, values_size)
+}
+
+fn proof_build_dataset_hybrid(c: &mut Criterion) {
+	let trie_size = 1000;
+	let values_size = 32;
+	proof_build_dataset::<reference_trie::NoExtensionLayoutHybrid>(c, trie_size, values_size)
+}
+
+fn proof_build_compacting<L: TrieLayout>(c: &mut Criterion, trie_size: u32, size_value: usize, number_key: usize) {
+	use memory_db::{PrefixedKey, HashKey};
+	use trie_db::TrieMut;
+
+	let mut seed = Default::default();
+	let x = StandardMap {
+		alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
+		min_key: size_value,
+		journal_key: 0,
+		value_mode: ValueMode::Index,
+		count: trie_size,
+	}.make_with(&mut seed);
+	let mut memdb = memory_db::MemoryDB::<<L as TrieLayout>::Hash, PrefixedKey<_>, Vec<u8>>::default();
+	let mut root = Default::default();
+	{
+		let mut t = reference_trie::TrieDBMut::<L>::new(&mut memdb, &mut root);
+		for i in 0..x.len() {
+			let key: &[u8]= &x[i].0;
+			let val: &[u8] = &x[i].1;
+			t.insert(key, val).unwrap();
+		}
+		t.commit();
+	}
+
+	use reference_trie::{Trie, TrieDB};
+	use hash_db::{EMPTY_PREFIX, HashDB};
+
+	let keys = &x[..number_key];
+	let trie = <TrieDB<L>>::new(&memdb, &root).unwrap();
+	let mut recorder = reference_trie::Recorder::new();
+	for (key, _) in keys {
+		let _ = trie.get_with(key.as_slice(), &mut recorder).unwrap();
+	}
+
+	let mut partial_db = <memory_db::MemoryDB<L::Hash, HashKey<_>, _>>::default();
+	for record in recorder.drain() {
+		partial_db.emplace(record.hash, EMPTY_PREFIX, record.data);
+	}
+	let partial_trie = <TrieDB<L>>::new(&partial_db, &trie.root()).unwrap();
+
+	c.bench_function("proof_build_compacting", move |b: &mut Bencher|
+		b.iter(|| {
+			reference_trie::encode_compact::<L>(&partial_trie).unwrap()
+		})
+	);
+}
+
+fn proof_build_compacting_standard(c: &mut Criterion) {
+	let trie_size = 1000;
+	let proof_keys = 10;
+	let values_size = 32;
+	proof_build_compacting::<reference_trie::NoExtensionLayout>(c, trie_size, values_size, proof_keys)
+}
+
+fn proof_build_compacting_hybrid(c: &mut Criterion) {
+	let trie_size = 1000;
+	let proof_keys = 10;
+	let values_size = 32;
+	proof_build_compacting::<reference_trie::NoExtensionLayoutHybrid>(c, trie_size, values_size, proof_keys)
+}
+
+fn proof_build_change<L: TrieLayout>(c: &mut Criterion, trie_size: u32, size_value: usize, number_key: usize) {
+	use memory_db::PrefixedKey;
+	use trie_db::TrieMut;
+
+	let mut seed = Default::default();
+	let x = StandardMap {
+		alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
+		min_key: size_value,
+		journal_key: 0,
+		value_mode: ValueMode::Index,
+		count: trie_size,
+	}.make_with(&mut seed);
+	let mut memdb = memory_db::MemoryDB::<<L as TrieLayout>::Hash, PrefixedKey<_>, Vec<u8>>::default();
+	let mut root = Default::default();
+	{
+		let mut t = reference_trie::TrieDBMut::<L>::new(&mut memdb, &mut root);
+		for i in 0..x.len() {
+			let key: &[u8]= &x[i].0;
+			let val: &[u8] = &x[i].1;
+			t.insert(key, val).unwrap();
+		}
+		t.commit();
+	}
+
+	let keys = &x[..number_key];
+	let value = vec![213u8; size_value];
+
+	c.bench_function("proof_build_change", move |b: &mut Bencher|
+		b.iter(|| {
+			let mut memdb = memdb.clone();
+			let mut root = root.clone();
+			let mut t = reference_trie::TrieDBMut::<L>::from_existing(&mut memdb, &mut root).unwrap();
+			for i in 0..keys.len() {
+				let key: &[u8]= &keys[i].0;
+				let val: &[u8] = &value[..];
+				t.insert(key, val).unwrap();
+			}
+			t.commit();
+		})
+	);
+}
+
+fn proof_build_change_standard(c: &mut Criterion) {
+	let trie_size = 1000;
+	let change_keys = 10;
+	let values_size = 32;
+	proof_build_change::<reference_trie::NoExtensionLayout>(c, trie_size, values_size, change_keys)
+}
+
+fn proof_build_change_hybrid(c: &mut Criterion) {
+	let trie_size = 1000;
+	let change_keys = 10;
+	let values_size = 32;
+	proof_build_change::<reference_trie::NoExtensionLayoutHybrid>(c, trie_size, values_size, change_keys)
 }

@@ -22,19 +22,7 @@ use hash_db::{HashDB, Hasher};
 use reference_trie::{
 	RefTrieDB, RefTrieDBMut, RefHasher,
 };
-use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt};
-
-macro_rules! all_layout {
-	($test:ident, $test_internal:ident) => {
-		#[test]
-		fn $test() {
-			$test_internal::<NoExtensionLayout>();
-			$test_internal::<ExtensionLayout>();
-			$test_internal::<NoExtensionLayoutHybrid>();
-			$test_internal::<ExtensionLayoutHybrid>();
-		}
-	};
-}
+use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt, test_layouts};
 
 type MemoryDB<T> = memory_db::MemoryDB<<T as TrieLayout>::Hash, memory_db::PrefixedKey<<T as TrieLayout>::Hash>, DBValue>;
 
@@ -63,7 +51,7 @@ fn nibble_vec<T: AsRef<[u8]>>(bytes: T, len: usize) -> NibbleVec {
 	v
 }
 
-all_layout!(iterator_works, iterator_works_internal);
+test_layouts!(iterator_works, iterator_works_internal);
 fn iterator_works_internal<T: TrieLayout>() {
 	let pairs = vec![
 		(hex!("01").to_vec(), b"aaaa".to_vec()),
@@ -189,7 +177,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 	}
 }
 
-all_layout!(iterator_over_empty_works, iterator_over_empty_works_internal);
+test_layouts!(iterator_over_empty_works, iterator_over_empty_works_internal);
 fn iterator_over_empty_works_internal<T: TrieLayout>() {
 	let (memdb, root) = build_trie_db::<T>(&[]);
 	let trie = TrieDB::<T>::new(&memdb, &root).unwrap();
@@ -209,7 +197,7 @@ fn iterator_over_empty_works_internal<T: TrieLayout>() {
 	assert!(iter.next().is_none());
 }
 
-all_layout!(seek_works, seek_works_internal);
+test_layouts!(seek_works, seek_works_internal);
 fn seek_works_internal<T: TrieLayout>() {
 	let pairs = vec![
 		(hex!("01").to_vec(), b"aaaa".to_vec()),
@@ -253,7 +241,7 @@ fn seek_works_internal<T: TrieLayout>() {
 	assert!(iter.next().is_none());
 }
 
-all_layout!(seek_over_empty_works, seek_over_empty_works_internal);
+test_layouts!(seek_over_empty_works, seek_over_empty_works_internal);
 fn seek_over_empty_works_internal<T: TrieLayout>() {
 	let (memdb, root) = build_trie_db::<T>(&[]);
 	let trie = TrieDB::<T>::new(&memdb, &root).unwrap();
@@ -275,7 +263,7 @@ fn seek_over_empty_works_internal<T: TrieLayout>() {
 	assert!(iter.next().is_none());
 }
 
-all_layout!(iterate_over_incomplete_db, iterate_over_incomplete_db_internal);
+test_layouts!(iterate_over_incomplete_db, iterate_over_incomplete_db_internal);
 fn iterate_over_incomplete_db_internal<T: TrieLayout>() {
 	let pairs = vec![
 		(hex!("01").to_vec(), b"aaaa".to_vec()),
@@ -351,7 +339,7 @@ fn iterate_over_incomplete_db_internal<T: TrieLayout>() {
 	}
 }
 
-all_layout!(prefix_works, prefix_works_internal);
+test_layouts!(prefix_works, prefix_works_internal);
 fn prefix_works_internal<T: TrieLayout>() {
 	let pairs = vec![
 		(hex!("01").to_vec(), b"aaaa".to_vec()),
@@ -412,10 +400,7 @@ fn prefix_works_internal<T: TrieLayout>() {
 	assert!(iter.next().is_none());
 }
 
-all_layout!(prefix_over_empty_works, prefix_over_empty_works_internal);
-fn prefix_over_empty_works_internal<T: TrieLayout>() {
-
-all_layout!(prefix_over_empty_works, prefix_over_empty_works_internal);
+test_layouts!(prefix_over_empty_works, prefix_over_empty_works_internal);
 fn prefix_over_empty_works_internal<T: TrieLayout>() {
 	let (memdb, root) = build_trie_db::<T>(&[]);
 	let trie = TrieDB::<T>::new(&memdb, &root).unwrap();

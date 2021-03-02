@@ -20,19 +20,7 @@ use reference_trie::{TrieDB, TrieDBMut, Lookup, Trie, TrieMut, NibbleSlice, Trie
 use reference_trie::{ExtensionLayout, ExtensionLayoutHybrid, NoExtensionLayout, NoExtensionLayoutHybrid};
 use hex_literal::hex;
 
-macro_rules! all_layout {
-	($test:ident, $test_internal:ident) => {
-		#[test]
-		fn $test() {
-			$test_internal::<NoExtensionLayout>();
-			$test_internal::<ExtensionLayout>();
-			$test_internal::<NoExtensionLayoutHybrid>();
-			$test_internal::<ExtensionLayoutHybrid>();
-		}
-	};
-}
-
-all_layout!(iterator_works, iterator_works_internal);
+test_layouts!(iterator_works, iterator_works_internal);
 fn iterator_works_internal<T: TrieLayout>() {
 	let pairs = vec![
 		(hex!("0103000000000000000464").to_vec(), hex!("fffffffffe").to_vec()),
@@ -60,7 +48,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 	assert_eq!(pairs, iter_pairs);
 }
 
-all_layout!(iterator_seek_works, iterator_seek_works_internal);
+test_layouts!(iterator_seek_works, iterator_seek_works_internal);
 fn iterator_seek_works_internal<T: TrieLayout>() {
 	let pairs = vec![
 		(hex!("0103000000000000000464").to_vec(), hex!("fffffffffe").to_vec()),
@@ -103,7 +91,7 @@ fn iterator_seek_works_internal<T: TrieLayout>() {
 	);
 }
 
-all_layout!(iterator, iterator_internal);
+test_layouts!(iterator, iterator_internal);
 fn iterator_internal<T: TrieLayout>() {
 	let d = vec![
 		b"A".to_vec(),
@@ -134,7 +122,7 @@ fn iterator_internal<T: TrieLayout>() {
 	assert_eq!(d, t.iter().unwrap().map(|x| x.unwrap().1).collect::<Vec<_>>());
 }
 
-all_layout!(iterator_seek, iterator_seek_internal);
+test_layouts!(iterator_seek, iterator_seek_internal);
 fn iterator_seek_internal<T: TrieLayout>() {
 	let d = vec![
 		b"A".to_vec(),
@@ -180,7 +168,7 @@ fn iterator_seek_internal<T: TrieLayout>() {
 	assert_eq!(&d[4..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
 }
 
-all_layout!(get_length_with_extension, get_length_with_extension_internal);
+test_layouts!(get_length_with_extension, get_length_with_extension_internal);
 fn get_length_with_extension_internal<T: TrieLayout>() {
 	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
@@ -196,7 +184,7 @@ fn get_length_with_extension_internal<T: TrieLayout>() {
 	assert_eq!(t.get_with(b"C", |x: &[u8]| x.len()).unwrap(), None);
 }
 
-all_layout!(debug_output_supports_pretty_print, debug_output_supports_pretty_print_internal);
+test_layouts!(debug_output_supports_pretty_print, debug_output_supports_pretty_print_internal);
 fn debug_output_supports_pretty_print_internal<T: TrieLayout>() {
 	let d = vec![
 		b"A".to_vec(),
@@ -273,7 +261,7 @@ fn debug_output_supports_pretty_print_internal<T: TrieLayout>() {
 	};
 }
 
-all_layout!(test_lookup_with_corrupt_data_returns_decoder_error, test_lookup_with_corrupt_data_returns_decoder_error_internal);
+test_layouts!(test_lookup_with_corrupt_data_returns_decoder_error, test_lookup_with_corrupt_data_returns_decoder_error_internal);
 fn test_lookup_with_corrupt_data_returns_decoder_error_internal<T: TrieLayout>() {
 
 	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
