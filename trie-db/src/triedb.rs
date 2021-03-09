@@ -298,7 +298,6 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 			inner,
 		})
 	}
-
 }
 
 impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBIterator<'a, L> {

@@ -212,7 +212,7 @@ fn iterator_without_extension() {
 }
 
 #[test]
-fn iterator_seek2() {
+fn iterator_seek() {
 	let d = vec![
 		b"A".to_vec(),
 		b"AA".to_vec(),
