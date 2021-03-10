@@ -62,6 +62,45 @@ pub trait Hasher: Sync + Send {
 
 	/// Compute the hash of the provided slice of bytes returning the `Out` type of the `Hasher`.
 	fn hash(x: &[u8]) -> Self::Out;
+
+	/// Representation with inner hash.
+	fn inner_hashed_value(x: &[u8], range: Option<(usize, usize)>) -> Vec<u8> {
+		if let Some((start, end)) = range {
+			let len = x.len();
+			if start < len && end == len {
+				// terminal inner hash
+				let hash_end = Self::hash(&x[start..]);
+				let mut buff = vec![0; x.len() + hash_end.as_ref().len() - (end - start)];
+				buff[..start].copy_from_slice(&x[..start]);
+				buff[start..].copy_from_slice(hash_end.as_ref());
+				return buff;
+			}
+			if start == 0 && end < len {
+				// start inner hash
+				let hash_start = Self::hash(&x[..start]);
+				let mut buff = vec![0; x.len() + hash_start.as_ref().len() - (end - start)];
+				buff[..end].copy_from_slice(hash_start.as_ref());
+				buff[end..].copy_from_slice(&x[end..]);
+				return buff;
+			}
+			if start < len && end < len {
+				// middle inner hash
+				let hash_middle = Self::hash(&x[start..end]);
+				let mut buff = vec![0; x.len() + hash_middle.as_ref().len() - (end - start)];
+				buff[..start].copy_from_slice(&x[..start]);
+				buff[start..end].copy_from_slice(hash_middle.as_ref());
+				buff[end..].copy_from_slice(&x[end..]);
+				return buff;
+			}
+		}
+		// if anything wrong default to hash
+		x.to_vec()
+	}
+
+	/// Inner hash calculation.
+	fn hash_inner_hash(x: &[u8], range: Option<(usize, usize)>) -> Self::Out {
+		Self::hash(Self::inner_hashed_value(x, range).as_slice())
+	}
 }
 
 /// Trait modelling a plain datastore whose key is a fixed type.
@@ -113,6 +152,12 @@ pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 	/// hash is not known.
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
 
+	/// Look up a given hash into the bytes that hash to it, returning None if the
+	/// hash is not known.
+	/// This does not resolve a inner hash, eg if inner hash is value of a trie
+	/// node, its content will be value inner hash.
+	fn get_unresolved_inner_hash(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
+
 	/// Check for the existence of a hash-key.
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool;
 
@@ -128,6 +173,14 @@ pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 	/// `insert()`s may happen without the data being eventually being inserted into the DB.
 	/// It can be "owed" more than once.
 	fn remove(&mut self, key: &H::Out, prefix: Prefix);
+
+	/// Insert with inner content internal hashing (eg value).
+	fn insert_inner_hash(
+		&mut self,
+		prefix: Prefix,
+		value: &[u8],
+		range: Option<(usize, usize)>,
+	) -> H::Out;
 }
 
 /// Trait for immutable reference of HashDB.
