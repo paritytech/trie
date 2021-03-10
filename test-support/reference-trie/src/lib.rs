@@ -59,6 +59,7 @@ pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, blake
 //use keccak_hasher::KeccakHasher;
 //pub type RefHasher = ordered_trie::OrderedTrieHasher<keccak_hasher::KeccakHasher, keccak_hasher::KeccakHasher>;
 
+/// Apply a test method on every test layouts.
 #[macro_export]
 macro_rules! test_layouts {
 	($test:ident, $test_internal:ident) => {
