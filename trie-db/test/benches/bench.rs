@@ -524,7 +524,7 @@ fn proof_build_dataset<L: TrieLayout>(c: &mut Criterion, trie_size: u32, size_va
 
 	c.bench_function("proof_build_dataset", move |b: &mut Bencher|
 		b.iter(|| {
-			let mut t = reference_trie::TrieDBMut::<L>::new(&mut memdb, &mut root);
+			let mut t = trie_db::TrieDBMut::<L>::new(&mut memdb, &mut root);
 			for i in 0..x.len() {
 				let key: &[u8]= &x[i].0;
 				let val: &[u8] = &x[i].1;
@@ -562,7 +562,7 @@ fn proof_build_compacting<L: TrieLayout>(c: &mut Criterion, trie_size: u32, size
 	let mut memdb = memory_db::MemoryDB::<<L as TrieLayout>::Hash, PrefixedKey<_>, Vec<u8>>::default();
 	let mut root = Default::default();
 	{
-		let mut t = reference_trie::TrieDBMut::<L>::new(&mut memdb, &mut root);
+		let mut t = trie_db::TrieDBMut::<L>::new(&mut memdb, &mut root);
 		for i in 0..x.len() {
 			let key: &[u8]= &x[i].0;
 			let val: &[u8] = &x[i].1;
@@ -571,12 +571,12 @@ fn proof_build_compacting<L: TrieLayout>(c: &mut Criterion, trie_size: u32, size
 		t.commit();
 	}
 
-	use reference_trie::{Trie, TrieDB};
+	use trie_db::{Trie, TrieDB};
 	use hash_db::{EMPTY_PREFIX, HashDB};
 
 	let keys = &x[..number_key];
 	let trie = <TrieDB<L>>::new(&memdb, &root).unwrap();
-	let mut recorder = reference_trie::Recorder::new();
+	let mut recorder = trie_db::Recorder::new();
 	for (key, _) in keys {
 		let _ = trie.get_with(key.as_slice(), &mut recorder).unwrap();
 	}
@@ -589,7 +589,7 @@ fn proof_build_compacting<L: TrieLayout>(c: &mut Criterion, trie_size: u32, size
 
 	c.bench_function("proof_build_compacting", move |b: &mut Bencher|
 		b.iter(|| {
-			reference_trie::encode_compact::<L>(&partial_trie).unwrap()
+			trie_db::encode_compact::<L>(&partial_trie).unwrap()
 		})
 	);
 }
@@ -623,7 +623,7 @@ fn proof_build_change<L: TrieLayout>(c: &mut Criterion, trie_size: u32, size_val
 	let mut memdb = memory_db::MemoryDB::<<L as TrieLayout>::Hash, PrefixedKey<_>, Vec<u8>>::default();
 	let mut root = Default::default();
 	{
-		let mut t = reference_trie::TrieDBMut::<L>::new(&mut memdb, &mut root);
+		let mut t = trie_db::TrieDBMut::<L>::new(&mut memdb, &mut root);
 		for i in 0..x.len() {
 			let key: &[u8]= &x[i].0;
 			let val: &[u8] = &x[i].1;
@@ -639,7 +639,7 @@ fn proof_build_change<L: TrieLayout>(c: &mut Criterion, trie_size: u32, size_val
 		b.iter(|| {
 			let mut memdb = memdb.clone();
 			let mut root = root.clone();
-			let mut t = reference_trie::TrieDBMut::<L>::from_existing(&mut memdb, &mut root).unwrap();
+			let mut t = trie_db::TrieDBMut::<L>::from_existing(&mut memdb, &mut root).unwrap();
 			for i in 0..keys.len() {
 				let key: &[u8]= &keys[i].0;
 				let val: &[u8] = &value[..];
