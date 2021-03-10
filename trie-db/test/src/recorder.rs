@@ -16,8 +16,7 @@
 
 use memory_db::{MemoryDB, HashKey};
 use hash_db::Hasher;
-use keccak_hasher::KeccakHasher;
-use reference_trie::{RefTrieDB, RefTrieDBMut};
+use reference_trie::{RefHasher, RefTrieDBMut, RefTrieDB};
 use trie_db::{Trie, TrieMut, Recorder, Record};
 
 #[test]
@@ -27,7 +26,7 @@ fn basic_recorder() {
 	let node1 = vec![1, 2, 3, 4];
 	let node2 = vec![4, 5, 6, 7, 8, 9, 10];
 
-	let (hash1, hash2) = (KeccakHasher::hash(&node1), KeccakHasher::hash(&node2));
+	let (hash1, hash2) = (RefHasher::hash(&node1), RefHasher::hash(&node2));
 	basic.record(&hash1, &node1, 0);
 	basic.record(&hash2, &node2, 456);
 
@@ -54,8 +53,8 @@ fn basic_recorder_min_depth() {
 	let node1 = vec![1, 2, 3, 4];
 	let node2 = vec![4, 5, 6, 7, 8, 9, 10];
 
-	let hash1 = KeccakHasher::hash(&node1);
-	let hash2 = KeccakHasher::hash(&node2);
+	let hash1 = RefHasher::hash(&node1);
+	let hash2 = RefHasher::hash(&node2);
 	basic.record(&hash1, &node1, 0);
 	basic.record(&hash2, &node2, 456);
 
@@ -72,7 +71,7 @@ fn basic_recorder_min_depth() {
 
 #[test]
 fn trie_record() {
-	let mut db = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
+	let mut db = MemoryDB::<RefHasher, HashKey<_>, _>::default();
 	let mut root = Default::default();
 	{
 		let mut x = RefTrieDBMut::new(&mut db, &mut root);

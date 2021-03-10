@@ -14,12 +14,11 @@
 
 use memory_db::{MemoryDB, HashKey};
 use trie_db::{DBValue, Trie, TrieMut};
-use keccak_hasher::KeccakHasher;
-use reference_trie::{RefFatDBMut, RefFatDB};
+use reference_trie::{RefFatDBMut, RefFatDB, RefHasher};
 
 #[test]
 fn fatdb_to_trie() {
-	let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+	let mut memdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
 	let mut root = Default::default();
 	{
 		let mut t = RefFatDBMut::new(&mut memdb, &mut root);

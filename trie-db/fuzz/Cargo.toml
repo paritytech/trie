@@ -29,11 +29,6 @@ name = "trie_root_new"
 path = "fuzz_targets/trie_root_new.rs"
 
 [[bin]]
-name = "trie_unhashed_no_ext"
-path = "fuzz_targets/trie_unhashed_no_ext.rs"
-
-
-[[bin]]
 name = "trie_root"
 path = "fuzz_targets/trie_root.rs"
 
@@ -60,6 +55,10 @@ path = "fuzz_targets/seek_iter.rs"
 [[bin]]
 name = "trie_proof_valid"
 path = "fuzz_targets/trie_proof_valid.rs"
+
+[[bin]]
+name = "trie_codec_proof"
+path = "fuzz_targets/trie_codec_proof.rs"
 
 [[bin]]
 name = "trie_proof_invalid"

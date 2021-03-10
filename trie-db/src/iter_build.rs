@@ -226,19 +226,15 @@ impl<T, V> CacheAccum<T, V>
 		debug_assert!(self.0[last].2 == branch_d);
 		// encode branch
 		let v = self.0[last].1.take();
-		let nkeyix = nkey.unwrap_or((0, 0));
+		let nkeyix = nkey.unwrap_or((branch_d, 0));
 		let pr = NibbleSlice::new_offset(&key_branch, nkeyix.0);
 		let encoded = T::Codec::branch_node_nibbled(
 			pr.right_range_iter(nkeyix.1),
 			nkeyix.1,
 			self.0[last].0.as_ref().iter(), v.as_ref().map(|v| v.as_ref()));
+		let result = callback.process(pr.left(), encoded, is_root);
 		self.reset_depth(branch_d);
-		let ext_length = nkey.as_ref().map(|nkeyix| nkeyix.0).unwrap_or(0);
-		let pr = NibbleSlice::new_offset(
-			&key_branch,
-			branch_d - ext_length,
-		);
-		callback.process(pr.left(), encoded, is_root)
+		result
 	}
 
 }
