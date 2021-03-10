@@ -45,6 +45,7 @@ pub mod node {
 /// Reference hasher is a keccak hasher.
 pub type RefHasher = keccak_hasher::KeccakHasher;
 
+/// Apply a test method on every test layouts.
 #[macro_export]
 macro_rules! test_layouts {
 	($test:ident, $test_internal:ident) => {
