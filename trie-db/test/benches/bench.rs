@@ -367,7 +367,7 @@ fn trie_mut_a(c: &mut Criterion) {
 
 			let mut root = Default::default();
 			let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
-			let mut trie = reference_trie::TrieDBMut::<Layout>::new(&mut mdb, &mut root);
+			let mut trie = trie_db::TrieDBMut::<Layout>::new(&mut mdb, &mut root);
 			for (key, value) in datac {
 				trie.insert(&key, &value)
 					.expect("changes trie: insertion to trie is not allowed to fail within runtime");
@@ -391,7 +391,7 @@ fn trie_mut_b(c: &mut Criterion) {
 
 			let mut root = Default::default();
 			let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
-			let mut trie = reference_trie::TrieDBMut::<Layout>::new(&mut mdb, &mut root);
+			let mut trie = trie_db::TrieDBMut::<Layout>::new(&mut mdb, &mut root);
 			for (key, value) in datac {
 				trie.insert(&key, &value)
 					.expect("changes trie: insertion to trie is not allowed to fail within runtime");
@@ -454,7 +454,7 @@ fn trie_iteration(c: &mut Criterion) {
 
 	c.bench_function("trie_iteration", move |b: &mut Bencher|
 		b.iter(|| {
-			let trie = reference_trie::TrieDB::<Layout>::new(&mdb, &root).unwrap();
+			let trie = trie_db::TrieDB::<Layout>::new(&mdb, &root).unwrap();
 			let mut iter = trie_db::TrieDBNodeIterator::new(&trie).unwrap();
 			assert!(iter.all(|result| result.is_ok()));
 		})
@@ -478,7 +478,7 @@ fn trie_proof_verification(c: &mut Criterion) {
 	let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
 	let root = reference_trie::calc_root_build::<Layout, _, _, _, _>(data, &mut mdb);
 
-	let trie = reference_trie::TrieDB::<Layout>::new(&mdb, &root).unwrap();
+	let trie = trie_db::TrieDB::<Layout>::new(&mdb, &root).unwrap();
 	let proof = generate_proof(&trie, keys.iter()).unwrap();
 	let items = keys.into_iter()
 		.map(|key| {
