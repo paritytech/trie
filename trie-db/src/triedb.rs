@@ -51,7 +51,7 @@ pub struct TrieDB<'db, L>
 where
 	L: TrieLayout,
 {
-	db: &'db dyn HashDBRef<L::Hash, DBValue>,
+	db: &'db dyn HashDBRef<L::Hash, DBValue, L::VF>,
 	root: &'db TrieHash<L>,
 	/// The number of hashes performed so far in operations on this trie.
 	hash_count: usize,
@@ -64,7 +64,7 @@ where
 	/// Create a new trie with the backing database `db` and `root`
 	/// Returns an error if `root` does not exist
 	pub fn new(
-		db: &'db dyn HashDBRef<L::Hash, DBValue>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue, VF>,
 		root: &'db TrieHash<L>
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
