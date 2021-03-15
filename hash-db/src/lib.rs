@@ -259,12 +259,12 @@ pub trait ValueFunction<H: Hasher, T>: Send + Sync {
 
 /// Default `ValueFunction` implementation, stored value
 /// is the same as hashed value, no meta data added.
-pub struct NoMeta<H, T>(core::marker::PhantomData<(H, T)>);
+pub struct NoMeta;
 
-impl<H, T> ValueFunction<H, T> for NoMeta<H, T>
+impl<H, T> ValueFunction<H, T> for NoMeta
 	where
 		H: Hasher,
-		T: for<'a> From<&'a [u8]> + Send + Sync,
+		T: for<'a> From<&'a [u8]>,
 {
 	type Meta = ();
 
@@ -290,8 +290,6 @@ impl<H, T> ValueFunction<H, T> for NoMeta<H, T>
 		(stored, ())
 	}
 }
-
-
 
 // NOTE: There used to be a `impl<T> AsHashDB for T` but that does not work with generics.
 // See https://stackoverflow.com/questions/48432842/

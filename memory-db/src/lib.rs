@@ -86,7 +86,7 @@ pub type DefaultMemTracker<T> = NoopTracker<T>;
 ///   use keccak_hasher::KeccakHasher;
 ///   use memory_db::{MemoryDB, HashKey};
 ///
-///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<_, _>>::default();
+///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta>::default();
 ///   let d = "Hello world!".as_bytes();
 ///
 ///   let k = m.insert(EMPTY_PREFIX, d);
@@ -387,7 +387,7 @@ where
 	/// use memory_db::{MemoryDB, HashKey};
 	///
 	/// fn main() {
-	///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<_, _>>::default();
+	///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta>::default();
 	///   let hello_bytes = "Hello world!".as_bytes();
 	///   let hash = m.insert(EMPTY_PREFIX, hello_bytes);
 	///   assert!(m.contains(&hash, EMPTY_PREFIX));
@@ -701,7 +701,7 @@ mod tests {
 		let hello_bytes = b"Hello world!";
 		let hello_key = KeccakHasher::hash(hello_bytes);
 
-		let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<_, _>>::default();
+		let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta>::default();
 		m.remove(&hello_key, EMPTY_PREFIX);
 		assert_eq!(m.raw(&hello_key, EMPTY_PREFIX).unwrap().1, -1);
 		m.purge();
@@ -711,7 +711,7 @@ mod tests {
 		m.purge();
 		assert_eq!(m.raw(&hello_key, EMPTY_PREFIX), None);
 
-		let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<_, _>>::default();
+		let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta>::default();
 		assert!(m.remove_and_purge(&hello_key, EMPTY_PREFIX).is_none());
 		assert_eq!(m.raw(&hello_key, EMPTY_PREFIX).unwrap().1, -1);
 		m.insert(EMPTY_PREFIX, hello_bytes);
@@ -724,8 +724,8 @@ mod tests {
 
 	#[test]
 	fn consolidate() {
-		let mut main = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<_, _>>::default();
-		let mut other = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<_, _>>::default();
+		let mut main = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta>::default();
+		let mut other = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta>::default();
 		let remove_key = other.insert(EMPTY_PREFIX, b"doggo");
 		main.remove(&remove_key, EMPTY_PREFIX);
 
@@ -749,18 +749,18 @@ mod tests {
 
 	#[test]
 	fn default_works() {
-		let mut db = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<_, _>>::default();
+		let mut db = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta>::default();
 		let hashed_null_node = KeccakHasher::hash(&[0u8][..]);
 		assert_eq!(db.insert(EMPTY_PREFIX, &[0u8][..]), hashed_null_node);
 
-		let (db2, root) = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<_, _>>::default_with_root();
+		let (db2, root) = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta>::default_with_root();
 		assert!(db2.contains(&root, EMPTY_PREFIX));
 		assert!(db.contains(&root, EMPTY_PREFIX));
 	}
 
 	#[test]
 	fn malloc_size_of() {
-		let mut db = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<_, _>>::default();
+		let mut db = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta>::default();
 		for i in 0u32..1024 {
 			let bytes = i.to_be_bytes();
 			let prefix = (bytes.as_ref(), None);

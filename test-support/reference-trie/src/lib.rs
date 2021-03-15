@@ -65,7 +65,7 @@ impl TrieLayout for ExtensionLayout {
 	const ALLOW_EMPTY: bool = false;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
-	type ValueFunction = hash_db::NoMeta<Self::Hash, DBValue>;
+	type ValueFunction = hash_db::NoMeta;
 }
 
 impl TrieConfiguration for ExtensionLayout { }
@@ -79,7 +79,7 @@ impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	const ALLOW_EMPTY: bool = false;
 	type Hash = H;
 	type Codec = ReferenceNodeCodecNoExt<H>;
-	type ValueFunction = hash_db::NoMeta<Self::Hash, DBValue>;
+	type ValueFunction = hash_db::NoMeta;
 }
 
 /// Trie that allows empty values
@@ -90,7 +90,7 @@ impl TrieLayout for AllowEmptyLayout {
 	const ALLOW_EMPTY: bool = true;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
-	type ValueFunction = hash_db::NoMeta<Self::Hash, DBValue>;
+	type ValueFunction = hash_db::NoMeta;
 }
 
 impl<H: Hasher> TrieConfiguration for GenericNoExtensionLayout<H> { }
