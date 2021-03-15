@@ -10,7 +10,7 @@ edition = "2018"
 [dependencies]
 parity-util-mem = { version = "0.9.0", default-features = false, features = ["hashbrown"] }
 hash-db = { path = "../hash-db", default-features = false, version = "0.15.2"}
-hashbrown = { version = "0.9.1", default-features = false, features = [ "ahash" ] }
+hashbrown = { version = "0.11.0", default-features = false, features = [ "ahash" ] }
 
 [dev-dependencies]
 keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.15.2"}
