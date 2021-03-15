@@ -61,7 +61,7 @@ pub struct TrieDBNodeIterator<'a, L: TrieLayout> {
 	key_nibbles: NibbleVec,
 }
 
-impl<'a, L: TrieLayout<StorageType = DBValue>> TrieDBNodeIterator<'a, L> {
+impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 	/// Create a new iterator.
 	pub fn new(db: &'a TrieDB<L>) -> Result<TrieDBNodeIterator<'a, L>, TrieHash<L>, CError<L>> {
 		let mut r = TrieDBNodeIterator {
@@ -88,7 +88,7 @@ impl<'a, L: TrieLayout<StorageType = DBValue>> TrieDBNodeIterator<'a, L> {
 	}
 }
 
-impl<'a, L: TrieLayout<StorageType = DBValue>> TrieDBNodeIterator<'a, L> {
+impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 
 	/// Seek a node position at 'key' for iterator.
 	/// Returns true if the cursor is at or after the key, but still shares
@@ -246,7 +246,7 @@ impl<'a, L: TrieLayout<StorageType = DBValue>> TrieDBNodeIterator<'a, L> {
 
 }
 
-impl<'a, L: TrieLayout<StorageType = DBValue>> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
+impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
 	fn seek(
 		&mut self,
 		key: &[u8],
@@ -256,7 +256,7 @@ impl<'a, L: TrieLayout<StorageType = DBValue>> TrieIterator<L> for TrieDBNodeIte
 	}
 }
 
-impl<'a, L: TrieLayout<StorageType = DBValue>> Iterator for TrieDBNodeIterator<'a, L> {
+impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 	type Item = Result<(NibbleVec, Option<TrieHash<L>>, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {

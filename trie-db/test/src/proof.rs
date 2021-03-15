@@ -42,7 +42,7 @@ fn test_entries() -> Vec<(&'static [u8], &'static [u8])> {
 	]
 }
 
-fn test_generate_proof<L: TrieLayout>(
+fn test_generate_proof<L: TrieLayout<StorageType = DBValue>>(
 	entries: Vec<(&'static [u8], &'static [u8])>,
 	keys: Vec<&'static [u8]>,
 ) -> (<L::Hash as Hasher>::Out, Vec<Vec<u8>>, Vec<(&'static [u8], Option<DBValue>)>)

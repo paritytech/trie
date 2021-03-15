@@ -21,14 +21,14 @@ use super::{Result, DBValue, TrieMut, TrieDBMut, TrieLayout, TrieHash, CError};
 /// object.
 pub struct SecTrieDBMut<'db, L>
 where
-	L: TrieLayout<StorageType = DBValue>,
+	L: TrieLayout,
 {
 	raw: TrieDBMut<'db, L>,
 }
 
 impl<'db, L> SecTrieDBMut<'db, L>
 where
-	L: TrieLayout<StorageType = DBValue>,
+	L: TrieLayout,
 {
 	/// Create a new trie with the backing database `db` and empty `root`
 	/// Initialise to the state entailed by the genesis block.
@@ -56,7 +56,7 @@ where
 
 impl<'db, L> TrieMut<L> for SecTrieDBMut<'db, L>
 where
-	L: TrieLayout<StorageType = DBValue>,
+	L: TrieLayout,
 {
 	fn root(&mut self) -> &TrieHash<L> {
 		self.raw.root()

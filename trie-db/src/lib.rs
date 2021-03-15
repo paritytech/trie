@@ -291,7 +291,7 @@ macro_rules! wrapper {
 	}
 }
 
-impl<'db, L: TrieLayout<StorageType = DBValue>> Trie<L> for TrieKinds<'db, L> {
+impl<'db, L: TrieLayout> Trie<L> for TrieKinds<'db, L> {
 	fn root(&self) -> &TrieHash<L> {
 		wrapper!(self, root,)
 	}
@@ -324,7 +324,7 @@ impl<'db, L: TrieLayout<StorageType = DBValue>> Trie<L> for TrieKinds<'db, L> {
 
 impl<'db, L> TrieFactory<L>
 where
-	L: TrieLayout<StorageType = DBValue> + 'db,
+	L: TrieLayout + 'db,
 {
 	/// Creates new factory.
 	pub fn new(spec: TrieSpec, layout: L) -> Self {
@@ -334,7 +334,7 @@ where
 	/// Create new immutable instance of Trie.
 	pub fn readonly(
 		&self,
-		db: &'db dyn HashDBRef<L::Hash, L::StorageType, L::ValueFunction>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue, L::ValueFunction>,
 		root: &'db TrieHash<L>
 	) -> Result<TrieKinds<'db, L>, TrieHash<L>, CError<L>> {
 		match self.spec {
@@ -391,14 +391,7 @@ pub trait TrieLayout {
 	/// Codec to use (needs to match hasher and nibble ops).
 	type Codec: NodeCodec<HashOut=<Self::Hash as Hasher>::Out>;
 	/// Value function to manage meta.
-	type ValueFunction: ValueFunction<Self::Hash, Self::StorageType>;
-	/// Storage type. This type leaks a bit but is
-	/// needed for `ValueFunction`.
-	/// This should evolve to always use `Vec<u8>` in hash_db or
-	/// adding this storage type as `Codec` output.
-	/// Regarding current uses, forcing trie_db on `Vec<u8>`
-	/// seems fine to me.
-	type StorageType;
+	type ValueFunction: ValueFunction<Self::Hash, DBValue>;
 }
 
 /// This trait associates a trie definition with preferred methods.
@@ -407,7 +400,7 @@ pub trait TrieLayout {
 pub trait TrieConfiguration: Sized + TrieLayout {
 	/// Operation to build a trie db from its ordered iterator over its key/values.
 	fn trie_build<DB, I, A, B>(db: &mut DB, input: I) -> <Self::Hash as Hasher>::Out where
-	DB: HashDB<Self::Hash, Self::StorageType, Self::ValueFunction>,
+	DB: HashDB<Self::Hash, DBValue, Self::ValueFunction>,
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,

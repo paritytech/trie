@@ -413,10 +413,10 @@ impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
 /// ```
 pub struct TrieDBMut<'a, L>
 where
-	L: TrieLayout<StorageType = DBValue>,
+	L: TrieLayout,
 {
 	storage: NodeStorage<TrieHash<L>>,
-	db: &'a mut dyn HashDB<L::Hash, L::StorageType, L::ValueFunction>,
+	db: &'a mut dyn HashDB<L::Hash, DBValue, L::ValueFunction>,
 	root: &'a mut TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
 	death_row: HashSet<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
@@ -427,7 +427,7 @@ where
 
 impl<'a, L> TrieDBMut<'a, L>
 where
-	L: TrieLayout<StorageType = DBValue>,
+	L: TrieLayout,
 {
 	/// Create a new trie with backing database `db` and empty `root`.
 	pub fn new(db: &'a mut dyn HashDB<L::Hash, DBValue, L::ValueFunction>, root: &'a mut TrieHash<L>) -> Self {
@@ -447,7 +447,7 @@ where
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
 	pub fn from_existing(
-		db: &'a mut dyn HashDB<L::Hash, L::StorageType, L::ValueFunction>,
+		db: &'a mut dyn HashDB<L::Hash, DBValue, L::ValueFunction>,
 		root: &'a mut TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
@@ -1506,7 +1506,7 @@ where
 
 impl<'a, L> TrieMut<L> for TrieDBMut<'a, L>
 where
-	L: TrieLayout<StorageType = DBValue>,
+	L: TrieLayout,
 {
 	fn root(&mut self) -> &TrieHash<L> {
 		self.commit();
@@ -1584,7 +1584,7 @@ where
 
 impl<'a, L> Drop for TrieDBMut<'a, L>
 where
-	L: TrieLayout<StorageType = DBValue>,
+	L: TrieLayout,
 {
 	fn drop(&mut self) {
 		self.commit();

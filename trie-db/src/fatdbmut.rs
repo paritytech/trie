@@ -21,14 +21,14 @@ use super::{Result, DBValue, TrieDBMut, TrieMut, TrieLayout, TrieHash, CError};
 /// Use it as a `Trie` or `TrieMut` trait object.
 pub struct FatDBMut<'db, L>
 where
-	L: TrieLayout<StorageType = DBValue>,
+	L: TrieLayout,
 {
 	raw: TrieDBMut<'db, L>,
 }
 
 impl<'db, L> FatDBMut<'db, L>
 where
-	L: TrieLayout<StorageType = DBValue>,
+	L: TrieLayout,
 {
 	/// Create a new trie with the backing database `db` and empty `root`
 	/// Initialise to the state entailed by the genesis block.
@@ -60,7 +60,7 @@ where
 
 impl<'db, L> TrieMut<L> for FatDBMut<'db, L>
 where
-	L: TrieLayout<StorageType = DBValue>,
+	L: TrieLayout,
 {
 	fn root(&mut self) -> &TrieHash<L> { self.raw.root() }
 

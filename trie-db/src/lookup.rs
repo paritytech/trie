@@ -33,7 +33,7 @@ pub struct Lookup<'a, L: TrieLayout, Q: Query<L::Hash>> {
 
 impl<'a, L, Q> Lookup<'a, L, Q>
 where
-	L: TrieLayout<StorageType = DBValue>,
+	L: TrieLayout,
 	Q: Query<L::Hash>,
 {
 	/// Look up the given key. If the value is found, it will be passed to the given

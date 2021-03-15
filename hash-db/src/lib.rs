@@ -35,7 +35,7 @@ impl<T> MaybeDebug for T {}
 /// Representation with inner hash.
 /// TODO not a hashed db primitive (works only with meta using range inpot
 /// and outputing possibly a removed value or removed hash.
-fn inner_hashed_value<H: Hasher>(x: &[u8], range: Option<(usize, usize)>) -> Vec<u8> {
+pub fn inner_hashed_value<H: Hasher>(x: &[u8], range: Option<(usize, usize)>) -> Vec<u8> {
 	if let Some((start, end)) = range {
 		let len = x.len();
 		if start < len && end == len {

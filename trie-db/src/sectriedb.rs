@@ -30,7 +30,7 @@ where
 
 impl<'db, L> SecTrieDB<'db, L>
 where
-	L: TrieLayout<StorageType = DBValue>,
+	L: TrieLayout,
 {
 	/// Create a new trie with the backing database `db` and empty `root`
 	///
@@ -38,7 +38,7 @@ where
 	/// This guarantees the trie is built correctly.
 	/// Returns an error if root does not exist.
 	pub fn new(
-		db: &'db dyn HashDBRef<L::Hash, L::StorageType, L::ValueFunction>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue, L::ValueFunction>,
 		root: &'db TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(SecTrieDB { raw: TrieDB::new(db, root)? })
@@ -57,7 +57,7 @@ where
 
 impl<'db, L> Trie<L> for SecTrieDB<'db, L>
 where
-	L: TrieLayout<StorageType = DBValue>,
+	L: TrieLayout,
 {
 	fn root(&self) -> &TrieHash<L> { self.raw.root() }
 
