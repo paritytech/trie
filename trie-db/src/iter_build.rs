@@ -17,7 +17,7 @@
 //! implementation.
 //! See `trie_visit` function.
 
-use hash_db::{Hasher, HashDB, Prefix};
+use hash_db::{Hasher, HashDB, Prefix, ValueFunction};
 use crate::rstd::{cmp::max, marker::PhantomData, vec::Vec};
 use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
@@ -319,20 +319,20 @@ pub trait ProcessEncodedNode<HO> {
 /// Get trie root and insert visited node in a hash_db.
 /// As for all `ProcessEncodedNode` implementation, it
 /// is only for full trie parsing (not existing trie).
-pub struct TrieBuilder<'a, H, HO, V, DB> {
+pub struct TrieBuilder<'a, H, HO, V, DB, VF> {
 	db: &'a mut DB,
 	pub root: Option<HO>,
-	_ph: PhantomData<(H, V)>,
+	_ph: PhantomData<(H, V, VF)>,
 }
 
-impl<'a, H, HO, V, DB> TrieBuilder<'a, H, HO, V, DB> {
+impl<'a, H, HO, V, DB, VF> TrieBuilder<'a, H, HO, V, DB, VF> {
 	pub fn new(db: &'a mut DB) -> Self {
 		TrieBuilder { db, root: None, _ph: PhantomData }
 	}
 }
 
-impl<'a, H: Hasher, V, DB: HashDB<H, V>> ProcessEncodedNode<<H as Hasher>::Out>
-	for TrieBuilder<'a, H, <H as Hasher>::Out, V, DB> {
+impl<'a, H: Hasher, V, DB: HashDB<H, V, VF>, VF: ValueFunction<H, V>> ProcessEncodedNode<<H as Hasher>::Out>
+	for TrieBuilder<'a, H, <H as Hasher>::Out, V, DB, VF> {
 	fn process(
 		&mut self,
 		prefix: Prefix,

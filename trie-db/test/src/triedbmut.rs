@@ -23,8 +23,8 @@ use reference_trie::{ExtensionLayout, NoExtensionLayout,
 	RefHasher, test_layouts, ReferenceNodeCodec,
 	ReferenceNodeCodecNoExt, reference_trie_root_iter_build as reference_trie_root};
 
-fn populate_trie<'db, T: TrieLayout>(
-	db: &'db mut dyn HashDB<T::Hash, DBValue>,
+fn populate_trie<'db, T: TrieLayout<StorageType = DBValue>>(
+	db: &'db mut dyn HashDB<T::Hash, T::StorageType, T::ValueFunction>,
 	root: &'db mut <T::Hash as Hasher>::Out,
 	v: &[(Vec<u8>, Vec<u8>)]
 ) -> TrieDBMut<'db, T> {
@@ -37,7 +37,7 @@ fn populate_trie<'db, T: TrieLayout>(
 	t
 }
 
-fn unpopulate_trie<'db, T: TrieLayout>(t: &mut TrieDBMut<'db, T>, v: &[(Vec<u8>, Vec<u8>)]) {
+fn unpopulate_trie<'db, T: TrieLayout<StorageType = DBValue>>(t: &mut TrieDBMut<'db, T>, v: &[(Vec<u8>, Vec<u8>)]) {
 	for i in v {
 		let key: &[u8]= &i.0;
 		t.remove(key).unwrap();

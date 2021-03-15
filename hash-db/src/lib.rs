@@ -259,9 +259,9 @@ pub trait ValueFunction<H: Hasher, T> {
 
 /// Default `ValueFunction` implementation, stored value
 /// is the same as hashed value, no meta data added.
-pub struct NoMeta;
+pub struct NoMeta<H, T>(core::marker::PhantomData<(H, T)>);
 
-impl<H, T> ValueFunction<H, T> for NoMeta
+impl<H, T> ValueFunction<H, T> for NoMeta<H, T>
 	where
 		H: Hasher,
 		T: for<'a> From<&'a [u8]>,

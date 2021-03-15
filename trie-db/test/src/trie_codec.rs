@@ -69,13 +69,13 @@ fn test_encode_compact<L: TrieLayout>(
 
 fn test_decode_compact<L: TrieLayout>(
 	encoded: &[Vec<u8>],
-	items: Vec<(&'static [u8], Option<DBValue>)>,
+	items: Vec<(&'static [u8], Option<L::StorageType>)>,
 	expected_root: <L::Hash as Hasher>::Out,
 	expected_used: usize,
 ) {
 	// Reconstruct the partial DB from the compact encoding.
 	let mut db = MemoryDB::default();
-	let (root, used) = decode_compact::<L, _, _>(&mut db, encoded).unwrap();
+	let (root, used) = decode_compact::<L, _>(&mut db, encoded).unwrap();
 	assert_eq!(root, expected_root);
 	assert_eq!(used, expected_used);
 

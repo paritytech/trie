@@ -57,8 +57,8 @@ pub trait NodeCodec: Sized {
 	/// Returns an encoded leaf node
 	fn leaf_node(partial: Partial, value: &[u8]) -> Vec<u8>;
 
-	/// Returns an encoded leaf node without value.
-	fn inner_hashed_leaf_node(partial: Partial, value: &[u8]) -> Vec<u8>;
+// TODO	/// Returns an encoded leaf node without value.
+//	fn inner_hashed_leaf_node(partial: Partial, value: &[u8]) -> Vec<u8>;
 
 	/// Returns an encoded extension node
 	/// Note that number_nibble is the number of element of the iterator

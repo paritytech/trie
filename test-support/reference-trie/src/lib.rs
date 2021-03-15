@@ -65,6 +65,8 @@ impl TrieLayout for ExtensionLayout {
 	const ALLOW_EMPTY: bool = false;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
+	type StorageType = DBValue;
+	type ValueFunction = hash_db::NoMeta<Self::Hash, Self::StorageType>;
 }
 
 impl TrieConfiguration for ExtensionLayout { }
@@ -78,6 +80,8 @@ impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	const ALLOW_EMPTY: bool = false;
 	type Hash = H;
 	type Codec = ReferenceNodeCodecNoExt<H>;
+	type StorageType = DBValue;
+	type ValueFunction = hash_db::NoMeta<Self::Hash, Self::StorageType>;
 }
 
 /// Trie that allows empty values
@@ -88,6 +92,8 @@ impl TrieLayout for AllowEmptyLayout {
 	const ALLOW_EMPTY: bool = true;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
+	type StorageType = DBValue;
+	type ValueFunction = hash_db::NoMeta<Self::Hash, Self::StorageType>;
 }
 
 impl<H: Hasher> TrieConfiguration for GenericNoExtensionLayout<H> { }
@@ -949,8 +955,8 @@ pub fn compare_implementations<T, DB> (
 	mut hashdb: DB,
 )
 	where
-		T: TrieLayout,
-		DB : hash_db::HashDB<T::Hash, DBValue> + Eq,
+		T: TrieLayout<StorageType = DBValue>,
+		DB : hash_db::HashDB<T::Hash, T::StorageType, T::ValueFunction> + Eq,
 {
 	let root_new = calc_root_build::<T, _, _, _, _>(data.clone(), &mut hashdb);
 	let root = {
@@ -964,7 +970,7 @@ pub fn compare_implementations<T, DB> (
 	};
 	if root_new != root {
 		{
-			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
+			let db : &dyn hash_db::HashDB<_, _, _> = &hashdb;
 			let t = TrieDB::<T>::new(&db, &root_new).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -972,7 +978,7 @@ pub fn compare_implementations<T, DB> (
 			}
 		}
 		{
-			let db : &dyn hash_db::HashDB<_, _> = &memdb;
+			let db : &dyn hash_db::HashDB<_, _, _> = &memdb;
 			let t = TrieDB::<T>::new(&db, &root).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -987,7 +993,7 @@ pub fn compare_implementations<T, DB> (
 }
 
 /// Compare trie builder and trie root implementations.
-pub fn compare_root<T: TrieLayout, DB: hash_db::HashDB<T::Hash, DBValue>>(
+pub fn compare_root<T: TrieLayout<StorageType = DBValue>, DB: hash_db::HashDB<T::Hash, T::StorageType, T::ValueFunction>>(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
 	mut memdb: DB,
 ) {
@@ -1058,7 +1064,7 @@ pub fn calc_root_build<T, I, A, B, DB>(
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord + fmt::Debug,
 		B: AsRef<[u8]> + fmt::Debug,
-		DB: hash_db::HashDB<T::Hash, DBValue>
+		DB: hash_db::HashDB<T::Hash, T::StorageType, T::ValueFunction>,
 {
 	let mut cb = TrieBuilder::new(hashdb);
 	trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
@@ -1073,8 +1079,8 @@ pub fn compare_implementations_unordered<T, DB> (
 	mut hashdb: DB,
 )
 	where
-		T: TrieLayout,
-		DB : hash_db::HashDB<T::Hash, DBValue> + Eq,
+		T: TrieLayout<StorageType = DBValue>,
+		DB : hash_db::HashDB<T::Hash, T::StorageType, T::ValueFunction> + Eq,
 {
 	let mut b_map = std::collections::btree_map::BTreeMap::new();
 	let root = {
@@ -1094,7 +1100,7 @@ pub fn compare_implementations_unordered<T, DB> (
 
 	if root != root_new {
 		{
-			let db : &dyn hash_db::HashDB<_, _> = &memdb;
+			let db : &dyn hash_db::HashDB<_, _, _> = &memdb;
 			let t = TrieDB::<T>::new(&db, &root).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -1102,7 +1108,7 @@ pub fn compare_implementations_unordered<T, DB> (
 			}
 		}
 		{
-			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
+			let db : &dyn hash_db::HashDB<_, _, _> = &hashdb;
 			let t = TrieDB::<T>::new(&db, &root_new).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -1116,13 +1122,13 @@ pub fn compare_implementations_unordered<T, DB> (
 
 /// Testing utility that uses some periodic removal over
 /// its input test data.
-pub fn compare_insert_remove<T, DB: hash_db::HashDB<T::Hash, DBValue>>(
+pub fn compare_insert_remove<T, DB: hash_db::HashDB<T::Hash, T::StorageType, T::ValueFunction>>(
 	data: Vec<(bool, Vec<u8>, Vec<u8>)>,
 	mut memdb: DB,
 )
 	where
-		T: TrieLayout,
-		DB : hash_db::HashDB<T::Hash, DBValue> + Eq,
+		T: TrieLayout<StorageType = DBValue>,
+		DB : hash_db::HashDB<T::Hash, T::StorageType, T::ValueFunction> + Eq,
 {
 
 	let mut data2 = std::collections::BTreeMap::new();

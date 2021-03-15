@@ -31,25 +31,25 @@ where
 
 impl<'db, L> FatDB<'db, L>
 where
-	L: TrieLayout,
+	L: TrieLayout<StorageType = DBValue>,
 {
 	/// Create a new trie with the backing database `db` and empty `root`
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
 	pub fn new(
-		db: &'db dyn HashDBRef<L::Hash, DBValue>,
+		db: &'db dyn HashDBRef<L::Hash, L::StorageType, L::ValueFunction>,
 		root: &'db TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(FatDB { raw: TrieDB::new(db, root)? })
 	}
 
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDBRef<L::Hash, DBValue> { self.raw.db() }
+	pub fn db(&self) -> &dyn HashDBRef<L::Hash, L::StorageType, L::ValueFunction> { self.raw.db() }
 }
 
 impl<'db, L> Trie<L> for FatDB<'db, L>
 where
-	L: TrieLayout,
+	L: TrieLayout<StorageType = DBValue>,
 {
 	fn root(&self) -> &TrieHash<L> { self.raw.root() }
 
@@ -84,7 +84,7 @@ where
 
 impl<'db, L> FatDBIterator<'db, L>
 where
-	L: TrieLayout,
+	L: TrieLayout<StorageType = DBValue>,
 {
 	/// Creates new iterator.
 	pub fn new(trie: &'db TrieDB<L>) -> Result<Self, TrieHash<L>, CError<L>> {
@@ -97,7 +97,7 @@ where
 
 impl<'db, L> TrieIterator<L> for FatDBIterator<'db, L>
 where
-	L: TrieLayout,
+	L: TrieLayout<StorageType = DBValue>,
 {
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		let hashed_key = L::Hash::hash(key);
@@ -107,7 +107,7 @@ where
 
 impl<'db, L> Iterator for FatDBIterator<'db, L>
 where
-	L: TrieLayout,
+	L: TrieLayout<StorageType = DBValue>,
 {
 	type Item = TrieItem<'db, TrieHash<L>, CError<L>>;
 

@@ -121,10 +121,10 @@ where
 		+ PartialEq + Eq + Hash + Send + Sync + Clone + Copy
 {
 	// load an inline node into memory or get the hash to do the lookup later.
-	fn inline_or_hash<C, H>(
+	fn inline_or_hash<C, H, VF>(
 		parent_hash: H::Out,
 		child: EncodedNodeHandle,
-		db: &dyn HashDB<H, DBValue>,
+		db: &dyn HashDB<H, DBValue, VF>,
 		storage: &mut NodeStorage<H::Out>
 	) -> Result<NodeHandle<H::Out>, H::Out, C::Error>
 	where
@@ -138,7 +138,7 @@ where
 				NodeHandle::Hash(hash)
 			},
 			EncodedNodeHandle::Inline(data) => {
-				let child = Node::from_encoded::<C, H>(parent_hash, data, db, storage)?;
+				let child = Node::from_encoded::<C, H, VF>(parent_hash, data, db, storage)?;
 				NodeHandle::InMemory(storage.alloc(Stored::New(child)))
 			},
 		};
@@ -146,10 +146,10 @@ where
 	}
 
 	// Decode a node from encoded bytes.
-	fn from_encoded<'a, 'b, C, H>(
+	fn from_encoded<'a, 'b, C, H, VF>(
 		node_hash: H::Out,
 		data: &'a[u8],
-		db: &dyn HashDB<H, DBValue>,
+		db: &dyn HashDB<H, DBValue, VF>,
 		storage: &'b mut NodeStorage<H::Out>,
 	) -> Result<Self, H::Out, C::Error>
 		where
@@ -163,12 +163,12 @@ where
 			EncodedNode::Extension(key, cb) => {
 				Node::Extension(
 					key.into(),
-					Self::inline_or_hash::<C, H>(node_hash, cb, db, storage)?
+					Self::inline_or_hash::<C, H, VF>(node_hash, cb, db, storage)?
 				)
 			},
 			EncodedNode::Branch(encoded_children, val) => {
 				let mut child = |i:usize| match encoded_children[i] {
-					Some(child) => Self::inline_or_hash::<C, H>(node_hash, child, db, storage)
+					Some(child) => Self::inline_or_hash::<C, H, VF>(node_hash, child, db, storage)
 						.map(Some),
 					None => Ok(None),
 				};
@@ -184,7 +184,7 @@ where
 			},
 			EncodedNode::NibbledBranch(k, encoded_children, val) => {
 				let mut child = |i:usize| match encoded_children[i] {
-					Some(child) => Self::inline_or_hash::<C, H>(node_hash, child, db, storage)
+					Some(child) => Self::inline_or_hash::<C, H, VF>(node_hash, child, db, storage)
 						.map(Some),
 					None => Ok(None),
 				};
@@ -413,10 +413,10 @@ impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
 /// ```
 pub struct TrieDBMut<'a, L>
 where
-	L: TrieLayout,
+	L: TrieLayout<StorageType = DBValue>,
 {
 	storage: NodeStorage<TrieHash<L>>,
-	db: &'a mut dyn HashDB<L::Hash, DBValue>,
+	db: &'a mut dyn HashDB<L::Hash, L::StorageType, L::ValueFunction>,
 	root: &'a mut TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
 	death_row: HashSet<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
@@ -427,10 +427,10 @@ where
 
 impl<'a, L> TrieDBMut<'a, L>
 where
-	L: TrieLayout,
+	L: TrieLayout<StorageType = DBValue>,
 {
 	/// Create a new trie with backing database `db` and empty `root`.
-	pub fn new(db: &'a mut dyn HashDB<L::Hash, DBValue>, root: &'a mut TrieHash<L>) -> Self {
+	pub fn new(db: &'a mut dyn HashDB<L::Hash, DBValue, L::ValueFunction>, root: &'a mut TrieHash<L>) -> Self {
 		*root = L::Codec::hashed_null_node();
 		let root_handle = NodeHandle::Hash(L::Codec::hashed_null_node());
 
@@ -447,7 +447,7 @@ where
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
 	pub fn from_existing(
-		db: &'a mut dyn HashDB<L::Hash, DBValue>,
+		db: &'a mut dyn HashDB<L::Hash, L::StorageType, L::ValueFunction>,
 		root: &'a mut TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
@@ -465,12 +465,12 @@ where
 		})
 	}
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue> {
+	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue, L::ValueFunction> {
 		self.db
 	}
 
 	/// Get the backing database mutably.
-	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue> {
+	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue, L::ValueFunction> {
 		self.db
 	}
 
@@ -482,7 +482,7 @@ where
 	) -> Result<StorageHandle, TrieHash<L>, CError<L>> {
 		let node_encoded = self.db.get(&hash, key)
 			.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
-		let node = Node::from_encoded::<L::Codec, L::Hash>(
+		let node = Node::from_encoded::<L::Codec, L::Hash, L::ValueFunction>(
 			hash,
 			&node_encoded,
 			&*self.db,
@@ -1506,7 +1506,7 @@ where
 
 impl<'a, L> TrieMut<L> for TrieDBMut<'a, L>
 where
-	L: TrieLayout,
+	L: TrieLayout<StorageType = DBValue>,
 {
 	fn root(&mut self) -> &TrieHash<L> {
 		self.commit();
@@ -1584,7 +1584,7 @@ where
 
 impl<'a, L> Drop for TrieDBMut<'a, L>
 where
-	L: TrieLayout,
+	L: TrieLayout<StorageType = DBValue>,
 {
 	fn drop(&mut self) {
 		self.commit();

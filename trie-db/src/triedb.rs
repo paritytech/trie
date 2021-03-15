@@ -16,9 +16,10 @@ use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
 use crate::nibble::NibbleSlice;
 use crate::iterator::TrieDBNodeIterator;
 use crate::rstd::boxed::Box;
+use crate::DBValue;
 use super::node::{NodeHandle, Node, OwnedNode, decode_hash};
 use super::lookup::Lookup;
-use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query,
+use super::{Result, Trie, TrieItem, TrieError, TrieIterator, Query,
 	TrieLayout, CError, TrieHash};
 use super::nibble::NibbleVec;
 
@@ -51,7 +52,7 @@ pub struct TrieDB<'db, L>
 where
 	L: TrieLayout,
 {
-	db: &'db dyn HashDBRef<L::Hash, DBValue, L::VF>,
+	db: &'db dyn HashDBRef<L::Hash, L::StorageType, L::ValueFunction>,
 	root: &'db TrieHash<L>,
 	/// The number of hashes performed so far in operations on this trie.
 	hash_count: usize,
@@ -59,12 +60,12 @@ where
 
 impl<'db, L> TrieDB<'db, L>
 where
-	L: TrieLayout,
+	L: TrieLayout<StorageType = DBValue>,
 {
 	/// Create a new trie with the backing database `db` and `root`
 	/// Returns an error if `root` does not exist
 	pub fn new(
-		db: &'db dyn HashDBRef<L::Hash, DBValue, VF>,
+		db: &'db dyn HashDBRef<L::Hash, L::StorageType, L::ValueFunction>,
 		root: &'db TrieHash<L>
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
@@ -75,7 +76,9 @@ where
 	}
 
 	/// Get the backing database.
-	pub fn db(&'db self) -> &'db dyn HashDBRef<L::Hash, DBValue> { self.db }
+	pub fn db(&'db self) -> &'db dyn HashDBRef<L::Hash, L::StorageType, L::ValueFunction> {
+		self.db
+	}
 
 	/// Given some node-describing data `node`, and node key return the actual node RLP.
 	/// This could be a simple identity operation in the case that the node is sufficiently small,
@@ -90,7 +93,7 @@ where
 		parent_hash: TrieHash<L>,
 		node_handle: NodeHandle,
 		partial_key: Prefix,
-	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
+	) -> Result<(OwnedNode<L::StorageType>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
 		let (node_hash, node_data) = match node_handle {
 			NodeHandle::Hash(data) => {
 				let node_hash = decode_hash::<L::Hash>(data)
@@ -117,7 +120,7 @@ where
 
 impl<'db, L> Trie<L> for TrieDB<'db, L>
 where
-	L: TrieLayout,
+	L: TrieLayout<StorageType = DBValue>,
 {
 	fn root(&self) -> &TrieHash<L> { self.root }
 
@@ -160,7 +163,7 @@ where
 #[cfg(feature="std")]
 impl<'db, 'a, L> fmt::Debug for TrieAwareDebugNode<'db, 'a, L>
 where
-	L: TrieLayout,
+	L: TrieLayout<StorageType = DBValue>,
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		match self.trie.get_raw_or_lookup(
@@ -246,7 +249,7 @@ where
 #[cfg(feature="std")]
 impl<'db, L> fmt::Debug for TrieDB<'db, L>
 where
-	L: TrieLayout,
+	L: TrieLayout<StorageType = DBValue>,
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		f.debug_struct("TrieDB")
@@ -266,7 +269,7 @@ pub struct TrieDBIterator<'a, L: TrieLayout> {
 	inner: TrieDBNodeIterator<'a, L>,
 }
 
-impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
+impl<'a, L: TrieLayout<StorageType = DBValue>> TrieDBIterator<'a, L> {
 	/// Create a new iterator.
 	pub fn new(db: &'a TrieDB<L>) -> Result<TrieDBIterator<'a, L>, TrieHash<L>, CError<L>> {
 		let inner = TrieDBNodeIterator::new(db)?;
@@ -285,14 +288,14 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 
 }
 
-impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBIterator<'a, L> {
+impl<'a, L: TrieLayout<StorageType = DBValue>> TrieIterator<L> for TrieDBIterator<'a, L> {
 	/// Position the iterator on the first element with key >= `key`
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		TrieIterator::seek(&mut self.inner, key)
 	}
 }
 
-impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
+impl<'a, L: TrieLayout<StorageType = DBValue>> Iterator for TrieDBIterator<'a, L> {
 	type Item = TrieItem<'a, TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {

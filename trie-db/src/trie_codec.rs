@@ -167,7 +167,7 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 /// references.
 pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 	where
-		L: TrieLayout
+		L: TrieLayout<StorageType = DBValue>,
 {
 	let mut output = Vec::new();
 
@@ -385,21 +385,21 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 //
 /// This function makes the assumption that all child references in an inline trie node are inline
 /// references.
-pub fn decode_compact<L, DB, T>(db: &mut DB, encoded: &[Vec<u8>])
+pub fn decode_compact<L, DB>(db: &mut DB, encoded: &[Vec<u8>])
 	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
-		DB: HashDB<L::Hash, T>,
+		DB: HashDB<L::Hash, L::StorageType, L::ValueFunction>,
 {
-	decode_compact_from_iter::<L, DB, T, _>(db, encoded.iter().map(Vec::as_slice))
+	decode_compact_from_iter::<L, DB, _>(db, encoded.iter().map(Vec::as_slice))
 }
 
 /// Variant of 'decode_compact' that accept an iterator of encoded nodes as input.
-pub fn decode_compact_from_iter<'a, L, DB, T, I>(db: &mut DB, encoded: I)
+pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I)
 	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
-		DB: HashDB<L::Hash, T>,
+		DB: HashDB<L::Hash, L::StorageType, L::ValueFunction>,
 		I: IntoIterator<Item = &'a [u8]>,
 {
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding

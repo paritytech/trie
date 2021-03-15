@@ -115,7 +115,7 @@ pub type DefaultMemTracker<T> = NoopTracker<T>;
 ///   m.remove(&k, EMPTY_PREFIX);
 ///   assert!(!m.contains(&k, EMPTY_PREFIX));
 /// ```
-pub struct MemoryDB<H, KF, T, M = DefaultMemTracker<T>, VF = NoMeta>
+pub struct MemoryDB<H, KF, T, M = DefaultMemTracker<T>, VF = NoMeta<H, T>>
 where
 	H: KeyHasher,
 	KF: KeyFunction<H>,

@@ -14,8 +14,9 @@
 
 use hash_db::{HashDBRef, Hasher};
 use crate::rstd::boxed::Box;
+use crate::DBValue;
 use super::triedb::TrieDB;
-use super::{Result, DBValue, Trie, TrieItem, TrieIterator, Query, TrieLayout, CError, TrieHash};
+use super::{Result, Trie, TrieItem, TrieIterator, Query, TrieLayout, CError, TrieHash};
 
 /// A `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 ///
@@ -29,7 +30,7 @@ where
 
 impl<'db, L> SecTrieDB<'db, L>
 where
-	L: TrieLayout,
+	L: TrieLayout<StorageType = DBValue>,
 {
 	/// Create a new trie with the backing database `db` and empty `root`
 	///
@@ -37,7 +38,7 @@ where
 	/// This guarantees the trie is built correctly.
 	/// Returns an error if root does not exist.
 	pub fn new(
-		db: &'db dyn HashDBRef<L::Hash, DBValue>,
+		db: &'db dyn HashDBRef<L::Hash, L::StorageType, L::ValueFunction>,
 		root: &'db TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(SecTrieDB { raw: TrieDB::new(db, root)? })
@@ -56,7 +57,7 @@ where
 
 impl<'db, L> Trie<L> for SecTrieDB<'db, L>
 where
-	L: TrieLayout,
+	L: TrieLayout<StorageType = DBValue>,
 {
 	fn root(&self) -> &TrieHash<L> { self.raw.root() }
 
