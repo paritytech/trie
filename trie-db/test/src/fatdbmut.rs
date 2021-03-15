@@ -19,7 +19,7 @@ use trie_db::{Trie, TrieMut};
 
 #[test]
 fn fatdbmut_to_trie() {
-	let mut memdb = MemoryDB::<RefHasher, HashKey<_>, _>::default();
+	let mut memdb = MemoryDB::<RefHasher, HashKey<_>, _, _>::default();
 	let mut root = Default::default();
 	{
 		let mut t = RefFatDBMut::new(&mut memdb, &mut root);
@@ -34,7 +34,7 @@ fn fatdbmut_to_trie() {
 
 #[test]
 fn fatdbmut_insert_remove_key_mapping() {
-	let mut memdb = MemoryDB::<RefHasher, HashKey<_>, _>::default();
+	let mut memdb = MemoryDB::<RefHasher, HashKey<_>, _, _>::default();
 	let mut root = Default::default();
 	let key = [0x01u8, 0x23];
 	let val = [0x01u8, 0x24];

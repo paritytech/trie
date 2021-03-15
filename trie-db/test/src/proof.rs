@@ -22,7 +22,13 @@ use trie_db::{
 	proof::{generate_proof, verify_proof, VerifyError}, Trie,
 };
 
-type MemoryDB<H> = memory_db::MemoryDB<H, memory_db::HashKey<H>, DBValue>;
+type MemoryDB<T> = memory_db::MemoryDB<
+	<T as TrieLayout>::Hash,
+	memory_db::HashKey<<T as TrieLayout>::Hash>,
+	DBValue,
+	<T as TrieLayout>::ValueFunction,
+>;
+
 
 fn test_entries() -> Vec<(&'static [u8], &'static [u8])> {
 	vec![
@@ -42,14 +48,14 @@ fn test_entries() -> Vec<(&'static [u8], &'static [u8])> {
 	]
 }
 
-fn test_generate_proof<L: TrieLayout<StorageType = DBValue>>(
+fn test_generate_proof<L: TrieLayout>(
 	entries: Vec<(&'static [u8], &'static [u8])>,
 	keys: Vec<&'static [u8]>,
 ) -> (<L::Hash as Hasher>::Out, Vec<Vec<u8>>, Vec<(&'static [u8], Option<DBValue>)>)
 {
 	// Populate DB with full trie from entries.
 	let (db, root) = {
-		let mut db = <MemoryDB<L::Hash>>::default();
+		let mut db = <MemoryDB<L>>::default();
 		let mut root = Default::default();
 		{
 			let mut trie = <TrieDBMut<L>>::new(&mut db, &mut root);

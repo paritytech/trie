@@ -233,7 +233,7 @@ pub trait AsPlainDB<K, V> {
 	fn as_plain_db_mut<'a>(&'a mut self) -> &'a mut (dyn PlainDB<K, V> + 'a);
 }
 
-pub trait ValueFunction<H: Hasher, T> {
+pub trait ValueFunction<H: Hasher, T>: Send + Sync {
 	/// Additional content fetchable from storage.
 	type Meta;
 
@@ -264,7 +264,7 @@ pub struct NoMeta<H, T>(core::marker::PhantomData<(H, T)>);
 impl<H, T> ValueFunction<H, T> for NoMeta<H, T>
 	where
 		H: Hasher,
-		T: for<'a> From<&'a [u8]>,
+		T: for<'a> From<&'a [u8]> + Send + Sync,
 {
 	type Meta = ();
 

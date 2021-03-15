@@ -21,8 +21,12 @@ use hex_literal::hex;
 use hash_db::{HashDB, Hasher};
 use reference_trie::test_layouts;
 
-type MemoryDB<T> = memory_db::MemoryDB<<T as TrieLayout>::Hash, memory_db::PrefixedKey<<T as TrieLayout>::Hash>, DBValue>;
-
+type MemoryDB<T> = memory_db::MemoryDB<
+	<T as TrieLayout>::Hash,
+	memory_db::PrefixedKey<<T as TrieLayout>::Hash>,
+	DBValue,
+	<T as TrieLayout>::ValueFunction,
+>;
 
 fn build_trie_db<T: TrieLayout>(pairs: &[(Vec<u8>, Vec<u8>)])
 	-> (MemoryDB<T>, <T::Hash as Hasher>::Out)

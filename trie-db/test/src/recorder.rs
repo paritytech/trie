@@ -71,7 +71,7 @@ fn basic_recorder_min_depth() {
 
 #[test]
 fn trie_record() {
-	let mut db = MemoryDB::<RefHasher, HashKey<_>, _>::default();
+	let mut db = MemoryDB::<RefHasher, HashKey<_>, _, _>::default();
 	let mut root = Default::default();
 	{
 		let mut x = RefTrieDBMut::new(&mut db, &mut root);

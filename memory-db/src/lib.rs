@@ -23,7 +23,7 @@ mod malloc_size_of;
 pub use malloc_size_of::*;
 
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher,
-	AsHashDB, AsPlainDB, Prefix, ValueFunction, NoMeta};
+	AsHashDB, AsPlainDB, Prefix, ValueFunction};
 use parity_util_mem::{MallocSizeOf, MallocSizeOfOps, MallocShallowSizeOf};
 #[cfg(feature = "std")]
 use std::{
@@ -82,11 +82,11 @@ pub type DefaultMemTracker<T> = NoopTracker<T>;
 ///
 /// # Example
 /// ```rust
-///   use hash_db::{Hasher, HashDB, EMPTY_PREFIX};
+///   use hash_db::{Hasher, HashDB, EMPTY_PREFIX, NoMeta};
 ///   use keccak_hasher::KeccakHasher;
 ///   use memory_db::{MemoryDB, HashKey};
 ///
-///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default();
+///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<_, _>>::default();
 ///   let d = "Hello world!".as_bytes();
 ///
 ///   let k = m.insert(EMPTY_PREFIX, d);
@@ -115,7 +115,7 @@ pub type DefaultMemTracker<T> = NoopTracker<T>;
 ///   m.remove(&k, EMPTY_PREFIX);
 ///   assert!(!m.contains(&k, EMPTY_PREFIX));
 /// ```
-pub struct MemoryDB<H, KF, T, VF = NoMeta<H, T>, M = DefaultMemTracker<T>>
+pub struct MemoryDB<H, KF, T, VF, M = DefaultMemTracker<T>>
 where
 	H: KeyHasher,
 	KF: KeyFunction<H>,
@@ -382,12 +382,12 @@ where
 	/// extern crate keccak_hasher;
 	/// extern crate memory_db;
 	///
-	/// use hash_db::{Hasher, HashDB, EMPTY_PREFIX};
+	/// use hash_db::{Hasher, HashDB, EMPTY_PREFIX, NoMeta};
 	/// use keccak_hasher::KeccakHasher;
 	/// use memory_db::{MemoryDB, HashKey};
 	///
 	/// fn main() {
-	///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default();
+	///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<_, _>>::default();
 	///   let hello_bytes = "Hello world!".as_bytes();
 	///   let hash = m.insert(EMPTY_PREFIX, hello_bytes);
 	///   assert!(m.contains(&hash, EMPTY_PREFIX));
@@ -693,7 +693,7 @@ where
 mod tests {
 	use super::{MemoryDB, HashDB, KeyHasher, HashKey};
 	use parity_util_mem::malloc_size;
-	use hash_db::EMPTY_PREFIX;
+	use hash_db::{EMPTY_PREFIX, NoMeta};
 	use keccak_hasher::KeccakHasher;
 
 	#[test]
@@ -701,7 +701,7 @@ mod tests {
 		let hello_bytes = b"Hello world!";
 		let hello_key = KeccakHasher::hash(hello_bytes);
 
-		let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default();
+		let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<_, _>>::default();
 		m.remove(&hello_key, EMPTY_PREFIX);
 		assert_eq!(m.raw(&hello_key, EMPTY_PREFIX).unwrap().1, -1);
 		m.purge();
@@ -711,7 +711,7 @@ mod tests {
 		m.purge();
 		assert_eq!(m.raw(&hello_key, EMPTY_PREFIX), None);
 
-		let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default();
+		let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<_, _>>::default();
 		assert!(m.remove_and_purge(&hello_key, EMPTY_PREFIX).is_none());
 		assert_eq!(m.raw(&hello_key, EMPTY_PREFIX).unwrap().1, -1);
 		m.insert(EMPTY_PREFIX, hello_bytes);
@@ -724,8 +724,8 @@ mod tests {
 
 	#[test]
 	fn consolidate() {
-		let mut main = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default();
-		let mut other = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default();
+		let mut main = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<_, _>>::default();
+		let mut other = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<_, _>>::default();
 		let remove_key = other.insert(EMPTY_PREFIX, b"doggo");
 		main.remove(&remove_key, EMPTY_PREFIX);
 
@@ -749,18 +749,18 @@ mod tests {
 
 	#[test]
 	fn default_works() {
-		let mut db = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default();
+		let mut db = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<_, _>>::default();
 		let hashed_null_node = KeccakHasher::hash(&[0u8][..]);
 		assert_eq!(db.insert(EMPTY_PREFIX, &[0u8][..]), hashed_null_node);
 
-		let (db2, root) = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default_with_root();
+		let (db2, root) = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<_, _>>::default_with_root();
 		assert!(db2.contains(&root, EMPTY_PREFIX));
 		assert!(db.contains(&root, EMPTY_PREFIX));
 	}
 
 	#[test]
 	fn malloc_size_of() {
-		let mut db = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default();
+		let mut db = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<_, _>>::default();
 		for i in 0u32..1024 {
 			let bytes = i.to_be_bytes();
 			let prefix = (bytes.as_ref(), None);

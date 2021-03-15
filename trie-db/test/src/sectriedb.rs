@@ -19,7 +19,7 @@ use trie_db::{DBValue, Trie, TrieMut};
 
 #[test]
 fn trie_to_sectrie() {
-	let mut db = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
+	let mut db = MemoryDB::<RefHasher, HashKey<_>, DBValue, _>::default();
 	let mut root = Default::default();
 	{
 		let mut t = RefTrieDBMut::new(&mut db, &mut root);
