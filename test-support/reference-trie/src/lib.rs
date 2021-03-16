@@ -51,9 +51,9 @@ macro_rules! test_layouts {
 	($test:ident, $test_internal:ident) => {
 		#[test]
 		fn $test() {
-//			$test_internal::<reference_trie::NoExtensionLayout>();
-//			$test_internal::<reference_trie::ExtensionLayout>();
 			$test_internal::<reference_trie::CheckValueFunction>();
+			$test_internal::<reference_trie::NoExtensionLayout>();
+			$test_internal::<reference_trie::ExtensionLayout>();
 		}
 	};
 }
@@ -105,7 +105,7 @@ pub struct CheckValueFunction;
 
 impl TrieLayout for CheckValueFunction {
 	const USE_EXTENSION: bool = true;
-	const ALLOW_EMPTY: bool = true;
+	const ALLOW_EMPTY: bool = false;
 	const INNER_HASHED_VALUE: Option<usize> = Some(10);
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;

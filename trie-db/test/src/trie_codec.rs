@@ -94,58 +94,64 @@ fn test_decode_compact<L: TrieLayout>(
 
 test_layouts!(trie_compact_encoding_works, trie_compact_encoding_works_internal);
 fn trie_compact_encoding_works_internal<T: TrieLayout>() {
-	let (root, mut encoded, items) = test_encode_compact::<T>(
-		vec![
-			// "alfa" is at a hash-referenced leaf node.
-			(b"alfa", &[0; 32]),
-			// "bravo" is at an inline leaf node.
-			(b"bravo", b"bravo"),
-			// "do" is at a hash-referenced branch node.
-			(b"do", b"verb"),
-			// "dog" is at an inline leaf node.
-			(b"dog", b"puppy"),
-			// "doge" is at a hash-referenced leaf node.
-			(b"doge", &[0; 32]),
-			// extension node "o" (plus nibble) to next branch.
-			(b"horse", b"stallion"),
-			(b"house", b"building"),
-		],
-		vec![
-			b"do",
-			b"dog",
-			b"doge",
-			b"bravo",
-			b"d", // None, witness is extension node with omitted child
-			b"do\x10", // None, empty branch child
-			b"halp", // None, witness is extension node with non-omitted child
-		],
-	);
+	// TODO currently no support for recording proof with a ValueFunction.
+	if T::INNER_HASHED_VALUE.is_none() {
+		let (root, mut encoded, items) = test_encode_compact::<T>(
+			vec![
+				// "alfa" is at a hash-referenced leaf node.
+				(b"alfa", &[0; 32]),
+				// "bravo" is at an inline leaf node.
+				(b"bravo", b"bravo"),
+				// "do" is at a hash-referenced branch node.
+				(b"do", b"verb"),
+				// "dog" is at an inline leaf node.
+				(b"dog", b"puppy"),
+				// "doge" is at a hash-referenced leaf node.
+				(b"doge", &[0; 32]),
+				// extension node "o" (plus nibble) to next branch.
+				(b"horse", b"stallion"),
+				(b"house", b"building"),
+			],
+			vec![
+				b"do",
+				b"dog",
+				b"doge",
+				b"bravo",
+				b"d", // None, witness is extension node with omitted child
+				b"do\x10", // None, empty branch child
+				b"halp", // None, witness is extension node with non-omitted child
+			],
+		);
 
-	encoded.push(Vec::new()); // Add an extra item to ensure it is not read.
-	test_decode_compact::<T>(&encoded, items, root, encoded.len() - 1);
+		encoded.push(Vec::new()); // Add an extra item to ensure it is not read.
+		test_decode_compact::<T>(&encoded, items, root, encoded.len() - 1);
+	}
 }
 
 test_layouts!(trie_decoding_fails_with_incomplete_database, trie_decoding_fails_with_incomplete_database_internal);
 fn trie_decoding_fails_with_incomplete_database_internal<T: TrieLayout>() {
-	let (_, encoded, _) = test_encode_compact::<T>(
-		vec![
-			(b"alfa", &[0; 32]),
-			(b"bravo", b"bravo"),
-		],
-		vec![
-			b"alfa",
-		],
-	);
+	// TODO currently no support for recording proof with a ValueFunction.
+	if T::INNER_HASHED_VALUE.is_none() {
+		let (_, encoded, _) = test_encode_compact::<T>(
+			vec![
+				(b"alfa", &[0; 32]),
+				(b"bravo", b"bravo"),
+			],
+			vec![
+				b"alfa",
+			],
+		);
 
-	assert!(encoded.len() > 1);
+		assert!(encoded.len() > 1);
 
-	// Reconstruct the partial DB from the compact encoding.
-	let mut db = MemoryDB::<T>::default();
-	match decode_compact::<T, _>(&mut db, &encoded[..encoded.len() - 1]) {
-		Err(err) => match *err {
-			TrieError::IncompleteDatabase(_) => {}
-			_ => panic!("got unexpected TrieError"),
+		// Reconstruct the partial DB from the compact encoding.
+		let mut db = MemoryDB::<T>::default();
+		match decode_compact::<T, _>(&mut db, &encoded[..encoded.len() - 1]) {
+			Err(err) => match *err {
+				TrieError::IncompleteDatabase(_) => {}
+				_ => panic!("got unexpected TrieError"),
+			}
+			_ => panic!("decode was unexpectedly successful"),
 		}
-		_ => panic!("decode was unexpectedly successful"),
 	}
 }
