@@ -391,6 +391,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 
 			return ChildReference::Inline(h, len);
 		}
+		let current_meta = None; // all nodes are new.
 		let hash = if !T::USE_META{
 			<T::Hash as Hasher>::hash(&encoded_node[..])
 		} else {
@@ -401,9 +402,9 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 				T::MetaInput::from_inner_hashed_value(range.and_then(|range| {
 					let slice = &encoded_node[range.clone()];
 					(slice.len() >= treshold).then(|| (slice, range))
-				}))
+				}), current_meta)
 			} else {
-				T::MetaInput::from_inner_hashed_value(None)
+				T::MetaInput::from_inner_hashed_value(None, current_meta)
 			};
 			<T::ValueFunction as ValueFunction<_, _>>::hash(&encoded_node[..], &meta)
 		};

@@ -182,7 +182,12 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 pub struct ValueRange(Option<core::ops::Range<usize>>);
 
 impl trie_db::BuildableMetaInput for ValueRange {
-	fn from_inner_hashed_value(inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>) -> Self {
+	type Meta = Option<usize>;
+
+	fn from_inner_hashed_value(
+		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
+		_current_meta: Option<&Self::Meta>,
+	) -> Self {
 		ValueRange(inner_to_hash_value.map(|(_value, position)| position))
 	}
 }
@@ -222,6 +227,118 @@ pub fn inner_hashed_value<H: Hasher>(x: &[u8], range: Option<(usize, usize)>) ->
 	// if anything wrong default to hash
 	x.to_vec()
 }
+
+
+#[derive(Clone)]
+pub enum Version {
+	Old,
+	New,
+}
+
+impl Default for Version {
+	fn default() -> Self {
+		// freshly created nodes are New.
+		Version::New
+	}
+}
+
+/// Trie that use a dumb value function over its storage.
+#[derive(Default, Clone)]
+pub struct Updatable(Version);
+
+impl TrieLayout for Updatable {
+	const USE_EXTENSION: bool = true;
+	const ALLOW_EMPTY: bool = false;
+	const USE_META: bool = true;
+	fn inner_hash_value_treshold(&self) -> Option<usize> {
+		match self.0 {
+			Version::Old => None,
+			Version::New => Some(1),
+		}
+	}
+	type Hash = RefHasher;
+	type Codec = ReferenceNodeCodec<RefHasher>;
+	type ValueFunction = TestUpdatableValueFunction<RefHasher>;
+	type MetaInput = VersionedValueRange;
+	type Meta = VersionedValueRange;
+}
+
+/// Test Meta input.
+#[derive(Default)]
+pub struct VersionedValueRange(Option<core::ops::Range<usize>>, Version);
+
+impl trie_db::BuildableMetaInput for VersionedValueRange {
+	type Meta = VersionedValueRange;
+
+	fn from_inner_hashed_value(
+		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
+		current_meta: Option<&Self::Meta>,
+	) -> Self {
+		let version = current_meta.map(|meta| meta.1.clone()).unwrap_or_default();
+		// TODO add child new index to meta (needs new callback into meta for triedbmut).
+		// (pass iterator to meta of loaded child node in triedbmut: not loaded on creation
+		// do not exist: so undefined is not an old node but a new one).
+		// TODO change version when not all child are new.
+		VersionedValueRange(inner_to_hash_value.map(|(_value, position)| position), version)
+	}
+}
+
+/// Test value function: prepend optional encoded size of value
+pub struct TestUpdatableValueFunction<H>(PhantomData<H>);
+
+impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestUpdatableValueFunction<H> {
+	type MetaInput = VersionedValueRange;
+	type Meta = VersionedValueRange; // TODO check if range is of any use
+
+	fn hash(value: &[u8], meta: &Self::MetaInput) -> H::Out {
+		if let Some(range) = meta.0.as_ref() {
+			assert!(matches!(meta.1,Version::New));
+			let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
+			H::hash(value.as_slice())
+		} else {
+			H::hash(value)
+		}
+	}
+
+	fn stored_value(value: &[u8], meta: Self::MetaInput) -> DBValue {
+		let mut stored = meta.0.map(|range| (range.start as u32, range.end as u32)).encode();
+		if let Version::Old = meta.1 {
+			// non empty empty trie byte for old node
+			stored.push(EMPTY_TRIE);
+		}
+		stored.extend_from_slice(value);
+		stored
+	}
+
+	fn stored_value_owned(value: DBValue, meta: Self::MetaInput) -> DBValue {
+		Self::stored_value(value.as_slice(), meta)
+	}
+
+	fn extract_value(stored: &[u8]) -> (DBValue, Self::Meta) {
+		Self::extract_value_owned(stored.to_vec())
+	}
+
+	fn extract_value_owned(mut stored: DBValue) -> (DBValue, Self::Meta) {
+		let len = stored.len();
+		let input = &mut stored.as_slice();
+		let range: Option<(u32, u32)> = Decode::decode(input).ok().flatten();
+		let version = if input[0] == EMPTY_TRIE && input.len() > 1 {
+			Version::Old
+		} else {
+			Version::New
+		};
+		let read_bytes = len - input.len();
+		let stored = stored.split_off(read_bytes);
+		if let Some((start, end)) = range {
+			let start = start as usize;
+			let end = end as usize;
+			(stored, VersionedValueRange(Some(start..end), version))
+		} else {
+			(stored, VersionedValueRange(None, version))
+		}
+	}
+}
+
 
 
 impl<H: Hasher> TrieConfiguration for GenericNoExtensionLayout<H> { }

@@ -1540,6 +1540,7 @@ where
 			Option<u8>,
 		) -> ChildReference<<L::Hash as Hasher>::Out>,
 	) -> (Vec<u8>, <L::ValueFunction as ValueFunction<L::Hash, DBValue>>::MetaInput) {
+		let current_meta: Option<&L::Meta> = unimplemented!("TODO get existing meta from Node field");
 		let encoded = node.into_encoded::<_, L::Codec, L::Hash>(child_cb);
 		use crate::BuildableMetaInput;
 		let meta = if L::USE_META {
@@ -1548,12 +1549,12 @@ where
 				L::MetaInput::from_inner_hashed_value(range.and_then(|range| {
 					let slice = &encoded[range.clone()];
 					(slice.len() >= treshold).then(|| (slice, range))
-				}))
+				}), current_meta)
 			} else {
-				L::MetaInput::from_inner_hashed_value(None)
+				L::MetaInput::from_inner_hashed_value(None, current_meta)
 			}
 		} else {
-			L::MetaInput::from_inner_hashed_value(None)
+			L::MetaInput::from_inner_hashed_value(None, current_meta)
 		};
 		(encoded, meta)
 	}
