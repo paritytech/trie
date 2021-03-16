@@ -15,7 +15,7 @@
 use trie_db::{DBValue, TrieLayout};
 use memory_db::{MemoryDB, HashKey, PrefixedKey};
 use reference_trie::{RefHasher, test_layouts,
-	ExtensionLayout, NoExtensionLayout};
+	ExtensionLayout, NoExtensionLayout, CheckValueFunction};
 
 #[test]
 fn trie_root_empty () {
@@ -64,9 +64,9 @@ fn test_iter<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) {
 }
 
 fn compare_implementations(data: Vec<(Vec<u8>, Vec<u8>)>) {
+	test_iter::<CheckValueFunction>(data.clone());
 	test_iter::<ExtensionLayout>(data.clone());
 	test_iter::<NoExtensionLayout>(data.clone());
-	// TODO check layout
 	compare_implementations_h(data.clone());
 	compare_implementations_prefixed(data.clone());
 }
@@ -130,13 +130,10 @@ fn trie_middle_node2 () {
 }
 test_layouts!(root_extension_bis, root_extension_bis_internal);
 fn root_extension_bis_internal<T: TrieLayout>() {
-	// TODO implement support and try test_layouts on others function!!
-	if T::INNER_HASHED_VALUE.is_none() {
-		compare_root::<T>(vec![
-			(vec![1u8, 2u8, 3u8, 3u8], vec![8u8;32]),
-			(vec![1u8, 2u8, 3u8, 4u8], vec![7u8;32]),
-		]);
-	}
+	compare_root::<T>(vec![
+		(vec![1u8, 2u8, 3u8, 3u8], vec![8u8;32]),
+		(vec![1u8, 2u8, 3u8, 4u8], vec![7u8;32]),
+	]);
 }
 #[test]
 fn root_extension_tierce () {
@@ -245,29 +242,23 @@ fn fuzz_no_extension4 () {
 }
 test_layouts!(fuzz_no_extension_insert_remove_1, fuzz_no_extension_insert_remove_1_internal);
 fn fuzz_no_extension_insert_remove_1_internal<T: TrieLayout>() {
-	// TODO implement
-	if T::INNER_HASHED_VALUE.is_none() {
-		let data = vec![
-			(false, vec![0], vec![251, 255]),
-			(false, vec![0, 1], vec![251, 255]),
-			(false, vec![0, 1, 2], vec![255; 32]),
-			(true, vec![0, 1], vec![0, 251]),
-		];
-		compare_insert_remove::<T>(data);
-	}
+	let data = vec![
+		(false, vec![0], vec![251, 255]),
+		(false, vec![0, 1], vec![251, 255]),
+		(false, vec![0, 1, 2], vec![255; 32]),
+		(true, vec![0, 1], vec![0, 251]),
+	];
+	compare_insert_remove::<T>(data);
 }
 test_layouts!(fuzz_no_extension_insert_remove_2, fuzz_no_extension_insert_remove_2_internal);
 fn fuzz_no_extension_insert_remove_2_internal<T: TrieLayout>() {
-	// TODO implement
-	if T::INNER_HASHED_VALUE.is_none() {
-		let data = vec![
-			(false, vec![0x00], vec![0xfd, 0xff]),
-			(false, vec![0x10, 0x00], vec![1;32]),
-			(false, vec![0x11, 0x10], vec![0;32]),
-			(true, vec![0x10, 0x00], vec![])
-		];
-		compare_insert_remove::<T>(data);
-	}
+	let data = vec![
+		(false, vec![0x00], vec![0xfd, 0xff]),
+		(false, vec![0x10, 0x00], vec![1;32]),
+		(false, vec![0x11, 0x10], vec![0;32]),
+		(true, vec![0x10, 0x00], vec![])
+	];
+	compare_insert_remove::<T>(data);
 }
 #[test]
 fn two_bytes_nibble_length () {

@@ -144,28 +144,25 @@ fn remove_to_empty_internal<T: TrieLayout>() {
 
 test_layouts!(remove_to_empty_no_extension, remove_to_empty_no_extension_internal);
 fn remove_to_empty_no_extension_internal<T: TrieLayout>() {
-	// TODO implement with iter_build, plus incorrect test name
-	if T::INNER_HASHED_VALUE.is_none() {
-		let big_value = b"00000000000000000000000000000000";
-		let big_value2 = b"00000000000000000000000000000002";
-		let big_value3 = b"00000000000000000000000000000004";
+	let big_value = b"00000000000000000000000000000000";
+	let big_value2 = b"00000000000000000000000000000002";
+	let big_value3 = b"00000000000000000000000000000004";
 
-		let mut memdb = MemoryDB::<_, PrefixedKey<_>, _, _>::default();
-		let mut root = Default::default();
-		{
-			let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
+	let mut memdb = MemoryDB::<_, PrefixedKey<_>, _, _>::default();
+	let mut root = Default::default();
+	{
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 
-			t.insert(&[0x01, 0x23], big_value3).unwrap();
-			t.insert(&[0x01], big_value2).unwrap();
-			t.insert(&[0x01, 0x34], big_value).unwrap();
-			t.remove(&[0x01]).unwrap();
-			// commit on drop
-		}
-		assert_eq!(&root, &reference_trie::calc_root::<T, _, _, _>(vec![
-		 (vec![0x01u8, 0x23], big_value3.to_vec()),
-		 (vec![0x01u8, 0x34], big_value.to_vec()),
-		]));
+		t.insert(&[0x01, 0x23], big_value3).unwrap();
+		t.insert(&[0x01], big_value2).unwrap();
+		t.insert(&[0x01, 0x34], big_value).unwrap();
+		t.remove(&[0x01]).unwrap();
+		// commit on drop
 	}
+	assert_eq!(&root, &reference_trie::calc_root::<T, _, _, _>(vec![
+	 (vec![0x01u8, 0x23], big_value3.to_vec()),
+	 (vec![0x01u8, 0x34], big_value.to_vec()),
+	]));
 }
 
 test_layouts!(insert_replace_root, insert_replace_root_internal);
@@ -252,21 +249,18 @@ fn insert_split_extenstion_internal<T: TrieLayout>() {
 
 test_layouts!(insert_big_value, insert_big_value_internal);
 fn insert_big_value_internal<T: TrieLayout>() {
-	// TODO add hash support for iter_build and use it instead of reference_trie_root
-	if T::INNER_HASHED_VALUE.is_none() {
-		let big_value0 = b"00000000000000000000000000000000";
-		let big_value1 = b"11111111111111111111111111111111";
+	let big_value0 = b"00000000000000000000000000000000";
+	let big_value1 = b"11111111111111111111111111111111";
 
-		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue, _>::default();
-		let mut root = Default::default();
-		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
-		t.insert(&[0x01u8, 0x23], big_value0).unwrap();
-		t.insert(&[0x11u8, 0x23], big_value1).unwrap();
-		assert_eq!(*t.root(), reference_trie_root::<T, _, _, _>(vec![
-			(vec![0x01u8, 0x23], big_value0.to_vec()),
-			(vec![0x11u8, 0x23], big_value1.to_vec())
-		]));
-	}
+	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue, _>::default();
+	let mut root = Default::default();
+	let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
+	t.insert(&[0x01u8, 0x23], big_value0).unwrap();
+	t.insert(&[0x11u8, 0x23], big_value1).unwrap();
+	assert_eq!(*t.root(), reference_trie_root::<T, _, _, _>(vec![
+		(vec![0x01u8, 0x23], big_value0.to_vec()),
+		(vec![0x11u8, 0x23], big_value1.to_vec())
+	]));
 }
 
 test_layouts!(insert_duplicate_value, insert_duplicate_value_internal);
