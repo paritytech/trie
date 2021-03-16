@@ -265,20 +265,17 @@ fn insert_big_value_internal<T: TrieLayout>() {
 
 test_layouts!(insert_duplicate_value, insert_duplicate_value_internal);
 fn insert_duplicate_value_internal<T: TrieLayout>() {
-	// TODO add hash support for iter_build and use it instead of reference_trie_root
-	if T::INNER_HASHED_VALUE.is_none() {
-		let big_value = b"00000000000000000000000000000000";
+	let big_value = b"00000000000000000000000000000000";
 
-		let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue, _>::default();
-		let mut root = Default::default();
-		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
-		t.insert(&[0x01u8, 0x23], big_value).unwrap();
-		t.insert(&[0x11u8, 0x23], big_value).unwrap();
-		assert_eq!(*t.root(), reference_trie_root::<T, _, _, _>(vec![
-			(vec![0x01u8, 0x23], big_value.to_vec()),
-			(vec![0x11u8, 0x23], big_value.to_vec())
-		]));
-	}
+	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue, _>::default();
+	let mut root = Default::default();
+	let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
+	t.insert(&[0x01u8, 0x23], big_value).unwrap();
+	t.insert(&[0x11u8, 0x23], big_value).unwrap();
+	assert_eq!(*t.root(), reference_trie_root::<T, _, _, _>(vec![
+		(vec![0x01u8, 0x23], big_value.to_vec()),
+		(vec![0x11u8, 0x23], big_value.to_vec())
+	]));
 }
 
 test_layouts!(test_at_empty, test_at_empty_internal);
