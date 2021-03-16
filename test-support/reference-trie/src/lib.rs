@@ -106,7 +106,7 @@ pub struct CheckValueFunction;
 impl TrieLayout for CheckValueFunction {
 	const USE_EXTENSION: bool = true;
 	const ALLOW_EMPTY: bool = false;
-	const INNER_HASHED_VALUE: Option<usize> = Some(10);
+	const INNER_HASHED_VALUE: Option<usize> = Some(1);
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
 	type ValueFunction = TestValueFunction<RefHasher>;
@@ -186,18 +186,20 @@ pub fn inner_hashed_value<H: Hasher>(x: &[u8], range: Option<(usize, usize)>) ->
 		if start == 0 && end < len {
 			// start inner hash
 			let hash_start = H::hash(&x[..start]);
-			let mut buff = vec![0; x.len() + hash_start.as_ref().len() - (end - start)];
-			buff[..end].copy_from_slice(hash_start.as_ref());
-			buff[end..].copy_from_slice(&x[end..]);
+			let hash_len = hash_start.as_ref().len();
+			let mut buff = vec![0; x.len() + hash_len - (end - start)];
+			buff[..hash_len].copy_from_slice(hash_start.as_ref());
+			buff[hash_len..].copy_from_slice(&x[end..]);
 			return buff;
 		}
 		if start < len && end < len {
 			// middle inner hash
 			let hash_middle = H::hash(&x[start..end]);
-			let mut buff = vec![0; x.len() + hash_middle.as_ref().len() - (end - start)];
+			let hash_len = hash_middle.as_ref().len();
+			let mut buff = vec![0; x.len() + hash_len - (end - start)];
 			buff[..start].copy_from_slice(&x[..start]);
-			buff[start..end].copy_from_slice(hash_middle.as_ref());
-			buff[end..].copy_from_slice(&x[end..]);
+			buff[start..start + hash_len].copy_from_slice(hash_middle.as_ref());
+			buff[start + hash_len..].copy_from_slice(&x[end..]);
 			return buff;
 		}
 	}
