@@ -23,7 +23,7 @@ use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
 use crate::nibble::nibble_ops;
 use crate::node_codec::NodeCodec;
-use crate::{TrieLayout, TrieHash};
+use crate::{TrieLayout, TrieHash, DBValue};
 
 macro_rules! exponential_out {
 	(@3, [$($inpp:expr),*]) => { exponential_out!(@2, [$($inpp,)* $($inpp),*]) };
@@ -319,29 +319,31 @@ pub trait ProcessEncodedNode<HO> {
 /// Get trie root and insert visited node in a hash_db.
 /// As for all `ProcessEncodedNode` implementation, it
 /// is only for full trie parsing (not existing trie).
-pub struct TrieBuilder<'a, H, HO, V, DB, VF> {
+pub struct TrieBuilder<'a, T: TrieLayout, DB> {
 	db: &'a mut DB,
-	pub root: Option<HO>,
-	_ph: PhantomData<(H, V, VF)>,
+	pub root: Option<TrieHash<T>>,
 }
 
-impl<'a, H, HO, V, DB, VF> TrieBuilder<'a, H, HO, V, DB, VF> {
+impl<'a, T: TrieLayout, DB> TrieBuilder<'a, T, DB> {
 	pub fn new(db: &'a mut DB) -> Self {
-		TrieBuilder { db, root: None, _ph: PhantomData }
+		TrieBuilder { db, root: None }
 	}
 }
 
-impl<'a, H: Hasher, V, DB: HashDB<H, V, VF>, VF: ValueFunction<H, V>> ProcessEncodedNode<<H as Hasher>::Out>
-	for TrieBuilder<'a, H, <H as Hasher>::Out, V, DB, VF> {
+impl<'a, T, DB> ProcessEncodedNode<TrieHash<T>> for TrieBuilder<'a, T, DB>
+	where
+		T: TrieLayout,
+		DB: HashDB<T::Hash, DBValue, T::ValueFunction>,
+{
 	fn process(
 		&mut self,
 		prefix: Prefix,
 		encoded_node: Vec<u8>,
 		is_root: bool,
-	) -> ChildReference<<H as Hasher>::Out> {
+	) -> ChildReference<TrieHash<T>> {
 		let len = encoded_node.len();
-		if !is_root && len < <H as Hasher>::LENGTH {
-			let mut h = <<H as Hasher>::Out as Default>::default();
+		if !is_root && len < <T::Hash as Hasher>::LENGTH {
+			let mut h = <<T::Hash as Hasher>::Out as Default>::default();
 			h.as_mut()[..len].copy_from_slice(&encoded_node[..len]);
 
 			return ChildReference::Inline(h, len);
@@ -349,7 +351,11 @@ impl<'a, H: Hasher, V, DB: HashDB<H, V, VF>, VF: ValueFunction<H, V>> ProcessEnc
 		// TODO this should be replaced by insert_with_meta for
 		// Layout with a VF (issue how to build MetaIn: seems rather
 		// easy, unimplement for now).
-		let hash = self.db.insert(prefix, &encoded_node[..]);
+		let hash = if T::INNER_HASHED_VALUE.is_none() {
+			self.db.insert(prefix, &encoded_node[..])
+		} else {
+			unimplemented!()
+		};
 		if is_root {
 			self.root = Some(hash);
 		};
@@ -358,33 +364,47 @@ impl<'a, H: Hasher, V, DB: HashDB<H, V, VF>, VF: ValueFunction<H, V>> ProcessEnc
 }
 
 /// Calculate the trie root of the trie.
-pub struct TrieRoot<H, HO> {
+pub struct TrieRoot<T: TrieLayout> {
 	/// The resulting root.
-	pub root: Option<HO>,
-	_ph: PhantomData<H>,
+	pub root: Option<TrieHash<T>>,
 }
 
-impl<H, HO> Default for TrieRoot<H, HO> {
+impl<T: TrieLayout> Default for TrieRoot<T> {
 	fn default() -> Self {
-		TrieRoot { root: None, _ph: PhantomData }
+		TrieRoot { root: None }
 	}
 }
 
-impl<H: Hasher> ProcessEncodedNode<<H as Hasher>::Out> for TrieRoot<H, <H as Hasher>::Out> {
+impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 	fn process(
 		&mut self,
 		_: Prefix,
 		encoded_node: Vec<u8>,
 		is_root: bool,
-	) -> ChildReference<<H as Hasher>::Out> {
+	) -> ChildReference<TrieHash<T>> {
 		let len = encoded_node.len();
-		if !is_root && len < <H as Hasher>::LENGTH {
-			let mut h = <<H as Hasher>::Out as Default>::default();
+		if !is_root && len < <T::Hash as Hasher>::LENGTH {
+			let mut h = <<T::Hash as Hasher>::Out as Default>::default();
 			h.as_mut()[..len].copy_from_slice(&encoded_node[..len]);
 
 			return ChildReference::Inline(h, len);
 		}
-		let hash = <H as Hasher>::hash(&encoded_node[..]);
+		let hash = if T::INNER_HASHED_VALUE.is_none(){
+			<T::Hash as Hasher>::hash(&encoded_node[..])
+		} else {
+			// Duplicated code with triedbmut TODO factor
+			use crate::BuildableMetaInput;
+			let meta = if let Some(treshold) = T::INNER_HASHED_VALUE {
+				let range = T::Codec::value_range(encoded_node.as_slice()); 
+				T::MetaInput::from_inner_hashed_value(range.and_then(|range| {
+					let slice = &encoded_node[range.clone()];
+					(slice.len() >= treshold).then(|| (slice, range))
+				}))
+			} else {
+				T::MetaInput::from_inner_hashed_value(None)
+			};
+			<T::ValueFunction as ValueFunction<_, _>>::hash(&encoded_node[..], &meta)
+		};
 		if is_root {
 			self.root = Some(hash);
 		};

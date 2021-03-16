@@ -424,7 +424,7 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	{
-		let mut cb = TrieBuilder::new(db);
+		let mut cb = TrieBuilder::<Self, DB>::new(db);
 		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
 		cb.root.unwrap_or_default()
 	}
@@ -434,7 +434,7 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	{
-		let mut cb = TrieRoot::<Self::Hash, _>::default();
+		let mut cb = TrieRoot::<Self>::default();
 		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
 		cb.root.unwrap_or_default()
 	}

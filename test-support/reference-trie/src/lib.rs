@@ -279,7 +279,7 @@ pub fn reference_trie_root_iter_build<T, I, A, B>(input: I) -> <T::Hash as Hashe
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	let mut cb = trie_db::TrieRoot::<T::Hash, _>::default();
+	let mut cb = trie_db::TrieRoot::<T>::default();
 	trie_visit::<T, _, _, _, _>(data_sorted_unique(input), &mut cb);
 	cb.root.unwrap_or_default()
 }
@@ -1159,7 +1159,7 @@ pub fn calc_root<T, I, A, B>(
 		A: AsRef<[u8]> + Ord + fmt::Debug,
 		B: AsRef<[u8]> + fmt::Debug,
 {
-	let mut cb = TrieRoot::<T::Hash, _>::default();
+	let mut cb = TrieRoot::<T>::default();
 	trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or_default()
 }
@@ -1176,7 +1176,7 @@ pub fn calc_root_build<T, I, A, B, DB>(
 		B: AsRef<[u8]> + fmt::Debug,
 		DB: hash_db::HashDB<T::Hash, DBValue, T::ValueFunction>,
 {
-	let mut cb = TrieBuilder::new(hashdb);
+	let mut cb = TrieBuilder::<T, DB>::new(hashdb);
 	trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or_default()
 }
@@ -1203,7 +1203,7 @@ pub fn compare_implementations_unordered<T, DB> (
 		*t.root()
 	};
 	let root_new = {
-		let mut cb = TrieBuilder::new(&mut hashdb);
+		let mut cb = TrieBuilder::<T, DB>::new(&mut hashdb);
 		trie_visit::<T, _, _, _, _>(b_map.into_iter(), &mut cb);
 		cb.root.unwrap_or_default()
 	};
