@@ -121,8 +121,13 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 	type MetaInput = ValueRange;
 	type Meta = Option<usize>;
 
-	fn hash(value: &[u8], _meta: &Self::MetaInput) -> H::Out {
-		H::hash(value)
+	fn hash(value: &[u8], meta: &Self::MetaInput) -> H::Out {
+		if let Some(range) = meta.0.as_ref() {
+			let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
+			H::hash(value.as_slice())
+		} else {
+			H::hash(value)
+		}
 	}
 
 	fn stored_value(value: &[u8], meta: Self::MetaInput) -> DBValue {
@@ -163,6 +168,43 @@ impl trie_db::BuildableMetaInput for ValueRange {
 		ValueRange(inner_to_hash_value.map(|(_value, position)| position))
 	}
 }
+
+/// Representation with inner hash.
+/// TODO not a hashed db primitive (works only with meta using range inpot
+/// and outputing possibly a removed value or removed hash.
+pub fn inner_hashed_value<H: Hasher>(x: &[u8], range: Option<(usize, usize)>) -> Vec<u8> {
+	if let Some((start, end)) = range {
+		let len = x.len();
+		if start < len && end == len {
+			// terminal inner hash
+			let hash_end = H::hash(&x[start..]);
+			let mut buff = vec![0; x.len() + hash_end.as_ref().len() - (end - start)];
+			buff[..start].copy_from_slice(&x[..start]);
+			buff[start..].copy_from_slice(hash_end.as_ref());
+			return buff;
+		}
+		if start == 0 && end < len {
+			// start inner hash
+			let hash_start = H::hash(&x[..start]);
+			let mut buff = vec![0; x.len() + hash_start.as_ref().len() - (end - start)];
+			buff[..end].copy_from_slice(hash_start.as_ref());
+			buff[end..].copy_from_slice(&x[end..]);
+			return buff;
+		}
+		if start < len && end < len {
+			// middle inner hash
+			let hash_middle = H::hash(&x[start..end]);
+			let mut buff = vec![0; x.len() + hash_middle.as_ref().len() - (end - start)];
+			buff[..start].copy_from_slice(&x[..start]);
+			buff[start..end].copy_from_slice(hash_middle.as_ref());
+			buff[end..].copy_from_slice(&x[end..]);
+			return buff;
+		}
+	}
+	// if anything wrong default to hash
+	x.to_vec()
+}
+
 
 impl<H: Hasher> TrieConfiguration for GenericNoExtensionLayout<H> { }
 
