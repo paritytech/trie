@@ -569,7 +569,13 @@ where
 			_ => None
 		}
 	}
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, VF::Meta)> {
+		if key == &self.hashed_null_node {
+			return Some((self.null_node_data.clone(), Default::default()));
+		}		
 
+		<Self as HashDB<H, T, VF>>::get(&self, key, prefix).map(|value| VF::extract_value_owned(value))
+	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
 		if key == &self.hashed_null_node {
 			return true;

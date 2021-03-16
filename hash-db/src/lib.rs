@@ -236,7 +236,8 @@ pub trait AsPlainDB<K, V> {
 
 pub trait ValueFunction<H: Hasher, T>: Send + Sync {
 	/// Additional content fetchable from storage.
-	type Meta;
+	/// Default is for undefined (eg in some case null node).
+	type Meta: Default;
 
 	/// Additional input for storage.
 	type MetaInput;
