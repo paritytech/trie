@@ -151,6 +151,7 @@ pub trait HashDB<H: Hasher, T, VF: ValueFunction<H, T>>: Send + Sync + AsHashDB<
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	/// Resolve associated meta.
+	/// TODO variant with dropped meta? (sometime we do not use meta).
 	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, VF::Meta)> {
 		self.get(key, prefix).map(|value| VF::extract_value_owned(value))
 	}

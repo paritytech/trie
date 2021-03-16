@@ -346,6 +346,9 @@ impl<'a, H: Hasher, V, DB: HashDB<H, V, VF>, VF: ValueFunction<H, V>> ProcessEnc
 
 			return ChildReference::Inline(h, len);
 		}
+		// TODO this should be replaced by insert_with_meta for
+		// Layout with a VF (issue how to build MetaIn: seems rather
+		// easy, unimplement for now).
 		let hash = self.db.insert(prefix, &encoded_node[..]);
 		if is_root {
 			self.root = Some(hash);
