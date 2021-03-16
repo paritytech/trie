@@ -390,8 +390,27 @@ pub trait TrieLayout {
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
 	type Codec: NodeCodec<HashOut=<Self::Hash as Hasher>::Out>;
+	/// Type associated with new nodes. TODO copy hash_db doc
+	type MetaInput: BuildableMetaInput;
+	/// Type associated with new nodes. TODO copy hash_db doc
+	type Meta;
 	/// Value function to manage meta.
-	type ValueFunction: ValueFunction<Self::Hash, DBValue>;
+	type ValueFunction: ValueFunction<
+		Self::Hash,
+		DBValue,
+		MetaInput = Self::MetaInput,
+		Meta = Self::Meta,
+	>;
+}
+
+pub trait BuildableMetaInput {
+	fn from_inner_hashed_value(inner_to_hash_value: Option<&[u8]>) -> Self;
+}
+
+impl BuildableMetaInput for () {
+	fn from_inner_hashed_value(_inner_to_hash_value: Option<&[u8]>) -> Self {
+		()
+	}
 }
 
 /// This trait associates a trie definition with preferred methods.

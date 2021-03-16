@@ -172,6 +172,17 @@ impl NodePlan {
 			},
 		}
 	}
+
+	/// TODO remove, here to avoid too many changes in NodeCodec trait
+	pub fn value_range(&self) -> Option<Range<usize>> {
+		match self {
+			NodePlan::Extension { .. }
+			| NodePlan::Empty => None,
+			NodePlan::Branch { value, .. }
+			| NodePlan::NibbledBranch { value, .. } => value.clone(),
+			NodePlan::Leaf { value, .. } => Some(value.clone()),
+		}
+	}
 }
 
 /// An `OwnedNode` is an owned type from which a `Node` can be constructed which borrows data from

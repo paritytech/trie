@@ -19,7 +19,7 @@ use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_hash};
 
-use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
+use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX, ValueFunction};
 use hashbrown::HashSet;
 
 use crate::node_codec::NodeCodec;
@@ -480,7 +480,7 @@ where
 		hash: TrieHash<L>,
 		key: Prefix,
 	) -> Result<StorageHandle, TrieHash<L>, CError<L>> {
-		let node_encoded = self.db.get(&hash, key)
+		let (node_encoded, _meta) = self.db.get_with_meta(&hash, key)
 			.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
 		let node = Node::from_encoded::<L::Codec, L::Hash, L::ValueFunction>(
 			hash,
@@ -1422,7 +1422,7 @@ where
 		match self.storage.destroy(handle) {
 			Stored::New(node) => {
 				let mut k = NibbleVec::new();
-				let encoded_root = node.into_encoded::<_, L::Codec, L::Hash>(
+				let (encoded_root, meta) = Self::into_encoded_with_meta(node,
 					|child, o_slice, o_index| {
 						let mov = k.append_optional_slice_and_nibble(o_slice, o_index);
 						let cr = self.commit_child(child, &mut k);
@@ -1432,7 +1432,7 @@ where
 				);
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
-				*self.root = self.db.insert(EMPTY_PREFIX, &encoded_root[..]);
+				*self.root = self.db.insert_with_meta(EMPTY_PREFIX, &encoded_root[..], meta);
 				self.hash_count += 1;
 
 				self.root_handle = NodeHandle::Hash(*self.root);
@@ -1463,7 +1463,7 @@ where
 				match self.storage.destroy(storage_handle) {
 					Stored::Cached(_, hash) => ChildReference::Hash(hash),
 					Stored::New(node) => {
-						let encoded = {
+						let (encoded, meta) = {
 							let commit_child = |
 								node_handle,
 								o_slice: Option<&NibbleSlice>,
@@ -1474,10 +1474,10 @@ where
 								prefix.drop_lasts(mov);
 								cr
 							};
-							node.into_encoded::<_, L::Codec, L::Hash>(commit_child)
+							Self::into_encoded_with_meta(node, commit_child)
 						};
 						if encoded.len() >= L::Hash::LENGTH {
-							let hash = self.db.insert(prefix.as_prefix(), &encoded[..]);
+							let hash = self.db.insert_with_meta(prefix.as_prefix(), &encoded[..], meta);
 							self.hash_count +=1;
 							ChildReference::Hash(hash)
 						} else {
@@ -1501,8 +1501,29 @@ where
 			NodeHandle::InMemory(StorageHandle(x)) => NodeHandle::InMemory(StorageHandle(x)),
 		}
 	}
-}
 
+	fn into_encoded_with_meta(
+		node: Node<<L::Hash as Hasher>::Out>,
+		child_cb: impl FnMut(
+			NodeHandle<<L::Hash as Hasher>::Out>,
+			Option<&NibbleSlice>,
+			Option<u8>,
+		) -> ChildReference<<L::Hash as Hasher>::Out>,
+	) -> (Vec<u8>, <L::ValueFunction as ValueFunction<L::Hash, DBValue>>::MetaInput) {
+		let encoded = node.into_encoded::<_, L::Codec, L::Hash>(child_cb);
+		use crate::BuildableMetaInput;
+		let meta = if let Some(treshold) = L::INNER_HASHED_VALUE {
+			let range = L::Codec::value_range(encoded.as_slice()); 
+			L::MetaInput::from_inner_hashed_value(range.and_then(|range| {
+				let slice = &encoded[range];
+				(slice.len() >= treshold).then(|| slice)
+			}))
+		} else {
+			L::MetaInput::from_inner_hashed_value(None)
+		};
+		(encoded, meta)
+	}
+}
 
 impl<'a, L> TrieMut<L> for TrieDBMut<'a, L>
 where

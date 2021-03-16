@@ -19,7 +19,7 @@ use crate::MaybeDebug;
 use crate::node::{Node, NodePlan};
 use crate::ChildReference;
 
-use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec};
+use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec, ops::Range};
 
 
 /// Representation of a nible slice (right aligned).
@@ -57,8 +57,12 @@ pub trait NodeCodec: Sized {
 	/// Returns an encoded leaf node
 	fn leaf_node(partial: Partial, value: &[u8]) -> Vec<u8>;
 
-// TODO	/// Returns an encoded leaf node without value.
-//	fn inner_hashed_leaf_node(partial: Partial, value: &[u8]) -> Vec<u8>;
+	/// Returns value position in encoded slice.
+	/// TODO slow, could be better with individual function variant,
+	/// but this is less work as a first step.
+	fn value_range(encoded: &[u8]) -> Option<Range<usize>> {
+		Self::decode_plan(encoded).ok().map(|plan| plan.value_range()).flatten()
+	}
 
 	/// Returns an encoded extension node
 	/// Note that number_nibble is the number of element of the iterator
