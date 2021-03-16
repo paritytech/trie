@@ -59,6 +59,7 @@ macro_rules! test_layouts {
 }
 
 /// Trie layout using extension nodes.
+#[derive(Default, Clone)]
 pub struct ExtensionLayout;
 
 impl TrieLayout for ExtensionLayout {
@@ -77,6 +78,18 @@ impl TrieConfiguration for ExtensionLayout { }
 /// generic hasher.
 pub struct GenericNoExtensionLayout<H>(PhantomData<H>);
 
+impl<H> Default for GenericNoExtensionLayout<H> {
+	fn default() -> Self {
+		GenericNoExtensionLayout(PhantomData)
+	}
+}
+
+impl<H> Clone for GenericNoExtensionLayout<H> {
+	fn clone(&self) -> Self {
+		GenericNoExtensionLayout(PhantomData)
+	}
+}
+
 impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
@@ -87,7 +100,8 @@ impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	type Meta = ();
 }
 
-/// Trie that allows empty values
+/// Trie that allows empty values.
+#[derive(Default, Clone)]
 pub struct AllowEmptyLayout;
 
 impl TrieLayout for AllowEmptyLayout {
@@ -101,13 +115,14 @@ impl TrieLayout for AllowEmptyLayout {
 }
 
 /// Trie that use a dumb value function over its storage.
+#[derive(Default, Clone)]
 pub struct CheckValueFunction;
 
 impl TrieLayout for CheckValueFunction {
 	const USE_EXTENSION: bool = true;
 	const ALLOW_EMPTY: bool = false;
 	const USE_META: bool = true;
-	fn inner_hash_value_treshold() -> Option<usize> {
+	fn inner_hash_value_treshold(&self) -> Option<usize> {
 		Some(1)
 	}
 	type Hash = RefHasher;

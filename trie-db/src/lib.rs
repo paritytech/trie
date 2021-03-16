@@ -377,7 +377,9 @@ where
 /// Trait with definition of trie layout.
 /// Contains all associated trait needed for
 /// a trie definition or implementation.
-pub trait TrieLayout {
+/// Structure implementing this trait can define contextual behavior
+/// for trie, but should be small (clone cost should be insignifiant).
+pub trait TrieLayout: Default + Clone {
 	/// If true, the trie will use extension nodes and
 	/// no partial in branch, if false the trie will only
 	/// use branch and node with partials in both.
@@ -388,7 +390,7 @@ pub trait TrieLayout {
 	const USE_META: bool = false;
 
 	/// Treshold over which the value get inner hashed.
-	fn inner_hash_value_treshold() -> Option<usize> {
+	fn inner_hash_value_treshold(&self) -> Option<usize> {
 		None
 	}
 

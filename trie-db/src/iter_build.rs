@@ -367,11 +367,13 @@ impl<'a, T, DB> ProcessEncodedNode<TrieHash<T>> for TrieBuilder<'a, T, DB>
 pub struct TrieRoot<T: TrieLayout> {
 	/// The resulting root.
 	pub root: Option<TrieHash<T>>,
+	/// Possible layout specific context.
+	pub layout: T,
 }
 
 impl<T: TrieLayout> Default for TrieRoot<T> {
 	fn default() -> Self {
-		TrieRoot { root: None }
+		TrieRoot { root: None, layout: Default::default() }
 	}
 }
 
@@ -394,7 +396,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 		} else {
 			// Duplicated code with triedbmut TODO factor
 			use crate::BuildableMetaInput;
-			let meta = if let Some(treshold) = T::inner_hash_value_treshold() {
+			let meta = if let Some(treshold) = T::inner_hash_value_treshold(&self.layout) {
 				let range = T::Codec::value_range(encoded_node.as_slice()); 
 				T::MetaInput::from_inner_hashed_value(range.and_then(|range| {
 					let slice = &encoded_node[range.clone()];

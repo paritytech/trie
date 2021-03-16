@@ -415,6 +415,7 @@ pub struct TrieDBMut<'a, L>
 where
 	L: TrieLayout,
 {
+	layout: L,
 	storage: NodeStorage<TrieHash<L>>,
 	db: &'a mut dyn HashDB<L::Hash, DBValue, L::ValueFunction>,
 	root: &'a mut TrieHash<L>,
@@ -431,10 +432,21 @@ where
 {
 	/// Create a new trie with backing database `db` and empty `root`.
 	pub fn new(db: &'a mut dyn HashDB<L::Hash, DBValue, L::ValueFunction>, root: &'a mut TrieHash<L>) -> Self {
+		Self::new_with_layout(db, root, Default::default())
+	}
+
+	/// Create a new trie with backing database `db` and empty `root`.
+	/// This could use a context specific layout.
+	pub fn new_with_layout(
+		db: &'a mut dyn HashDB<L::Hash, DBValue, L::ValueFunction>,
+		root: &'a mut TrieHash<L>,
+		layout: L,
+	) -> Self {
 		*root = L::Codec::hashed_null_node();
 		let root_handle = NodeHandle::Hash(L::Codec::hashed_null_node());
 
 		TrieDBMut {
+			layout,
 			storage: NodeStorage::empty(),
 			db,
 			root,
@@ -442,6 +454,7 @@ where
 			death_row: HashSet::new(),
 			hash_count: 0,
 		}
+
 	}
 
 	/// Create a new trie with the backing database `db` and `root.
@@ -450,12 +463,24 @@ where
 		db: &'a mut dyn HashDB<L::Hash, DBValue, L::ValueFunction>,
 		root: &'a mut TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
+		Self::from_existing_with_layout(db, root, Default::default())
+	}
+
+	/// Create a new trie with the backing database `db` and `root.
+	/// Returns an error if `root` does not exist.
+	pub fn from_existing_with_layout(
+		db: &'a mut dyn HashDB<L::Hash, DBValue, L::ValueFunction>,
+		root: &'a mut TrieHash<L>,
+		layout: L,
+	) -> Result<Self, TrieHash<L>, CError<L>> {
+	
 		if !db.contains(root, EMPTY_PREFIX) {
 			return Err(Box::new(TrieError::InvalidStateRoot(*root)));
 		}
 
 		let root_handle = NodeHandle::Hash(*root);
 		Ok(TrieDBMut {
+			layout,
 			storage: NodeStorage::empty(),
 			db,
 			root,
@@ -1422,7 +1447,10 @@ where
 		match self.storage.destroy(handle) {
 			Stored::New(node) => {
 				let mut k = NibbleVec::new();
-				let (encoded_root, meta) = Self::into_encoded_with_meta(node,
+				let layout = self.layout.clone();
+				let (encoded_root, meta) = Self::into_encoded_with_meta(
+					&layout,
+					node,
 					|child, o_slice, o_index| {
 						let mov = k.append_optional_slice_and_nibble(o_slice, o_index);
 						let cr = self.commit_child(child, &mut k);
@@ -1464,6 +1492,7 @@ where
 					Stored::Cached(_, hash) => ChildReference::Hash(hash),
 					Stored::New(node) => {
 						let (encoded, meta) = {
+							let layout = self.layout.clone();
 							let commit_child = |
 								node_handle,
 								o_slice: Option<&NibbleSlice>,
@@ -1474,7 +1503,7 @@ where
 								prefix.drop_lasts(mov);
 								cr
 							};
-							Self::into_encoded_with_meta(node, commit_child)
+							Self::into_encoded_with_meta(&layout, node, commit_child)
 						};
 						if encoded.len() >= L::Hash::LENGTH {
 							let hash = self.db.insert_with_meta(prefix.as_prefix(), &encoded[..], meta);
@@ -1503,6 +1532,7 @@ where
 	}
 
 	fn into_encoded_with_meta(
+		layout: &L,
 		node: Node<<L::Hash as Hasher>::Out>,
 		child_cb: impl FnMut(
 			NodeHandle<<L::Hash as Hasher>::Out>,
@@ -1513,7 +1543,7 @@ where
 		let encoded = node.into_encoded::<_, L::Codec, L::Hash>(child_cb);
 		use crate::BuildableMetaInput;
 		let meta = if L::USE_META {
-			if let Some(treshold) = L::inner_hash_value_treshold() {
+			if let Some(treshold) = layout.inner_hash_value_treshold() {
 				let range = L::Codec::value_range(encoded.as_slice()); 
 				L::MetaInput::from_inner_hashed_value(range.and_then(|range| {
 					let slice = &encoded[range.clone()];
