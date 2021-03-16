@@ -53,6 +53,7 @@ macro_rules! test_layouts {
 		fn $test() {
 			$test_internal::<reference_trie::NoExtensionLayout>();
 			$test_internal::<reference_trie::ExtensionLayout>();
+			$test_internal::<reference_trie::CheckValueFunction>();
 		}
 	};
 }
@@ -97,6 +98,70 @@ impl TrieLayout for AllowEmptyLayout {
 	type ValueFunction = hash_db::NoMeta;
 	type MetaInput = ();
 	type Meta = ();
+}
+
+/// Trie that use a dumb value function over its storage.
+pub struct CheckValueFunction;
+
+impl TrieLayout for CheckValueFunction {
+	const USE_EXTENSION: bool = true;
+	const ALLOW_EMPTY: bool = true;
+	const INNER_HASHED_VALUE: Option<usize> = Some(10);
+	type Hash = RefHasher;
+	type Codec = ReferenceNodeCodec<RefHasher>;
+	type ValueFunction = TestValueFunction<RefHasher>;
+	type MetaInput = ValueRange;
+	type Meta = Option<usize>;
+}
+
+/// Test value function: prepend optional encoded size of value
+pub struct TestValueFunction<H>(PhantomData<H>);
+
+impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
+	type MetaInput = ValueRange;
+	type Meta = Option<usize>;
+
+	fn hash(value: &[u8], _meta: &Self::MetaInput) -> H::Out {
+		H::hash(value)
+	}
+
+	fn stored_value(value: &[u8], meta: Self::MetaInput) -> DBValue {
+		let mut stored = meta.0.map(|range| (range.start as u32, range.end as u32)).encode();
+		stored.extend_from_slice(value);
+		stored
+	}
+
+	fn stored_value_owned(value: DBValue, meta: Self::MetaInput) -> DBValue {
+		Self::stored_value(value.as_slice(), meta)
+	}
+
+	fn extract_value(stored: &[u8]) -> (DBValue, Self::Meta) {
+		Self::extract_value_owned(stored.to_vec())
+	}
+
+	fn extract_value_owned(mut stored: DBValue) -> (DBValue, Self::Meta) {
+		let len = stored.len();
+		let input = &mut stored.as_slice();
+		let range: Option<(u32, u32)> = Decode::decode(input).ok().flatten();
+		let read_bytes = len - input.len();
+		let stored = stored.split_off(read_bytes);
+		if let Some((start, end)) = range {
+			let start = start as usize;
+			let end = end as usize;
+			(stored, Some(end - start))
+		} else {
+			(stored, None)
+		}
+	}
+}
+
+/// Test Meta input.
+pub struct ValueRange(Option<core::ops::Range<usize>>);
+
+impl trie_db::BuildableMetaInput for ValueRange {
+	fn from_inner_hashed_value(inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>) -> Self {
+		ValueRange(inner_to_hash_value.map(|(_value, position)| position))
+	}
 }
 
 impl<H: Hasher> TrieConfiguration for GenericNoExtensionLayout<H> { }

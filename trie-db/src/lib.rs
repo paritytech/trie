@@ -404,11 +404,11 @@ pub trait TrieLayout {
 }
 
 pub trait BuildableMetaInput {
-	fn from_inner_hashed_value(inner_to_hash_value: Option<&[u8]>) -> Self;
+	fn from_inner_hashed_value(inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>) -> Self;
 }
 
 impl BuildableMetaInput for () {
-	fn from_inner_hashed_value(_inner_to_hash_value: Option<&[u8]>) -> Self {
+	fn from_inner_hashed_value(_inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>) -> Self {
 		()
 	}
 }
