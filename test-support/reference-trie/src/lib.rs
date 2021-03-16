@@ -106,7 +106,10 @@ pub struct CheckValueFunction;
 impl TrieLayout for CheckValueFunction {
 	const USE_EXTENSION: bool = true;
 	const ALLOW_EMPTY: bool = false;
-	const INNER_HASHED_VALUE: Option<usize> = Some(1);
+	const USE_META: bool = true;
+	fn inner_hash_value_treshold() -> Option<usize> {
+		Some(1)
+	}
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
 	type ValueFunction = TestValueFunction<RefHasher>;
@@ -170,8 +173,6 @@ impl trie_db::BuildableMetaInput for ValueRange {
 }
 
 /// Representation with inner hash.
-/// TODO not a hashed db primitive (works only with meta using range inpot
-/// and outputing possibly a removed value or removed hash.
 pub fn inner_hashed_value<H: Hasher>(x: &[u8], range: Option<(usize, usize)>) -> Vec<u8> {
 	if let Some((start, end)) = range {
 		let len = x.len();

@@ -1512,12 +1512,16 @@ where
 	) -> (Vec<u8>, <L::ValueFunction as ValueFunction<L::Hash, DBValue>>::MetaInput) {
 		let encoded = node.into_encoded::<_, L::Codec, L::Hash>(child_cb);
 		use crate::BuildableMetaInput;
-		let meta = if let Some(treshold) = L::INNER_HASHED_VALUE {
-			let range = L::Codec::value_range(encoded.as_slice()); 
-			L::MetaInput::from_inner_hashed_value(range.and_then(|range| {
-				let slice = &encoded[range.clone()];
-				(slice.len() >= treshold).then(|| (slice, range))
-			}))
+		let meta = if L::USE_META {
+			if let Some(treshold) = L::inner_hash_value_treshold() {
+				let range = L::Codec::value_range(encoded.as_slice()); 
+				L::MetaInput::from_inner_hashed_value(range.and_then(|range| {
+					let slice = &encoded[range.clone()];
+					(slice.len() >= treshold).then(|| (slice, range))
+				}))
+			} else {
+				L::MetaInput::from_inner_hashed_value(None)
+			}
 		} else {
 			L::MetaInput::from_inner_hashed_value(None)
 		};

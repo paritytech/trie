@@ -351,7 +351,7 @@ impl<'a, T, DB> ProcessEncodedNode<TrieHash<T>> for TrieBuilder<'a, T, DB>
 		// TODO this should be replaced by insert_with_meta for
 		// Layout with a VF (issue how to build MetaIn: seems rather
 		// easy, unimplement for now).
-		let hash = if T::INNER_HASHED_VALUE.is_none() {
+		let hash = if !T::USE_META {
 			self.db.insert(prefix, &encoded_node[..])
 		} else {
 			unimplemented!()
@@ -389,12 +389,12 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 
 			return ChildReference::Inline(h, len);
 		}
-		let hash = if T::INNER_HASHED_VALUE.is_none(){
+		let hash = if !T::USE_META{
 			<T::Hash as Hasher>::hash(&encoded_node[..])
 		} else {
 			// Duplicated code with triedbmut TODO factor
 			use crate::BuildableMetaInput;
-			let meta = if let Some(treshold) = T::INNER_HASHED_VALUE {
+			let meta = if let Some(treshold) = T::inner_hash_value_treshold() {
 				let range = T::Codec::value_range(encoded_node.as_slice()); 
 				T::MetaInput::from_inner_hashed_value(range.and_then(|range| {
 					let slice = &encoded_node[range.clone()];

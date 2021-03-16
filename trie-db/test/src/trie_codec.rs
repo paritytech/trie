@@ -95,7 +95,7 @@ fn test_decode_compact<L: TrieLayout>(
 test_layouts!(trie_compact_encoding_works, trie_compact_encoding_works_internal);
 fn trie_compact_encoding_works_internal<T: TrieLayout>() {
 	// TODO currently no support for recording proof with a ValueFunction.
-	if T::INNER_HASHED_VALUE.is_none() {
+	if !T::USE_META {
 		let (root, mut encoded, items) = test_encode_compact::<T>(
 			vec![
 				// "alfa" is at a hash-referenced leaf node.
@@ -131,7 +131,7 @@ fn trie_compact_encoding_works_internal<T: TrieLayout>() {
 test_layouts!(trie_decoding_fails_with_incomplete_database, trie_decoding_fails_with_incomplete_database_internal);
 fn trie_decoding_fails_with_incomplete_database_internal<T: TrieLayout>() {
 	// TODO currently no support for recording proof with a ValueFunction.
-	if T::INNER_HASHED_VALUE.is_none() {
+	if !T::USE_META {
 		let (_, encoded, _) = test_encode_compact::<T>(
 			vec![
 				(b"alfa", &[0; 32]),

@@ -385,7 +385,13 @@ pub trait TrieLayout {
 	/// If true, the trie will allow empty values into `TrieDBMut`
 	const ALLOW_EMPTY: bool = false;
 	/// Treshold over which the value get inner hashed.
-	const INNER_HASHED_VALUE: Option<usize> = None;
+	const USE_META: bool = false;
+
+	/// Treshold over which the value get inner hashed.
+	fn inner_hash_value_treshold() -> Option<usize> {
+		None
+	}
+
 	/// Hasher to use for this trie.
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
