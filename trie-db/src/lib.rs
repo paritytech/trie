@@ -401,7 +401,7 @@ pub trait TrieLayout: Default + Clone {
 	/// Type associated with new nodes. TODO copy hash_db doc
 	type MetaInput: BuildableMetaInput<Meta = Self::Meta>;
 	/// Type associated with new nodes. TODO copy hash_db doc
-	type Meta;
+	type Meta: Default + Clone;
 	/// Value function to manage meta.
 	type ValueFunction: ValueFunction<
 		Self::Hash,

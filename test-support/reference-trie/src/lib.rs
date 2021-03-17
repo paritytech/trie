@@ -264,7 +264,7 @@ impl TrieLayout for Updatable {
 }
 
 /// Test Meta input.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct VersionedValueRange(Option<core::ops::Range<usize>>, Version);
 
 impl trie_db::BuildableMetaInput for VersionedValueRange {
