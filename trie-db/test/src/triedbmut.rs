@@ -433,3 +433,23 @@ fn insert_empty_allowed() {
 	));
 	assert_eq!(t.get(b"test").unwrap(), Some(Vec::new()));
 }
+
+
+#[test]
+fn state_hybrid_scenario() {
+	use reference_trie::Old;
+	// initial dataset
+	let x = [
+		(b"test1".to_vec(), vec![1;20]),
+		(b"test2".to_vec(), vec![2;36]),
+		(b"test3".to_vec(), vec![3;32]),
+	];
+	// Initial state with former encoding
+	let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue, _>::default();
+	let mut root = Default::default();
+	let mut memtrie = populate_trie::<Old>(&mut memdb, &mut root, &x);
+
+	// convert memdb to hybrid by prefixing all value with EMPTY
+	
+}
+

@@ -242,12 +242,26 @@ impl Default for Version {
 	}
 }
 
+/// previous layout in updatable scenario.
+#[derive(Default, Clone)]
+pub struct Old;
+
+impl TrieLayout for Old {
+	const USE_EXTENSION: bool = false;
+	const ALLOW_EMPTY: bool = false;
+	type Hash = RefHasher;
+	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
+	type ValueFunction = hash_db::NoMeta;
+	type MetaInput = ();
+	type Meta = ();
+}
+
 /// Trie that use a dumb value function over its storage.
 #[derive(Default, Clone)]
 pub struct Updatable(Version);
 
 impl TrieLayout for Updatable {
-	const USE_EXTENSION: bool = true;
+	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
 	const USE_META: bool = true;
 	fn inner_hash_value_treshold(&self) -> Option<usize> {
@@ -257,7 +271,7 @@ impl TrieLayout for Updatable {
 		}
 	}
 	type Hash = RefHasher;
-	type Codec = ReferenceNodeCodec<RefHasher>;
+	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
 	type ValueFunction = TestUpdatableValueFunction<RefHasher>;
 	type MetaInput = VersionedValueRange;
 	type Meta = VersionedValueRange;
