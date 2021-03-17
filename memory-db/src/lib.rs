@@ -361,6 +361,14 @@ where
 		}
 	}
 
+	/// Utility function to allow modification when test.
+	/// Do not work for size related tests.
+	pub fn test_from_inner(inner: HashMap<KF::Key, (T, i32)>) -> Self {
+		let mut result = Self::default();
+		result.data = inner;
+		result
+	}
+
 	/// Create a new instance of `Self`.
 	pub fn new(data: &[u8]) -> Self {
 		Self::from_null_node(data, data.into())

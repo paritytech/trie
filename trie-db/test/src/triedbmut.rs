@@ -437,7 +437,8 @@ fn insert_empty_allowed() {
 
 #[test]
 fn state_hybrid_scenario() {
-	use reference_trie::Old;
+	use trie_db::TrieDB;
+	use reference_trie::{Old, Updatable, TestUpdatableValueFunction};
 	// initial dataset
 	let x = [
 		(b"test1".to_vec(), vec![1;20]),
@@ -447,9 +448,22 @@ fn state_hybrid_scenario() {
 	// Initial state with former encoding
 	let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue, _>::default();
 	let mut root = Default::default();
-	let mut memtrie = populate_trie::<Old>(&mut memdb, &mut root, &x);
+	let _ = populate_trie::<Old>(&mut memdb, &mut root, &x);
+	{
+		let trie = TrieDB::<Old>::new(&memdb, &root).unwrap();
+		println!("{:?}", trie);
+	}
 
 	// convert memdb to hybrid by prefixing all value with EMPTY
-	
+	let mut inner = memdb.drain();
+	inner.iter_mut().for_each(|(_key, value)| value.0.insert(0, 0u8));
+
+	// unsafe cast to use correct ValueFunction.
+	let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue, _>::test_from_inner(inner);
+	{
+		let trie = TrieDB::<Updatable>::new(&memdb, &root).unwrap();
+		println!("{:?}", trie);
+	}
+	panic!("out");
 }
 
