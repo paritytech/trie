@@ -86,7 +86,7 @@ pub type DefaultMemTracker<T> = NoopTracker<T>;
 ///   use keccak_hasher::KeccakHasher;
 ///   use memory_db::{MemoryDB, HashKey};
 ///
-///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<()>>::default();
+///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta>::default();
 ///   let d = "Hello world!".as_bytes();
 ///
 ///   let k = m.insert(EMPTY_PREFIX, d);
@@ -395,7 +395,7 @@ where
 	/// use memory_db::{MemoryDB, HashKey};
 	///
 	/// fn main() {
-	///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta<()>>::default();
+	///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>, NoMeta>::default();
 	///   let hello_bytes = "Hello world!".as_bytes();
 	///   let hash = m.insert(EMPTY_PREFIX, hello_bytes);
 	///   assert!(m.contains(&hash, EMPTY_PREFIX));
@@ -706,10 +706,8 @@ where
 mod tests {
 	use super::{MemoryDB, HashDB, KeyHasher, HashKey};
 	use parity_util_mem::malloc_size;
-	use hash_db::EMPTY_PREFIX;
+	use hash_db::{EMPTY_PREFIX, NoMeta};
 	use keccak_hasher::KeccakHasher;
-
-	type NoMeta = hash_db::NoMeta<()>;
 
 	#[test]
 	fn memorydb_remove_and_purge() {

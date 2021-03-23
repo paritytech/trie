@@ -412,37 +412,18 @@ pub trait TrieLayout: Default + Clone {
 /// TODO remove meta and spawn from layout instance (so when old layout we keep producing old
 /// meta). -> need Layout as inner type.
 pub trait Meta: Default + Clone {
-	/// Layout to use for specific meta behavior.
-	type Layout;
-
 	fn set_inner_hashed_value(
 		&mut self,
 		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
 	);
 }
 
-/// A meta that do nothing.
-pub struct DefaultMeta<L>(rstd::marker::PhantomData<L>);
-
-impl<L> Default for DefaultMeta<L> {
-	fn default() -> Self {
-		DefaultMeta(Default::default())
-	}
-}
-
-impl<L> Clone for DefaultMeta<L> {
-	fn clone(&self) -> Self {
-		Default::default()
-	}
-}
-
-impl<L> Meta for DefaultMeta<L> {
-	type Layout = L;
-
+impl Meta for () {
 	fn set_inner_hashed_value(
 		&mut self,
 		_inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
-	) { }
+	) {
+	}
 }
 
 /// This trait associates a trie definition with preferred methods.
