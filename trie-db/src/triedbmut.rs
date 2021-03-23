@@ -71,20 +71,20 @@ type NibbleFullKey<'key> = NibbleSlice<'key>;
 /// an inline node.
 enum Node<H, M> {
 	/// Empty node.
-	Empty(Option<M>),
+	Empty(M),
 	/// A leaf node contains the end of a key and a value.
 	/// This key is encoded from a `NibbleSlice`, meaning it contains
 	/// a flag indicating it is a leaf.
-	Leaf(NodeKey, DBValue, Option<M>),
+	Leaf(NodeKey, DBValue, M),
 	/// An extension contains a shared portion of a key and a child node.
 	/// The shared portion is encoded from a `NibbleSlice` meaning it contains
 	/// a flag indicating it is an extension.
 	/// The child node is always a branch.
-	Extension(NodeKey, NodeHandle<H>, Option<M>),
+	Extension(NodeKey, NodeHandle<H>, M),
 	/// A branch has up to 16 children and an optional value.
-	Branch(Box<[Option<NodeHandle<H>>; 16]>, Option<DBValue>, Option<M>),
+	Branch(Box<[Option<NodeHandle<H>>; 16]>, Option<DBValue>, M),
 	/// Branch node with support for a nibble (to avoid extension node).
-	NibbledBranch(NodeKey, Box<[Option<NodeHandle<H>>; 16]>, Option<DBValue>, Option<M>),
+	NibbledBranch(NodeKey, Box<[Option<NodeHandle<H>>; 16]>, Option<DBValue>, M),
 }
 
 #[cfg(feature = "std")]
@@ -128,7 +128,7 @@ where
 		parent_hash: H::Out,
 		child: EncodedNodeHandle,
 		db: &dyn HashDB<H, DBValue, VF>,
-		storage: &mut NodeStorage<H::Out, M>
+		storage: &mut NodeStorage<H::Out, M>,
 	) -> Result<NodeHandle<H::Out>, H::Out, C::Error>
 	where
 		C: NodeCodec<HashOut=O>,
@@ -142,7 +142,9 @@ where
 			},
 			EncodedNodeHandle::Inline(data) => {
 				// Inline node do not use meta.
-				let child = Node::from_encoded::<C, H, VF>(parent_hash, data, db, storage, None)?;
+				// TODO replace by inline_node_meta_from_parent(&parent_meta)
+				let meta = Default::default();
+				let child = Node::from_encoded::<C, H, VF>(parent_hash, data, db, storage, meta)?;
 				NodeHandle::InMemory(storage.alloc(Stored::New(child)))
 			},
 		};
@@ -155,7 +157,7 @@ where
 		data: &'a[u8],
 		db: &dyn HashDB<H, DBValue, VF>,
 		storage: &'b mut NodeStorage<H::Out, M>,
-		meta: Option<M>,
+		meta: M,
 	) -> Result<Self, H::Out, C::Error>
 		where
 			C: NodeCodec<HashOut = O>, H: Hasher<Out = O>,
@@ -209,7 +211,7 @@ where
 	}
 
 	// TODO: parallelize
-	fn into_encoded<F, C, H>(self, mut child_cb: F) -> (Vec<u8>, Option<M>)
+	fn into_encoded<F, C, H>(self, mut child_cb: F) -> (Vec<u8>, M)
 	where
 		C: NodeCodec<HashOut=O>,
 		F: FnMut(NodeHandle<H::Out>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
@@ -266,13 +268,23 @@ where
 		}
 	}
 
-	fn meta(&self) -> Option<&M> {
+	pub(crate) fn meta(&self) -> &M {
 		match self {
 			Node::Leaf(_, _, meta)
 			| Node::Extension(_, _, meta)
 			| Node::Branch(_, _, meta)
 			| Node::NibbledBranch(_, _, _, meta)
-			| Node::Empty(meta) => meta.as_ref(),
+			| Node::Empty(meta) => meta,
+		}
+	}
+
+	pub(crate) fn meta_mut(&mut self) -> &mut M {
+		match self {
+			Node::Leaf(_, _, meta)
+			| Node::Extension(_, _, meta)
+			| Node::Branch(_, _, meta)
+			| Node::NibbledBranch(_, _, _, meta)
+			| Node::Empty(meta) => meta,
 		}
 	}
 }
@@ -387,7 +399,7 @@ impl<H, M> NodeStorage<H, M>
 		let idx = handle.0;
 
 		self.free_indices.push_back(idx);
-		mem::replace(&mut self.nodes[idx], Stored::New(Node::Empty(Some(Default::default()))))
+		mem::replace(&mut self.nodes[idx], Stored::New(Node::Empty(Default::default())))
 	}
 }
 
@@ -529,7 +541,7 @@ where
 			&node_encoded,
 			&*self.db,
 			&mut self.storage,
-			Some(meta),
+			meta,
 		)?;
 		Ok(self.storage.alloc(Stored::Cached(node, hash)))
 	}
@@ -1541,6 +1553,7 @@ where
 				);
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
+				// TODO use root meta instead of default??
 				*self.root = self.db.insert_with_meta(EMPTY_PREFIX, &encoded_root[..], meta);
 				self.hash_count += 1;
 
@@ -1621,21 +1634,24 @@ where
 			Option<u8>,
 		) -> ChildReference<<L::Hash as Hasher>::Out>,
 	) -> (Vec<u8>, <L::ValueFunction as ValueFunction<L::Hash, DBValue>>::Meta) {
-		let (encoded, meta) = node.into_encoded::<_, L::Codec, L::Hash>(child_cb);
+		let (encoded, mut meta) = node.into_encoded::<_, L::Codec, L::Hash>(child_cb);
 		use crate::Meta;
-		let meta = if L::USE_META {
+		// TODO meta could be None when not USE_META instead
+		if L::USE_META {
+			// TODO move treshold check to meta impl??
 			if let Some(treshold) = layout.inner_hash_value_treshold() {
+				// TODO this should already be in meta from into_encoded call call.
 				let range = L::Codec::value_range(encoded.as_slice()); 
-				L::Meta::from_inner_hashed_value(range.and_then(|range| {
+				meta.set_inner_hashed_value(range.and_then(|range| {
 					let slice = &encoded[range.clone()];
 					(slice.len() >= treshold).then(|| (slice, range))
-				}), meta.as_ref())
+				}));
 			} else {
-				L::Meta::from_inner_hashed_value(None, meta.as_ref())
+				meta.set_inner_hashed_value(None);
 			}
 		} else {
-			L::Meta::from_inner_hashed_value(None, meta.as_ref())
-		};
+			meta.set_inner_hashed_value(None);
+		}
 		(encoded, meta)
 	}
 }
@@ -1765,7 +1781,7 @@ mod tests {
 	#[test]
 	fn nice_debug_for_node() {
 		use super::Node;
-		let e: Node<u32, ()> = Node::Leaf((1, vec![1, 2, 3].into()), vec![4, 5, 6], Some(()));
+		let e: Node<u32, ()> = Node::Leaf((1, vec![1, 2, 3].into()), vec![4, 5, 6], ());
 		assert_eq!(format!("{:?}", e), "Leaf((1, 010203), 040506)");
 	}
 }

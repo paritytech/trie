@@ -391,22 +391,24 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 
 			return ChildReference::Inline(h, len);
 		}
-		let current_meta = None; // all nodes are new.
+		// TODO new_node function for meta (keeping default for it seems fine, but a function would be
+		// more appropriate).
+		let mut current_meta = T::Meta::default(); // all nodes are new.
 		let hash = if !T::USE_META{
 			<T::Hash as Hasher>::hash(&encoded_node[..])
 		} else {
 			// Duplicated code with triedbmut TODO factor
 			use crate::Meta;
-			let meta = if let Some(treshold) = T::inner_hash_value_treshold(&self.layout) {
+			if let Some(treshold) = T::inner_hash_value_treshold(&self.layout) {
 				let range = T::Codec::value_range(encoded_node.as_slice()); 
-				T::Meta::from_inner_hashed_value(range.and_then(|range| {
+				current_meta.set_inner_hashed_value(range.and_then(|range| {
 					let slice = &encoded_node[range.clone()];
 					(slice.len() >= treshold).then(|| (slice, range))
-				}), current_meta)
+				}));
 			} else {
-				T::Meta::from_inner_hashed_value(None, current_meta)
+				current_meta.set_inner_hashed_value(None);
 			};
-			<T::ValueFunction as ValueFunction<_, _>>::hash(&encoded_node[..], &meta)
+			<T::ValueFunction as ValueFunction<_, _>>::hash(&encoded_node[..], &current_meta)
 		};
 		if is_root {
 			self.root = Some(hash);

@@ -409,19 +409,20 @@ pub trait TrieLayout: Default + Clone {
 }
 
 /// TODO doc
+/// TODO remove meta and spawn from layout instance (so when old layout we keep producing old
+/// meta). -> need Layout as inner type.
 pub trait Meta: Default + Clone {
-	fn from_inner_hashed_value(
+	fn set_inner_hashed_value(
+		&mut self,
 		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
-		current_meta: Option<&Self>,
-	) -> Self;
+	);
 }
 
 impl Meta for () {
-	fn from_inner_hashed_value(
+	fn set_inner_hashed_value(
+		&mut self,
 		_inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
-		_meta: Option<&Self>,
-	) -> Self {
-		()
+	) {
 	}
 }
 

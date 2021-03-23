@@ -178,11 +178,11 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 pub struct ValueRange(Option<core::ops::Range<usize>>);
 
 impl trie_db::Meta for ValueRange {
-	fn from_inner_hashed_value(
+	fn set_inner_hashed_value(
+		&mut self,
 		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
-		_current_meta: Option<&Self>,
-	) -> Self {
-		ValueRange(inner_to_hash_value.map(|(_value, position)| position))
+	) {
+		self.0 = inner_to_hash_value.map(|(_value, position)| position);
 	}
 }
 
@@ -285,23 +285,19 @@ impl TrieLayout for Updatable {
 pub struct VersionedValueRange(Option<core::ops::Range<usize>>, Version);
 
 impl trie_db::Meta for VersionedValueRange {
-	fn from_inner_hashed_value(
+	fn set_inner_hashed_value(
+		&mut self,
 		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
-		current_meta: Option<&Self>,
-	) -> Self {
-		let version = current_meta.map(|meta| meta.1.clone()).unwrap_or_default();
+	) {
 		// TODO add child new index to meta (needs new callback into meta for triedbmut).
 		// (pass iterator to meta of loaded child node in triedbmut: not loaded on creation
 		// do not exist: so undefined is not an old node but a new one).
 		// TODO change version when not all child are new.
-		match version {
+		match self.1 {
 			Version::New => {
-				VersionedValueRange(
-					inner_to_hash_value.map(|(_value, position)| position),
-					Version::New,
-				)
+				self.0 = inner_to_hash_value.map(|(_value, position)| position);
 			},
-			Version::Old => VersionedValueRange(None, Version::Old),
+			Version::Old => (),
 		}
 	}
 }
