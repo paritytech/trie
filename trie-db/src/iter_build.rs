@@ -391,9 +391,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 
 			return ChildReference::Inline(h, len);
 		}
-		// TODO new_node function for meta (keeping default for it seems fine, but a function would be
-		// more appropriate).
-		let mut current_meta = T::Meta::default(); // all nodes are new.
+		let mut current_meta = self.layout.meta_for_new_node();
 		let hash = if !T::USE_META{
 			<T::Hash as Hasher>::hash(&encoded_node[..])
 		} else {

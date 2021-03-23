@@ -69,6 +69,14 @@ impl TrieLayout for ExtensionLayout {
 	type Codec = ReferenceNodeCodec<RefHasher>;
 	type ValueFunction = hash_db::NoMeta;
 	type Meta = ();
+
+	fn meta_for_new_node(&self) -> Self::Meta {
+		()
+	}
+
+	fn meta_for_new_inline_node(&self) -> Self::Meta {
+		()
+	}
 }
 
 impl TrieConfiguration for ExtensionLayout { }
@@ -96,6 +104,14 @@ impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	type Codec = ReferenceNodeCodecNoExt<H>;
 	type ValueFunction = hash_db::NoMeta;
 	type Meta = ();
+
+	fn meta_for_new_node(&self) -> Self::Meta {
+		()
+	}
+
+	fn meta_for_new_inline_node(&self) -> Self::Meta {
+		()
+	}
 }
 
 /// Trie that allows empty values.
@@ -109,6 +125,14 @@ impl TrieLayout for AllowEmptyLayout {
 	type Codec = ReferenceNodeCodec<RefHasher>;
 	type ValueFunction = hash_db::NoMeta;
 	type Meta = ();
+
+	fn meta_for_new_node(&self) -> Self::Meta {
+		()
+	}
+
+	fn meta_for_new_inline_node(&self) -> Self::Meta {
+		()
+	}
 }
 
 /// Trie that use a dumb value function over its storage.
@@ -126,6 +150,14 @@ impl TrieLayout for CheckValueFunction {
 	type Codec = ReferenceNodeCodec<RefHasher>;
 	type ValueFunction = TestValueFunction<RefHasher>;
 	type Meta = ValueRange;
+
+	fn meta_for_new_node(&self) -> Self::Meta {
+		Default::default()
+	}
+
+	fn meta_for_new_inline_node(&self) -> Self::Meta {
+		Default::default()
+	}
 }
 
 /// Test value function: prepend optional encoded size of value
@@ -223,7 +255,7 @@ pub fn inner_hashed_value<H: Hasher>(x: &[u8], range: Option<(usize, usize)>) ->
 }
 
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub enum Version {
 	Old,
 	New,
@@ -247,6 +279,14 @@ impl TrieLayout for Old {
 	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
 	type ValueFunction = hash_db::NoMeta;
 	type Meta = ();
+
+	fn meta_for_new_node(&self) -> Self::Meta {
+		Default::default()
+	}
+
+	fn meta_for_new_inline_node(&self) -> Self::Meta {
+		Default::default()
+	}
 }
 
 /// Trie that use a dumb value function over its storage.
@@ -278,6 +318,14 @@ impl TrieLayout for Updatable {
 	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
 	type ValueFunction = TestUpdatableValueFunction<RefHasher>;
 	type Meta = VersionedValueRange;
+
+	fn meta_for_new_node(&self) -> Self::Meta {
+		VersionedValueRange(None, self.0)
+	}
+
+	fn meta_for_new_inline_node(&self) -> Self::Meta {
+		VersionedValueRange(None, self.0)
+	}
 }
 
 /// Test Meta input.

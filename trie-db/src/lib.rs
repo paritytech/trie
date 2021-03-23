@@ -406,12 +406,18 @@ pub trait TrieLayout: Default + Clone {
 		DBValue,
 		Meta = Self::Meta,
 	>;
+
+	/// TODO doc
+	fn meta_for_new_node(&self) -> Self::Meta;
+
+	/// TODO doc + TODO is it of any use??
+	fn meta_for_new_inline_node(&self) -> Self::Meta;
 }
 
 /// TODO doc
 /// TODO remove meta and spawn from layout instance (so when old layout we keep producing old
 /// meta). -> need Layout as inner type.
-pub trait Meta: Default + Clone {
+pub trait Meta: Clone {
 	fn set_inner_hashed_value(
 		&mut self,
 		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
