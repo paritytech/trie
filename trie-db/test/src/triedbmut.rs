@@ -439,9 +439,23 @@ fn insert_empty_allowed() {
 fn state_hybrid_scenario() {
 	use trie_db::TrieDB;
 	use reference_trie::{Old, Updatable, TestUpdatableValueFunction};
+	fn count_old(memdb: &MemoryDB::<RefHasher, PrefixedKey<RefHasher>, DBValue, TestUpdatableValueFunction<RefHasher>>) -> (usize, usize) {
+		let mut count = 0;
+		let mut total = 0;
+		for node in memdb.clone().drain() {
+			if (node.1).1 < 1 {
+				continue;
+			}
+			if (node.1).0.get(0) == Some(&0u8) {
+				count += 1;
+			}
+			total += 1;
+		}
+		(count, total)
+	}
 	// initial dataset
 	let x = [
-		(b"test1".to_vec(), vec![1;20]),
+		(b"test1".to_vec(), vec![1;20]), // inline
 		(b"test2".to_vec(), vec![2;36]),
 		(b"test3".to_vec(), vec![3;32]),
 	];
@@ -464,6 +478,41 @@ fn state_hybrid_scenario() {
 		let trie = TrieDB::<Updatable>::new(&memdb, &root).unwrap();
 		println!("{:?}", trie);
 	}
+	assert_eq!(count_old(&memdb), (3, 3));
+	// insert with default layout is old
+	{
+		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb, &mut root, Updatable::old())
+			.unwrap();
+		trie.insert(b"test4", &[4u8;32][..]).unwrap();
+	}
+	assert_eq!(count_old(&memdb), (4, 4));
+	// insert should insert a new node
+	{
+		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb, &mut root, Updatable::new())
+			.unwrap();
+		trie.insert(b"test5", &[5u8;32][..]).unwrap();
+	}
+	assert_eq!(count_old(&memdb), (4, 5));
+
+	// update should create a new node
+	{
+		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb, &mut root, Updatable::new())
+			.unwrap();
+		trie.insert(b"test5", &[6u8;32][..]).unwrap();
+	}
+	assert_eq!(count_old(&memdb), (3, 5));
+
+
+	// update or remove all non inline child should switch all nodes
+	{
+		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb, &mut root, Updatable::new())
+			.unwrap();
+		// using existing value should update
+		trie.insert(b"test2", &[2u8;36][..]).unwrap();
+		trie.remove(b"test3").unwrap();
+	}
+	assert_eq!(count_old(&memdb), (0, 5));
+
 	panic!("out");
 }
 

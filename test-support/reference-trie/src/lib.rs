@@ -260,6 +260,17 @@ impl TrieLayout for Old {
 #[derive(Default, Clone)]
 pub struct Updatable(Version);
 
+impl Updatable {
+	/// Old trie codec.
+	pub fn old() -> Self {
+		Updatable(Version::Old)
+	}
+	/// New trie codec.
+	pub fn new() -> Self {
+		Updatable(Version::New)
+	}
+}
+
 impl TrieLayout for Updatable {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
