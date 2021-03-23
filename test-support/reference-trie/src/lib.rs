@@ -304,7 +304,15 @@ impl trie_db::BuildableMetaInput for VersionedValueRange {
 		// (pass iterator to meta of loaded child node in triedbmut: not loaded on creation
 		// do not exist: so undefined is not an old node but a new one).
 		// TODO change version when not all child are new.
-		VersionedValueRange(inner_to_hash_value.map(|(_value, position)| position), version)
+		match version {
+			Version::New => {
+				VersionedValueRange(
+					inner_to_hash_value.map(|(_value, position)| position),
+					Version::New,
+				)
+			},
+			Version::Old => VersionedValueRange(None, Version::Old),
+		}
 	}
 }
 
@@ -326,10 +334,13 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestUpdatableValueFunctio
 	}
 
 	fn stored_value(value: &[u8], meta: Self::MetaInput) -> DBValue {
+		// 'start' do not strictly have to be stored and compact should be use,
+		// but this is for test only.
 		let mut stored = meta.0.map(|range| (range.start as u32, range.end as u32)).encode();
 		if let Version::Old = meta.1 {
 			// non empty empty trie byte for old node
 			stored.push(EMPTY_TRIE);
+			assert!(stored[0] == 0); // no range for old
 		}
 		stored.extend_from_slice(value);
 		stored
@@ -344,10 +355,12 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestUpdatableValueFunctio
 	}
 
 	fn extract_value_owned(mut stored: DBValue) -> (DBValue, Self::Meta) {
-		let len = stored.len();
+		let mut len = stored.len();
 		let input = &mut stored.as_slice();
 		let range: Option<(u32, u32)> = Decode::decode(input).ok().flatten();
+		// if len == 1 it is new empty trie.
 		let version = if input[0] == EMPTY_TRIE && input.len() > 1 {
+			len += 1;
 			Version::Old
 		} else {
 			Version::New
@@ -363,8 +376,6 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestUpdatableValueFunctio
 		}
 	}
 }
-
-
 
 impl<H: Hasher> TrieConfiguration for GenericNoExtensionLayout<H> { }
 

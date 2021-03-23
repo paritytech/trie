@@ -470,7 +470,12 @@ fn state_hybrid_scenario() {
 
 	// convert memdb to hybrid by prefixing all value with EMPTY
 	let mut inner = memdb.drain();
-	inner.iter_mut().for_each(|(_key, value)| value.0.insert(0, 0u8));
+	inner.iter_mut().for_each(|(_key, value)| {
+		// old trie type
+		value.0.insert(0, 0u8);
+		// no hashed range
+		value.0.insert(0, 0u8);
+	});
 
 	// unsafe cast to use correct ValueFunction.
 	let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue, _>::test_from_inner(inner);

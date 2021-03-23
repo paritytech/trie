@@ -491,7 +491,6 @@ where
 		root: &'a mut TrieHash<L>,
 		layout: L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
-	
 		if !db.contains(root, EMPTY_PREFIX) {
 			return Err(Box::new(TrieError::InvalidStateRoot(*root)));
 		}
