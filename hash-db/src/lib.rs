@@ -201,7 +201,7 @@ pub trait AsPlainDB<K, V> {
 pub trait ValueFunction<H: Hasher, T>: Send + Sync {
 	/// Additional content fetchable from storage.
 	/// Default is for undefined (eg in some case null node).
-	type Meta: Default + Clone;
+	type Meta: Default + Clone; // TODO not sure both constraint are needed
 
 	/// Produce hash, using given meta to allows different
 	/// hashing scheme.
@@ -222,14 +222,27 @@ pub trait ValueFunction<H: Hasher, T>: Send + Sync {
 
 /// Default `ValueFunction` implementation, stored value
 /// is the same as hashed value, no meta data added.
-pub struct NoMeta;
+pub struct NoMeta<M>(core::marker::PhantomData<M>);
 
-impl<H, T> ValueFunction<H, T> for NoMeta
+impl<M> Default for NoMeta<M> {
+	fn default() -> Self {
+		NoMeta(Default::default())
+	}
+}
+
+impl<M> Clone for NoMeta<M> {
+	fn clone(&self) -> Self {
+		Default::default()
+	}
+}
+
+impl<H, T, Meta> ValueFunction<H, T> for NoMeta<Meta>
 	where
 		H: Hasher,
 		T: for<'a> From<&'a [u8]>,
+		Meta: Default + Clone + Send + Sync,
 {
-	type Meta = ();
+	type Meta = Meta;
 
 	fn hash(value: &[u8], _meta: &Self::Meta) -> H::Out {
 		H::hash(value)
@@ -244,11 +257,11 @@ impl<H, T> ValueFunction<H, T> for NoMeta
 	}
 
 	fn extract_value(stored: &[u8]) -> (T, Self::Meta) {
-		(stored.into(), ())
+		(stored.into(), Default::default())
 	}
 
 	fn extract_value_owned(stored: T) -> (T, Self::Meta) {
-		(stored, ())
+		(stored, Default::default())
 	}
 }
 

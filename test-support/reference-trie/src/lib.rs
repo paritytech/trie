@@ -67,8 +67,8 @@ impl TrieLayout for ExtensionLayout {
 	const ALLOW_EMPTY: bool = false;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
-	type ValueFunction = hash_db::NoMeta;
-	type Meta = ();
+	type ValueFunction = hash_db::NoMeta<Self::Meta>;
+	type Meta = trie_db::DefaultMeta<Self>; 
 }
 
 impl TrieConfiguration for ExtensionLayout { }
@@ -94,8 +94,8 @@ impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	const ALLOW_EMPTY: bool = false;
 	type Hash = H;
 	type Codec = ReferenceNodeCodecNoExt<H>;
-	type ValueFunction = hash_db::NoMeta;
-	type Meta = ();
+	type ValueFunction = hash_db::NoMeta<Self::Meta>;
+	type Meta = trie_db::DefaultMeta<Self>;
 }
 
 /// Trie that allows empty values.
@@ -107,8 +107,8 @@ impl TrieLayout for AllowEmptyLayout {
 	const ALLOW_EMPTY: bool = true;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
-	type ValueFunction = hash_db::NoMeta;
-	type Meta = ();
+	type ValueFunction = hash_db::NoMeta<Self::Meta>;
+	type Meta = trie_db::DefaultMeta<Self>;
 }
 
 /// Trie that use a dumb value function over its storage.
@@ -178,6 +178,7 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 pub struct ValueRange(Option<core::ops::Range<usize>>);
 
 impl trie_db::Meta for ValueRange {
+	type Layout = CheckValueFunction;
 	fn set_inner_hashed_value(
 		&mut self,
 		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
@@ -245,8 +246,8 @@ impl TrieLayout for Old {
 	const ALLOW_EMPTY: bool = false;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
-	type ValueFunction = hash_db::NoMeta;
-	type Meta = ();
+	type ValueFunction = hash_db::NoMeta<Self::Meta>;
+	type Meta = trie_db::DefaultMeta<Self>;
 }
 
 /// Trie that use a dumb value function over its storage.
@@ -285,6 +286,8 @@ impl TrieLayout for Updatable {
 pub struct VersionedValueRange(Option<core::ops::Range<usize>>, Version);
 
 impl trie_db::Meta for VersionedValueRange {
+	type Layout = Updatable;
+
 	fn set_inner_hashed_value(
 		&mut self,
 		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
