@@ -396,15 +396,15 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 			<T::Hash as Hasher>::hash(&encoded_node[..])
 		} else {
 			// Duplicated code with triedbmut TODO factor
-			use crate::BuildableMetaInput;
+			use crate::Meta;
 			let meta = if let Some(treshold) = T::inner_hash_value_treshold(&self.layout) {
 				let range = T::Codec::value_range(encoded_node.as_slice()); 
-				T::MetaInput::from_inner_hashed_value(range.and_then(|range| {
+				T::Meta::from_inner_hashed_value(range.and_then(|range| {
 					let slice = &encoded_node[range.clone()];
 					(slice.len() >= treshold).then(|| (slice, range))
 				}), current_meta)
 			} else {
-				T::MetaInput::from_inner_hashed_value(None, current_meta)
+				T::Meta::from_inner_hashed_value(None, current_meta)
 			};
 			<T::ValueFunction as ValueFunction<_, _>>::hash(&encoded_node[..], &meta)
 		};

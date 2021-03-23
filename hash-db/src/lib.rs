@@ -141,7 +141,7 @@ pub trait HashDB<H: Hasher, T, VF: ValueFunction<H, T>>: Send + Sync + AsHashDB<
 		&mut self,
 		prefix: Prefix,
 		value: &[u8],
-		meta: VF::MetaInput,
+		meta: VF::Meta,
 	) -> H::Out;
 }
 
@@ -203,18 +203,15 @@ pub trait ValueFunction<H: Hasher, T>: Send + Sync {
 	/// Default is for undefined (eg in some case null node).
 	type Meta: Default + Clone;
 
-	/// Additional input for storage.
-	type MetaInput;
-
 	/// Produce hash, using given meta to allows different
 	/// hashing scheme.
-	fn hash(value: &[u8], meta: &Self::MetaInput) -> H::Out;
+	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out;
 
 	/// Produce stored value, including meta.
-	fn stored_value(value: &[u8], meta: Self::MetaInput) -> T;
+	fn stored_value(value: &[u8], meta: Self::Meta) -> T;
 
 	/// Owned version of stored value.
-	fn stored_value_owned(value: T, meta: Self::MetaInput) -> T;
+	fn stored_value_owned(value: T, meta: Self::Meta) -> T;
 
 	/// Get meta and input value from stored.
 	fn extract_value(stored: &[u8]) -> (T, Self::Meta);
@@ -234,17 +231,15 @@ impl<H, T> ValueFunction<H, T> for NoMeta
 {
 	type Meta = ();
 
-	type MetaInput = ();
-
-	fn hash(value: &[u8], _meta: &Self::MetaInput) -> H::Out {
+	fn hash(value: &[u8], _meta: &Self::Meta) -> H::Out {
 		H::hash(value)
 	}
 
-	fn stored_value(value: &[u8], _meta: Self::MetaInput) -> T {
+	fn stored_value(value: &[u8], _meta: Self::Meta) -> T {
 		value.into()
 	}
 
-	fn stored_value_owned(value: T, _meta: Self::MetaInput) -> T {
+	fn stored_value_owned(value: T, _meta: Self::Meta) -> T {
 		value
 	}
 

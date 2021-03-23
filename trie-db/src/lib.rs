@@ -399,34 +399,27 @@ pub trait TrieLayout: Default + Clone {
 	/// Codec to use (needs to match hasher and nibble ops).
 	type Codec: NodeCodec<HashOut=<Self::Hash as Hasher>::Out>;
 	/// Type associated with new nodes. TODO copy hash_db doc
-	type MetaInput: BuildableMetaInput<Meta = Self::Meta>;
-	/// Type associated with new nodes. TODO copy hash_db doc
-	type Meta: Default + Clone;
+	type Meta: Meta;
 	/// Value function to manage meta.
 	type ValueFunction: ValueFunction<
 		Self::Hash,
 		DBValue,
-		MetaInput = Self::MetaInput,
 		Meta = Self::Meta,
 	>;
 }
 
-pub trait BuildableMetaInput {
-	// TODO seems like maybe a single meta type will be better.
-	type Meta;
-
+/// TODO doc
+pub trait Meta: Default + Clone {
 	fn from_inner_hashed_value(
 		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
-		current_meta: Option<&Self::Meta>,
+		current_meta: Option<&Self>,
 	) -> Self;
 }
 
-impl BuildableMetaInput for () {
-	type Meta = ();
-
+impl Meta for () {
 	fn from_inner_hashed_value(
 		_inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
-		_meta: Option<&Self::Meta>,
+		_meta: Option<&Self>,
 	) -> Self {
 		()
 	}

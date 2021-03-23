@@ -632,7 +632,7 @@ where
 		&mut self,
 		prefix: Prefix,
 		value: &[u8],
-		meta: VF::MetaInput,
+		meta: VF::Meta,
 	) -> H::Out {
 		if T::from(value) == self.null_node_data {
 			return self.hashed_null_node;

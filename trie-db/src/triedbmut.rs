@@ -1620,21 +1620,21 @@ where
 			Option<&NibbleSlice>,
 			Option<u8>,
 		) -> ChildReference<<L::Hash as Hasher>::Out>,
-	) -> (Vec<u8>, <L::ValueFunction as ValueFunction<L::Hash, DBValue>>::MetaInput) {
+	) -> (Vec<u8>, <L::ValueFunction as ValueFunction<L::Hash, DBValue>>::Meta) {
 		let (encoded, meta) = node.into_encoded::<_, L::Codec, L::Hash>(child_cb);
-		use crate::BuildableMetaInput;
+		use crate::Meta;
 		let meta = if L::USE_META {
 			if let Some(treshold) = layout.inner_hash_value_treshold() {
 				let range = L::Codec::value_range(encoded.as_slice()); 
-				L::MetaInput::from_inner_hashed_value(range.and_then(|range| {
+				L::Meta::from_inner_hashed_value(range.and_then(|range| {
 					let slice = &encoded[range.clone()];
 					(slice.len() >= treshold).then(|| (slice, range))
 				}), meta.as_ref())
 			} else {
-				L::MetaInput::from_inner_hashed_value(None, meta.as_ref())
+				L::Meta::from_inner_hashed_value(None, meta.as_ref())
 			}
 		} else {
-			L::MetaInput::from_inner_hashed_value(None, meta.as_ref())
+			L::Meta::from_inner_hashed_value(None, meta.as_ref())
 		};
 		(encoded, meta)
 	}

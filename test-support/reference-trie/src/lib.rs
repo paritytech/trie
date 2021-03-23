@@ -68,7 +68,6 @@ impl TrieLayout for ExtensionLayout {
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
 	type ValueFunction = hash_db::NoMeta;
-	type MetaInput = ();
 	type Meta = ();
 }
 
@@ -96,7 +95,6 @@ impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	type Hash = H;
 	type Codec = ReferenceNodeCodecNoExt<H>;
 	type ValueFunction = hash_db::NoMeta;
-	type MetaInput = ();
 	type Meta = ();
 }
 
@@ -110,7 +108,6 @@ impl TrieLayout for AllowEmptyLayout {
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
 	type ValueFunction = hash_db::NoMeta;
-	type MetaInput = ();
 	type Meta = ();
 }
 
@@ -128,18 +125,16 @@ impl TrieLayout for CheckValueFunction {
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
 	type ValueFunction = TestValueFunction<RefHasher>;
-	type MetaInput = ValueRange;
-	type Meta = Option<usize>;
+	type Meta = ValueRange;
 }
 
 /// Test value function: prepend optional encoded size of value
 pub struct TestValueFunction<H>(PhantomData<H>);
 
 impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
-	type MetaInput = ValueRange;
-	type Meta = Option<usize>;
+	type Meta = ValueRange;
 
-	fn hash(value: &[u8], meta: &Self::MetaInput) -> H::Out {
+	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out {
 		if let Some(range) = meta.0.as_ref() {
 			let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
 			H::hash(value.as_slice())
@@ -148,13 +143,13 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 		}
 	}
 
-	fn stored_value(value: &[u8], meta: Self::MetaInput) -> DBValue {
+	fn stored_value(value: &[u8], meta: Self::Meta) -> DBValue {
 		let mut stored = meta.0.map(|range| (range.start as u32, range.end as u32)).encode();
 		stored.extend_from_slice(value);
 		stored
 	}
 
-	fn stored_value_owned(value: DBValue, meta: Self::MetaInput) -> DBValue {
+	fn stored_value_owned(value: DBValue, meta: Self::Meta) -> DBValue {
 		Self::stored_value(value.as_slice(), meta)
 	}
 
@@ -171,22 +166,21 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 		if let Some((start, end)) = range {
 			let start = start as usize;
 			let end = end as usize;
-			(stored, Some(end - start))
+			(stored, ValueRange(Some(start..end)))
 		} else {
-			(stored, None)
+			(stored, ValueRange(None))
 		}
 	}
 }
 
 /// Test Meta input.
+#[derive(Default, Clone)]
 pub struct ValueRange(Option<core::ops::Range<usize>>);
 
-impl trie_db::BuildableMetaInput for ValueRange {
-	type Meta = Option<usize>;
-
+impl trie_db::Meta for ValueRange {
 	fn from_inner_hashed_value(
 		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
-		_current_meta: Option<&Self::Meta>,
+		_current_meta: Option<&Self>,
 	) -> Self {
 		ValueRange(inner_to_hash_value.map(|(_value, position)| position))
 	}
@@ -252,7 +246,6 @@ impl TrieLayout for Old {
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
 	type ValueFunction = hash_db::NoMeta;
-	type MetaInput = ();
 	type Meta = ();
 }
 
@@ -284,7 +277,6 @@ impl TrieLayout for Updatable {
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
 	type ValueFunction = TestUpdatableValueFunction<RefHasher>;
-	type MetaInput = VersionedValueRange;
 	type Meta = VersionedValueRange;
 }
 
@@ -292,12 +284,10 @@ impl TrieLayout for Updatable {
 #[derive(Default, Clone)]
 pub struct VersionedValueRange(Option<core::ops::Range<usize>>, Version);
 
-impl trie_db::BuildableMetaInput for VersionedValueRange {
-	type Meta = VersionedValueRange;
-
+impl trie_db::Meta for VersionedValueRange {
 	fn from_inner_hashed_value(
 		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
-		current_meta: Option<&Self::Meta>,
+		current_meta: Option<&Self>,
 	) -> Self {
 		let version = current_meta.map(|meta| meta.1.clone()).unwrap_or_default();
 		// TODO add child new index to meta (needs new callback into meta for triedbmut).
@@ -320,10 +310,9 @@ impl trie_db::BuildableMetaInput for VersionedValueRange {
 pub struct TestUpdatableValueFunction<H>(PhantomData<H>);
 
 impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestUpdatableValueFunction<H> {
-	type MetaInput = VersionedValueRange;
-	type Meta = VersionedValueRange; // TODO check if range is of any use
+	type Meta = VersionedValueRange;
 
-	fn hash(value: &[u8], meta: &Self::MetaInput) -> H::Out {
+	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out {
 		if let Some(range) = meta.0.as_ref() {
 			assert!(matches!(meta.1,Version::New));
 			let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
@@ -333,7 +322,7 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestUpdatableValueFunctio
 		}
 	}
 
-	fn stored_value(value: &[u8], meta: Self::MetaInput) -> DBValue {
+	fn stored_value(value: &[u8], meta: Self::Meta) -> DBValue {
 		// 'start' do not strictly have to be stored and compact should be use,
 		// but this is for test only.
 		let mut stored = meta.0.map(|range| (range.start as u32, range.end as u32)).encode();
@@ -346,7 +335,7 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestUpdatableValueFunctio
 		stored
 	}
 
-	fn stored_value_owned(value: DBValue, meta: Self::MetaInput) -> DBValue {
+	fn stored_value_owned(value: DBValue, meta: Self::Meta) -> DBValue {
 		Self::stored_value(value.as_slice(), meta)
 	}
 
