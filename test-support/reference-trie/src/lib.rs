@@ -226,6 +226,10 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 #[derive(Default, Clone)]
 pub struct ValueRange(Option<core::ops::Range<usize>>);
 
+/// Treshold for using hash of value instead of value
+/// in encoded trie node.
+pub const INNER_HASH_TRESHOLD: usize = 1;
+
 impl trie_db::Meta for ValueRange {
 	type MetaInput = ();
 
@@ -234,6 +238,31 @@ impl trie_db::Meta for ValueRange {
 		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
 	) {
 		self.0 = inner_to_hash_value.map(|(_value, position)| position);
+	}
+
+	fn meta_for_new_empty(
+		_input: Self::MetaInput,
+	) -> Self {
+		ValueRange(None)
+	}
+
+	fn meta_for_new(
+		_input: Self::MetaInput,
+		_parent_meta: &Self,
+	) -> Self {
+		ValueRange(None)
+	}
+
+	fn encoded_callback(
+		&mut self,
+		_encoded: &[u8],
+		node_plan: NodePlan,
+	) {
+		if let Some(range) = node_plan.value_range() {
+			if range.end - range.start >= INNER_HASH_TRESHOLD {
+				self.0 = Some(range);
+			}
+		}
 	}
 }
 
@@ -375,6 +404,33 @@ impl trie_db::Meta for VersionedValueRange {
 				self.0 = inner_to_hash_value.map(|(_value, position)| position);
 			},
 			Version::Old => (),
+		}
+	}
+
+	fn meta_for_new_empty(
+		input: Self::MetaInput,
+	) -> Self {
+		VersionedValueRange(None, input)
+	}
+
+	fn meta_for_new(
+		input: Self::MetaInput,
+		_parent_meta: &Self,
+	) -> Self {
+		VersionedValueRange(None, input)
+	}
+
+	fn encoded_callback(
+		&mut self,
+		_encoded: &[u8],
+		node_plan: NodePlan,
+	) {
+		if matches!(self.1, Version::New) {
+			if let Some(range) = node_plan.value_range() {
+				if range.end - range.start >= INNER_HASH_TRESHOLD {
+					self.0 = Some(range);
+				}
+			}
 		}
 	}
 }
@@ -1146,7 +1202,6 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		_maybe_value: Option<&[u8]>) -> Vec<u8> {
 		unreachable!()
 	}
-
 }
 
 impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {

@@ -173,7 +173,7 @@ impl NodePlan {
 		}
 	}
 
-	/// TODO remove, here to avoid too many changes in NodeCodec trait
+	/// TODO doc
 	pub fn value_range(&self) -> Option<Range<usize>> {
 		match self {
 			NodePlan::Extension { .. }

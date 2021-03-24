@@ -390,6 +390,7 @@ pub trait TrieLayout: Default + Clone {
 	const USE_META: bool = false;
 
 	/// Treshold over which the value get inner hashed.
+	/// TODO move to meta implementation.
 	fn inner_hash_value_treshold(&self) -> Option<usize> {
 		None
 	}
@@ -428,9 +429,33 @@ pub trait Meta: Clone {
 	type MetaInput;
 
 	/// TODO make it more generic. and long term remove (on node creation you got the callback).
+	/// TODO rem: encoded_callback does the same in a more generic way.
 	fn set_inner_hashed_value(
 		&mut self,
 		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
+	);
+
+	/// TODO
+	fn meta_for_new_empty(
+		input: Self::MetaInput,
+	) -> Self;
+
+	/// Leaf meta creation.
+	/// At this point meta can contain some structural information.
+	/// Uses empty meta if root.
+	fn meta_for_new(
+		input: Self::MetaInput,
+		parent_meta: &Self,
+	) -> Self;
+
+	/// TODO we could split meta from Node (may be merge with meta input).
+	/// and meta for encoding.
+	/// TODO codec when encoding could produce `NodePlan` here as a first step
+	/// we recalculate it, which is extra costy.
+	fn encoded_callback(
+		&mut self,
+		encoded: &[u8],
+		node_plan: crate::node::NodePlan,
 	);
 }
 
@@ -441,6 +466,27 @@ impl Meta for () {
 		&mut self,
 		_inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
 	) {
+	}
+
+	fn meta_for_new_empty(
+		_input: Self::MetaInput,
+	) -> Self {
+		()
+	}
+
+	fn meta_for_new(
+		_input: Self::MetaInput,
+		_parent_meta: &Self,
+	) -> Self {
+		()
+	}
+
+	fn encoded_callback(
+		&mut self,
+		_encoded: &[u8],
+		_node_plan: crate::node::NodePlan,
+	) {
+		()
 	}
 }
 
