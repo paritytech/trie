@@ -1533,7 +1533,6 @@ where
 				let mut k = NibbleVec::new();
 				let layout = self.layout.clone();
 				let (encoded_root, meta) = Self::into_encoded_with_meta(
-					&layout,
 					node,
 					|child, o_slice, o_index| {
 						let mov = k.append_optional_slice_and_nibble(o_slice, o_index);
@@ -1588,7 +1587,7 @@ where
 								prefix.drop_lasts(mov);
 								cr
 							};
-							Self::into_encoded_with_meta(&layout, node, commit_child)
+							Self::into_encoded_with_meta(node, commit_child)
 						};
 						if encoded.len() >= L::Hash::LENGTH {
 							let hash = self.db.insert_with_meta(prefix.as_prefix(), &encoded[..], meta);
@@ -1617,7 +1616,6 @@ where
 	}
 
 	fn into_encoded_with_meta(
-		layout: &L,
 		node: Node<L>,
 		child_cb: impl FnMut(
 			NodeHandle<<L::Hash as Hasher>::Out>,
@@ -1629,19 +1627,11 @@ where
 		use crate::Meta;
 		// TODO meta could be None when not USE_META instead
 		if L::USE_META {
-			// TODO move treshold check to meta impl??
-			if let Some(treshold) = layout.inner_hash_value_treshold() {
-				// TODO this should already be in meta from into_encoded call call.
-				let range = L::Codec::value_range(encoded.as_slice()); 
-				meta.set_inner_hashed_value(range.and_then(|range| {
-					let slice = &encoded[range.clone()];
-					(slice.len() >= treshold).then(|| (slice, range))
-				}));
-			} else {
-				meta.set_inner_hashed_value(None);
-			}
-		} else {
-			meta.set_inner_hashed_value(None);
+			// TODO modify node codec to optionally return a node plan to avoid
+			// double calculation.
+			let node_plan = L::Codec::decode_plan(encoded.as_slice())
+				.expect("Encoded above, failure would be implementation bug");
+			meta.encoded_callback(encoded.as_slice(), node_plan);
 		}
 		(encoded, meta)
 	}

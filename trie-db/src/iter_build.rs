@@ -393,20 +393,17 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 		}
 		let mut current_meta = self.layout.meta_for_new_node();
 		let hash = if !T::USE_META{
-			<T::Hash as Hasher>::hash(&encoded_node[..])
+			<T::Hash as Hasher>::hash(encoded_node.as_slice())
 		} else {
 			// Duplicated code with triedbmut TODO factor
 			use crate::Meta;
-			if let Some(treshold) = T::inner_hash_value_treshold(&self.layout) {
-				let range = T::Codec::value_range(encoded_node.as_slice()); 
-				current_meta.set_inner_hashed_value(range.and_then(|range| {
-					let slice = &encoded_node[range.clone()];
-					(slice.len() >= treshold).then(|| (slice, range))
-				}));
-			} else {
-				current_meta.set_inner_hashed_value(None);
-			};
-			<T::ValueFunction as ValueFunction<_, _>>::hash(&encoded_node[..], &current_meta)
+			let node_plan = T::Codec::decode_plan(encoded_node.as_slice())
+				.expect("Process uses only valid encoded nodes.");
+			current_meta.encoded_callback(encoded_node.as_slice(), node_plan);
+			<T::ValueFunction as ValueFunction<_, _>>::hash(
+				&encoded_node[..],
+				&current_meta,
+			)
 		};
 		if is_root {
 			self.root = Some(hash);

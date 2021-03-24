@@ -428,13 +428,6 @@ pub trait Meta: Clone {
 	/// Usually it holds specific behavior from layout context.
 	type MetaInput;
 
-	/// TODO make it more generic. and long term remove (on node creation you got the callback).
-	/// TODO rem: encoded_callback does the same in a more generic way.
-	fn set_inner_hashed_value(
-		&mut self,
-		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
-	);
-
 	/// TODO
 	fn meta_for_new_empty(
 		input: Self::MetaInput,
@@ -461,12 +454,6 @@ pub trait Meta: Clone {
 
 impl Meta for () {
 	type MetaInput = ();
-
-	fn set_inner_hashed_value(
-		&mut self,
-		_inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
-	) {
-	}
 
 	fn meta_for_new_empty(
 		_input: Self::MetaInput,

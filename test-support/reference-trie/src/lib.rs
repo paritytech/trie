@@ -233,13 +233,6 @@ pub const INNER_HASH_TRESHOLD: usize = 1;
 impl trie_db::Meta for ValueRange {
 	type MetaInput = ();
 
-	fn set_inner_hashed_value(
-		&mut self,
-		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
-	) {
-		self.0 = inner_to_hash_value.map(|(_value, position)| position);
-	}
-
 	fn meta_for_new_empty(
 		_input: Self::MetaInput,
 	) -> Self {
@@ -391,22 +384,6 @@ pub struct VersionedValueRange(Option<core::ops::Range<usize>>, Version);
 impl trie_db::Meta for VersionedValueRange {
 	type MetaInput = Version;
 
-	fn set_inner_hashed_value(
-		&mut self,
-		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
-	) {
-		// TODO add child new index to meta (needs new callback into meta for triedbmut).
-		// (pass iterator to meta of loaded child node in triedbmut: not loaded on creation
-		// do not exist: so undefined is not an old node but a new one).
-		// TODO change version when not all child are new.
-		match self.1 {
-			Version::New => {
-				self.0 = inner_to_hash_value.map(|(_value, position)| position);
-			},
-			Version::Old => (),
-		}
-	}
-
 	fn meta_for_new_empty(
 		input: Self::MetaInput,
 	) -> Self {
@@ -417,6 +394,10 @@ impl trie_db::Meta for VersionedValueRange {
 		input: Self::MetaInput,
 		_parent_meta: &Self,
 	) -> Self {
+		// TODO add child new index to meta (needs new callback into meta for triedbmut).
+		// (pass iterator to meta of loaded child node in triedbmut: not loaded on creation
+		// do not exist: so undefined is not an old node but a new one).
+		// TODO change version when not all child are new.
 		VersionedValueRange(None, input)
 	}
 
