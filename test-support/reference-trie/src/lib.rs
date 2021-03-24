@@ -74,10 +74,6 @@ impl TrieLayout for ExtensionLayout {
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
 		()
 	}
-
-	fn meta_for_new_node(&self) -> Self::Meta {
-		()
-	}
 }
 
 impl TrieConfiguration for ExtensionLayout { }
@@ -109,10 +105,6 @@ impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
 		()
 	}
-
-	fn meta_for_new_node(&self) -> Self::Meta {
-		()
-	}
 }
 
 /// Trie that allows empty values.
@@ -128,10 +120,6 @@ impl TrieLayout for AllowEmptyLayout {
 	type Meta = ();
 
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
-		()
-	}
-
-	fn meta_for_new_node(&self) -> Self::Meta {
 		()
 	}
 }
@@ -154,10 +142,6 @@ impl TrieLayout for CheckValueFunction {
 
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
 		()
-	}
-
-	fn meta_for_new_node(&self) -> Self::Meta {
-		Default::default()
 	}
 }
 
@@ -225,7 +209,6 @@ impl trie_db::Meta for ValueRange {
 
 	fn meta_for_new(
 		_input: Self::MetaInput,
-		_parent_meta: &Self,
 	) -> Self {
 		ValueRange(None)
 	}
@@ -314,10 +297,6 @@ impl TrieLayout for Old {
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
 		()
 	}
-
-	fn meta_for_new_node(&self) -> Self::Meta {
-		Default::default()
-	}
 }
 
 /// Trie that use a dumb value function over its storage.
@@ -353,10 +332,6 @@ impl TrieLayout for Updatable {
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
 		self.0
 	}
-
-	fn meta_for_new_node(&self) -> Self::Meta {
-		VersionedValueRange(None, self.0)
-	}
 }
 
 /// Test Meta input.
@@ -374,7 +349,6 @@ impl trie_db::Meta for VersionedValueRange {
 
 	fn meta_for_new(
 		input: Self::MetaInput,
-		_parent_meta: &Self,
 	) -> Self {
 		// TODO add child new index to meta (needs new callback into meta for triedbmut).
 		// (pass iterator to meta of loaded child node in triedbmut: not loaded on creation

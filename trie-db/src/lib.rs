@@ -409,9 +409,6 @@ pub trait TrieLayout: Default + Clone {
 	>;
 
 	/// TODO doc
-	/// TODO we could also have one constructor per node and avoid
-	/// this temporary meta (here it is meta without node info).
-	fn meta_for_new_node(&self) -> Self::Meta;
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput;
 }
 
@@ -434,17 +431,14 @@ pub trait Meta: Clone {
 		input: Self::MetaInput
 	) -> Self;
 
-	/// TODO
+	/// TODO remove (meta_for_new is enough).
 	fn meta_for_new_empty(
 		input: Self::MetaInput,
 	) -> Self;
 
 	/// Leaf meta creation.
-	/// At this point meta can contain some structural information.
-	/// Uses empty meta if root.
 	fn meta_for_new(
 		input: Self::MetaInput,
-		parent_meta: &Self,
 	) -> Self;
 
 	/// TODO we could split meta from Node (may be merge with meta input).
@@ -469,7 +463,6 @@ impl Meta for () {
 
 	fn meta_for_new(
 		_input: Self::MetaInput,
-		_parent_meta: &Self,
 	) -> Self {
 		()
 	}

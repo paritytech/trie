@@ -384,6 +384,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 		encoded_node: Vec<u8>,
 		is_root: bool,
 	) -> ChildReference<TrieHash<T>> {
+		use crate::Meta;
 		let len = encoded_node.len();
 		if !is_root && len < <T::Hash as Hasher>::LENGTH {
 			let mut h = <<T::Hash as Hasher>::Out as Default>::default();
@@ -391,12 +392,12 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 
 			return ChildReference::Inline(h, len);
 		}
-		let mut current_meta = self.layout.meta_for_new_node();
+		let meta_input = self.layout.metainput_for_new_node();
+		let mut current_meta = T::Meta::meta_for_new(meta_input);
 		let hash = if !T::USE_META{
 			<T::Hash as Hasher>::hash(encoded_node.as_slice())
 		} else {
 			// Duplicated code with triedbmut TODO factor
-			use crate::Meta;
 			let node_plan = T::Codec::decode_plan(encoded_node.as_slice())
 				.expect("Process uses only valid encoded nodes.");
 			current_meta.encoded_callback(encoded_node.as_slice(), node_plan);

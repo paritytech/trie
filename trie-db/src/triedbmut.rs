@@ -388,7 +388,8 @@ impl<L: TrieLayout> NodeStorage<L>
 		let idx = handle.0;
 
 		self.free_indices.push_back(idx);
-		let meta = layout.meta_for_new_node();
+		let meta_input = layout.metainput_for_new_node();
+		let meta = L::Meta::meta_for_new_empty(meta_input);
 		mem::replace(&mut self.nodes[idx], Stored::New(Node::Empty(meta)))
 	}
 }
