@@ -711,9 +711,9 @@ where
 						}
 					} else {
 						// Original had nothing there. compose a leaf.
+						let meta_leaf = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
 						let leaf = self.storage.alloc(
-							// TODO meta = new node call back (meta is parent)
-							Stored::New(Node::Leaf(key.to_stored(), value, meta.clone()))
+							Stored::New(Node::Leaf(key.to_stored(), value, meta_leaf))
 						);
 						children[idx] = Some(leaf.into());
 					}
@@ -775,8 +775,8 @@ where
 						))
 					} else {
 						let ix = partial.at(common);
-						// TODO node meta for new from parent
-						let stored_leaf = Node::Leaf(partial.mid(common + 1).to_stored(), value, meta.clone());
+						let meta_leaf = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
+						let stored_leaf = Node::Leaf(partial.mid(common + 1).to_stored(), value, meta_leaf);
 						let leaf = self.storage.alloc(Stored::New(stored_leaf));
 
 						children[ix as usize] = Some(leaf.into());
@@ -812,9 +812,10 @@ where
 						}
 					} else {
 						// Original had nothing there. compose a leaf.
+						let meta_leaf = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
 						let leaf = self.storage.alloc(
 							// TODO meta change on alloc new?
-							Stored::New(Node::Leaf(key.to_stored(), value, meta.clone())),
+							Stored::New(Node::Leaf(key.to_stored(), value, meta_leaf)),
 						);
 						children[idx] = Some(leaf.into());
 					}
@@ -862,12 +863,11 @@ where
 						Node::Branch(children, Some(stored_value), meta)
 					} else {
 						let idx = existing_key.at(common) as usize;
-						// TODO meta change on new leaf from parent meta
-						// (parent need to be modifiable: &mut ptr?)
+						let meta_leaf = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
 						let new_leaf = Node::Leaf(
 							existing_key.mid(common + 1).to_stored(),
 							stored_value,
-							meta.clone(),
+							meta_leaf,
 						);
 						children[idx] = Some(self.storage.alloc(Stored::New(new_leaf)).into());
 
@@ -1028,13 +1028,13 @@ where
 					let augmented_low = self.insert_inspector(low, key, value, old_val)?
 						.unwrap_node();
 
+					let meta_leaf = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
 					// always replace, since this extension is not the one we started with.
 					// this is known because the partial key is only the common prefix.
 					InsertAction::Replace(Node::Extension(
 						existing_key.to_stored_range(common),
 						self.storage.alloc(Stored::New(augmented_low)).into(),
-						// TODO meta ops
-						meta,
+						meta_leaf,
 					))
 				}
 			},
