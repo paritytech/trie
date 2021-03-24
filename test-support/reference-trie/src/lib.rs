@@ -30,6 +30,7 @@ use trie_db::{
 	TrieRoot,
 	Partial,
 	Meta,
+	NodeChange,
 };
 use std::borrow::Borrow;
 
@@ -198,7 +199,7 @@ pub struct ValueRange(Option<core::ops::Range<usize>>);
 /// in encoded trie node.
 pub const INNER_HASH_TRESHOLD: usize = 1;
 
-impl trie_db::Meta for ValueRange {
+impl Meta for ValueRange {
 	type MetaInput = ();
 
 	fn meta_for_new_empty(
@@ -221,8 +222,9 @@ impl trie_db::Meta for ValueRange {
 
 	fn set_value_callback(
 		&mut self,
-		changed: bool,
-	) -> bool {
+		_new_value: Option<&[u8]>,
+		changed: NodeChange,
+	) -> NodeChange {
 		changed
 	}
 
@@ -345,7 +347,7 @@ impl TrieLayout for Updatable {
 #[derive(Default, Clone)]
 pub struct VersionedValueRange(Option<core::ops::Range<usize>>, Version);
 
-impl trie_db::Meta for VersionedValueRange {
+impl Meta for VersionedValueRange {
 	type MetaInput = Version;
 
 	fn meta_for_new_empty(
@@ -372,14 +374,19 @@ impl trie_db::Meta for VersionedValueRange {
 
 	fn set_value_callback(
 		&mut self,
-		changed: bool,
-	) -> bool {
+		new_value: Option<&[u8]>,
+		changed: NodeChange,
+	) -> NodeChange {
 		// TODO check no old child too
 		if let Version::New = self.1 {
 			return changed;
 		}
 		self.1 = Version::New;
-		true
+		if new_value.map(|v| v.len() >= INNER_HASH_TRESHOLD).unwrap_or(false) {
+			NodeChange::EncodedMeta
+		} else {
+			NodeChange::Meta
+		}.combine(changed)
 	}
 
 	fn encoded_callback(

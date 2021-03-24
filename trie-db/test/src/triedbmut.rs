@@ -503,7 +503,7 @@ fn state_hybrid_scenario() {
 	{
 		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb, &mut root, Updatable::new())
 			.unwrap();
-		trie.insert(b"test5", &[6u8;32][..]).unwrap();
+		trie.insert(b"test4", &[6u8;32][..]).unwrap();
 	}
 	assert_eq!(count_old(&memdb), (3, 5));
 
@@ -516,7 +516,7 @@ fn state_hybrid_scenario() {
 		trie.insert(b"test2", &[2u8;36][..]).unwrap();
 		trie.remove(b"test3").unwrap();
 	}
-	assert_eq!(count_old(&memdb), (0, 5));
+	assert_eq!(count_old(&memdb), (0, 4));
 
 	panic!("out");
 }

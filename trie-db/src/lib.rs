@@ -412,6 +412,59 @@ pub trait TrieLayout: Default + Clone {
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput;
 }
 
+/// Node modification status.
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub enum NodeChange {
+	/// Encoded did change, new hash will be use
+	/// for storage.
+	Encoded,
+	/// Meta did change, hash stay the same.
+	Meta,
+	/// Both encoded and meta did change.
+	/// TODO probably useless (encoded change and encoded + meta resulting
+	/// in same action).
+	EncodedMeta,
+	/// Unchanged.
+	None,
+}
+
+#[cfg(feature = "std")]
+impl fmt::Display for NodeChange {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		match self {
+			NodeChange::Encoded =>
+				write!(f, "Hash changed"),
+			NodeChange::EncodedMeta =>
+				write!(f, "Hash and meta changed"),
+			NodeChange::Meta =>
+				write!(f, "Meta changed"),
+			NodeChange::None =>
+				write!(f, "Unchanged"),
+		}
+	}
+}
+
+impl NodeChange {
+	/// TODO
+	pub fn from_values(old: Option<impl AsRef<[u8]>>, new: Option<impl AsRef<[u8]>>) -> Self {
+		if old.as_ref().map(|v| v.as_ref()) == new.as_ref().map(|v| v.as_ref()) {
+			NodeChange::None
+		} else {
+			NodeChange::Encoded
+		}
+	}
+	/// TODO
+	pub fn combine(&self, other: Self) -> Self {
+		match (self, other) {
+			(NodeChange::Encoded, NodeChange::Meta) => NodeChange::EncodedMeta,
+			(NodeChange::Meta, NodeChange::Encoded) => NodeChange::EncodedMeta,
+			(NodeChange::None, b) => b,
+			(a, _) => *a,
+		}
+	}
+}
+
 /// TODO move in its own module.
 /// TODO doc
 /// TODO remove meta and spawn from layout instance (so when old layout we keep producing old
@@ -449,8 +502,9 @@ pub trait Meta: Clone {
 	/// in storage.
 	fn set_value_callback(
 		&mut self,
-		changed: bool,
-	) -> bool;
+		new_value: Option<&[u8]>,
+		changed: NodeChange,
+	) -> NodeChange;
 
 	/// TODO we could split meta from Node (may be merge with meta input).
 	/// and meta for encoding.
@@ -486,8 +540,9 @@ impl Meta for () {
 
 	fn set_value_callback(
 		&mut self,
-		changed: bool,
-	) -> bool {
+		_new_value: Option<&[u8]>,
+		changed: NodeChange,
+	) -> NodeChange {
 		changed
 	}
 
