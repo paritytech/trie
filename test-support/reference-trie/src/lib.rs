@@ -223,6 +223,7 @@ impl Meta for ValueRange {
 	fn set_value_callback(
 		&mut self,
 		_new_value: Option<&[u8]>,
+		_is_branch: bool,
 		changed: NodeChange,
 	) -> NodeChange {
 		changed
@@ -345,7 +346,10 @@ impl TrieLayout for Updatable {
 
 /// Test Meta input.
 #[derive(Default, Clone)]
-pub struct VersionedValueRange(Option<core::ops::Range<usize>>, Version);
+pub struct VersionedValueRange {
+	range: Option<core::ops::Range<usize>>,
+	version: Version,
+}
 
 impl Meta for VersionedValueRange {
 	type MetaInput = Version;
@@ -353,7 +357,7 @@ impl Meta for VersionedValueRange {
 	fn meta_for_new_empty(
 		input: Self::MetaInput,
 	) -> Self {
-		VersionedValueRange(None, input)
+		VersionedValueRange{ range: None, version: input }
 	}
 
 	fn meta_for_new(
@@ -363,25 +367,31 @@ impl Meta for VersionedValueRange {
 		// (pass iterator to meta of loaded child node in triedbmut: not loaded on creation
 		// do not exist: so undefined is not an old node but a new one).
 		// TODO change version when not all child are new.
-		VersionedValueRange(None, input)
+		VersionedValueRange{ range: None, version: input }
 	}
 
 	fn meta_for_existing_inline_node(
 		input: Self::MetaInput
 	) -> Self {
-		VersionedValueRange(None, input)
+		VersionedValueRange{ range: None, version: input }
 	}
 
 	fn set_value_callback(
 		&mut self,
 		new_value: Option<&[u8]>,
+		is_branch: bool,
 		changed: NodeChange,
 	) -> NodeChange {
 		// TODO check no old child too
-		if let Version::New = self.1 {
+		if let Version::New = self.version {
 			return changed;
 		}
-		self.1 = Version::New;
+		if is_branch {
+			// branch switch to new when all children are
+			// new, changing or adding value do not change this fact.
+			return changed
+		}
+		self.version = Version::New;
 		if new_value.map(|v| v.len() >= INNER_HASH_TRESHOLD).unwrap_or(false) {
 			NodeChange::EncodedMeta
 		} else {
@@ -394,10 +404,10 @@ impl Meta for VersionedValueRange {
 		_encoded: &[u8],
 		node_plan: NodePlan,
 	) {
-		if matches!(self.1, Version::New) {
+		if matches!(self.version, Version::New) {
 			if let Some(range) = node_plan.value_range() {
 				if range.end - range.start >= INNER_HASH_TRESHOLD {
-					self.0 = Some(range);
+					self.range = Some(range);
 				}
 			}
 		}
@@ -411,8 +421,8 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestUpdatableValueFunctio
 	type Meta = VersionedValueRange;
 
 	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out {
-		if let Some(range) = meta.0.as_ref() {
-			assert!(matches!(meta.1,Version::New));
+		if let Some(range) = meta.range.as_ref() {
+			assert!(matches!(meta.version,Version::New));
 			let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
 			H::hash(value.as_slice())
 		} else {
@@ -423,8 +433,8 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestUpdatableValueFunctio
 	fn stored_value(value: &[u8], meta: Self::Meta) -> DBValue {
 		// 'start' do not strictly have to be stored and compact should be use,
 		// but this is for test only.
-		let mut stored = meta.0.map(|range| (range.start as u32, range.end as u32)).encode();
-		if let Version::Old = meta.1 {
+		let mut stored = meta.range.map(|range| (range.start as u32, range.end as u32)).encode();
+		if let Version::Old = meta.version {
 			// non empty empty trie byte for old node
 			stored.push(EMPTY_TRIE);
 			assert!(stored[0] == 0); // no range for old
@@ -457,9 +467,9 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestUpdatableValueFunctio
 		if let Some((start, end)) = range {
 			let start = start as usize;
 			let end = end as usize;
-			(stored, VersionedValueRange(Some(start..end), version))
+			(stored, VersionedValueRange { range: Some(start..end), version })
 		} else {
-			(stored, VersionedValueRange(None, version))
+			(stored, VersionedValueRange { range: None, version })
 		}
 	}
 }

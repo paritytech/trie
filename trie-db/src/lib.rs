@@ -503,8 +503,17 @@ pub trait Meta: Clone {
 	fn set_value_callback(
 		&mut self,
 		new_value: Option<&[u8]>,
+		is_branch: bool,
 		changed: NodeChange,
 	) -> NodeChange;
+
+	/* TODO
+	fn set_child_callback(
+		&mut self,
+		previous_number_of_child: usize, // needed to initiat
+		child: Option<&Self>,
+	) -> NodeChange;
+	*/
 
 	/// TODO we could split meta from Node (may be merge with meta input).
 	/// and meta for encoding.
@@ -541,6 +550,7 @@ impl Meta for () {
 	fn set_value_callback(
 		&mut self,
 		_new_value: Option<&[u8]>,
+		_is_branch: bool,
 		changed: NodeChange,
 	) -> NodeChange {
 		changed

@@ -675,7 +675,7 @@ where
 
 				if partial.is_empty() {
 					let change = NodeChange::from_values(stored_value.as_ref(), Some(&value));
-					let change = meta.set_value_callback(Some(value.as_slice()), change);
+					let change = meta.set_value_callback(Some(value.as_slice()), true, change);
 					let branch = Node::Branch(children, Some(value), meta);
 					*old_val = stored_value;
 
@@ -718,7 +718,7 @@ where
 				let common = partial.common_prefix(&existing_key);
 				if common == existing_key.len() && common == partial.len() {
 					let change = NodeChange::from_values(stored_value.as_ref(), Some(&value));
-					let change = meta.set_value_callback(Some(value.as_slice()), change);
+					let change = meta.set_value_callback(Some(value.as_slice()), true, change);
 					// TODO see branch meta
 					let branch = Node::NibbledBranch(
 						existing_key.to_stored(),
@@ -821,7 +821,7 @@ where
 					trace!(target: "trie", "equivalent-leaf: REPLACE");
 					// equivalent leaf.
 					let change = NodeChange::from_values(Some(&stored_value), Some(&value));
-					let change = meta.set_value_callback(Some(value.as_slice()), change);
+					let change = meta.set_value_callback(Some(value.as_slice()), false, change);
 					*old_val = Some(stored_value);
 
 					// TODO meta change on replace | restore
