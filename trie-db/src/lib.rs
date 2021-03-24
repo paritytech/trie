@@ -441,6 +441,17 @@ pub trait Meta: Clone {
 		input: Self::MetaInput,
 	) -> Self;
 
+	/// Set a value, return true if node
+	/// need update.
+	/// For instance if if we count
+	/// access in meta, even if unchanged,
+	/// then we can return true and node will be updated
+	/// in storage.
+	fn set_value_callback(
+		&mut self,
+		changed: bool,
+	) -> bool;
+
 	/// TODO we could split meta from Node (may be merge with meta input).
 	/// and meta for encoding.
 	/// TODO codec when encoding could produce `NodePlan` here as a first step
@@ -471,6 +482,13 @@ impl Meta for () {
 		_input: Self::MetaInput
 	) -> Self {
 		()
+	}
+
+	fn set_value_callback(
+		&mut self,
+		changed: bool,
+	) -> bool {
+		changed
 	}
 
 	fn encoded_callback(

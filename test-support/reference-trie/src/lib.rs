@@ -219,6 +219,13 @@ impl trie_db::Meta for ValueRange {
 		ValueRange(None)
 	}
 
+	fn set_value_callback(
+		&mut self,
+		changed: bool,
+	) -> bool {
+		changed
+	}
+
 	fn encoded_callback(
 		&mut self,
 		_encoded: &[u8],
@@ -361,6 +368,18 @@ impl trie_db::Meta for VersionedValueRange {
 		input: Self::MetaInput
 	) -> Self {
 		VersionedValueRange(None, input)
+	}
+
+	fn set_value_callback(
+		&mut self,
+		changed: bool,
+	) -> bool {
+		// TODO check no old child too
+		if let Version::New = self.1 {
+			return changed;
+		}
+		self.1 = Version::New;
+		true
 	}
 
 	fn encoded_callback(
