@@ -413,9 +413,6 @@ pub trait TrieLayout: Default + Clone {
 	/// this temporary meta (here it is meta without node info).
 	fn meta_for_new_node(&self) -> Self::Meta;
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput;
-
-	/// TODO doc + TODO is it of any use??
-	fn meta_for_new_inline_node(&self) -> Self::Meta;
 }
 
 /// TODO move in its own module.

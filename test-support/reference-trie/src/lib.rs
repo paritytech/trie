@@ -78,10 +78,6 @@ impl TrieLayout for ExtensionLayout {
 	fn meta_for_new_node(&self) -> Self::Meta {
 		()
 	}
-
-	fn meta_for_new_inline_node(&self) -> Self::Meta {
-		()
-	}
 }
 
 impl TrieConfiguration for ExtensionLayout { }
@@ -117,10 +113,6 @@ impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	fn meta_for_new_node(&self) -> Self::Meta {
 		()
 	}
-
-	fn meta_for_new_inline_node(&self) -> Self::Meta {
-		()
-	}
 }
 
 /// Trie that allows empty values.
@@ -140,10 +132,6 @@ impl TrieLayout for AllowEmptyLayout {
 	}
 
 	fn meta_for_new_node(&self) -> Self::Meta {
-		()
-	}
-
-	fn meta_for_new_inline_node(&self) -> Self::Meta {
 		()
 	}
 }
@@ -169,10 +157,6 @@ impl TrieLayout for CheckValueFunction {
 	}
 
 	fn meta_for_new_node(&self) -> Self::Meta {
-		Default::default()
-	}
-
-	fn meta_for_new_inline_node(&self) -> Self::Meta {
 		Default::default()
 	}
 }
@@ -334,10 +318,6 @@ impl TrieLayout for Old {
 	fn meta_for_new_node(&self) -> Self::Meta {
 		Default::default()
 	}
-
-	fn meta_for_new_inline_node(&self) -> Self::Meta {
-		Default::default()
-	}
 }
 
 /// Trie that use a dumb value function over its storage.
@@ -375,10 +355,6 @@ impl TrieLayout for Updatable {
 	}
 
 	fn meta_for_new_node(&self) -> Self::Meta {
-		VersionedValueRange(None, self.0)
-	}
-
-	fn meta_for_new_inline_node(&self) -> Self::Meta {
 		VersionedValueRange(None, self.0)
 	}
 }

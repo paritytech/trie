@@ -14,7 +14,7 @@
 
 //! In-memory trie representation.
 
-use super::{DBValue, node::NodeKey};
+use super::{DBValue, node::NodeKey, Meta};
 use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_hash};
@@ -137,7 +137,7 @@ impl<L: TrieLayout> Node<L>
 				NodeHandle::Hash(hash)
 			},
 			EncodedNodeHandle::Inline(data) => {
-				let meta = layout.meta_for_new_inline_node();
+				let meta = L::Meta::meta_for_existing_inline_node(layout.metainput_for_new_node());
 				let child = Node::from_encoded(parent_hash, data, db, storage, meta, layout)?;
 				NodeHandle::InMemory(storage.alloc(Stored::New(child)))
 			},
@@ -1622,7 +1622,6 @@ where
 		) -> ChildReference<<L::Hash as Hasher>::Out>,
 	) -> (Vec<u8>, <L::ValueFunction as ValueFunction<L::Hash, DBValue>>::Meta) {
 		let (encoded, mut meta) = node.into_encoded(child_cb);
-		use crate::Meta;
 		// TODO meta could be None when not USE_META instead
 		if L::USE_META {
 			// TODO modify node codec to optionally return a node plan to avoid
