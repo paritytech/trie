@@ -428,6 +428,15 @@ pub trait Meta: Clone {
 	/// Usually it holds specific behavior from layout context.
 	type MetaInput;
 
+	/// Meta for inline node are not stored, but require a default instantiation
+	/// in case it stops being inline.
+	/// There is currently no good reason to avoid passing parent meta as in
+	/// `meta_for_new` but the fact that it complicate code and is not required
+	/// by current use cases.
+	fn meta_for_existing_inline_node(
+		input: Self::MetaInput
+	) -> Self;
+
 	/// TODO
 	fn meta_for_new_empty(
 		input: Self::MetaInput,
@@ -464,6 +473,12 @@ impl Meta for () {
 	fn meta_for_new(
 		_input: Self::MetaInput,
 		_parent_meta: &Self,
+	) -> Self {
+		()
+	}
+
+	fn meta_for_existing_inline_node(
+		_input: Self::MetaInput
 	) -> Self {
 		()
 	}

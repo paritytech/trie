@@ -1531,7 +1531,6 @@ where
 		match self.storage.destroy(handle, &self.layout) {
 			Stored::New(node) => {
 				let mut k = NibbleVec::new();
-				let layout = self.layout.clone();
 				let (encoded_root, meta) = Self::into_encoded_with_meta(
 					node,
 					|child, o_slice, o_index| {
@@ -1576,7 +1575,6 @@ where
 					Stored::Cached(_, hash) => ChildReference::Hash(hash),
 					Stored::New(node) => {
 						let (encoded, meta) = {
-							let layout = self.layout.clone();
 							let commit_child = |
 								node_handle,
 								o_slice: Option<&NibbleSlice>,

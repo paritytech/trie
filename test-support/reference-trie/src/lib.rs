@@ -246,6 +246,12 @@ impl trie_db::Meta for ValueRange {
 		ValueRange(None)
 	}
 
+	fn meta_for_existing_inline_node(
+		_input: Self::MetaInput
+	) -> Self {
+		ValueRange(None)
+	}
+
 	fn encoded_callback(
 		&mut self,
 		_encoded: &[u8],
@@ -398,6 +404,12 @@ impl trie_db::Meta for VersionedValueRange {
 		// (pass iterator to meta of loaded child node in triedbmut: not loaded on creation
 		// do not exist: so undefined is not an old node but a new one).
 		// TODO change version when not all child are new.
+		VersionedValueRange(None, input)
+	}
+
+	fn meta_for_existing_inline_node(
+		input: Self::MetaInput
+	) -> Self {
 		VersionedValueRange(None, input)
 	}
 
