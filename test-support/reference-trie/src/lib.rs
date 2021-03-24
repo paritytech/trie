@@ -29,6 +29,7 @@ use trie_db::{
 	TrieBuilder,
 	TrieRoot,
 	Partial,
+	Meta,
 };
 use std::borrow::Borrow;
 
@@ -70,6 +71,10 @@ impl TrieLayout for ExtensionLayout {
 	type ValueFunction = hash_db::NoMeta;
 	type Meta = ();
 
+	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
+		()
+	}
+
 	fn meta_for_new_node(&self) -> Self::Meta {
 		()
 	}
@@ -105,6 +110,10 @@ impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	type ValueFunction = hash_db::NoMeta;
 	type Meta = ();
 
+	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
+		()
+	}
+
 	fn meta_for_new_node(&self) -> Self::Meta {
 		()
 	}
@@ -125,6 +134,10 @@ impl TrieLayout for AllowEmptyLayout {
 	type Codec = ReferenceNodeCodec<RefHasher>;
 	type ValueFunction = hash_db::NoMeta;
 	type Meta = ();
+
+	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
+		()
+	}
 
 	fn meta_for_new_node(&self) -> Self::Meta {
 		()
@@ -150,6 +163,10 @@ impl TrieLayout for CheckValueFunction {
 	type Codec = ReferenceNodeCodec<RefHasher>;
 	type ValueFunction = TestValueFunction<RefHasher>;
 	type Meta = ValueRange;
+
+	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
+		()
+	}
 
 	fn meta_for_new_node(&self) -> Self::Meta {
 		Default::default()
@@ -210,6 +227,8 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 pub struct ValueRange(Option<core::ops::Range<usize>>);
 
 impl trie_db::Meta for ValueRange {
+	type MetaInput = ();
+
 	fn set_inner_hashed_value(
 		&mut self,
 		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
@@ -280,6 +299,10 @@ impl TrieLayout for Old {
 	type ValueFunction = hash_db::NoMeta;
 	type Meta = ();
 
+	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
+		()
+	}
+
 	fn meta_for_new_node(&self) -> Self::Meta {
 		Default::default()
 	}
@@ -319,6 +342,10 @@ impl TrieLayout for Updatable {
 	type ValueFunction = TestUpdatableValueFunction<RefHasher>;
 	type Meta = VersionedValueRange;
 
+	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
+		self.0
+	}
+
 	fn meta_for_new_node(&self) -> Self::Meta {
 		VersionedValueRange(None, self.0)
 	}
@@ -333,6 +360,8 @@ impl TrieLayout for Updatable {
 pub struct VersionedValueRange(Option<core::ops::Range<usize>>, Version);
 
 impl trie_db::Meta for VersionedValueRange {
+	type MetaInput = Version;
+
 	fn set_inner_hashed_value(
 		&mut self,
 		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,

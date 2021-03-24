@@ -408,16 +408,26 @@ pub trait TrieLayout: Default + Clone {
 	>;
 
 	/// TODO doc
+	/// TODO we could also have one constructor per node and avoid
+	/// this temporary meta (here it is meta without node info).
 	fn meta_for_new_node(&self) -> Self::Meta;
+	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput;
 
 	/// TODO doc + TODO is it of any use??
 	fn meta_for_new_inline_node(&self) -> Self::Meta;
 }
 
+/// TODO move in its own module.
 /// TODO doc
 /// TODO remove meta and spawn from layout instance (so when old layout we keep producing old
 /// meta). -> need Layout as inner type.
 pub trait Meta: Clone {
+	/// Input for meta, this type is here mainly to separate trait layout
+	/// from from trait meta.
+	/// Usually it holds specific behavior from layout context.
+	type MetaInput;
+
+	/// TODO make it more generic. and long term remove (on node creation you got the callback).
 	fn set_inner_hashed_value(
 		&mut self,
 		inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
@@ -425,6 +435,8 @@ pub trait Meta: Clone {
 }
 
 impl Meta for () {
+	type MetaInput = ();
+
 	fn set_inner_hashed_value(
 		&mut self,
 		_inner_to_hash_value: Option<(&[u8], core::ops::Range<usize>)>,
