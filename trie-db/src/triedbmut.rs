@@ -154,6 +154,7 @@ impl<L: TrieLayout> Node<L>
 		meta: L::Meta, 
 		layout: &L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
+		unimplemented!("TODO feed meta with number of children, and nb inline");
 		let encoded_node = L::Codec::decode(data)
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash, e)))?;
 		let node = match encoded_node {
@@ -314,6 +315,13 @@ enum Stored<L: TrieLayout> {
 pub enum ChildReference<HO> { // `HO` is e.g. `H256`, i.e. the output of a `Hasher`
 	Hash(HO),
 	Inline(HO, usize), // usize is the length of the node data we store in the `H::Out`
+}
+
+impl<HO> ChildReference<HO> {
+	/// Is child reference inline.
+	pub fn is_inline(&self) -> bool {
+		matches!(self, ChildReference::Inline(..))
+	}
 }
 
 impl<'a, HO> TryFrom<EncodedNodeHandle<'a>> for ChildReference<HO>
@@ -525,6 +533,52 @@ where
 		Ok(self.storage.alloc(Stored::Cached(node, hash)))
 	}
 
+	fn set_children(
+		&mut self,
+		children: &mut Box<[Option<NodeHandle<TrieHash<L>>>; 16]>,
+		meta: &mut L::Meta,
+		new_child: Option<StorageHandle>,
+		changed: NodeChange,
+		idx: usize,
+	) -> NodeChange {
+		let changed = self.children_callback(meta, new_child.as_ref(), changed, idx);
+		children[idx] = new_child.map(Into::into);
+		changed
+	}
+
+	fn extension_child_callback(
+		&mut self,
+		meta: &mut L::Meta,
+		new_child: &StorageHandle,
+		changed: NodeChange,
+	) -> NodeChange {
+		self.children_callback(meta, Some(new_child), changed, 0)
+	}
+
+	fn children_callback(
+		&mut self,
+		meta: &mut L::Meta,
+		new_child: Option<&StorageHandle>,
+		changed: NodeChange,
+		idx: usize,
+	) -> NodeChange {
+		if L::USE_META {
+			let child_meta = new_child.map(|new_child|
+				match &mut self.storage.nodes[new_child.0] {
+					Stored::Cached(node, _)
+					| Stored::New(node) => node.meta(),
+				}
+			);
+			meta.set_child_callback(
+				child_meta,
+				changed,
+				idx,
+			)
+		} else {
+			changed
+		}
+	}
+
 	// Inspect a node, choosing either to replace, restore, or delete it.
 	// If restored or replaced, returns the new node along with a flag of whether it was changed.
 	fn inspect<F>(
@@ -686,11 +740,11 @@ where
 					let changed = if let Some(child) = children[idx].take() {
 						// Original had something there. recurse down into it.
 						let (new_child, changed) = self.insert_at(child, key, value, old_val)?;
-						children[idx] = Some(new_child.into());
+						let changed = self.set_children(&mut children, &mut meta, Some(new_child), changed, idx);
+						// TODO useless?
 						if let NodeChange::None = changed {
 							// The new node we composed didn't change.
 							// It means our branch is untouched too.
-							// TODO no callback on restore? TODO meta changed update parent meta
 							return Ok(InsertAction(changed, Node::Branch(children, stored_value, meta)));
 						}
 						changed
@@ -700,12 +754,9 @@ where
 						let leaf = self.storage.alloc(
 							Stored::New(Node::Leaf(key.to_stored(), value, meta_leaf))
 						);
-						// TODO meta update
-						children[idx] = Some(leaf.into());
-						NodeChange::Encoded
+						self.set_children(&mut children, &mut meta, Some(leaf), NodeChange::Encoded, idx)
 					};
 
-					// TODO meta = replace callback
 					InsertAction(changed, Node::Branch(children, stored_value, meta))
 				}
 			},
@@ -741,22 +792,28 @@ where
 						common,
 					);
 					let nbranch_partial = existing_key.mid(common + 1).to_stored();
-					// TODO see branch meta for new
-					let low = Node::NibbledBranch(nbranch_partial, children, stored_value, meta.clone());
+					let low = Node::NibbledBranch(nbranch_partial, children, stored_value, meta);
 					let ix = existing_key.at(common);
 					let mut children = empty_children();
 					let alloc_storage = self.storage.alloc(Stored::New(low));
 
-
-					children[ix as usize] = Some(alloc_storage.into());
+					let mut meta_branch = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
+					let changed = self.set_children(
+						&mut children,
+						&mut meta_branch,
+						Some(alloc_storage),
+						NodeChange::Encoded,
+						ix as usize,
+					);
 
 					if partial.len() - common == 0 {
-						// TODO see branch meta for repalec 
-						InsertAction(NodeChange::Encoded, Node::NibbledBranch(
+						let meta_branch = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
+						// TODO set value call back to remove the one on encoded.
+						InsertAction(changed, Node::NibbledBranch(
 							existing_key.to_stored_range(common),
 							children,
 							Some(value),
-							meta,
+							meta_branch,
 						))
 					} else {
 						let ix = partial.at(common);
@@ -764,13 +821,20 @@ where
 						let stored_leaf = Node::Leaf(partial.mid(common + 1).to_stored(), value, meta_leaf);
 						let leaf = self.storage.alloc(Stored::New(stored_leaf));
 
-						children[ix as usize] = Some(leaf.into());
-						// TODO node meta for replace
-						InsertAction(NodeChange::Encoded, Node::NibbledBranch(
+						let mut meta_branch = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
+						let changed = self.set_children(
+							&mut children,
+							&mut meta_branch,
+							Some(leaf),
+							NodeChange::Encoded,
+							ix as usize,
+						);
+
+						InsertAction(changed, Node::NibbledBranch(
 							existing_key.to_stored_range(common),
 							children,
 							None,
-							meta,
+							meta_branch,
 						))
 					}
 				} else {
@@ -779,10 +843,19 @@ where
 					trace!(target: "trie", "branch: ROUTE,AUGMENT");
 					let idx = partial.at(common) as usize;
 					key.advance(common + 1);
-					if let Some(child) = children[idx].take() {
+					let changed = if let Some(child) = children[idx].take() {
 						// Original had something there. recurse down into it.
 						let (new_child, changed) = self.insert_at(child, key, value, old_val)?;
-						children[idx] = Some(new_child.into());
+
+						let changed = self.set_children(
+							&mut children,
+							&mut meta,
+							Some(new_child),
+							changed,
+							idx,
+						);
+
+						// TODO useless?
 						if let NodeChange::None = changed {
 							// The new node we composed didn't change.
 							// It means our branch is untouched too.
@@ -790,22 +863,27 @@ where
 								existing_key.to_stored(),
 								children,
 								stored_value,
-								// TODO meta change on restore?
 								meta,
 							);
 							return Ok(InsertAction(changed, n_branch));
 						}
+						changed
 					} else {
 						// Original had nothing there. compose a leaf.
 						let meta_leaf = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
 						let leaf = self.storage.alloc(
-							// TODO meta change on alloc new?
 							Stored::New(Node::Leaf(key.to_stored(), value, meta_leaf)),
 						);
-						children[idx] = Some(leaf.into());
-					}
-					// TODO meta change on replace?
-					InsertAction(NodeChange::Encoded, Node::NibbledBranch(
+
+						self.set_children(
+							&mut children,
+							&mut meta,
+							Some(leaf),
+							NodeChange::EncodedMeta,
+							idx,
+						)
+					};
+					InsertAction(changed, Node::NibbledBranch(
 						existing_key.to_stored(),
 						children,
 						stored_value,
@@ -839,10 +917,10 @@ where
 
 					// one of us isn't empty: transmute to branch here
 					let mut children = empty_children();
-					let branch = if L::USE_EXTENSION && existing_key.is_empty() {
+					let (branch, changed) = if L::USE_EXTENSION && existing_key.is_empty() {
 						// always replace since branch isn't leaf.
-						// TODO meta change on leaf to branch
-						Node::Branch(children, Some(stored_value), meta)
+						// TODO should we register set value for meta on transmute?? not really?
+						(Node::Branch(children, Some(stored_value), meta), NodeChange::EncodedMeta)
 					} else {
 						let idx = existing_key.at(common) as usize;
 						let meta_leaf = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
@@ -851,29 +929,36 @@ where
 							stored_value,
 							meta_leaf,
 						);
-						children[idx] = Some(self.storage.alloc(Stored::New(new_leaf)).into());
+						let leaf = self.storage.alloc(Stored::New(new_leaf));
+						let changed = self.set_children(
+							&mut children,
+							&mut meta,
+							Some(leaf),
+							NodeChange::EncodedMeta,
+							idx,
+						);
 
-						if L::USE_EXTENSION {
+						(if L::USE_EXTENSION {
 							// TODO meta change on leaf to branch
 							Node::Branch(children, None, meta)
 						} else {
 							// TODO meta change on leaf to branch
 							Node::NibbledBranch(partial.to_stored_range(common), children, None, meta)
-						}
+						}, changed)
 					};
 
 					// always replace because whatever we get out here
 					// is not the branch we started with.
 					let branch_action = self.insert_inspector(branch, key, value, old_val)?
 						.unwrap_node();
-					InsertAction(NodeChange::EncodedMeta, branch_action)
+					InsertAction(changed.combine(NodeChange::EncodedMeta), branch_action)
 				} else if !L::USE_EXTENSION {
 					#[cfg(feature = "std")]
 					trace!(target: "trie", "complete-prefix (common={:?}): AUGMENT-AT-END", common);
 
 					// fully-shared prefix for an extension.
 					// make a stub branch
-					// TODO meta change on new leaf from parent meta
+					// TODO should we register set value for meta on transmute?? not really?
 					let branch = Node::NibbledBranch(
 						existing_key.to_stored(),
 						empty_children(),
@@ -893,16 +978,20 @@ where
 
 					// fully-shared prefix for an extension.
 					// make a stub branch and an extension.
-					// TODO meta ops
-					let branch = Node::Branch(empty_children(), Some(stored_value), meta.clone());
+					let branch = Node::Branch(empty_children(), Some(stored_value), meta);
 					// augment the new branch.
 					key.advance(common);
 					let branch = self.insert_inspector(branch, key, value, old_val)?.unwrap_node();
 
 					// always replace since we took a leaf and made an extension.
-					let branch_handle = self.storage.alloc(Stored::New(branch)).into();
-					// TODO meta ops
-					InsertAction(NodeChange::EncodedMeta, Node::Extension(existing_key.to_stored(), branch_handle, meta))
+					let leaf = self.storage.alloc(Stored::New(branch)).into();
+					let mut meta_extension = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
+					let changed = self.extension_child_callback(
+						&mut meta_extension,
+						&leaf,
+						NodeChange::EncodedMeta,
+					);
+					InsertAction(changed, Node::Extension(existing_key.to_stored(), leaf.into(), meta_extension))
 				} else {
 					debug_assert!(L::USE_EXTENSION);
 					#[cfg(feature = "std")]
@@ -917,8 +1006,7 @@ where
 
 					// partially-shared prefix for an extension.
 					// start by making a leaf.
-					// TODO meta ops
-					let low = Node::Leaf(existing_key.mid(common).to_stored(), stored_value, meta.clone());
+					let low = Node::Leaf(existing_key.mid(common).to_stored(), stored_value, meta);
 
 					// augment it. this will result in the Leaf -> common == 0 routine,
 					// which creates a branch.
@@ -926,15 +1014,22 @@ where
 					let augmented_low = self.insert_inspector(low, key, value, old_val)?
 						.unwrap_node(); // TODO all those unwrap_node could actually give rise more precise change
 					// make an extension using it. this is a replacement.
-					// TODO meta ops
-					InsertAction(NodeChange::EncodedMeta, Node::Extension(
+					let mut meta_extension = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
+					let leaf = self.storage.alloc(Stored::New(augmented_low));
+					let changed = self.extension_child_callback(
+						&mut meta_extension,
+						&leaf,
+						NodeChange::EncodedMeta,
+					);
+	
+					InsertAction(changed, Node::Extension(
 						existing_key.to_stored_range(common),
-						self.storage.alloc(Stored::New(augmented_low)).into(),
-						meta,
+						leaf.into(),
+						meta_extension,
 					))
 				}
 			},
-			Node::Extension(encoded, child_branch, meta) => {
+			Node::Extension(encoded, child_branch, mut meta) => {
 				debug_assert!(L::USE_EXTENSION);
 				let existing_key = NibbleSlice::from_stored(&encoded);
 				let common = partial.common_prefix(&existing_key);
@@ -954,25 +1049,31 @@ where
 					let idx = existing_key.at(0) as usize;
 
 					let mut children = empty_children();
-					children[idx] = if existing_key.len() == 1 {
+					let child = if existing_key.len() == 1 {
 						// direct extension, just replace.
 						Some(child_branch)
 					} else {
-						// more work required after branching.
-						// TODO meta ops
-						let ext = Node::Extension(existing_key.mid(1).to_stored(), child_branch, meta.clone());
+						// No need to register set branch (was here before).
+						// Note putting a branch in extension requires fix.
+						let ext = Node::Extension(existing_key.mid(1).to_stored(), child_branch, meta);
 						Some(self.storage.alloc(Stored::New(ext)).into())
 					};
 
+					let changed = NodeChange::EncodedMeta;
+					let meta_branch = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
+					/* TODO we skip children call back see comment above for extension -> probably better
+					 * to implement it or implement it conditionally because it is an additional fetch
+					let changed = self.set_children(&mut children, &mut meta, child, NodeChange::EncodedMeta, idx);
+					*/
+					children[idx] = child;
 					// continue inserting.
 					let branch_action = self.insert_inspector(
-						// TODO meta ops
-						Node::Branch(children, None, meta),
+						Node::Branch(children, None, meta_branch),
 						key,
 						value,
 						old_val,
 					)?.unwrap_node();
-					InsertAction(NodeChange::EncodedMeta, branch_action)
+					InsertAction(changed.combine(NodeChange::EncodedMeta), branch_action)
 				} else if common == existing_key.len() {
 					#[cfg(feature = "std")]
 					trace!(target: "trie", "complete-prefix (common={:?}): AUGMENT-AT-END", common);
@@ -982,7 +1083,12 @@ where
 					// insert into the child node.
 					key.advance(common);
 					let (new_child, changed) = self.insert_at(child_branch, key, value, old_val)?;
-					// TODO meta ops
+					let changed = self.extension_child_callback(
+						&mut meta,
+						&new_child,
+						changed,
+					);
+	
 					let new_ext = Node::Extension(existing_key.to_stored(), new_child.into(), meta);
 
 					// if the child branch wasn't changed, meaning this extension remains the same.
@@ -999,21 +1105,20 @@ where
 					);
 
 					// partially-shared.
-					// TODO meta ops
-					let low = Node::Extension(existing_key.mid(common).to_stored(), child_branch, meta.clone());
+					let low = Node::Extension(existing_key.mid(common).to_stored(), child_branch, meta);
 					// augment the extension. this will take the common == 0 path,
 					// creating a branch.
 					key.advance(common);
 					let augmented_low = self.insert_inspector(low, key, value, old_val)?
 						.unwrap_node();
 
-					let meta_leaf = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
+					let new_meta = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
 					// always replace, since this extension is not the one we started with.
 					// this is known because the partial key is only the common prefix.
 					InsertAction(NodeChange::EncodedMeta, Node::Extension(
 						existing_key.to_stored_range(common),
 						self.storage.alloc(Stored::New(augmented_low)).into(),
-						meta_leaf,
+						new_meta,
 					))
 				}
 			},

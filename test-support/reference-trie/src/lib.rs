@@ -240,6 +240,15 @@ impl Meta for ValueRange {
 			}
 		}
 	}
+
+	fn set_child_callback(
+		&mut self,
+		_child: Option<&Self>,
+		_changed: NodeChange,
+		_at: usize,
+	) -> NodeChange {
+		NodeChange::None
+	}
 }
 
 /// Representation with inner hash.
@@ -357,7 +366,7 @@ impl Meta for VersionedValueRange {
 	fn meta_for_new_empty(
 		input: Self::MetaInput,
 	) -> Self {
-		VersionedValueRange{ range: None, version: input }
+		VersionedValueRange { range: None, version: input }
 	}
 
 	fn meta_for_new(
@@ -367,13 +376,13 @@ impl Meta for VersionedValueRange {
 		// (pass iterator to meta of loaded child node in triedbmut: not loaded on creation
 		// do not exist: so undefined is not an old node but a new one).
 		// TODO change version when not all child are new.
-		VersionedValueRange{ range: None, version: input }
+		VersionedValueRange { range: None, version: input }
 	}
 
 	fn meta_for_existing_inline_node(
 		input: Self::MetaInput
 	) -> Self {
-		VersionedValueRange{ range: None, version: input }
+		VersionedValueRange { range: None, version: input }
 	}
 
 	fn set_value_callback(
@@ -411,6 +420,16 @@ impl Meta for VersionedValueRange {
 				}
 			}
 		}
+	}
+
+	fn set_child_callback(
+		&mut self,
+		_child: Option<&Self>,
+		_changed: NodeChange,
+		_at: usize,
+	) -> NodeChange {
+		// TODO child mgmt!!!
+		NodeChange::None
 	}
 }
 

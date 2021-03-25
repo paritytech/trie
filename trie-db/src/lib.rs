@@ -470,6 +470,7 @@ impl NodeChange {
 /// TODO remove meta and spawn from layout instance (so when old layout we keep producing old
 /// meta). -> need Layout as inner type.
 pub trait Meta: Clone {
+	// TODO is enabled associated const for skipping some precessing
 	/// Input for meta, this type is here mainly to separate trait layout
 	/// from from trait meta.
 	/// Usually it holds specific behavior from layout context.
@@ -507,18 +508,22 @@ pub trait Meta: Clone {
 		changed: NodeChange,
 	) -> NodeChange;
 
-	/* TODO
+	/// TODO inline and number of node are very related to
+	/// use case, could be gated behind a feature or we
+	/// could have node storing those.
 	fn set_child_callback(
 		&mut self,
-		previous_number_of_child: usize, // needed to initiat
 		child: Option<&Self>,
+		changed: NodeChange,
+		at: usize,
 	) -> NodeChange;
-	*/
 
 	/// TODO we could split meta from Node (may be merge with meta input).
 	/// and meta for encoding.
 	/// TODO codec when encoding could produce `NodePlan` here as a first step
 	/// we recalculate it, which is extra costy.
+	///
+	/// TODO can be remove, just feed meta on decode instead!!!
 	fn encoded_callback(
 		&mut self,
 		encoded: &[u8],
@@ -562,6 +567,15 @@ impl Meta for () {
 		_node_plan: crate::node::NodePlan,
 	) {
 		()
+	}
+
+	fn set_child_callback(
+		&mut self,
+		_child: Option<&Self>,
+		_changed: NodeChange,
+		_at: usize,
+	) -> NodeChange {
+		NodeChange::None
 	}
 }
 

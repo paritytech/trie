@@ -126,6 +126,9 @@ impl<T, V> CacheAccum<T, V>
 		target_depth: usize,
 		(k2, v2): &(impl AsRef<[u8]>, impl AsRef<[u8]>),
 	) {
+		// TODO need to produce meta for new node on all 'flush' and pass it to process.
+		/*if T::USE_META {
+		}*/
 		let nibble_value = nibble_ops::left_nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
 		let nkey = NibbleSlice::new_offset(&k2.as_ref()[..], target_depth + 1);

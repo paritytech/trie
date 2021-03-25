@@ -18,6 +18,7 @@
 use crate::MaybeDebug;
 use crate::node::{Node, NodePlan};
 use crate::ChildReference;
+use crate::Meta;
 
 use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec, ops::Range};
 
