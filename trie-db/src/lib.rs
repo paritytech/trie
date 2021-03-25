@@ -529,6 +529,18 @@ pub trait Meta: Clone {
 		encoded: &[u8],
 		node_plan: crate::node::NodePlan,
 	);
+
+	fn decoded_children(
+		&mut self,
+		children: impl Iterator<Item = ChildrenDecoded>,
+	);
+}
+
+// TODO
+pub enum ChildrenDecoded {
+	Hash,
+	Inline,
+	None,
 }
 
 impl Meta for () {
@@ -572,10 +584,16 @@ impl Meta for () {
 	fn set_child_callback(
 		&mut self,
 		_child: Option<&Self>,
-		_changed: NodeChange,
+		changed: NodeChange,
 		_at: usize,
 	) -> NodeChange {
-		NodeChange::None
+		changed
+	}
+
+	fn decoded_children(
+		&mut self,
+		_children: impl Iterator<Item = ChildrenDecoded>,
+	) {
 	}
 }
 

@@ -14,7 +14,7 @@
 
 //! In-memory trie representation.
 
-use super::{DBValue, node::NodeKey, Meta, NodeChange};
+use super::{DBValue, node::NodeKey, Meta, NodeChange, ChildrenDecoded};
 use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_hash};
@@ -55,7 +55,7 @@ impl<H> From<StorageHandle> for NodeHandle<H> {
 	}
 }
 
-fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; 16]> {
+fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; nibble_ops::NIBBLE_LENGTH]> {
 	Box::new([
 		None, None, None, None, None, None, None, None,
 		None, None, None, None, None, None, None, None,
@@ -82,9 +82,9 @@ enum Node<L: TrieLayout> {
 	/// The child node is always a branch.
 	Extension(NodeKey, NodeHandle<TrieHash<L>>, L::Meta),
 	/// A branch has up to 16 children and an optional value.
-	Branch(Box<[Option<NodeHandle<TrieHash<L>>>; 16]>, Option<DBValue>, L::Meta),
+	Branch(Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>, Option<DBValue>, L::Meta),
 	/// Branch node with support for a nibble (to avoid extension node).
-	NibbledBranch(NodeKey, Box<[Option<NodeHandle<TrieHash<L>>>; 16]>, Option<DBValue>, L::Meta),
+	NibbledBranch(NodeKey, Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>, Option<DBValue>, L::Meta),
 }
 
 #[cfg(feature = "std")]
@@ -151,16 +151,21 @@ impl<L: TrieLayout> Node<L>
 		data: &'a[u8],
 		db: &dyn HashDB<L::Hash, DBValue, L::ValueFunction>,
 		storage: &'b mut NodeStorage<L>,
-		meta: L::Meta, 
+		mut meta: L::Meta, 
 		layout: &L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
-		unimplemented!("TODO feed meta with number of children, and nb inline");
 		let encoded_node = L::Codec::decode(data)
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash, e)))?;
 		let node = match encoded_node {
 			EncodedNode::Empty => Node::Empty(meta),
 			EncodedNode::Leaf(k, v) => Node::Leaf(k.into(), v.to_vec(), meta),
 			EncodedNode::Extension(key, cb) => {
+				if L::USE_META {
+					meta.decoded_children(core::iter::once(match cb {
+						EncodedNodeHandle::Hash(..) => ChildrenDecoded::Hash,
+						EncodedNodeHandle::Inline(..) => ChildrenDecoded::Inline,
+					}));
+				}
 				Node::Extension(
 					key.into(),
 					Self::inline_or_hash(node_hash, cb, db, storage, layout)?,
@@ -173,6 +178,13 @@ impl<L: TrieLayout> Node<L>
 						.map(Some),
 					None => Ok(None),
 				};
+				if L::USE_META {
+					meta.decoded_children(encoded_children.iter().map(|cb| match cb {
+						Some(EncodedNodeHandle::Hash(..)) => ChildrenDecoded::Hash,
+						Some(EncodedNodeHandle::Inline(..)) => ChildrenDecoded::Inline,
+						None => ChildrenDecoded::None,
+					}));
+				}
 
 				let children = Box::new([
 					child(0)?, child(1)?, child(2)?, child(3)?,
@@ -189,6 +201,13 @@ impl<L: TrieLayout> Node<L>
 						.map(Some),
 					None => Ok(None),
 				};
+				if L::USE_META {
+					meta.decoded_children(encoded_children.iter().map(|cb| match cb {
+						Some(EncodedNodeHandle::Hash(..)) => ChildrenDecoded::Hash,
+						Some(EncodedNodeHandle::Inline(..)) => ChildrenDecoded::Inline,
+						None => ChildrenDecoded::None,
+					}));
+				}
 
 				let children = Box::new([
 					child(0)?, child(1)?, child(2)?, child(3)?,
@@ -470,7 +489,6 @@ where
 			death_row: HashSet::new(),
 			hash_count: 0,
 		}
-
 	}
 
 	/// Create a new trie with the backing database `db` and `root.
@@ -535,7 +553,7 @@ where
 
 	fn set_children(
 		&mut self,
-		children: &mut Box<[Option<NodeHandle<TrieHash<L>>>; 16]>,
+		children: &mut Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>,
 		meta: &mut L::Meta,
 		new_child: Option<StorageHandle>,
 		changed: NodeChange,

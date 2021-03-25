@@ -30,6 +30,7 @@ use trie_db::{
 	TrieRoot,
 	Partial,
 	Meta,
+	ChildrenDecoded,
 	NodeChange,
 };
 use std::borrow::Borrow;
@@ -244,10 +245,16 @@ impl Meta for ValueRange {
 	fn set_child_callback(
 		&mut self,
 		_child: Option<&Self>,
-		_changed: NodeChange,
+		changed: NodeChange,
 		_at: usize,
 	) -> NodeChange {
-		NodeChange::None
+		changed
+	}
+
+	fn decoded_children(
+		&mut self,
+		_children: impl Iterator<Item = ChildrenDecoded>,
+	) {
 	}
 }
 
@@ -425,11 +432,18 @@ impl Meta for VersionedValueRange {
 	fn set_child_callback(
 		&mut self,
 		_child: Option<&Self>,
-		_changed: NodeChange,
+		changed: NodeChange,
 		_at: usize,
 	) -> NodeChange {
 		// TODO child mgmt!!!
-		NodeChange::None
+		changed
+	}
+
+	fn decoded_children(
+		&mut self,
+		children: impl Iterator<Item = ChildrenDecoded>,
+	) {
+		// TODO if undefined feed old nodes with nb non inline children
 	}
 }
 
