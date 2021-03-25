@@ -471,6 +471,8 @@ fn state_hybrid_scenario() {
 	// convert memdb to hybrid by prefixing all value with EMPTY
 	let mut inner = memdb.drain();
 	inner.iter_mut().for_each(|(_key, value)| {
+		// uninitialized old children list
+		value.0.insert(0, 0u8);
 		// old trie type
 		value.0.insert(0, 0u8);
 		// no hashed range
@@ -520,4 +522,3 @@ fn state_hybrid_scenario() {
 
 	panic!("out");
 }
-

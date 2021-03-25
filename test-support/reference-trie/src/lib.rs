@@ -364,6 +364,7 @@ impl TrieLayout for Updatable {
 #[derive(Default, Clone)]
 pub struct VersionedValueRange {
 	range: Option<core::ops::Range<usize>>,
+	old_remaining_children: Option<Vec<u8>>,
 	version: Version,
 }
 
@@ -373,7 +374,7 @@ impl Meta for VersionedValueRange {
 	fn meta_for_new_empty(
 		input: Self::MetaInput,
 	) -> Self {
-		VersionedValueRange { range: None, version: input }
+		VersionedValueRange { range: None, version: input, old_remaining_children: None }
 	}
 
 	fn meta_for_new(
@@ -383,13 +384,13 @@ impl Meta for VersionedValueRange {
 		// (pass iterator to meta of loaded child node in triedbmut: not loaded on creation
 		// do not exist: so undefined is not an old node but a new one).
 		// TODO change version when not all child are new.
-		VersionedValueRange { range: None, version: input }
+		VersionedValueRange { range: None, version: input, old_remaining_children: None }
 	}
 
 	fn meta_for_existing_inline_node(
 		input: Self::MetaInput
 	) -> Self {
-		VersionedValueRange { range: None, version: input }
+		VersionedValueRange { range: None, version: input, old_remaining_children: None }
 	}
 
 	fn set_value_callback(
@@ -471,6 +472,7 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestUpdatableValueFunctio
 			// non empty empty trie byte for old node
 			stored.push(EMPTY_TRIE);
 			assert!(stored[0] == 0); // no range for old
+			stored.extend_from_slice(meta.old_remaining_children.encode().as_slice());
 		}
 		stored.extend_from_slice(value);
 		stored
@@ -485,24 +487,32 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestUpdatableValueFunctio
 	}
 
 	fn extract_value_owned(mut stored: DBValue) -> (DBValue, Self::Meta) {
-		let mut len = stored.len();
+		let len = stored.len();
 		let input = &mut stored.as_slice();
 		let range: Option<(u32, u32)> = Decode::decode(input).ok().flatten();
 		// if len == 1 it is new empty trie.
-		let version = if input[0] == EMPTY_TRIE && input.len() > 1 {
-			len += 1;
-			Version::Old
+		let (version, old_remaining_children) = if input[0] == EMPTY_TRIE && input.len() > 1 {
+			*input = &input[1..];
+			(Version::Old, Decode::decode(input).ok().flatten())
 		} else {
-			Version::New
+			(Version::New, None)
 		};
 		let read_bytes = len - input.len();
 		let stored = stored.split_off(read_bytes);
 		if let Some((start, end)) = range {
 			let start = start as usize;
 			let end = end as usize;
-			(stored, VersionedValueRange { range: Some(start..end), version })
+			(stored, VersionedValueRange {
+				old_remaining_children,
+				range: Some(start..end),
+				version,
+			})
 		} else {
-			(stored, VersionedValueRange { range: None, version })
+			(stored, VersionedValueRange {
+				old_remaining_children,
+				range: None,
+				version,
+			})
 		}
 	}
 }
