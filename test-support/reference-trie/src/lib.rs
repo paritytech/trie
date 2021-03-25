@@ -520,17 +520,16 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestUpdatableValueFunctio
 	}
 
 	fn stored_value(value: &[u8], meta: Self::Meta) -> DBValue {
-		// 'start' do not strictly have to be stored and compact should be use,
-		// but this is for test only.
-		let mut stored = meta.range.map(|range| (range.start as u32, range.end as u32)).encode();
 		if let Version::Old = meta.version {
 			// non empty empty trie byte for old node
-			stored.push(EMPTY_TRIE);
-			assert!(stored[0] == 0); // no range for old
-			stored.extend_from_slice(meta.old_remaining_children.encode().as_slice());
+			let mut stored = Vec::with_capacity(value.len() + 20);
+			stored.push(EMPTY_TRIE); // 1 byte
+			stored.extend_from_slice(meta.old_remaining_children.encode().as_slice()); // max 18 byt
+			stored.extend_from_slice(value);
+			stored
+		} else {
+			value.to_vec()
 		}
-		stored.extend_from_slice(value);
-		stored
 	}
 
 	fn stored_value_owned(value: DBValue, meta: Self::Meta) -> DBValue {
@@ -544,7 +543,6 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestUpdatableValueFunctio
 	fn extract_value_owned(mut stored: DBValue) -> (DBValue, Self::Meta) {
 		let len = stored.len();
 		let input = &mut stored.as_slice();
-		let range: Option<(u32, u32)> = Decode::decode(input).ok().flatten();
 		// if len == 1 it is new empty trie.
 		let (version, old_remaining_children) = if input[0] == EMPTY_TRIE && input.len() > 1 {
 			*input = &input[1..];
@@ -554,21 +552,11 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestUpdatableValueFunctio
 		};
 		let read_bytes = len - input.len();
 		let stored = stored.split_off(read_bytes);
-		if let Some((start, end)) = range {
-			let start = start as usize;
-			let end = end as usize;
-			(stored, VersionedValueRange {
-				old_remaining_children,
-				range: Some(start..end),
-				version,
-			})
-		} else {
-			(stored, VersionedValueRange {
-				old_remaining_children,
-				range: None,
-				version,
-			})
-		}
+		(stored, VersionedValueRange {
+			old_remaining_children,
+			range: None,
+			version,
+		})
 	}
 }
 

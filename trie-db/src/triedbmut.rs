@@ -287,16 +287,6 @@ impl<L: TrieLayout> Node<L>
 			| Node::Empty(meta) => meta,
 		}
 	}
-
-	pub(crate) fn meta_mut(&mut self) -> &mut L::Meta {
-		match self {
-			Node::Leaf(_, _, meta)
-			| Node::Extension(_, _, meta)
-			| Node::Branch(_, _, meta)
-			| Node::NibbledBranch(_, _, _, meta)
-			| Node::Empty(meta) => meta,
-		}
-	}
 }
 
 // post-inspect action.

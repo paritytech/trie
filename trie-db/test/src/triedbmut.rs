@@ -475,8 +475,6 @@ fn state_hybrid_scenario() {
 		value.0.insert(0, 0u8);
 		// old trie type
 		value.0.insert(0, 0u8);
-		// no hashed range
-		value.0.insert(0, 0u8);
 	});
 
 	// unsafe cast to use correct ValueFunction.
@@ -519,6 +517,4 @@ fn state_hybrid_scenario() {
 		trie.remove(b"test3").unwrap();
 	}
 	assert_eq!(count_old(&memdb), (0, 4));
-
-	panic!("out");
 }
