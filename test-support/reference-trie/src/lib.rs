@@ -374,23 +374,34 @@ impl Meta for VersionedValueRange {
 	fn meta_for_new_empty(
 		input: Self::MetaInput,
 	) -> Self {
-		VersionedValueRange { range: None, version: input, old_remaining_children: None }
+		let old_remaining_children = if matches!(input, Version::Old) {
+			Some(Vec::new())
+		} else {
+			None
+		};
+		VersionedValueRange { range: None, version: input, old_remaining_children }
 	}
 
 	fn meta_for_new(
 		input: Self::MetaInput,
 	) -> Self {
-		// TODO add child new index to meta (needs new callback into meta for triedbmut).
-		// (pass iterator to meta of loaded child node in triedbmut: not loaded on creation
-		// do not exist: so undefined is not an old node but a new one).
-		// TODO change version when not all child are new.
-		VersionedValueRange { range: None, version: input, old_remaining_children: None }
+		let old_remaining_children = if matches!(input, Version::Old) {
+			Some(Vec::new())
+		} else {
+			None
+		};
+		VersionedValueRange { range: None, version: input, old_remaining_children }
 	}
 
 	fn meta_for_existing_inline_node(
 		input: Self::MetaInput
 	) -> Self {
-		VersionedValueRange { range: None, version: input, old_remaining_children: None }
+		let old_remaining_children = if matches!(input, Version::Old) {
+			Some(Vec::new())
+		} else {
+			None
+		};
+		VersionedValueRange { range: None, version: input, old_remaining_children }
 	}
 
 	fn set_value_callback(
@@ -406,7 +417,13 @@ impl Meta for VersionedValueRange {
 		if is_branch {
 			// branch switch to new when all children are
 			// new, changing or adding value do not change this fact.
-			return changed
+			if let Some(remaining) = self.old_remaining_children.as_ref() {
+				if !remaining.is_empty() {
+					return changed;
+				}
+			} else {
+				unreachable!("lazy init on decode and not none on new");
+			}
 		}
 		self.version = Version::New;
 		if new_value.map(|v| v.len() >= INNER_HASH_TRESHOLD).unwrap_or(false) {
@@ -432,11 +449,37 @@ impl Meta for VersionedValueRange {
 
 	fn set_child_callback(
 		&mut self,
-		_child: Option<&Self>,
+		child: Option<&Self>,
 		changed: NodeChange,
-		_at: usize,
+		at: usize,
 	) -> NodeChange {
-		// TODO child mgmt!!!
+		// for new child or removed one
+		if matches!(self.version, Version::Old) {
+			// consider delete as new
+			let child_version = child.map(|child| child.version).unwrap_or(Version::New);
+			if let Some(remaining) = self.old_remaining_children.as_mut() {
+				let mut remove = None;
+				for (index, value) in remaining.iter().enumerate() {
+					if at as u8 == *value {
+						remove = Some(index);
+						break;
+					}
+				}
+				if let Some(index) = remove {
+					remaining.remove(index);
+				}
+				if matches!(child_version, Version::Old) {
+					remaining.push(at as u8);
+				}
+				if remaining.is_empty() {
+					self.version = Version::New;
+					self.old_remaining_children = None;
+					return NodeChange::EncodedMeta;
+				}
+			} else {
+				unreachable!("lazy init on decode and not none on new");
+			}
+		}
 		changed
 	}
 
@@ -444,7 +487,18 @@ impl Meta for VersionedValueRange {
 		&mut self,
 		children: impl Iterator<Item = ChildrenDecoded>,
 	) {
-		// TODO if undefined feed old nodes with nb non inline children
+		if matches!(self.version, Version::Old) {
+			if self.old_remaining_children.is_none() {
+				let mut non_inline_children = Vec::new();
+				for (index, child) in children.enumerate() {
+					if matches!(child, ChildrenDecoded::Hash) {
+						// overflow for radix > 256, ok with current hex trie only implementation.
+						non_inline_children.push(index as u8);
+					}
+				}
+				self.old_remaining_children = Some(non_inline_children);
+			}
+		}
 	}
 }
 
@@ -455,13 +509,14 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestUpdatableValueFunctio
 	type Meta = VersionedValueRange;
 
 	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out {
-		if let Some(range) = meta.range.as_ref() {
-			assert!(matches!(meta.version,Version::New));
-			let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
-			H::hash(value.as_slice())
-		} else {
-			H::hash(value)
+		if matches!(meta.version, Version::New) {
+			if let Some(range) = meta.range.as_ref() {
+				assert!(matches!(meta.version,Version::New));
+				let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
+				return H::hash(value.as_slice());
+			}
 		}
+		H::hash(value)
 	}
 
 	fn stored_value(value: &[u8], meta: Self::Meta) -> DBValue {

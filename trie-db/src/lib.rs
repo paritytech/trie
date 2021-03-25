@@ -459,6 +459,8 @@ impl NodeChange {
 		match (self, other) {
 			(NodeChange::Encoded, NodeChange::Meta) => NodeChange::EncodedMeta,
 			(NodeChange::Meta, NodeChange::Encoded) => NodeChange::EncodedMeta,
+			(NodeChange::Encoded, NodeChange::EncodedMeta) => NodeChange::EncodedMeta,
+			(NodeChange::Meta, NodeChange::EncodedMeta) => NodeChange::EncodedMeta,
 			(NodeChange::None, b) => b,
 			(a, _) => *a,
 		}
@@ -523,7 +525,8 @@ pub trait Meta: Clone {
 	/// TODO codec when encoding could produce `NodePlan` here as a first step
 	/// we recalculate it, which is extra costy.
 	///
-	/// TODO can be remove, just feed meta on decode instead!!!
+	/// TODO can be remove, just feed meta on decode instead!!! (and on set value set range even if
+	/// old for branch).
 	fn encoded_callback(
 		&mut self,
 		encoded: &[u8],
