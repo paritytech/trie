@@ -57,6 +57,16 @@ pub enum Node<'a> {
 	NibbledBranch(NibbleSlice<'a>, [Option<NodeHandle<'a>>; nibble_ops::NIBBLE_LENGTH], Option<&'a [u8]>),
 }
 
+impl<'a> Node<'a> {
+	/// Check if this is a branch node plan.
+	pub fn is_branch(&self) -> bool {
+		match self {
+			Node::Branch(..) | Node::NibbledBranch(..) => true,
+			_ => false,
+		}
+	}
+}
+
 /// A `NodeHandlePlan` is a decoding plan for constructing a `NodeHandle` from an encoded trie
 /// node. This is used as a substructure of `NodePlan`. See `NodePlan` for details.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +83,27 @@ impl NodeHandlePlan {
 		match self {
 			NodeHandlePlan::Hash(range) => NodeHandle::Hash(&data[range.clone()]),
 			NodeHandlePlan::Inline(range) => NodeHandle::Inline(&data[range.clone()]),
+		}
+	}
+
+	/// Range of node handle definition in encoded data.
+	pub fn as_hash<'a, 'b, HOut: Default + AsMut<[u8]>>(&'a self, encoded_node: &[u8]) -> HOut {
+		let mut dest = HOut::default();
+
+		match self {
+			NodeHandlePlan::Inline(range)
+			| NodeHandlePlan::Hash(range) => {
+				dest.as_mut()[..range.len()].copy_from_slice(&encoded_node[range.clone()]);
+			},
+		}
+		dest
+	}
+
+	/// Check if it is an inline node.
+	pub fn is_inline(&self) -> bool {
+		match self {
+			NodeHandlePlan::Hash(_) => false,
+			NodeHandlePlan::Inline(_) => true,
 		}
 	}
 }
@@ -170,6 +201,14 @@ impl NodePlan {
 				let value_slice = value.clone().map(|value| &data[value]);
 				Node::NibbledBranch(partial.build(data), child_slices, value_slice)
 			},
+		}
+	}
+
+	/// Check if this is a branch node plan.
+	pub fn is_branch(&self) -> bool {
+		match self {
+			NodePlan::Branch{..} | NodePlan::NibbledBranch{..} => true,
+			_ => false,
 		}
 	}
 }

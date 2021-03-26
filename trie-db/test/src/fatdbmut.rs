@@ -14,13 +14,12 @@
 
 use memory_db::{MemoryDB, HashKey};
 use hash_db::{Hasher, EMPTY_PREFIX};
-use keccak_hasher::KeccakHasher;
-use reference_trie::{RefFatDBMut, RefTrieDB};
+use reference_trie::{RefFatDBMut, RefTrieDB, RefHasher};
 use trie_db::{Trie, TrieMut};
 
 #[test]
 fn fatdbmut_to_trie() {
-	let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
+	let mut memdb = MemoryDB::<RefHasher, HashKey<_>, _>::default();
 	let mut root = Default::default();
 	{
 		let mut t = RefFatDBMut::new(&mut memdb, &mut root);
@@ -28,19 +27,19 @@ fn fatdbmut_to_trie() {
 	}
 	let t = RefTrieDB::new(&memdb, &root).unwrap();
 	assert_eq!(
-		t.get(&KeccakHasher::hash(&[0x01u8, 0x23])),
+		t.get(&RefHasher::hash(&[0x01u8, 0x23])),
 		Ok(Some(vec![0x01u8, 0x23])),
 	);
 }
 
 #[test]
 fn fatdbmut_insert_remove_key_mapping() {
-	let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
+	let mut memdb = MemoryDB::<RefHasher, HashKey<_>, _>::default();
 	let mut root = Default::default();
 	let key = [0x01u8, 0x23];
 	let val = [0x01u8, 0x24];
-	let key_hash = KeccakHasher::hash(&key);
-	let aux_hash = KeccakHasher::hash(&key_hash);
+	let key_hash = RefHasher::hash(&key);
+	let aux_hash = RefHasher::hash(&key_hash);
 	let mut t = RefFatDBMut::new(&mut memdb, &mut root);
 	t.insert(&key, &val).unwrap();
 	assert_eq!(t.get(&key), Ok(Some(val.to_vec())));

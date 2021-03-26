@@ -26,21 +26,52 @@ use trie_db::{
 	triedbmut::ChildReference,
 	DBValue,
 	trie_visit,
+	TrieBuilderHybrid,
 	TrieBuilder,
 	TrieRoot,
+	TrieRootHybrid,
 	Partial,
+	HasherHybrid,
+	BinaryHasher,
+	ChildProofHeader,
+	HashesPlan,
+	binary_additional_hashes,
+	TrieDB,
+	TrieDBMut,
+	Bitmap, BITMAP_LENGTH,
 };
 use std::borrow::Borrow;
-use keccak_hasher::KeccakHasher;
 
 use trie_db::{
-	nibble_ops, NodeCodec,
-	Trie, TrieConfiguration,
+//	decode_compact, encode_compact, HashDBHybridDyn,
+	nibble_ops, NodeCodec, NodeCodecHybrid,
+	Trie, TrieConfiguration, HashDBHybrid,
 	TrieLayout, TrieMut,
 };
 pub use trie_root::TrieStream;
 pub mod node {
 	pub use trie_db::node::Node;
+}
+
+/// Reference hasher is a keccak hasher with hybrid ordered trie implementation.
+pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, blake2::Blake2Hasher>;
+//pub type RefHasher = ordered_trie::OrderedTrieHasher<blake3::Blake3Hasher, blake3::Blake3Hasher>;
+//pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, keccak_hasher::KeccakHasher>;
+//use keccak_hasher::KeccakHasher;
+//pub type RefHasher = ordered_trie::OrderedTrieHasher<keccak_hasher::KeccakHasher, keccak_hasher::KeccakHasher>;
+
+/// Apply a test method on every test layouts.
+#[macro_export]
+macro_rules! test_layouts {
+	($test:ident, $test_internal:ident) => {
+		#[test]
+		fn $test() {
+			$test_internal::<reference_trie::NoExtensionLayout>();
+			$test_internal::<reference_trie::ExtensionLayout>();
+			$test_internal::<reference_trie::NoExtensionLayoutHybrid>();
+			$test_internal::<reference_trie::ExtensionLayoutHybrid>();
+		}
+	};
 }
 
 /// Trie layout using extension nodes.
@@ -49,22 +80,39 @@ pub struct ExtensionLayout;
 impl TrieLayout for ExtensionLayout {
 	const USE_EXTENSION: bool = true;
 	const ALLOW_EMPTY: bool = false;
-	type Hash = KeccakHasher;
-	type Codec = ReferenceNodeCodec<KeccakHasher>;
+	const HYBRID_HASH: bool = false;
+	type Hash = RefHasher;
+	type Codec = ReferenceNodeCodec<RefHasher>;
 }
 
 impl TrieConfiguration for ExtensionLayout { }
+
+/// Trie layout using extension nodes.
+pub struct ExtensionLayoutHybrid;
+
+impl TrieLayout for ExtensionLayoutHybrid {
+	const USE_EXTENSION: bool = true;
+	const ALLOW_EMPTY: bool = false;
+	const HYBRID_HASH: bool = true;
+	type Hash = RefHasher;
+	type Codec = ReferenceNodeCodec<RefHasher>;
+}
+
+impl TrieConfiguration for ExtensionLayoutHybrid { }
 
 /// Trie layout without extension nodes, allowing
 /// generic hasher.
 pub struct GenericNoExtensionLayout<H>(PhantomData<H>);
 
-impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
+impl<H: HasherHybrid> TrieLayout for GenericNoExtensionLayout<H> {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
+	const HYBRID_HASH: bool = false;
 	type Hash = H;
 	type Codec = ReferenceNodeCodecNoExt<H>;
 }
+
+impl<H: HasherHybrid> TrieConfiguration for GenericNoExtensionLayout<H> { }
 
 /// Trie that allows empty values
 pub struct AllowEmptyLayout;
@@ -72,61 +120,57 @@ pub struct AllowEmptyLayout;
 impl TrieLayout for AllowEmptyLayout {
 	const USE_EXTENSION: bool = true;
 	const ALLOW_EMPTY: bool = true;
-	type Hash = KeccakHasher;
-	type Codec = ReferenceNodeCodec<KeccakHasher>;
+	const HYBRID_HASH: bool = false;
+	type Hash = RefHasher;
+	type Codec = ReferenceNodeCodec<RefHasher>;
 }
-
-impl<H: Hasher> TrieConfiguration for GenericNoExtensionLayout<H> { }
 
 /// Trie layout without extension nodes.
-pub type NoExtensionLayout = GenericNoExtensionLayout<keccak_hasher::KeccakHasher>;
+pub type NoExtensionLayout = GenericNoExtensionLayout<RefHasher>;
 
-/// Children bitmap codec for radix 16 trie.
-pub struct Bitmap(u16);
+/// Trie layout without extension nodes, allowing
+/// generic hasher.
+pub struct GenericNoExtensionLayoutHybrid<H>(PhantomData<H>);
 
-const BITMAP_LENGTH: usize = 2;
-
-impl Bitmap {
-
-	fn decode(data: &[u8]) -> Result<Self, CodecError> {
-		Ok(u16::decode(&mut &data[..])
-			.map(|v| Bitmap(v))?)
-	}
-
-	fn value_at(&self, i: usize) -> bool {
-		self.0 & (1u16 << i) != 0
-	}
-
-	fn encode<I: Iterator<Item = bool>>(has_children: I , output: &mut [u8]) {
-		let mut bitmap: u16 = 0;
-		let mut cursor: u16 = 1;
-		for v in has_children {
-			if v { bitmap |= cursor }
-			cursor <<= 1;
-		}
-		output[0] = (bitmap % 256) as u8;
-		output[1] = (bitmap / 256) as u8;
-	}
+impl<H: HasherHybrid> TrieLayout for GenericNoExtensionLayoutHybrid<H> {
+	const USE_EXTENSION: bool = false;
+	const HYBRID_HASH: bool = true;
+	type Hash = H;
+	type Codec = ReferenceNodeCodecNoExt<H>;
 }
 
-pub type RefTrieDB<'a> = trie_db::TrieDB<'a, ExtensionLayout>;
-pub type RefTrieDBNoExt<'a> = trie_db::TrieDB<'a, NoExtensionLayout>;
-pub type RefTrieDBMut<'a> = trie_db::TrieDBMut<'a, ExtensionLayout>;
-pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMut<'a, NoExtensionLayout>;
-pub type RefTrieDBMutAllowEmpty<'a> = trie_db::TrieDBMut<'a, AllowEmptyLayout>;
+impl<H: HasherHybrid> TrieConfiguration for GenericNoExtensionLayoutHybrid<H> { }
+
+/// Trie layout without extension nodes.
+pub type NoExtensionLayoutHybrid = GenericNoExtensionLayoutHybrid<RefHasher>;
+
+pub type RefTrieDB<'a> = TrieDB<'a, ExtensionLayout>;
+pub type RefTrieDBMut<'a> = TrieDBMut<'a, ExtensionLayout>;
+pub type RefTrieDBMutNoExt<'a> = TrieDBMut<'a, NoExtensionLayout>;
+pub type RefTrieDBMutAllowEmpty<'a> = TrieDBMut<'a, AllowEmptyLayout>;
 pub type RefFatDB<'a> = trie_db::FatDB<'a, ExtensionLayout>;
 pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, ExtensionLayout>;
 pub type RefSecTrieDB<'a> = trie_db::SecTrieDB<'a, ExtensionLayout>;
 pub type RefSecTrieDBMut<'a> = trie_db::SecTrieDBMut<'a, ExtensionLayout>;
 pub type RefLookup<'a, Q> = trie_db::Lookup<'a, ExtensionLayout, Q>;
+pub type RefLookupHybrid<'a, Q> = trie_db::Lookup<'a, ExtensionLayoutHybrid, Q>;
 pub type RefLookupNoExt<'a, Q> = trie_db::Lookup<'a, NoExtensionLayout, Q>;
+pub type RefLookupNoExtHybrid<'a, Q> = trie_db::Lookup<'a, NoExtensionLayoutHybrid, Q>;
 
-pub fn reference_trie_root<I, A, B>(input: I) -> <KeccakHasher as Hasher>::Out where
+
+pub fn reference_trie_root<T: TrieLayout, I, A, B>(input: I) -> <T::Hash as Hasher>::Out where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	trie_root::trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(input)
+	if T::HYBRID_HASH {
+		unimplemented!("trie_root does not implement hybrid hash, iter_build does")
+	}
+	if T::USE_EXTENSION {
+		trie_root::trie_root::<T::Hash, ReferenceTrieStream, _, _, _>(input)
+	} else {
+		trie_root::trie_root_no_extension::<T::Hash, ReferenceTrieStreamNoExt, _, _, _>(input)
+	}
 }
 
 fn reference_trie_root_unhashed<I, A, B>(input: I) -> Vec<u8> where
@@ -134,15 +178,38 @@ fn reference_trie_root_unhashed<I, A, B>(input: I) -> Vec<u8> where
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	trie_root::unhashed_trie::<KeccakHasher, ReferenceTrieStream, _, _, _>(input)
+	trie_root::unhashed_trie::<RefHasher, ReferenceTrieStream, _, _, _>(input)
 }
 
-pub fn reference_trie_root_no_extension<I, A, B>(input: I) -> <KeccakHasher as Hasher>::Out where
+fn data_sorted_unique<I, A: Ord, B>(input: I) -> Vec<(A, B)>
+	where
+		I: IntoIterator<Item = (A, B)>,
+{
+	let mut m = std::collections::BTreeMap::new();
+	for (k,v) in input {
+		let _ = m.insert(k,v); // latest value for uniqueness
+	}
+	m.into_iter().collect()
+}
+
+pub fn reference_trie_root_iter_build<T, I, A, B>(input: I) -> <T::Hash as Hasher>::Out where
+	T: TrieLayout,
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	trie_root::trie_root_no_extension::<KeccakHasher, ReferenceTrieStreamNoExt, _, _, _>(input)
+	match T::HYBRID_HASH {
+		true => {
+			let mut cb = trie_db::TrieRootHybrid::<T::Hash, _>::default();
+			trie_visit::<T, _, _, _, _>(data_sorted_unique(input), &mut cb);
+			cb.root.unwrap_or_default()
+		},
+		false => {
+			let mut cb = trie_db::TrieRoot::<T::Hash, _>::default();
+			trie_visit::<T, _, _, _, _>(data_sorted_unique(input), &mut cb);
+			cb.root.unwrap_or_default()
+		},
+	}
 }
 
 fn reference_trie_root_unhashed_no_extension<I, A, B>(input: I) -> Vec<u8> where
@@ -150,7 +217,7 @@ fn reference_trie_root_unhashed_no_extension<I, A, B>(input: I) -> Vec<u8> where
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	trie_root::unhashed_trie_no_extension::<KeccakHasher, ReferenceTrieStreamNoExt, _, _, _>(input)
+	trie_root::unhashed_trie_no_extension::<RefHasher, ReferenceTrieStreamNoExt, _, _, _>(input)
 }
 
 const EMPTY_TRIE: u8 = 0;
@@ -382,6 +449,13 @@ enum NodeHeaderNoExt {
 	Leaf(usize),
 }
 
+impl NodeHeader {
+	fn is_branch(first_byte: u8) -> bool {
+		first_byte == BRANCH_NODE_NO_VALUE
+			|| first_byte == BRANCH_NODE_NO_VALUE
+	}
+}
+
 impl Encode for NodeHeader {
 	fn encode_to<T: Output + ?Sized>(&self, output: &mut T) {
 		match self {
@@ -471,6 +545,14 @@ impl Decode for NodeHeader {
 			i @ EXTENSION_NODE_OFFSET ..= EXTENSION_NODE_LAST =>
 				NodeHeader::Extension((i - EXTENSION_NODE_OFFSET) as usize),
 		})
+	}
+}
+
+impl NodeHeaderNoExt {
+	fn is_branch(first_byte: u8) -> bool {
+		let first_byte = first_byte & (0b11 << 6);
+		first_byte == BRANCH_WITHOUT_MASK_NO_EXT
+			|| first_byte == BRANCH_WITH_MASK_NO_EXT
 	}
 }
 
@@ -622,26 +704,18 @@ impl<'a> Input for ByteSliceInput<'a> {
 	}
 }
 
-// NOTE: what we'd really like here is:
-// `impl<H: Hasher> NodeCodec<H> for RlpNodeCodec<H> where <KeccakHasher as Hasher>::Out: Decodable`
-// but due to the current limitations of Rust const evaluation we can't do
-// `const HASHED_NULL_NODE: <KeccakHasher as Hasher>::Out = <KeccakHasher as Hasher>::Out( … … )`.
-// Perhaps one day soon?
-impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
-	type Error = CodecError;
-	type HashOut = H::Out;
-
-	fn hashed_null_node() -> <H as Hasher>::Out {
-		H::hash(<Self as NodeCodec>::empty_node())
-	}
-
-	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
+impl<H: Hasher> ReferenceNodeCodec<H> {
+	fn decode_plan_internal(
+		data: &[u8],
+		is_proof: bool,
+	) -> ::std::result::Result<(NodePlan, usize), <Self as NodeCodec>::Error> {
+		let mut result_offset = 0;
 		let mut input = ByteSliceInput::new(data);
-		match NodeHeader::decode(&mut input)? {
-			NodeHeader::Null => Ok(NodePlan::Empty),
+		let node = match NodeHeader::decode(&mut input)? {
+			NodeHeader::Null => NodePlan::Empty,
 			NodeHeader::Branch(has_value) => {
 				let bitmap_range = input.take(BITMAP_LENGTH)?;
-				let bitmap = Bitmap::decode(&data[bitmap_range])?;
+				let bitmap = Bitmap::decode(&data[bitmap_range]);
 
 				let value = if has_value {
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
@@ -649,22 +723,27 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 				} else {
 					None
 				};
+				result_offset = input.offset;
 				let mut children = [
 					None, None, None, None, None, None, None, None,
 					None, None, None, None, None, None, None, None,
 				];
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
 					if bitmap.value_at(i) {
-						let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-						let range = input.take(count)?;
-						children[i] = Some(if count == H::LENGTH {
-							NodeHandlePlan::Hash(range)
+						if is_proof {
+							children[i] = Some(NodeHandlePlan::Inline(Range { start: 0, end: 0 }));
 						} else {
-							NodeHandlePlan::Inline(range)
-						});
+							let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
+							let range = input.take(count)?;
+							children[i] = Some(if count == H::LENGTH {
+								NodeHandlePlan::Hash(range)
+							} else {
+								NodeHandlePlan::Inline(range)
+							});
+						}
 					}
 				}
-				Ok(NodePlan::Branch { value, children })
+				NodePlan::Branch { value, children }
 			}
 			NodeHeader::Extension(nibble_count) => {
 				let partial = input.take(
@@ -678,10 +757,10 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 				} else {
 					NodeHandlePlan::Inline(range)
 				};
-				Ok(NodePlan::Extension {
+				NodePlan::Extension {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
 					child
-				})
+				}
 			}
 			NodeHeader::Leaf(nibble_count) => {
 				let partial = input.take(
@@ -690,12 +769,31 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 				let partial_padding = nibble_ops::number_padding(nibble_count);
 				let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
 				let value = input.take(count)?;
-				Ok(NodePlan::Leaf {
+				NodePlan::Leaf {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
 					value,
-				})
+				}
 			}
-		}
+		};
+		Ok((node, result_offset))
+	}
+}
+
+// NOTE: what we'd really like here is:
+// `impl<H: Hasher> NodeCodec<H> for RlpNodeCodec<H> where <RefHasher as Hasher>::Out: Decodable`
+// but due to the current limitations of Rust const evaluation we can't do
+// `const HASHED_NULL_NODE: <RefHasher as Hasher>::Out = <RefHasher as Hasher>::Out( … … )`.
+// Perhaps one day soon?
+impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
+	type Error = CodecError;
+	type HashOut = H::Out;
+
+	fn hashed_null_node() -> <H as Hasher>::Out {
+		H::hash(<Self as NodeCodec>::empty_node())
+	}
+
+	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
+		Ok(Self::decode_plan_internal(data, false)?.0)
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
@@ -735,6 +833,98 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
 	) -> Vec<u8> {
+		Self::branch_node_internal(children, maybe_value, None, false, true).0
+	}
+
+	fn branch_node_nibbled(
+		_partial:	impl Iterator<Item = u8>,
+		_number_nibble: usize,
+		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		_maybe_value: Option<&[u8]>,
+	) -> Vec<u8> {
+		unreachable!()
+	}
+
+}
+
+impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodec<H> {
+	type AdditionalHashesPlan = HashesPlan;
+
+	fn decode_plan_compact_proof(data: &[u8]) -> Result<(NodePlan, Option<(Bitmap, Self::AdditionalHashesPlan)>), Self::Error> {
+		let (node, offset) = Self::decode_plan_internal(data, true)?;
+		decode_plan_compact_proof_internal(data, offset, node, H::LENGTH)
+	}
+
+	fn branch_node_common(
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		maybe_value: Option<&[u8]>,
+		register_children: Option<&mut [Option<Range<usize>>]>,
+	) -> (Vec<u8>, ChildProofHeader) {
+		Self::branch_node_internal(children, maybe_value, register_children, true, true)
+	}
+
+	fn branch_node_nibbled_common(
+		_partial:	impl Iterator<Item = u8>,
+		_number_nibble: usize,
+		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		_maybe_value: Option<&[u8]>,
+		_register_children: Option<&mut [Option<Range<usize>>]>,
+	) -> (Vec<u8>, ChildProofHeader) {
+		unreachable!()
+	}
+
+	fn branch_node_for_hash(
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		maybe_value: Option<&[u8]>,
+	) -> Vec<u8> {
+		Self::branch_node_internal(children, maybe_value, None, true, false).0
+	}
+
+	fn branch_node_nibbled_for_hash(
+		_partial:	impl Iterator<Item = u8>,
+		_number_nibble: usize,
+		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		_maybe_value: Option<&[u8]>,
+	) -> Vec<u8> {
+		unreachable!()
+	}
+
+	fn encode_compact_proof<BH: BinaryHasher>(
+		hash_proof_header: Vec<u8>,
+		children: &[Option<ChildReference<BH::Out>>],
+		in_proof: &[bool],
+		hash_buf: &mut BH::Buffer,
+	) -> Vec<u8> {
+		encode_proof_internal::<BH>(hash_proof_header, children, hash_buf, in_proof)
+	}
+
+	fn need_hybrid_proof(data: &[u8]) -> Result<Option<(NodePlan, ChildProofHeader)>, ()> {
+		if data.len() > 0 {
+			if NodeHeader::is_branch(data[0]) {
+				let (node, offset) = Self::decode_plan_internal(data, false).map_err(|_| ())?;
+				let header = ChildProofHeader::Range( Range {
+					start: 0,
+					end: offset,
+				});
+				return Ok(Some((node, header)))
+			}
+		}
+		Ok(None)
+	}
+
+	fn codec_error(desc: &'static str) -> Self::Error {
+		desc.into()
+	}
+}
+
+impl<H: Hasher> ReferenceNodeCodec<H> {
+	fn branch_node_internal(
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<Self as NodeCodec>::HashOut>>>>,
+		maybe_value: Option<&[u8]>,
+		mut register_children: Option<&mut [Option<Range<usize>>]>,
+		hybrid: bool,
+		encode_children: bool,
+	) -> (Vec<u8>, ChildProofHeader) {
 		let mut output = vec![0; BITMAP_LENGTH + 1];
 		let mut prefix: [u8; 3] = [0; 3];
 		let have_value = if let Some(value) = maybe_value {
@@ -743,44 +933,163 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		} else {
 			false
 		};
+		let mut ix = 0;
+		let ix = &mut ix;
+		let mut register_children = register_children.as_mut();
+		let register_children = &mut register_children;
+		let common = if encode_children && hybrid {
+			ChildProofHeader::Range(Range {
+				start: 0,
+				end: output.len(),
+			})
+		} else {
+			ChildProofHeader::Unused
+		};
+
+		let mut child_ix = output.len();
 		let has_children = children.map(|maybe_child| match maybe_child.borrow() {
 			Some(ChildReference::Hash(h)) => {
-				h.as_ref().encode_to(&mut output);
+				if let Some(ranges) = register_children {
+					// this assume scale codec put len on one byte, which is the
+					// case for reasonable hash length.
+					let encode_size_offset = 1;
+					ranges[*ix] = Some(Range {
+						start: child_ix + encode_size_offset,
+						end: child_ix + encode_size_offset + h.as_ref().len(),
+					});
+					child_ix += encode_size_offset + h.as_ref().len();
+					*ix += 1;
+				}
+				if encode_children {
+					h.as_ref().encode_to(&mut output);
+				}
 				true
 			}
 			&Some(ChildReference::Inline(inline_data, len)) => {
-				inline_data.as_ref()[..len].encode_to(&mut output);
+				if let Some(ranges) = register_children {
+					let encode_size_offset = 1;
+					ranges[*ix] = Some(Range {
+						start: child_ix + encode_size_offset,
+						end: child_ix + encode_size_offset + len,
+					});
+					child_ix += encode_size_offset + len;
+					*ix += 1;
+				}
+				if encode_children {
+					inline_data.as_ref()[..len].encode_to(&mut output);
+				}
 				true
 			}
-			None => false,
+			None => {
+				if register_children.is_some() {
+					*ix += 1;
+				}
+				false
+			},
 		});
 		branch_node_buffered(have_value, has_children, prefix.as_mut());
 		output[0..BITMAP_LENGTH + 1].copy_from_slice(prefix.as_ref());
-		output
+		(output, common)
 	}
-
-	fn branch_node_nibbled(
-		_partial:	impl Iterator<Item = u8>,
-		_number_nibble: usize,
-		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		_maybe_value: Option<&[u8]>) -> Vec<u8> {
-		unreachable!()
-	}
-
 }
 
-impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
-	type Error = CodecError;
-	type HashOut = <H as Hasher>::Out;
+fn decode_plan_compact_proof_internal(
+	data: &[u8],
+	mut offset: usize,
+	mut node: NodePlan,
+	hash_len: usize,
+) -> Result<(NodePlan, Option<(Bitmap, HashesPlan)>), CodecError> {
+	let hashes_plan = match &mut node {
+		NodePlan::Branch{children, ..} | NodePlan::NibbledBranch{children, ..} => {
+			if data.len() < offset + 3 {
+				return Err(CodecError::from("Decode branch, missing proof headers"));
+			}
+			let keys_position = Bitmap::decode(&data[offset..offset + BITMAP_LENGTH]);
+			offset += BITMAP_LENGTH;
 
-	fn hashed_null_node() -> <H as Hasher>::Out {
-		H::hash(<Self as NodeCodec>::empty_node())
+			let nb_additional;
+			// read inline nodes.
+			loop {
+				let nb = data[offset] as usize;
+				offset += 1;
+				if nb >= 128 {
+					nb_additional = nb - 128;
+					break;
+				}
+				// 2 for inline index and next elt length.
+				if data.len() < offset + nb + 2 {
+					return Err(CodecError::from("Decode branch, missing proof inline data"));
+				}
+				let ix = data[offset] as usize;
+				offset += 1;
+				let inline = offset..offset + nb;
+				if ix >= nibble_ops::NIBBLE_LENGTH {
+					return Err(CodecError::from("Decode branch, invalid inline index"));
+				}
+				children[ix] = Some(NodeHandlePlan::Inline(inline));
+				offset += nb;
+			}
+			let additional_len = nb_additional * hash_len;
+			if data.len() < offset + additional_len {
+				return Err(CodecError::from("Decode branch, missing child proof hashes"));
+			}
+			Some((keys_position, HashesPlan::new(nb_additional, offset, hash_len)))
+		},
+		_ => None,
+	};
+	Ok((node, hashes_plan))
+}
+
+fn encode_proof_internal<H: BinaryHasher>(
+	mut result: Vec<u8>,
+	children: &[Option<ChildReference<H::Out>>],
+	hash_buf: &mut H::Buffer,
+	in_proof: &[bool],
+) -> Vec<u8> {
+	let bitmap_start = result.len();
+	result.push(0u8);
+	result.push(0u8);
+	// Write all inline nodes, that need to be proved.
+	for (ix, child) in children.iter().enumerate() {
+		if let Some(ChildReference::Inline(h, nb)) = child.borrow() {
+			if *nb > 0 {
+				if in_proof[ix] {
+					debug_assert!(*nb < 128);
+					result.push(*nb as u8);
+					result.push(ix as u8);
+					result.extend_from_slice(&h.as_ref()[..*nb]);
+				}
+			} else {
+				debug_assert!(in_proof[ix]);
+			}
+		}
 	}
+	// We write a bitmap containing all children node that are included in the binary
+	// child proof construction.
+	// In practice, that is inline values and ommited compacted values).
+	Bitmap::encode(in_proof.iter().map(|b| *b), &mut result[bitmap_start..]);
 
-	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
+	let additional_hashes = binary_additional_hashes::<H>(
+		&children[..],
+		&in_proof[..],
+		hash_buf,
+	);
+	result.push((additional_hashes.len() as u8) | 128); // first bit at one indicates we are on additional hashes
+	for hash in additional_hashes {
+		result.extend_from_slice(hash.as_ref());
+	}
+	result
+}
+
+impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
+	fn decode_plan_internal(
+		data: &[u8],
+		is_proof: bool,
+	) -> ::std::result::Result<(NodePlan, usize), <Self as NodeCodec>::Error> {
+		let mut result_offset = 0;
 		let mut input = ByteSliceInput::new(data);
-		match NodeHeaderNoExt::decode(&mut input)? {
-			NodeHeaderNoExt::Null => Ok(NodePlan::Empty),
+		let node = match NodeHeaderNoExt::decode(&mut input)? {
+			NodeHeaderNoExt::Null => NodePlan::Empty,
 			NodeHeaderNoExt::Branch(has_value, nibble_count) => {
 				let padding = nibble_count % nibble_ops::NIBBLE_PER_BYTE != 0;
 				// check that the padding is valid (if any)
@@ -792,7 +1101,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				)?;
 				let partial_padding = nibble_ops::number_padding(nibble_count);
 				let bitmap_range = input.take(BITMAP_LENGTH)?;
-				let bitmap = Bitmap::decode(&data[bitmap_range])?;
+				let bitmap = Bitmap::decode(&data[bitmap_range]);
 				let value = if has_value {
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
 					Some(input.take(count)?)
@@ -803,22 +1112,27 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 					None, None, None, None, None, None, None, None,
 					None, None, None, None, None, None, None, None,
 				];
+				result_offset = input.offset;
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
 					if bitmap.value_at(i) {
-						let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-						let range = input.take(count)?;
-						children[i] = Some(if count == H::LENGTH {
-							NodeHandlePlan::Hash(range)
+						if is_proof {
+							children[i] = Some(NodeHandlePlan::Inline(Range { start: 0, end: 0 }));
 						} else {
-							NodeHandlePlan::Inline(range)
-						});
+							let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
+							let range = input.take(count)?;
+							children[i] = Some(if count == H::LENGTH {
+								NodeHandlePlan::Hash(range)
+							} else {
+								NodeHandlePlan::Inline(range)
+							});
+						}
 					}
 				}
-				Ok(NodePlan::NibbledBranch {
+				NodePlan::NibbledBranch {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
 					value,
 					children,
-				})
+				}
 			}
 			NodeHeaderNoExt::Leaf(nibble_count) => {
 				let padding = nibble_count % nibble_ops::NIBBLE_PER_BYTE != 0;
@@ -832,12 +1146,26 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				let partial_padding = nibble_ops::number_padding(nibble_count);
 				let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
 				let value = input.take(count)?;
-				Ok(NodePlan::Leaf {
+				NodePlan::Leaf {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
 					value,
-				})
+				}
 			}
-		}
+		};
+		Ok((node, result_offset))
+	}
+}
+
+impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
+	type Error = CodecError;
+	type HashOut = <H as Hasher>::Out;
+
+	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
+		Ok(Self::decode_plan_internal(data, false)?.0)
+	}
+
+	fn hashed_null_node() -> <H as Hasher>::Out {
+		H::hash(<Self as NodeCodec>::empty_node())
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
@@ -875,6 +1203,20 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Option<&[u8]>,
 	) -> Vec<u8> {
+		Self::branch_node_nibbled_internal(partial, number_nibble, children, maybe_value, None, false, true).0
+	}
+}
+
+impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
+	fn branch_node_nibbled_internal(
+		partial: impl Iterator<Item = u8>,
+		number_nibble: usize,
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<Self as NodeCodec>::HashOut>>>>,
+		maybe_value: Option<&[u8]>,
+		mut register_children: Option<&mut [Option<Range<usize>>]>,
+		hybrid: bool,
+		encode_children: bool,
+	) -> (Vec<u8>, ChildProofHeader) {
 		let mut output = if maybe_value.is_some() {
 			partial_from_iterator_encode(
 				partial,
@@ -894,38 +1236,162 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		if let Some(value) = maybe_value {
 			value.encode_to(&mut output);
 		};
+		let mut ix = 0;
+		let ix = &mut ix;
+		let mut register_children = register_children.as_mut();
+		let register_children = &mut register_children;
+		let common = if encode_children && hybrid {
+			ChildProofHeader::Range(Range {
+				start: 0,
+				end: output.len(),
+			})
+		} else {
+			ChildProofHeader::Unused
+		};
+
+		let mut child_ix = output.len();
 		Bitmap::encode(children.map(|maybe_child| match maybe_child.borrow() {
 			Some(ChildReference::Hash(h)) => {
-				h.as_ref().encode_to(&mut output);
+				if let Some(ranges) = register_children {
+					// this assume scale codec put len on one byte, which is the
+					// case for reasonable hash length.
+					let encode_size_offset = 1;
+					ranges[*ix] = Some(Range {
+						start: child_ix + encode_size_offset,
+						end: child_ix + encode_size_offset + h.as_ref().len(),
+					});
+					child_ix += encode_size_offset + h.as_ref().len();
+					*ix += 1;
+				}
+				if encode_children {
+					h.as_ref().encode_to(&mut output);
+				}
 				true
 			}
 			&Some(ChildReference::Inline(inline_data, len)) => {
-				inline_data.as_ref()[..len].encode_to(&mut output);
+				if let Some(ranges) = register_children {
+					let encode_size_offset = 1;
+					ranges[*ix] = Some(Range {
+						start: child_ix + encode_size_offset,
+						end: child_ix + encode_size_offset + len,
+					});
+					child_ix += encode_size_offset + len;
+					*ix += 1;
+				}
+				if encode_children {
+					inline_data.as_ref()[..len].encode_to(&mut output);
+				}
 				true
 			}
-			None => false,
+			None => {
+				if register_children.is_some() {
+					*ix += 1;
+				}
+				false
+			},
 		}), bitmap.as_mut());
 		output[bitmap_index..bitmap_index + BITMAP_LENGTH]
 			.copy_from_slice(&bitmap.as_ref()[..BITMAP_LENGTH]);
-		output
+		(output, common)
+	}
+}
+
+impl<H: Hasher> NodeCodecHybrid for ReferenceNodeCodecNoExt<H> {
+	type AdditionalHashesPlan = HashesPlan;
+
+	fn decode_plan_compact_proof(data: &[u8]) -> Result<(NodePlan, Option<(Bitmap, Self::AdditionalHashesPlan)>), Self::Error> {
+		let (node, offset) = Self::decode_plan_internal(data, true)?;
+		decode_plan_compact_proof_internal(data, offset, node, H::LENGTH)
 	}
 
+	fn branch_node_common(
+		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
+		_maybe_value: Option<&[u8]>,
+		_register_children: Option<&mut [Option<Range<usize>>]>,
+	) -> (Vec<u8>, ChildProofHeader) {
+		unreachable!()
+	}
+
+	fn branch_node_nibbled_common(
+		partial: impl Iterator<Item = u8>,
+		number_nibble: usize,
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		maybe_value: Option<&[u8]>,
+		register_children: Option<&mut [Option<Range<usize>>]>,
+	) -> (Vec<u8>, ChildProofHeader) {
+		Self::branch_node_nibbled_internal(
+			partial,
+			number_nibble,
+			children,
+			maybe_value,
+			register_children,
+			true,
+			true,
+		)
+	}
+
+	fn branch_node_for_hash(
+		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
+		_maybe_value: Option<&[u8]>,
+	) -> Vec<u8> {
+		unreachable!()
+	}
+
+	fn branch_node_nibbled_for_hash(
+		partial: impl Iterator<Item = u8>,
+		number_nibble: usize,
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		maybe_value: Option<&[u8]>,
+	) -> Vec<u8> {
+		Self::branch_node_nibbled_internal(
+			partial,
+			number_nibble,
+			children,
+			maybe_value,
+			None,
+			true,
+			false,
+		).0
+	}
+
+	fn encode_compact_proof<BH: BinaryHasher>(
+		hash_proof_header: Vec<u8>,
+		children: &[Option<ChildReference<BH::Out>>],
+		in_proof: &[bool],
+		hash_buf: &mut BH::Buffer,
+	) -> Vec<u8> {
+		encode_proof_internal::<BH>(hash_proof_header, children, hash_buf, in_proof)
+	}
+
+	fn need_hybrid_proof(data: &[u8]) -> Result<Option<(NodePlan, ChildProofHeader)>, ()> {
+		if data.len() > 0 {
+			if NodeHeaderNoExt::is_branch(data[0]) {
+				let (node, offset) = Self::decode_plan_internal(data, false).map_err(|_| ())?;
+				let header = ChildProofHeader::Range( Range {
+					start: 0,
+					end: offset,
+				});
+				return Ok(Some((node, header)))
+			}
+		}
+		Ok(None)
+	}
+
+	fn codec_error(desc: &'static str) -> Self::Error {
+		desc.into()
+	}
 }
 
 /// Compare trie builder and in memory trie.
-pub fn compare_implementations<X : hash_db::HashDB<KeccakHasher, DBValue> + Eq> (
+pub fn compare_implementations<T: TrieLayout, X : HashDBHybrid<T::Hash, DBValue> + Eq> (
 	data: Vec<(Vec<u8>, Vec<u8>)>,
 	mut memdb: X,
 	mut hashdb: X,
 ) {
-	let root_new = {
-		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit::<ExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
-	};
+	let root_new = calc_root_build::<T, _, _, _, _>(data.clone(), &mut hashdb);
 	let root = {
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
@@ -935,7 +1401,7 @@ pub fn compare_implementations<X : hash_db::HashDB<KeccakHasher, DBValue> + Eq> 
 	if root_new != root {
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = RefTrieDB::new(&db, &root_new).unwrap();
+			let t = TrieDB::<T>::new(&db, &root_new).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:x?}", a);
@@ -943,7 +1409,7 @@ pub fn compare_implementations<X : hash_db::HashDB<KeccakHasher, DBValue> + Eq> 
 		}
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = RefTrieDB::new(&db, &root).unwrap();
+			let t = TrieDB::<T>::new(&db, &root).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:x?}", a);
@@ -957,18 +1423,14 @@ pub fn compare_implementations<X : hash_db::HashDB<KeccakHasher, DBValue> + Eq> 
 }
 
 /// Compare trie builder and trie root implementations.
-pub fn compare_root(
+pub fn compare_root<T: TrieLayout, DB: HashDBHybrid<T::Hash, DBValue>>(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
-	mut memdb: impl hash_db::HashDB<KeccakHasher, DBValue>,
+	mut memdb: DB,
 ) {
-	let root_new = {
-		let mut cb = TrieRoot::<KeccakHasher, _>::default();
-		trie_visit::<ExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
-	};
+	let root_new = reference_trie_root_iter_build::<T, _, _, _>(data.clone());
 	let root = {
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = trie_db::TrieDBMut::<T>::new(&mut memdb, &mut root);
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
@@ -983,7 +1445,7 @@ pub fn compare_unhashed(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
 ) {
 	let root_new = {
-		let mut cb = trie_db::TrieRootUnhashed::<KeccakHasher>::default();
+		let mut cb = trie_db::TrieRootUnhashed::<RefHasher>::default();
 		trie_visit::<ExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
@@ -998,7 +1460,7 @@ pub fn compare_unhashed_no_extension(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
 ) {
 	let root_new = {
-		let mut cb = trie_db::TrieRootUnhashed::<KeccakHasher>::default();
+		let mut cb = trie_db::TrieRootUnhashed::<RefHasher>::default();
 		trie_visit::<NoExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
@@ -1008,137 +1470,72 @@ pub fn compare_unhashed_no_extension(
 }
 
 /// Trie builder root calculation utility.
-pub fn calc_root<I, A, B>(
+pub fn calc_root<T, I, A, B>(
 	data: I,
-) -> <KeccakHasher as Hasher>::Out
+) -> <T::Hash as Hasher>::Out
 	where
+		T: TrieLayout,
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord + fmt::Debug,
 		B: AsRef<[u8]> + fmt::Debug,
 {
-	let mut cb = TrieRoot::<KeccakHasher, _>::default();
-	trie_visit::<ExtensionLayout, _, _, _, _>(data.into_iter(), &mut cb);
-	cb.root.unwrap_or(Default::default())
-}
-
-/// Trie builder root calculation utility.
-/// This uses the variant without extension nodes.
-pub fn calc_root_no_extension<I, A, B>(
-	data: I,
-) -> <KeccakHasher as Hasher>::Out
-	where
-		I: IntoIterator<Item = (A, B)>,
-		A: AsRef<[u8]> + Ord + fmt::Debug,
-		B: AsRef<[u8]> + fmt::Debug,
-{
-	let mut cb = TrieRoot::<KeccakHasher, _>::default();
-	trie_db::trie_visit::<NoExtensionLayout, _, _, _, _>(data.into_iter(), &mut cb);
-	cb.root.unwrap_or(Default::default())
+	if T::HYBRID_HASH {
+		let mut cb = TrieRootHybrid::<T::Hash, _>::default();
+		trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
+		cb.root.unwrap_or_default()
+	} else {
+		let mut cb = TrieRoot::<T::Hash, _>::default();
+		trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
+		cb.root.unwrap_or_default()
+	}
 }
 
 /// Trie builder trie building utility.
-pub fn calc_root_build<I, A, B, DB>(
+pub fn calc_root_build<T, I, A, B, DB>(
 	data: I,
 	hashdb: &mut DB
-) -> <KeccakHasher as Hasher>::Out
+) -> <T::Hash as Hasher>::Out
 	where
+		T: TrieLayout,
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord + fmt::Debug,
 		B: AsRef<[u8]> + fmt::Debug,
-		DB: hash_db::HashDB<KeccakHasher, DBValue>
+		DB: HashDBHybrid<T::Hash, DBValue>,
 {
-	let mut cb = TrieBuilder::new(hashdb);
-	trie_visit::<ExtensionLayout, _, _, _, _>(data.into_iter(), &mut cb);
-	cb.root.unwrap_or(Default::default())
-}
-
-/// Trie builder trie building utility.
-/// This uses the variant without extension nodes.
-pub fn calc_root_build_no_extension<I, A, B, DB>(
-	data: I,
-	hashdb: &mut DB,
-) -> <KeccakHasher as Hasher>::Out
-	where
-		I: IntoIterator<Item = (A, B)>,
-		A: AsRef<[u8]> + Ord + fmt::Debug,
-		B: AsRef<[u8]> + fmt::Debug,
-		DB: hash_db::HashDB<KeccakHasher, DBValue>
-{
-	let mut cb = TrieBuilder::new(hashdb);
-	trie_db::trie_visit::<NoExtensionLayout, _, _, _, _>(data.into_iter(), &mut cb);
-	cb.root.unwrap_or(Default::default())
-}
-
-/// Compare trie builder and in memory trie.
-/// This uses the variant without extension nodes.
-pub fn compare_implementations_no_extension(
-	data: Vec<(Vec<u8>, Vec<u8>)>,
-	mut memdb: impl hash_db::HashDB<KeccakHasher, DBValue>,
-	mut hashdb: impl hash_db::HashDB<KeccakHasher, DBValue>,
-) {
-	let root_new = {
-		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit::<NoExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
-	};
-	let root = {
-		let mut root = Default::default();
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
-		for i in 0..data.len() {
-			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
-		}
-		*t.root()
-	};
-	
-	if root != root_new {
-		{
-			let db : &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = RefTrieDBNoExt::new(&db, &root).unwrap();
-			println!("{:?}", t);
-			for a in t.iter().unwrap() {
-				println!("a:{:?}", a);
-			}
-		}
-		{
-			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = RefTrieDBNoExt::new(&db, &root_new).unwrap();
-			println!("{:?}", t);
-			for a in t.iter().unwrap() {
-				println!("a:{:?}", a);
-			}
-		}
+	if T::HYBRID_HASH {
+		let mut cb = TrieBuilderHybrid::new(hashdb);
+		trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
+		cb.root.unwrap_or_default()
+	} else {
+		let mut cb = TrieBuilder::new(hashdb);
+		trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
+		cb.root.unwrap_or_default()
 	}
-
-	assert_eq!(root, root_new);
 }
 
 /// `compare_implementations_no_extension` for unordered input (trie_root does
 /// ordering before running when trie_build expect correct ordering).
-pub fn compare_implementations_no_extension_unordered(
+pub fn compare_implementations_unordered<T: TrieLayout, X : HashDBHybrid<T::Hash, DBValue> + Eq> (
 	data: Vec<(Vec<u8>, Vec<u8>)>,
-	mut memdb: impl hash_db::HashDB<KeccakHasher, DBValue>,
-	mut hashdb: impl hash_db::HashDB<KeccakHasher, DBValue>,
+	mut memdb: X,
+	mut hashdb: X,
 ) {
 	let mut b_map = std::collections::btree_map::BTreeMap::new();
 	let root = {
 		let mut root = Default::default();
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 			b_map.insert(data[i].0.clone(), data[i].1.clone());
 		}
 		*t.root()
 	};
-	let root_new = {
-		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit::<NoExtensionLayout, _, _, _, _>(b_map.into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
-	};
+	let root_new = calc_root_build::<T, _, _, _, _>(b_map.into_iter(), &mut hashdb);
 
 	if root != root_new {
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = RefTrieDBNoExt::new(&db, &root).unwrap();
+			let t = TrieDB::<T>::new(&db, &root).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
@@ -1146,7 +1543,7 @@ pub fn compare_implementations_no_extension_unordered(
 		}
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = RefTrieDBNoExt::new(&db, &root_new).unwrap();
+			let t = TrieDB::<T>::new(&db, &root_new).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
@@ -1159,21 +1556,21 @@ pub fn compare_implementations_no_extension_unordered(
 
 /// Testing utility that uses some periodic removal over
 /// its input test data.
-pub fn compare_no_extension_insert_remove(
+pub fn compare_insert_remove<T: TrieLayout, DB: HashDBHybrid<T::Hash, DBValue>>(
 	data: Vec<(bool, Vec<u8>, Vec<u8>)>,
-	mut memdb: impl hash_db::HashDB<KeccakHasher, DBValue>,
+	mut memdb: DB,
 ) {
 	let mut data2 = std::collections::BTreeMap::new();
 	let mut root = Default::default();
 	let mut a = 0;
 	{
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		t.commit();
 	}
 	while a < data.len() {
 		// new triemut every 3 element
 		root = {
-			let mut t = RefTrieDBMutNoExt::from_existing(&mut memdb, &mut root).unwrap();
+			let mut t = TrieDBMut::<T>::from_existing(&mut memdb, &mut root).unwrap();
 			for _ in 0..3 {
 				if data[a].0 {
 					// remove
@@ -1194,10 +1591,10 @@ pub fn compare_no_extension_insert_remove(
 			*t.root()
 		};
 	}
-	let mut t = RefTrieDBMutNoExt::from_existing(&mut memdb, &mut root).unwrap();
+	let mut t = TrieDBMut::<T>::from_existing(&mut memdb, &mut root).unwrap();
 	// we are testing the RefTrie code here so we do not sort or check uniqueness
 	// before.
-	assert_eq!(*t.root(), calc_root_no_extension(data2));
+	assert_eq!(*t.root(), calc_root::<T, _, _, _>(data2));
 }
 
 #[cfg(test)]
@@ -1228,9 +1625,9 @@ mod tests {
 	fn too_big_nibble_length() {
 		// + 1 for 0 added byte of nibble encode
 		let input = vec![0u8; (NIBBLE_SIZE_BOUND_NO_EXT as usize + 1) / 2 + 1];
-		let enc = <ReferenceNodeCodecNoExt<KeccakHasher> as NodeCodec>
+		let enc = <ReferenceNodeCodecNoExt<RefHasher> as NodeCodec>
 		::leaf_node(((0, 0), &input), &[1]);
-		let dec = <ReferenceNodeCodecNoExt<KeccakHasher> as NodeCodec>
+		let dec = <ReferenceNodeCodecNoExt<RefHasher> as NodeCodec>
 		::decode(&enc).unwrap();
 		let o_sl = if let Node::Leaf(sl, _) = dec {
 			Some(sl)
@@ -1261,5 +1658,111 @@ mod tests {
 			let s_dec = decode_size(encs[i][0], &mut &encs[i][1..]);
 			assert_eq!(s_dec, Ok(sizes[i]));
 		}
+	}
+}
+
+pub mod blake2 {
+	use hash_db::{Hasher, BinaryHasher};
+	use hash256_std_hasher::Hash256StdHasher;
+
+	/// Concrete implementation of Hasher using Blake2b 256-bit hashes
+	#[derive(Debug)]
+	pub struct Blake2Hasher;
+
+	impl Hasher for Blake2Hasher {
+		type Out = [u8; 32];
+		type StdHasher = Hash256StdHasher;
+		const LENGTH: usize = 32;
+
+		fn hash(x: &[u8]) -> Self::Out {
+			let mut dest = [0u8; 32];
+			dest.copy_from_slice(blake2_rfc::blake2b::blake2b(32, &[], x).as_bytes());
+			dest
+		}
+	}
+
+	impl BinaryHasher for Blake2Hasher {
+		const NULL_HASH: &'static [u8] = &[14, 87, 81, 192, 38, 229,
+			67, 178, 232, 171, 46, 176, 96, 153, 218, 161, 209, 229, 223,
+			71, 119, 143, 119, 135, 250, 171, 69, 205, 241, 47, 227, 168];
+		type Buffer = blake2_rfc::blake2b::Blake2b;
+
+		fn init_buffer() -> Self::Buffer {
+			blake2_rfc::blake2b::Blake2b::new(32)
+		}
+
+		fn reset_buffer(buff: &mut Self::Buffer) {
+			let _ = core::mem::replace(buff, Self::init_buffer());
+		}
+
+		fn buffer_hash(buff: &mut Self::Buffer, x: &[u8]) {
+			buff.update(&x[..])
+		}
+
+		fn buffer_finalize(buff: &mut Self::Buffer) -> Self::Out {
+			let mut res: [u8; 32] = [0; 32];
+			let k = core::mem::replace(buff, Self::init_buffer());
+			res.copy_from_slice(k.finalize().as_bytes());
+			res
+		}
+
+	}
+
+	#[test]
+	fn test_blake2b_hasher() {
+		hash_db::test_binary_hasher::<Blake2Hasher>()
+	}
+}
+
+
+pub mod blake3 {
+	use hash_db::{Hasher, BinaryHasher};
+	use hash256_std_hasher::Hash256StdHasher;
+
+	/// Concrete implementation of Hasher using Blake2b 256-bit hashes
+	#[derive(Debug)]
+	pub struct Blake3Hasher;
+
+	impl Hasher for Blake3Hasher {
+		type Out = [u8; 32];
+		type StdHasher = Hash256StdHasher;
+		const LENGTH: usize = 32;
+
+		fn hash(x: &[u8]) -> Self::Out {
+			blake3::hash(x).into()
+		}
+	}
+
+	impl BinaryHasher for Blake3Hasher {
+		const NULL_HASH: &'static [u8] = &[175, 19, 73, 185,
+		245, 249, 161, 166, 160, 64, 77, 234, 54, 220, 201,
+		73, 155, 203, 37, 201, 173, 193, 18, 183, 204, 154,
+		147, 202, 228, 31, 50, 98];
+
+		type Buffer = blake3::Hasher;
+
+		fn init_buffer() -> Self::Buffer {
+			blake3::Hasher::new()
+		}
+
+		fn reset_buffer(buff: &mut Self::Buffer) {
+			buff.reset();
+		}
+
+		fn buffer_hash(buff: &mut Self::Buffer, x: &[u8]) {
+			buff.update(&x[..]);
+		}
+
+		fn buffer_finalize(buff: &mut Self::Buffer) -> Self::Out {
+			let result = buff.finalize();
+			// finalize do not reset state
+			buff.reset();
+			result.into()
+		}
+	}
+
+	#[test]
+	fn test_blake3_hasher() {
+		hash_db::test_binary_hasher::<Blake3Hasher>()
 	}
 }

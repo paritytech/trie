@@ -35,12 +35,11 @@ use crate::rstd::{fmt, vec::Vec};
 /// # Example
 /// ```ignore
 /// use hash_db::Hasher;
-/// use reference_trie::{RefTrieDBMut, RefTrieDB, Trie, TrieMut};
+/// use reference_trie::{RefTrieDBMut, RefTrieDB, Trie, TrieMut, RefHasher};
 /// use trie_db::DBValue;
-/// use keccak_hasher::KeccakHasher;
 /// use memory_db::*;
 ///
-/// let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
+/// let mut memdb = MemoryDB::<RefHasher, HashKey<_>, _>::default();
 /// let mut root = Default::default();
 /// RefTrieDBMut::new(&mut memdb, &mut root).insert(b"foo", b"bar").unwrap();
 /// let t = RefTrieDB::new(&memdb, &root).unwrap();

@@ -22,12 +22,15 @@ extern crate alloc;
 mod rstd {
 	pub use std::{borrow, boxed, cmp, convert, fmt, hash, iter, marker, mem, ops, rc, result, vec};
 	pub use std::collections::VecDeque;
+	pub use std::collections::BTreeMap;
 	pub use std::error::Error;
+	pub use std::iter::Empty as EmptyIter;
 }
 
 #[cfg(not(feature = "std"))]
 mod rstd {
 	pub use core::{borrow, convert, cmp, iter, fmt, hash, marker, mem, ops, result};
+	pub use core::iter::Empty as EmptyIter;
 	pub use alloc::{boxed, rc, vec};
 	pub use alloc::collections::VecDeque;
 	pub trait Error {}
@@ -57,7 +60,7 @@ mod nibble;
 mod node_codec;
 mod trie_codec;
 
-pub use hash_db::{HashDB, HashDBRef, Hasher};
+pub use hash_db::{HashDB, HashDBRef, Hasher, BinaryHasher, HasherHybrid, HashDBHybrid};
 pub use self::triedb::{TrieDB, TrieDBIterator};
 pub use self::triedbmut::{TrieDBMut, ChildReference};
 pub use self::sectriedbmut::SecTrieDBMut;
@@ -67,11 +70,13 @@ pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
 pub use self::nibble::{NibbleSlice, NibbleVec, nibble_ops};
-pub use crate::node_codec::{NodeCodec, Partial};
-pub use crate::iter_build::{trie_visit, ProcessEncodedNode,
-	 TrieBuilder, TrieRoot, TrieRootUnhashed};
+pub use crate::node_codec::{NodeCodec, NodeCodecHybrid, Partial, HashDBHybridDyn, ChildProofHeader,
+	Bitmap, BITMAP_LENGTH, HashesPlan, hybrid_hash_node_adapter};
+pub use crate::iter_build::{trie_visit, ProcessEncodedNode, TrieRootUnhashedHybrid,
+	 TrieBuilder, TrieRoot, TrieRootUnhashed, TrieRootHybrid, TrieBuilderHybrid};
 pub use crate::iterator::TrieDBNodeIterator;
-pub use crate::trie_codec::{decode_compact, decode_compact_from_iter, encode_compact};
+pub use crate::trie_codec::{decode_compact, decode_compact_from_iter,
+	encode_compact, binary_additional_hashes};
 
 #[cfg(feature = "std")]
 pub use crate::iter_build::TrieRootPrint;
@@ -347,7 +352,7 @@ where
 	/// Create new mutable instance of Trie.
 	pub fn create(
 		&self,
-		db: &'db mut dyn HashDB<L::Hash, DBValue>,
+		db: &'db mut dyn HashDBHybridDyn<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
 	) -> Box<dyn TrieMut<L> + 'db> {
 		match self.spec {
@@ -360,7 +365,7 @@ where
 	/// Create new mutable instance of trie and check for errors.
 	pub fn from_existing(
 		&self,
-		db: &'db mut dyn HashDB<L::Hash, DBValue>,
+		db: &'db mut dyn HashDBHybridDyn<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
 	) -> Result<Box<dyn TrieMut<L> + 'db>, TrieHash<L>, CError<L>> {
 		match self.spec {
@@ -384,10 +389,15 @@ pub trait TrieLayout {
 	const USE_EXTENSION: bool;
 	/// If true, the trie will allow empty values into `TrieDBMut`
 	const ALLOW_EMPTY: bool = false;
+	/// Does the layout implement a hybrid hash.
+	/// Note that if does not, the `NodeCodecHybrid` hash
+	/// associated codec only really need to implement `NodeCodec`
+	/// and dummy implementation can be used.
+	const HYBRID_HASH: bool;
 	/// Hasher to use for this trie.
-	type Hash: Hasher;
+	type Hash: HasherHybrid;
 	/// Codec to use (needs to match hasher and nibble ops).
-	type Codec: NodeCodec<HashOut=<Self::Hash as Hasher>::Out>;
+	type Codec: NodeCodecHybrid<HashOut=<Self::Hash as Hasher>::Out>;
 }
 
 /// This trait associates a trie definition with preferred methods.
@@ -396,14 +406,20 @@ pub trait TrieLayout {
 pub trait TrieConfiguration: Sized + TrieLayout {
 	/// Operation to build a trie db from its ordered iterator over its key/values.
 	fn trie_build<DB, I, A, B>(db: &mut DB, input: I) -> <Self::Hash as Hasher>::Out where
-	DB: HashDB<Self::Hash, usize>,
+	DB: HashDB<Self::Hash, usize> + HashDBHybrid<Self::Hash, usize>,
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	{
-		let mut cb = TrieBuilder::new(db);
-		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
-		cb.root.unwrap_or_default()
+		if Self::HYBRID_HASH {
+			let mut cb = TrieBuilderHybrid::new(db);
+			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
+			cb.root.unwrap_or_default()
+		} else {
+			let mut cb = TrieBuilder::new(db);
+			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
+			cb.root.unwrap_or_default()
+		}
 	}
 	/// Determines a trie root given its ordered contents, closed form.
 	fn trie_root<I, A, B>(input: I) -> <Self::Hash as Hasher>::Out where
@@ -411,9 +427,15 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	{
-		let mut cb = TrieRoot::<Self::Hash, _>::default();
-		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
-		cb.root.unwrap_or_default()
+		if Self::HYBRID_HASH {
+			let mut cb = TrieRootHybrid::<Self::Hash, _>::default();
+			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
+			cb.root.unwrap_or_default()
+		} else {
+			let mut cb = TrieRoot::<Self::Hash, _>::default();
+			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
+			cb.root.unwrap_or_default()
+		}
 	}
 	/// Determines a trie root node's data given its ordered contents, closed form.
 	fn trie_root_unhashed<I, A, B>(input: I) -> Vec<u8> where
@@ -421,9 +443,15 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	{
-		let mut cb = TrieRootUnhashed::<Self::Hash>::default();
-		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
-		cb.root.unwrap_or_default()
+		if Self::HYBRID_HASH {
+			let mut cb = TrieRootUnhashedHybrid::<Self::Hash>::default();
+			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
+			cb.root.unwrap_or_default()
+		} else {
+			let mut cb = TrieRootUnhashed::<Self::Hash>::default();
+			trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
+			cb.root.unwrap_or_default()
+		}
 	}
 	/// Encoding of index as a key (when reusing general trie for
 	/// indexed trie).

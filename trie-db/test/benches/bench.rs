@@ -14,8 +14,9 @@
 
 use criterion::{criterion_group, criterion_main, Bencher, black_box, Criterion};
 
-use trie_db::{NibbleSlice, proof::{generate_proof, verify_proof}, Trie};
+use trie_db::{NibbleSlice, proof::{generate_proof, verify_proof}, TrieLayout};
 use trie_standardmap::{Alphabet, StandardMap, ValueMode};
+use reference_trie::ExtensionLayout as Layout;
 
 criterion_group!(benches,
 	root_old,
@@ -35,6 +36,12 @@ criterion_group!(benches,
 	trie_iteration,
 	nibble_common_prefix,
 	trie_proof_verification,
+	proof_build_dataset_standard,
+	proof_build_dataset_hybrid,
+	proof_build_compacting_standard,
+	proof_build_compacting_hybrid,
+	proof_build_change_standard,
+	proof_build_change_hybrid,
 );
 criterion_main!(benches);
 
@@ -75,7 +82,7 @@ fn root_a_big_v(c: &mut Criterion) {
 				.collect::<std::collections::BTreeMap<_, _>>();
 
 
-			reference_trie::calc_root(inputc);
+			reference_trie::calc_root::<Layout, _, _, _>(inputc);
 		}),
 		data,
 	);
@@ -96,7 +103,7 @@ fn root_b_big_v(c: &mut Criterion) {
 				.collect::<std::collections::BTreeMap<_, _>>();
 
 
-			reference_trie::calc_root(inputc);
+			reference_trie::calc_root::<Layout, _, _, _>(inputc);
 		}),
 		data,
 	);
@@ -118,7 +125,7 @@ fn root_a_small_v(c: &mut Criterion) {
 				.collect::<std::collections::BTreeMap<_, _>>();
 
 
-			reference_trie::calc_root(inputc);
+			reference_trie::calc_root::<Layout, _, _, _>(inputc);
 		}),
 		data,
 	);
@@ -139,7 +146,7 @@ fn root_b_small_v(c: &mut Criterion) {
 				.collect::<std::collections::BTreeMap<_, _>>();
 
 
-			reference_trie::calc_root(inputc);
+			reference_trie::calc_root::<Layout, _, _, _>(inputc);
 		}),
 		data,
 	);
@@ -160,7 +167,7 @@ fn root_old(c: &mut Criterion) {
 				.iter()
 				.map(|v| (&v.0, &v.1));
 
-			reference_trie::reference_trie_root(inputc);
+			reference_trie::reference_trie_root::<Layout, _, _, _>(inputc);
 		}),
 		data,
 	);
@@ -185,7 +192,7 @@ fn root_new(c: &mut Criterion) {
 				.collect::<std::collections::BTreeMap<_, _>>();
 
 
-			reference_trie::calc_root(inputc);
+			reference_trie::calc_root::<Layout, _, _, _>(inputc);
 		}),
 		data,
 	);
@@ -287,7 +294,7 @@ fn trie_mut_root_a(c: &mut Criterion) {
 				.collect::<std::collections::BTreeMap<_, _>>();
 
 
-			reference_trie::calc_root(inputc);
+			reference_trie::calc_root::<Layout, _, _, _>(inputc);
 		}),
 		data);
 }
@@ -306,7 +313,7 @@ fn trie_mut_root_b(c: &mut Criterion) {
 				.map(|v| (&v.0, &v.1))
 				.collect::<std::collections::BTreeMap<_, _>>();
 
-			reference_trie::calc_root(inputc);
+			reference_trie::calc_root::<Layout, _, _, _>(inputc);
 		}),
 		data);
 }
@@ -326,7 +333,7 @@ fn trie_mut_ref_root_a(c: &mut Criterion) {
 				.map(|v| (&v.0, &v.1))
 				.collect::<std::collections::BTreeMap<_, _>>();
 
-			reference_trie::reference_trie_root(inputc);
+			reference_trie::reference_trie_root_iter_build::<Layout, _, _, _>(inputc);
 		}),
 		data);
 }
@@ -346,7 +353,7 @@ fn trie_mut_ref_root_b(c: &mut Criterion) {
 				.map(|v| (&v.0, &v.1))
 				.collect::<std::collections::BTreeMap<_, _>>();
 
-			reference_trie::reference_trie_root(inputc);
+			reference_trie::reference_trie_root_iter_build::<Layout, _, _, _>(inputc);
 		}),
 		data);
 }
@@ -366,7 +373,7 @@ fn trie_mut_a(c: &mut Criterion) {
 
 			let mut root = Default::default();
 			let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
-			let mut trie = reference_trie::RefTrieDBMut::new(&mut mdb, &mut root);
+			let mut trie = trie_db::TrieDBMut::<Layout>::new(&mut mdb, &mut root);
 			for (key, value) in datac {
 				trie.insert(&key, &value)
 					.expect("changes trie: insertion to trie is not allowed to fail within runtime");
@@ -390,7 +397,7 @@ fn trie_mut_b(c: &mut Criterion) {
 
 			let mut root = Default::default();
 			let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
-			let mut trie = reference_trie::RefTrieDBMut::new(&mut mdb, &mut root);
+			let mut trie = trie_db::TrieDBMut::<Layout>::new(&mut mdb, &mut root);
 			for (key, value) in datac {
 				trie.insert(&key, &value)
 					.expect("changes trie: insertion to trie is not allowed to fail within runtime");
@@ -416,7 +423,7 @@ fn trie_mut_build_a(c: &mut Criterion) {
 				.collect::<std::collections::BTreeMap<_, _>>();
 
 			let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
-			reference_trie::calc_root_build(inputc, &mut mdb);
+			reference_trie::calc_root_build::<Layout, _, _, _, _>(inputc, &mut mdb);
 		}),
 		data);
 }
@@ -438,7 +445,7 @@ fn trie_mut_build_b(c: &mut Criterion) {
 				.collect::<std::collections::BTreeMap<_, _>>();
 
 			let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
-			reference_trie::calc_root_build(inputc, &mut mdb);
+			reference_trie::calc_root_build::<Layout, _, _, _, _>(inputc, &mut mdb);
 		}),
 		data);
 }
@@ -449,11 +456,11 @@ fn trie_iteration(c: &mut Criterion) {
 	let input = input2(29, 204800, 32);
 
 	let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
-	let root = reference_trie::calc_root_build(input, &mut mdb);
+	let root = reference_trie::calc_root_build::<Layout, _, _, _, _>(input, &mut mdb);
 
 	c.bench_function("trie_iteration", move |b: &mut Bencher|
 		b.iter(|| {
-			let trie = reference_trie::RefTrieDB::new(&mdb, &root).unwrap();
+			let trie = trie_db::TrieDB::<Layout>::new(&mdb, &root).unwrap();
 			let mut iter = trie_db::TrieDBNodeIterator::new(&trie).unwrap();
 			assert!(iter.all(|result| result.is_ok()));
 		})
@@ -462,6 +469,7 @@ fn trie_iteration(c: &mut Criterion) {
 
 fn trie_proof_verification(c: &mut Criterion) {
 	use memory_db::HashKey;
+	use trie_db::Trie;
 
 	let mut data = input_unsorted(29, 204800, 32);
 	let mut keys = data[(data.len() / 3)..]
@@ -475,9 +483,9 @@ fn trie_proof_verification(c: &mut Criterion) {
 	keys.dedup();
 
 	let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
-	let root = reference_trie::calc_root_build(data, &mut mdb);
+	let root = reference_trie::calc_root_build::<Layout, _, _, _, _>(data, &mut mdb);
 
-	let trie = reference_trie::RefTrieDB::new(&mdb, &root).unwrap();
+	let trie = trie_db::TrieDB::<Layout>::new(&mdb, &root).unwrap();
 	let proof = generate_proof(&trie, keys.iter()).unwrap();
 	let items = keys.into_iter()
 		.map(|key| {
@@ -488,11 +496,170 @@ fn trie_proof_verification(c: &mut Criterion) {
 
 	c.bench_function("trie_proof_verification", move |b: &mut Bencher|
 		b.iter(|| {
-			verify_proof::<reference_trie::ExtensionLayout, _, _, _>(
+			verify_proof::<Layout, _, _, _>(
 				&root,
 				&proof,
 				items.iter()
 			).unwrap();
 		})
 	);
+}
+
+// bench build triedbmut as in proof size main from reference trie
+// parameters are hadcoded.
+fn proof_build_dataset<L: TrieLayout>(c: &mut Criterion, trie_size: u32, size_value: usize) {
+	use memory_db::PrefixedKey;
+	use trie_db::TrieMut;
+
+	let mut seed = Default::default();
+	let x = StandardMap {
+		alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
+		min_key: size_value,
+		journal_key: 0,
+		value_mode: ValueMode::Index,
+		count: trie_size,
+	}.make_with(&mut seed);
+	let mut memdb = memory_db::MemoryDB::<<L as TrieLayout>::Hash, PrefixedKey<_>, Vec<u8>>::default();
+	let mut root = Default::default();
+
+	c.bench_function("proof_build_dataset", move |b: &mut Bencher|
+		b.iter(|| {
+			let mut t = trie_db::TrieDBMut::<L>::new(&mut memdb, &mut root);
+			for i in 0..x.len() {
+				let key: &[u8]= &x[i].0;
+				let val: &[u8] = &x[i].1;
+				t.insert(key, val).unwrap();
+			}
+			t.commit();
+		})
+	);
+}
+
+fn proof_build_dataset_standard(c: &mut Criterion) {
+	let trie_size = 1000;
+	let values_size = 32;
+	proof_build_dataset::<reference_trie::NoExtensionLayout>(c, trie_size, values_size)
+}
+
+fn proof_build_dataset_hybrid(c: &mut Criterion) {
+	let trie_size = 1000;
+	let values_size = 32;
+	proof_build_dataset::<reference_trie::NoExtensionLayoutHybrid>(c, trie_size, values_size)
+}
+
+fn proof_build_compacting<L: TrieLayout>(c: &mut Criterion, trie_size: u32, size_value: usize, number_key: usize) {
+	use memory_db::{PrefixedKey, HashKey};
+	use trie_db::TrieMut;
+
+	let mut seed = Default::default();
+	let x = StandardMap {
+		alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
+		min_key: size_value,
+		journal_key: 0,
+		value_mode: ValueMode::Index,
+		count: trie_size,
+	}.make_with(&mut seed);
+	let mut memdb = memory_db::MemoryDB::<<L as TrieLayout>::Hash, PrefixedKey<_>, Vec<u8>>::default();
+	let mut root = Default::default();
+	{
+		let mut t = trie_db::TrieDBMut::<L>::new(&mut memdb, &mut root);
+		for i in 0..x.len() {
+			let key: &[u8]= &x[i].0;
+			let val: &[u8] = &x[i].1;
+			t.insert(key, val).unwrap();
+		}
+		t.commit();
+	}
+
+	use trie_db::{Trie, TrieDB};
+	use hash_db::{EMPTY_PREFIX, HashDB};
+
+	let keys = &x[..number_key];
+	let trie = <TrieDB<L>>::new(&memdb, &root).unwrap();
+	let mut recorder = trie_db::Recorder::new();
+	for (key, _) in keys {
+		let _ = trie.get_with(key.as_slice(), &mut recorder).unwrap();
+	}
+
+	let mut partial_db = <memory_db::MemoryDB<L::Hash, HashKey<_>, _>>::default();
+	for record in recorder.drain() {
+		partial_db.emplace(record.hash, EMPTY_PREFIX, record.data);
+	}
+	let partial_trie = <TrieDB<L>>::new(&partial_db, &trie.root()).unwrap();
+
+	c.bench_function("proof_build_compacting", move |b: &mut Bencher|
+		b.iter(|| {
+			trie_db::encode_compact::<L>(&partial_trie).unwrap()
+		})
+	);
+}
+
+fn proof_build_compacting_standard(c: &mut Criterion) {
+	let trie_size = 1000;
+	let proof_keys = 10;
+	let values_size = 32;
+	proof_build_compacting::<reference_trie::NoExtensionLayout>(c, trie_size, values_size, proof_keys)
+}
+
+fn proof_build_compacting_hybrid(c: &mut Criterion) {
+	let trie_size = 1000;
+	let proof_keys = 10;
+	let values_size = 32;
+	proof_build_compacting::<reference_trie::NoExtensionLayoutHybrid>(c, trie_size, values_size, proof_keys)
+}
+
+fn proof_build_change<L: TrieLayout>(c: &mut Criterion, trie_size: u32, size_value: usize, number_key: usize) {
+	use memory_db::PrefixedKey;
+	use trie_db::TrieMut;
+
+	let mut seed = Default::default();
+	let x = StandardMap {
+		alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
+		min_key: size_value,
+		journal_key: 0,
+		value_mode: ValueMode::Index,
+		count: trie_size,
+	}.make_with(&mut seed);
+	let mut memdb = memory_db::MemoryDB::<<L as TrieLayout>::Hash, PrefixedKey<_>, Vec<u8>>::default();
+	let mut root = Default::default();
+	{
+		let mut t = trie_db::TrieDBMut::<L>::new(&mut memdb, &mut root);
+		for i in 0..x.len() {
+			let key: &[u8]= &x[i].0;
+			let val: &[u8] = &x[i].1;
+			t.insert(key, val).unwrap();
+		}
+		t.commit();
+	}
+
+	let keys = &x[..number_key];
+	let value = vec![213u8; size_value];
+
+	c.bench_function("proof_build_change", move |b: &mut Bencher|
+		b.iter(|| {
+			let mut memdb = memdb.clone();
+			let mut root = root.clone();
+			let mut t = trie_db::TrieDBMut::<L>::from_existing(&mut memdb, &mut root).unwrap();
+			for i in 0..keys.len() {
+				let key: &[u8]= &keys[i].0;
+				let val: &[u8] = &value[..];
+				t.insert(key, val).unwrap();
+			}
+			t.commit();
+		})
+	);
+}
+
+fn proof_build_change_standard(c: &mut Criterion) {
+	let trie_size = 1000;
+	let change_keys = 10;
+	let values_size = 32;
+	proof_build_change::<reference_trie::NoExtensionLayout>(c, trie_size, values_size, change_keys)
+}
+
+fn proof_build_change_hybrid(c: &mut Criterion) {
+	let trie_size = 1000;
+	let change_keys = 10;
+	let values_size = 32;
+	proof_build_change::<reference_trie::NoExtensionLayoutHybrid>(c, trie_size, values_size, change_keys)
 }

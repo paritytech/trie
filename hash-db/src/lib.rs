@@ -64,6 +64,48 @@ pub trait Hasher: Sync + Send {
 	fn hash(x: &[u8]) -> Self::Out;
 }
 
+/// Small trait for to allow using buffer of type [u8; H::LENGTH * 2].
+pub trait BinaryHasher: Hasher {
+	/// Hash for the empty content (is hash(&[])).
+	const NULL_HASH: &'static [u8];
+
+	/// State buffer for hashing.
+	type Buffer;
+
+	fn init_buffer() -> Self::Buffer;
+	fn reset_buffer(buf: &mut Self::Buffer);
+	fn buffer_hash(buff: &mut Self::Buffer, x: &[u8]);
+
+	/// After calling `buffer_finalize`, one do not have to call `reset_buffer`.
+	fn buffer_finalize(buff: &mut Self::Buffer) -> Self::Out;
+}
+
+#[cfg(feature = "std")]
+/// Test function to use on any binary buffer implementation.
+pub fn test_binary_hasher<H: BinaryHasher>() {
+	let size = <H as Hasher>::LENGTH * 2;
+	let half_size = <H as Hasher>::LENGTH / 2;
+	let mut val = vec![0u8; size];
+	val[0] = 1;
+	let mut buf = <H as BinaryHasher>::init_buffer();
+	H::buffer_hash(&mut buf, &val[..half_size]);
+	H::buffer_hash(&mut buf, &val[half_size..<H as Hasher>::LENGTH]);
+	let three = core::cmp::min(3, half_size);
+	H::buffer_hash(&mut buf, &val[<H as Hasher>::LENGTH..<H as Hasher>::LENGTH + three]);
+	H::buffer_hash(&mut buf, &val[<H as Hasher>::LENGTH + three..]);
+	let h = H::buffer_finalize(&mut buf);
+	let h2 = H::hash(&val[..]);
+	assert_eq!(h, h2);
+	H::buffer_hash(&mut buf, &val[..]);
+	let h = H::buffer_finalize(&mut buf);
+	assert_eq!(h, h2);
+	let null_hash = H::hash(&[]);
+	H::reset_buffer(&mut buf);
+	let null_hash2 = H::buffer_finalize(&mut buf);
+	assert_eq!(H::NULL_HASH, null_hash.as_ref());
+	assert_eq!(H::NULL_HASH, null_hash2.as_ref());
+}
+
 /// Trait modelling a plain datastore whose key is a fixed type.
 /// The caller should ensure that a key only corresponds to
 /// one value.
@@ -184,4 +226,81 @@ impl<'a, H: Hasher, T> AsHashDB<H, T> for &'a mut dyn HashDB<H, T> {
 impl<'a, K, V> AsPlainDB<K, V> for &'a mut dyn PlainDB<K, V> {
 	fn as_plain_db(&self) -> &dyn PlainDB<K, V> { &**self }
 	fn as_plain_db_mut<'b>(&'b mut self) -> &'b mut (dyn PlainDB<K, V> + 'b) { &mut **self }
+}
+
+/// Same as HashDB but can modify the value upon storage, and apply
+/// `HasherHybrid`.
+pub trait HashDBHybrid<H: HasherHybrid, T>: Send + Sync + HashDB<H, T> {
+	/// `HashDB` is often use to load content from encoded node.
+	/// This will not preserve insertion done through `insert_branch_hybrid` calls
+	/// and break the proof.
+	/// This function allows to use a callback (usually the call back
+	/// will check the encoded value with codec and for branch it will
+	/// emplace over the hash_hybrid key) for changing key of some content.
+	/// Callback is allow to fail (since it will decode some node this indicates
+	/// invalid content earlier), in this case we return false.
+	fn insert_hybrid(
+		&mut self,
+		prefix: Prefix,
+		value: &[u8],
+		callback: fn(&[u8]) -> core::result::Result<Option<H::Out>, ()>,
+	) -> bool;
+
+	/// Insert a datum item into the DB and return the datum's hash for a later lookup. Insertions
+	/// are counted and the equivalent number of `remove()`s must be performed before the data
+	/// is considered dead.
+	fn insert_branch_hybrid<
+		I: Iterator<Item = Option<H::Out>>,
+	>(
+		&mut self,
+		prefix: Prefix,
+		value: &[u8],
+		no_child_value: &[u8],
+		nb_children: usize,
+		children: I,
+		buffer: &mut <H::InnerHasher as BinaryHasher>::Buffer,
+	) -> H::Out;
+
+	/// Insert with data from a proof.
+	/// As a result, this function can fail.
+	fn insert_branch_hybrid_proof<
+		I: Iterator<Item = Option<H::Out>>,
+		I2: Iterator<Item = H::Out>,
+	>(
+		&mut self,
+		prefix: Prefix,
+		value: &[u8],
+		no_child_value: &[u8],
+		nb_children: usize,
+		children: I,
+		additional_hashes: I2,
+		buffer: &mut <H::InnerHasher as BinaryHasher>::Buffer,
+	) -> Option<H::Out>;
+}
+
+pub trait HasherHybrid: BinaryHasher {
+	type InnerHasher: BinaryHasher<Out = Self::Out>;
+
+	/// Alternate hash with hybrid hashing allowed.
+	fn hash_hybrid<
+		I: Iterator<Item = Option<<Self as Hasher>::Out>>,
+	>(
+		encoded_node: &[u8],
+		nb_children: usize,
+		children: I,
+		buffer: &mut <Self::InnerHasher as BinaryHasher>::Buffer,
+	) -> Self::Out;
+
+	/// Calculate hash from a proof, this can fail.
+	fn hash_hybrid_proof<
+		I: Iterator<Item = Option<<Self as Hasher>::Out>>,
+		I2: Iterator<Item = <Self::InnerHasher as Hasher>::Out>,
+	>(
+		x: &[u8],
+		nb_children: usize,
+		children: I,
+		additional_hashes: I2,
+		buffer: &mut <Self::InnerHasher as BinaryHasher>::Buffer,
+	) -> Option<Self::Out>;
+
 }

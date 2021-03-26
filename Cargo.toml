@@ -3,6 +3,7 @@ members = [
 	"hash-db",
 	"memory-db",
 	"hash256-std-hasher",
+	"ordered-trie",
 	"test-support/keccak-hasher",
 	"test-support/reference-trie",
 	"test-support/trie-standardmap",

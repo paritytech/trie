@@ -25,3 +25,4 @@ hex-literal = "0.3"
 criterion = "0.3"
 env_logger = "0.8"
 log = "0.4"
+ordered-trie = { path = "../../ordered-trie", default-features = false, version = "0.19.2"}

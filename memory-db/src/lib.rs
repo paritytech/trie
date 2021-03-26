@@ -23,7 +23,7 @@ mod malloc_size_of;
 pub use malloc_size_of::*;
 
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher,
-	AsHashDB, AsPlainDB, Prefix};
+	AsHashDB, AsPlainDB, Prefix, HashDBHybrid, HasherHybrid, BinaryHasher};
 use parity_util_mem::{MallocSizeOf, MallocSizeOfOps, MallocShallowSizeOf};
 #[cfg(feature = "std")]
 use std::{
@@ -34,6 +34,7 @@ use std::{
 	marker::PhantomData,
 	cmp::Eq,
 	borrow::Borrow,
+	result,
 };
 
 #[cfg(not(feature = "std"))]
@@ -49,6 +50,8 @@ use core::{
 	marker::PhantomData,
 	cmp::Eq,
 	borrow::Borrow,
+	ops::Range,
+	result,
 };
 
 #[cfg(not(feature = "std"))]
@@ -622,6 +625,86 @@ where
 				entry.insert((value, -1));
 			},
 		}
+	}
+}
+
+impl<H, KF, T, M> HashDBHybrid<H, T> for MemoryDB<H, KF, T, M>
+where
+	H: HasherHybrid,
+	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
+	KF: Send + Sync + KeyFunction<H>,
+	M: MemTracker<T> + Send + Sync,
+{
+	fn insert_hybrid(
+		&mut self,
+		prefix: Prefix,
+		value: &[u8],
+		callback: fn(&[u8]) -> result::Result<Option<H::Out>, ()>,
+	) -> bool {
+		if let Ok(result) = callback(value) {
+			if let Some(key) = result {
+				<Self as HashDB<H, T>>::emplace(self, key, prefix, T::from(value));
+			} else {
+				<Self as HashDB<H, T>>::insert(self, prefix, value);
+			}
+			true
+		} else {
+			false
+		}
+	}
+
+	fn insert_branch_hybrid<
+		I: Iterator<Item = Option<H::Out>>,
+	> (
+		&mut self,
+		prefix: Prefix,
+		value: &[u8],
+		child_proof_header: &[u8],
+		nb_children: usize,
+		children: I,
+		buff: &mut <H::InnerHasher as BinaryHasher>::Buffer,
+	) -> H::Out {
+		if T::from(value) == self.null_node_data {
+			return self.hashed_null_node.clone();
+		}
+
+		let key = H::hash_hybrid(
+			child_proof_header,
+			nb_children,
+			children,
+			buff,
+		);
+		HashDB::emplace(self, key, prefix, value.into());
+		key
+	}
+
+	fn insert_branch_hybrid_proof<
+		I: Iterator<Item = Option<H::Out>>,
+		I2: Iterator<Item = H::Out>,
+	> (
+		&mut self,
+		prefix: Prefix,
+		value: &[u8],
+		child_proof_header: &[u8],
+		nb_children: usize,
+		children: I,
+		additional_hashes: I2,
+		buff: &mut <H::InnerHasher as BinaryHasher>::Buffer,
+	) -> Option<H::Out> {
+		if T::from(value) == self.null_node_data {
+			return Some(self.hashed_null_node.clone());
+		}
+
+		H::hash_hybrid_proof(
+			child_proof_header,
+			nb_children,
+			children,
+			additional_hashes,
+			buff,
+		).map(|key| {
+			HashDB::emplace(self, key, prefix, value.into());
+			key
+		})
 	}
 }
 

@@ -19,13 +19,15 @@ use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_hash};
 
-use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
+use crate::node_codec::HashDBHybridDyn;
+use hash_db::{Hasher, Prefix, EMPTY_PREFIX, BinaryHasher, HasherHybrid};
 use hashbrown::HashSet;
 
-use crate::node_codec::NodeCodec;
+use crate::node_codec::{NodeCodec, NodeCodecHybrid, ChildProofHeader};
 use crate::nibble::{NibbleVec, NibbleSlice, nibble_ops, BackingByteVec};
 use crate::rstd::{
 	boxed::Box, convert::TryFrom, hash::Hash, mem, ops::Index, result, vec::Vec, VecDeque,
+	ops::Range,
 };
 
 #[cfg(feature = "std")]
@@ -124,7 +126,7 @@ where
 	fn inline_or_hash<C, H>(
 		parent_hash: H::Out,
 		child: EncodedNodeHandle,
-		db: &dyn HashDB<H, DBValue>,
+		db: &dyn HashDBHybridDyn<H, DBValue>,
 		storage: &mut NodeStorage<H::Out>
 	) -> Result<NodeHandle<H::Out>, H::Out, C::Error>
 	where
@@ -149,7 +151,7 @@ where
 	fn from_encoded<'a, 'b, C, H>(
 		node_hash: H::Out,
 		data: &'a[u8],
-		db: &dyn HashDB<H, DBValue>,
+		db: &dyn HashDBHybridDyn<H, DBValue>,
 		storage: &'b mut NodeStorage<H::Out>,
 	) -> Result<Self, H::Out, C::Error>
 		where
@@ -203,59 +205,84 @@ where
 	}
 
 	// TODO: parallelize
-	fn into_encoded<F, C, H>(self, mut child_cb: F) -> Vec<u8>
-	where
-		C: NodeCodec<HashOut=O>,
+	fn into_encoded<F, C, H>(
+		self,
+		mut child_cb: F,
+		register_children: Option<&mut [Option<Range<usize>>]>,
+	) -> (Vec<u8>, ChildProofHeader) where
+		C: NodeCodecHybrid<HashOut=O>,
 		F: FnMut(NodeHandle<H::Out>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
 		H: Hasher<Out = O>,
 	{
 		match self {
-			Node::Empty => C::empty_node().to_vec(),
+			Node::Empty => (C::empty_node().to_vec(), ChildProofHeader::Unused),
 			Node::Leaf(partial, value) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
-				C::leaf_node(pr.right(), &value)
+				(C::leaf_node(pr.right(), &value), ChildProofHeader::Unused)
 			},
 			Node::Extension(partial, child) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
 				let c = child_cb(child, Some(&pr), None);
-				C::extension_node(
+				(C::extension_node(
 					it,
 					pr.len(),
 					c,
-				)
+				), ChildProofHeader::Unused)
 			},
 			Node::Branch(mut children, value) => {
-				C::branch_node(
-					// map the `NodeHandle`s from the Branch to `ChildReferences`
-					children.iter_mut()
-						.map(Option::take)
-						.enumerate()
-						.map(|(i, maybe_child)| {
-							maybe_child.map(|child| child_cb(child, None, Some(i as u8)))
-						}),
-					value.as_ref().map(|v| &v[..])
-				)
+				// map the `NodeHandle`s from the Branch to `ChildReferences`
+				let children = children.iter_mut()
+					.map(Option::take)
+					.enumerate()
+					.map(|(i, maybe_child)| {
+						maybe_child.map(|child| child_cb(child, None, Some(i as u8)))
+					});
+				if let Some(register_children) = register_children {
+					C::branch_node_common(
+						// map the `NodeHandle`s from the Branch to `ChildReferences`
+						children,
+						value.as_ref().map(|v| &v[..]),
+						Some(register_children),
+					)
+				} else {
+					(C::branch_node(
+						children,
+						value.as_ref().map(|v| &v[..]),
+					), ChildProofHeader::Unused)
+				}
 			},
 			Node::NibbledBranch(partial, mut children, value) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
-				C::branch_node_nibbled(
-					it,
-					pr.len(),
-					// map the `NodeHandle`s from the Branch to `ChildReferences`
-					children.iter_mut()
-						.map(Option::take)
-						.enumerate()
-						.map(|(i, maybe_child)| {
-							//let branch_index = [i as u8];
-							maybe_child.map(|child| {
-								let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
-								child_cb(child, Some(&pr), Some(i as u8))
-							})
-						}),
-					value.as_ref().map(|v| &v[..])
-				)
+				// map the `NodeHandle`s from the Branch to `ChildReferences`
+				let children = children.iter_mut()
+					.map(Option::take)
+					.enumerate()
+					.map(|(i, maybe_child)| {
+						//let branch_index = [i as u8];
+						maybe_child.map(|child| {
+							let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
+							child_cb(child, Some(&pr), Some(i as u8))
+						})
+					});
+
+				if let Some(register_children) = register_children {
+					C::branch_node_nibbled_common(
+						it,
+						pr.len(),
+						children,
+						value.as_ref().map(|v| &v[..]),
+						Some(register_children),
+					)
+				} else {
+					(C::branch_node_nibbled(
+						it,
+						pr.len(),
+						children,
+						value.as_ref().map(|v| &v[..]),
+					), ChildProofHeader::Unused)
+				}
 			},
 		}
 	}
@@ -384,7 +411,7 @@ impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
 	}
 }
 
-/// A `Trie` implementation using a generic `HashDB` backing database.
+/// A `Trie` implementation using a generic `HashDBHybridDyn` backing database.
 ///
 /// Use it as a `TrieMut` trait object. You can use `db()` to get the backing database object.
 /// Note that changes are not committed to the database until `commit` is called.
@@ -395,16 +422,15 @@ impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
 /// # Example
 /// ```ignore
 /// use hash_db::Hasher;
-/// use reference_trie::{RefTrieDBMut, TrieMut};
+/// use reference_trie::{RefTrieDBMut, TrieMut, RefHasher};
 /// use trie_db::DBValue;
-/// use keccak_hasher::KeccakHasher;
 /// use memory_db::*;
 ///
-/// let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+/// let mut memdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
 /// let mut root = Default::default();
 /// let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
 /// assert!(t.is_empty());
-/// assert_eq!(*t.root(), KeccakHasher::hash(&[0u8][..]));
+/// assert_eq!(*t.root(), RefHasher::hash(&[0u8][..]));
 /// t.insert(b"foo", b"bar").unwrap();
 /// assert!(t.contains(b"foo").unwrap());
 /// assert_eq!(t.get(b"foo").unwrap().unwrap(), b"bar".to_vec());
@@ -416,21 +442,34 @@ where
 	L: TrieLayout,
 {
 	storage: NodeStorage<TrieHash<L>>,
-	db: &'a mut dyn HashDB<L::Hash, DBValue>,
+	db: &'a mut dyn HashDBHybridDyn<L::Hash, DBValue>,
 	root: &'a mut TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
 	death_row: HashSet<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
 	/// The number of hash operations this trie has performed.
 	/// Note that none are performed until changes are committed.
 	hash_count: usize,
+	hybrid_hash_buffer: Option<<<L::Hash as HasherHybrid>::InnerHasher as BinaryHasher>::Buffer>,
 }
 
 impl<'a, L> TrieDBMut<'a, L>
 where
 	L: TrieLayout,
 {
+	#[inline]
+	fn register_children_buf(node: &Node<TrieHash<L>>) -> Option<[Option<Range<usize>>; 16]> {
+		match node {
+			Node::NibbledBranch(..) | Node::Branch(..) => if L::HYBRID_HASH {
+				Some(Default::default())
+			} else {
+				None
+			},
+			_ => None,
+		}
+		
+	}
 	/// Create a new trie with backing database `db` and empty `root`.
-	pub fn new(db: &'a mut dyn HashDB<L::Hash, DBValue>, root: &'a mut TrieHash<L>) -> Self {
+	pub fn new(db: &'a mut dyn HashDBHybridDyn<L::Hash, DBValue>, root: &'a mut TrieHash<L>) -> Self {
 		*root = L::Codec::hashed_null_node();
 		let root_handle = NodeHandle::Hash(L::Codec::hashed_null_node());
 
@@ -441,13 +480,20 @@ where
 			root_handle,
 			death_row: HashSet::new(),
 			hash_count: 0,
+			hybrid_hash_buffer: None,
+		}
+	}
+
+	fn hybrid_hash_buffer_lazy_init(&mut self) {
+		if self.hybrid_hash_buffer.is_none() {
+			self.hybrid_hash_buffer = Some(<L::Hash as HasherHybrid>::InnerHasher::init_buffer())
 		}
 	}
 
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
 	pub fn from_existing(
-		db: &'a mut dyn HashDB<L::Hash, DBValue>,
+		db: &'a mut dyn HashDBHybridDyn<L::Hash, DBValue>,
 		root: &'a mut TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
@@ -462,15 +508,16 @@ where
 			root_handle,
 			death_row: HashSet::new(),
 			hash_count: 0,
+			hybrid_hash_buffer: None,
 		})
 	}
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue> {
+	pub fn db(&self) -> &dyn HashDBHybridDyn<L::Hash, DBValue> {
 		self.db
 	}
 
 	/// Get the backing database mutably.
-	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue> {
+	pub fn db_mut(&mut self) -> &mut dyn HashDBHybridDyn<L::Hash, DBValue> {
 		self.db
 	}
 
@@ -1179,7 +1226,7 @@ where
 					None,
 					One(u8),
 					Many,
-				};
+				}
 				let mut used_index = UsedIndex::None;
 				for i in 0..16 {
 					match (children[i].is_none(), &used_index) {
@@ -1225,7 +1272,7 @@ where
 					None,
 					One(u8),
 					Many,
-				};
+				}
 				let mut used_index = UsedIndex::None;
 				for i in 0..16 {
 					match (children[i].is_none(), &used_index) {
@@ -1422,17 +1469,30 @@ where
 		match self.storage.destroy(handle) {
 			Stored::New(node) => {
 				let mut k = NibbleVec::new();
-				let encoded_root = node.into_encoded::<_, L::Codec, L::Hash>(
+				let mut register_children = Self::register_children_buf(&node);
+				let (encoded_root, no_node) = node.into_encoded::<_, L::Codec, L::Hash>(
 					|child, o_slice, o_index| {
 						let mov = k.append_optional_slice_and_nibble(o_slice, o_index);
 						let cr = self.commit_child(child, &mut k);
 						k.drop_lasts(mov);
 						cr
-					}
+					},
+					register_children.as_mut().map(|a| &mut a[..]),
 				);
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
-				*self.root = self.db.insert(EMPTY_PREFIX, &encoded_root[..]);
+				if let Some(children) = register_children {
+					self.hybrid_hash_buffer_lazy_init();
+					*self.root = self.db.insert_branch_hybrid(
+						EMPTY_PREFIX,
+						&encoded_root[..],
+						&children[..],
+						no_node,
+						self.hybrid_hash_buffer.as_mut().expect("Lazy init above"),
+					)
+				} else {
+					*self.root = self.db.insert(EMPTY_PREFIX, &encoded_root[..]);
+				}
 				self.hash_count += 1;
 
 				self.root_handle = NodeHandle::Hash(*self.root);
@@ -1463,7 +1523,8 @@ where
 				match self.storage.destroy(storage_handle) {
 					Stored::Cached(_, hash) => ChildReference::Hash(hash),
 					Stored::New(node) => {
-						let encoded = {
+						let mut register_children = Self::register_children_buf(&node);
+						let (encoded, no_node) = {
 							let commit_child = |
 								node_handle,
 								o_slice: Option<&NibbleSlice>,
@@ -1474,10 +1535,25 @@ where
 								prefix.drop_lasts(mov);
 								cr
 							};
-							node.into_encoded::<_, L::Codec, L::Hash>(commit_child)
+							node.into_encoded::<_, L::Codec, L::Hash>(
+								commit_child,
+								register_children.as_mut().map(|a| &mut a[..]),
+							)
 						};
 						if encoded.len() >= L::Hash::LENGTH {
-							let hash = self.db.insert(prefix.as_prefix(), &encoded[..]);
+							let hash = if let Some(children) = register_children {
+								self.hybrid_hash_buffer_lazy_init();
+								self.db.insert_branch_hybrid(
+									prefix.as_prefix(),
+									&encoded[..],
+									&children[..],
+									no_node,
+									self.hybrid_hash_buffer.as_mut().expect("Lazy init above"),
+								)
+							} else {
+								self.db.insert(prefix.as_prefix(), &encoded[..])
+							};
+	
 							self.hash_count +=1;
 							ChildReference::Hash(hash)
 						} else {
