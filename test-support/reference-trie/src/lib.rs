@@ -54,8 +54,8 @@ pub mod node {
 }
 
 /// Reference hasher is a keccak hasher with hybrid ordered trie implementation.
-//pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, blake2::Blake2Hasher>;
-pub type RefHasher = ordered_trie::OrderedTrieHasher<blake3::Blake3Hasher, blake3::Blake3Hasher>;
+pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, blake2::Blake2Hasher>;
+//pub type RefHasher = ordered_trie::OrderedTrieHasher<blake3::Blake3Hasher, blake3::Blake3Hasher>;
 //pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, keccak_hasher::KeccakHasher>;
 //use keccak_hasher::KeccakHasher;
 //pub type RefHasher = ordered_trie::OrderedTrieHasher<keccak_hasher::KeccakHasher, keccak_hasher::KeccakHasher>;
@@ -1734,15 +1734,10 @@ pub mod blake3 {
 	}
 
 	impl BinaryHasher for Blake3Hasher {
-/*		const NULL_HASH: &'static [u8] = &[14, 29, 19,
-		198, 45, 46, 139, 195, 197, 200, 181, 152, 74,
-		15, 2, 1, 45, 203, 135, 228, 100, 205, 129, 59,
-		26, 116, 168, 125, 248, 104, 37, 44];*/
-		const NULL_HASH: &'static [u8] = &[152, 15, 77, 200,
-		134, 47, 65, 45, 215, 24, 24, 193, 28, 97, 126, 92,
-		216, 199, 142, 241, 18, 148, 20, 118, 174, 171, 136,
-		135, 20, 59, 230, 86];
-
+		const NULL_HASH: &'static [u8] = &[175, 19, 73, 185,
+		245, 249, 161, 166, 160, 64, 77, 234, 54, 220, 201,
+		73, 155, 203, 37, 201, 173, 193, 18, 183, 204, 154,
+		147, 202, 228, 31, 50, 98];
 
 		type Buffer = blake3::Hasher;
 
@@ -1751,7 +1746,6 @@ pub mod blake3 {
 		}
 
 		fn reset_buffer(buff: &mut Self::Buffer) {
-			//let _ = core::mem::replace(buff, Self::init_buffer());
 			buff.reset();
 		}
 
@@ -1760,7 +1754,10 @@ pub mod blake3 {
 		}
 
 		fn buffer_finalize(buff: &mut Self::Buffer) -> Self::Out {
-			buff.finalize().into()
+			let result = buff.finalize();
+			// finalize do not reset state
+			buff.reset();
+			result.into()
 		}
 	}
 
