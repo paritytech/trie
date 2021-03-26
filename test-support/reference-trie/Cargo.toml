@@ -14,6 +14,7 @@ keccak-hasher = { path = "../keccak-hasher", version = "0.15.3" }
 trie-db = { path = "../../trie-db", default-features = false, version = "0.22.0" }
 trie-root = { path = "../../trie-root", default-features = false, version = "0.16.0" }
 blake2-rfc = { version = "0.2.18", default-features = false }
+blake3 = { version = "0.3.7", default-features = false }
 ordered-trie = { path = "../../ordered-trie", default-features = false, version = "0.19.2"}
 parity-scale-codec = { version = "2.0.0", features = ["derive"] }
 
@@ -40,4 +41,5 @@ std = [
   "trie-db/std",
   "trie-root/std",
   "blake2-rfc/std",
+	"blake3/std",
 ]

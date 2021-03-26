@@ -1226,7 +1226,7 @@ where
 					None,
 					One(u8),
 					Many,
-				};
+				}
 				let mut used_index = UsedIndex::None;
 				for i in 0..16 {
 					match (children[i].is_none(), &used_index) {
@@ -1272,7 +1272,7 @@ where
 					None,
 					One(u8),
 					Many,
-				};
+				}
 				let mut used_index = UsedIndex::None;
 				for i in 0..16 {
 					match (children[i].is_none(), &used_index) {

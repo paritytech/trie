@@ -54,7 +54,8 @@ pub mod node {
 }
 
 /// Reference hasher is a keccak hasher with hybrid ordered trie implementation.
-pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, blake2::Blake2Hasher>;
+//pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, blake2::Blake2Hasher>;
+pub type RefHasher = ordered_trie::OrderedTrieHasher<blake3::Blake3Hasher, blake3::Blake3Hasher>;
 //pub type RefHasher = ordered_trie::OrderedTrieHasher<blake2::Blake2Hasher, keccak_hasher::KeccakHasher>;
 //use keccak_hasher::KeccakHasher;
 //pub type RefHasher = ordered_trie::OrderedTrieHasher<keccak_hasher::KeccakHasher, keccak_hasher::KeccakHasher>;
@@ -1710,5 +1711,61 @@ pub mod blake2 {
 	#[test]
 	fn test_blake2b_hasher() {
 		hash_db::test_binary_hasher::<Blake2Hasher>()
+	}
+}
+
+
+pub mod blake3 {
+	use hash_db::{Hasher, BinaryHasher};
+	use hash256_std_hasher::Hash256StdHasher;
+
+	/// Concrete implementation of Hasher using Blake2b 256-bit hashes
+	#[derive(Debug)]
+	pub struct Blake3Hasher;
+
+	impl Hasher for Blake3Hasher {
+		type Out = [u8; 32];
+		type StdHasher = Hash256StdHasher;
+		const LENGTH: usize = 32;
+
+		fn hash(x: &[u8]) -> Self::Out {
+			blake3::hash(x).into()
+		}
+	}
+
+	impl BinaryHasher for Blake3Hasher {
+/*		const NULL_HASH: &'static [u8] = &[14, 29, 19,
+		198, 45, 46, 139, 195, 197, 200, 181, 152, 74,
+		15, 2, 1, 45, 203, 135, 228, 100, 205, 129, 59,
+		26, 116, 168, 125, 248, 104, 37, 44];*/
+		const NULL_HASH: &'static [u8] = &[152, 15, 77, 200,
+		134, 47, 65, 45, 215, 24, 24, 193, 28, 97, 126, 92,
+		216, 199, 142, 241, 18, 148, 20, 118, 174, 171, 136,
+		135, 20, 59, 230, 86];
+
+
+		type Buffer = blake3::Hasher;
+
+		fn init_buffer() -> Self::Buffer {
+			blake3::Hasher::new()
+		}
+
+		fn reset_buffer(buff: &mut Self::Buffer) {
+			//let _ = core::mem::replace(buff, Self::init_buffer());
+			buff.reset();
+		}
+
+		fn buffer_hash(buff: &mut Self::Buffer, x: &[u8]) {
+			buff.update(&x[..]);
+		}
+
+		fn buffer_finalize(buff: &mut Self::Buffer) -> Self::Out {
+			buff.finalize().into()
+		}
+	}
+
+	#[test]
+	fn test_blake3_hasher() {
+		hash_db::test_binary_hasher::<Blake3Hasher>()
 	}
 }
