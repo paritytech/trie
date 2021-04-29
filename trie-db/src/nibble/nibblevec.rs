@@ -36,6 +36,7 @@ impl NibbleVec {
 	}
 
 	/// Make a new `NibbleVec`.
+	/// TODO replace by From LeftNibbleSlice??
 	pub fn from(d: &[u8], l: usize) -> Self {
 		let mut v = Self::default();
 		let ix = l / nibble_ops::NIBBLE_PER_BYTE;

@@ -8,5 +8,7 @@ members = [
 	"test-support/trie-standardmap",
 	"test-support/trie-bench",
 	"trie-db",
-	"trie-root"
+	"trie-db/test",
+	"trie-root",
+	"trie-root/test"
 ]

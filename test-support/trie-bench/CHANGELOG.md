@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.27.0] - 2021-01-27
+- Update memory-db to 0.26.
+- Update parity-scale-codec to 2.0.
+
+## [0.26.0] - 2021-01-05
+- Update memory-db to 0.25. [#118](https://github.com/paritytech/trie/pull/118)
+
+## [0.25.0] - 2020-07-24
+- Update criterion to 0.3. [#106](https://github.com/paritytech/trie/pull/106)
+
+## [0.24.0] - 2020-07-07
+- Update memory-db to 0.24. [#99](https://github.com/paritytech/trie/pull/99)
+
+## [0.23.0] - 2020-07-06
+- Update memory-db to 0.22. [#98](https://github.com/paritytech/trie/pull/98)
+
 ## [0.21.0] - 2020-03-21
 - Update memory-db to 0.20.0 [#82](https://github.com/paritytech/trie/pull/82)
 

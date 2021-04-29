@@ -35,11 +35,10 @@ use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
 pub use trie_db::traverse::{batch_update, InputAction, unprefixed_detached_trie, prefixed_detached_trie};
 
-pub use trie_db::{
-	decode_compact, encode_compact,
-	nibble_ops, NibbleSlice, NibbleVec, NodeCodec, proof, Record, Recorder,
-	Trie, TrieConfiguration, TrieDB, TrieDBIterator, TrieDBMut, TrieDBNodeIterator, TrieError,
-	TrieIterator, TrieLayout, TrieMut,
+use trie_db::{
+	nibble_ops, NodeCodec,
+	Trie, TrieConfiguration,
+	TrieLayout, TrieMut,
 };
 pub use trie_root::TrieStream;
 pub mod node {
@@ -51,6 +50,7 @@ pub struct ExtensionLayout;
 
 impl TrieLayout for ExtensionLayout {
 	const USE_EXTENSION: bool = true;
+	const ALLOW_EMPTY: bool = false;
 	type Hash = KeccakHasher;
 	type Codec = ReferenceNodeCodec<KeccakHasher>;
 }
@@ -63,8 +63,19 @@ pub struct GenericNoExtensionLayout<H>(PhantomData<H>);
 
 impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	const USE_EXTENSION: bool = false;
+	const ALLOW_EMPTY: bool = false;
 	type Hash = H;
 	type Codec = ReferenceNodeCodecNoExt<H>;
+}
+
+/// Trie that allows empty values
+pub struct AllowEmptyLayout;
+
+impl TrieLayout for AllowEmptyLayout {
+	const USE_EXTENSION: bool = true;
+	const ALLOW_EMPTY: bool = true;
+	type Hash = KeccakHasher;
+	type Codec = ReferenceNodeCodec<KeccakHasher>;
 }
 
 impl<H: Hasher> TrieConfiguration for GenericNoExtensionLayout<H> { }
@@ -104,6 +115,7 @@ pub type RefTrieDB<'a> = trie_db::TrieDB<'a, ExtensionLayout>;
 pub type RefTrieDBNoExt<'a> = trie_db::TrieDB<'a, NoExtensionLayout>;
 pub type RefTrieDBMut<'a> = trie_db::TrieDBMut<'a, ExtensionLayout>;
 pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMut<'a, NoExtensionLayout>;
+pub type RefTrieDBMutAllowEmpty<'a> = trie_db::TrieDBMut<'a, AllowEmptyLayout>;
 pub type RefFatDB<'a> = trie_db::FatDB<'a, ExtensionLayout>;
 pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, ExtensionLayout>;
 pub type RefSecTrieDB<'a> = trie_db::SecTrieDB<'a, ExtensionLayout>;
@@ -373,7 +385,7 @@ enum NodeHeaderNoExt {
 }
 
 impl Encode for NodeHeader {
-	fn encode_to<T: Output>(&self, output: &mut T) {
+	fn encode_to<T: Output + ?Sized>(&self, output: &mut T) {
 		match self {
 			NodeHeader::Null => output.push_byte(EMPTY_TRIE),
 			NodeHeader::Branch(true) => output.push_byte(BRANCH_NODE_WITH_VALUE),
@@ -414,7 +426,7 @@ fn size_and_prefix_iterator(size: usize, prefix: u8) -> impl Iterator<Item = u8>
 	first_byte.chain(::std::iter::from_fn(next_bytes))
 }
 
-fn encode_size_and_prefix(size: usize, prefix: u8, out: &mut impl Output) {
+fn encode_size_and_prefix(size: usize, prefix: u8, out: &mut (impl Output + ?Sized)) {
 	for b in size_and_prefix_iterator(size, prefix) {
 		out.push_byte(b)
 	}
@@ -437,7 +449,7 @@ fn decode_size<I: Input>(first: u8, input: &mut I) -> Result<usize, CodecError> 
 }
 
 impl Encode for NodeHeaderNoExt {
-	fn encode_to<T: Output>(&self, output: &mut T) {
+	fn encode_to<T: Output + ?Sized>(&self, output: &mut T) {
 		match self {
 			NodeHeaderNoExt::Null => output.push_byte(EMPTY_TRIE_NO_EXT),
 			NodeHeaderNoExt::Branch(true, nibble_count)	=>
@@ -920,7 +932,7 @@ pub fn compare_implementations<X : hash_db::HashDB<KeccakHasher, DBValue> + Eq> 
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
 		t.commit();
-		t.root().clone()
+		*t.root()
 	};
 	if root_new != root {
 		{
@@ -962,7 +974,7 @@ pub fn compare_root(
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
-		t.root().clone()
+		*t.root()
 	};
 
 	assert_eq!(root, root_new);
@@ -1077,7 +1089,7 @@ pub fn compare_implementations_no_extension(
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
-		t.root().clone()
+		*t.root()
 	};
 	
 	if root != root_new {
@@ -1117,7 +1129,7 @@ pub fn compare_implementations_no_extension_unordered(
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 			b_map.insert(data[i].0.clone(), data[i].1.clone());
 		}
-		t.root().clone()
+		*t.root()
 	};
 	let root_new = {
 		let mut cb = TrieBuilder::new(&mut hashdb);

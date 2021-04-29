@@ -161,13 +161,11 @@ impl<'a> NibbleSlice<'a> {
 			if first.0 > 0 {
 				first.0 = 0;
 				Some(nibble_ops::pad_right(first.1))
+			} else if ix < sl.len() {
+				ix += 1;
+				Some(sl[ix - 1])
 			} else {
-				if ix < sl.len() {
-					ix += 1;
-					Some(sl[ix - 1])
-				} else {
-					None
-				}
+				None
 			}
 		})
 	}
