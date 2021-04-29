@@ -79,7 +79,7 @@ struct StackedItem<B, T>
 	/// That is the only situation where we got a modified item that may need
 	/// a to be iterated on at a next iteration.
 	/// Note that this cannot be fuse with `first_modified_child` because of
-	/// the case where a split child is at an high child index than the first
+	/// the case where a split child is at a bigger child index than the first
 	/// modified and will later be deleted, leading to a single child without
 	/// value fuse branch trigger.
 	split_child: Option<StackedNode<B, T>>,
@@ -90,7 +90,7 @@ struct StackedItem<B, T>
 	/// nibble, this is more memory costy than strictly necessary).
 	/// Note that split_child is always a first_modified_child.
 	first_modified_child: Option<StackedNode<B, T>>,
-	/// true when the value can be deleted and only more
+	/// true as long as the value can be deleted and no more
 	/// than one branch cannot be deleted.
 	can_fuse: bool,
 }
