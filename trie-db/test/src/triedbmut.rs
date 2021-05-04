@@ -525,10 +525,10 @@ fn register_proof_without_value() {
 	use trie_db::TrieDB;
 	use std::collections::HashMap;
 	use std::cell::RefCell;
-	use reference_trie::{CheckValueFunction, TestValueFunction, ValueRange};
+	use reference_trie::{CheckValueFunctionNoExt, TestValueFunction, ValueRange};
 	use hash_db::{Prefix, AsHashDB};
 
-	type Updatable = CheckValueFunction;
+	type Updatable = CheckValueFunctionNoExt;
 	type VF = TestValueFunction<RefHasher>;
 	type MemoryDB = memory_db::MemoryDB<
 		RefHasher,
@@ -613,7 +613,7 @@ fn register_proof_without_value() {
 
 	let mut root_proof = root.clone();
 	{
-		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb, &mut root, CheckValueFunction)
+		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb, &mut root, CheckValueFunctionNoExt)
 			.unwrap();
 		// touch te value (test1 remains untouch).
 		trie.get(b"te").unwrap();
@@ -641,7 +641,7 @@ fn register_proof_without_value() {
 	}
 
 	{
-		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb_from_proof, &mut root_proof, CheckValueFunction)
+		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb_from_proof, &mut root_proof, CheckValueFunctionNoExt)
 			.unwrap();
 		trie.get(b"te").unwrap();
 		trie.insert(b"test12", &[2u8;36][..]).unwrap();

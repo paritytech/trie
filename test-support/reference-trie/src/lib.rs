@@ -147,6 +147,28 @@ impl TrieLayout for CheckValueFunction {
 	}
 }
 
+/// Trie that use a dumb value function over its storage.
+#[derive(Default, Clone)]
+pub struct CheckValueFunctionNoExt;
+
+impl TrieLayout for CheckValueFunctionNoExt {
+	const USE_EXTENSION: bool = false;
+	const ALLOW_EMPTY: bool = false;
+	const USE_META: bool = true;
+	fn inner_hash_value_treshold(&self) -> Option<usize> {
+		Some(1)
+	}
+	type Hash = RefHasher;
+	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
+	type ValueFunction = TestValueFunction<RefHasher>;
+	type Meta = ValueRange;
+
+	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
+		()
+	}
+}
+
+
 /// Test value function: prepend optional encoded size of value
 pub struct TestValueFunction<H>(PhantomData<H>);
 
