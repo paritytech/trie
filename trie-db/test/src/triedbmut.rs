@@ -518,3 +518,136 @@ fn state_hybrid_scenario() {
 	}
 	assert_eq!(count_old(&memdb), (0, 4));
 }
+
+
+#[test]
+fn register_proof_without_value() {
+	use trie_db::TrieDB;
+	use std::collections::HashMap;
+	use std::cell::RefCell;
+	use reference_trie::{CheckValueFunction, TestValueFunction, ValueRange};
+	use hash_db::{Prefix, AsHashDB};
+
+	type Updatable = CheckValueFunction;
+	type VF = TestValueFunction<RefHasher>;
+	type MemoryDB = memory_db::MemoryDB<
+		RefHasher,
+		PrefixedKey<RefHasher>,
+		DBValue,
+		VF,
+	>;
+	let x = [
+		(b"test1".to_vec(), vec![1;32]), // inline
+		(b"test1234".to_vec(), vec![2;36]),
+		(b"te".to_vec(), vec![3;32]),
+	];
+
+	let mut memdb = MemoryDB::default();
+	let mut root = Default::default();
+	let _ = populate_trie::<Updatable>(&mut memdb, &mut root, &x);
+	{
+		let trie = TrieDB::<Updatable>::new(&memdb, &root).unwrap();
+		println!("{:?}", trie);
+	}
+
+	struct ProofRecorder {
+		db: MemoryDB,
+		record: RefCell<HashMap<Vec<u8>, (Vec<u8>, ValueRange)>>,
+	}
+	// Only to test without threads.
+	unsafe impl Send for ProofRecorder { }
+	unsafe impl Sync for ProofRecorder { }
+
+	impl HashDB<RefHasher, DBValue, VF> for ProofRecorder {
+		fn get(&self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) -> Option<DBValue> {
+			self.get_with_meta(key, prefix).map(|v| v.0)
+		}
+
+		fn get_with_meta(&self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) -> Option<(DBValue, ValueRange)> {
+			let v = self.db.get_with_meta(key, prefix);
+			if let Some(v) = v.as_ref() {
+				self.record.borrow_mut().insert(key[..].to_vec(), v.clone());
+			}
+			v
+		}
+
+		fn contains(&self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) -> bool {
+			self.get(key, prefix).is_some()
+		}
+
+		fn emplace(&mut self, key: <RefHasher as Hasher>::Out, prefix: Prefix, value: DBValue) {
+			self.db.emplace(key, prefix, value)
+		}
+
+		fn insert(&mut self, prefix: Prefix, value: &[u8]) -> <RefHasher as Hasher>::Out {
+			self.db.insert(prefix, value)
+		}
+
+		fn insert_with_meta(
+			&mut self,
+			prefix: Prefix,
+			value: &[u8],
+			meta: ValueRange,
+		) -> <RefHasher as Hasher>::Out {
+			self.db.insert_with_meta(prefix, value, meta)
+		}
+
+		fn remove(&mut self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) {
+			self.db.remove(key, prefix)
+		}
+	}
+
+	impl AsHashDB<RefHasher, DBValue, VF> for ProofRecorder {
+		fn as_hash_db(&self) -> &dyn HashDB<RefHasher, DBValue, VF> {
+			self
+		}
+		fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (dyn HashDB<RefHasher, DBValue, VF> + 'a) {
+			self
+		}
+	}
+
+	let mut memdb = ProofRecorder {
+		db: memdb,
+		record: Default::default(),
+	};
+
+	let mut root_proof = root.clone();
+	{
+		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb, &mut root, CheckValueFunction)
+			.unwrap();
+		// touch te value (test1 remains untouch).
+		trie.get(b"te").unwrap();
+		// cut test_1234 prefix
+		trie.insert(b"test12", &[2u8;36][..]).unwrap();
+		// remove 1234 
+		trie.remove(b"test1234").unwrap();
+
+		// proof should contain value for 'te' only.
+	}
+
+	type MemoryDBProof = memory_db::MemoryDB<
+		RefHasher,
+		memory_db::HashKey<RefHasher>,
+		DBValue,
+		VF,
+	>;
+	let mut memdb_from_proof = MemoryDBProof::default();
+	for (_key, value) in memdb.record.into_inner().into_iter() {
+		memdb_from_proof.insert_with_meta(
+			hash_db::EMPTY_PREFIX,
+			value.0.as_slice(),
+			value.1,
+		);
+	}
+
+	{
+		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb_from_proof, &mut root_proof, CheckValueFunction)
+			.unwrap();
+		trie.get(b"te").unwrap();
+		trie.insert(b"test12", &[2u8;36][..]).unwrap();
+		trie.remove(b"test1234").unwrap();
+	}
+
+
+	panic!("TODO extract proof from record and build memdb from it, then rerun action.");
+}
