@@ -648,6 +648,5 @@ fn register_proof_without_value() {
 		trie.remove(b"test1234").unwrap();
 	}
 
-
 	panic!("TODO extract proof from record and build memdb from it, then rerun action.");
 }

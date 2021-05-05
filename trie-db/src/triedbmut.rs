@@ -641,8 +641,9 @@ where
 				}.look_up(partial),
 				NodeHandle::InMemory(ref handle) => match self.storage[handle] {
 					Node::Empty(_) => return Ok(None),
-					Node::Leaf(ref key, ref value, _) => {
+					Node::Leaf(ref key, ref value, ref meta) => {
 						if NibbleSlice::from_stored(key) == partial {
+							meta.accessed_value_callback();
 							return Ok(Some(value.to_vec()));
 						} else {
 							return Ok(None);
@@ -656,8 +657,9 @@ where
 							return Ok(None);
 						}
 					},
-					Node::Branch(ref children, ref value, _) => {
+					Node::Branch(ref children, ref value, ref meta) => {
 						if partial.is_empty() {
+							meta.accessed_value_callback();
 							return Ok(value.as_ref().map(|v| v.to_vec()));
 						} else {
 							let idx = partial.at(0);
@@ -667,9 +669,10 @@ where
 							}
 						}
 					},
-					Node::NibbledBranch(ref slice, ref children, ref value, _) => {
+					Node::NibbledBranch(ref slice, ref children, ref value, ref meta) => {
 						let slice = NibbleSlice::from_stored(slice);
 						if partial.is_empty() {
+							meta.accessed_value_callback();
 							return Ok(value.as_ref().map(|v| v.to_vec()));
 						} else if partial.starts_with(&slice) {
 							let idx = partial.at(0);

@@ -520,6 +520,14 @@ pub trait Meta: Clone {
 		at: usize,
 	) -> NodeChange;
 
+	/// Callback for meta that register accessed values.
+	/// Note that this does not return a `NodeChange`
+	/// and value access can only be store when node
+	/// is writen.
+	fn accessed_value_callback(
+		&self,
+	);
+
 	/// TODO we could split meta from Node (may be merge with meta input).
 	/// and meta for encoding.
 	/// TODO codec when encoding could produce `NodePlan` here as a first step
@@ -527,6 +535,7 @@ pub trait Meta: Clone {
 	///
 	/// TODO can be remove, just feed meta on decode instead!!! (and on set value set range even if
 	/// old for branch).
+	/// -> this is a must have to register event in meta like value access.
 	fn encoded_callback(
 		&mut self,
 		encoded: &[u8],
@@ -574,6 +583,11 @@ impl Meta for () {
 		changed: NodeChange,
 	) -> NodeChange {
 		changed
+	}
+
+	fn accessed_value_callback(
+		&self,
+	) {
 	}
 
 	fn encoded_callback(

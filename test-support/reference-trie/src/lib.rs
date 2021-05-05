@@ -172,11 +172,15 @@ impl TrieLayout for CheckValueFunctionNoExt {
 /// Test value function: prepend optional encoded size of value
 pub struct TestValueFunction<H>(PhantomData<H>);
 
+/// Test value function: prepend optional encoded size of value.
+/// Also allow indicating that value is a hash of value.
+pub struct TestValueFunctionProof<H>(PhantomData<H>);
+
 impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 	type Meta = ValueRange;
 
 	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out {
-		if let Some(range) = meta.0.as_ref() {
+		if let Some(ValueMeta { range, .. }) = meta.0.as_ref() {
 			let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
 			H::hash(value.as_slice())
 		} else {
@@ -185,7 +189,7 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 	}
 
 	fn stored_value(value: &[u8], meta: Self::Meta) -> DBValue {
-		let mut stored = meta.0.map(|range| (range.start as u32, range.end as u32)).encode();
+		let mut stored = meta.0.map(|ValueMeta { range, .. }| (range.start as u32, range.end as u32)).encode();
 		stored.extend_from_slice(value);
 		stored
 	}
@@ -207,16 +211,34 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 		if let Some((start, end)) = range {
 			let start = start as usize;
 			let end = end as usize;
-			(stored, ValueRange(Some(start..end)))
+			(stored, ValueRange(Some(ValueMeta {
+				range: start..end,
+				contain_hash: false,
+				accessed_value: false.into(),
+			})))
 		} else {
 			(stored, ValueRange(None))
 		}
 	}
 }
 
-/// Test Meta input.
 #[derive(Default, Clone)]
-pub struct ValueRange(Option<core::ops::Range<usize>>);
+pub struct ValueMeta {
+	range: core::ops::Range<usize>,
+	contain_hash: bool,
+	accessed_value: std::cell::Cell<bool>,
+}
+
+/// Test Meta input.
+/// Range is serialized, other fields are not (actually `contain_hash` is not needed here).
+#[derive(Default, Clone)]
+pub struct ValueRange(Option<ValueMeta>);
+
+/// Test Meta input.
+/// Range is serialized, and also the if it contains a hash (so proof
+/// can be use to build nodes without values).
+#[derive(Default, Clone)]
+pub struct ValueRangeProof(Option<ValueMeta>);
 
 /// Treshold for using hash of value instead of value
 /// in encoded trie node.
@@ -252,6 +274,14 @@ impl Meta for ValueRange {
 		changed
 	}
 
+	fn accessed_value_callback(
+		&self,
+	) {
+		self.0.as_ref()
+			.expect("Value range not initialized but value accessed")
+			.accessed_value.set(true);
+	}
+
 	fn encoded_callback(
 		&mut self,
 		_encoded: &[u8],
@@ -259,7 +289,11 @@ impl Meta for ValueRange {
 	) {
 		if let Some(range) = node_plan.value_range() {
 			if range.end - range.start >= INNER_HASH_TRESHOLD {
-				self.0 = Some(range);
+				self.0 = Some(ValueMeta {
+					range,
+					accessed_value: false.into(), // TODO init from meta
+					contain_hash: false,
+				});
 			}
 		}
 	}
@@ -453,6 +487,11 @@ impl Meta for VersionedValueRange {
 		} else {
 			NodeChange::Meta
 		}.combine(changed)
+	}
+
+	fn accessed_value_callback(
+		&self,
+	) {
 	}
 
 	fn encoded_callback(
