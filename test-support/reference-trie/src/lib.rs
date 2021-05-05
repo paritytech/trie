@@ -214,7 +214,6 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 			(stored, ValueRange(Some(ValueMeta {
 				range: start..end,
 				contain_hash: false,
-				accessed_value: false.into(),
 			})))
 		} else {
 			(stored, ValueRange(None))
@@ -226,7 +225,6 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 pub struct ValueMeta {
 	range: core::ops::Range<usize>,
 	contain_hash: bool,
-	accessed_value: std::cell::Cell<bool>,
 }
 
 /// Test Meta input.
@@ -274,14 +272,6 @@ impl Meta for ValueRange {
 		changed
 	}
 
-	fn accessed_value_callback(
-		&self,
-	) {
-		self.0.as_ref()
-			.expect("Value range not initialized but value accessed")
-			.accessed_value.set(true);
-	}
-
 	fn encoded_callback(
 		&mut self,
 		_encoded: &[u8],
@@ -291,7 +281,6 @@ impl Meta for ValueRange {
 			if range.end - range.start >= INNER_HASH_TRESHOLD {
 				self.0 = Some(ValueMeta {
 					range,
-					accessed_value: false.into(), // TODO init from meta
 					contain_hash: false,
 				});
 			}
@@ -487,11 +476,6 @@ impl Meta for VersionedValueRange {
 		} else {
 			NodeChange::Meta
 		}.combine(changed)
-	}
-
-	fn accessed_value_callback(
-		&self,
-	) {
 	}
 
 	fn encoded_callback(
