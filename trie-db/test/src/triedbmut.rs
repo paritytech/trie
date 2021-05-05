@@ -640,6 +640,16 @@ fn register_proof_without_value() {
 		);
 	}
 
+	let trie = TrieDB::<CheckValueFunctionNoExt>::new(&memdb_from_proof, &root_proof).unwrap();
+	let compacted = trie_db::encode_compact(&trie).unwrap();
+	let mut db_unpacked = MemoryDBProof::default();
+	let (root_unpacked, _used) = trie_db::decode_compact::<CheckValueFunctionNoExt, _>(
+		&mut db_unpacked,
+		compacted.as_slice(),
+	).unwrap();
+
+	assert_eq!(root_proof, root_unpacked);
+
 	{
 		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb_from_proof, &mut root_proof, CheckValueFunctionNoExt)
 			.unwrap();

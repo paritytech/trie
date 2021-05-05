@@ -211,23 +211,21 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 	}
 
 	fn extract_value(mut stored: &[u8]) -> (&[u8], Self::Meta) {
-		let len = stored.len();
 		let input = &mut stored;
 		let range: Option<(u32, u32)> = Decode::decode(input).ok().flatten();
-		let mut unused_value = 0;
+		let mut unused_value = false;
 		if input.get(0) == Some(&DEAD_HEADER_META_HASHED_VALUE) {
 			debug_assert!(range.is_some());
-			unused_value = 1;
+			stored = &mut &stored[1..];
+			unused_value = true;
 		}
-		let read_bytes = len - input.len() + unused_value;
-		let stored = &stored[read_bytes..];
 		if let Some((start, end)) = range {
 			let start = start as usize;
 			let end = end as usize;
 			(stored, ValueRange(Some(ValueMeta {
 				range: start..end,
 				contain_hash: false,
-				unused_value: unused_value == 1,
+				unused_value,
 			})))
 		} else {
 			(stored, ValueRange(None))
@@ -235,28 +233,10 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 	}
 
 	fn extract_value_owned(mut stored: DBValue) -> (DBValue, Self::Meta) {
-		// TODO factor with extract_value
 		let len = stored.len();
-		let input = &mut stored.as_slice();
-		let range: Option<(u32, u32)> = Decode::decode(input).ok().flatten();
-		let mut unused_value = 0;
-		if input.get(0) == Some(&DEAD_HEADER_META_HASHED_VALUE) {
-			debug_assert!(range.is_some());
-			unused_value = 1;
-		}
-		let read_bytes = len - input.len() + unused_value;
-		let stored = stored.split_off(read_bytes);
-		if let Some((start, end)) = range {
-			let start = start as usize;
-			let end = end as usize;
-			(stored, ValueRange(Some(ValueMeta {
-				range: start..end,
-				contain_hash: false,
-				unused_value: unused_value == 1,
-			})))
-		} else {
-			(stored, ValueRange(None))
-		}
+		let (v, meta) = Self::extract_value(stored.as_slice());
+		let removed = len - v.len();
+		(stored.split_off(removed), meta)
 	}
 }
 
