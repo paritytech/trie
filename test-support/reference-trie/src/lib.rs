@@ -180,16 +180,28 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 	type Meta = ValueRange;
 
 	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out {
-		if let Some(ValueMeta { range, .. }) = meta.0.as_ref() {
-			let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
-			H::hash(value.as_slice())
-		} else {
-			H::hash(value)
+		match meta.0.as_ref() {
+			Some(ValueMeta { range, unused_value: false, .. }) => {
+				let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
+				H::hash(value.as_slice())
+			},
+			Some(ValueMeta { unused_value: true, .. }) => {
+				// value contains a hash of data (already inner_hashed_value).
+				H::hash(value)
+			},
+			None => {
+				H::hash(value)
+			},
 		}
 	}
 
 	fn stored_value(value: &[u8], meta: Self::Meta) -> DBValue {
-		let mut stored = meta.0.map(|ValueMeta { range, .. }| (range.start as u32, range.end as u32)).encode();
+		let mut stored = meta.0.as_ref().map(|ValueMeta { range, .. }| (range.start as u32, range.end as u32)).encode();
+		if meta.0.as_ref().map(|meta| meta.unused_value).unwrap_or(false) {
+			// Waring this assume that encoded value does not start by this, so it is tightly coupled
+			// with the header type of the codec: only for optimization.
+			stored.push(DEAD_HEADER_META_HASHED_VALUE);
+		}
 		stored.extend_from_slice(value);
 		stored
 	}
@@ -198,15 +210,41 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 		Self::stored_value(value.as_slice(), meta)
 	}
 
-	fn extract_value(stored: &[u8]) -> (DBValue, Self::Meta) {
-		Self::extract_value_owned(stored.to_vec())
+	fn extract_value(mut stored: &[u8]) -> (&[u8], Self::Meta) {
+		let len = stored.len();
+		let input = &mut stored;
+		let range: Option<(u32, u32)> = Decode::decode(input).ok().flatten();
+		let mut unused_value = 0;
+		if input.get(0) == Some(&DEAD_HEADER_META_HASHED_VALUE) {
+			debug_assert!(range.is_some());
+			unused_value = 1;
+		}
+		let read_bytes = len - input.len() + unused_value;
+		let stored = &stored[read_bytes..];
+		if let Some((start, end)) = range {
+			let start = start as usize;
+			let end = end as usize;
+			(stored, ValueRange(Some(ValueMeta {
+				range: start..end,
+				contain_hash: false,
+				unused_value: unused_value == 1,
+			})))
+		} else {
+			(stored, ValueRange(None))
+		}
 	}
 
 	fn extract_value_owned(mut stored: DBValue) -> (DBValue, Self::Meta) {
+		// TODO factor with extract_value
 		let len = stored.len();
 		let input = &mut stored.as_slice();
 		let range: Option<(u32, u32)> = Decode::decode(input).ok().flatten();
-		let read_bytes = len - input.len();
+		let mut unused_value = 0;
+		if input.get(0) == Some(&DEAD_HEADER_META_HASHED_VALUE) {
+			debug_assert!(range.is_some());
+			unused_value = 1;
+		}
+		let read_bytes = len - input.len() + unused_value;
 		let stored = stored.split_off(read_bytes);
 		if let Some((start, end)) = range {
 			let start = start as usize;
@@ -214,6 +252,7 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 			(stored, ValueRange(Some(ValueMeta {
 				range: start..end,
 				contain_hash: false,
+				unused_value: unused_value == 1,
 			})))
 		} else {
 			(stored, ValueRange(None))
@@ -225,6 +264,7 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 pub struct ValueMeta {
 	range: core::ops::Range<usize>,
 	contain_hash: bool,
+	unused_value: bool,
 }
 
 /// Test Meta input.
@@ -282,6 +322,7 @@ impl Meta for ValueRange {
 				self.0 = Some(ValueMeta {
 					range,
 					contain_hash: false,
+					unused_value: false,
 				});
 			}
 		}
@@ -300,6 +341,10 @@ impl Meta for ValueRange {
 		&mut self,
 		_children: impl Iterator<Item = ChildrenDecoded>,
 	) {
+	}
+
+	fn set_unaccessed_value(&mut self) {
+		self.0.as_mut().map(|meta| { meta.unused_value = true; });
 	}
 }
 
@@ -545,6 +590,9 @@ impl Meta for VersionedValueRange {
 			}
 		}
 	}
+
+	fn set_unaccessed_value(&mut self) {
+	}
 }
 
 /// Test value function: prepend optional encoded size of value
@@ -581,11 +629,27 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestUpdatableValueFunctio
 		Self::stored_value(value.as_slice(), meta)
 	}
 
-	fn extract_value(stored: &[u8]) -> (DBValue, Self::Meta) {
-		Self::extract_value_owned(stored.to_vec())
+	fn extract_value(mut stored: &[u8]) -> (&[u8], Self::Meta) {
+		let len = stored.len();
+		let input = &mut stored;
+		// if len == 1 it is new empty trie.
+		let (version, old_remaining_children) = if input[0] == EMPTY_TRIE && input.len() > 1 {
+			*input = &input[1..];
+			(Version::Old, Decode::decode(input).ok().flatten())
+		} else {
+			(Version::New, None)
+		};
+		let read_bytes = len - input.len();
+		let stored = &stored[read_bytes..];
+		(stored, VersionedValueRange {
+			old_remaining_children,
+			range: None,
+			version,
+		})
 	}
 
 	fn extract_value_owned(mut stored: DBValue) -> (DBValue, Self::Meta) {
+		// TODO factor with extract_value
 		let len = stored.len();
 		let input = &mut stored.as_slice();
 		// if len == 1 it is new empty trie.
@@ -710,11 +774,15 @@ const LEAF_NODE_LAST: u8 = EXTENSION_NODE_OFFSET - 1;
 const EXTENSION_NODE_LAST: u8 = BRANCH_NODE_NO_VALUE - 1;
 
 // Constant use with no extensino trie codec.
-const EMPTY_TRIE_NO_EXT: u8 = 0;
 const NIBBLE_SIZE_BOUND_NO_EXT: usize = u16::max_value() as usize;
+const FIRST_PREFIX: u8 = 0b_00 << 6;
 const LEAF_PREFIX_MASK_NO_EXT: u8 = 0b_01 << 6;
 const BRANCH_WITHOUT_MASK_NO_EXT: u8 = 0b_10 << 6;
 const BRANCH_WITH_MASK_NO_EXT: u8 = 0b_11 << 6;
+const EMPTY_TRIE_NO_EXT: u8 = FIRST_PREFIX & 0b_00; 
+// first value fo empty trie with content
+const DEAD_HEADER_META_OLD_VERSION: u8 = FIRST_PREFIX & 0b_01;
+const DEAD_HEADER_META_HASHED_VALUE: u8 = FIRST_PREFIX & 0b_10;
 
 /// Create a leaf/extension node, encoding a number of nibbles. Note that this
 /// cannot handle a number of nibbles that is zero or greater than 125 and if

@@ -214,7 +214,7 @@ pub trait ValueFunction<H: Hasher, T>: Send + Sync {
 	fn stored_value_owned(value: T, meta: Self::Meta) -> T;
 
 	/// Get meta and input value from stored.
-	fn extract_value(stored: &[u8]) -> (T, Self::Meta);
+	fn extract_value(stored: &[u8]) -> (&[u8], Self::Meta);
 
 	/// Owned version of `extract_value`.
 	fn extract_value_owned(stored: T) -> (T, Self::Meta);
@@ -243,8 +243,8 @@ impl<H, T> ValueFunction<H, T> for NoMeta
 		value
 	}
 
-	fn extract_value(stored: &[u8]) -> (T, Self::Meta) {
-		(stored.into(), ())
+	fn extract_value(stored: &[u8]) -> (&[u8], Self::Meta) {
+		(stored, ())
 	}
 
 	fn extract_value_owned(stored: T) -> (T, Self::Meta) {

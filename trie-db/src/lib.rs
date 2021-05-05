@@ -538,6 +538,12 @@ pub trait Meta: Clone {
 		&mut self,
 		children: impl Iterator<Item = ChildrenDecoded>,
 	);
+
+	/// Indicate a value from node was not accessed and does not need to be
+	/// use.
+	/// In some case (proof building with compatible hash scheme), this allow storing
+	/// only hash of value.
+	fn set_unaccessed_value(&mut self);
 }
 
 // TODO
@@ -599,6 +605,8 @@ impl Meta for () {
 		_children: impl Iterator<Item = ChildrenDecoded>,
 	) {
 	}
+
+	fn set_unaccessed_value(&mut self) { }
 }
 
 /// This trait associates a trie definition with preferred methods.

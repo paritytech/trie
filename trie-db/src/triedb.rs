@@ -93,12 +93,12 @@ where
 		parent_hash: TrieHash<L>,
 		node_handle: NodeHandle,
 		partial_key: Prefix,
-	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
+	) -> Result<(OwnedNode<DBValue>, Option<(TrieHash<L>, L::Meta)>), TrieHash<L>, CError<L>> {
 		let (node_hash, node_data) = match node_handle {
 			NodeHandle::Hash(data) => {
 				let node_hash = decode_hash::<L::Hash>(data)
 					.ok_or_else(|| Box::new(TrieError::InvalidHash(parent_hash, data.to_vec())))?;
-				let (node_data, _meta) = self.db
+				let (node_data, meta) = self.db
 					.get_with_meta(&node_hash, partial_key)
 					.ok_or_else(|| {
 						if partial_key == EMPTY_PREFIX {
@@ -108,12 +108,12 @@ where
 						}
 					})?;
 
-				(Some(node_hash), node_data)
+				(Some((node_hash, meta)), node_data)
 			}
 			NodeHandle::Inline(data) => (None, data.to_vec()),
 		};
 		let owned_node = OwnedNode::new::<L::Codec>(node_data)
-			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or(parent_hash), e)))?;
+			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.as_ref().map(|h| h.0).unwrap_or(parent_hash), e)))?;
 		Ok((owned_node, node_hash))
 	}
 }

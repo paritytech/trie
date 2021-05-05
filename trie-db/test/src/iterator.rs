@@ -282,7 +282,7 @@ fn iterate_over_incomplete_db_internal<T: TrieLayout>() {
 
 		TrieIterator::seek(&mut iter, &hex!("02")[..]).unwrap();
 		match iter.next() {
-			Some(Ok((_, Some(hash), node))) => {
+			Some(Ok((_, Some((hash, _)), node))) => {
 				match node.node() {
 					Node::Leaf(_, _) => hash,
 					_ => panic!("unexpected node"),
