@@ -36,6 +36,7 @@ use crate::rstd::{
 	boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec, vec::Vec,
 	cmp::Ordering,
 };
+use crate::node::ValuePlan;
 
 struct EncoderStackEntry<C: NodeCodec, M> {
 	/// The prefix is the nibble path to the node in the trie.
@@ -115,7 +116,7 @@ impl<C: NodeCodec, M> EncoderStackEntry<C, M> {
 			NodePlan::Branch { value, children } => {
 				C::branch_node(
 					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
-					value.clone().map(|range| &node_data[range])
+					value.build(node_data),
 				)
 			}
 			NodePlan::NibbledBranch { partial, value, children } => {
@@ -124,7 +125,7 @@ impl<C: NodeCodec, M> EncoderStackEntry<C, M> {
 					partial.right_iter(),
 					partial.len(),
 					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
-					value.clone().map(|range| &node_data[range])
+					value.build(node_data),
 				)
 			}
 		})
@@ -308,7 +309,8 @@ impl<'a, I: Iterator<Item = &'a [u8]>> MatchKeys<'a, I> {
 
 			let mut node_key = prefix.clone();
 			match node.node_plan() {
-				NodePlan::NibbledBranch{partial, value: Some(_), ..}
+				NodePlan::NibbledBranch{partial, value: ValuePlan::HashedValue(..), ..}
+				| NodePlan::NibbledBranch{partial, value: ValuePlan::Value(_), ..}
 				| NodePlan::Leaf {partial, ..} => {
 					let node_data = node.data();
 					let partial = partial.build(node_data);

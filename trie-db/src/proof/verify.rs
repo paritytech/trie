@@ -17,7 +17,7 @@ use crate::rstd::{
 };
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH,
-	node::{Node, NodeHandle}, NodeCodec, TrieHash, TrieLayout,
+	node::{Node, Value, NodeHandle}, NodeCodec, TrieHash, TrieLayout,
 };
 use hash_db::Hasher;
 
@@ -100,7 +100,7 @@ struct StackEntry<'a, C: NodeCodec> {
 	node: Node<'a>,
 	is_inline: bool,
 	/// The value associated with this trie node.
-	value: Option<&'a [u8]>,
+	value: Value<'a>,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
@@ -116,15 +116,15 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 		// TODO implement meta support to allow hashed value.
 		let node = C::decode(node_data, false)
 			.map_err(Error::DecodeError)?;
-		let children_len = match node {
+		let children_len = match &node {
 			Node::Empty | Node::Leaf(..) => 0,
 			Node::Extension(..) => 1,
 			Node::Branch(..) | Node::NibbledBranch(..) => NIBBLE_LENGTH,
 		};
-		let value = match node {
-			Node::Empty | Node::Extension(_, _) => None,
-			Node::Leaf(_, value) => Some(value),
-			Node::Branch(_, value) | Node::NibbledBranch(_, _, value) => value,
+		let value = match &node {
+			Node::Empty | Node::Extension(_, _) => Value::NoValue,
+			Node::Leaf(_, value) => value.clone(),
+			Node::Branch(_, value) | Node::NibbledBranch(_, _, value) => value.clone(),
 		};
 		Ok(StackEntry {
 			node,
@@ -144,13 +144,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 			Node::Empty =>
 				C::empty_node().to_vec(),
 			Node::Leaf(partial, _) => {
-				let value = self.value
-					.expect(
-						"value is assigned to Some in StackEntry::new; \
-						value is only ever reassigned in the ValueMatch::MatchesLeaf match \
-						clause, which assigns only to Some"
-					);
-				C::leaf_node(partial.right(), value)
+				C::leaf_node(partial.right(), self.value)
 			}
 			Node::Extension(partial, _) => {
 				let child = self.children[0]
@@ -275,18 +269,19 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 				let key = LeftNibbleSlice::new(key_bytes);
 				if key.starts_with(&self.prefix) {
 					match match_key_to_node(&key, self.prefix.len(), &self.node) {
-						ValueMatch::MatchesLeaf => {
-							if value.is_none() {
-								return Err(Error::ValueMismatch(key_bytes.to_vec()));
-							}
-							self.value = value;
-						}
-						ValueMatch::MatchesBranch =>
-							self.value = value,
-						ValueMatch::NotFound =>
-							if value.is_some() {
-								return Err(Error::ValueMismatch(key_bytes.to_vec()));
-							},
+						ValueMatch::MatchesLeaf => if let Some(value) = value {
+							self.value = Value::Value(value);
+						} else {
+							return Err(Error::ValueMismatch(key_bytes.to_vec()));
+						},
+						ValueMatch::MatchesBranch => if let Some(value) = value {
+							self.value = Value::Value(value);
+						} else {
+							self.value = Value::NoValue;
+						},
+						ValueMatch::NotFound => if value.is_some() {
+							return Err(Error::ValueMismatch(key_bytes.to_vec()));
+						},
 						ValueMatch::NotOmitted =>
 							return Err(Error::ExtraneousValue(key_bytes.to_vec())),
 						ValueMatch::IsChild(child_prefix) =>
@@ -326,10 +321,19 @@ fn match_key_to_node<'a>(key: &LeftNibbleSlice<'a>, prefix_len: usize, node: &No
 		Node::Leaf(partial, value) => {
 			if key.contains(partial, prefix_len) &&
 				key.len() == prefix_len + partial.len() {
-				if value.is_empty() {
-					ValueMatch::MatchesLeaf
-				} else {
-					ValueMatch::NotOmitted
+				match value {
+					Value::NoValue => ValueMatch::NotOmitted,
+					// TODO simply consider using NoValue for omitted.
+					Value::HashedValue(_, len) => if len == &0 {
+						ValueMatch::MatchesLeaf
+					} else {
+						ValueMatch::NotOmitted
+					},
+					Value::Value(value) => if value.is_empty() {
+						ValueMatch::MatchesLeaf
+					} else {
+						ValueMatch::NotOmitted
+					}
 				}
 			} else {
 				ValueMatch::NotFound
@@ -362,14 +366,14 @@ fn match_key_to_branch_node<'a>(
 	key: &LeftNibbleSlice<'a>,
 	prefix_plus_partial_len: usize,
 	children: &[Option<NodeHandle>; NIBBLE_LENGTH],
-	value: &Option<&[u8]>,
+	value: &Value,
 ) -> ValueMatch<'a>
 {
 	if key.len() == prefix_plus_partial_len {
-		if value.is_none() {
-			ValueMatch::MatchesBranch
-		} else {
-			ValueMatch::NotOmitted
+		match value {
+			Value::NoValue => ValueMatch::MatchesBranch,
+			Value::HashedValue(..)
+			| Value::Value(..) => ValueMatch::NotOmitted,
 		}
 	} else {
 		let index = key.at(prefix_plus_partial_len)

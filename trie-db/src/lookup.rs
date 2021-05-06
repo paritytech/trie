@@ -16,7 +16,7 @@
 
 use hash_db::HashDBRef;
 use crate::nibble::NibbleSlice;
-use crate::node::{Node, NodeHandle, decode_hash};
+use crate::node::{Node, NodeHandle, decode_hash, Value};
 use crate::node_codec::NodeCodec;
 use crate::rstd::boxed::Box;
 use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash, Meta};
@@ -36,6 +36,18 @@ where
 	L: TrieLayout,
 	Q: Query<L::Hash>,
 {
+	fn decode(self, v: Value) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
+		match v {
+			Value::NoValue => Ok(None),
+			Value::Value(value) => Ok(Some(self.query.decode(value))),
+			Value::HashedValue(hash, _size) => {
+				let mut res = TrieHash::<L>::default();
+				res.as_mut().copy_from_slice(hash);
+				Err(Box::new(TrieError::IncompleteDatabase(res)))
+			},
+		}
+	}
+
 	/// Look up the given key. If the value is found, it will be passed to the given
 	/// function to decode or copy.
 	pub fn look_up(
@@ -71,7 +83,7 @@ where
 				let next_node = match decoded {
 					Node::Leaf(slice, value) => {
 						return Ok(match slice == partial {
-							true => Some(self.query.decode(value)),
+							true => self.decode(value)?,
 							false => None,
 						})
 					}
@@ -85,7 +97,7 @@ where
 						}
 					}
 					Node::Branch(children, value) => match partial.is_empty() {
-						true => return Ok(value.map(move |val| self.query.decode(val))),
+						true => return Ok(self.decode(value)?),
 						false => match children[partial.at(0) as usize] {
 							Some(x) => {
 								partial = partial.mid(1);
@@ -101,7 +113,7 @@ where
 						}
 
 						match partial.len() == slice.len() {
-							true => return Ok(value.map(move |val| self.query.decode(val))),
+							true => return Ok(self.decode(value)?),
 							false => match children[partial.at(slice.len()) as usize] {
 								Some(x) => {
 									partial = partial.mid(slice.len() + 1);

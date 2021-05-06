@@ -24,6 +24,7 @@ use crate::nibble::NibbleSlice;
 use crate::nibble::nibble_ops;
 use crate::node_codec::NodeCodec;
 use crate::{TrieLayout, TrieHash, DBValue};
+use crate::node::Value;
 
 macro_rules! exponential_out {
 	(@3, [$($inpp:expr),*]) => { exponential_out!(@2, [$($inpp,)* $($inpp),*]) };
@@ -132,7 +133,7 @@ impl<T, V> CacheAccum<T, V>
 		let nibble_value = nibble_ops::left_nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
 		let nkey = NibbleSlice::new_offset(&k2.as_ref()[..], target_depth + 1);
-		let encoded = T::Codec::leaf_node(nkey.right(), &v2.as_ref()[..]);
+		let encoded = T::Codec::leaf_node(nkey.right(), Value::Value(&v2.as_ref()[..]));
 		let pr = NibbleSlice::new_offset(
 			&k2.as_ref()[..],
 			k2.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE - nkey.len(),
@@ -200,7 +201,7 @@ impl<T, V> CacheAccum<T, V>
 		let v = self.0[last].1.take();
 		let encoded = T::Codec::branch_node(
 			self.0[last].0.as_ref().iter(),
-			v.as_ref().map(|v| v.as_ref()),
+			v.as_ref().map(|v| v.as_ref()).into(),
 		);
 		self.reset_depth(branch_d);
 		let pr = NibbleSlice::new_offset(&key_branch, branch_d);
@@ -234,7 +235,7 @@ impl<T, V> CacheAccum<T, V>
 		let encoded = T::Codec::branch_node_nibbled(
 			pr.right_range_iter(nkeyix.1),
 			nkeyix.1,
-			self.0[last].0.as_ref().iter(), v.as_ref().map(|v| v.as_ref()));
+			self.0[last].0.as_ref().iter(), v.as_ref().map(|v| v.as_ref()).into());
 		let result = callback.process(pr.left(), encoded, is_root);
 		self.reset_depth(branch_d);
 		result
@@ -290,7 +291,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F)
 			// one single element corner case
 			let (k2, v2) = previous_value;
 			let nkey = NibbleSlice::new_offset(&k2.as_ref()[..], last_depth);
-			let encoded = T::Codec::leaf_node(nkey.right(), &v2.as_ref()[..]);
+			let encoded = T::Codec::leaf_node(nkey.right(), Value::Value(&v2.as_ref()[..]));
 			let pr = NibbleSlice::new_offset(
 				&k2.as_ref()[..],
 				k2.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE - nkey.len(),

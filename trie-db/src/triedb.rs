@@ -17,7 +17,7 @@ use crate::nibble::NibbleSlice;
 use crate::iterator::TrieDBNodeIterator;
 use crate::rstd::boxed::Box;
 use crate::DBValue;
-use super::node::{NodeHandle, Node, OwnedNode, decode_hash};
+use super::node::{NodeHandle, Node, Value, OwnedNode, decode_hash};
 use super::lookup::Lookup;
 use super::{Result, Trie, TrieItem, TrieError, TrieIterator, Query,
 	TrieLayout, CError, TrieHash, Meta};
@@ -306,16 +306,23 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 					let maybe_value = match node.node() {
 						Node::Leaf(partial, value) => {
 							prefix.append_partial(partial.right());
-							Some(value)
+							value
 						}
 						Node::Branch(_, value) => value,
 						Node::NibbledBranch(partial, _, value) => {
 							prefix.append_partial(partial.right());
 							value
 						}
-						_ => None,
+						_ => Value::NoValue,
 					};
-					if let Some(value) = maybe_value {
+					if let Value::HashedValue(hash, _) = &maybe_value {
+						let mut res = TrieHash::<L>::default();
+						res.as_mut().copy_from_slice(hash);
+						return Some(Err(Box::new(
+							TrieError::IncompleteDatabase(res)
+						)));
+					}
+					if let Value::Value(value) = maybe_value {
 						let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
 						let key = key_slice.to_vec();
 						if let Some(extra_nibble) = maybe_extra_nibble {

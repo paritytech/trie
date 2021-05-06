@@ -40,6 +40,27 @@ pub fn decode_hash<H: Hasher>(data: &[u8]) -> Option<H::Out> {
 	Some(hash)
 }
 
+/// Value representation in `Node`.
+#[derive(Eq, PartialEq, Clone)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub enum Value<'a> {
+	/// Node with no value attached.
+	NoValue,
+	/// Value byte slice.
+	Value(&'a [u8]),
+	/// Hash byte slice and original value length.
+	HashedValue(&'a [u8], usize),
+}
+
+impl<'a> From<Option<&'a [u8]>> for Value<'a> {
+	fn from(v: Option<&'a [u8]>) -> Self {
+		match v {
+			Some(v) => Value::Value(v),
+			None => Value::NoValue,
+		}
+	}
+}
+
 /// Type of node in the trie and essential information thereof.
 #[derive(Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -47,14 +68,14 @@ pub enum Node<'a> {
 	/// Null trie node; could be an empty root or an empty branch entry.
 	Empty,
 	/// Leaf node; has key slice and value. Value may not be empty.
-	Leaf(NibbleSlice<'a>, &'a [u8]),
+	Leaf(NibbleSlice<'a>, Value<'a>),
 	/// Extension node; has key slice and node data. Data may not be null.
 	Extension(NibbleSlice<'a>, NodeHandle<'a>),
 	/// Branch node; has slice of child nodes (each possibly null)
 	/// and an optional immediate node data.
-	Branch([Option<NodeHandle<'a>>; nibble_ops::NIBBLE_LENGTH], Option<&'a [u8]>),
+	Branch([Option<NodeHandle<'a>>; nibble_ops::NIBBLE_LENGTH], Value<'a>),
 	/// Branch node with support for a nibble (when extension nodes are not used).
-	NibbledBranch(NibbleSlice<'a>, [Option<NodeHandle<'a>>; nibble_ops::NIBBLE_LENGTH], Option<&'a [u8]>),
+	NibbledBranch(NibbleSlice<'a>, [Option<NodeHandle<'a>>; nibble_ops::NIBBLE_LENGTH], Value<'a>),
 }
 
 /// A `NodeHandlePlan` is a decoding plan for constructing a `NodeHandle` from an encoded trie
@@ -108,6 +129,30 @@ impl NibbleSlicePlan {
 	}
 }
 
+/// Plan for value representation in `NodePlan`.
+#[derive(Eq, PartialEq, Clone)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub enum ValuePlan {
+	/// Node with no value attached.
+	NoValue,
+	/// Range for byte representation in encoded node.
+	Value(Range<usize>),
+	/// Range for hash in encoded node and original
+	/// value size.
+	HashedValue(Range<usize>, usize),
+}
+
+impl ValuePlan {
+	/// Build a value slice by decoding a byte slice according to the plan.
+	pub fn build<'a, 'b>(&'a self, data: &'b [u8]) -> Value<'b> {
+		match self {
+			ValuePlan::NoValue => Value::NoValue,
+			ValuePlan::Value(range) => Value::Value(&data[range.clone()]),
+			ValuePlan::HashedValue(range, size) => Value::HashedValue(&data[range.clone()], *size),
+		}
+	}
+}
+
 /// A `NodePlan` is a blueprint for decoding a node from a byte slice. The `NodePlan` is created
 /// by parsing an encoded node and can be reused multiple times. This is useful as a `Node` borrows
 /// from a byte slice and this struct does not.
@@ -122,7 +167,7 @@ pub enum NodePlan {
 	/// Leaf node; has a partial key plan and value.
 	Leaf {
 		partial: NibbleSlicePlan,
-		value: Range<usize>,
+		value: ValuePlan,
 	},
 	/// Extension node; has a partial key plan and child data.
 	Extension {
@@ -132,13 +177,13 @@ pub enum NodePlan {
 	/// Branch node; has slice of child nodes (each possibly null)
 	/// and an optional immediate node data.
 	Branch {
-		value: Option<Range<usize>>,
+		value: ValuePlan,
 		children: [Option<NodeHandlePlan>; nibble_ops::NIBBLE_LENGTH],
 	},
 	/// Branch node with support for a nibble (when extension nodes are not used).
 	NibbledBranch {
 		partial: NibbleSlicePlan,
-		value: Option<Range<usize>>,
+		value: ValuePlan,
 		children: [Option<NodeHandlePlan>; nibble_ops::NIBBLE_LENGTH],
 	},
 }
@@ -151,7 +196,7 @@ impl NodePlan {
 		match self {
 			NodePlan::Empty => Node::Empty,
 			NodePlan::Leaf { partial, value } =>
-				Node::Leaf(partial.build(data), &data[value.clone()]),
+				Node::Leaf(partial.build(data), value.build(data)),
 			NodePlan::Extension { partial, child } =>
 				Node::Extension(partial.build(data), child.build(data)),
 			NodePlan::Branch { value, children } => {
@@ -159,27 +204,25 @@ impl NodePlan {
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
 					child_slices[i] = children[i].as_ref().map(|child| child.build(data));
 				}
-				let value_slice = value.clone().map(|value| &data[value]);
-				Node::Branch(child_slices, value_slice)
+				Node::Branch(child_slices, value.build(data))
 			},
 			NodePlan::NibbledBranch { partial, value, children } => {
 				let mut child_slices = [None; nibble_ops::NIBBLE_LENGTH];
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
 					child_slices[i] = children[i].as_ref().map(|child| child.build(data));
 				}
-				let value_slice = value.clone().map(|value| &data[value]);
-				Node::NibbledBranch(partial.build(data), child_slices, value_slice)
+				Node::NibbledBranch(partial.build(data), child_slices, value.build(data))
 			},
 		}
 	}
 
-	/// TODO doc
-	pub fn value_range(&self) -> Option<Range<usize>> {
+	/// TODO
+	pub fn value_range(&self) -> Option<ValuePlan> {
 		match self {
 			NodePlan::Extension { .. }
 			| NodePlan::Empty => None,
 			NodePlan::Branch { value, .. }
-			| NodePlan::NibbledBranch { value, .. } => value.clone(),
+			| NodePlan::NibbledBranch { value, .. } => Some(value.clone()),
 			NodePlan::Leaf { value, .. } => Some(value.clone()),
 		}
 	}

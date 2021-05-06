@@ -15,13 +15,14 @@
 //! Generation of compact proofs for Merkle-Patricia tries.
 
 use crate::rstd::{
-	boxed::Box, convert::TryInto, marker::PhantomData, ops::Range, vec, vec::Vec,
+	boxed::Box, convert::TryInto, marker::PhantomData, vec, vec::Vec,
 };
 
 use hash_db::Hasher;
 
 use crate::{
-	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH, NibbleSlice, node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode}, NodeCodec, Recorder,
+	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH, NibbleSlice,
+	node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, Value, ValuePlan}, NodeCodec, Recorder,
 	Result as TrieResult, Trie, TrieError, TrieHash,
 	TrieLayout,
 };
@@ -82,7 +83,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 			NodePlan::Leaf { .. } if !self.omit_value => node_data.to_vec(),
 			NodePlan::Leaf { partial, value: _ } => {
 				let partial = partial.build(node_data);
-				C::leaf_node(partial.right(), &[])
+				C::leaf_node(partial.right(), Value::Value(&[]))
 			}
 			NodePlan::Extension { .. } if self.child_index == 0 => node_data.to_vec(),
 			NodePlan::Extension { partial: partial_plan, child: _ } => {
@@ -383,7 +384,13 @@ fn match_key_to_node<'a, C: NodeCodec>(
 				key.len() == prefix_len + partial.len()
 			{
 				*omit_value = true;
-				Step::FoundValue(Some(&node_data[value_range.clone()]))
+				match value_range {
+					ValuePlan::Value(value_range) =>
+						Step::FoundValue(Some(&node_data[value_range.clone()])),
+					_ => return Err(Box::new(
+						TrieError::IncompleteDatabase(C::HashOut::default())
+					)),
+				}
 			} else {
 				Step::FoundValue(None)
 			}
@@ -428,7 +435,7 @@ fn match_key_to_node<'a, C: NodeCodec>(
 
 fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 	node_data: &'a [u8],
-	value_range: &'b Option<Range<usize>>,
+	value_range: &'b ValuePlan,
 	child_handles: &'b [Option<NodeHandlePlan>; NIBBLE_LENGTH],
 	omit_value: &mut bool,
 	child_index: &mut usize,
@@ -444,7 +451,13 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 
 	if key.len() == prefix_len + partial.len() {
 		*omit_value = true;
-		let value = value_range.clone().map(|range| &node_data[range]);
+		let value = match value_range {
+			ValuePlan::Value(range) => Some(&node_data[range.clone()]),
+			ValuePlan::HashedValue(..) => return Err(Box::new(
+				TrieError::IncompleteDatabase(C::HashOut::default())
+			)),
+			ValuePlan::NoValue => None,
+		};
 		return Ok(Step::FoundValue(value));
 	}
 
@@ -483,14 +496,14 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 
 fn value_with_omission<'a>(
 	node_data: &'a [u8],
-	value_range: &Option<Range<usize>>,
+	value_range: &ValuePlan,
 	omit: bool
-) -> Option<&'a [u8]>
+) -> Value<'a>
 {
 	if omit {
-		None
+		Value::NoValue
 	} else {
-		value_range.clone().map(|range| &node_data[range])
+		value_range.build(&node_data)
 	}
 }
 

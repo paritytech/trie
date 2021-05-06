@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
-use super::{Result, DBValue, TrieDBMut, TrieMut, TrieLayout, TrieHash, CError};
+use super::{Result, DBValue, TrieDBMut, TrieMut, TrieLayout, TrieHash, CError, Value};
 
 /// A mutable `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 /// Additionaly it stores inserted hash-key mappings for later retrieval.
@@ -80,27 +80,30 @@ where
 		&mut self,
 		key: &[u8],
 		value: &[u8],
-	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+	) -> Result<Value, TrieHash<L>, CError<L>> {
 		let hash = L::Hash::hash(key);
 		let out = self.raw.insert(hash.as_ref(), value)?;
 		let db = self.raw.db_mut();
 
 		// insert if it doesn't exist.
-		if out.is_none() {
+		if let Value::NoValue = &out {
 			let aux_hash = L::Hash::hash(hash.as_ref());
 			db.emplace(aux_hash, EMPTY_PREFIX, key.to_vec());
 		}
 		Ok(out)
 	}
 
-	fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+	fn remove(&mut self, key: &[u8]) -> Result<Value, TrieHash<L>, CError<L>> {
 		let hash = L::Hash::hash(key);
 		let out = self.raw.remove(hash.as_ref())?;
 
 		// remove if it already exists.
-		if out.is_some() {
-			let aux_hash = L::Hash::hash(hash.as_ref());
-			self.raw.db_mut().remove(&aux_hash, EMPTY_PREFIX);
+		match &out {
+			Value::NoValue => (),
+			_ => {
+				let aux_hash = L::Hash::hash(hash.as_ref());
+				self.raw.db_mut().remove(&aux_hash, EMPTY_PREFIX);
+			},
 		}
 
 		Ok(out)

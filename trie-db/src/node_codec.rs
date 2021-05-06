@@ -16,10 +16,10 @@
 //! to parametrize the hashes used in the codec.
 
 use crate::MaybeDebug;
-use crate::node::{Node, NodePlan};
+use crate::node::{Node, NodePlan, Value, ValuePlan};
 use crate::ChildReference;
 
-use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec, ops::Range};
+use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec};
 
 
 /// Representation of a nible slice (right aligned).
@@ -55,12 +55,12 @@ pub trait NodeCodec: Sized {
 	fn empty_node() -> &'static [u8];
 
 	/// Returns an encoded leaf node
-	fn leaf_node(partial: Partial, value: &[u8]) -> Vec<u8>;
+	fn leaf_node(partial: Partial, value: Value) -> Vec<u8>;
 
 	/// Returns value position in encoded slice.
 	/// TODO slow, could be better with individual function variant,
 	/// but this is less work as a first step.
-	fn value_range(encoded: &[u8]) -> Option<Range<usize>> {
+	fn value_range(encoded: &[u8]) -> Option<ValuePlan> {
 		Self::decode_plan(encoded, false).ok().map(|plan| plan.value_range()).flatten()
 	}
 
@@ -78,7 +78,7 @@ pub trait NodeCodec: Sized {
 	/// Takes an iterator yielding `ChildReference<Self::HashOut>` and an optional value.
 	fn branch_node(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		value: Option<&[u8]>,
+		value: Value,
 	) -> Vec<u8>;
 
 	/// Returns an encoded branch node with a possible partial path.
@@ -87,6 +87,6 @@ pub trait NodeCodec: Sized {
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		value: Option<&[u8]>
+		value: Value,
 	) -> Vec<u8>;
 }

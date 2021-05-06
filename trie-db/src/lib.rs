@@ -59,7 +59,7 @@ mod trie_codec;
 
 pub use hash_db::{HashDB, HashDBRef, Hasher};
 pub use self::triedb::{TrieDB, TrieDBIterator};
-pub use self::triedbmut::{TrieDBMut, ChildReference};
+pub use self::triedbmut::{TrieDBMut, ChildReference, Value};
 pub use self::sectriedbmut::SecTrieDBMut;
 pub use self::sectriedb::SecTrieDB;
 pub use self::fatdb::{FatDB, FatDBIterator};
@@ -232,11 +232,11 @@ pub trait TrieMut<L: TrieLayout> {
 		&mut self,
 		key: &[u8],
 		value: &[u8],
-	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>;
+	) -> Result<Value, TrieHash<L>, CError<L>>;
 
 	/// Remove a `key` from the trie. Equivalent to making it equal to the empty
 	/// value. Returns the old value associated with this key, if it existed.
-	fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>;
+	fn remove(&mut self, key: &[u8]) -> Result<Value, TrieHash<L>, CError<L>>;
 }
 
 /// A trie iterator that also supports random access (`seek()`).
@@ -448,6 +448,7 @@ impl fmt::Display for NodeChange {
 
 impl NodeChange {
 	/// TODO
+	/// TODO maybe unused
 	pub fn from_values(old: Option<impl AsRef<[u8]>>, new: Option<impl AsRef<[u8]>>) -> Self {
 		if old.as_ref().map(|v| v.as_ref()) == new.as_ref().map(|v| v.as_ref()) {
 			NodeChange::None
@@ -455,6 +456,32 @@ impl NodeChange {
 			NodeChange::Encoded
 		}
 	}
+
+	/// TODO
+	pub fn from_node_values(old: crate::node::Value, new: crate::node::Value) -> Self {
+		match old {
+			crate::node::Value::NoValue => match new {
+				crate::node::Value::NoValue => return NodeChange::None,
+				_ => (),
+			},
+			crate::node::Value::HashedValue(hash, size) => match new {
+				crate::node::Value::HashedValue(nhash, nsize) => if hash == nhash && size == nsize {
+					return NodeChange::None;
+				},
+				// we could also check hash of value.
+				_ => (),
+			},
+			crate::node::Value::Value(value) => match new {
+				crate::node::Value::Value(nvalue) => if value == nvalue {
+					return NodeChange::None;
+				},
+				// we could also check hash of value.
+				_ => (),
+			},
+		}
+		NodeChange::Encoded
+	}
+	
 	/// TODO
 	pub fn combine(&self, other: Self) -> Self {
 		match (self, other) {
