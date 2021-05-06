@@ -195,12 +195,24 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 		}
 	}
 
-	fn stored_value(value: &[u8], meta: Self::Meta) -> DBValue {
+	fn stored_value(value: &[u8], mut meta: Self::Meta) -> DBValue {
 		let mut stored = meta.0.as_ref().map(|ValueMeta { range, .. }| (range.start as u32, range.end as u32)).encode();
+		if meta.0.as_ref().map(|meta| meta.contain_hash).unwrap_or(false) {
+			// already contain hash, just flag it.
+			stored.push(DEAD_HEADER_META_HASHED_VALUE);
+			stored.extend_from_slice(value);
+			return stored;
+		}
 		if meta.0.as_ref().map(|meta| meta.unused_value).unwrap_or(false) {
 			// Waring this assume that encoded value does not start by this, so it is tightly coupled
 			// with the header type of the codec: only for optimization.
 			stored.push(DEAD_HEADER_META_HASHED_VALUE);
+			let mut meta = meta.0.as_mut().expect("Tested in codition");
+			meta.contain_hash = true; // useless but could be with meta as &mut
+			// store hash instead of value.
+			let value = inner_hashed_value::<H>(value, Some((meta.range.start, meta.range.end)));
+			stored.extend_from_slice(value.as_slice());
+			return stored;
 		}
 		stored.extend_from_slice(value);
 		stored
@@ -225,7 +237,7 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 			(stored, ValueRange(Some(ValueMeta {
 				range: start..end,
 				unused_value,
-				contain_hash: false,
+				contain_hash: unused_value,
 			})))
 		} else {
 			(stored, ValueRange(None))
