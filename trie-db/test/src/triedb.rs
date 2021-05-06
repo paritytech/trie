@@ -219,24 +219,28 @@ fn debug_output_supports_pretty_print_internal<T: TrieLayout>() {
                                 Node::Leaf {
                                     index: 1,
                                     slice: ,
-                                    value: [
-                                        65,
-                                        65,
-                                    ],
+                                    value: Value(
+                                        [
+                                            65,
+                                            65,
+                                        ],
+                                    ),
                                 },
                                 Node::Leaf {
                                     index: 2,
                                     slice: ,
-                                    value: [
-                                        65,
-                                        66,
-                                    ],
+                                    value: Value(
+                                        [
+                                            65,
+                                            66,
+                                        ],
+                                    ),
                                 },
                             ],
-                            value: None,
+                            value: NoValue,
                         },
                     ],
-                    value: Some(
+                    value: Value(
                         [
                             65,
                         ],
@@ -245,12 +249,14 @@ fn debug_output_supports_pretty_print_internal<T: TrieLayout>() {
                 Node::Leaf {
                     index: 2,
                     slice: ,
-                    value: [
-                        66,
-                    ],
+                    value: Value(
+                        [
+                            66,
+                        ],
+                    ),
                 },
             ],
-            value: None,
+            value: NoValue,
         },
     },
 }")

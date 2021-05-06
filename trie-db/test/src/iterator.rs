@@ -15,7 +15,7 @@
 use trie_db::{
 	DBValue, TrieError, TrieMut,
 	TrieIterator, TrieDBNodeIterator, NibbleSlice, NibbleVec,
-	node::Node, TrieDB, TrieLayout,
+	node::{Node, Value}, TrieDB, TrieLayout,
 };
 use hex_literal::hex;
 use hash_db::{HashDB, Hasher};
@@ -329,7 +329,7 @@ fn iterate_over_incomplete_db_internal<T: TrieLayout>() {
 			Some(Ok((_, _, node))) => {
 				match node.node() {
 					Node::Leaf(_, v) =>
-						assert_eq!(&v[..], &vec![2; 32][..]),
+						assert_eq!(v, Value::Value(&vec![2; 32][..])),
 					_ => panic!("unexpected node"),
 				}
 			}

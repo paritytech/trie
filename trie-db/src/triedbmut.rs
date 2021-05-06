@@ -68,7 +68,7 @@ fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; nibble_ops::NIBBLE_LENGTH]
 type NibbleFullKey<'key> = NibbleSlice<'key>;
 
 /// Value representation for Node.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Value {
 	/// Node with no value attached.
 	NoValue,

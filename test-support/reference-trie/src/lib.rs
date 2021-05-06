@@ -22,7 +22,7 @@ use parity_scale_codec::{Decode, Input, Output, Encode, Compact, Error as CodecE
 use trie_root::Hasher;
 
 use trie_db::{
-	node::{NibbleSlicePlan, NodePlan, NodeHandlePlan},
+	node::{NibbleSlicePlan, NodePlan, Value, ValuePlan, NodeHandlePlan},
 	triedbmut::ChildReference,
 	DBValue,
 	trie_visit,
@@ -302,14 +302,19 @@ impl Meta for ValueRange {
 		_encoded: &[u8],
 		node_plan: NodePlan,
 	) {
-		if let Some(range) = node_plan.value_range() {
-			if range.end - range.start >= INNER_HASH_TRESHOLD {
-				self.0 = Some(ValueMeta {
-					range,
-					unused_value: false,
-					contain_hash: false,
-				});
-			}
+		let (contain_hash, range) = match node_plan.value_range() {
+			Some(ValuePlan::Value(range)) => (false, range),
+			Some(ValuePlan::HashedValue(range, _size)) => (true, range),
+			Some(ValuePlan::NoValue)
+			| None => return,
+		};
+
+		if contain_hash || range.end - range.start >= INNER_HASH_TRESHOLD {
+			self.0 = Some(ValueMeta {
+				range,
+				unused_value: false,
+				contain_hash,
+			});
 		}
 	}
 
@@ -518,10 +523,15 @@ impl Meta for VersionedValueRange {
 		node_plan: NodePlan,
 	) {
 		if matches!(self.version, Version::New) {
-			if let Some(range) = node_plan.value_range() {
-				if range.end - range.start >= INNER_HASH_TRESHOLD {
-					self.range = Some(range);
-				}
+			let range = match node_plan.value_range() {
+				Some(ValuePlan::Value(range)) => range,
+				Some(ValuePlan::HashedValue(_range, _size)) => unimplemented!(),
+				Some(ValuePlan::NoValue)
+				| None => return,
+			};
+
+			if range.end - range.start >= INNER_HASH_TRESHOLD {
+				self.range = Some(range);
 			}
 		}
 	}
@@ -1252,9 +1262,9 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 
 				let value = if has_value {
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-					Some(input.take(count)?)
+					ValuePlan::Value(input.take(count)?)
 				} else {
-					None
+					ValuePlan::NoValue
 				};
 				let mut children = [
 					None, None, None, None, None, None, None, None,
@@ -1299,7 +1309,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 				let value = input.take(count)?;
 				Ok(NodePlan::Leaf {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
-					value,
+					value: ValuePlan::Value(value),
 				})
 			}
 		}
@@ -1313,9 +1323,14 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		&[EMPTY_TRIE]
 	}
 
-	fn leaf_node(partial: Partial, value: &[u8]) -> Vec<u8> {
+	fn leaf_node(partial: Partial, value: Value) -> Vec<u8> {
 		let mut output = partial_to_key(partial, LEAF_NODE_OFFSET, LEAF_NODE_OVER);
-		value.encode_to(&mut output);
+		match value {
+			Value::Value(value) => {
+				value.encode_to(&mut output);
+			},
+			_ => unimplemented!("unsupported"),
+		}
 		output
 	}
 
@@ -1340,15 +1355,17 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 
 	fn branch_node(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		maybe_value: Option<&[u8]>,
+		maybe_value: Value,
 	) -> Vec<u8> {
 		let mut output = vec![0; BITMAP_LENGTH + 1];
 		let mut prefix: [u8; 3] = [0; 3];
-		let have_value = if let Some(value) = maybe_value {
-			value.encode_to(&mut output);
-			true
-		} else {
-			false
+		let have_value = match maybe_value {
+			Value::Value(value) => {
+				value.encode_to(&mut output);
+				true
+			},
+			Value::NoValue => false,
+			_ => unimplemented!("unsupported"),
 		};
 		let has_children = children.map(|maybe_child| match maybe_child.borrow() {
 			Some(ChildReference::Hash(h)) => {
@@ -1370,7 +1387,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		_partial:	impl Iterator<Item = u8>,
 		_number_nibble: usize,
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		_maybe_value: Option<&[u8]>) -> Vec<u8> {
+		_maybe_value: Value) -> Vec<u8> {
 		unreachable!()
 	}
 }
@@ -1401,14 +1418,13 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				let bitmap = Bitmap::decode(&data[bitmap_range])?;
 				let value = if has_value {
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-					let count = if contains_hash {
-						H::LENGTH
+					if contains_hash {
+						ValuePlan::HashedValue(input.take(H::LENGTH)?, count)
 					} else {
-						count
-					};
-					Some(input.take(count)?)
+						ValuePlan::Value(input.take(count)?)
+					}
 				} else {
-					None
+					ValuePlan::NoValue
 				};
 				let mut children = [
 					None, None, None, None, None, None, None, None,
@@ -1443,10 +1459,11 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				let partial_padding = nibble_ops::number_padding(nibble_count);
 				let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
 				let value = if contains_hash {
-					input.take(H::LENGTH)?
+					ValuePlan::HashedValue(input.take(H::LENGTH)?, count)
 				} else {
-					input.take(count)?
+					ValuePlan::Value(input.take(count)?)
 				};
+
 				Ok(NodePlan::Leaf {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
 					value,
@@ -1463,9 +1480,18 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		&[EMPTY_TRIE_NO_EXT]
 	}
 
-	fn leaf_node(partial: Partial, value: &[u8]) -> Vec<u8> {
+	fn leaf_node(partial: Partial, value: Value) -> Vec<u8> {
 		let mut output = partial_encode(partial, NodeKindNoExt::Leaf);
-		value.encode_to(&mut output);
+		match value {
+			Value::Value(value) => value.encode_to(&mut output),
+			Value::HashedValue(hash, size) => {
+				debug_assert!(hash.len() == H::LENGTH);
+				let size = Compact(size as u32);
+				size.encode_to(&mut output);
+				output.extend_from_slice(hash);
+			},
+			Value::NoValue => unreachable!(),
+		}
 		output
 	}
 
@@ -1479,7 +1505,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 
 	fn branch_node(
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
-		_maybe_value: Option<&[u8]>,
+		_maybe_value: Value,
 	) -> Vec<u8> {
 		unreachable!()
 	}
@@ -1488,27 +1514,35 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		maybe_value: Option<&[u8]>,
+		maybe_value: Value,
 	) -> Vec<u8> {
-		let mut output = if maybe_value.is_some() {
-			partial_from_iterator_encode(
-				partial,
-				number_nibble,
-				NodeKindNoExt::BranchWithValue,
-			)
-		} else {
+		let mut output = if let Value::NoValue = &maybe_value {
 			partial_from_iterator_encode(
 				partial,
 				number_nibble,
 				NodeKindNoExt::BranchNoValue,
 			)
+		} else {
+			partial_from_iterator_encode(
+				partial,
+				number_nibble,
+				NodeKindNoExt::BranchWithValue,
+			)
 		};
 		let bitmap_index = output.len();
 		let mut bitmap: [u8; BITMAP_LENGTH] = [0; BITMAP_LENGTH];
 		(0..BITMAP_LENGTH).for_each(|_| output.push(0));
-		if let Some(value) = maybe_value {
-			value.encode_to(&mut output);
-		};
+		match maybe_value {
+			Value::Value(value) => value.encode_to(&mut output),
+			Value::HashedValue(hash, size) => {
+				debug_assert!(hash.len() == H::LENGTH);
+				let size = Compact(size as u32);
+				size.encode_to(&mut output);
+				output.extend_from_slice(hash);
+			},
+			Value::NoValue => (),
+		}
+
 		Bitmap::encode(children.map(|maybe_child| match maybe_child.borrow() {
 			Some(ChildReference::Hash(h)) => {
 				h.as_ref().encode_to(&mut output);
@@ -1775,7 +1809,7 @@ mod tests {
 		// + 1 for 0 added byte of nibble encode
 		let input = vec![0u8; (NIBBLE_SIZE_BOUND_NO_EXT as usize + 1) / 2 + 1];
 		let enc = <ReferenceNodeCodecNoExt<RefHasher> as NodeCodec>
-		::leaf_node(((0, 0), &input), &[1]);
+		::leaf_node(((0, 0), &input), Value::Value(&[1]));
 		let dec = <ReferenceNodeCodecNoExt<RefHasher> as NodeCodec>
 		::decode(&enc, false).unwrap();
 		let o_sl = if let Node::Leaf(sl, _) = dec {

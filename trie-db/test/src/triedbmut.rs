@@ -18,7 +18,7 @@ use log::debug;
 use memory_db::{MemoryDB, PrefixedKey};
 use hash_db::{Hasher, HashDB};
 use trie_db::{TrieDBMut, TrieMut, NodeCodec,
-	TrieLayout, DBValue};
+	TrieLayout, DBValue, Value};
 use reference_trie::{ExtensionLayout, NoExtensionLayout,
 	RefHasher, test_layouts, ReferenceNodeCodec,
 	ReferenceNodeCodecNoExt, reference_trie_root_iter_build as reference_trie_root};
@@ -412,12 +412,12 @@ fn return_old_values_internal<T: TrieLayout>() {
 	let mut root = Default::default();
 	let mut t = TrieDBMut::<T>::new(&mut db, &mut root);
 	for &(ref key, ref value) in &x {
-		assert!(t.insert(key, value).unwrap().is_none());
-		assert_eq!(t.insert(key, value).unwrap(), Some(value.clone()));
+		assert!(t.insert(key, value).unwrap() == Value::NoValue);
+		assert_eq!(t.insert(key, value).unwrap(), Value::Value(value.clone()));
 	}
 	for (key, value) in x {
-		assert_eq!(t.remove(&key).unwrap(), Some(value));
-		assert!(t.remove(&key).unwrap().is_none());
+		assert_eq!(t.remove(&key).unwrap(), Value::Value(value));
+		assert_eq!(t.remove(&key).unwrap(), Value::NoValue);
 	}
 }
 
