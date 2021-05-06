@@ -1242,7 +1242,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		H::hash(<Self as NodeCodec>::empty_node())
 	}
 
-	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
+	fn decode_plan(data: &[u8], _contains_hash: bool) -> ::std::result::Result<NodePlan, Self::Error> {
 		let mut input = ByteSliceInput::new(data);
 		match NodeHeader::decode(&mut input)? {
 			NodeHeader::Null => Ok(NodePlan::Empty),
@@ -1383,7 +1383,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		H::hash(<Self as NodeCodec>::empty_node())
 	}
 
-	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
+	fn decode_plan(data: &[u8], contains_hash: bool) -> ::std::result::Result<NodePlan, Self::Error> {
 		let mut input = ByteSliceInput::new(data);
 		match NodeHeaderNoExt::decode(&mut input)? {
 			NodeHeaderNoExt::Null => Ok(NodePlan::Empty),
@@ -1401,6 +1401,11 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				let bitmap = Bitmap::decode(&data[bitmap_range])?;
 				let value = if has_value {
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
+					let count = if contains_hash {
+						H::LENGTH
+					} else {
+						count
+					};
 					Some(input.take(count)?)
 				} else {
 					None
@@ -1437,7 +1442,11 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				)?;
 				let partial_padding = nibble_ops::number_padding(nibble_count);
 				let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-				let value = input.take(count)?;
+				let value = if contains_hash {
+					input.take(H::LENGTH)?
+				} else {
+					input.take(count)?
+				};
 				Ok(NodePlan::Leaf {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
 					value,
@@ -1768,7 +1777,7 @@ mod tests {
 		let enc = <ReferenceNodeCodecNoExt<RefHasher> as NodeCodec>
 		::leaf_node(((0, 0), &input), &[1]);
 		let dec = <ReferenceNodeCodecNoExt<RefHasher> as NodeCodec>
-		::decode(&enc).unwrap();
+		::decode(&enc, false).unwrap();
 		let o_sl = if let Node::Leaf(sl, _) = dec {
 			Some(sl)
 		} else { None };

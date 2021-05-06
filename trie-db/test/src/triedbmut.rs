@@ -671,5 +671,8 @@ fn register_proof_without_value() {
 		trie.remove(b"test1234").unwrap();
 	}
 
+	// TODO do get of test12 and fail: the stored value being the hash!!!
+
+	// TODO do tests of get for Trie (not TrieDBMut).
 	panic!("TODO extract proof from record and build memdb from it, then rerun action.");
 }
