@@ -41,11 +41,11 @@ pub trait NodeCodec: Sized {
 	fn hashed_null_node() -> Self::HashOut;
 
 	/// Decode bytes to a `NodePlan`. Returns `Self::E` on failure.
-	fn decode_plan(data: &[u8]) -> Result<NodePlan, Self::Error>;
+	fn decode_plan(data: &[u8], hashed_value: bool) -> Result<NodePlan, Self::Error>;
 
 	/// Decode bytes to a `Node`. Returns `Self::E` on failure.
-	fn decode(data: &[u8]) -> Result<Node, Self::Error> {
-		Ok(Self::decode_plan(data)?.build(data))
+	fn decode(data: &[u8], hashed_value: bool) -> Result<Node, Self::Error> {
+		Ok(Self::decode_plan(data, hashed_value)?.build(data))
 	}
 
 	/// Check if the provided bytes correspond to the codecs "empty" node.
@@ -61,7 +61,7 @@ pub trait NodeCodec: Sized {
 	/// TODO slow, could be better with individual function variant,
 	/// but this is less work as a first step.
 	fn value_range(encoded: &[u8]) -> Option<Range<usize>> {
-		Self::decode_plan(encoded).ok().map(|plan| plan.value_range()).flatten()
+		Self::decode_plan(encoded, false).ok().map(|plan| plan.value_range()).flatten()
 	}
 
 	/// Returns an encoded extension node

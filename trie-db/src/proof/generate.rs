@@ -52,7 +52,8 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 		output_index: Option<usize>,
 	) -> TrieResult<Self, C::HashOut, C::Error>
 	{
-		let node = OwnedNode::new::<C>(node_data)
+		// TODO implement meta support to allow hashed value.
+		let node = OwnedNode::new::<C>(node_data, false)
 			.map_err(|err| Box::new(
 				TrieError::DecoderError(node_hash.unwrap_or_default(), err)
 			))?;

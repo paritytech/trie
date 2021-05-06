@@ -154,7 +154,7 @@ impl<L: TrieLayout> Node<L>
 		mut meta: L::Meta, 
 		layout: &L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
-		let encoded_node = L::Codec::decode(data)
+		let encoded_node = L::Codec::decode(data, meta.contains_hash_of_value())
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash, e)))?;
 		let node = match encoded_node {
 			EncodedNode::Empty => Node::Empty(meta),
@@ -1714,7 +1714,7 @@ where
 		if L::USE_META {
 			// TODO modify node codec to optionally return a node plan to avoid
 			// double calculation.
-			let node_plan = L::Codec::decode_plan(encoded.as_slice())
+			let node_plan = L::Codec::decode_plan(encoded.as_slice(), meta.contains_hash_of_value())
 				.expect("Encoded above, failure would be implementation bug");
 			meta.encoded_callback(encoded.as_slice(), node_plan);
 		}

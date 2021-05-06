@@ -113,7 +113,8 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 	fn new(node_data: &'a [u8], prefix: LeftNibbleSlice<'a>, is_inline: bool)
 		   -> Result<Self, Error<C::HashOut, C::Error>>
 	{
-		let node = C::decode(node_data)
+		// TODO implement meta support to allow hashed value.
+		let node = C::decode(node_data, false)
 			.map_err(Error::DecodeError)?;
 		let children_len = match node {
 			Node::Empty | Node::Leaf(..) => 0,

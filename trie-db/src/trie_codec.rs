@@ -30,7 +30,7 @@ use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout,
 	nibble_ops::NIBBLE_LENGTH, node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode},
-	nibble::LeftNibbleSlice,
+	nibble::LeftNibbleSlice, Meta,
 };
 use crate::rstd::{
 	boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec, vec::Vec,
@@ -502,7 +502,7 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I)
 
 	for (i, encoded_node) in encoded.into_iter().enumerate() {
 		let (encoded_node, meta) = L::ValueFunction::extract_value(encoded_node);
-		let node = L::Codec::decode(&encoded_node[..])
+		let node = L::Codec::decode(&encoded_node[..], meta.contains_hash_of_value())
 			.map_err(|err| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), err)))?;
 
 		let children_len = match node {

@@ -20,7 +20,7 @@ use crate::DBValue;
 use super::node::{NodeHandle, Node, OwnedNode, decode_hash};
 use super::lookup::Lookup;
 use super::{Result, Trie, TrieItem, TrieError, TrieIterator, Query,
-	TrieLayout, CError, TrieHash};
+	TrieLayout, CError, TrieHash, Meta};
 use super::nibble::NibbleVec;
 
 #[cfg(feature = "std")]
@@ -94,7 +94,7 @@ where
 		node_handle: NodeHandle,
 		partial_key: Prefix,
 	) -> Result<(OwnedNode<DBValue>, Option<(TrieHash<L>, L::Meta)>), TrieHash<L>, CError<L>> {
-		let (node_hash, node_data) = match node_handle {
+		let (node_hash, node_data, hashed_value) = match node_handle {
 			NodeHandle::Hash(data) => {
 				let node_hash = decode_hash::<L::Hash>(data)
 					.ok_or_else(|| Box::new(TrieError::InvalidHash(parent_hash, data.to_vec())))?;
@@ -107,12 +107,13 @@ where
 							Box::new(TrieError::IncompleteDatabase(node_hash))
 						}
 					})?;
+				let hashed_value = meta.contains_hash_of_value();
 
-				(Some((node_hash, meta)), node_data)
+				(Some((node_hash, meta)), node_data, hashed_value)
 			}
-			NodeHandle::Inline(data) => (None, data.to_vec()),
+			NodeHandle::Inline(data) => (None, data.to_vec(), false),
 		};
-		let owned_node = OwnedNode::new::<L::Codec>(node_data)
+		let owned_node = OwnedNode::new::<L::Codec>(node_data, hashed_value)
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.as_ref().map(|h| h.0).unwrap_or(parent_hash), e)))?;
 		Ok((owned_node, node_hash))
 	}

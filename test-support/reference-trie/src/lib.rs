@@ -331,6 +331,10 @@ impl Meta for ValueRange {
 	fn set_unaccessed_value(&mut self) {
 		self.0.as_mut().map(|meta| { meta.unused_value = true; });
 	}
+
+	fn contains_hash_of_value(&self) -> bool {
+		self.0.as_ref().map(|meta| meta.contain_hash).unwrap_or(false)
+	}
 }
 
 /// Representation with inner hash.
@@ -577,6 +581,10 @@ impl Meta for VersionedValueRange {
 	}
 
 	fn set_unaccessed_value(&mut self) {
+	}
+
+	fn contains_hash_of_value(&self) -> bool {
+		false
 	}
 }
 

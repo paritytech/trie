@@ -545,6 +545,9 @@ pub trait Meta: Clone {
 	/// In some case (proof building with compatible hash scheme), this allow storing
 	/// only hash of value.
 	fn set_unaccessed_value(&mut self);
+
+	/// Indicate if stored value is incomplete and only contains hash of value.
+	fn contains_hash_of_value(&self) -> bool;
 }
 
 // TODO
@@ -608,6 +611,10 @@ impl Meta for () {
 	}
 
 	fn set_unaccessed_value(&mut self) { }
+
+	fn contains_hash_of_value(&self) -> bool {
+		false
+	}
 }
 
 /// This trait associates a trie definition with preferred methods.

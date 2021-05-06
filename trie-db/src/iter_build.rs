@@ -401,7 +401,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 			<T::Hash as Hasher>::hash(encoded_node.as_slice())
 		} else {
 			// Duplicated code with triedbmut TODO factor
-			let node_plan = T::Codec::decode_plan(encoded_node.as_slice())
+			let node_plan = T::Codec::decode_plan(encoded_node.as_slice(), false)
 				.expect("Process uses only valid encoded nodes.");
 			current_meta.encoded_callback(encoded_node.as_slice(), node_plan);
 			<T::ValueFunction as ValueFunction<_, _>>::hash(
