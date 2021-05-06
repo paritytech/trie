@@ -641,7 +641,20 @@ fn register_proof_without_value() {
 	}
 
 	let trie = TrieDB::<CheckValueFunctionNoExt>::new(&memdb_from_proof, &root_proof).unwrap();
-	let compacted = trie_db::encode_compact(&trie).unwrap();
+	// "te" access has been registered somehow, and use as parameter here.
+	let compacted = trie_db::encode_compact_keyed_callback(
+		&trie,
+		vec![&b"te"[..]],
+		|_meta| {
+			// do nothing (we keep included value with current meta on match).
+		},
+		|meta| {
+			// no need for value
+			meta.0.as_mut().map(|v| {
+				v.unused_value = true
+			});
+		},
+	).unwrap();
 	let mut db_unpacked = MemoryDBProof::default();
 	let (root_unpacked, _used) = trie_db::decode_compact::<CheckValueFunctionNoExt, _>(
 		&mut db_unpacked,

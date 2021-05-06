@@ -181,11 +181,11 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 
 	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out {
 		match meta.0.as_ref() {
-			Some(ValueMeta { range, unused_value: false, .. }) => {
+			Some(ValueMeta { range, contain_hash: false, .. }) => {
 				let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
 				H::hash(value.as_slice())
 			},
-			Some(ValueMeta { unused_value: true, .. }) => {
+			Some(ValueMeta { contain_hash: true, .. }) => {
 				// value contains a hash of data (already inner_hashed_value).
 				H::hash(value)
 			},
@@ -224,8 +224,8 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 			let end = end as usize;
 			(stored, ValueRange(Some(ValueMeta {
 				range: start..end,
-				contain_hash: false,
 				unused_value,
+				contain_hash: false,
 			})))
 		} else {
 			(stored, ValueRange(None))
@@ -242,21 +242,14 @@ impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
 
 #[derive(Default, Clone)]
 pub struct ValueMeta {
-	range: core::ops::Range<usize>,
-	contain_hash: bool,
-	unused_value: bool,
+	pub range: core::ops::Range<usize>,
+	pub unused_value: bool,
+	pub contain_hash: bool,
 }
 
 /// Test Meta input.
-/// Range is serialized, other fields are not (actually `contain_hash` is not needed here).
 #[derive(Default, Clone)]
-pub struct ValueRange(Option<ValueMeta>);
-
-/// Test Meta input.
-/// Range is serialized, and also the if it contains a hash (so proof
-/// can be use to build nodes without values).
-#[derive(Default, Clone)]
-pub struct ValueRangeProof(Option<ValueMeta>);
+pub struct ValueRange(pub Option<ValueMeta>);
 
 /// Treshold for using hash of value instead of value
 /// in encoded trie node.
@@ -301,8 +294,8 @@ impl Meta for ValueRange {
 			if range.end - range.start >= INNER_HASH_TRESHOLD {
 				self.0 = Some(ValueMeta {
 					range,
-					contain_hash: false,
 					unused_value: false,
+					contain_hash: false,
 				});
 			}
 		}
@@ -759,10 +752,10 @@ const FIRST_PREFIX: u8 = 0b_00 << 6;
 const LEAF_PREFIX_MASK_NO_EXT: u8 = 0b_01 << 6;
 const BRANCH_WITHOUT_MASK_NO_EXT: u8 = 0b_10 << 6;
 const BRANCH_WITH_MASK_NO_EXT: u8 = 0b_11 << 6;
-const EMPTY_TRIE_NO_EXT: u8 = FIRST_PREFIX & 0b_00; 
+const EMPTY_TRIE_NO_EXT: u8 = FIRST_PREFIX | 0b_00;
 // first value fo empty trie with content
-const DEAD_HEADER_META_OLD_VERSION: u8 = FIRST_PREFIX & 0b_01;
-const DEAD_HEADER_META_HASHED_VALUE: u8 = FIRST_PREFIX & 0b_10;
+const DEAD_HEADER_META_OLD_VERSION: u8 = FIRST_PREFIX | 0b_01;
+const DEAD_HEADER_META_HASHED_VALUE: u8 = FIRST_PREFIX | 0b_11_10;
 
 /// Create a leaf/extension node, encoding a number of nibbles. Note that this
 /// cannot handle a number of nibbles that is zero or greater than 125 and if
