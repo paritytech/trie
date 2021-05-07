@@ -112,17 +112,25 @@ impl<'a, K, V> PlainDBRef<K, V> for &'a mut dyn PlainDB<K, V> {
 pub trait HashDB<H: Hasher, T, VF: ValueFunction<H, T>>: Send + Sync + AsHashDB<H, T, VF> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
-	/// `resolve_value` allow implementation where part of the content that
-	/// is not strictly needed to access can be skip in some case.
-	fn get(&self, key: &H::Out, prefix: Prefix, resolve_value: bool) -> Option<T>;
+	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
 
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	/// Resolve associated meta.
 	/// TODO variant with dropped meta? (sometime we do not use meta).
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, resolve_value: bool) -> Option<(T, VF::Meta)> {
-		self.get(key, prefix, resolve_value)
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, VF::Meta)> {
+		self.get(key, prefix)
 			.map(|value| VF::extract_value_owned(value))
+	}
+
+	/// Access additional content or indicate additional content already accessed and needed.
+	///
+	/// In one case `at` is `None` and no reply is expected, this is a callback to update meta.
+	///
+	/// In the other case `at` is `Some` and we also got additional content (eg if value
+	/// of a trie node is stored externally for performance purpose).
+	fn access_from(&self, key: &H::Out, prefix: Prefix, at: Option<H::Out>, meta: &mut VF::Meta) -> Option<T> {
+		unimplemented!()
 	}
 
 	/// Check for the existence of a hash-key.

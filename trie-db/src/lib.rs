@@ -571,6 +571,7 @@ pub trait Meta: Clone {
 	/// use.
 	/// In some case (proof building with compatible hash scheme), this allow storing
 	/// only hash of value.
+	/// TODO set accessed value instead.
 	fn set_unaccessed_value(&mut self);
 
 	/// Indicate if stored value is incomplete and only contains hash of value.
