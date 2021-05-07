@@ -372,6 +372,16 @@ fn test_at_three() {
 }
 
 #[test]
+fn test_nibbled_branch_changed_value() {
+	let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+	let mut root = Default::default();
+	let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
+	t.insert(&[0x01u8, 0x23, 0x11], &[0xf1u8, 0x23]).unwrap();
+	assert_eq!(t.get(&[0x01u8, 0x23]).unwrap(), Some(vec![0x01u8, 0x23]));
+}
+
+#[test]
 fn stress() {
 	let mut seed = Default::default();
 	for _ in 0..50 {
