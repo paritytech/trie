@@ -107,17 +107,22 @@ impl<'a, K, V> PlainDBRef<K, V> for &'a mut dyn PlainDB<K, V> {
 }
 
 /// Trait modelling datastore keyed by a hash defined by the `Hasher`.
+/// TODO should not expose ValueFunction but only Meta in this trait.
+/// ValueFunction should be in memorydb | implementations only.
 pub trait HashDB<H: Hasher, T, VF: ValueFunction<H, T>>: Send + Sync + AsHashDB<H, T, VF> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
-	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
+	/// `resolve_value` allow implementation where part of the content that
+	/// is not strictly needed to access can be skip in some case.
+	fn get(&self, key: &H::Out, prefix: Prefix, resolve_value: bool) -> Option<T>;
 
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	/// Resolve associated meta.
 	/// TODO variant with dropped meta? (sometime we do not use meta).
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, VF::Meta)> {
-		self.get(key, prefix).map(|value| VF::extract_value_owned(value))
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, resolve_value: bool) -> Option<(T, VF::Meta)> {
+		self.get(key, prefix, resolve_value)
+			.map(|value| VF::extract_value_owned(value))
 	}
 
 	/// Check for the existence of a hash-key.
