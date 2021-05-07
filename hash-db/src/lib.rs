@@ -125,11 +125,11 @@ pub trait HashDB<H: Hasher, T, VF: ValueFunction<H, T>>: Send + Sync + AsHashDB<
 
 	/// Access additional content or indicate additional content already accessed and needed.
 	///
-	/// In one case `at` is `None` and no reply is expected, this is a callback to update meta.
+	/// In one case `at` is `None` and no reply is expected, this is a callback indicate access.
 	///
 	/// In the other case `at` is `Some` and we also got additional content (eg if value
 	/// of a trie node is stored externally for performance purpose).
-	fn access_from(&self, _at: Option<H::Out>, _meta: &mut VF::Meta) -> Option<T> {
+	fn access_from(&self, _key: &H::Out, _at: Option<H::Out>) -> Option<T> {
 		None
 	}
 
@@ -171,12 +171,18 @@ pub trait HashDBRef<H: Hasher, T, VF: ValueFunction<H, T>> {
 		self.get(key, prefix).map(|value| VF::extract_value_owned(value))
 	}
 
+	/// TODO
+	fn access_from(&self, _key: &H::Out, _at: Option<H::Out>) -> Option<T>;
+
 	/// Check for the existance of a hash-key.
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool;
 }
 
 impl<'a, H: Hasher, T, VF: ValueFunction<H, T>> HashDBRef<H, T, VF> for &'a dyn HashDB<H, T, VF> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(*self, key, prefix) }
+	fn access_from(&self, key: &H::Out, at: Option<H::Out>) -> Option<T> {
+		HashDB::access_from(*self, key, at)
+	}
 	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, VF::Meta)> {
 		HashDB::get_with_meta(*self, key, prefix)
 	}
@@ -187,6 +193,9 @@ impl<'a, H: Hasher, T, VF: ValueFunction<H, T>> HashDBRef<H, T, VF> for &'a dyn 
 
 impl<'a, H: Hasher, T, VF: ValueFunction<H, T>> HashDBRef<H, T, VF> for &'a mut dyn HashDB<H, T, VF> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(*self, key, prefix) }
+	fn access_from(&self, key: &H::Out, at: Option<H::Out>) -> Option<T> {
+		HashDB::access_from(*self, key, at)
+	}
 	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, VF::Meta)> {
 		HashDB::get_with_meta(*self, key, prefix)
 	}

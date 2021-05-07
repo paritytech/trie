@@ -566,18 +566,21 @@ fn register_proof_without_value() {
 		fn get_with_meta(&self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) -> Option<(DBValue, ValueRange)> {
 			let v = self.db.get_with_meta(key, prefix);
 			if let Some(v) = v.as_ref() {
-				let mut v = v.clone();
-				{
-					use trie_db::Meta;
-					v.1.set_unaccessed_value();
-				}
-				self.record.borrow_mut().insert(key[..].to_vec(), v);
+				self.record.borrow_mut().entry(key[..].to_vec())
+					.or_insert_with(|| {
+						use trie_db::Meta;
+						let mut v = v.clone();
+						v.1.set_unaccessed_value();
+						v
+					});
 			}
 			v
 		}
 
-		fn access_from(&self, _at: Option<<RefHasher as Hasher>::Out>, meta: &mut ValueRange) -> Option<DBValue> {
-			meta.set_accessed_value(true);
+		fn access_from(&self, key: &<RefHasher as Hasher>::Out, _at: Option<<RefHasher as Hasher>::Out>) -> Option<DBValue> {
+
+			self.record.borrow_mut().entry(key[..].to_vec())
+				.and_modify(|entry| entry.1.set_accessed_value(true));
 			None
 		}
 

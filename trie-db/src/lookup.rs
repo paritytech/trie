@@ -39,11 +39,18 @@ where
 	fn decode(self, v: Value) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		match v {
 			Value::NoValue => Ok(None),
-			Value::Value(value) => Ok(Some(self.query.decode(value))),
+			Value::Value(value) => {
+				self.db.access_from(&self.hash, None);
+				Ok(Some(self.query.decode(value)))
+			},
 			Value::HashedValue(hash, _size) => {
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash);
-				Err(Box::new(TrieError::IncompleteDatabase(res)))
+				if let Some(_) = self.db.access_from(&self.hash, None) {
+					unimplemented!("Inject value into Value");
+				} else {
+					Err(Box::new(TrieError::IncompleteDatabase(res)))
+				}
 			},
 		}
 	}
