@@ -133,6 +133,9 @@ pub type Result<T, H, E> = crate::rstd::result::Result<T, Box<TrieError<H, E>>>;
 /// Trie-Item type used for iterators over trie data.
 pub type TrieItem<'a, U, E> = Result<(Vec<u8>, DBValue), U, E>;
 
+/// Trie-Item type used for iterators over trie key only.
+pub type TrieKeyItem<'a, U, E> = Result<Vec<u8>, U, E>;
+
 /// Description of what kind of query will be made to the trie.
 ///
 /// This is implemented for any &mut recorder (where the query will return
@@ -202,6 +205,13 @@ pub trait Trie<L: TrieLayout> {
 	/// Returns a depth-first iterator over the elements of trie.
 	fn iter<'a>(&'a self) -> Result<
 		Box<dyn TrieIterator<L, Item = TrieItem<TrieHash<L>, CError<L> >> + 'a>,
+		TrieHash<L>,
+		CError<L>
+	>;
+
+	/// Returns a depth-first iterator over the keys of elemets of trie.
+	fn key_iter<'a>(&'a self) -> Result<
+		Box<dyn TrieIterator<L, Item = TrieKeyItem<TrieHash<L>, CError<L> >> + 'a>,
 		TrieHash<L>,
 		CError<L>
 	>;
@@ -320,6 +330,14 @@ impl<'db, L: TrieLayout> Trie<L> for TrieKinds<'db, L> {
 		CError<L>,
 	> {
 		wrapper!(self, iter,)
+	}
+
+	fn key_iter<'a>(&'a self) -> Result<
+		Box<dyn TrieIterator<L, Item = TrieKeyItem<TrieHash<L>, CError<L>>> + 'a>,
+		TrieHash<L>,
+		CError<L>,
+	> {
+		wrapper!(self, key_iter,)
 	}
 }
 

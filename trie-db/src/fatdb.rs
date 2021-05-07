@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use hash_db::{HashDBRef, Hasher};
-use super::{Result, DBValue, TrieDB, Trie, TrieDBIterator, TrieItem, TrieIterator, Query,
+use super::{Result, DBValue, TrieDB, Trie, TrieDBIterator, TrieItem, TrieKeyItem, TrieIterator, Query,
 	TrieLayout, CError, TrieHash};
 
 use crate::rstd::boxed::Box;
@@ -70,6 +70,14 @@ where
 		CError<L>,
 	> {
 		FatDBIterator::<L>::new(&self.raw).map(|iter| Box::new(iter) as Box<_>)
+	}
+
+	fn key_iter<'a>(&'a self) -> Result<
+		Box<dyn TrieIterator<L, Item = TrieKeyItem<TrieHash<L>, CError<L>>> + 'a>,
+		TrieHash<L>,
+		CError<L>,
+	> {
+		unimplemented!()
 	}
 }
 

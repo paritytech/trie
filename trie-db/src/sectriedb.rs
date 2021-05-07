@@ -16,7 +16,7 @@ use hash_db::{HashDBRef, Hasher};
 use crate::rstd::boxed::Box;
 use crate::DBValue;
 use super::triedb::TrieDB;
-use super::{Result, Trie, TrieItem, TrieIterator, Query, TrieLayout, CError, TrieHash};
+use super::{Result, Trie, TrieItem, TrieKeyItem, TrieIterator, Query, TrieLayout, CError, TrieHash};
 
 /// A `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 ///
@@ -81,5 +81,13 @@ where
 		CError<L>
 	> {
 		TrieDB::iter(&self.raw)
+	}
+
+	fn key_iter<'a>(&'a self) -> Result<
+		Box<dyn TrieIterator<L, Item = TrieKeyItem<TrieHash<L>, CError<L>>> + 'a>,
+		TrieHash<L>,
+		CError<L>,
+	> {
+		TrieDB::key_iter(&self.raw)
 	}
 }

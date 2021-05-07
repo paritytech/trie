@@ -19,7 +19,7 @@ use crate::rstd::boxed::Box;
 use crate::DBValue;
 use super::node::{NodeHandle, Node, Value, OwnedNode, decode_hash};
 use super::lookup::Lookup;
-use super::{Result, Trie, TrieItem, TrieError, TrieIterator, Query,
+use super::{Result, Trie, TrieItem, TrieKeyItem, TrieError, TrieIterator, Query,
 	TrieLayout, CError, TrieHash, Meta};
 use super::nibble::NibbleVec;
 
@@ -146,6 +146,14 @@ where
 	> {
 		TrieDBIterator::new(self).map(|iter| Box::new(iter) as Box<_>)
 	}
+
+	fn key_iter<'a>(&'a self)-> Result<
+		Box<dyn TrieIterator<L, Item=TrieKeyItem<TrieHash<L>, CError<L>>> + 'a>,
+		TrieHash<L>,
+		CError<L>,
+	> {
+		TrieDBKeyIterator::new(self).map(|iter| Box::new(iter) as Box<_>)
+	}
 }
 
 
@@ -270,6 +278,11 @@ pub struct TrieDBIterator<'a, L: TrieLayout> {
 	inner: TrieDBNodeIterator<'a, L>,
 }
 
+/// Iterator for going through all of key with values in the trie in pre-order traversal order.
+pub struct TrieDBKeyIterator<'a, L: TrieLayout> {
+	inner: TrieDBNodeIterator<'a, L>,
+}
+
 impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 	/// Create a new iterator.
 	pub fn new(db: &'a TrieDB<L>) -> Result<TrieDBIterator<'a, L>, TrieHash<L>, CError<L>> {
@@ -286,10 +299,34 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 			inner,
 		})
 	}
-
 }
 
 impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBIterator<'a, L> {
+	/// Position the iterator on the first element with key >= `key`
+	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+		TrieIterator::seek(&mut self.inner, key)
+	}
+}
+
+impl<'a, L: TrieLayout> TrieDBKeyIterator<'a, L> {
+	/// Create a new iterator.
+	pub fn new(db: &'a TrieDB<L>) -> Result<TrieDBKeyIterator<'a, L>, TrieHash<L>, CError<L>> {
+		let inner = TrieDBNodeIterator::new(db)?;
+		Ok(TrieDBKeyIterator { inner })
+	}
+
+	/// Create a new iterator, but limited to a given prefix.
+	pub fn new_prefixed(db: &'a TrieDB<L>, prefix: &[u8]) -> Result<TrieDBKeyIterator<'a, L>, TrieHash<L>, CError<L>> {
+		let mut inner = TrieDBNodeIterator::new(db)?;
+		inner.prefix(prefix)?;
+
+		Ok(TrieDBKeyIterator {
+			inner,
+		})
+	}
+}
+
+impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBKeyIterator<'a, L> {
 	/// Position the iterator on the first element with key >= `key`
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		TrieIterator::seek(&mut self.inner, key)
@@ -345,6 +382,45 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 							)));
 						}
 						return Some(Ok((key, value.to_vec())));
+					}
+				},
+				Err(err) => return Some(Err(err)),
+			}
+		}
+		None
+	}
+}
+
+impl<'a, L: TrieLayout> Iterator for TrieDBKeyIterator<'a, L> {
+	type Item = TrieKeyItem<'a, TrieHash<L>, CError<L>>;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		while let Some(item) = self.inner.next() {
+			match item {
+				Ok((mut prefix, _, node)) => {
+					let maybe_value = match node.node() {
+						Node::Leaf(partial, value) => {
+							prefix.append_partial(partial.right());
+							value
+						}
+						Node::Branch(_, value) => value,
+						Node::NibbledBranch(partial, _, value) => {
+							prefix.append_partial(partial.right());
+							value
+						}
+						_ => Value::NoValue,
+					};
+					if let Value::NoValue = maybe_value {
+						continue;
+					} else {
+						let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
+						let key = key_slice.to_vec();
+						if let Some(extra_nibble) = maybe_extra_nibble {
+							return Some(Err(Box::new(
+								TrieError::ValueAtIncompleteKey(key, extra_nibble)
+							)));
+						}
+						return Some(Ok(key));
 					}
 				},
 				Err(err) => return Some(Err(err)),
