@@ -611,7 +611,7 @@ fn register_proof_without_value() {
 		record: Default::default(),
 	};
 
-	let mut root_proof = root.clone();
+	let root_proof = root.clone();
 	{
 		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb, &mut root, CheckValueFunctionNoExt)
 			.unwrap();
@@ -663,6 +663,8 @@ fn register_proof_without_value() {
 
 	assert_eq!(root_proof, root_unpacked);
 
+	let mut memdb_from_proof = db_unpacked.clone();
+	let mut root_proof = root_unpacked.clone();
 	{
 		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb_from_proof, &mut root_proof, CheckValueFunctionNoExt)
 			.unwrap();
@@ -671,8 +673,19 @@ fn register_proof_without_value() {
 		trie.remove(b"test1234").unwrap();
 	}
 
-	// TODO do get of test12 and fail: the stored value being the hash!!!
+	let mut memdb_from_proof = db_unpacked.clone();
+	let mut root_proof = root_unpacked.clone();
+	{
+		use trie_db::Trie;
+		let trie = TrieDB::<CheckValueFunctionNoExt>::new(&memdb_from_proof, &root_proof).unwrap();
+		assert!(trie.get(b"te").unwrap().is_some());
+		assert!(trie.get(b"test1").is_err()); // TODO check incomplete db error
+	}
 
-	// TODO do tests of get for Trie (not TrieDBMut).
-	panic!("TODO extract proof from record and build memdb from it, then rerun action.");
+	{
+		let trie = TrieDBMut::from_existing_with_layout(&mut memdb_from_proof, &mut root_proof, CheckValueFunctionNoExt)
+			.unwrap();
+		assert!(trie.get(b"te").unwrap().is_some());
+		assert!(trie.get(b"test1").is_err()); // TODO check incomplete db error
+	}
 }
