@@ -129,8 +129,8 @@ pub trait HashDB<H: Hasher, T, VF: ValueFunction<H, T>>: Send + Sync + AsHashDB<
 	///
 	/// In the other case `at` is `Some` and we also got additional content (eg if value
 	/// of a trie node is stored externally for performance purpose).
-	fn access_from(&self, key: &H::Out, prefix: Prefix, at: Option<H::Out>, meta: &mut VF::Meta) -> Option<T> {
-		unimplemented!()
+	fn access_from(&self, _at: Option<H::Out>, _meta: &mut VF::Meta) -> Option<T> {
+		None
 	}
 
 	/// Check for the existence of a hash-key.

@@ -566,9 +566,19 @@ fn register_proof_without_value() {
 		fn get_with_meta(&self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) -> Option<(DBValue, ValueRange)> {
 			let v = self.db.get_with_meta(key, prefix);
 			if let Some(v) = v.as_ref() {
-				self.record.borrow_mut().insert(key[..].to_vec(), v.clone());
+				let mut v = v.clone();
+				{
+					use trie_db::Meta;
+					v.1.set_unaccessed_value();
+				}
+				self.record.borrow_mut().insert(key[..].to_vec(), v);
 			}
 			v
+		}
+
+		fn access_from(&self, _at: Option<<RefHasher as Hasher>::Out>, meta: &mut ValueRange) -> Option<DBValue> {
+			meta.set_accessed_value(true);
+			None
 		}
 
 		fn contains(&self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) -> bool {
@@ -619,7 +629,7 @@ fn register_proof_without_value() {
 		trie.get(b"te").unwrap();
 		// cut test_1234 prefix
 		trie.insert(b"test12", &[2u8;36][..]).unwrap();
-		// remove 1234 
+		// remove 1234
 		trie.remove(b"test1234").unwrap();
 
 		// proof should contain value for 'te' only.
@@ -640,28 +650,9 @@ fn register_proof_without_value() {
 		);
 	}
 
-	let trie = TrieDB::<CheckValueFunctionNoExt>::new(&memdb_from_proof, &root_proof).unwrap();
-	// "te" access has been registered somehow, and use as parameter here.
-	let compacted = trie_db::encode_compact_keyed_callback(
-		&trie,
-		vec![&b"te"[..]],
-		|_meta| {
-			// do nothing (we keep included value with current meta on match).
-		},
-		|meta| {
-			// no need for value
-			meta.0.as_mut().map(|v| {
-				v.unused_value = true
-			});
-		},
-	).unwrap();
-	let mut db_unpacked = MemoryDBProof::default();
-	let (root_unpacked, _used) = trie_db::decode_compact::<CheckValueFunctionNoExt, _>(
-		&mut db_unpacked,
-		compacted.as_slice(),
-	).unwrap();
 
-	assert_eq!(root_proof, root_unpacked);
+	let db_unpacked = memdb_from_proof.clone();
+	let root_unpacked = root_proof.clone();
 
 	let mut memdb_from_proof = db_unpacked.clone();
 	let mut root_proof = root_unpacked.clone();

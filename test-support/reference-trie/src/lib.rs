@@ -333,12 +333,20 @@ impl Meta for ValueRange {
 	) {
 	}
 
+	// TODO does it have to be in the trait???
+	// (possibly not: is specific to proof registering).
 	fn set_unaccessed_value(&mut self) {
-		self.0.as_mut().map(|meta| { meta.unused_value = true; });
+		self.set_accessed_value(false);
 	}
 
 	fn contains_hash_of_value(&self) -> bool {
 		self.0.as_ref().map(|meta| meta.contain_hash).unwrap_or(false)
+	}
+}
+
+impl ValueRange {
+	pub fn set_accessed_value(&mut self, accessed: bool) {
+		self.0.as_mut().map(|meta| { meta.unused_value = !accessed; });
 	}
 }
 
