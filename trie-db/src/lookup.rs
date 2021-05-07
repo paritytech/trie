@@ -46,7 +46,7 @@ where
 			Value::HashedValue(hash, _size) => {
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash);
-				if let Some(_) = self.db.access_from(&self.hash, None) {
+				if let Some(_) = self.db.access_from(&self.hash, Some(&res)) {
 					unimplemented!("Inject value into Value");
 				} else {
 					Err(Box::new(TrieError::IncompleteDatabase(res)))

@@ -673,7 +673,7 @@ where
 	VF: ValueFunction<H, T> + Send + Sync,
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(self, key, prefix) }
-	fn access_from(&self, key: &H::Out, at: Option<H::Out>) -> Option<T> {
+	fn access_from(&self, key: &H::Out, at: Option<&H::Out>) -> Option<T> {
 		HashDB::access_from(self, key, at)
 	}
 	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, VF::Meta)> { HashDB::get_with_meta(self, key, prefix) }

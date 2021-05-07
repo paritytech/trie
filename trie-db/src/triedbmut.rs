@@ -112,6 +112,8 @@ impl Value {
 			Value::NoValue => Ok(None),
 			Value::Value(value) => Ok(Some(value.clone())),
 			Value::HashedValue(hash, _size) => {
+				// TODO this is only for inline node so most likely never this.
+				// but still considerr using access_from
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash.as_slice());
 				Err(Box::new(TrieError::IncompleteDatabase(res)))

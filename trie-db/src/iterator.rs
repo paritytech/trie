@@ -244,6 +244,10 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 		Ok(())
 	}
 
+	/// Access inner hash db.
+	pub fn db(&self) -> &dyn hash_db::HashDBRef<L::Hash, DBValue, L::ValueFunction> {
+		self.db.db()
+	}
 }
 
 impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {

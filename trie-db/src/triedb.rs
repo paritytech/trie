@@ -302,7 +302,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 	fn next(&mut self) -> Option<Self::Item> {
 		while let Some(item) = self.inner.next() {
 			match item {
-				Ok((mut prefix, _, node)) => {
+				Ok((mut prefix, node_key, node)) => {
 					let maybe_value = match node.node() {
 						Node::Leaf(partial, value) => {
 							prefix.append_partial(partial.right());
@@ -315,12 +315,26 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 						}
 						_ => Value::NoValue,
 					};
-					if let Value::HashedValue(hash, _) = &maybe_value {
-						let mut res = TrieHash::<L>::default();
-						res.as_mut().copy_from_slice(hash);
-						return Some(Err(Box::new(
-							TrieError::IncompleteDatabase(res)
-						)));
+					match &maybe_value {
+						Value::Value(_value) =>  {
+							if let Some(key) = node_key.as_ref() {
+								self.inner.db().access_from(&key.0, None);
+							}
+						},
+						Value::HashedValue(hash, _) =>  {
+							let mut res = TrieHash::<L>::default();
+							res.as_mut().copy_from_slice(hash);
+							if let Some(key) = node_key.as_ref() {
+								if let Some(_) = self.inner.db().access_from(&key.0, Some(&res)) {
+									unimplemented!("Reinject value in value and continue");
+								}
+							}
+
+							return Some(Err(Box::new(
+								TrieError::IncompleteDatabase(res)
+							)));
+						},
+						Value::NoValue => (),
 					}
 					if let Value::Value(value) = maybe_value {
 						let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
