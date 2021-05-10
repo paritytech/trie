@@ -15,7 +15,7 @@
 //! Generic trait for trie node encoding/decoding. Takes a `hash_db::Hasher`
 //! to parametrize the hashes used in the codec.
 
-use crate::node::{Node, NodePlan, Value, ValuePlan};
+use crate::node::{Node, NodePlan, Value};
 use crate::{MaybeDebug, ChildReference, Meta};
 
 use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec};
@@ -65,13 +65,6 @@ pub trait NodeCodec<M: Meta>: Sized {
 
 	/// Returns an encoded leaf node
 	fn leaf_node(partial: Partial, value: Value, meta: &mut M) -> Vec<u8>;
-
-	/// Returns value position in encoded slice.
-	/// TODO slow, could be better with individual function variant,
-	/// but this is less work as a first step.
-	fn value_range(encoded: &[u8], meta: &mut M) -> Option<ValuePlan> {
-		Self::decode_plan(encoded, meta).ok().map(|plan| plan.value_range()).flatten()
-	}
 
 	/// Returns an encoded extension node
 	/// Note that number_nibble is the number of element of the iterator

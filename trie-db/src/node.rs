@@ -217,18 +217,6 @@ impl NodePlan {
 		}
 	}
 
-	/// TODO
-	pub fn value_range(&self) -> Option<ValuePlan> {
-		match self {
-			NodePlan::Extension { .. }
-			| NodePlan::Empty => None,
-			NodePlan::Branch { value, .. }
-			| NodePlan::NibbledBranch { value, .. } => Some(value.clone()),
-			NodePlan::Leaf { value, .. } => Some(value.clone()),
-		}
-	}
-
-
 	/// Iterator on children being inline.
 	pub fn inline_children<'a>(&'a self) -> impl Iterator<Item = ChildrenDecoded> + 'a {
 		let (children, child) = match self {
