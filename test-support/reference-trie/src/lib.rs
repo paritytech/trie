@@ -324,27 +324,6 @@ impl Meta for ValueRange {
 		changed
 	}
 
-	fn encoded_callback(
-		&mut self,
-		_encoded: &[u8],
-		node_plan: NodePlan,
-	) {
-		let (contain_hash, range) = match node_plan.value_range() {
-			Some(ValuePlan::Value(range)) => (false, range),
-			Some(ValuePlan::HashedValue(range, _size)) => (true, range),
-			Some(ValuePlan::NoValue)
-			| None => return,
-		};
-
-		if contain_hash || range.end - range.start >= INNER_HASH_TRESHOLD {
-			self.0 = Some(ValueMeta {
-				range,
-				unused_value: false,
-				contain_hash,
-			});
-		}
-	}
-
 	fn encoded_value_callback(
 		&mut self,
 		value_plan: ValuePlan,
@@ -569,25 +548,6 @@ impl Meta for VersionedValueRange {
 		} else {
 			NodeChange::Meta
 		}.combine(changed)
-	}
-
-	fn encoded_callback(
-		&mut self,
-		_encoded: &[u8],
-		node_plan: NodePlan,
-	) {
-		if matches!(self.version, Version::New) {
-			let range = match node_plan.value_range() {
-				Some(ValuePlan::Value(range)) => range,
-				Some(ValuePlan::HashedValue(_range, _size)) => unimplemented!(),
-				Some(ValuePlan::NoValue)
-				| None => return,
-			};
-
-			if range.end - range.start >= INNER_HASH_TRESHOLD {
-				self.range = Some(range);
-			}
-		}
 	}
 
 	fn encoded_value_callback(

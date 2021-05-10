@@ -560,20 +560,6 @@ pub trait Meta: Clone {
 		at: usize,
 	) -> NodeChange;
 
-	/// TODO we could split meta from Node (may be merge with meta input).
-	/// and meta for encoding.
-	/// TODO codec when encoding could produce `NodePlan` here as a first step
-	/// we recalculate it, which is extra costy.
-	///
-	/// TODO can be remove, just feed meta on decode instead!!! (and on set value set range even if
-	/// old for branch).
-	/// -> this is a must have to register event in meta like value access.
-	fn encoded_callback(
-		&mut self,
-		encoded: &[u8],
-		node_plan: crate::node::NodePlan,
-	);
-
 	/// Value written at a given range (call from codec
 	/// for node that contains value (leaf or branch)).
 	fn encoded_value_callback(
@@ -642,13 +628,6 @@ impl Meta for () {
 		changed: NodeChange,
 	) -> NodeChange {
 		changed
-	}
-
-	fn encoded_callback(
-		&mut self,
-		_encoded: &[u8],
-		_node_plan: crate::node::NodePlan,
-	) {
 	}
 
 	fn encoded_value_callback(

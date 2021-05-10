@@ -20,7 +20,7 @@ use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode,
 	Value as EncodedValue, decode_hash};
 
-use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX, MetaHasher};
+use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use hashbrown::HashSet;
 
 use crate::node_codec::NodeCodec;
@@ -1688,8 +1688,7 @@ where
 		match self.storage.destroy(handle, &self.layout) {
 			Stored::New(node) => {
 				let mut k = NibbleVec::new();
-				let (encoded_root, meta) = Self::into_encoded_with_meta(
-					node,
+				let (encoded_root, meta) = node.into_encoded(
 					|child, o_slice, o_index| {
 						let mov = k.append_optional_slice_and_nibble(o_slice, o_index);
 						let cr = self.commit_child(child, &mut k);
@@ -1742,7 +1741,7 @@ where
 								prefix.drop_lasts(mov);
 								cr
 							};
-							Self::into_encoded_with_meta(node, commit_child)
+							node.into_encoded(commit_child)
 						};
 						if encoded.len() >= L::Hash::LENGTH {
 							let hash = self.db.insert_with_meta(prefix.as_prefix(), &encoded[..], meta);
@@ -1768,26 +1767,6 @@ where
 			NodeHandle::Hash(h) => NodeHandle::Hash(h),
 			NodeHandle::InMemory(StorageHandle(x)) => NodeHandle::InMemory(StorageHandle(x)),
 		}
-	}
-
-	fn into_encoded_with_meta(
-		node: Node<L>,
-		child_cb: impl FnMut(
-			NodeHandle<<L::Hash as Hasher>::Out>,
-			Option<&NibbleSlice>,
-			Option<u8>,
-		) -> ChildReference<<L::Hash as Hasher>::Out>,
-	) -> (Vec<u8>, <L::MetaHasher as MetaHasher<L::Hash, DBValue>>::Meta) {
-		let (encoded, mut meta) = node.into_encoded(child_cb);
-		// TODO meta could be None when not USE_META instead
-		if L::USE_META {
-			// TODO modify node codec to optionally return a node plan to avoid
-			// double calculation.
-			let node_plan = L::Codec::decode_plan(encoded.as_slice(), &mut meta)
-				.expect("Encoded above, failure would be implementation bug");
-			meta.encoded_callback(encoded.as_slice(), node_plan);
-		}
-		(encoded, meta)
 	}
 }
 
