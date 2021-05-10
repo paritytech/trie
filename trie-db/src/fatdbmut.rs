@@ -33,7 +33,7 @@ where
 	/// Create a new trie with the backing database `db` and empty `root`
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
-	pub fn new(db: &'db mut dyn HashDB<L::Hash, DBValue, L::ValueFunction>, root: &'db mut TrieHash<L>) -> Self {
+	pub fn new(db: &'db mut dyn HashDB<L::Hash, DBValue, L::Meta>, root: &'db mut TrieHash<L>) -> Self {
 		FatDBMut { raw: TrieDBMut::new(db, root) }
 	}
 
@@ -41,19 +41,19 @@ where
 	///
 	/// Returns an error if root does not exist.
 	pub fn from_existing(
-		db: &'db mut dyn HashDB<L::Hash, DBValue, L::ValueFunction>,
+		db: &'db mut dyn HashDB<L::Hash, DBValue, L::Meta>,
 		root: &'db mut TrieHash<L>
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(FatDBMut { raw: TrieDBMut::from_existing(db, root)? })
 	}
 
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue, L::ValueFunction> {
+	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue, L::Meta> {
 		self.raw.db()
 	}
 
 	/// Get the backing database.
-	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue, L::ValueFunction> {
+	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue, L::Meta> {
 		self.raw.db_mut()
 	}
 }

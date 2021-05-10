@@ -20,7 +20,7 @@ use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode,
 	Value as EncodedValue, decode_hash};
 
-use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX, ValueFunction};
+use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX, MetaHasher};
 use hashbrown::HashSet;
 
 use crate::node_codec::NodeCodec;
@@ -192,7 +192,7 @@ impl<L: TrieLayout> Node<L>
 	fn inline_or_hash(
 		parent_hash: TrieHash<L>,
 		child: EncodedNodeHandle,
-		db: &dyn HashDB<L::Hash, DBValue, L::ValueFunction>,
+		db: &dyn HashDB<L::Hash, DBValue, L::Meta>,
 		storage: &mut NodeStorage<L>,
 		layout: &L,
 	) -> Result<NodeHandle<TrieHash<L>>, TrieHash<L>, CError<L>> {
@@ -215,7 +215,7 @@ impl<L: TrieLayout> Node<L>
 	fn from_encoded<'a, 'b>(
 		node_hash: TrieHash<L>,
 		data: &'a[u8],
-		db: &dyn HashDB<L::Hash, DBValue, L::ValueFunction>,
+		db: &dyn HashDB<L::Hash, DBValue, L::Meta>,
 		storage: &'b mut NodeStorage<L>,
 		mut meta: L::Meta, 
 		layout: &L,
@@ -508,7 +508,7 @@ where
 {
 	layout: L,
 	storage: NodeStorage<L>,
-	db: &'a mut dyn HashDB<L::Hash, DBValue, L::ValueFunction>,
+	db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta>,
 	root: &'a mut TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
 	death_row: HashSet<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
@@ -522,14 +522,14 @@ where
 	L: TrieLayout,
 {
 	/// Create a new trie with backing database `db` and empty `root`.
-	pub fn new(db: &'a mut dyn HashDB<L::Hash, DBValue, L::ValueFunction>, root: &'a mut TrieHash<L>) -> Self {
+	pub fn new(db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta>, root: &'a mut TrieHash<L>) -> Self {
 		Self::new_with_layout(db, root, Default::default())
 	}
 
 	/// Create a new trie with backing database `db` and empty `root`.
 	/// This could use a context specific layout.
 	pub fn new_with_layout(
-		db: &'a mut dyn HashDB<L::Hash, DBValue, L::ValueFunction>,
+		db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta>,
 		root: &'a mut TrieHash<L>,
 		layout: L,
 	) -> Self {
@@ -550,7 +550,7 @@ where
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
 	pub fn from_existing(
-		db: &'a mut dyn HashDB<L::Hash, DBValue, L::ValueFunction>,
+		db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta>,
 		root: &'a mut TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Self::from_existing_with_layout(db, root, Default::default())
@@ -559,7 +559,7 @@ where
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
 	pub fn from_existing_with_layout(
-		db: &'a mut dyn HashDB<L::Hash, DBValue, L::ValueFunction>,
+		db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta>,
 		root: &'a mut TrieHash<L>,
 		layout: L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
@@ -579,12 +579,12 @@ where
 		})
 	}
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue, L::ValueFunction> {
+	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue, L::Meta> {
 		self.db
 	}
 
 	/// Get the backing database mutably.
-	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue, L::ValueFunction> {
+	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue, L::Meta> {
 		self.db
 	}
 
@@ -1774,7 +1774,7 @@ where
 			Option<&NibbleSlice>,
 			Option<u8>,
 		) -> ChildReference<<L::Hash as Hasher>::Out>,
-	) -> (Vec<u8>, <L::ValueFunction as ValueFunction<L::Hash, DBValue>>::Meta) {
+	) -> (Vec<u8>, <L::MetaHasher as MetaHasher<L::Hash, DBValue>>::Meta) {
 		let (encoded, mut meta) = node.into_encoded(child_cb);
 		// TODO meta could be None when not USE_META instead
 		if L::USE_META {

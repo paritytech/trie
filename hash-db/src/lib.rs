@@ -107,7 +107,7 @@ impl<'a, K, V> PlainDBRef<K, V> for &'a mut dyn PlainDB<K, V> {
 }
 
 /// Trait modelling datastore keyed by a hash defined by the `Hasher`.
-pub trait HashDB<H: Hasher, T, VF: ValueFunction<H, T>>: Send + Sync + AsHashDB<H, T, VF> {
+pub trait HashDB<H: Hasher, T, M>: Send + Sync + AsHashDB<H, T, M> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
@@ -116,9 +116,7 @@ pub trait HashDB<H: Hasher, T, VF: ValueFunction<H, T>>: Send + Sync + AsHashDB<
 	/// hash is not known.
 	/// Resolve associated meta.
 	/// TODO variant with dropped meta? (sometime we do not use meta).
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, VF::Meta)> {
-		self.get(key, prefix).map(|value| VF::extract_value_owned(value))
-	}
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, M)>;
 
 	/// Check for the existence of a hash-key.
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool;
@@ -141,12 +139,12 @@ pub trait HashDB<H: Hasher, T, VF: ValueFunction<H, T>>: Send + Sync + AsHashDB<
 		&mut self,
 		prefix: Prefix,
 		value: &[u8],
-		meta: VF::Meta,
+		meta: M,
 	) -> H::Out;
 }
 
 /// Trait for immutable reference of HashDB.
-pub trait HashDBRef<H: Hasher, T, VF: ValueFunction<H, T>> {
+pub trait HashDBRef<H: Hasher, T, M> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
@@ -154,17 +152,15 @@ pub trait HashDBRef<H: Hasher, T, VF: ValueFunction<H, T>> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	/// Resolve associated meta.
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, VF::Meta)> {
-		self.get(key, prefix).map(|value| VF::extract_value_owned(value))
-	}
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, M)>;
 
 	/// Check for the existance of a hash-key.
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool;
 }
 
-impl<'a, H: Hasher, T, VF: ValueFunction<H, T>> HashDBRef<H, T, VF> for &'a dyn HashDB<H, T, VF> {
+impl<'a, H: Hasher, T, M> HashDBRef<H, T, M> for &'a dyn HashDB<H, T, M> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(*self, key, prefix) }
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, VF::Meta)> {
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, M)> {
 		HashDB::get_with_meta(*self, key, prefix)
 	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
@@ -172,9 +168,9 @@ impl<'a, H: Hasher, T, VF: ValueFunction<H, T>> HashDBRef<H, T, VF> for &'a dyn 
 	}
 }
 
-impl<'a, H: Hasher, T, VF: ValueFunction<H, T>> HashDBRef<H, T, VF> for &'a mut dyn HashDB<H, T, VF> {
+impl<'a, H: Hasher, T, M> HashDBRef<H, T, M> for &'a mut dyn HashDB<H, T, M> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(*self, key, prefix) }
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, VF::Meta)> {
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, M)> {
 		HashDB::get_with_meta(*self, key, prefix)
 	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
@@ -183,11 +179,11 @@ impl<'a, H: Hasher, T, VF: ValueFunction<H, T>> HashDBRef<H, T, VF> for &'a mut 
 }
 
 /// Upcast trait for HashDB.
-pub trait AsHashDB<H: Hasher, T, VF> {
+pub trait AsHashDB<H: Hasher, T, M> {
 	/// Perform upcast to HashDB for anything that derives from HashDB.
-	fn as_hash_db(&self) -> &dyn HashDB<H, T, VF>;
+	fn as_hash_db(&self) -> &dyn HashDB<H, T, M>;
 	/// Perform mutable upcast to HashDB for anything that derives from HashDB.
-	fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (dyn HashDB<H, T, VF> + 'a);
+	fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (dyn HashDB<H, T, M> + 'a);
 }
 
 /// Upcast trait for PlainDB.
@@ -198,33 +194,38 @@ pub trait AsPlainDB<K, V> {
 	fn as_plain_db_mut<'a>(&'a mut self) -> &'a mut (dyn PlainDB<K, V> + 'a);
 }
 
-pub trait ValueFunction<H: Hasher, T>: Send + Sync {
+/// Trait allowing to apply different hashing strategy
+/// depneding on stored value or encoded value with meta.
+pub trait MetaHasher<H: Hasher, T>: Send + Sync {
 	/// Additional content fetchable from storage.
-	/// Default is for undefined (eg in some case null node).
+	/// `Default` should be use for undefined content
+	/// (eg in some case null node).
+	/// Also meta can register information that is not
+	/// stored, in this case default initiate these.
 	type Meta: Default + Clone;
 
-	/// Produce hash, using given meta to allows different
-	/// hashing scheme.
+	/// Produce hash, from its hashable value and its metadata.
 	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out;
 
-	/// Produce stored value, including meta.
+	/// Produce stored value, for hashable value and its meta.
 	fn stored_value(value: &[u8], meta: Self::Meta) -> T;
 
-	/// Owned version of stored value.
+	/// Same as `stored_value` but consiming an allocated data.
 	fn stored_value_owned(value: T, meta: Self::Meta) -> T;
 
-	/// Get meta and input value from stored.
+	/// Get meta and hashable value from stored value.
 	fn extract_value(stored: &[u8]) -> (&[u8], Self::Meta);
 
-	/// Owned version of `extract_value`.
+	/// Same as `extract_value` but consiming an allocated
+	/// buffer.
 	fn extract_value_owned(stored: T) -> (T, Self::Meta);
 }
 
-/// Default `ValueFunction` implementation, stored value
+/// Default `MetaHasher` implementation, stored value
 /// is the same as hashed value, no meta data added.
 pub struct NoMeta;
 
-impl<H, T> ValueFunction<H, T> for NoMeta
+impl<H, T> MetaHasher<H, T> for NoMeta
 	where
 		H: Hasher,
 		T: for<'a> From<&'a [u8]>,

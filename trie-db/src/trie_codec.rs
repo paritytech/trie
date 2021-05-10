@@ -25,7 +25,7 @@
 //! expected to save roughly (n - 1) hashes in size where n is the number of nodes in the partial
 //! trie.
 
-use hash_db::{HashDB, ValueFunction};
+use hash_db::{HashDB, MetaHasher};
 use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout,
@@ -236,7 +236,7 @@ pub fn encode_compact_keyed_callback<'a, L, I>(
 						stack.push(last_entry);
 						break;
 					} else {
-						output[last_entry.output_index] = L::ValueFunction::stored_value_owned(
+						output[last_entry.output_index] = L::MetaHasher::stored_value_owned(
 							last_entry.encode_node()?,
 							last_entry.meta.expect("Not an inline value"),
 						);
@@ -281,7 +281,7 @@ pub fn encode_compact_keyed_callback<'a, L, I>(
 	}
 
 	while let Some(entry) = stack.pop() {
-		output[entry.output_index] = L::ValueFunction::stored_value_owned(
+		output[entry.output_index] = L::MetaHasher::stored_value_owned(
 			entry.encode_node()?,
 			entry.meta.expect("Not an inline value"),
 		);
@@ -482,7 +482,7 @@ pub fn decode_compact<L, DB>(db: &mut DB, encoded: &[Vec<u8>])
 	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
-		DB: HashDB<L::Hash, DBValue, L::ValueFunction>,
+		DB: HashDB<L::Hash, DBValue, L::Meta>,
 {
 	decode_compact_from_iter::<L, DB, _>(db, encoded.iter().map(Vec::as_slice))
 }
@@ -492,7 +492,7 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I)
 	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
-		DB: HashDB<L::Hash, DBValue, L::ValueFunction>,
+		DB: HashDB<L::Hash, DBValue, L::Meta>,
 		I: IntoIterator<Item = &'a [u8]>,
 {
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
@@ -503,7 +503,7 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I)
 	let mut prefix = NibbleVec::new();
 
 	for (i, encoded_node) in encoded.into_iter().enumerate() {
-		let (encoded_node, meta) = L::ValueFunction::extract_value(encoded_node);
+		let (encoded_node, meta) = L::MetaHasher::extract_value(encoded_node);
 		let node = L::Codec::decode(&encoded_node[..], meta.contains_hash_of_value())
 			.map_err(|err| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), err)))?;
 

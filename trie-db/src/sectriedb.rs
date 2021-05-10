@@ -38,7 +38,7 @@ where
 	/// This guarantees the trie is built correctly.
 	/// Returns an error if root does not exist.
 	pub fn new(
-		db: &'db dyn HashDBRef<L::Hash, DBValue, L::ValueFunction>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta>,
 		root: &'db TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(SecTrieDB { raw: TrieDB::new(db, root)? })
