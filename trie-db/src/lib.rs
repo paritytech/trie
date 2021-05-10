@@ -387,20 +387,15 @@ pub trait TrieLayout: Default + Clone {
 	const USE_EXTENSION: bool;
 	/// If true, the trie will allow empty values into `TrieDBMut`
 	const ALLOW_EMPTY: bool = false;
-	/// TODO doc or remove: is not really usefull with latest changes.
+	/// Indicate if we need to manage meta, skipping some processing
+	/// if we don't.
 	const USE_META: bool = false;
-
-	/// Treshold over which the value get inner hashed.
-	/// TODO move to meta implementation.
-	fn inner_hash_value_treshold(&self) -> Option<usize> {
-		None
-	}
 
 	/// Hasher to use for this trie.
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
 	type Codec: NodeCodec<Self::Meta, HashOut=<Self::Hash as Hasher>::Out>;
-	/// Type associated with new nodes. TODO copy hash_db doc
+	/// Trait `Meta` implementation to use with this layout.
 	type Meta: Meta;
 	/// Value function to manage meta.
 	type MetaHasher: MetaHasher<
@@ -436,8 +431,6 @@ pub enum NodeChange {
 	/// Meta did change, hash stay the same.
 	Meta,
 	/// Both encoded and meta did change.
-	/// TODO probably useless (encoded change and encoded + meta resulting
-	/// in same action).
 	EncodedMeta,
 	/// Unchanged.
 	None,
@@ -460,17 +453,7 @@ impl fmt::Display for NodeChange {
 }
 
 impl NodeChange {
-	/// TODO
-	/// TODO maybe unused
-	pub fn from_values(old: Option<impl AsRef<[u8]>>, new: Option<impl AsRef<[u8]>>) -> Self {
-		if old.as_ref().map(|v| v.as_ref()) == new.as_ref().map(|v| v.as_ref()) {
-			NodeChange::None
-		} else {
-			NodeChange::Encoded
-		}
-	}
-
-	/// TODO
+	/// Get possible change by comparing values.
 	pub fn from_node_values(old: crate::node::Value, new: crate::node::Value) -> Self {
 		match old {
 			crate::node::Value::NoValue => match new {
@@ -495,7 +478,7 @@ impl NodeChange {
 		NodeChange::Encoded
 	}
 	
-	/// TODO
+	/// Sum two changes.
 	pub fn combine(&self, other: Self) -> Self {
 		match (self, other) {
 			(NodeChange::Encoded, NodeChange::Meta) => NodeChange::EncodedMeta,
@@ -584,10 +567,13 @@ pub trait Meta: Clone {
 	fn do_value_hash(&self) -> bool;
 }
 
-// TODO
+/// Small enum indicating representation of a given children.
 pub enum ChildrenDecoded {
+	/// Children is stored as a node.
 	Hash,
+	/// Children is stored as an inline node.
 	Inline,
+	/// No children is present.
 	None,
 }
 

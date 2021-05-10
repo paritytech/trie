@@ -156,9 +156,7 @@ impl TrieLayout for CheckMetaHasher {
 	const USE_EXTENSION: bool = true;
 	const ALLOW_EMPTY: bool = false;
 	const USE_META: bool = true;
-	fn inner_hash_value_treshold(&self) -> Option<usize> {
-		Some(1)
-	}
+
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
 	type MetaHasher = TestMetaHasher<RefHasher>;
@@ -180,9 +178,7 @@ impl TrieLayout for CheckMetaHasherNoExt {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
 	const USE_META: bool = true;
-	fn inner_hash_value_treshold(&self) -> Option<usize> {
-		Some(1)
-	}
+
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
 	type MetaHasher = TestMetaHasher<RefHasher>;
@@ -456,12 +452,7 @@ impl TrieLayout for Updatable {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
 	const USE_META: bool = true;
-	fn inner_hash_value_treshold(&self) -> Option<usize> {
-		match self.0 {
-			Version::Old => None,
-			Version::New => Some(1),
-		}
-	}
+
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
 	type MetaHasher = TestUpdatableMetaHasher<RefHasher>;
@@ -809,8 +800,6 @@ const LEAF_PREFIX_MASK_NO_EXT: u8 = 0b_01 << 6;
 const BRANCH_WITHOUT_MASK_NO_EXT: u8 = 0b_10 << 6;
 const BRANCH_WITH_MASK_NO_EXT: u8 = 0b_11 << 6;
 const EMPTY_TRIE_NO_EXT: u8 = FIRST_PREFIX | 0b_00;
-// first value fo empty trie with content
-const DEAD_HEADER_META_OLD_VERSION: u8 = FIRST_PREFIX | 0b_01;
 const DEAD_HEADER_META_HASHED_VALUE: u8 = FIRST_PREFIX | 0b_11_10;
 
 /// Create a leaf/extension node, encoding a number of nibbles. Note that this
