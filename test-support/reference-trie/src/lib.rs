@@ -512,7 +512,6 @@ impl Meta for VersionedValueRange {
 		is_branch: bool,
 		changed: NodeChange,
 	) -> NodeChange {
-		// TODO check no old child too
 		if let Version::New = self.version {
 			return changed;
 		}

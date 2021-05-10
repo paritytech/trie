@@ -525,6 +525,10 @@ pub trait Meta: Clone {
 	/// access in meta, even if unchanged,
 	/// then we can return true and node will be updated
 	/// in storage.
+	/// This is only for existing modified value, new value
+	/// do not call this.
+	/// Can be use to trigger node update with same value by
+	/// forcing a new `NodeChange` status.
 	fn set_value_callback(
 		&mut self,
 		new_value: Option<&[u8]>,

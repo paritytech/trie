@@ -532,7 +532,6 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I)
 			// Since `advance_child_index` returned true, the preconditions for `encode_node` are
 			// satisfied.
 			let (node_data, meta) = last_entry.encode_node();
-			// TODO change algo to avoid meta clone (negligible).
 			let node_hash = db.insert_with_meta(prefix.as_prefix(), node_data.as_ref(), meta);
 
 			if let Some(entry) = stack.pop() {
