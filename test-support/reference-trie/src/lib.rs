@@ -1710,7 +1710,7 @@ pub fn compare_unhashed(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
 ) {
 	let root_new = {
-		let mut cb = trie_db::TrieRootUnhashed::<RefHasher>::default();
+		let mut cb = trie_db::TrieRootUnhashed::<ExtensionLayout>::default();
 		trie_visit(data.clone().into_iter(), &mut cb, &ExtensionLayout);
 		cb.root.unwrap_or(Default::default())
 	};
@@ -1725,7 +1725,7 @@ pub fn compare_unhashed_no_extension(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
 ) {
 	let root_new = {
-		let mut cb = trie_db::TrieRootUnhashed::<RefHasher>::default();
+		let mut cb = trie_db::TrieRootUnhashed::<NoExtensionLayout>::default();
 		trie_visit(data.clone().into_iter(), &mut cb, &NoExtensionLayout::default());
 		cb.root.unwrap_or(Default::default())
 	};

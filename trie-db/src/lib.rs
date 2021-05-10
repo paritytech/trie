@@ -681,7 +681,7 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,
 	{
-		let mut cb = TrieRootUnhashed::<Self::Hash>::default();
+		let mut cb = TrieRootUnhashed::<Self>::default();
 		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb, self);
 		cb.root.unwrap_or_default()
 	}
