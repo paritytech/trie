@@ -18,6 +18,13 @@ use trie_db::{TrieDB, TrieDBMut, Lookup, Trie, TrieMut, NibbleSlice, TrieLayout,
 use reference_trie::test_layouts;
 use hex_literal::hex;
 
+type PrefixedMemoryDB<T> = MemoryDB::<
+	<T as TrieLayout>::Hash,
+	PrefixedKey<<T as TrieLayout>::Hash>,
+	DBValue,
+	<T as TrieLayout>::MetaHasher,
+>;
+
 test_layouts!(iterator_works, iterator_works_internal);
 fn iterator_works_internal<T: TrieLayout>() {
 	let pairs = vec![
@@ -25,7 +32,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 		(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
 	];
 
-	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue, _>::default();
+	let mut memdb = PrefixedMemoryDB::<T>::default();
 	let mut root = Default::default();
 	{
 		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
@@ -53,7 +60,7 @@ fn iterator_seek_works_internal<T: TrieLayout>() {
 		(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
 	];
 
-	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue, _>::default();
+	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue, T::MetaHasher>::default();
 	let mut root = Default::default();
 	{
 		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
@@ -98,7 +105,7 @@ fn iterator_internal<T: TrieLayout>() {
 		b"B".to_vec(),
 	];
 
-	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue, _>::default();
+	let mut memdb = PrefixedMemoryDB::<T>::default();
 	let mut root = Default::default();
 	{
 		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
@@ -129,7 +136,7 @@ fn iterator_seek_internal<T: TrieLayout>() {
 		b"B".to_vec(),
 	];
 
-	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue, _>::default();
+	let mut memdb = PrefixedMemoryDB::<T>::default();
 	let mut root = Default::default();
 	{
 		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
@@ -168,7 +175,7 @@ fn iterator_seek_internal<T: TrieLayout>() {
 
 test_layouts!(get_length_with_extension, get_length_with_extension_internal);
 fn get_length_with_extension_internal<T: TrieLayout>() {
-	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue, _>::default();
+	let mut memdb = PrefixedMemoryDB::<T>::default();
 	let mut root = Default::default();
 	{
 		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
@@ -191,7 +198,7 @@ fn debug_output_supports_pretty_print_internal<T: TrieLayout>() {
 		b"B".to_vec(),
 	];
 
-	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue, _>::default();
+	let mut memdb = PrefixedMemoryDB::<T>::default();
 	let mut root = Default::default();
 	let root = {
 		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
@@ -262,7 +269,7 @@ fn debug_output_supports_pretty_print_internal<T: TrieLayout>() {
 test_layouts!(test_lookup_with_corrupt_data_returns_decoder_error, test_lookup_with_corrupt_data_returns_decoder_error_internal);
 fn test_lookup_with_corrupt_data_returns_decoder_error_internal<T: TrieLayout>() {
 
-	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue, _>::default();
+	let mut memdb = PrefixedMemoryDB::<T>::default();
 	let mut root = Default::default();
 	{
 		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);

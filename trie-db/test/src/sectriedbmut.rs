@@ -20,7 +20,7 @@ use trie_db::{DBValue, Trie, TrieMut};
 
 #[test]
 fn sectrie_to_trie() {
-	let mut memdb = MemoryDB::<RefHasher, HashKey<_>, DBValue, _>::default();
+	let mut memdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
 	let mut root = Default::default();
 	{
 		let mut t = RefSecTrieDBMut::new(&mut memdb, &mut root);

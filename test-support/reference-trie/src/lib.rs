@@ -54,7 +54,7 @@ macro_rules! test_layouts {
 	($test:ident, $test_internal:ident) => {
 		#[test]
 		fn $test() {
-			$test_internal::<reference_trie::CheckValueFunction>();
+			$test_internal::<reference_trie::CheckMetaHasher>();
 			$test_internal::<reference_trie::NoExtensionLayout>();
 			$test_internal::<reference_trie::ExtensionLayout>();
 		}
@@ -70,7 +70,7 @@ impl TrieLayout for ExtensionLayout {
 	const ALLOW_EMPTY: bool = false;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
-	type ValueFunction = hash_db::NoMeta;
+	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
@@ -101,7 +101,7 @@ impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	const ALLOW_EMPTY: bool = false;
 	type Hash = H;
 	type Codec = ReferenceNodeCodecNoExt<H>;
-	type ValueFunction = hash_db::NoMeta;
+	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
@@ -118,7 +118,7 @@ impl TrieLayout for AllowEmptyLayout {
 	const ALLOW_EMPTY: bool = true;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
-	type ValueFunction = hash_db::NoMeta;
+	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
@@ -128,9 +128,9 @@ impl TrieLayout for AllowEmptyLayout {
 
 /// Trie that use a dumb value function over its storage.
 #[derive(Default, Clone)]
-pub struct CheckValueFunction;
+pub struct CheckMetaHasher;
 
-impl TrieLayout for CheckValueFunction {
+impl TrieLayout for CheckMetaHasher {
 	const USE_EXTENSION: bool = true;
 	const ALLOW_EMPTY: bool = false;
 	const USE_META: bool = true;
@@ -139,7 +139,7 @@ impl TrieLayout for CheckValueFunction {
 	}
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
-	type ValueFunction = TestValueFunction<RefHasher>;
+	type MetaHasher = TestMetaHasher<RefHasher>;
 	type Meta = ValueRange;
 
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
@@ -149,9 +149,9 @@ impl TrieLayout for CheckValueFunction {
 
 /// Trie that use a dumb value function over its storage.
 #[derive(Default, Clone)]
-pub struct CheckValueFunctionNoExt;
+pub struct CheckMetaHasherNoExt;
 
-impl TrieLayout for CheckValueFunctionNoExt {
+impl TrieLayout for CheckMetaHasherNoExt {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
 	const USE_META: bool = true;
@@ -160,7 +160,7 @@ impl TrieLayout for CheckValueFunctionNoExt {
 	}
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
-	type ValueFunction = TestValueFunction<RefHasher>;
+	type MetaHasher = TestMetaHasher<RefHasher>;
 	type Meta = ValueRange;
 
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
@@ -170,13 +170,13 @@ impl TrieLayout for CheckValueFunctionNoExt {
 
 
 /// Test value function: prepend optional encoded size of value
-pub struct TestValueFunction<H>(PhantomData<H>);
+pub struct TestMetaHasher<H>(PhantomData<H>);
 
 /// Test value function: prepend optional encoded size of value.
 /// Also allow indicating that value is a hash of value.
-pub struct TestValueFunctionProof<H>(PhantomData<H>);
+pub struct TestMetaHasherProof<H>(PhantomData<H>);
 
-impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestValueFunction<H> {
+impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 	type Meta = ValueRange;
 
 	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out {
@@ -362,7 +362,7 @@ impl TrieLayout for Old {
 	const ALLOW_EMPTY: bool = false;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
-	type ValueFunction = hash_db::NoMeta;
+	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
@@ -397,7 +397,7 @@ impl TrieLayout for Updatable {
 	}
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
-	type ValueFunction = TestUpdatableValueFunction<RefHasher>;
+	type MetaHasher = TestUpdatableMetaHasher<RefHasher>;
 	type Meta = VersionedValueRange;
 
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
@@ -548,9 +548,9 @@ impl Meta for VersionedValueRange {
 }
 
 /// Test value function: prepend optional encoded size of value
-pub struct TestUpdatableValueFunction<H>(PhantomData<H>);
+pub struct TestUpdatableMetaHasher<H>(PhantomData<H>);
 
-impl<H: Hasher> hash_db::ValueFunction<H, DBValue> for TestUpdatableValueFunction<H> {
+impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestUpdatableMetaHasher<H> {
 	type Meta = VersionedValueRange;
 
 	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out {
@@ -1464,7 +1464,7 @@ pub fn compare_implementations<T, DB> (
 )
 	where
 		T: TrieLayout,
-		DB : hash_db::HashDB<T::Hash, DBValue, T::ValueFunction> + Eq,
+		DB : hash_db::HashDB<T::Hash, DBValue, T::Meta> + Eq,
 {
 	let root_new = calc_root_build::<T, _, _, _, _>(data.clone(), &mut hashdb);
 	let root = {
@@ -1501,7 +1501,7 @@ pub fn compare_implementations<T, DB> (
 }
 
 /// Compare trie builder and trie root implementations.
-pub fn compare_root<T: TrieLayout, DB: hash_db::HashDB<T::Hash, DBValue, T::ValueFunction>>(
+pub fn compare_root<T: TrieLayout, DB: hash_db::HashDB<T::Hash, DBValue, T::Meta>>(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
 	mut memdb: DB,
 ) {
@@ -1572,7 +1572,7 @@ pub fn calc_root_build<T, I, A, B, DB>(
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord + fmt::Debug,
 		B: AsRef<[u8]> + fmt::Debug,
-		DB: hash_db::HashDB<T::Hash, DBValue, T::ValueFunction>,
+		DB: hash_db::HashDB<T::Hash, DBValue, T::Meta>,
 {
 	let mut cb = TrieBuilder::<T, DB>::new(hashdb);
 	trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
@@ -1588,7 +1588,7 @@ pub fn compare_implementations_unordered<T, DB> (
 )
 	where
 		T: TrieLayout,
-		DB : hash_db::HashDB<T::Hash, DBValue, T::ValueFunction> + Eq,
+		DB : hash_db::HashDB<T::Hash, DBValue, T::Meta> + Eq,
 {
 	let mut b_map = std::collections::btree_map::BTreeMap::new();
 	let root = {
@@ -1630,13 +1630,13 @@ pub fn compare_implementations_unordered<T, DB> (
 
 /// Testing utility that uses some periodic removal over
 /// its input test data.
-pub fn compare_insert_remove<T, DB: hash_db::HashDB<T::Hash, DBValue, T::ValueFunction>>(
+pub fn compare_insert_remove<T, DB: hash_db::HashDB<T::Hash, DBValue, T::Meta>>(
 	data: Vec<(bool, Vec<u8>, Vec<u8>)>,
 	mut memdb: DB,
 )
 	where
 		T: TrieLayout,
-		DB : hash_db::HashDB<T::Hash, DBValue, T::ValueFunction> + Eq,
+		DB : hash_db::HashDB<T::Hash, DBValue, T::Meta> + Eq,
 {
 
 	let mut data2 = std::collections::BTreeMap::new();

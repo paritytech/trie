@@ -26,7 +26,7 @@ type MemoryDB<T> = memory_db::MemoryDB<
 	<T as TrieLayout>::Hash,
 	memory_db::HashKey<<T as TrieLayout>::Hash>,
 	DBValue,
-	<T as TrieLayout>::ValueFunction,
+	<T as TrieLayout>::MetaHasher,
 >;
 
 
@@ -78,7 +78,7 @@ fn test_generate_proof<L: TrieLayout>(
 
 test_layouts!(trie_proof_works, trie_proof_works_internal);
 fn trie_proof_works_internal<T: TrieLayout>() {
-	// TODO currently we do not support proof with `ValueFunction`.
+	// TODO currently we do not support proof with `MetaHasher`.
 	if !T::USE_META {
 		let (root, proof, items) = test_generate_proof::<T>(
 			test_entries(),

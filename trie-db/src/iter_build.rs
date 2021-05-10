@@ -17,7 +17,7 @@
 //! implementation.
 //! See `trie_visit` function.
 
-use hash_db::{Hasher, HashDB, Prefix, ValueFunction};
+use hash_db::{Hasher, HashDB, Prefix, MetaHasher};
 use crate::rstd::{cmp::max, marker::PhantomData, vec::Vec};
 use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
@@ -336,7 +336,7 @@ impl<'a, T: TrieLayout, DB> TrieBuilder<'a, T, DB> {
 impl<'a, T, DB> ProcessEncodedNode<TrieHash<T>> for TrieBuilder<'a, T, DB>
 	where
 		T: TrieLayout,
-		DB: HashDB<T::Hash, DBValue, T::ValueFunction>,
+		DB: HashDB<T::Hash, DBValue, T::Meta>,
 {
 	fn process(
 		&mut self,
@@ -404,7 +404,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 			let node_plan = T::Codec::decode_plan(encoded_node.as_slice())
 				.expect("Process uses only valid encoded nodes.");
 			current_meta.encoded_callback(encoded_node.as_slice(), node_plan);
-			<T::ValueFunction as ValueFunction<_, _>>::hash(
+			<T::MetaHasher as MetaHasher<_, _>>::hash(
 				&encoded_node[..],
 				&current_meta,
 			)

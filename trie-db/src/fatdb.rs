@@ -37,14 +37,14 @@ where
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
 	pub fn new(
-		db: &'db dyn HashDBRef<L::Hash, DBValue, L::ValueFunction>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta>,
 		root: &'db TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(FatDB { raw: TrieDB::new(db, root)? })
 	}
 
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDBRef<L::Hash, DBValue, L::ValueFunction> { self.raw.db() }
+	pub fn db(&self) -> &dyn HashDBRef<L::Hash, DBValue, L::Meta> { self.raw.db() }
 }
 
 impl<'db, L> Trie<L> for FatDB<'db, L>

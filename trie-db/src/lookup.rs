@@ -24,7 +24,7 @@ use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash};
 /// Trie lookup helper object.
 pub struct Lookup<'a, L: TrieLayout, Q: Query<L::Hash>> {
 	/// database to query from.
-	pub db: &'a dyn HashDBRef<L::Hash, DBValue, L::ValueFunction>,
+	pub db: &'a dyn HashDBRef<L::Hash, DBValue, L::Meta>,
 	/// Query object to record nodes and transform data.
 	pub query: Q,
 	/// Hash to start at
