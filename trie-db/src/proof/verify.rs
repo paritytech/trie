@@ -94,7 +94,7 @@ impl<HO: std::fmt::Debug, CE: std::error::Error + 'static> std::error::Error for
 	}
 }
 
-struct StackEntry<'a, C: NodeCodec> {
+struct StackEntry<'a, C: NodeCodec<()>> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: LeftNibbleSlice<'a>,
 	node: Node<'a>,
@@ -109,11 +109,11 @@ struct StackEntry<'a, C: NodeCodec> {
 	_marker: PhantomData<C>,
 }
 
-impl<'a, C: NodeCodec> StackEntry<'a, C> {
+impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 	fn new(node_data: &'a [u8], prefix: LeftNibbleSlice<'a>, is_inline: bool)
 		   -> Result<Self, Error<C::HashOut, C::Error>>
 	{
-		let node = C::decode(node_data)
+		let node = C::decode(node_data, &mut ())
 			.map_err(Error::DecodeError)?;
 		let children_len = match node {
 			Node::Empty | Node::Leaf(..) => 0,
@@ -141,7 +141,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 		self.complete_children()?;
 		Ok(match self.node {
 			Node::Empty =>
-				C::empty_node().to_vec(),
+				C::empty_node(&mut ()).to_vec(),
 			Node::Leaf(partial, _) => {
 				let value = self.value
 					.expect(
@@ -149,7 +149,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 						value is only ever reassigned in the ValueMatch::MatchesLeaf match \
 						clause, which assigns only to Some"
 					);
-				C::leaf_node(partial.right(), value)
+				C::leaf_node(partial.right(), value, &mut ())
 			}
 			Node::Extension(partial, _) => {
 				let child = self.children[0]
@@ -157,13 +157,15 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 				C::extension_node(
 					partial.right_iter(),
 					partial.len(),
-					child
+					child,
+					&mut (),
 				)
 			}
 			Node::Branch(_, _) =>
 				C::branch_node(
 					self.children.iter(),
 					self.value,
+					&mut (),
 				),
 			Node::NibbledBranch(partial, _, _) =>
 				C::branch_node_nibbled(
@@ -171,6 +173,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 					partial.len(),
 					self.children.iter(),
 					self.value,
+					&mut (),
 				),
 		})
 	}
@@ -391,8 +394,8 @@ enum Step<'a> {
 pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Vec<u8>], items: I)
 									-> Result<(), Error<TrieHash<L>, CError<L>>>
 	where
-		L: TrieLayout,
-		I: IntoIterator<Item=&'a (K, Option<V>)>,
+		L: TrieLayout<Meta = ()>,
+		I: IntoIterator<Item = &'a (K, Option<V>)>,
 		K: 'a + AsRef<[u8]>,
 		V: 'a + AsRef<[u8]>,
 {

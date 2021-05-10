@@ -16,6 +16,7 @@ use hash_db::Hasher;
 use crate::nibble::{self, NibbleSlice};
 use crate::nibble::nibble_ops;
 use crate::node_codec::NodeCodec;
+use crate::Meta;
 
 use crate::rstd::{borrow::Borrow, ops::Range};
 
@@ -196,8 +197,8 @@ pub struct OwnedNode<D: Borrow<[u8]>> {
 
 impl<D: Borrow<[u8]>> OwnedNode<D> {
 	/// Construct an `OwnedNode` by decoding an owned data source according to some codec.
-	pub fn new<C: NodeCodec>(data: D) -> Result<Self, C::Error> {
-		let plan = C::decode_plan(data.borrow())?;
+	pub fn new<M: Meta, C: NodeCodec<M>>(data: D, meta: &mut M) -> Result<Self, C::Error> {
+		let plan = C::decode_plan(data.borrow(), meta)?;
 		Ok(OwnedNode { data, plan })
 	}
 

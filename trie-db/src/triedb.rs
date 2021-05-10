@@ -52,6 +52,7 @@ pub struct TrieDB<'db, L>
 where
 	L: TrieLayout,
 {
+	layout: L,
 	db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta>,
 	root: &'db TrieHash<L>,
 	/// The number of hashes performed so far in operations on this trie.
@@ -66,12 +67,23 @@ where
 	/// Returns an error if `root` does not exist
 	pub fn new(
 		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta>,
-		root: &'db TrieHash<L>
+		root: &'db TrieHash<L>,
+	) -> Result<Self, TrieHash<L>, CError<L>> {
+		Self::new_with_layout(db, root, Default::default())
+	}
+
+	/// Create a new trie with backing database `db` and empty `root`.
+	/// Returns an error if `root` does not exist
+	/// This can use a context specific layout.
+	pub fn new_with_layout(
+		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta>,
+		root: &'db TrieHash<L>,
+		layout: L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		} else {
-			Ok(TrieDB {db, root, hash_count: 0})
+			Ok(TrieDB {db, root, hash_count: 0, layout})
 		}
 	}
 
@@ -94,11 +106,11 @@ where
 		node_handle: NodeHandle,
 		partial_key: Prefix,
 	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
-		let (node_hash, node_data) = match node_handle {
+		let (node_hash, node_data, mut meta) = match node_handle {
 			NodeHandle::Hash(data) => {
 				let node_hash = decode_hash::<L::Hash>(data)
 					.ok_or_else(|| Box::new(TrieError::InvalidHash(parent_hash, data.to_vec())))?;
-				let (node_data, _meta) = self.db
+				let (node_data, meta) = self.db
 					.get_with_meta(&node_hash, partial_key)
 					.ok_or_else(|| {
 						if partial_key == EMPTY_PREFIX {
@@ -108,11 +120,11 @@ where
 						}
 					})?;
 
-				(Some(node_hash), node_data)
+				(Some(node_hash), node_data, meta)
 			}
-			NodeHandle::Inline(data) => (None, data.to_vec()),
+			NodeHandle::Inline(data) => (None, data.to_vec(), L::meta_for_stored_inline_node(&self.layout)),
 		};
-		let owned_node = OwnedNode::new::<L::Codec>(node_data)
+		let owned_node = OwnedNode::new::<L::Meta, L::Codec>(node_data, &mut meta)
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or(parent_hash), e)))?;
 		Ok((owned_node, node_hash))
 	}

@@ -398,7 +398,7 @@ pub trait TrieLayout: Default + Clone {
 	/// Hasher to use for this trie.
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
-	type Codec: NodeCodec<HashOut=<Self::Hash as Hasher>::Out>;
+	type Codec: NodeCodec<Self::Meta, HashOut=<Self::Hash as Hasher>::Out>;
 	/// Type associated with new nodes. TODO copy hash_db doc
 	type Meta: Meta;
 	/// Value function to manage meta.
@@ -408,8 +408,21 @@ pub trait TrieLayout: Default + Clone {
 		Meta = Self::Meta,
 	>;
 
-	/// TODO doc
+	/// Meta state input for new node.
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput;
+
+	/// Meta state input for stored inline node (inline node do not have stored meta).
+	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::MetaInput;
+
+	/// Meta state input for new node.
+	fn meta_for_new_node(&self) -> Self::Meta {
+		<Self::Meta as Meta>::meta_for_new(self.metainput_for_new_node())
+	}
+
+	/// Meta state input for new node.
+	fn meta_for_stored_inline_node(&self) -> Self::Meta {
+		<Self::Meta as Meta>::meta_for_existing_inline_node(self.metainput_for_stored_inline_node())
+	}
 }
 
 /// Node modification status.
@@ -487,11 +500,6 @@ pub trait Meta: Clone {
 		input: Self::MetaInput
 	) -> Self;
 
-	/// TODO remove (meta_for_new is enough).
-	fn meta_for_new_empty(
-		input: Self::MetaInput,
-	) -> Self;
-
 	/// Leaf meta creation.
 	fn meta_for_new(
 		input: Self::MetaInput,
@@ -534,6 +542,14 @@ pub trait Meta: Clone {
 		node_plan: crate::node::NodePlan,
 	);
 
+	/// Register info from node plan when decoded.
+	fn decoded_callback(
+		&mut self,
+		node_plan: &crate::node::NodePlan,
+	);
+
+	// TODO call back from decoded and also do it for value.
+	// -> remove
 	fn decoded_children(
 		&mut self,
 		children: impl Iterator<Item = ChildrenDecoded>,
@@ -549,12 +565,6 @@ pub enum ChildrenDecoded {
 
 impl Meta for () {
 	type MetaInput = ();
-
-	fn meta_for_new_empty(
-		_input: Self::MetaInput,
-	) -> Self {
-		()
-	}
 
 	fn meta_for_new(
 		_input: Self::MetaInput,
@@ -597,6 +607,12 @@ impl Meta for () {
 	fn decoded_children(
 		&mut self,
 		_children: impl Iterator<Item = ChildrenDecoded>,
+	) {
+	}
+
+	fn decoded_callback(
+		&mut self,
+		_node_plan: &crate::node::NodePlan,
 	) {
 	}
 }
@@ -660,4 +676,4 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 /// Alias accessor to hasher hash output type from a `TrieLayout`.
 pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
-pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;
+pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec<<L as TrieLayout>::Meta>>::Error;

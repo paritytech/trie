@@ -245,12 +245,6 @@ pub const INNER_HASH_TRESHOLD: usize = 1;
 impl Meta for ValueRange {
 	type MetaInput = ();
 
-	fn meta_for_new_empty(
-		_input: Self::MetaInput,
-	) -> Self {
-		ValueRange(None)
-	}
-
 	fn meta_for_new(
 		_input: Self::MetaInput,
 	) -> Self {
@@ -415,17 +409,6 @@ pub struct VersionedValueRange {
 
 impl Meta for VersionedValueRange {
 	type MetaInput = Version;
-
-	fn meta_for_new_empty(
-		input: Self::MetaInput,
-	) -> Self {
-		let old_remaining_children = if matches!(input, Version::Old) {
-			Some(Vec::new())
-		} else {
-			None
-		};
-		VersionedValueRange { range: None, version: input, old_remaining_children }
-	}
 
 	fn meta_for_new(
 		input: Self::MetaInput,

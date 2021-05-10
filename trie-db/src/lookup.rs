@@ -48,7 +48,7 @@ where
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
-			let (node_data, _) = match self.db.get_with_meta(&hash, key.mid(key_nibbles).left()) {
+			let (node_data, mut meta) = match self.db.get_with_meta(&hash, key.mid(key_nibbles).left()) {
 				Some(value) => value,
 				None => return Err(Box::new(match depth {
 					0 => TrieError::InvalidStateRoot(hash),
@@ -62,7 +62,7 @@ where
 			// without incrementing the depth.
 			let mut node_data = &node_data[..];
 			loop {
-				let decoded = match L::Codec::decode(node_data) {
+				let decoded = match L::Codec::decode(node_data, &mut meta) {
 					Ok(node) => node,
 					Err(e) => {
 						return Err(Box::new(TrieError::DecoderError(hash, e)))

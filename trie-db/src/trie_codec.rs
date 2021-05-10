@@ -28,14 +28,14 @@
 use hash_db::HashDB;
 use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
-	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout,
+	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout, Meta,
 	nibble_ops::NIBBLE_LENGTH, node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode},
 };
 use crate::rstd::{
 	boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec, vec::Vec,
 };
 
-struct EncoderStackEntry<C: NodeCodec> {
+struct EncoderStackEntry<M: Meta, C: NodeCodec<M>> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: NibbleVec,
 	node: Rc<OwnedNode<DBValue>>,
@@ -47,10 +47,10 @@ struct EncoderStackEntry<C: NodeCodec> {
 	/// The encoding of the subtrie nodes rooted at this entry, which is built up in
 	/// `encode_compact`.
 	output_index: usize,
-	_marker: PhantomData<C>,
+	_marker: PhantomData<(M, C)>,
 }
 
-impl<C: NodeCodec> EncoderStackEntry<C> {
+impl<M: Meta, C: NodeCodec<M>> EncoderStackEntry<M, C> {
 	/// Given the prefix of the next child node, identify its index and advance `child_index` to
 	/// that. For a given entry, this must be called sequentially only with strictly increasing
 	/// child prefixes. Returns an error if the child prefix is not a child of this entry or if
@@ -250,7 +250,7 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 	Ok(output)
 }
 
-struct DecoderStackEntry<'a, C: NodeCodec> {
+struct DecoderStackEntry<'a, M: Meta, C: NodeCodec<M>> {
 	node: Node<'a>,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
@@ -260,7 +260,7 @@ struct DecoderStackEntry<'a, C: NodeCodec> {
 	_marker: PhantomData<C>,
 }
 
-impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
+impl<'a, M: Meta, C: NodeCodec<M>> DecoderStackEntry<'a, M, C> {
 	/// Advance the child index until either it exceeds the number of children or the child is
 	/// marked as omitted. Omitted children are indicated by an empty inline reference. For each
 	/// child that is passed over and not omitted, copy over the child reference from the node to
