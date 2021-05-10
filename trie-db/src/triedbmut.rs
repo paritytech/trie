@@ -14,7 +14,7 @@
 
 //! In-memory trie representation.
 
-use super::{DBValue, node::NodeKey, Meta, NodeChange, ChildrenDecoded};
+use super::{DBValue, node::NodeKey, Meta, NodeChange};
 use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode,
@@ -225,32 +225,17 @@ impl<L: TrieLayout> Node<L>
 		let node = match encoded_node {
 			EncodedNode::Empty => Node::Empty(meta),
 			EncodedNode::Leaf(k, v) => Node::Leaf(k.into(), v.into(), meta),
-			EncodedNode::Extension(key, cb) => {
-				if L::USE_META {
-					meta.decoded_children(core::iter::once(match cb {
-						EncodedNodeHandle::Hash(..) => ChildrenDecoded::Hash,
-						EncodedNodeHandle::Inline(..) => ChildrenDecoded::Inline,
-					}));
-				}
-				Node::Extension(
-					key.into(),
-					Self::inline_or_hash(node_hash, cb, db, storage, layout)?,
-					meta,
-				)
-			},
+			EncodedNode::Extension(key, cb) => Node::Extension(
+				key.into(),
+				Self::inline_or_hash(node_hash, cb, db, storage, layout)?,
+				meta,
+			),
 			EncodedNode::Branch(encoded_children, val) => {
 				let mut child = |i:usize| match encoded_children[i] {
 					Some(child) => Self::inline_or_hash(node_hash, child, db, storage, layout)
 						.map(Some),
 					None => Ok(None),
 				};
-				if L::USE_META {
-					meta.decoded_children(encoded_children.iter().map(|cb| match cb {
-						Some(EncodedNodeHandle::Hash(..)) => ChildrenDecoded::Hash,
-						Some(EncodedNodeHandle::Inline(..)) => ChildrenDecoded::Inline,
-						None => ChildrenDecoded::None,
-					}));
-				}
 
 				let children = Box::new([
 					child(0)?, child(1)?, child(2)?, child(3)?,
@@ -267,13 +252,6 @@ impl<L: TrieLayout> Node<L>
 						.map(Some),
 					None => Ok(None),
 				};
-				if L::USE_META {
-					meta.decoded_children(encoded_children.iter().map(|cb| match cb {
-						Some(EncodedNodeHandle::Hash(..)) => ChildrenDecoded::Hash,
-						Some(EncodedNodeHandle::Inline(..)) => ChildrenDecoded::Inline,
-						None => ChildrenDecoded::None,
-					}));
-				}
 
 				let children = Box::new([
 					child(0)?, child(1)?, child(2)?, child(3)?,

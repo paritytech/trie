@@ -419,7 +419,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>, T::Meta> for TrieRoot<T> {
 
 			return ChildReference::Inline(h, len);
 		}
-		let hash = if !T::USE_META{
+		let hash = if !T::USE_META {
 			<T::Hash as Hasher>::hash(encoded_node.as_slice())
 		} else {
 			<T::MetaHasher as MetaHasher<_, _>>::hash(

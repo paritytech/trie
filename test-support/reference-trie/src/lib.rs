@@ -352,12 +352,6 @@ impl Meta for ValueRange {
 		changed
 	}
 
-	fn decoded_children(
-		&mut self,
-		_children: impl Iterator<Item = ChildrenDecoded>,
-	) {
-	}
-
 	fn decoded_callback(
 		&mut self,
 		_node_plan: &trie_db::node::NodePlan,
@@ -601,24 +595,6 @@ impl Meta for VersionedValueRange {
 			}
 		}
 		changed
-	}
-
-	fn decoded_children(
-		&mut self,
-		children: impl Iterator<Item = ChildrenDecoded>,
-	) {
-		if matches!(self.version, Version::Old) {
-			if self.old_remaining_children.is_none() {
-				let mut non_inline_children = Vec::new();
-				for (index, child) in children.enumerate() {
-					if matches!(child, ChildrenDecoded::Hash) {
-						// overflow for radix > 256, ok with current hex trie only implementation.
-						non_inline_children.push(index as u8);
-					}
-				}
-				self.old_remaining_children = Some(non_inline_children);
-			}
-		}
 	}
 
 	fn decoded_callback(

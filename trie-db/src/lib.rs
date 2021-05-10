@@ -387,7 +387,7 @@ pub trait TrieLayout: Default + Clone {
 	const USE_EXTENSION: bool;
 	/// If true, the trie will allow empty values into `TrieDBMut`
 	const ALLOW_EMPTY: bool = false;
-	/// Treshold over which the value get inner hashed.
+	/// TODO doc or remove: is not really usefull with latest changes.
 	const USE_META: bool = false;
 
 	/// Treshold over which the value get inner hashed.
@@ -508,12 +508,11 @@ impl NodeChange {
 	}
 }
 
-/// TODO move in its own module.
-/// TODO doc
-/// TODO remove meta and spawn from layout instance (so when old layout we keep producing old
-/// meta). -> need Layout as inner type.
+/// Additional information stored with node or/and containing processing
+/// transient information.
+/// Can be use to do custom codec and serialization dependant on layout
+/// state.
 pub trait Meta: Clone {
-	// TODO is enabled associated const for skipping some precessing
 	/// Input for meta, this type is here mainly to separate trait layout
 	/// from from trait meta.
 	/// Usually it holds specific behavior from layout context.
@@ -550,9 +549,7 @@ pub trait Meta: Clone {
 		changed: NodeChange,
 	) -> NodeChange;
 
-	/// TODO inline and number of node are very related to
-	/// use case, could be gated behind a feature or we
-	/// could have node storing those.
+	/// Callback on addition or removal of child.
 	fn set_child_callback(
 		&mut self,
 		child: Option<&Self>,
@@ -571,13 +568,6 @@ pub trait Meta: Clone {
 	fn decoded_callback(
 		&mut self,
 		node_plan: &crate::node::NodePlan,
-	);
-
-	// TODO call back from decoded and also do it for value.
-	// -> remove
-	fn decoded_children(
-		&mut self,
-		children: impl Iterator<Item = ChildrenDecoded>,
 	);
 
 /*	/// Indicate a value from node was not accessed and does not need to be
@@ -643,12 +633,6 @@ impl Meta for () {
 		_at: usize,
 	) -> NodeChange {
 		changed
-	}
-
-	fn decoded_children(
-		&mut self,
-		_children: impl Iterator<Item = ChildrenDecoded>,
-	) {
 	}
 
 	fn decoded_callback(
