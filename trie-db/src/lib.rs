@@ -37,7 +37,7 @@ mod rstd {
 #[cfg(feature = "std")]
 use self::rstd::{fmt, Error};
 
-use hash_db::{MaybeDebug, ValueFunction};
+use hash_db::{MaybeDebug, MetaHasher};
 use self::rstd::{boxed::Box, vec::Vec};
 
 pub mod node;
@@ -353,7 +353,7 @@ where
 	/// Create new immutable instance of Trie.
 	pub fn readonly(
 		&self,
-		db: &'db dyn HashDBRef<L::Hash, DBValue, L::ValueFunction>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta>,
 		root: &'db TrieHash<L>
 	) -> Result<TrieKinds<'db, L>, TrieHash<L>, CError<L>> {
 		match self.spec {
@@ -366,7 +366,7 @@ where
 	/// Create new mutable instance of Trie.
 	pub fn create(
 		&self,
-		db: &'db mut dyn HashDB<L::Hash, DBValue, L::ValueFunction>,
+		db: &'db mut dyn HashDB<L::Hash, DBValue, L::Meta>,
 		root: &'db mut TrieHash<L>,
 	) -> Box<dyn TrieMut<L> + 'db> {
 		match self.spec {
@@ -379,7 +379,7 @@ where
 	/// Create new mutable instance of trie and check for errors.
 	pub fn from_existing(
 		&self,
-		db: &'db mut dyn HashDB<L::Hash, DBValue, L::ValueFunction>,
+		db: &'db mut dyn HashDB<L::Hash, DBValue, L::Meta>,
 		root: &'db mut TrieHash<L>,
 	) -> Result<Box<dyn TrieMut<L> + 'db>, TrieHash<L>, CError<L>> {
 		match self.spec {
@@ -421,7 +421,7 @@ pub trait TrieLayout: Default + Clone {
 	/// Type associated with new nodes. TODO copy hash_db doc
 	type Meta: Meta;
 	/// Value function to manage meta.
-	type ValueFunction: ValueFunction<
+	type MetaHasher: MetaHasher<
 		Self::Hash,
 		DBValue,
 		Meta = Self::Meta,
@@ -669,7 +669,7 @@ impl Meta for () {
 pub trait TrieConfiguration: Sized + TrieLayout {
 	/// Operation to build a trie db from its ordered iterator over its key/values.
 	fn trie_build<DB, I, A, B>(db: &mut DB, input: I) -> <Self::Hash as Hasher>::Out where
-	DB: HashDB<Self::Hash, DBValue, Self::ValueFunction>,
+	DB: HashDB<Self::Hash, DBValue, Self::Meta>,
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,

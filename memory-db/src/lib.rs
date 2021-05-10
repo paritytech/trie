@@ -23,7 +23,7 @@ mod malloc_size_of;
 pub use malloc_size_of::*;
 
 use hash_db::{HashDB, HashDBRef, PlainDB, PlainDBRef, Hasher as KeyHasher,
-	AsHashDB, AsPlainDB, Prefix, ValueFunction};
+	AsHashDB, AsPlainDB, Prefix, MetaHasher, NoMeta};
 use parity_util_mem::{MallocSizeOf, MallocSizeOfOps, MallocShallowSizeOf};
 #[cfg(feature = "std")]
 use std::{
@@ -115,7 +115,7 @@ pub type DefaultMemTracker<T> = NoopTracker<T>;
 ///   m.remove(&k, EMPTY_PREFIX);
 ///   assert!(!m.contains(&k, EMPTY_PREFIX));
 /// ```
-pub struct MemoryDB<H, KF, T, VF, M = DefaultMemTracker<T>>
+pub struct MemoryDB<H, KF, T, VF = NoMeta, M = DefaultMemTracker<T>>
 where
 	H: KeyHasher,
 	KF: KeyFunction<H>,
@@ -136,7 +136,7 @@ where
 	KF: KeyFunction<H>,
 	T: Clone,
 	M: MemTracker<T> + Copy,
-	VF: ValueFunction<H, T>,
+	VF: MetaHasher<H, T>,
 {
 	fn clone(&self) -> Self {
 		Self {
@@ -156,7 +156,7 @@ impl<H, KF, T, M, VF> PartialEq<MemoryDB<H, KF, T, VF, M>> for MemoryDB<H, KF, T
 	<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
 	T: Eq + MaybeDebug,
 	M: MemTracker<T> + PartialEq,
-	VF: ValueFunction<H, T>,
+	VF: MetaHasher<H, T>,
 {
 	fn eq(&self, other: &MemoryDB<H, KF, T, VF, M>) -> bool {
 		for a in self.data.iter() {
@@ -177,7 +177,7 @@ impl<H, KF, T, M, VF> Eq for MemoryDB<H, KF, T, VF, M>
 		<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
 		T: Eq + MaybeDebug,
 		M: MemTracker<T> + Eq,
-		VF: ValueFunction<H, T>,
+		VF: MetaHasher<H, T>,
 {}
 
 pub trait KeyFunction<H: KeyHasher> {
@@ -291,7 +291,7 @@ where
 	T: for<'a> From<&'a [u8]>,
 	KF: KeyFunction<H>,
 	M: MemTracker<T> + Default,
-	VF: ValueFunction<H, T>,
+	VF: MetaHasher<H, T>,
 {
 	fn default() -> Self {
 		Self::from_null_node(&[0u8][..], [0u8][..].into())
@@ -305,7 +305,7 @@ where
 	T: Default,
 	KF: KeyFunction<H>,
 	M: MemTracker<T>,
-	VF: ValueFunction<H, T>,
+	VF: MetaHasher<H, T>,
 {
 	/// Remove an element and delete it from storage if reference count reaches zero.
 	/// If the value was purged, return the old value.
@@ -348,7 +348,7 @@ where
 	T: for<'a> From<&'a [u8]>,
 	KF: KeyFunction<H>,
 	M: MemTracker<T> + Default,
-	VF: ValueFunction<H, T>,
+	VF: MetaHasher<H, T>,
 {
 	/// Create a new `MemoryDB` from a given null key/data
 	pub fn from_null_node(null_key: &[u8], null_node_data: T) -> Self {
@@ -495,7 +495,7 @@ where
 	KF: Send + Sync + KeyFunction<H>,
 	KF::Key: Borrow<[u8]> + for <'a> From<&'a [u8]>,
 	M: MemTracker<T> + Send + Sync,
-	VF: ValueFunction<H, T> + Send + Sync,
+	VF: MetaHasher<H, T> + Send + Sync,
 {
 	fn get(&self, key: &H::Out) -> Option<T> {
 		match self.data.get(key.as_ref()) {
@@ -551,19 +551,19 @@ where
 	KF: Send + Sync + KeyFunction<H>,
 	KF::Key: Borrow<[u8]> + for <'a> From<&'a [u8]>,
 	M: MemTracker<T> + Send + Sync,
-	VF: ValueFunction<H, T> + Send + Sync,
+	VF: MetaHasher<H, T> + Send + Sync,
 {
 	fn get(&self, key: &H::Out) -> Option<T> { PlainDB::get(self, key) }
 	fn contains(&self, key: &H::Out) -> bool { PlainDB::contains(self, key) }
 }
 
-impl<H, KF, T, M, VF> HashDB<H, T, VF> for MemoryDB<H, KF, T, VF, M>
+impl<H, KF, T, M, VF> HashDB<H, T, VF::Meta> for MemoryDB<H, KF, T, VF, M>
 where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: KeyFunction<H> + Send + Sync,
 	M: MemTracker<T> + Send + Sync,
-	VF: ValueFunction<H, T> + Send + Sync,
+	VF: MetaHasher<H, T> + Send + Sync,
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
 		if key == &self.hashed_null_node {
@@ -581,7 +581,7 @@ where
 			return Some((self.null_node_data.clone(), Default::default()));
 		}		
 
-		<Self as HashDB<H, T, VF>>::get(&self, key, prefix).map(|value| VF::extract_value_owned(value))
+		<Self as HashDB<H, T, VF::Meta>>::get(&self, key, prefix).map(|value| VF::extract_value_owned(value))
 	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
 		if key == &self.hashed_null_node {
@@ -664,13 +664,13 @@ where
 	}
 }
 
-impl<H, KF, T, M, VF> HashDBRef<H, T, VF> for MemoryDB<H, KF, T, VF, M>
+impl<H, KF, T, M, VF> HashDBRef<H, T, VF::Meta> for MemoryDB<H, KF, T, VF, M>
 where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: KeyFunction<H> + Send + Sync,
 	M: MemTracker<T> + Send + Sync,
-	VF: ValueFunction<H, T> + Send + Sync,
+	VF: MetaHasher<H, T> + Send + Sync,
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(self, key, prefix) }
 	fn access_from(&self, key: &H::Out, at: Option<&H::Out>) -> Option<T> {
@@ -687,22 +687,22 @@ where
 	KF: KeyFunction<H> + Send + Sync,
 	KF::Key: Borrow<[u8]> + for <'a> From<&'a [u8]>,
 	M: MemTracker<T> + Send + Sync,
-	VF: ValueFunction<H, T> + Send + Sync,
+	VF: MetaHasher<H, T> + Send + Sync,
 {
 	fn as_plain_db(&self) -> &dyn PlainDB<H::Out, T> { self }
 	fn as_plain_db_mut(&mut self) -> &mut dyn PlainDB<H::Out, T> { self }
 }
 
-impl<H, KF, T, M, VF> AsHashDB<H, T, VF> for MemoryDB<H, KF, T, VF, M>
+impl<H, KF, T, M, VF> AsHashDB<H, T, VF::Meta> for MemoryDB<H, KF, T, VF, M>
 where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a[u8]> + Clone + Send + Sync,
 	KF: KeyFunction<H> + Send + Sync,
 	M: MemTracker<T> + Send + Sync,
-	VF: ValueFunction<H, T> + Send + Sync,
+	VF: MetaHasher<H, T> + Send + Sync,
 {
-	fn as_hash_db(&self) -> &dyn HashDB<H, T, VF> { self }
-	fn as_hash_db_mut(&mut self) -> &mut dyn HashDB<H, T, VF> { self }
+	fn as_hash_db(&self) -> &dyn HashDB<H, T, VF::Meta> { self }
+	fn as_hash_db_mut(&mut self) -> &mut dyn HashDB<H, T, VF::Meta> { self }
 }
 
 #[cfg(test)]

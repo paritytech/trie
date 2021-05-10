@@ -46,7 +46,7 @@ where
 			trie_root::<L::Hash, S, _, _, _>(d.0.clone())
 		})),
 		Fun::new("Fill", |b, d: &TrieInsertionList| b.iter(&mut ||{
-			let mut memdb = MemoryDB::<_, HashKey<L::Hash>, _, _>::new(&L::Codec::empty_node()[..]);
+			let mut memdb = MemoryDB::<_, HashKey<L::Hash>, _, L::MetaHasher>::new(&L::Codec::empty_node()[..]);
 			let mut root = <TrieHash<L>>::default();
 			let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);
 			for i in d.0.iter() {
@@ -54,7 +54,7 @@ where
 			}
 		})),
 		Fun::new("Iter", |b, d: &TrieInsertionList| {
-			let mut memdb = MemoryDB::<_, HashKey<_>, _, _>::new(&L::Codec::empty_node()[..]);
+			let mut memdb = MemoryDB::<_, HashKey<_>, _, L::MetaHasher>::new(&L::Codec::empty_node()[..]);
 			let mut root = <TrieHash<L>>::default();
 			{
 				let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);
@@ -103,7 +103,7 @@ fn random_value(seed: &mut <KeccakHasher as Hasher>::Out) -> Vec<u8> {
 pub fn standard_benchmark<L, S>(b: &mut Criterion, name: &str)
 	where
 		L: TrieLayout + 'static,
-		L::ValueFunction: Send + Sync,
+		L::MetaHasher: Send + Sync,
 		S: TrieStream,
 {
 

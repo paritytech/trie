@@ -25,7 +25,7 @@ type MemoryDB<T> = memory_db::MemoryDB<
 	<T as TrieLayout>::Hash,
 	memory_db::HashKey<<T as TrieLayout>::Hash>,
 	DBValue,
-	<T as TrieLayout>::ValueFunction,
+	<T as TrieLayout>::MetaHasher,
 >;
 
 fn test_encode_compact<L: TrieLayout>(
@@ -94,7 +94,7 @@ fn test_decode_compact<L: TrieLayout>(
 
 test_layouts!(trie_compact_encoding_works, trie_compact_encoding_works_internal);
 fn trie_compact_encoding_works_internal<T: TrieLayout>() {
-	// TODO currently no support for recording proof with a ValueFunction.
+	// TODO currently no support for recording proof with a MetaHasher.
 	if !T::USE_META {
 		let (root, mut encoded, items) = test_encode_compact::<T>(
 			vec![
@@ -130,7 +130,7 @@ fn trie_compact_encoding_works_internal<T: TrieLayout>() {
 
 test_layouts!(trie_decoding_fails_with_incomplete_database, trie_decoding_fails_with_incomplete_database_internal);
 fn trie_decoding_fails_with_incomplete_database_internal<T: TrieLayout>() {
-	// TODO currently no support for recording proof with a ValueFunction.
+	// TODO currently no support for recording proof with a MetaHasher.
 	if !T::USE_META {
 		let (_, encoded, _) = test_encode_compact::<T>(
 			vec![
