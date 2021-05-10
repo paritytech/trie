@@ -15,9 +15,8 @@
 //! Generic trait for trie node encoding/decoding. Takes a `hash_db::Hasher`
 //! to parametrize the hashes used in the codec.
 
-use crate::MaybeDebug;
 use crate::node::{Node, NodePlan, Value, ValuePlan};
-use crate::ChildReference;
+use crate::{MaybeDebug, ChildReference, Meta};
 
 use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec};
 
@@ -29,7 +28,9 @@ use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec};
 pub type Partial<'a> = ((u8, u8), &'a[u8]);
 
 /// Trait for trie node encoding/decoding.
-pub trait NodeCodec: Sized {
+/// Uses a type parameter to allow registering
+/// positions without colling decode plan.
+pub trait NodeCodec<M: Meta>: Sized {
 	/// Codec error type.
 	type Error: Error;
 
@@ -41,11 +42,19 @@ pub trait NodeCodec: Sized {
 	fn hashed_null_node() -> Self::HashOut;
 
 	/// Decode bytes to a `NodePlan`. Returns `Self::E` on failure.
-	fn decode_plan(data: &[u8], hashed_value: bool) -> Result<NodePlan, Self::Error>;
+	fn decode_plan(data: &[u8], meta: &mut M) -> Result<NodePlan, Self::Error> {
+		Self::decode_plan_inner(data).map(|plan| {
+			meta.decoded_callback(&plan);
+			plan
+		})
+	}
+
+	/// Inner implementation for `decode_plan`.
+	fn decode_plan_inner(data: &[u8]) -> Result<NodePlan, Self::Error>;
 
 	/// Decode bytes to a `Node`. Returns `Self::E` on failure.
-	fn decode(data: &[u8], hashed_value: bool) -> Result<Node, Self::Error> {
-		Ok(Self::decode_plan(data, hashed_value)?.build(data))
+	fn decode<'a>(data: &'a [u8], meta: &mut M) -> Result<Node<'a>, Self::Error> {
+		Ok(Self::decode_plan(data, meta)?.build(data))
 	}
 
 	/// Check if the provided bytes correspond to the codecs "empty" node.
@@ -55,13 +64,13 @@ pub trait NodeCodec: Sized {
 	fn empty_node() -> &'static [u8];
 
 	/// Returns an encoded leaf node
-	fn leaf_node(partial: Partial, value: Value) -> Vec<u8>;
+	fn leaf_node(partial: Partial, value: Value, meta: &mut M) -> Vec<u8>;
 
 	/// Returns value position in encoded slice.
 	/// TODO slow, could be better with individual function variant,
 	/// but this is less work as a first step.
-	fn value_range(encoded: &[u8]) -> Option<ValuePlan> {
-		Self::decode_plan(encoded, false).ok().map(|plan| plan.value_range()).flatten()
+	fn value_range(encoded: &[u8], meta: &mut M) -> Option<ValuePlan> {
+		Self::decode_plan(encoded, meta).ok().map(|plan| plan.value_range()).flatten()
 	}
 
 	/// Returns an encoded extension node
@@ -72,6 +81,7 @@ pub trait NodeCodec: Sized {
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
 		child_ref: ChildReference<Self::HashOut>,
+		meta: &mut M,
 	) -> Vec<u8>;
 
 	/// Returns an encoded branch node.
@@ -79,6 +89,7 @@ pub trait NodeCodec: Sized {
 	fn branch_node(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Value,
+		meta: &mut M,
 	) -> Vec<u8>;
 
 	/// Returns an encoded branch node with a possible partial path.
@@ -88,5 +99,6 @@ pub trait NodeCodec: Sized {
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Value,
+		meta: &mut M,
 	) -> Vec<u8>;
 }

@@ -126,6 +126,7 @@ impl<T, V> CacheAccum<T, V>
 		callback: &mut impl ProcessEncodedNode<TrieHash<T>>,
 		target_depth: usize,
 		(k2, v2): &(impl AsRef<[u8]>, impl AsRef<[u8]>),
+		meta: &mut T::Meta,
 	) {
 		// TODO need to produce meta for new node on all 'flush' and pass it to process.
 		/*if T::USE_META {
@@ -133,7 +134,7 @@ impl<T, V> CacheAccum<T, V>
 		let nibble_value = nibble_ops::left_nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
 		let nkey = NibbleSlice::new_offset(&k2.as_ref()[..], target_depth + 1);
-		let encoded = T::Codec::leaf_node(nkey.right(), Value::Value(&v2.as_ref()[..]));
+		let encoded = T::Codec::leaf_node(nkey.right(), Value::Value(&v2.as_ref()[..]), meta);
 		let pr = NibbleSlice::new_offset(
 			&k2.as_ref()[..],
 			k2.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE - nkey.len(),
@@ -146,11 +147,12 @@ impl<T, V> CacheAccum<T, V>
 
 	fn flush_branch(
 		&mut self,
-		no_extension: bool,
+		mut extension_meta: Option<&mut T::Meta>,
 		callback: &mut impl ProcessEncodedNode<TrieHash<T>>,
 		ref_branch: impl AsRef<[u8]> + Ord,
 		new_depth: usize,
 		is_last: bool,
+		meta: &mut T::Meta,
 	) {
 
 		while self.last_depth() > new_depth || is_last && !self.is_empty() {
@@ -171,11 +173,11 @@ impl<T, V> CacheAccum<T, V>
 				None
 			};
 
-			let h = if no_extension {
-				// encode branch
-				self.no_extension(&ref_branch.as_ref()[..], callback, lix, is_root, nkey)
+			let h = if let Some(meta_ext) = extension_meta.as_mut() {
+				self.standard_extension(&ref_branch.as_ref()[..], callback, lix, is_root, nkey, meta_ext, meta)
 			} else {
-				self.standard_extension(&ref_branch.as_ref()[..], callback, lix, is_root, nkey)
+				// encode branch
+				self.no_extension(&ref_branch.as_ref()[..], callback, lix, is_root, nkey, meta)
 			};
 			if !is_root {
 				// put hash in parent
@@ -193,6 +195,8 @@ impl<T, V> CacheAccum<T, V>
 		branch_d: usize,
 		is_root: bool,
 		nkey: Option<(usize, usize)>,
+		meta_ext: &mut T::Meta,
+		meta: &mut T::Meta,
 	) -> ChildReference<TrieHash<T>> {
 		let last = self.0.len() - 1;
 		assert_eq!(self.0[last].2, branch_d);
@@ -202,6 +206,7 @@ impl<T, V> CacheAccum<T, V>
 		let encoded = T::Codec::branch_node(
 			self.0[last].0.as_ref().iter(),
 			v.as_ref().map(|v| v.as_ref()).into(),
+			meta,
 		);
 		self.reset_depth(branch_d);
 		let pr = NibbleSlice::new_offset(&key_branch, branch_d);
@@ -210,7 +215,7 @@ impl<T, V> CacheAccum<T, V>
 		if let Some(nkeyix) = nkey {
 			let pr = NibbleSlice::new_offset(&key_branch, nkeyix.0);
 			let nib = pr.right_range_iter(nkeyix.1);
-			let encoded = T::Codec::extension_node(nib, nkeyix.1, branch_hash);
+			let encoded = T::Codec::extension_node(nib, nkeyix.1, branch_hash, meta_ext);
 			callback.process(pr.left(), encoded, is_root)
 		} else {
 			branch_hash
@@ -225,6 +230,7 @@ impl<T, V> CacheAccum<T, V>
 		branch_d: usize,
 		is_root: bool,
 		nkey: Option<(usize, usize)>,
+		meta: &mut T::Meta,
 		) -> ChildReference<TrieHash<T>> {
 		let last = self.0.len() - 1;
 		debug_assert!(self.0[last].2 == branch_d);
@@ -235,7 +241,9 @@ impl<T, V> CacheAccum<T, V>
 		let encoded = T::Codec::branch_node_nibbled(
 			pr.right_range_iter(nkeyix.1),
 			nkeyix.1,
-			self.0[last].0.as_ref().iter(), v.as_ref().map(|v| v.as_ref()).into());
+			self.0[last].0.as_ref().iter(), v.as_ref().map(|v| v.as_ref()).into(),
+			meta,
+		);
 		let result = callback.process(pr.left(), encoded, is_root);
 		self.reset_depth(branch_d);
 		result
@@ -247,7 +255,7 @@ impl<T, V> CacheAccum<T, V>
 /// This is the main entry point of this module.
 /// Calls to each node occurs ordered by byte key value but with longest keys first (from node to
 /// branch to root), this differs from standard byte array ordering a bit.
-pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F)
+pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F, layout: &T)
 	where
 		T: TrieLayout,
 		I: IntoIterator<Item = (A, B)>,
@@ -255,7 +263,6 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F)
 		B: AsRef<[u8]>,
 		F: ProcessEncodedNode<TrieHash<T>>,
 {
-	let no_extension = !T::USE_EXTENSION;
 	let mut depth_queue = CacheAccum::<T, B>::new();
 	// compare iter ordering
 	let mut iter_input = input.into_iter();
@@ -274,13 +281,17 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F)
 				// just stored value at branch depth
 				depth_queue.set_cache_value(common_depth, Some(previous_value.1));
 			} else if depth_item >= last_depth {
+				let mut meta = layout.meta_for_new_node();
 				// put previous with next (common branch previous value can be flush)
-				depth_queue.flush_value(callback, depth_item, &previous_value);
+				depth_queue.flush_value(callback, depth_item, &previous_value, &mut meta);
 			} else if depth_item < last_depth {
+				let mut meta = layout.meta_for_new_node();
 				// do not put with next, previous is last of a branch
-				depth_queue.flush_value(callback, last_depth, &previous_value);
+				depth_queue.flush_value(callback, last_depth, &previous_value, &mut meta);
 				let ref_branches = previous_value.0;
-				depth_queue.flush_branch(no_extension, callback, ref_branches, depth_item, false);
+				let mut meta = layout.meta_for_new_node();
+				let mut extension = T::USE_EXTENSION.then(|| layout.meta_for_new_node());
+				depth_queue.flush_branch(extension.as_mut(), callback, ref_branches, depth_item, false, &mut meta);
 			}
 
 			previous_value = (k, v);
@@ -291,16 +302,20 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F)
 			// one single element corner case
 			let (k2, v2) = previous_value;
 			let nkey = NibbleSlice::new_offset(&k2.as_ref()[..], last_depth);
-			let encoded = T::Codec::leaf_node(nkey.right(), Value::Value(&v2.as_ref()[..]));
+			let mut meta = layout.meta_for_new_node();
+			let encoded = T::Codec::leaf_node(nkey.right(), Value::Value(&v2.as_ref()[..]), &mut meta);
 			let pr = NibbleSlice::new_offset(
 				&k2.as_ref()[..],
 				k2.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE - nkey.len(),
 			);
 			callback.process(pr.left(), encoded, true);
 		} else {
-			depth_queue.flush_value(callback, last_depth, &previous_value);
+			let mut meta = layout.meta_for_new_node();
+			depth_queue.flush_value(callback, last_depth, &previous_value, &mut meta);
 			let ref_branches = previous_value.0;
-			depth_queue.flush_branch(no_extension, callback, ref_branches, 0, true);
+			let mut meta = layout.meta_for_new_node();
+			let mut extension = T::USE_EXTENSION.then(|| layout.meta_for_new_node());
+			depth_queue.flush_branch(extension.as_mut(), callback, ref_branches, 0, true, &mut meta);
 		}
 	} else {
 		// nothing null root corner case
@@ -396,13 +411,12 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 
 			return ChildReference::Inline(h, len);
 		}
-		let meta_input = self.layout.metainput_for_new_node();
-		let mut current_meta = T::Meta::meta_for_new(meta_input);
+		let mut current_meta = self.layout.meta_for_new_node();
 		let hash = if !T::USE_META{
 			<T::Hash as Hasher>::hash(encoded_node.as_slice())
 		} else {
 			// Duplicated code with triedbmut TODO factor
-			let node_plan = T::Codec::decode_plan(encoded_node.as_slice(), false)
+			let node_plan = T::Codec::decode_plan(encoded_node.as_slice(), &mut current_meta)
 				.expect("Process uses only valid encoded nodes.");
 			current_meta.encoded_callback(encoded_node.as_slice(), node_plan);
 			<T::MetaHasher as MetaHasher<_, _>>::hash(

@@ -220,7 +220,7 @@ impl<L: TrieLayout> Node<L>
 		mut meta: L::Meta, 
 		layout: &L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
-		let encoded_node = L::Codec::decode(data, meta.contains_hash_of_value())
+		let encoded_node = L::Codec::decode(data, &mut meta)
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash, e)))?;
 		let node = match encoded_node {
 			EncodedNode::Empty => Node::Empty(meta),
@@ -295,11 +295,11 @@ impl<L: TrieLayout> Node<L>
 	{
 		match self {
 			Node::Empty(meta) => (L::Codec::empty_node().to_vec(), meta),
-			Node::Leaf(partial, value, meta) => {
+			Node::Leaf(partial, value, mut meta) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
-				(L::Codec::leaf_node(pr.right(), value.as_slice()), meta)
+				(L::Codec::leaf_node(pr.right(), value.as_slice(), &mut meta), meta)
 			},
-			Node::Extension(partial, child, meta) => {
+			Node::Extension(partial, child, mut meta) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
 				let c = child_cb(child, Some(&pr), None);
@@ -307,9 +307,10 @@ impl<L: TrieLayout> Node<L>
 					it,
 					pr.len(),
 					c,
+					&mut meta,
 				), meta)
 			},
-			Node::Branch(mut children, value, meta) => {
+			Node::Branch(mut children, value, mut meta) => {
 				(L::Codec::branch_node(
 					// map the `NodeHandle`s from the Branch to `ChildReferences`
 					children.iter_mut()
@@ -319,9 +320,10 @@ impl<L: TrieLayout> Node<L>
 							maybe_child.map(|child| child_cb(child, None, Some(i as u8)))
 						}),
 					value.as_slice(),
+					&mut meta,
 				), meta)
 			},
-			Node::NibbledBranch(partial, mut children, value, meta) => {
+			Node::NibbledBranch(partial, mut children, value, mut meta) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
 				(L::Codec::branch_node_nibbled(
@@ -339,6 +341,7 @@ impl<L: TrieLayout> Node<L>
 							})
 						}),
 					value.as_slice(),
+					&mut meta,
 				), meta)
 			},
 		}
@@ -459,7 +462,7 @@ impl<L: TrieLayout> NodeStorage<L>
 
 		self.free_indices.push_back(idx);
 		let meta_input = layout.metainput_for_new_node();
-		let meta = L::Meta::meta_for_new_empty(meta_input);
+		let meta = L::Meta::meta_for_new(meta_input);
 		mem::replace(&mut self.nodes[idx], Stored::New(Node::Empty(meta)))
 	}
 }
@@ -1780,7 +1783,7 @@ where
 		if L::USE_META {
 			// TODO modify node codec to optionally return a node plan to avoid
 			// double calculation.
-			let node_plan = L::Codec::decode_plan(encoded.as_slice(), meta.contains_hash_of_value())
+			let node_plan = L::Codec::decode_plan(encoded.as_slice(), &mut meta)
 				.expect("Encoded above, failure would be implementation bug");
 			meta.encoded_callback(encoded.as_slice(), node_plan);
 		}

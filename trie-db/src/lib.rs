@@ -399,7 +399,7 @@ pub trait TrieLayout: Default + Clone {
 	/// Hasher to use for this trie.
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
-	type Codec: NodeCodec<HashOut=<Self::Hash as Hasher>::Out>;
+	type Codec: NodeCodec<Self::Meta, HashOut=<Self::Hash as Hasher>::Out>;
 	/// Type associated with new nodes. TODO copy hash_db doc
 	type Meta: Meta;
 	/// Value function to manage meta.
@@ -409,8 +409,21 @@ pub trait TrieLayout: Default + Clone {
 		Meta = Self::Meta,
 	>;
 
-	/// TODO doc
+	/// Meta state input for new node.
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput;
+
+	/// Meta state input for stored inline node (inline node do not have stored meta).
+	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::MetaInput;
+
+	/// Meta state input for new node.
+	fn meta_for_new_node(&self) -> Self::Meta {
+		<Self::Meta as Meta>::meta_for_new(self.metainput_for_new_node())
+	}
+
+	/// Meta state input for new node.
+	fn meta_for_stored_inline_node(&self) -> Self::Meta {
+		<Self::Meta as Meta>::meta_for_existing_inline_node(self.metainput_for_stored_inline_node())
+	}
 }
 
 /// Node modification status.
@@ -515,14 +528,13 @@ pub trait Meta: Clone {
 		input: Self::MetaInput
 	) -> Self;
 
-	/// TODO remove (meta_for_new is enough).
-	fn meta_for_new_empty(
-		input: Self::MetaInput,
-	) -> Self;
-
 	/// Leaf meta creation.
 	fn meta_for_new(
 		input: Self::MetaInput,
+	) -> Self;
+
+	/// Empty node meta creation.
+	fn meta_for_empty(
 	) -> Self;
 
 	/// Set a value, return true if node
@@ -562,19 +574,38 @@ pub trait Meta: Clone {
 		node_plan: crate::node::NodePlan,
 	);
 
+	/// Value written at a given range (call from codec
+	/// for node that contains value (leaf or branch)).
+	fn encoded_value_callback(
+		&mut self,
+		value_plan: crate::node::ValuePlan,
+	);
+
+	/// Register info from node plan when decoded.
+	fn decoded_callback(
+		&mut self,
+		node_plan: &crate::node::NodePlan,
+	);
+
+	// TODO call back from decoded and also do it for value.
+	// -> remove
 	fn decoded_children(
 		&mut self,
 		children: impl Iterator<Item = ChildrenDecoded>,
 	);
 
-	/// Indicate a value from node was not accessed and does not need to be
+/*	/// Indicate a value from node was not accessed and does not need to be
 	/// use.
 	/// In some case (proof building with compatible hash scheme), this allow storing
 	/// only hash of value.
 	fn set_unaccessed_value(&mut self);
-
+*/
 	/// Indicate if stored value is incomplete and only contains hash of value.
 	fn contains_hash_of_value(&self) -> bool;
+
+	/// Should value be store as a has if possible.
+	/// (mostly for proof when value is not accessed).
+	fn do_value_hash(&self) -> bool;
 }
 
 // TODO
@@ -587,12 +618,6 @@ pub enum ChildrenDecoded {
 impl Meta for () {
 	type MetaInput = ();
 
-	fn meta_for_new_empty(
-		_input: Self::MetaInput,
-	) -> Self {
-		()
-	}
-
 	fn meta_for_new(
 		_input: Self::MetaInput,
 	) -> Self {
@@ -601,6 +626,11 @@ impl Meta for () {
 
 	fn meta_for_existing_inline_node(
 		_input: Self::MetaInput
+	) -> Self {
+		()
+	}
+
+	fn meta_for_empty(
 	) -> Self {
 		()
 	}
@@ -619,7 +649,12 @@ impl Meta for () {
 		_encoded: &[u8],
 		_node_plan: crate::node::NodePlan,
 	) {
-		()
+	}
+
+	fn encoded_value_callback(
+		&mut self,
+		_value_plan: crate::node::ValuePlan,
+	) {
 	}
 
 	fn set_child_callback(
@@ -637,9 +672,17 @@ impl Meta for () {
 	) {
 	}
 
-	fn set_unaccessed_value(&mut self) { }
+	fn decoded_callback(
+		&mut self,
+		_node_plan: &crate::node::NodePlan,
+	) {
+	}
 
 	fn contains_hash_of_value(&self) -> bool {
+		false
+	}
+
+	fn do_value_hash(&self) -> bool {
 		false
 	}
 }
@@ -649,34 +692,34 @@ impl Meta for () {
 /// used to allow switching implementation.
 pub trait TrieConfiguration: Sized + TrieLayout {
 	/// Operation to build a trie db from its ordered iterator over its key/values.
-	fn trie_build<DB, I, A, B>(db: &mut DB, input: I) -> <Self::Hash as Hasher>::Out where
-	DB: HashDB<Self::Hash, DBValue, Self::Meta>,
-	I: IntoIterator<Item = (A, B)>,
-	A: AsRef<[u8]> + Ord,
-	B: AsRef<[u8]>,
+	fn trie_build<DB, I, A, B>(&self, db: &mut DB, input: I) -> <Self::Hash as Hasher>::Out where
+		DB: HashDB<Self::Hash, DBValue, Self::Meta>,
+		I: IntoIterator<Item = (A, B)>,
+		A: AsRef<[u8]> + Ord,
+		B: AsRef<[u8]>,
 	{
 		let mut cb = TrieBuilder::<Self, DB>::new(db);
-		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
+		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb, self);
 		cb.root.unwrap_or_default()
 	}
 	/// Determines a trie root given its ordered contents, closed form.
-	fn trie_root<I, A, B>(input: I) -> <Self::Hash as Hasher>::Out where
-	I: IntoIterator<Item = (A, B)>,
-	A: AsRef<[u8]> + Ord,
-	B: AsRef<[u8]>,
+	fn trie_root<I, A, B>(&self, input: I) -> <Self::Hash as Hasher>::Out where
+		I: IntoIterator<Item = (A, B)>,
+		A: AsRef<[u8]> + Ord,
+		B: AsRef<[u8]>,
 	{
 		let mut cb = TrieRoot::<Self>::default();
-		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
+		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb, self);
 		cb.root.unwrap_or_default()
 	}
 	/// Determines a trie root node's data given its ordered contents, closed form.
-	fn trie_root_unhashed<I, A, B>(input: I) -> Vec<u8> where
-	I: IntoIterator<Item = (A, B)>,
-	A: AsRef<[u8]> + Ord,
-	B: AsRef<[u8]>,
+	fn trie_root_unhashed<I, A, B>(&self, input: I) -> Vec<u8> where
+		I: IntoIterator<Item = (A, B)>,
+		A: AsRef<[u8]> + Ord,
+		B: AsRef<[u8]>,
 	{
 		let mut cb = TrieRootUnhashed::<Self::Hash>::default();
-		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
+		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb, self);
 		cb.root.unwrap_or_default()
 	}
 	/// Encoding of index as a key (when reusing general trie for
@@ -687,12 +730,12 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 	}
 	/// A trie root formed from the items, with keys attached according to their
 	/// compact-encoded index (using `parity-codec` crate).
-	fn ordered_trie_root<I, A>(input: I) -> <Self::Hash as Hasher>::Out
+	fn ordered_trie_root<I, A>(&self, input: I) -> <Self::Hash as Hasher>::Out
 	where
 		I: IntoIterator<Item = A>,
 		A: AsRef<[u8]>,
 	{
-		Self::trie_root(input
+		self.trie_root(input
 			.into_iter()
 			.enumerate()
 			.map(|(i, v)| (Self::encode_index(i as u32), v))
@@ -703,4 +746,4 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 /// Alias accessor to hasher hash output type from a `TrieLayout`.
 pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
-pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;
+pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec<<L as TrieLayout>::Meta>>::Error;

@@ -14,7 +14,7 @@
 
 use hash_db::Hasher;
 use reference_trie::{
-	NoExtensionLayout, test_layouts,
+	NoExtensionLayout, test_layouts_no_meta,
 };
 
 use trie_db::{
@@ -48,7 +48,7 @@ fn test_entries() -> Vec<(&'static [u8], &'static [u8])> {
 	]
 }
 
-fn test_generate_proof<L: TrieLayout>(
+fn test_generate_proof<L: TrieLayout<Meta = ()>>(
 	entries: Vec<(&'static [u8], &'static [u8])>,
 	keys: Vec<&'static [u8]>,
 ) -> (<L::Hash as Hasher>::Out, Vec<Vec<u8>>, Vec<(&'static [u8], Option<DBValue>)>)
@@ -76,8 +76,8 @@ fn test_generate_proof<L: TrieLayout>(
 	(root, proof, items)
 }
 
-test_layouts!(trie_proof_works, trie_proof_works_internal);
-fn trie_proof_works_internal<T: TrieLayout>() {
+test_layouts_no_meta!(trie_proof_works, trie_proof_works_internal);
+fn trie_proof_works_internal<T: TrieLayout<Meta = ()>>() {
 	// TODO currently we do not support proof with `MetaHasher`.
 	if !T::USE_META {
 		let (root, proof, items) = test_generate_proof::<T>(
@@ -98,8 +98,8 @@ fn trie_proof_works_internal<T: TrieLayout>() {
 	}
 }
 
-test_layouts!(trie_proof_works_for_empty_trie, trie_proof_works_for_empty_trie_internal);
-fn trie_proof_works_for_empty_trie_internal<T: TrieLayout>() {
+test_layouts_no_meta!(trie_proof_works_for_empty_trie, trie_proof_works_for_empty_trie_internal);
+fn trie_proof_works_for_empty_trie_internal<T: TrieLayout<Meta = ()>>() {
 	let (root, proof, items) = test_generate_proof::<T>(
 		vec![],
 		vec![
@@ -112,8 +112,8 @@ fn trie_proof_works_for_empty_trie_internal<T: TrieLayout>() {
 	verify_proof::<T, _, _, _>(&root, &proof, items.iter()).unwrap();
 }
 
-test_layouts!(test_verify_duplicate_keys, test_verify_duplicate_keys_internal);
-fn test_verify_duplicate_keys_internal<T: TrieLayout>() {
+test_layouts_no_meta!(test_verify_duplicate_keys, test_verify_duplicate_keys_internal);
+fn test_verify_duplicate_keys_internal<T: TrieLayout<Meta = ()>>() {
 	let (root, proof, _) = test_generate_proof::<T>(
 		test_entries(),
 		vec![b"bravo"],
@@ -132,8 +132,8 @@ fn test_verify_duplicate_keys_internal<T: TrieLayout>() {
 	);
 }
 
-test_layouts!(test_verify_extraneaous_node, test_verify_extraneaous_node_internal);
-fn test_verify_extraneaous_node_internal<T: TrieLayout>() {
+test_layouts_no_meta!(test_verify_extraneaous_node, test_verify_extraneaous_node_internal);
+fn test_verify_extraneaous_node_internal<T: TrieLayout<Meta = ()>>() {
 	let (root, proof, _) = test_generate_proof::<T>(
 		test_entries(),
 		vec![b"bravo", b"do"],
@@ -148,8 +148,8 @@ fn test_verify_extraneaous_node_internal<T: TrieLayout>() {
 	));
 }
 
-test_layouts!(test_verify_extraneaous_value, test_verify_extraneaous_value_internal);
-fn test_verify_extraneaous_value_internal<T: TrieLayout>() {
+test_layouts_no_meta!(test_verify_extraneaous_value, test_verify_extraneaous_value_internal);
+fn test_verify_extraneaous_value_internal<T: TrieLayout<Meta = ()>>() {
 	let (root, proof, _) = test_generate_proof::<T>(
 		test_entries(),
 		vec![b"doge"],
@@ -185,8 +185,8 @@ fn test_verify_extraneous_hash_reference() {
 	}
 }
 
-test_layouts!(test_verify_invalid_child_reference, test_verify_invalid_child_reference_internal);
-fn test_verify_invalid_child_reference_internal<T: TrieLayout>() {
+test_layouts_no_meta!(test_verify_invalid_child_reference, test_verify_invalid_child_reference_internal);
+fn test_verify_invalid_child_reference_internal<T: TrieLayout<Meta = ()>>() {
 	let (root, proof, _) = test_generate_proof::<T>(
 		test_entries(),
 		vec![b"bravo"],
@@ -203,8 +203,8 @@ fn test_verify_invalid_child_reference_internal<T: TrieLayout>() {
 	}
 }
 
-test_layouts!(test_verify_value_mismatch_some_to_none, test_verify_value_mismatch_some_to_none_internal);
-fn test_verify_value_mismatch_some_to_none_internal<T: TrieLayout>() {
+test_layouts_no_meta!(test_verify_value_mismatch_some_to_none, test_verify_value_mismatch_some_to_none_internal);
+fn test_verify_value_mismatch_some_to_none_internal<T: TrieLayout<Meta = ()>>() {
 	let (root, proof, _) = test_generate_proof::<T>(
 		test_entries(),
 		vec![b"horse"],
@@ -223,8 +223,8 @@ fn test_verify_value_mismatch_some_to_none_internal<T: TrieLayout>() {
 	);
 }
 
-test_layouts!(test_verify_value_mismatch_none_to_some, test_verify_value_mismatch_none_to_some_internal);
-fn test_verify_value_mismatch_none_to_some_internal<T: TrieLayout>() {
+test_layouts_no_meta!(test_verify_value_mismatch_none_to_some, test_verify_value_mismatch_none_to_some_internal);
+fn test_verify_value_mismatch_none_to_some_internal<T: TrieLayout<Meta = ()>>() {
 	let (root, proof, _) = test_generate_proof::<T>(
 		test_entries(),
 		vec![b"alfa", b"bravo"],
@@ -243,8 +243,8 @@ fn test_verify_value_mismatch_none_to_some_internal<T: TrieLayout>() {
 	);
 }
 
-test_layouts!(test_verify_incomplete_proof, test_verify_incomplete_proof_internal);
-fn test_verify_incomplete_proof_internal<T: TrieLayout>() {
+test_layouts_no_meta!(test_verify_incomplete_proof, test_verify_incomplete_proof_internal);
+fn test_verify_incomplete_proof_internal<T: TrieLayout<Meta = ()>>() {
 	let (root, mut proof, items) = test_generate_proof::<T>(
 		test_entries(),
 		vec![b"alfa"],
@@ -257,8 +257,8 @@ fn test_verify_incomplete_proof_internal<T: TrieLayout>() {
 	));
 }
 
-test_layouts!(test_verify_root_mismatch, test_verify_root_mismatch_internal);
-fn test_verify_root_mismatch_internal<T: TrieLayout>() {
+test_layouts_no_meta!(test_verify_root_mismatch, test_verify_root_mismatch_internal);
+fn test_verify_root_mismatch_internal<T: TrieLayout<Meta = ()>>() {
 	let (root, proof, _) = test_generate_proof::<T>(
 		test_entries(),
 		vec![b"bravo"],
@@ -273,8 +273,8 @@ fn test_verify_root_mismatch_internal<T: TrieLayout>() {
 	}
 }
 
-test_layouts!(test_verify_decode_error, test_verify_decode_error_internal);
-fn test_verify_decode_error_internal<T: TrieLayout>() {
+test_layouts_no_meta!(test_verify_decode_error, test_verify_decode_error_internal);
+fn test_verify_decode_error_internal<T: TrieLayout<Meta = ()>>() {
 	let (root, mut proof, items) = test_generate_proof::<T>(
 		test_entries(),
 		vec![b"bravo"],

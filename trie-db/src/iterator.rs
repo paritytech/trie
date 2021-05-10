@@ -32,7 +32,8 @@ enum Status {
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Eq, PartialEq)]
 struct Crumb<H: Hasher, M> {
-	hash: Option<(H::Out, M)>,
+	hash: Option<H::Out>,
+	meta: M,
 	node: Rc<OwnedNode<DBValue>>,
 	status: Status,
 }
@@ -69,19 +70,20 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 			trail: Vec::with_capacity(8),
 			key_nibbles: NibbleVec::new(),
 		};
-		let (root_node, root_hash) = db.get_raw_or_lookup(
+		let (root_node, root_hash, meta) = db.get_raw_or_lookup(
 			*db.root(),
 			NodeHandle::Hash(db.root().as_ref()),
 			EMPTY_PREFIX
 		)?;
-		r.descend(root_node, root_hash);
+		r.descend(root_node, root_hash, meta);
 		Ok(r)
 	}
 
 	/// Descend into a payload.
-	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<(TrieHash<L>, L::Meta)>) {
+	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<TrieHash<L>>, meta: L::Meta) {
 		self.trail.push(Crumb {
 			hash: node_hash,
+			meta,
 			status: Status::Entering,
 			node: Rc::new(node),
 		});
@@ -104,7 +106,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 		self.key_nibbles.clear();
 		let key = NibbleSlice::new(key);
 
-		let (mut node, mut node_hash) = self.db.get_raw_or_lookup(
+		let (mut node, mut node_hash, meta) = self.db.get_raw_or_lookup(
 			<TrieHash<L>>::default(),
 			NodeHandle::Hash(self.db.root().as_ref()),
 			EMPTY_PREFIX
@@ -112,8 +114,8 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 		let mut partial = key;
 		let mut full_key_nibbles = 0;
 		loop {
-			let (next_node, next_node_hash) = {
-				self.descend(node, node_hash.clone());
+			let (next_node, next_node_hash, _next_meta) = {
+				self.descend(node, node_hash.clone(), meta.clone());
 				let crumb = self.trail.last_mut()
 					.expect(
 						"descend_into_node pushes a crumb onto the trial; \
@@ -148,7 +150,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 
 						let prefix = key.back(full_key_nibbles);
 						self.db.get_raw_or_lookup(
-							node_hash.as_ref().map(|h| h.0).unwrap_or_default(),
+							node_hash.unwrap_or_default(),
 							child.build(node_data),
 							prefix.left()
 						)?
@@ -168,7 +170,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 
 							let prefix = key.back(full_key_nibbles);
 							self.db.get_raw_or_lookup(
-								node_hash.as_ref().map(|h| h.0).unwrap_or_default(),
+								node_hash.unwrap_or_default(),
 								child.build(node_data),
 								prefix.left()
 							)?
@@ -206,7 +208,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 
 							let prefix = key.back(full_key_nibbles);
 							self.db.get_raw_or_lookup(
-								node_hash.as_ref().map(|h| h.0).unwrap_or_default(),
+								node_hash.unwrap_or_default(),
 								child.build(node_data),
 								prefix.left()
 							)?
@@ -257,14 +259,14 @@ impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
 }
 
 impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
-	type Item = Result<(NibbleVec, Option<(TrieHash<L>, L::Meta)>, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
+	type Item = Result<(NibbleVec, Option<TrieHash<L>>, L::Meta, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		enum IterStep<O, M, E> {
 			YieldNode,
 			PopTrail,
 			Continue,
-			Descend(Result<(OwnedNode<DBValue>, Option<(O, M)>), O, E>),
+			Descend(Result<(OwnedNode<DBValue>, Option<O>, M), O, E>),
 		}
 		loop {
 			let iter_step = {
@@ -291,7 +293,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 						self.key_nibbles.append_partial(partial.right());
 						IterStep::Descend::<TrieHash<L>, L::Meta, CError<L>>(
 							self.db.get_raw_or_lookup(
-								b.hash.as_ref().map(|h| h.0).unwrap_or_default(),
+								b.hash.unwrap_or_default(),
 								child.build(node_data),
 								self.key_nibbles.as_prefix()
 							)
@@ -314,7 +316,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 							self.key_nibbles.push(i as u8);
 							IterStep::Descend::<TrieHash<L>, L::Meta, CError<L>>(
 								self.db.get_raw_or_lookup(
-									b.hash.as_ref().map(|h| h.0).unwrap_or_default(),
+									b.hash.unwrap_or_default(),
 									child.build(node_data),
 									self.key_nibbles.as_prefix()
 								)
@@ -342,6 +344,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 					return Some(Ok((
 						self.key_nibbles.clone(),
 						crumb.hash.clone(),
+						crumb.meta.clone(),
 						crumb.node.clone()
 					)));
 				},
@@ -355,8 +358,8 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 					self.trail.last_mut()?
 						.increment();
 				},
-				IterStep::Descend::<TrieHash<L>, L::Meta, CError<L>>(Ok((node, node_hash))) => {
-					self.descend(node, node_hash);
+				IterStep::Descend::<TrieHash<L>, L::Meta, CError<L>>(Ok((node, node_hash, meta))) => {
+					self.descend(node, node_hash, meta);
 				},
 				IterStep::Descend::<TrieHash<L>, L::Meta, CError<L>>(Err(err)) => {
 					// Increment here as there is an implicit PopTrail.

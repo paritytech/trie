@@ -38,7 +38,7 @@ use crate::rstd::{
 };
 use crate::node::ValuePlan;
 
-struct EncoderStackEntry<C: NodeCodec, M> {
+struct EncoderStackEntry<C: NodeCodec<M>, M: Meta> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: NibbleVec,
 	node: Rc<OwnedNode<DBValue>>,
@@ -48,14 +48,14 @@ struct EncoderStackEntry<C: NodeCodec, M> {
 	/// Flags indicating whether each child is omitted in the encoded node.
 	omit_children: Vec<bool>,
 	/// Meta from serialized. Can also contain flags.
-	meta: Option<M>,
+	meta: M,
 	/// The encoding of the subtrie nodes rooted at this entry, which is built up in
 	/// `encode_compact`.
 	output_index: usize,
-	_marker: PhantomData<C>,
+	_marker: PhantomData<(M, C)>,
 }
 
-impl<C: NodeCodec, M> EncoderStackEntry<C, M> {
+impl<C: NodeCodec<M>, M: Meta> EncoderStackEntry<C, M> {
 	/// Given the prefix of the next child node, identify its index and advance `child_index` to
 	/// that. For a given entry, this must be called sequentially only with strictly increasing
 	/// child prefixes. Returns an error if the child prefix is not a child of this entry or if
@@ -100,7 +100,7 @@ impl<C: NodeCodec, M> EncoderStackEntry<C, M> {
 	}
 
 	/// Generates the encoding of the subtrie rooted at this entry.
-	fn encode_node(&self) -> Result<Vec<u8>, C::HashOut, C::Error> {
+	fn encode_node(&mut self) -> Result<Vec<u8>, C::HashOut, C::Error> {
 		let node_data = self.node.data();
 		Ok(match self.node.node_plan() {
 			NodePlan::Empty | NodePlan::Leaf { .. } => node_data.to_vec(),
@@ -110,13 +110,14 @@ impl<C: NodeCodec, M> EncoderStackEntry<C, M> {
 				} else {
 					let partial = partial.build(node_data);
 					let empty_child = ChildReference::Inline(C::HashOut::default(), 0);
-					C::extension_node(partial.right_iter(), partial.len(), empty_child)
+					C::extension_node(partial.right_iter(), partial.len(), empty_child, &mut self.meta)
 				}
 			}
 			NodePlan::Branch { value, children } => {
 				C::branch_node(
 					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
 					value.build(node_data),
+					&mut self.meta,
 				)
 			}
 			NodePlan::NibbledBranch { partial, value, children } => {
@@ -126,6 +127,7 @@ impl<C: NodeCodec, M> EncoderStackEntry<C, M> {
 					partial.len(),
 					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
 					value.build(node_data),
+					&mut self.meta,
 				)
 			}
 		})
@@ -211,7 +213,7 @@ pub fn encode_compact_keyed_callback<'a, L, I>(
 	// so at least one iteration always occurs.
 	for item in iter {
 		match item {
-			Ok((prefix, node_hash, node)) => {
+			Ok((prefix, node_hash, mut meta, node)) => {
 				// Skip inline nodes, as they cannot contain hash references to other nodes by
 				// assumption.
 				if node_hash.is_none() {
@@ -238,7 +240,7 @@ pub fn encode_compact_keyed_callback<'a, L, I>(
 					} else {
 						output[last_entry.output_index] = L::MetaHasher::stored_value_owned(
 							last_entry.encode_node()?,
-							last_entry.meta.expect("Not an inline value"),
+							last_entry.meta,
 						);
 					}
 				}
@@ -248,19 +250,17 @@ pub fn encode_compact_keyed_callback<'a, L, I>(
 					NodePlan::Extension { .. } => 1,
 					NodePlan::Branch { .. } | NodePlan::NibbledBranch { .. } => NIBBLE_LENGTH,
 				};
-				let does_match = matches.match_new_node_value(&prefix, &node);
+
+				if matches.match_new_node_value(&prefix, &node) {
+					match_callback(&mut meta);
+				} else {
+					default_callback(&mut meta);
+				}
+
 				stack.push(EncoderStackEntry {
 					prefix,
 					node,
-					meta: node_hash.map(|h| {
-						let mut meta = h.1;
-						if does_match {
-							match_callback(&mut meta);
-						} else {
-							default_callback(&mut meta);
-						}
-						meta
-					}),
+					meta,
 					child_index: 0,
 					omit_children: vec![false; children_len],
 					output_index: output.len(),
@@ -280,10 +280,10 @@ pub fn encode_compact_keyed_callback<'a, L, I>(
 		}
 	}
 
-	while let Some(entry) = stack.pop() {
+	while let Some(mut entry) = stack.pop() {
 		output[entry.output_index] = L::MetaHasher::stored_value_owned(
 			entry.encode_node()?,
-			entry.meta.expect("Not an inline value"),
+			entry.meta,
 		);
 	}
 
@@ -342,7 +342,7 @@ impl<'a, I: Iterator<Item = &'a [u8]>> MatchKeys<'a, I> {
 	}
 }
 
-struct DecoderStackEntry<'a, C: NodeCodec, M> {
+struct DecoderStackEntry<'a, C: NodeCodec<M>, M: Meta> {
 	node: Node<'a>,
 	meta: M,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
@@ -353,7 +353,7 @@ struct DecoderStackEntry<'a, C: NodeCodec, M> {
 	_marker: PhantomData<C>,
 }
 
-impl<'a, C: NodeCodec, M> DecoderStackEntry<'a, C, M> {
+impl<'a, C: NodeCodec<M>, M: Meta> DecoderStackEntry<'a, C, M> {
 	/// Advance the child index until either it exceeds the number of children or the child is
 	/// marked as omitted. Omitted children are indicated by an empty inline reference. For each
 	/// child that is passed over and not omitted, copy over the child reference from the node to
@@ -440,27 +440,29 @@ impl<'a, C: NodeCodec, M> DecoderStackEntry<'a, C, M> {
 	///
 	/// Preconditions:
 	/// - if node is an extension node, then `children[0]` is Some.
-	fn encode_node(self) -> (Vec<u8>, M) {
+	fn encode_node(mut self) -> (Vec<u8>, M) {
 		(match self.node {
 			Node::Empty =>
 				C::empty_node().to_vec(),
 			Node::Leaf(partial, value) =>
-				C::leaf_node(partial.right(), value),
+				C::leaf_node(partial.right(), value, &mut self.meta),
 			Node::Extension(partial, _) =>
 				C::extension_node(
 					partial.right_iter(),
 					partial.len(),
 					self.children[0]
 						.expect("required by method precondition; qed"),
+					&mut self.meta,
 				),
 			Node::Branch(_, value) =>
-				C::branch_node(self.children.into_iter(), value),
+				C::branch_node(self.children.into_iter(), value, &mut self.meta),
 			Node::NibbledBranch(partial, _, value) =>
 				C::branch_node_nibbled(
 					partial.right_iter(),
 					partial.len(),
 					self.children.iter(),
 					value,
+					&mut self.meta,
 				),
 		}, self.meta)
 	}
@@ -503,8 +505,8 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I)
 	let mut prefix = NibbleVec::new();
 
 	for (i, encoded_node) in encoded.into_iter().enumerate() {
-		let (encoded_node, meta) = L::MetaHasher::extract_value(encoded_node);
-		let node = L::Codec::decode(&encoded_node[..], meta.contains_hash_of_value())
+		let (encoded_node, mut meta) = L::MetaHasher::extract_value(encoded_node);
+		let node = L::Codec::decode(&encoded_node[..], &mut meta)
 			.map_err(|err| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), err)))?;
 
 		let children_len = match node {
