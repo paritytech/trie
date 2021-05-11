@@ -27,7 +27,7 @@ use crate::{
 	TrieLayout,
 };
 
-struct StackEntry<'a, C: NodeCodec> {
+struct StackEntry<'a, C: NodeCodec<()>> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: LeftNibbleSlice<'a>,
 	node: OwnedNode<Vec<u8>>,
@@ -45,7 +45,7 @@ struct StackEntry<'a, C: NodeCodec> {
 	_marker: PhantomData<C>,
 }
 
-impl<'a, C: NodeCodec> StackEntry<'a, C> {
+impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 	fn new(
 		prefix: LeftNibbleSlice<'a>,
 		node_data: Vec<u8>,
@@ -54,7 +54,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 	) -> TrieResult<Self, C::HashOut, C::Error>
 	{
 		// TODO implement meta support to allow hashed value.
-		let node = OwnedNode::new::<C>(node_data, false)
+		let node = OwnedNode::new::<(), C>(node_data, &mut ())
 			.map_err(|err| Box::new(
 				TrieError::DecoderError(node_hash.unwrap_or_default(), err)
 			))?;
@@ -83,7 +83,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 			NodePlan::Leaf { .. } if !self.omit_value => node_data.to_vec(),
 			NodePlan::Leaf { partial, value: _ } => {
 				let partial = partial.build(node_data);
-				C::leaf_node(partial.right(), Value::Value(&[]))
+				C::leaf_node(partial.right(), Value::Value(&[]), &mut ())
 			}
 			NodePlan::Extension { .. } if self.child_index == 0 => node_data.to_vec(),
 			NodePlan::Extension { partial: partial_plan, child: _ } => {
@@ -97,7 +97,8 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 				C::extension_node(
 					partial.right_iter(),
 					partial.len(),
-					child
+					child,
+					&mut (),
 				)
 			}
 			NodePlan::Branch { value, children } => {
@@ -109,7 +110,8 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 				)?;
 				C::branch_node(
 					self.children.into_iter(),
-					value_with_omission(node_data, value, self.omit_value)
+					value_with_omission(node_data, value, self.omit_value),
+					&mut (),
 				)
 			},
 			NodePlan::NibbledBranch { partial: partial_plan, value, children } => {
@@ -124,7 +126,8 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 					partial.right_iter(),
 					partial.len(),
 					self.children.into_iter(),
-					value_with_omission(node_data, value, self.omit_value)
+					value_with_omission(node_data, value, self.omit_value),
+					&mut (),
 				)
 			},
 		})
@@ -224,7 +227,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 									  -> TrieResult<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 	where
 		T: Trie<L>,
-		L: TrieLayout,
+		L: TrieLayout<Meta=()>,
 		I: IntoIterator<Item=&'a K>,
 		K: 'a + AsRef<[u8]>
 {
@@ -366,7 +369,7 @@ enum Step<'a> {
 
 /// Determine the next algorithmic step to take by matching the current key against the current top
 /// entry on the stack.
-fn match_key_to_node<'a, C: NodeCodec>(
+fn match_key_to_node<'a, C: NodeCodec<()>>(
 	node_data: &'a [u8],
 	node_plan: &NodePlan,
 	omit_value: &mut bool,
@@ -433,7 +436,7 @@ fn match_key_to_node<'a, C: NodeCodec>(
 	})
 }
 
-fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
+fn match_key_to_branch_node<'a, 'b, C: NodeCodec<()>>(
 	node_data: &'a [u8],
 	value_range: &'b ValuePlan,
 	child_handles: &'b [Option<NodeHandlePlan>; NIBBLE_LENGTH],
@@ -510,7 +513,7 @@ fn value_with_omission<'a>(
 /// Unwind the stack until the given key is prefixed by the entry at the top of the stack. If the
 /// key is None, unwind the stack completely. As entries are popped from the stack, they are
 /// encoded into proof nodes and added to the finalized proof.
-fn unwind_stack<C: NodeCodec>(
+fn unwind_stack<C: NodeCodec<()>>(
 	stack: &mut Vec<StackEntry<C>>,
 	proof_nodes: &mut Vec<Vec<u8>>,
 	maybe_key: Option<&LeftNibbleSlice>,

@@ -16,6 +16,7 @@ use hash_db::Hasher;
 use crate::nibble::{self, NibbleSlice};
 use crate::nibble::nibble_ops;
 use crate::node_codec::NodeCodec;
+use crate::{ChildrenDecoded, Meta};
 
 use crate::rstd::{borrow::Borrow, ops::Range};
 
@@ -216,15 +217,32 @@ impl NodePlan {
 		}
 	}
 
-	/// TODO
-	pub fn value_range(&self) -> Option<ValuePlan> {
-		match self {
-			NodePlan::Extension { .. }
-			| NodePlan::Empty => None,
-			NodePlan::Branch { value, .. }
-			| NodePlan::NibbledBranch { value, .. } => Some(value.clone()),
-			NodePlan::Leaf { value, .. } => Some(value.clone()),
+	/// Iterator on children being inline.
+	pub fn inline_children<'a>(&'a self) -> impl Iterator<Item = ChildrenDecoded> + 'a {
+		let (children, child) = match self {
+			NodePlan::Leaf { .. }
+			| NodePlan::Empty => (None, None),
+			NodePlan::Extension { child, .. } => (None, Some(child)),
+			NodePlan::Branch { children, .. }
+			| NodePlan::NibbledBranch { children, .. } => (Some(children), None),
+		};
+		fn is_inline(plan: &Option<NodeHandlePlan>) -> ChildrenDecoded {
+			match plan {
+				Some(NodeHandlePlan::Hash(..)) => ChildrenDecoded::Hash,
+				Some(NodeHandlePlan::Inline(..)) => ChildrenDecoded::Inline,
+				None => ChildrenDecoded::None,
+			}
 		}
+		fn is_inline2(plan: &NodeHandlePlan) -> ChildrenDecoded {
+			match plan {
+				NodeHandlePlan::Hash(..) => ChildrenDecoded::Hash,
+				NodeHandlePlan::Inline(..) => ChildrenDecoded::Inline,
+			}
+		}
+
+		children.into_iter()
+			.flat_map(|children| children.iter().map(is_inline))
+			.chain(child.into_iter().map(is_inline2))
 	}
 }
 
@@ -239,8 +257,8 @@ pub struct OwnedNode<D: Borrow<[u8]>> {
 
 impl<D: Borrow<[u8]>> OwnedNode<D> {
 	/// Construct an `OwnedNode` by decoding an owned data source according to some codec.
-	pub fn new<C: NodeCodec>(data: D, hashed_value: bool) -> Result<Self, C::Error> {
-		let plan = C::decode_plan(data.borrow(), hashed_value)?;
+	pub fn new<M: Meta, C: NodeCodec<M>>(data: D, meta: &mut M) -> Result<Self, C::Error> {
+		let plan = C::decode_plan(data.borrow(), meta)?;
 		Ok(OwnedNode { data, plan })
 	}
 

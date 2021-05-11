@@ -20,7 +20,7 @@ use crate::DBValue;
 use super::node::{NodeHandle, Node, Value, OwnedNode, decode_hash};
 use super::lookup::Lookup;
 use super::{Result, Trie, TrieItem, TrieKeyItem, TrieError, TrieIterator, Query,
-	TrieLayout, CError, TrieHash, Meta};
+	TrieLayout, CError, TrieHash};
 use super::nibble::NibbleVec;
 
 #[cfg(feature = "std")]
@@ -52,6 +52,7 @@ pub struct TrieDB<'db, L>
 where
 	L: TrieLayout,
 {
+	layout: L,
 	db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta>,
 	root: &'db TrieHash<L>,
 	/// The number of hashes performed so far in operations on this trie.
@@ -66,12 +67,23 @@ where
 	/// Returns an error if `root` does not exist
 	pub fn new(
 		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta>,
-		root: &'db TrieHash<L>
+		root: &'db TrieHash<L>,
+	) -> Result<Self, TrieHash<L>, CError<L>> {
+		Self::new_with_layout(db, root, Default::default())
+	}
+
+	/// Create a new trie with backing database `db` and empty `root`.
+	/// Returns an error if `root` does not exist
+	/// This can use a context specific layout.
+	pub fn new_with_layout(
+		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta>,
+		root: &'db TrieHash<L>,
+		layout: L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		} else {
-			Ok(TrieDB {db, root, hash_count: 0})
+			Ok(TrieDB {db, root, hash_count: 0, layout})
 		}
 	}
 
@@ -93,8 +105,8 @@ where
 		parent_hash: TrieHash<L>,
 		node_handle: NodeHandle,
 		partial_key: Prefix,
-	) -> Result<(OwnedNode<DBValue>, Option<(TrieHash<L>, L::Meta)>), TrieHash<L>, CError<L>> {
-		let (node_hash, node_data, hashed_value) = match node_handle {
+	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>, L::Meta), TrieHash<L>, CError<L>> {
+		let (node_hash, node_data, mut meta) = match node_handle {
 			NodeHandle::Hash(data) => {
 				let node_hash = decode_hash::<L::Hash>(data)
 					.ok_or_else(|| Box::new(TrieError::InvalidHash(parent_hash, data.to_vec())))?;
@@ -107,15 +119,14 @@ where
 							Box::new(TrieError::IncompleteDatabase(node_hash))
 						}
 					})?;
-				let hashed_value = meta.contains_hash_of_value();
 
-				(Some((node_hash, meta)), node_data, hashed_value)
+				(Some(node_hash), node_data, meta)
 			}
-			NodeHandle::Inline(data) => (None, data.to_vec(), false),
+			NodeHandle::Inline(data) => (None, data.to_vec(), L::meta_for_stored_inline_node(&self.layout)),
 		};
-		let owned_node = OwnedNode::new::<L::Codec>(node_data, hashed_value)
-			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.as_ref().map(|h| h.0).unwrap_or(parent_hash), e)))?;
-		Ok((owned_node, node_hash))
+		let owned_node = OwnedNode::new::<L::Meta, L::Codec>(node_data, &mut meta)
+			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or(parent_hash), e)))?;
+		Ok((owned_node, node_hash, meta))
 	}
 }
 
@@ -180,7 +191,7 @@ where
 			self.node_key,
 			self.partial_key.as_prefix()
 		) {
-			Ok((owned_node, _node_hash)) => match owned_node.node() {
+			Ok((owned_node, _node_hash, _meta)) => match owned_node.node() {
 				Node::Leaf(slice, value) =>
 					match (f.debug_struct("Node::Leaf"), self.index) {
 						(ref mut d, Some(i)) => d.field("index", &i),
@@ -339,7 +350,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 	fn next(&mut self) -> Option<Self::Item> {
 		while let Some(item) = self.inner.next() {
 			match item {
-				Ok((mut prefix, node_key, node)) => {
+				Ok((mut prefix, node_key, _meta, node)) => {
 					let maybe_value = match node.node() {
 						Node::Leaf(partial, value) => {
 							prefix.append_partial(partial.right());
@@ -355,14 +366,14 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 					match &maybe_value {
 						Value::Value(_value) =>  {
 							if let Some(key) = node_key.as_ref() {
-								self.inner.db().access_from(&key.0, None);
+								self.inner.db().access_from(key, None);
 							}
 						},
 						Value::HashedValue(hash, _) =>  {
 							let mut res = TrieHash::<L>::default();
 							res.as_mut().copy_from_slice(hash);
 							if let Some(key) = node_key.as_ref() {
-								if let Some(_) = self.inner.db().access_from(&key.0, Some(&res)) {
+								if let Some(_) = self.inner.db().access_from(key, Some(&res)) {
 									unimplemented!("Reinject value in value and continue");
 								}
 							}
@@ -397,7 +408,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBKeyIterator<'a, L> {
 	fn next(&mut self) -> Option<Self::Item> {
 		while let Some(item) = self.inner.next() {
 			match item {
-				Ok((mut prefix, _, node)) => {
+				Ok((mut prefix, _, _, node)) => {
 					let maybe_value = match node.node() {
 						Node::Leaf(partial, value) => {
 							prefix.append_partial(partial.right());

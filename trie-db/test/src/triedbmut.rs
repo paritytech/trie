@@ -53,9 +53,9 @@ fn unpopulate_trie<'db, T: TrieLayout>(t: &mut TrieDBMut<'db, T>, v: &[(Vec<u8>,
 
 fn reference_hashed_null_node<T: TrieLayout>() -> <T::Hash as Hasher>::Out {
 	if T::USE_EXTENSION {
-		<ReferenceNodeCodec<T::Hash> as NodeCodec>::hashed_null_node()
+		<ReferenceNodeCodec<T::Hash> as NodeCodec<T::Meta>>::hashed_null_node()
 	} else {
-		<ReferenceNodeCodecNoExt<T::Hash> as NodeCodec>::hashed_null_node()
+		<ReferenceNodeCodecNoExt<T::Hash> as NodeCodec<T::Meta>>::hashed_null_node()
 	}
 }
 
@@ -579,7 +579,7 @@ fn register_proof_without_value() {
 					.or_insert_with(|| {
 						use trie_db::Meta;
 						let mut v = v.clone();
-						v.1.set_unaccessed_value();
+						v.1.set_accessed_value(false);
 						v
 					});
 			}
