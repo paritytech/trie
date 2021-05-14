@@ -318,6 +318,19 @@ pub const INNER_HASH_TRESHOLD: usize = 1;
 impl Meta for ValueRange {
 	type MetaInput = ();
 
+	/// If true apply inner hashing of value
+	/// starting from this trie branch.
+	type StateMeta = bool;
+
+	fn set_state_meta(&mut self, state_meta: Self::StateMeta) {
+		self.recorded_do_value_hash = state_meta;
+		self.do_value_hash = state_meta;
+	}
+
+	fn has_state_meta(&self) -> bool {
+		self.recorded_do_value_hash
+	}
+
 	fn read_state_meta(&mut self, data: &[u8]) -> Result<usize, &'static str> {
 		let offset = if data[0] == ENCODED_META_NO_EXT {
 			if data.len() < 2 {
@@ -535,6 +548,15 @@ pub struct VersionedValueRange {
 
 impl Meta for VersionedValueRange {
 	type MetaInput = Version;
+
+	type StateMeta = ();
+
+	fn set_state_meta(&mut self, _state_meta: Self::StateMeta) {
+	}
+
+	fn has_state_meta(&self) -> bool {
+		false
+	}
 
 	fn read_state_meta(&mut self, _data: &[u8]) -> Result<usize, &'static str> {
 		Ok(0)

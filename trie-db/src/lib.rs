@@ -519,11 +519,20 @@ pub trait Meta: Clone {
 	/// Usually it holds specific behavior from layout context.
 	type MetaInput;
 
+	/// Meta to encode in state.
+	type StateMeta: Clone;
+
 	/// Get state meta from node encoded form.
 	fn read_state_meta(&mut self, input: &[u8]) -> crate::rstd::result::Result<usize, &'static str>;
 
 	/// Encode state meta to be include in state.
 	fn write_state_meta(&self) -> Vec<u8>;
+
+	/// Insert associated state meta.
+	fn set_state_meta(&mut self, state_meta: Self::StateMeta);
+
+	/// Check if contains state meta (act as a value for trie structure).
+	fn has_state_meta(&self) -> bool;
 
 	/// Meta for inline node are not stored, but require a default instantiation
 	/// in case it stops being inline.
@@ -601,6 +610,15 @@ pub enum ChildrenDecoded {
 
 impl Meta for () {
 	type MetaInput = ();
+
+	type StateMeta = ();
+
+	fn set_state_meta(&mut self, _state_meta: Self::StateMeta) {
+	}
+
+	fn has_state_meta(&self) -> bool {
+		false
+	}
 
 	fn read_state_meta(&mut self, _input: &[u8]) -> crate::rstd::result::Result<usize, &'static str> {
 		Ok(0)
@@ -724,5 +742,7 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 
 /// Alias accessor to hasher hash output type from a `TrieLayout`.
 pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
+/// Alias accessor to state of meta.
+pub type StateMeta<L> = <<L as TrieLayout>::Meta as Meta>::StateMeta;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
 pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec<<L as TrieLayout>::Meta>>::Error;

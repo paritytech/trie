@@ -18,7 +18,7 @@ use log::debug;
 use memory_db::{MemoryDB, PrefixedKey};
 use hash_db::{Hasher, HashDB};
 use trie_db::{TrieDBMut, TrieMut, NodeCodec,
-	TrieLayout, DBValue, Value};
+	TrieLayout, DBValue, Value, StateMeta};
 use reference_trie::{ExtensionLayout, NoExtensionLayout,
 	RefHasher, test_layouts, ReferenceNodeCodec,
 	ReferenceNodeCodecNoExt, reference_trie_root_iter_build as reference_trie_root};
@@ -42,7 +42,7 @@ fn populate_trie_and_flag<'db, T: TrieLayout>(
 	db: &'db mut dyn HashDB<T::Hash, DBValue, T::Meta>,
 	root: &'db mut <T::Hash as Hasher>::Out,
 	v: &[(Vec<u8>, Vec<u8>)],
-	flag: &[(Vec<u8>, Vec<u8>)],
+	flag: &[(Vec<u8>, StateMeta<T>)],
 ) -> TrieDBMut<'db, T> {
 	let mut t = TrieDBMut::<T>::new(db, root);
 	for i in 0..v.len() {
@@ -51,9 +51,8 @@ fn populate_trie_and_flag<'db, T: TrieLayout>(
 		t.insert(key, val).unwrap();
 	}
 	for i in 0..flag.len() {
-		let key: &[u8]= &v[i].0;
-		let flag: &[u8] = &v[i].1;
-		t.flag(key, flag).unwrap();
+		let key: &[u8]= &flag[i].0;
+		t.flag(key, flag[i].1.clone()).unwrap();
 	}
 	t
 }
@@ -565,9 +564,8 @@ fn register_proof_without_value() {
 		(b"te".to_vec(), vec![3;32]),
 	];
 	let flag = [
-		(b"te".to_vec(), vec![reference_trie::ENCODED_META_NO_EXT, reference_trie::ALLOW_HASH_META]),
+		(b"te".to_vec(), true),
 	];
-
 
 	let mut memdb = MemoryDB::default();
 	let mut root = Default::default();

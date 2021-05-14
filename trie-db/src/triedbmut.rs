@@ -15,7 +15,8 @@
 //! In-memory trie representation.
 
 use super::{DBValue, node::NodeKey, Meta, NodeChange};
-use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
+use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError,
+	StateMeta};
 use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode,
 	Value as EncodedValue, decode_hash};
@@ -1725,7 +1726,7 @@ where
 	pub fn flag(
 		&mut self,
 		_key: &[u8],
-		_flag: &[u8],
+		_flag: StateMeta<L>,
 	) -> Result<bool, TrieHash<L>, CError<L>> {
 		unimplemented!("Flag unimp.");
 	}
