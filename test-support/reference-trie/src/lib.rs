@@ -204,37 +204,41 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 	type Meta = ValueRange;
 
 	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out {
-		match meta.0.as_ref() {
-			Some(ValueMeta { range, contain_hash: false, .. }) => {
-				let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
-				H::hash(value.as_slice())
+		match &meta {
+			ValueMeta { range: Some(range), contain_hash: false, do_value_hash, .. } => {
+				if *do_value_hash {
+					let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
+					H::hash(value.as_slice())
+				} else {
+					H::hash(value)
+				}
 			},
-			Some(ValueMeta { contain_hash: true, .. }) => {
+			ValueMeta { range: Some(_range), contain_hash: true, .. } => {
 				// value contains a hash of data (already inner_hashed_value).
 				H::hash(value)
 			},
-			None => {
+			_ => {
 				H::hash(value)
 			},
 		}
 	}
 
 	fn stored_value(value: &[u8], mut meta: Self::Meta) -> DBValue {
-		let mut stored = meta.0.as_ref().map(|ValueMeta { range, .. }| (range.start as u32, range.end as u32)).encode();
-		if meta.0.as_ref().map(|meta| meta.contain_hash).unwrap_or(false) {
+		let mut stored = meta.range.as_ref().map(|range| (range.start as u32, range.end as u32)).encode();
+		if meta.contain_hash {
 			// already contain hash, just flag it.
 			stored.push(DEAD_HEADER_META_HASHED_VALUE);
 			stored.extend_from_slice(value);
 			return stored;
 		}
-		if meta.0.as_ref().map(|meta| meta.unused_value).unwrap_or(false) {
+		if meta.unused_value {
 			// Waring this assume that encoded value does not start by this, so it is tightly coupled
 			// with the header type of the codec: only for optimization.
 			stored.push(DEAD_HEADER_META_HASHED_VALUE);
-			let mut meta = meta.0.as_mut().expect("Tested in codition");
+			let range = meta.range.as_ref().expect("Tested in codition");
 			meta.contain_hash = true; // useless but could be with meta as &mut
 			// store hash instead of value.
-			let value = inner_hashed_value::<H>(value, Some((meta.range.start, meta.range.end)));
+			let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
 			stored.extend_from_slice(value.as_slice());
 			return stored;
 		}
@@ -255,16 +259,28 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 			stored = &mut &stored[1..];
 			unused_value = true;
 		}
+		let recorded_do_value_hash = unimplemented!(
+			"parse from encoded node (first encoded meta escaped byte at 0, then byte for meta)",
+		);
+		let do_value_hash = recorded_do_value_hash || unimplemented!("get from parent meta do_value_hash (new param)");
 		if let Some((start, end)) = range {
 			let start = start as usize;
 			let end = end as usize;
-			(stored, ValueRange(Some(ValueMeta {
-				range: start..end,
+			(stored, ValueMeta {
+				range: Some(start..end),
 				unused_value,
 				contain_hash: unused_value,
-			})))
+				do_value_hash,
+				recorded_do_value_hash
+			})
 		} else {
-			(stored, ValueRange(None))
+			(stored, ValueMeta {
+				range: None,
+				unused_value,
+				contain_hash: unused_value,
+				do_value_hash,
+				recorded_do_value_hash
+			})
 		}
 	}
 
@@ -278,14 +294,27 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 
 #[derive(Default, Clone)]
 pub struct ValueMeta {
-	pub range: core::ops::Range<usize>,
-	pub unused_value: bool,
+	pub range: Option<core::ops::Range<usize>>,
+	// When `do_value_hash` is true, try to
+	// store this behavior in top node
+	// encoded (need to be part of state).
+	pub recorded_do_value_hash: bool,
+	// Does current encoded contains a hash instead of
+	// a value (information stored in meta for proofs).
 	pub contain_hash: bool,
+	// Flag indicating if value hash can run.
+	// When defined for a node it gets active
+	// for all children node
+	pub do_value_hash: bool,
+	// Record if a value was accessed, this is
+	// set as accessed by defalult, but can be
+	// change on access explicitely: `HashDB::get_with_meta`.
+	// and reset on access explicitely: `HashDB::access_from`.
+	pub unused_value: bool,
 }
 
-/// Test Meta input.
-#[derive(Default, Clone)]
-pub struct ValueRange(pub Option<ValueMeta>);
+/// Test Meta input. TODO remove alias
+pub type ValueRange = ValueMeta;
 
 /// Treshold for using hash of value instead of value
 /// in encoded trie node.
@@ -294,21 +323,39 @@ pub const INNER_HASH_TRESHOLD: usize = 1;
 impl Meta for ValueRange {
 	type MetaInput = ();
 
+	fn read_state_meta(&mut self, data: &[u8]) -> Result<usize, &'static str> {
+		let offset = if data[0] == ENCODED_META_NO_EXT {
+			if data.len() < 2 {
+				return Err("Invalid encoded meta.");
+			}
+			match data[1] {
+				ALLOW_HASH_META => {
+					self.do_value_hash = true;
+					2
+				},
+				_ => return Err("Invalid encoded meta."),
+			}
+		} else {
+			0
+		};
+		Ok(offset)
+	}
+
 	fn meta_for_new(
 		_input: Self::MetaInput,
 	) -> Self {
-		ValueRange(None)
+		Default::default()
 	}
 
 	fn meta_for_existing_inline_node(
 		_input: Self::MetaInput
 	) -> Self {
-		ValueRange(None)
+		Default::default()
 	}
 
 	fn meta_for_empty(
 	) -> Self {
-		ValueRange(None)
+		Default::default()
 	}
 
 	fn set_value_callback(
@@ -330,12 +377,14 @@ impl Meta for ValueRange {
 			ValuePlan::NoValue => return,
 		};
 
-		if contain_hash || range.end - range.start >= INNER_HASH_TRESHOLD {
-			self.0 = Some(ValueMeta {
-				range,
-				unused_value: false,
+		if contain_hash || (self.do_value_hash && range.end - range.start >= INNER_HASH_TRESHOLD) {
+			*self = ValueMeta {
+				range: Some(range),
 				contain_hash,
-			});
+				unused_value: self.unused_value,
+				recorded_do_value_hash: self.recorded_do_value_hash,
+				do_value_hash: self.do_value_hash,
+			};
 		}
 	}
 
@@ -355,17 +404,17 @@ impl Meta for ValueRange {
 	}
 
 	fn contains_hash_of_value(&self) -> bool {
-		self.0.as_ref().map(|meta| meta.contain_hash).unwrap_or(false)
+		self.contain_hash
 	}
 
 	fn do_value_hash(&self) -> bool {
-		self.0.as_ref().map(|meta| meta.unused_value).unwrap_or(false)
+		self.unused_value
 	}
 }
 
 impl ValueRange {
 	pub fn set_accessed_value(&mut self, accessed: bool) {
-		self.0.as_mut().map(|meta| { meta.unused_value = !accessed; });
+		self.unused_value = !accessed;
 	}
 }
 
@@ -482,6 +531,10 @@ pub struct VersionedValueRange {
 
 impl Meta for VersionedValueRange {
 	type MetaInput = Version;
+
+	fn read_state_meta(&mut self, _data: &[u8]) -> Result<usize, &'static str> {
+		Ok(0)
+	}
 
 	fn meta_for_new(
 		input: Self::MetaInput,
@@ -805,6 +858,8 @@ const LEAF_PREFIX_MASK_NO_EXT: u8 = 0b_01 << 6;
 const BRANCH_WITHOUT_MASK_NO_EXT: u8 = 0b_10 << 6;
 const BRANCH_WITH_MASK_NO_EXT: u8 = 0b_11 << 6;
 const EMPTY_TRIE_NO_EXT: u8 = FIRST_PREFIX | 0b_00;
+const ENCODED_META_NO_EXT: u8 = FIRST_PREFIX | 0b_10_10;
+const ALLOW_HASH_META: u8 = 1;
 const DEAD_HEADER_META_HASHED_VALUE: u8 = FIRST_PREFIX | 0b_11_10;
 
 /// Create a leaf/extension node, encoding a number of nibbles. Note that this
@@ -1428,10 +1483,23 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodec<H> {
 }
 
 impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
-	fn decode_plan_inner2(data: &[u8], contains_hash: bool) -> ::std::result::Result<NodePlan, CodecError> {
-		let mut input = ByteSliceInput::new(data);
-		match NodeHeaderNoExt::decode(&mut input)? {
-			NodeHeaderNoExt::Null => Ok(NodePlan::Empty),
+	fn decode_plan_inner2<M: Meta>(
+		data: &[u8],
+		contains_hash: bool,
+		meta: Option<&mut M>,
+	) -> std::result::Result<NodePlan, CodecError> {
+		if data.len() < 1 {
+			return Err(CodecError::from("Empty encoded node."));
+		}
+		let offset = if let Some(meta) = meta {
+			meta.read_state_meta(data)?
+		} else {
+			0
+		};
+		let mut input = ByteSliceInput::new(&data[offset..]);
+
+		Ok(match NodeHeaderNoExt::decode(&mut input)? {
+			NodeHeaderNoExt::Null => NodePlan::Empty,
 			NodeHeaderNoExt::Branch(has_value, nibble_count) => {
 				let padding = nibble_count % nibble_ops::NIBBLE_PER_BYTE != 0;
 				// check that the padding is valid (if any)
@@ -1469,11 +1537,11 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 						});
 					}
 				}
-				Ok(NodePlan::NibbledBranch {
+				NodePlan::NibbledBranch {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
 					value,
 					children,
-				})
+				}
 			}
 			NodeHeaderNoExt::Leaf(nibble_count) => {
 				let padding = nibble_count % nibble_ops::NIBBLE_PER_BYTE != 0;
@@ -1492,12 +1560,12 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 					ValuePlan::Value(input.take(count)?)
 				};
 
-				Ok(NodePlan::Leaf {
+				NodePlan::Leaf {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
 					value,
-				})
+				}
 			}
-		}
+		})
 	}
 }
 
@@ -1512,14 +1580,15 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 
 	fn decode_plan(data: &[u8], meta: &mut M) -> Result<NodePlan, Self::Error> {
 		let contains_hash = meta.contains_hash_of_value();
-		Self::decode_plan_inner2(data, contains_hash).map(|plan| {
+		Self::decode_plan_inner2(data, contains_hash, Some(meta)).map(|plan| {
 			meta.decoded_callback(&plan);
 			plan
 		})
 	}
 
-	fn decode_plan_inner(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
-		Self::decode_plan_inner2(data, false)
+	fn decode_plan_inner(data: &[u8]) -> std::result::Result<NodePlan, Self::Error> {
+		let meta: Option<&mut M> = None;
+		Self::decode_plan_inner2(data, false, meta)
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {

@@ -519,6 +519,9 @@ pub trait Meta: Clone {
 	/// Usually it holds specific behavior from layout context.
 	type MetaInput;
 
+	/// Get state meta from node encoded form.
+	fn read_state_meta(&mut self, input: &[u8]) -> crate::rstd::result::Result<usize, &'static str>;
+
 	/// Meta for inline node are not stored, but require a default instantiation
 	/// in case it stops being inline.
 	/// There is currently no good reason to avoid passing parent meta as in
@@ -595,6 +598,10 @@ pub enum ChildrenDecoded {
 
 impl Meta for () {
 	type MetaInput = ();
+
+	fn read_state_meta(&mut self, _input: &[u8]) -> crate::rstd::result::Result<usize, &'static str> {
+		Ok(0)
+	}
 
 	fn meta_for_new(
 		_input: Self::MetaInput,
