@@ -114,9 +114,8 @@ pub trait HashDB<H: Hasher, T, M>: Send + Sync + AsHashDB<H, T, M> {
 
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
-	/// Resolve associated meta.
-	/// TODO variant with dropped meta? (sometime we do not use meta).
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, M)>;
+	/// Resolve associated meta, and allow inheriting meta from parent definition.
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, parent: Option<&M>) -> Option<(T, M)>;
 
 	/// Access additional content or indicate additional content already accessed and needed.
 	///
@@ -162,7 +161,7 @@ pub trait HashDBRef<H: Hasher, T, M> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	/// Resolve associated meta.
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, M)>;
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, parent: Option<&M>) -> Option<(T, M)>;
 
 	/// TODO
 	fn access_from(&self, _key: &H::Out, _at: Option<&H::Out>) -> Option<T>;
@@ -176,8 +175,8 @@ impl<'a, H: Hasher, T, M> HashDBRef<H, T, M> for &'a dyn HashDB<H, T, M> {
 	fn access_from(&self, key: &H::Out, at: Option<&H::Out>) -> Option<T> {
 		HashDB::access_from(*self, key, at)
 	}
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, M)> {
-		HashDB::get_with_meta(*self, key, prefix)
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, parent: Option<&M>) -> Option<(T, M)> {
+		HashDB::get_with_meta(*self, key, prefix, parent)
 	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
 		HashDB::contains(*self, key, prefix)
@@ -189,8 +188,8 @@ impl<'a, H: Hasher, T, M> HashDBRef<H, T, M> for &'a mut dyn HashDB<H, T, M> {
 	fn access_from(&self, key: &H::Out, at: Option<&H::Out>) -> Option<T> {
 		HashDB::access_from(*self, key, at)
 	}
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, M)> {
-		HashDB::get_with_meta(*self, key, prefix)
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, parent: Option<&M>) -> Option<(T, M)> {
+		HashDB::get_with_meta(*self, key, prefix, parent)
 	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
 		HashDB::contains(*self, key, prefix)
@@ -233,11 +232,11 @@ pub trait MetaHasher<H: Hasher, T>: Send + Sync {
 	fn stored_value_owned(value: T, meta: Self::Meta) -> T;
 
 	/// Get meta and hashable value from stored value.
-	fn extract_value(stored: &[u8]) -> (&[u8], Self::Meta);
+	fn extract_value<'a>(stored: &'a [u8], parent_meta: Option<&Self::Meta>) -> (&'a [u8], Self::Meta);
 
 	/// Same as `extract_value` but consiming an allocated
 	/// buffer.
-	fn extract_value_owned(stored: T) -> (T, Self::Meta);
+	fn extract_value_owned(stored: T, parent_meta: Option<&Self::Meta>) -> (T, Self::Meta);
 }
 
 /// Default `MetaHasher` implementation, stored value
@@ -263,11 +262,11 @@ impl<H, T> MetaHasher<H, T> for NoMeta
 		value
 	}
 
-	fn extract_value(stored: &[u8]) -> (&[u8], Self::Meta) {
+	fn extract_value<'a>(stored: &'a [u8], _parent_meta: Option<&Self::Meta>) -> (&'a [u8], Self::Meta) {
 		(stored, ())
 	}
 
-	fn extract_value_owned(stored: T) -> (T, Self::Meta) {
+	fn extract_value_owned(stored: T, _parent_meta: Option<&Self::Meta>) -> (T, Self::Meta) {
 		(stored, ())
 	}
 }

@@ -72,6 +72,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 		};
 		let (root_node, root_hash, meta) = db.get_raw_or_lookup(
 			*db.root(),
+			None,
 			NodeHandle::Hash(db.root().as_ref()),
 			EMPTY_PREFIX
 		)?;
@@ -91,7 +92,6 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 }
 
 impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
-
 	/// Seek a node position at 'key' for iterator.
 	/// Returns true if the cursor is at or after the key, but still shares
 	/// a common prefix with the key, return false if the key do not
@@ -106,15 +106,16 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 		self.key_nibbles.clear();
 		let key = NibbleSlice::new(key);
 
-		let (mut node, mut node_hash, meta) = self.db.get_raw_or_lookup(
+		let (mut node, mut node_hash, mut meta) = self.db.get_raw_or_lookup(
 			<TrieHash<L>>::default(),
+			None,
 			NodeHandle::Hash(self.db.root().as_ref()),
 			EMPTY_PREFIX
 		)?;
 		let mut partial = key;
 		let mut full_key_nibbles = 0;
 		loop {
-			let (next_node, next_node_hash, _next_meta) = {
+			let (next_node, next_node_hash, next_node_meta) = {
 				self.descend(node, node_hash.clone(), meta.clone());
 				let crumb = self.trail.last_mut()
 					.expect(
@@ -151,6 +152,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 						let prefix = key.back(full_key_nibbles);
 						self.db.get_raw_or_lookup(
 							node_hash.unwrap_or_default(),
+							Some(&meta),
 							child.build(node_data),
 							prefix.left()
 						)?
@@ -171,6 +173,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 							let prefix = key.back(full_key_nibbles);
 							self.db.get_raw_or_lookup(
 								node_hash.unwrap_or_default(),
+								Some(&meta),
 								child.build(node_data),
 								prefix.left()
 							)?
@@ -209,6 +212,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 							let prefix = key.back(full_key_nibbles);
 							self.db.get_raw_or_lookup(
 								node_hash.unwrap_or_default(),
+								Some(&meta),
 								child.build(node_data),
 								prefix.left()
 							)?
@@ -228,6 +232,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 
 			node = next_node;
 			node_hash = next_node_hash;
+			meta = next_node_meta;
 		}
 	}
 
@@ -298,6 +303,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 						IterStep::Descend::<TrieHash<L>, L::Meta, CError<L>>(
 							self.db.get_raw_or_lookup(
 								b.hash.unwrap_or_default(),
+								Some(&b.meta),
 								child.build(node_data),
 								self.key_nibbles.as_prefix()
 							)
@@ -321,6 +327,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 							IterStep::Descend::<TrieHash<L>, L::Meta, CError<L>>(
 								self.db.get_raw_or_lookup(
 									b.hash.unwrap_or_default(),
+									Some(&b.meta),
 									child.build(node_data),
 									self.key_nibbles.as_prefix()
 								)

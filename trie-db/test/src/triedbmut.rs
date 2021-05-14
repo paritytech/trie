@@ -569,11 +569,16 @@ fn register_proof_without_value() {
 
 	impl HashDB<RefHasher, DBValue, Meta> for ProofRecorder {
 		fn get(&self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) -> Option<DBValue> {
-			self.get_with_meta(key, prefix).map(|v| v.0)
+			self.get_with_meta(key, prefix, None).map(|v| v.0)
 		}
 
-		fn get_with_meta(&self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) -> Option<(DBValue, Meta)> {
-			let v = self.db.get_with_meta(key, prefix);
+		fn get_with_meta(
+			&self,
+			key: &<RefHasher as Hasher>::Out,
+			prefix: Prefix,
+			parent_meta: Option<&Meta>,
+		) -> Option<(DBValue, Meta)> {
+			let v = self.db.get_with_meta(key, prefix, parent_meta);
 			if let Some(v) = v.as_ref() {
 				self.record.borrow_mut().entry(key[..].to_vec())
 					.or_insert_with(|| {

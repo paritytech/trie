@@ -103,6 +103,7 @@ where
 	pub(crate) fn get_raw_or_lookup(
 		&self,
 		parent_hash: TrieHash<L>,
+		parent_meta: Option<&L::Meta>,
 		node_handle: NodeHandle,
 		partial_key: Prefix,
 	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>, L::Meta), TrieHash<L>, CError<L>> {
@@ -111,7 +112,7 @@ where
 				let node_hash = decode_hash::<L::Hash>(data)
 					.ok_or_else(|| Box::new(TrieError::InvalidHash(parent_hash, data.to_vec())))?;
 				let (node_data, meta) = self.db
-					.get_with_meta(&node_hash, partial_key)
+					.get_with_meta(&node_hash, partial_key, parent_meta)
 					.ok_or_else(|| {
 						if partial_key == EMPTY_PREFIX {
 							Box::new(TrieError::InvalidStateRoot(node_hash))
@@ -178,6 +179,7 @@ where
 	node_key: NodeHandle<'a>,
 	partial_key: NibbleVec,
 	index: Option<u8>,
+	// TODO consider adding meta
 }
 
 #[cfg(feature="std")]
@@ -188,6 +190,7 @@ where
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		match self.trie.get_raw_or_lookup(
 			<TrieHash<L>>::default(),
+			None,
 			self.node_key,
 			self.partial_key.as_prefix()
 		) {

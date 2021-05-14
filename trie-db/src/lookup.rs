@@ -64,10 +64,11 @@ where
 		let mut partial = key;
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;
+		let mut parent_meta = None;
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
-			let (node_data, mut meta) = match self.db.get_with_meta(&hash, key.mid(key_nibbles).left()) {
+			let (node_data, mut meta) = match self.db.get_with_meta(&hash, key.mid(key_nibbles).left(), parent_meta.as_ref()) {
 				Some(value) => value,
 				None => return Err(Box::new(match depth {
 					0 => TrieError::InvalidStateRoot(hash),
@@ -146,6 +147,7 @@ where
 					},
 				}
 			}
+			parent_meta = Some(meta);
 		}
 		Ok(None)
 	}

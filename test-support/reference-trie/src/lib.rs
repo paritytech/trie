@@ -250,18 +250,15 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 		Self::stored_value(value.as_slice(), meta)
 	}
 
-	fn extract_value(mut stored: &[u8]) -> (&[u8], Self::Meta) {
-		let initial_len = stored.len();
+	fn extract_value<'a>(mut stored: &'a [u8], parent_meta: Option<&Self::Meta>) -> (&'a [u8], Self::Meta) {
 		let input = &mut stored;
 		let range: Option<(u32, u32)> = Decode::decode(input).ok().flatten();
 		let mut contain_hash = false;
-		let mut offset = initial_len - input.len();
 		if input.get(0) == Some(&DEAD_HEADER_META_HASHED_VALUE) {
 			debug_assert!(range.is_some());
 			contain_hash = true;
-			offset += 1;
+			*input = &input[1..];
 		}
-		let stored = &stored[offset..];
 		let range = range.map(|range| range.0 as usize .. range.1 as usize);
 		let mut meta = ValueMeta {
 			range,
@@ -274,13 +271,13 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 		let offset = meta.read_state_meta(stored)
 			.expect("State meta reading failure.");
 		let stored = &stored[offset..];
-		meta.do_value_hash = meta.recorded_do_value_hash || unimplemented!("get from parent meta do_value_hash (new param)");
+		meta.do_value_hash = meta.recorded_do_value_hash || parent_meta.map(|m| m.do_value_hash).unwrap_or(false);
 		(stored, meta)
 	}
 
-	fn extract_value_owned(mut stored: DBValue) -> (DBValue, Self::Meta) {
+	fn extract_value_owned(mut stored: DBValue, parent_meta: Option<&Self::Meta>) -> (DBValue, Self::Meta) {
 		let len = stored.len();
-		let (v, meta) = Self::extract_value(stored.as_slice());
+		let (v, meta) = Self::extract_value(stored.as_slice(), parent_meta);
 		let removed = len - v.len();
 		(stored.split_off(removed), meta)
 	}
@@ -701,7 +698,7 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestUpdatableMetaHasher<H> {
 		Self::stored_value(value.as_slice(), meta)
 	}
 
-	fn extract_value(mut stored: &[u8]) -> (&[u8], Self::Meta) {
+	fn extract_value<'a>(mut stored: &'a [u8], _parent_meta: Option<&Self::Meta>) -> (&'a [u8], Self::Meta) {
 		let len = stored.len();
 		let input = &mut stored;
 		// if len == 1 it is new empty trie.
@@ -720,7 +717,7 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestUpdatableMetaHasher<H> {
 		})
 	}
 
-	fn extract_value_owned(mut stored: DBValue) -> (DBValue, Self::Meta) {
+	fn extract_value_owned(mut stored: DBValue, _parent_meta: Option<&Self::Meta>) -> (DBValue, Self::Meta) {
 		// TODO factor with extract_value
 		let len = stored.len();
 		let input = &mut stored.as_slice();

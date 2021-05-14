@@ -576,12 +576,13 @@ where
 			_ => None
 		}
 	}
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, VF::Meta)> {
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, parent_meta: Option<&VF::Meta>) -> Option<(T, VF::Meta)> {
 		if key == &self.hashed_null_node {
 			return Some((self.null_node_data.clone(), Default::default()));
 		}		
 
-		<Self as HashDB<H, T, VF::Meta>>::get(&self, key, prefix).map(|value| VF::extract_value_owned(value))
+		<Self as HashDB<H, T, VF::Meta>>::get(&self, key, prefix)
+			.map(|value| VF::extract_value_owned(value, parent_meta))
 	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
 		if key == &self.hashed_null_node {
@@ -676,7 +677,9 @@ where
 	fn access_from(&self, key: &H::Out, at: Option<&H::Out>) -> Option<T> {
 		HashDB::access_from(self, key, at)
 	}
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix) -> Option<(T, VF::Meta)> { HashDB::get_with_meta(self, key, prefix) }
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, parent: Option<&VF::Meta>) -> Option<(T, VF::Meta)> {
+		HashDB::get_with_meta(self, key, prefix, parent)
+	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool { HashDB::contains(self, key, prefix) }
 }
 
