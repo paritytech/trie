@@ -232,15 +232,19 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 			return stored;
 		}
 		if meta.unused_value {
-			// Waring this assume that encoded value does not start by this, so it is tightly coupled
-			// with the header type of the codec: only for optimization.
-			stored.push(DEAD_HEADER_META_HASHED_VALUE);
-			let range = meta.range.as_ref().expect("Tested in codition");
-			meta.contain_hash = true; // useless but could be with meta as &mut
-			// store hash instead of value.
-			let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
-			stored.extend_from_slice(value.as_slice());
-			return stored;
+			if let Some(range) = meta.range.as_ref() {
+				if range.end - range.start >= INNER_HASH_TRESHOLD {
+					// Waring this assume that encoded value does not start by this, so it is tightly coupled
+					// with the header type of the codec: only for optimization.
+					stored.push(DEAD_HEADER_META_HASHED_VALUE);
+					let range = meta.range.as_ref().expect("Tested in condition");
+					meta.contain_hash = true; // useless but could be with meta as &mut
+					// store hash instead of value.
+					let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
+					stored.extend_from_slice(value.as_slice());
+					return stored;
+				}
+			}
 		}
 		stored.extend_from_slice(value);
 		stored
