@@ -336,6 +336,15 @@ impl Meta for ValueRange {
 		Ok(offset)
 	}
 
+	fn write_state_meta(&self) -> Vec<u8> {
+		if self.do_value_hash {
+			// Note that this only works for some codecs (if the first byte do not overlay).
+			[ENCODED_META_NO_EXT, ALLOW_HASH_META].to_vec()
+		} else {
+			Vec::new()
+		}
+	}
+
 	fn meta_for_new(
 		_input: Self::MetaInput,
 	) -> Self {
@@ -529,6 +538,10 @@ impl Meta for VersionedValueRange {
 
 	fn read_state_meta(&mut self, _data: &[u8]) -> Result<usize, &'static str> {
 		Ok(0)
+	}
+
+	fn write_state_meta(&self) -> Vec<u8> {
+		Vec::new()
 	}
 
 	fn meta_for_new(
@@ -853,8 +866,10 @@ const LEAF_PREFIX_MASK_NO_EXT: u8 = 0b_01 << 6;
 const BRANCH_WITHOUT_MASK_NO_EXT: u8 = 0b_10 << 6;
 const BRANCH_WITH_MASK_NO_EXT: u8 = 0b_11 << 6;
 const EMPTY_TRIE_NO_EXT: u8 = FIRST_PREFIX | 0b_00;
-const ENCODED_META_NO_EXT: u8 = FIRST_PREFIX | 0b_10_10;
-const ALLOW_HASH_META: u8 = 1;
+// TODO rem pub
+pub const ENCODED_META_NO_EXT: u8 = FIRST_PREFIX | 0b_10_10;
+// TODO rem pub
+pub const ALLOW_HASH_META: u8 = 1;
 const DEAD_HEADER_META_HASHED_VALUE: u8 = FIRST_PREFIX | 0b_11_10;
 
 /// Create a leaf/extension node, encoding a number of nibbles. Note that this
@@ -1595,7 +1610,8 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 	}
 
 	fn leaf_node(partial: Partial, value: Value, meta: &mut M) -> Vec<u8> {
-		let mut output = partial_encode(partial, NodeKindNoExt::Leaf);
+		let mut output = meta.write_state_meta();
+		output.append(&mut partial_encode(partial, NodeKindNoExt::Leaf));
 		match value {
 			Value::Value(value) => {
 				Compact(value.len() as u32).encode_to(&mut output);
@@ -1641,7 +1657,8 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 		maybe_value: Value,
 		meta: &mut M,
 	) -> Vec<u8> {
-		let mut output = if let Value::NoValue = &maybe_value {
+		let mut output = meta.write_state_meta();
+		output.append(&mut if let Value::NoValue = &maybe_value {
 			partial_from_iterator_encode(
 				partial,
 				number_nibble,
@@ -1653,7 +1670,7 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 				number_nibble,
 				NodeKindNoExt::BranchWithValue,
 			)
-		};
+		});
 		let bitmap_index = output.len();
 		let mut bitmap: [u8; BITMAP_LENGTH] = [0; BITMAP_LENGTH];
 		(0..BITMAP_LENGTH).for_each(|_| output.push(0));

@@ -1716,6 +1716,19 @@ where
 			NodeHandle::InMemory(StorageHandle(x)) => NodeHandle::InMemory(StorageHandle(x)),
 		}
 	}
+
+	/// Flag an existing node with some encoded meta.
+	/// Return false if node does not exists.
+	/// Warning when a node get remove, its flag also disappear. TODO change trie to keep flagged
+	/// node: flag acting as a value. (requires meta.has_flag() function).
+	/// TODO then also insert node -> fuse method with insert?
+	pub fn flag(
+		&mut self,
+		_key: &[u8],
+		_flag: &[u8],
+	) -> Result<bool, TrieHash<L>, CError<L>> {
+		unimplemented!("Flag unimp.");
+	}
 }
 
 impl<'a, L> TrieMut<L> for TrieDBMut<'a, L>

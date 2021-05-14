@@ -522,6 +522,9 @@ pub trait Meta: Clone {
 	/// Get state meta from node encoded form.
 	fn read_state_meta(&mut self, input: &[u8]) -> crate::rstd::result::Result<usize, &'static str>;
 
+	/// Encode state meta to be include in state.
+	fn write_state_meta(&self) -> Vec<u8>;
+
 	/// Meta for inline node are not stored, but require a default instantiation
 	/// in case it stops being inline.
 	/// There is currently no good reason to avoid passing parent meta as in
@@ -601,6 +604,10 @@ impl Meta for () {
 
 	fn read_state_meta(&mut self, _input: &[u8]) -> crate::rstd::result::Result<usize, &'static str> {
 		Ok(0)
+	}
+
+	fn write_state_meta(&self) -> Vec<u8> {
+		Vec::new()
 	}
 
 	fn meta_for_new(

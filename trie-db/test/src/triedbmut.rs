@@ -35,11 +35,25 @@ fn populate_trie<'db, T: TrieLayout>(
 	root: &'db mut <T::Hash as Hasher>::Out,
 	v: &[(Vec<u8>, Vec<u8>)]
 ) -> TrieDBMut<'db, T> {
+	populate_trie_and_flag(db, root, v, &[])
+}
+
+fn populate_trie_and_flag<'db, T: TrieLayout>(
+	db: &'db mut dyn HashDB<T::Hash, DBValue, T::Meta>,
+	root: &'db mut <T::Hash as Hasher>::Out,
+	v: &[(Vec<u8>, Vec<u8>)],
+	flag: &[(Vec<u8>, Vec<u8>)],
+) -> TrieDBMut<'db, T> {
 	let mut t = TrieDBMut::<T>::new(db, root);
 	for i in 0..v.len() {
 		let key: &[u8]= &v[i].0;
 		let val: &[u8] = &v[i].1;
 		t.insert(key, val).unwrap();
+	}
+	for i in 0..flag.len() {
+		let key: &[u8]= &v[i].0;
+		let flag: &[u8] = &v[i].1;
+		t.flag(key, flag).unwrap();
 	}
 	t
 }
@@ -550,10 +564,14 @@ fn register_proof_without_value() {
 		(b"test1234".to_vec(), vec![2;36]),
 		(b"te".to_vec(), vec![3;32]),
 	];
+	let flag = [
+		(b"te".to_vec(), vec![reference_trie::ENCODED_META_NO_EXT, reference_trie::ALLOW_HASH_META]),
+	];
+
 
 	let mut memdb = MemoryDB::default();
 	let mut root = Default::default();
-	let _ = populate_trie::<Updatable>(&mut memdb, &mut root, &x);
+	let _ = populate_trie_and_flag::<Updatable>(&mut memdb, &mut root, &x, &flag);
 	{
 		let trie = TrieDB::<Updatable>::new(&memdb, &root).unwrap();
 		println!("{:?}", trie);
