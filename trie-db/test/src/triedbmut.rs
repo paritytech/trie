@@ -577,7 +577,6 @@ fn register_proof_without_value() {
 			if let Some(v) = v.as_ref() {
 				self.record.borrow_mut().entry(key[..].to_vec())
 					.or_insert_with(|| {
-						use trie_db::Meta;
 						let mut v = v.clone();
 						v.1.set_accessed_value(false);
 						v

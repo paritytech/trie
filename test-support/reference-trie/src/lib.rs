@@ -251,37 +251,31 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 	}
 
 	fn extract_value(mut stored: &[u8]) -> (&[u8], Self::Meta) {
+		let initial_len = stored.len();
 		let input = &mut stored;
 		let range: Option<(u32, u32)> = Decode::decode(input).ok().flatten();
-		let mut unused_value = false;
+		let mut contain_hash = false;
+		let mut offset = initial_len - input.len();
 		if input.get(0) == Some(&DEAD_HEADER_META_HASHED_VALUE) {
 			debug_assert!(range.is_some());
-			stored = &mut &stored[1..];
-			unused_value = true;
+			contain_hash = true;
+			offset += 1;
 		}
-		let recorded_do_value_hash = unimplemented!(
-			"parse from encoded node (first encoded meta escaped byte at 0, then byte for meta)",
-		);
-		let do_value_hash = recorded_do_value_hash || unimplemented!("get from parent meta do_value_hash (new param)");
-		if let Some((start, end)) = range {
-			let start = start as usize;
-			let end = end as usize;
-			(stored, ValueMeta {
-				range: Some(start..end),
-				unused_value,
-				contain_hash: unused_value,
-				do_value_hash,
-				recorded_do_value_hash
-			})
-		} else {
-			(stored, ValueMeta {
-				range: None,
-				unused_value,
-				contain_hash: unused_value,
-				do_value_hash,
-				recorded_do_value_hash
-			})
-		}
+		let stored = &stored[offset..];
+		let range = range.map(|range| range.0 as usize .. range.1 as usize);
+		let mut meta = ValueMeta {
+			range,
+			unused_value: contain_hash,
+			contain_hash,
+			do_value_hash: false,
+			recorded_do_value_hash: false,
+		};
+		// get recorded_do_value_hash
+		let offset = meta.read_state_meta(stored)
+			.expect("State meta reading failure.");
+		let stored = &stored[offset..];
+		meta.do_value_hash = meta.recorded_do_value_hash || unimplemented!("get from parent meta do_value_hash (new param)");
+		(stored, meta)
 	}
 
 	fn extract_value_owned(mut stored: DBValue) -> (DBValue, Self::Meta) {
