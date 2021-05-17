@@ -520,7 +520,7 @@ pub trait Meta: Clone {
 	type MetaInput;
 
 	/// Meta to encode in state.
-	type StateMeta: Clone;
+	type StateMeta: Clone + MaybeDebug;
 
 	/// Get state meta from node encoded form.
 	fn read_state_meta(&mut self, input: &[u8]) -> crate::rstd::result::Result<usize, &'static str>;

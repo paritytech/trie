@@ -44,15 +44,24 @@ fn populate_trie_and_flag<'db, T: TrieLayout>(
 	v: &[(Vec<u8>, Vec<u8>)],
 	flag: &[(Vec<u8>, StateMeta<T>)],
 ) -> TrieDBMut<'db, T> {
+	{
+		// first set flag and commit (flag behavior is not read
+		// at this point).
+		let mut t = TrieDBMut::<T>::new(db, root);
+		for i in 0..flag.len() {
+			let key: &[u8]= &flag[i].0;
+			if !t.flag(key, flag[i].1.clone()).unwrap() {
+				t.insert(key, b"dummy").unwrap();
+				assert!(t.flag(key, flag[i].1.clone()).unwrap());
+			}
+		}
+	}
+
 	let mut t = TrieDBMut::<T>::new(db, root);
 	for i in 0..v.len() {
 		let key: &[u8]= &v[i].0;
 		let val: &[u8] = &v[i].1;
 		t.insert(key, val).unwrap();
-	}
-	for i in 0..flag.len() {
-		let key: &[u8]= &flag[i].0;
-		t.flag(key, flag[i].1.clone()).unwrap();
 	}
 	t
 }

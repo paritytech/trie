@@ -272,9 +272,9 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 			recorded_do_value_hash: false,
 		};
 		// get recorded_do_value_hash
-		let offset = meta.read_state_meta(stored)
+		let _offset = meta.read_state_meta(stored)
 			.expect("State meta reading failure.");
-		let stored = &stored[offset..];
+		//let stored = &stored[offset..];
 		meta.do_value_hash = meta.recorded_do_value_hash || parent_meta.map(|m| m.do_value_hash).unwrap_or(false);
 		(stored, meta)
 	}
@@ -338,6 +338,7 @@ impl Meta for ValueRange {
 			}
 			match data[1] {
 				ALLOW_HASH_META => {
+					self.recorded_do_value_hash = true;
 					self.do_value_hash = true;
 					2
 				},
@@ -394,15 +395,8 @@ impl Meta for ValueRange {
 			ValuePlan::NoValue => return,
 		};
 
-		if contain_hash || (self.do_value_hash && range.end - range.start >= INNER_HASH_TRESHOLD) {
-			*self = ValueMeta {
-				range: Some(range),
-				contain_hash,
-				unused_value: self.unused_value,
-				recorded_do_value_hash: self.recorded_do_value_hash,
-				do_value_hash: self.do_value_hash,
-			};
-		}
+		self.range = Some(range);
+		self.contain_hash = contain_hash;
 	}
 
 	fn set_child_callback(
@@ -1528,7 +1522,8 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 		} else {
 			0
 		};
-		let mut input = ByteSliceInput::new(&data[offset..]);
+		let mut input = ByteSliceInput::new(data);
+		let _ = input.take(offset)?;
 
 		Ok(match NodeHeaderNoExt::decode(&mut input)? {
 			NodeHeaderNoExt::Null => NodePlan::Empty,
@@ -1705,7 +1700,7 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 					let end = output.len();
 					meta.encoded_value_callback(ValuePlan::HashedValue(start..end, value.len()));	
 				} else {
-				Compact(value.len() as u32).encode_to(&mut output);
+					Compact(value.len() as u32).encode_to(&mut output);
 					let start = output.len();
 					output.extend_from_slice(value);
 					let end = output.len();

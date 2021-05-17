@@ -761,6 +761,28 @@ where
 		Ok((self.storage.alloc(new_stored), changed))
 	}
 
+	/// Flag an existing node.
+	fn flag_at(
+		&mut self,
+		handle: NodeHandle<TrieHash<L>>,
+		key: &mut NibbleFullKey,
+		flag: StateMeta<L>,
+		parent_meta: Option<&L::Meta>,
+	) -> Result<(StorageHandle, NodeChange), TrieHash<L>, CError<L>> {
+		let h = match handle {
+			NodeHandle::InMemory(h) => h,
+			NodeHandle::Hash(h) => self.cache(h, key.left(), parent_meta)?,
+		};
+		// cache then destroy for hash handle (handle being root in most case)
+		let stored = self.storage.destroy(h, &self.layout);
+		let (new_stored, changed) = self.inspect(stored, key, move |trie, stored, key| {
+			trie.flag_inspector(stored, key, flag).map(|a| a.into_action())
+		})?.expect("Flag never deletes.");
+
+		Ok((self.storage.alloc(new_stored), changed))
+	}
+
+
 	/// The insertion inspector.
 	fn insert_inspector(
 		&mut self,
@@ -1148,6 +1170,130 @@ where
 						self.storage.alloc(Stored::New(augmented_low)).into(),
 						new_meta,
 					))
+				}
+			},
+		})
+	}
+
+	/// The flag inspector.
+	fn flag_inspector(
+		&mut self,
+		node: Node<L>,
+		key: &mut NibbleFullKey,
+		flag: StateMeta<L>,
+	) -> Result<InsertAction<L>, TrieHash<L>, CError<L>> {
+		let partial = *key;
+
+		Ok(match node {
+			Node::Empty(mut meta) => {
+				if partial.is_empty() {
+					meta.set_state_meta(flag);
+					InsertAction(NodeChange::EncodedMeta, Node::Empty(meta))
+				} else {
+					InsertAction(NodeChange::None, Node::Empty(meta))
+				}
+			},
+			Node::Branch(mut children, stored_value, mut meta) => {
+				debug_assert!(L::USE_EXTENSION);
+				if partial.is_empty() {
+					meta.set_state_meta(flag);
+					InsertAction(NodeChange::EncodedMeta, Node::Branch(children, stored_value, meta))
+				} else {
+					let idx = partial.at(0) as usize;
+					key.advance(1);
+					let changed = if let Some(child) = children[idx].take() {
+						// Original had something there. recurse down into it.
+						let (new_child, changed) = self.flag_at(child, key, flag, Some(&meta))?;
+						self.set_children(&mut children, &mut meta, Some(new_child), changed, idx)
+					} else {
+						// Original had nothing there, do not flag.
+						NodeChange::None
+					};
+
+					InsertAction(changed, Node::Branch(children, stored_value, meta))
+				}
+			},
+			Node::NibbledBranch(encoded, mut children, stored_value, mut meta) => {
+				debug_assert!(!L::USE_EXTENSION);
+				let existing_key = NibbleSlice::from_stored(&encoded);
+
+				let common = partial.common_prefix(&existing_key);
+				if common == existing_key.len() && common == partial.len() {
+					meta.set_state_meta(flag);
+					let branch = Node::NibbledBranch(
+						existing_key.to_stored(),
+						children,
+						stored_value,
+						meta,
+					);
+					InsertAction(NodeChange::EncodedMeta, branch)
+				} else if common < existing_key.len() {
+					// no node to flag
+					let branch = Node::NibbledBranch(
+						existing_key.to_stored(),
+						children,
+						stored_value,
+						meta,
+					);
+					InsertAction(NodeChange::None, branch)
+				} else {
+					// Append after common == existing_key and partial > common
+					#[cfg(feature = "std")]
+					trace!(target: "trie", "branch: ROUTE,AUGMENT");
+					let idx = partial.at(common) as usize;
+					key.advance(common + 1);
+					let changed = if let Some(child) = children[idx].take() {
+						// Original had something there. recurse down into it.
+						let (new_child, changed) = self.flag_at(child, key, flag, Some(&meta))?;
+
+						self.set_children(
+							&mut children,
+							&mut meta,
+							Some(new_child),
+							changed,
+							idx,
+						)
+					} else {
+						// Original had nothing there. skip.
+						NodeChange::None
+					};
+					InsertAction(changed, Node::NibbledBranch(
+						existing_key.to_stored(),
+						children,
+						stored_value,
+						meta,
+					))
+				}
+			},
+			Node::Leaf(encoded, stored_value, mut meta) => {
+				let existing_key = NibbleSlice::from_stored(&encoded);
+				let common = partial.common_prefix(&existing_key);
+				if common == existing_key.len() && common == partial.len() {
+					meta.set_state_meta(flag);
+					InsertAction(NodeChange::EncodedMeta, Node::Leaf(encoded.clone(), stored_value, meta))
+				} else {
+					InsertAction(NodeChange::None, Node::Leaf(encoded.clone(), stored_value, meta))
+				}
+			},
+			Node::Extension(encoded, child_branch, mut meta) => {
+				debug_assert!(L::USE_EXTENSION);
+				let existing_key = NibbleSlice::from_stored(&encoded);
+				let common = partial.common_prefix(&existing_key);
+				if common == existing_key.len() && common == partial.len() {
+					meta.set_state_meta(flag);
+					InsertAction(NodeChange::EncodedMeta, Node::Extension(encoded.clone(), child_branch, meta))
+				} else if common == existing_key.len() {
+					#[cfg(feature = "std")]
+					trace!(target: "trie", "complete-prefix (common={:?}): AUGMENT-AT-END", common);
+
+					// fully-shared prefix.
+
+					// insert into the child node.
+					key.advance(common);
+					let (new_child, changed) = self.flag_at(child_branch, key, flag, Some(&meta))?;
+					InsertAction(changed, Node::Extension(existing_key.to_stored(), new_child.into(), meta))
+				} else {
+					InsertAction(NodeChange::None, Node::Extension(encoded.clone(), child_branch, meta))
 				}
 			},
 		})
@@ -1720,15 +1866,36 @@ where
 
 	/// Flag an existing node with some encoded meta.
 	/// Return false if node does not exists.
-	/// Warning when a node get remove, its flag also disappear. TODO change trie to keep flagged
-	/// node: flag acting as a value. (requires meta.has_flag() function).
-	/// TODO then also insert node -> fuse method with insert?
+	/// Warning when a node got removed, its flag also disappear.
+	/// Therefore usually flag should ALWAYS be set with a value (even an empty
+	/// one on trie that allows it).
+	/// This also ensure this method will return `true`.
 	pub fn flag(
 		&mut self,
-		_key: &[u8],
-		_flag: StateMeta<L>,
+		key: &[u8],
+		flag: StateMeta<L>,
 	) -> Result<bool, TrieHash<L>, CError<L>> {
-		unimplemented!("Flag unimp.");
+		#[cfg(feature = "std")]
+		trace!(target: "trie", "flagging: key={:#x?}, flag={:?}", key, &flag);
+
+		let root_handle = self.root_handle();
+		let (new_handle, changed) = self.flag_at(
+			root_handle,
+			&mut NibbleSlice::new(key),
+			flag,
+			None,
+		)?;
+
+		#[cfg(feature = "std")]
+		trace!(target: "trie", "flagging: altered trie={}", changed);
+		self.root_handle = NodeHandle::InMemory(new_handle);
+
+		Ok(match changed {
+			NodeChange::EncodedMeta
+			| NodeChange::Encoded => true,
+			NodeChange::None
+			| NodeChange::Meta => false,
+		})
 	}
 }
 
