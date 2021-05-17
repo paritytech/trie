@@ -193,6 +193,7 @@ impl<L: TrieLayout> Node<L>
 	// load an inline node into memory or get the hash to do the lookup later.
 	fn inline_or_hash(
 		parent_hash: TrieHash<L>,
+		parent_meta: &L::Meta,
 		child: EncodedNodeHandle,
 		db: &dyn HashDB<L::Hash, DBValue, L::Meta>,
 		storage: &mut NodeStorage<L>,
@@ -205,7 +206,7 @@ impl<L: TrieLayout> Node<L>
 				NodeHandle::Hash(hash)
 			},
 			EncodedNodeHandle::Inline(data) => {
-				let meta = L::Meta::meta_for_existing_inline_node(layout.metainput_for_new_node());
+				let meta = layout.meta_for_stored_inline_node(Some(parent_meta));
 				let child = Node::from_encoded(parent_hash, data, db, storage, meta, layout)?;
 				NodeHandle::InMemory(storage.alloc(Stored::New(child)))
 			},
@@ -229,12 +230,12 @@ impl<L: TrieLayout> Node<L>
 			EncodedNode::Leaf(k, v) => Node::Leaf(k.into(), v.into(), meta),
 			EncodedNode::Extension(key, cb) => Node::Extension(
 				key.into(),
-				Self::inline_or_hash(node_hash, cb, db, storage, layout)?,
+				Self::inline_or_hash(node_hash, &meta, cb, db, storage, layout)?,
 				meta,
 			),
 			EncodedNode::Branch(encoded_children, val) => {
 				let mut child = |i:usize| match encoded_children[i] {
-					Some(child) => Self::inline_or_hash(node_hash, child, db, storage, layout)
+					Some(child) => Self::inline_or_hash(node_hash, &meta, child, db, storage, layout)
 						.map(Some),
 					None => Ok(None),
 				};
@@ -250,7 +251,7 @@ impl<L: TrieLayout> Node<L>
 			},
 			EncodedNode::NibbledBranch(k, encoded_children, val) => {
 				let mut child = |i:usize| match encoded_children[i] {
-					Some(child) => Self::inline_or_hash(node_hash, child, db, storage, layout)
+					Some(child) => Self::inline_or_hash(node_hash, &meta, child, db, storage, layout)
 						.map(Some),
 					None => Ok(None),
 				};
@@ -437,12 +438,11 @@ impl<L: TrieLayout> NodeStorage<L>
 	}
 
 	/// Remove a node from the storage, consuming the handle and returning the node.
-	fn destroy(&mut self, handle: StorageHandle, layout: &L) -> Stored<L> {
+	fn destroy(&mut self, handle: StorageHandle) -> Stored<L> {
 		let idx = handle.0;
 
 		self.free_indices.push_back(idx);
-		let meta_input = layout.metainput_for_new_node();
-		let meta = L::Meta::meta_for_new(meta_input);
+		let meta = L::Meta::meta_for_empty();
 		mem::replace(&mut self.nodes[idx], Stored::New(Node::Empty(meta)))
 	}
 }
@@ -643,6 +643,7 @@ where
 		&mut self,
 		stored: Stored<L>,
 		key: &mut NibbleFullKey,
+		parent_meta: Option<&L::Meta>,
 		inspector: F,
 	) -> Result<Option<(Stored<L>, NodeChange)>, TrieHash<L>, CError<L>>
 		where
@@ -650,15 +651,16 @@ where
 				&mut Self,
 				Node<L>,
 				&mut NibbleFullKey,
+				Option<&L::Meta>,
 			) -> Result<Action<L>, TrieHash<L>, CError<L>>,
 	{
 		let current_key = *key;
 		Ok(match stored {
-			Stored::New(node) => match inspector(self, node, key)? {
+			Stored::New(node) => match inspector(self, node, key, parent_meta)? {
 				Action::Insert(change, node) => Some((Stored::New(node), change)),
 				Action::Delete => None,
 			},
-			Stored::Cached(node, hash) => match inspector(self, node, key)? {
+			Stored::Cached(node, hash) => match inspector(self, node, key, parent_meta)? {
 				Action::Insert(NodeChange::None, node) => Some((Stored::New(node), NodeChange::None)),
 				Action::Insert(NodeChange::Meta, node) => Some((Stored::New(node), NodeChange::Meta)),
 				Action::Insert(change, node) => {
@@ -753,9 +755,9 @@ where
 			NodeHandle::Hash(h) => self.cache(h, key.left(), parent_meta)?,
 		};
 		// cache then destroy for hash handle (handle being root in most case)
-		let stored = self.storage.destroy(h, &self.layout);
-		let (new_stored, changed) = self.inspect(stored, key, move |trie, stored, key| {
-			trie.insert_inspector(stored, key, value, old_val).map(|a| a.into_action())
+		let stored = self.storage.destroy(h);
+		let (new_stored, changed) = self.inspect(stored, key, parent_meta, move |trie, stored, key, parent_meta| {
+			trie.insert_inspector(stored, key, value, old_val, parent_meta).map(|a| a.into_action())
 		})?.expect("Insertion never deletes.");
 
 		Ok((self.storage.alloc(new_stored), changed))
@@ -774,8 +776,8 @@ where
 			NodeHandle::Hash(h) => self.cache(h, key.left(), parent_meta)?,
 		};
 		// cache then destroy for hash handle (handle being root in most case)
-		let stored = self.storage.destroy(h, &self.layout);
-		let (new_stored, changed) = self.inspect(stored, key, move |trie, stored, key| {
+		let stored = self.storage.destroy(h);
+		let (new_stored, changed) = self.inspect(stored, key, parent_meta, move |trie, stored, key, _| {
 			trie.flag_inspector(stored, key, flag).map(|a| a.into_action())
 		})?.expect("Flag never deletes.");
 
@@ -790,6 +792,7 @@ where
 		key: &mut NibbleFullKey,
 		value: DBValue,
 		old_val: &mut Value,
+		parent_meta: Option<&L::Meta>,
 	) -> Result<InsertAction<L>, TrieHash<L>, CError<L>> {
 		let partial = *key;
 
@@ -823,7 +826,7 @@ where
 						self.set_children(&mut children, &mut meta, Some(new_child), changed, idx)
 					} else {
 						// Original had nothing there. compose a leaf.
-						let meta_leaf = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
+						let meta_leaf = self.layout.meta_for_new_node(Some(&meta));
 						let leaf = self.storage.alloc(
 							Stored::New(Node::Leaf(key.to_stored(), Value::Value(value), meta_leaf))
 						);
@@ -870,7 +873,7 @@ where
 					let mut children = empty_children();
 					let alloc_storage = self.storage.alloc(Stored::New(low));
 
-					let mut meta_branch = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
+					let mut meta_branch = self.layout.meta_for_new_node(parent_meta);
 					let changed = self.set_children(
 						&mut children,
 						&mut meta_branch,
@@ -880,7 +883,6 @@ where
 					);
 
 					if partial.len() - common == 0 {
-						let meta_branch = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
 						InsertAction(changed, Node::NibbledBranch(
 							existing_key.to_stored_range(common),
 							children,
@@ -889,11 +891,10 @@ where
 						))
 					} else {
 						let ix = partial.at(common);
-						let meta_leaf = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
+						let meta_leaf = self.layout.meta_for_new_node(Some(&meta_branch));
 						let stored_leaf = Node::Leaf(partial.mid(common + 1).to_stored(), Value::Value(value), meta_leaf);
 						let leaf = self.storage.alloc(Stored::New(stored_leaf));
 
-						let mut meta_branch = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
 						let changed = self.set_children(
 							&mut children,
 							&mut meta_branch,
@@ -928,7 +929,7 @@ where
 						)
 					} else {
 						// Original had nothing there. compose a leaf.
-						let meta_leaf = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
+						let meta_leaf = self.layout.meta_for_new_node(Some(&meta));
 						let leaf = self.storage.alloc(
 							Stored::New(Node::Leaf(key.to_stored(), Value::Value(value), meta_leaf)),
 						);
@@ -979,31 +980,31 @@ where
 						(Node::Branch(children, stored_value, meta), NodeChange::EncodedMeta)
 					} else {
 						let idx = existing_key.at(common) as usize;
-						let meta_leaf = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
+						let mut meta_branch = self.layout.meta_for_new_node(parent_meta);
 						let new_leaf = Node::Leaf(
 							existing_key.mid(common + 1).to_stored(),
 							stored_value,
-							meta_leaf,
+							meta,
 						);
 						let leaf = self.storage.alloc(Stored::New(new_leaf));
 						let changed = self.set_children(
 							&mut children,
-							&mut meta,
+							&mut meta_branch,
 							Some(leaf),
 							NodeChange::EncodedMeta,
 							idx,
 						);
 
 						(if L::USE_EXTENSION {
-							Node::Branch(children, Value::NoValue, meta)
+							Node::Branch(children, Value::NoValue, meta_branch)
 						} else {
-							Node::NibbledBranch(partial.to_stored_range(common), children, Value::NoValue, meta)
+							Node::NibbledBranch(partial.to_stored_range(common), children, Value::NoValue, meta_branch)
 						}, changed)
 					};
 
 					// always replace because whatever we get out here
 					// is not the branch we started with.
-					let branch_action = self.insert_inspector(branch, key, value, old_val)?
+					let branch_action = self.insert_inspector(branch, key, value, old_val, parent_meta)?
 						.unwrap_node();
 					InsertAction(changed.combine(NodeChange::EncodedMeta), branch_action)
 				} else if !L::USE_EXTENSION {
@@ -1019,7 +1020,7 @@ where
 						meta,
 					);
 					// augment the new branch.
-					let branch = self.insert_inspector(branch, key, value, old_val)?
+					let branch = self.insert_inspector(branch, key, value, old_val, parent_meta)?
 						.unwrap_node();
 
 					InsertAction(NodeChange::EncodedMeta, branch)
@@ -1034,11 +1035,11 @@ where
 					let branch = Node::Branch(empty_children(), stored_value, meta);
 					// augment the new branch.
 					key.advance(common);
-					let branch = self.insert_inspector(branch, key, value, old_val)?.unwrap_node();
+					let branch = self.insert_inspector(branch, key, value, old_val, parent_meta)?.unwrap_node();
 
 					// always replace since we took a leaf and made an extension.
 					let leaf = self.storage.alloc(Stored::New(branch)).into();
-					let mut meta_extension = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
+					let mut meta_extension = self.layout.meta_for_new_node(parent_meta);
 					let changed = self.extension_child_callback(
 						&mut meta_extension,
 						&leaf,
@@ -1064,10 +1065,10 @@ where
 					// augment it. this will result in the Leaf -> common == 0 routine,
 					// which creates a branch.
 					key.advance(common);
-					let augmented_low = self.insert_inspector(low, key, value, old_val)?
+					let augmented_low = self.insert_inspector(low, key, value, old_val, parent_meta)?
 						.unwrap_node(); // TODO all those unwrap_node could actually give rise more precise change
 					// make an extension using it. this is a replacement.
-					let mut meta_extension = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
+					let mut meta_extension = self.layout.meta_for_new_node(parent_meta);
 					let leaf = self.storage.alloc(Stored::New(augmented_low));
 					let changed = self.extension_child_callback(
 						&mut meta_extension,
@@ -1113,7 +1114,7 @@ where
 					};
 
 					let changed = NodeChange::EncodedMeta;
-					let meta_branch = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
+					let meta_branch = self.layout.meta_for_new_node(parent_meta);
 					// No need to register set branch (was here before).
 					children[idx] = child;
 					// continue inserting.
@@ -1122,6 +1123,7 @@ where
 						key,
 						value,
 						old_val,
+						parent_meta,
 					)?.unwrap_node();
 					InsertAction(changed.combine(NodeChange::EncodedMeta), branch_action)
 				} else if common == existing_key.len() {
@@ -1159,10 +1161,10 @@ where
 					// augment the extension. this will take the common == 0 path,
 					// creating a branch.
 					key.advance(common);
-					let augmented_low = self.insert_inspector(low, key, value, old_val)?
+					let augmented_low = self.insert_inspector(low, key, value, old_val, parent_meta)?
 						.unwrap_node();
 
-					let new_meta = L::Meta::meta_for_new(self.layout.metainput_for_new_node());
+					let new_meta = self.layout.meta_for_new_node(parent_meta);
 					// always replace, since this extension is not the one we started with.
 					// this is known because the partial key is only the common prefix.
 					InsertAction(NodeChange::EncodedMeta, Node::Extension(
@@ -1308,17 +1310,18 @@ where
 		parent_meta: Option<&L::Meta>,
 	) -> Result<Option<(StorageHandle, NodeChange)>, TrieHash<L>, CError<L>> {
 		let stored = match handle {
-			NodeHandle::InMemory(h) => self.storage.destroy(h, &self.layout),
+			NodeHandle::InMemory(h) => self.storage.destroy(h),
 			NodeHandle::Hash(h) => {
 				let handle = self.cache(h, key.left(), parent_meta)?;
-				self.storage.destroy(handle, &self.layout)
+				self.storage.destroy(handle)
 			}
 		};
 
 		let opt = self.inspect(
 			stored,
 			key,
-			move |trie, node, key| trie.remove_inspector(node, key, old_val),
+			parent_meta,
+			move |trie, node, key, _| trie.remove_inspector(node, key, old_val),
 		)?;
 
 		Ok(opt.map(|(new, changed)| (self.storage.alloc(new), changed)))
@@ -1619,10 +1622,10 @@ where
 						};
 						let child_prefix = (alloc_start.as_ref().map(|start| &start[..]).unwrap_or(start), prefix_end);
 						let stored = match child {
-							NodeHandle::InMemory(h) => self.storage.destroy(h, &self.layout),
+							NodeHandle::InMemory(h) => self.storage.destroy(h),
 							NodeHandle::Hash(h) => {
 								let handle = self.cache(h, child_prefix, Some(&meta))?;
-								self.storage.destroy(handle, &self.layout)
+								self.storage.destroy(handle)
 							}
 						};
 						let child_node = match stored {
@@ -1695,10 +1698,10 @@ where
 				let child_prefix = (alloc_start.as_ref().map(|start| &start[..]).unwrap_or(start), prefix_end);
 
 				let stored = match child {
-					NodeHandle::InMemory(h) => self.storage.destroy(h, &self.layout),
+					NodeHandle::InMemory(h) => self.storage.destroy(h),
 					NodeHandle::Hash(h) => {
 						let handle = self.cache(h, child_prefix, Some(&meta))?;
-						self.storage.destroy(handle, &self.layout)
+						self.storage.destroy(handle)
 					}
 				};
 
@@ -1781,7 +1784,7 @@ where
 			NodeHandle::InMemory(h) => h,
 		};
 
-		match self.storage.destroy(handle, &self.layout) {
+		match self.storage.destroy(handle) {
 			Stored::New(node) => {
 				let mut k = NibbleVec::new();
 				let (encoded_root, meta) = node.into_encoded(
@@ -1822,7 +1825,7 @@ where
 		match handle {
 			NodeHandle::Hash(hash) => ChildReference::Hash(hash),
 			NodeHandle::InMemory(storage_handle) => {
-				match self.storage.destroy(storage_handle, &self.layout) {
+				match self.storage.destroy(storage_handle) {
 					Stored::Cached(_, hash) => ChildReference::Hash(hash),
 					Stored::New(node) => {
 						let (encoded, meta) = {

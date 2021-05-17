@@ -429,13 +429,16 @@ pub trait TrieLayout: Default + Clone {
 	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::MetaInput;
 
 	/// Meta state input for new node.
-	fn meta_for_new_node(&self) -> Self::Meta {
-		<Self::Meta as Meta>::meta_for_new(self.metainput_for_new_node())
+	fn meta_for_new_node(&self, parent_meta: Option<&Self::Meta>) -> Self::Meta {
+		<Self::Meta as Meta>::meta_for_new(self.metainput_for_new_node(), parent_meta)
 	}
 
 	/// Meta state input for new node.
-	fn meta_for_stored_inline_node(&self) -> Self::Meta {
-		<Self::Meta as Meta>::meta_for_existing_inline_node(self.metainput_for_stored_inline_node())
+	fn meta_for_stored_inline_node(&self, parent_meta: Option<&Self::Meta>) -> Self::Meta {
+		<Self::Meta as Meta>::meta_for_existing_inline_node(
+			self.metainput_for_stored_inline_node(),
+			parent_meta,
+		)
 	}
 }
 
@@ -540,12 +543,14 @@ pub trait Meta: Clone {
 	/// `meta_for_new` but the fact that it complicate code and is not required
 	/// by current use cases.
 	fn meta_for_existing_inline_node(
-		input: Self::MetaInput
+		input: Self::MetaInput,
+		parent_meta: Option<&Self>,
 	) -> Self;
 
 	/// Leaf meta creation.
 	fn meta_for_new(
 		input: Self::MetaInput,
+		parent_meta: Option<&Self>,
 	) -> Self;
 
 	/// Empty node meta creation.
@@ -630,12 +635,14 @@ impl Meta for () {
 
 	fn meta_for_new(
 		_input: Self::MetaInput,
+		_parent_meta: Option<&Self>,
 	) -> Self {
 		()
 	}
 
 	fn meta_for_existing_inline_node(
-		_input: Self::MetaInput
+		_input: Self::MetaInput,
+		_parent_meta: Option<&Self>,
 	) -> Self {
 		()
 	}

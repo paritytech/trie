@@ -361,14 +361,18 @@ impl Meta for ValueRange {
 
 	fn meta_for_new(
 		_input: Self::MetaInput,
+		parent: Option<&Self>,
 	) -> Self {
-		Default::default()
+		let mut result = Self::default();
+		result.do_value_hash = parent.map(|p| p.do_value_hash).unwrap_or_default();
+		result
 	}
 
 	fn meta_for_existing_inline_node(
-		_input: Self::MetaInput
+		input: Self::MetaInput,
+		parent: Option<&Self>,
 	) -> Self {
-		Default::default()
+		Self::meta_for_new(input, parent)
 	}
 
 	fn meta_for_empty(
@@ -562,6 +566,7 @@ impl Meta for VersionedValueRange {
 
 	fn meta_for_new(
 		input: Self::MetaInput,
+		_parent: Option<&Self>,
 	) -> Self {
 		let old_remaining_children = if matches!(input, Version::Old) {
 			Some(Vec::new())
@@ -572,7 +577,8 @@ impl Meta for VersionedValueRange {
 	}
 
 	fn meta_for_existing_inline_node(
-		input: Self::MetaInput
+		input: Self::MetaInput,
+		_parent: Option<&Self>,
 	) -> Self {
 		let old_remaining_children = if matches!(input, Version::Old) {
 			Some(Vec::new())

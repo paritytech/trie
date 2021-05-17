@@ -123,7 +123,7 @@ where
 
 				(Some(node_hash), node_data, meta)
 			}
-			NodeHandle::Inline(data) => (None, data.to_vec(), L::meta_for_stored_inline_node(&self.layout)),
+			NodeHandle::Inline(data) => (None, data.to_vec(), self.layout.meta_for_stored_inline_node(parent_meta)),
 		};
 		let owned_node = OwnedNode::new::<L::Meta, L::Codec>(node_data, &mut meta)
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or(parent_hash), e)))?;

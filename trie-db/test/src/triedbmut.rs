@@ -57,7 +57,7 @@ fn populate_trie_and_flag<'db, T: TrieLayout>(
 		}
 	}
 
-	let mut t = TrieDBMut::<T>::new(db, root);
+	let mut t = TrieDBMut::<T>::from_existing(db, root).unwrap();
 	for i in 0..v.len() {
 		let key: &[u8]= &v[i].0;
 		let val: &[u8] = &v[i].1;
