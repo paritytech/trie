@@ -1699,7 +1699,7 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 		(0..BITMAP_LENGTH).for_each(|_| output.push(0));
 		match maybe_value {
 			Value::Value(value) => {
-				if meta.do_value_hash() {
+				if meta.do_value_hash() && value.len() >= INNER_HASH_TRESHOLD {
 					Compact(value.len() as u32).encode_to(&mut output);
 					let start = output.len();
 					output.extend_from_slice(H::hash(value).as_ref());
