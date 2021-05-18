@@ -423,7 +423,8 @@ impl Meta for ValueRange {
 	}
 
 	fn do_value_hash(&self) -> bool {
-		self.unused_value
+		self.unused_value && self.range.as_ref()
+			.map(|range| range.end - range.start >= INNER_HASH_TRESHOLD).unwrap_or_default()
 	}
 }
 
