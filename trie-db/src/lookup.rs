@@ -62,21 +62,21 @@ where
 		key: NibbleSlice,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let mut partial = key;
-		let mut hash = self.hash;
+		let hash = &mut self.hash;
 		let mut key_nibbles = 0;
 		let mut parent_meta = None;
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
-			let (node_data, mut meta) = match self.db.get_with_meta(&hash, key.mid(key_nibbles).left(), parent_meta.as_ref()) {
+			let (node_data, mut meta) = match self.db.get_with_meta(hash, key.mid(key_nibbles).left(), parent_meta.as_ref()) {
 				Some(value) => value,
 				None => return Err(Box::new(match depth {
-					0 => TrieError::InvalidStateRoot(hash),
-					_ => TrieError::IncompleteDatabase(hash),
+					0 => TrieError::InvalidStateRoot(*hash),
+					_ => TrieError::IncompleteDatabase(*hash),
 				})),
 			};
 
-			self.query.record(&hash, &node_data, depth);
+			self.query.record(hash, &node_data, depth);
 
 			// this loop iterates through all inline children (usually max 1)
 			// without incrementing the depth.
@@ -85,7 +85,7 @@ where
 				let decoded = match L::Codec::decode(node_data, &mut meta) {
 					Ok(node) => node,
 					Err(e) => {
-						return Err(Box::new(TrieError::DecoderError(hash, e)))
+						return Err(Box::new(TrieError::DecoderError(*hash, e)))
 					}
 				};
 				let next_node = match decoded {
@@ -138,8 +138,8 @@ where
 				// check if new node data is inline or hash.
 				match next_node {
 					NodeHandle::Hash(data) => {
-						hash = decode_hash::<L::Hash>(data)
-							.ok_or_else(|| Box::new(TrieError::InvalidHash(hash, data.to_vec())))?;
+						*hash = decode_hash::<L::Hash>(data)
+							.ok_or_else(|| Box::new(TrieError::InvalidHash(*hash, data.to_vec())))?;
 						break;
 					},
 					NodeHandle::Inline(data) => {
