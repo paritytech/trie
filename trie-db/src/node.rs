@@ -244,6 +244,19 @@ impl NodePlan {
 			.flat_map(|children| children.iter().map(is_inline))
 			.chain(child.into_iter().map(is_inline2))
 	}
+
+
+	/// Access value plan from node plan, return `None` for
+	/// node that cannot contain a `ValuePlan`.
+	pub fn value_plan(&self) -> Option<&ValuePlan> {
+		match self {
+			NodePlan::Extension { .. }
+			| NodePlan::Empty => None,
+			NodePlan::Leaf { value, .. }
+			| NodePlan::Branch { value, .. }
+			| NodePlan::NibbledBranch { value, .. } => Some(value),
+		}
+	}
 }
 
 /// An `OwnedNode` is an owned type from which a `Node` can be constructed which borrows data from
