@@ -114,7 +114,6 @@ where
 	pub(crate) fn get_raw_or_lookup(
 		&self,
 		parent_hash: TrieHash<L>,
-		parent_meta: Option<&L::Meta>,
 		node_handle: NodeHandle,
 		partial_key: Prefix,
 	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>, L::Meta), TrieHash<L>, CError<L>> {
@@ -207,7 +206,6 @@ where
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		match self.trie.get_raw_or_lookup(
 			<TrieHash<L>>::default(),
-			None,
 			self.node_key,
 			self.partial_key.as_prefix()
 		) {

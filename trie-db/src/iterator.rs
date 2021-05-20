@@ -72,7 +72,6 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 		};
 		let (root_node, root_hash, meta) = db.get_raw_or_lookup(
 			*db.root(),
-			None,
 			NodeHandle::Hash(db.root().as_ref()),
 			EMPTY_PREFIX
 		)?;
@@ -108,7 +107,6 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 
 		let (mut node, mut node_hash, mut meta) = self.db.get_raw_or_lookup(
 			<TrieHash<L>>::default(),
-			None,
 			NodeHandle::Hash(self.db.root().as_ref()),
 			EMPTY_PREFIX
 		)?;
@@ -152,7 +150,6 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 						let prefix = key.back(full_key_nibbles);
 						self.db.get_raw_or_lookup(
 							node_hash.unwrap_or_default(),
-							Some(&meta),
 							child.build(node_data),
 							prefix.left()
 						)?
@@ -173,7 +170,6 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 							let prefix = key.back(full_key_nibbles);
 							self.db.get_raw_or_lookup(
 								node_hash.unwrap_or_default(),
-								Some(&meta),
 								child.build(node_data),
 								prefix.left()
 							)?
@@ -212,7 +208,6 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 							let prefix = key.back(full_key_nibbles);
 							self.db.get_raw_or_lookup(
 								node_hash.unwrap_or_default(),
-								Some(&meta),
 								child.build(node_data),
 								prefix.left()
 							)?
@@ -303,7 +298,6 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 						IterStep::Descend::<TrieHash<L>, L::Meta, CError<L>>(
 							self.db.get_raw_or_lookup(
 								b.hash.unwrap_or_default(),
-								Some(&b.meta),
 								child.build(node_data),
 								self.key_nibbles.as_prefix()
 							)
@@ -327,7 +321,6 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 							IterStep::Descend::<TrieHash<L>, L::Meta, CError<L>>(
 								self.db.get_raw_or_lookup(
 									b.hash.unwrap_or_default(),
-									Some(&b.meta),
 									child.build(node_data),
 									self.key_nibbles.as_prefix()
 								)

@@ -87,28 +87,6 @@ impl<T, V> CacheAccum<T, V>
 	}
 
 	#[inline(always)]
-	fn last_meta(&self) -> Option<&T::Meta> {
-		let ix = self.0.len();
-		if ix > 0 {
-			let last = ix - 1;
-			Some(&self.0[last].3)
-		} else {
-			None
-		}
-	}
-
-	#[inline(always)]
-	fn last_last_meta(&self) -> Option<&T::Meta> {
-		let ix = self.0.len();
-		if ix > 1 {
-			let last = ix - 2;
-			Some(&self.0[last].3)
-		} else {
-			None
-		}
-	}
-
-	#[inline(always)]
 	fn last_depth(&self) -> usize {
 		let ix = self.0.len();
 		if ix > 0 {

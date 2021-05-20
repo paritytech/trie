@@ -65,7 +65,6 @@ where
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let mut partial = key;
 		let mut key_nibbles = 0;
-		let mut parent_meta = None;
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
@@ -149,7 +148,6 @@ where
 					},
 				}
 			}
-			parent_meta = Some(meta);
 		}
 		Ok(None)
 	}
