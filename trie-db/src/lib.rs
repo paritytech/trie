@@ -353,7 +353,7 @@ where
 	/// Create new immutable instance of Trie.
 	pub fn readonly(
 		&self,
-		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 		root: &'db TrieHash<L>
 	) -> Result<TrieKinds<'db, L>, TrieHash<L>, CError<L>> {
 		match self.spec {
@@ -366,7 +366,7 @@ where
 	/// Create new mutable instance of Trie.
 	pub fn create(
 		&self,
-		db: &'db mut dyn HashDB<L::Hash, DBValue, L::Meta>,
+		db: &'db mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 		root: &'db mut TrieHash<L>,
 	) -> Box<dyn TrieMut<L> + 'db> {
 		match self.spec {
@@ -379,7 +379,7 @@ where
 	/// Create new mutable instance of trie and check for errors.
 	pub fn from_existing(
 		&self,
-		db: &'db mut dyn HashDB<L::Hash, DBValue, L::Meta>,
+		db: &'db mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 		root: &'db mut TrieHash<L>,
 	) -> Result<Box<dyn TrieMut<L> + 'db>, TrieHash<L>, CError<L>> {
 		match self.spec {
@@ -424,24 +424,24 @@ pub trait TrieLayout: Default + Clone {
 		Self::Hash,
 		DBValue,
 		Meta = Self::Meta,
+		GlobalMeta = GlobalMeta<Self>,
 	>;
 
 	/// Meta state input for new node.
-	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput;
+	fn metainput_for_new_node(&self) -> GlobalMeta<Self>;
 
 	/// Meta state input for stored inline node (inline node do not have stored meta).
-	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::MetaInput;
+	fn metainput_for_stored_inline_node(&self) -> GlobalMeta<Self>;
 
 	/// Meta state input for new node.
-	fn meta_for_new_node(&self, parent_meta: Option<&Self::Meta>) -> Self::Meta {
-		<Self::Meta as Meta>::meta_for_new(self.metainput_for_new_node(), parent_meta)
+	fn meta_for_new_node(&self) -> Self::Meta {
+		<Self::Meta as Meta>::meta_for_new(self.metainput_for_new_node())
 	}
 
 	/// Meta state input for new node.
-	fn meta_for_stored_inline_node(&self, parent_meta: Option<&Self::Meta>) -> Self::Meta {
+	fn meta_for_stored_inline_node(&self) -> Self::Meta {
 		<Self::Meta as Meta>::meta_for_existing_inline_node(
 			self.metainput_for_stored_inline_node(),
-			parent_meta,
 		)
 	}
 
@@ -452,12 +452,13 @@ pub trait TrieLayout: Default + Clone {
 
 	/// When `READ_ROOT_STATE_META` is set, we complete root meta with layout
 	/// state before encoding.
-	fn set_root_meta(_root_meta: &mut Self::Meta, _global_meta: &<Self::Meta as Meta>::MetaInput) {
+	fn set_root_meta(_root_meta: &mut Self::Meta, _global_meta: GlobalMeta<Self>) {
 	}
 
 	/// Current global layout meta.
 	/// TODO consider merging mith all meta input function.
-	fn layout_meta(&self) -> <Self::Meta as Meta>::MetaInput;
+	/// TODO rename simply 'meta'
+	fn layout_meta(&self) -> GlobalMeta<Self>;
 }
 
 /// Node modification status.
@@ -563,13 +564,11 @@ pub trait Meta: Clone {
 	/// by current use cases.
 	fn meta_for_existing_inline_node(
 		input: Self::MetaInput,
-		parent_meta: Option<&Self>,
 	) -> Self;
 
 	/// Leaf meta creation.
 	fn meta_for_new(
 		input: Self::MetaInput,
-		parent_meta: Option<&Self>,
 	) -> Self;
 
 	/// Empty node meta creation.
@@ -654,14 +653,12 @@ impl Meta for () {
 
 	fn meta_for_new(
 		_input: Self::MetaInput,
-		_parent_meta: Option<&Self>,
 	) -> Self {
 		()
 	}
 
 	fn meta_for_existing_inline_node(
 		_input: Self::MetaInput,
-		_parent_meta: Option<&Self>,
 	) -> Self {
 		()
 	}
@@ -716,7 +713,7 @@ impl Meta for () {
 pub trait TrieConfiguration: Sized + TrieLayout {
 	/// Operation to build a trie db from its ordered iterator over its key/values.
 	fn trie_build<DB, I, A, B>(&self, db: &mut DB, input: I) -> <Self::Hash as Hasher>::Out where
-		DB: HashDB<Self::Hash, DBValue, Self::Meta>,
+		DB: HashDB<Self::Hash, DBValue, Self::Meta, GlobalMeta<Self>>,
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,
@@ -770,5 +767,7 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 /// Alias accessor to state of meta.
 pub type StateMeta<L> = <<L as TrieLayout>::Meta as Meta>::StateMeta;
+/// Alias accessor to global meta.
+pub type GlobalMeta<L> = <<L as TrieLayout>::Meta as Meta>::MetaInput;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
 pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec<<L as TrieLayout>::Meta>>::Error;

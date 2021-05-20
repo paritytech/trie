@@ -16,7 +16,7 @@ use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
 use crate::nibble::NibbleSlice;
 use crate::iterator::TrieDBNodeIterator;
 use crate::rstd::boxed::Box;
-use crate::DBValue;
+use crate::{DBValue, GlobalMeta};
 use super::node::{NodeHandle, Node, Value, OwnedNode, decode_hash};
 use super::lookup::Lookup;
 use super::{Result, Trie, TrieItem, TrieKeyItem, TrieError, TrieIterator, Query,
@@ -53,7 +53,7 @@ where
 	L: TrieLayout,
 {
 	layout: L,
-	db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta>,
+	db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 	root: &'db TrieHash<L>,
 	/// The number of hashes performed so far in operations on this trie.
 	hash_count: usize,
@@ -66,7 +66,7 @@ where
 	/// Create a new trie with the backing database `db` and `root`
 	/// Returns an error if `root` does not exist
 	pub fn new(
-		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 		root: &'db TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Self::new_with_layout(db, root, Default::default())
@@ -76,12 +76,12 @@ where
 	/// Returns an error if `root` does not exist
 	/// This can use a context specific layout.
 	pub fn new_with_layout(
-		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 		root: &'db TrieHash<L>,
 		mut layout: L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if L::READ_ROOT_STATE_META {
-			if let Some((encoded, mut meta)) = db.get_with_meta(root, EMPTY_PREFIX, None) {
+			if let Some((encoded, mut meta)) = db.get_with_meta(root, EMPTY_PREFIX, layout.layout_meta()) {
 				// read state meta
 				use crate::node_codec::NodeCodec;
 				let _ = L::Codec::decode_plan(encoded.as_slice(), &mut meta)
@@ -99,7 +99,7 @@ where
 	}
 
 	/// Get the backing database.
-	pub fn db(&'db self) -> &'db dyn HashDBRef<L::Hash, DBValue, L::Meta> {
+	pub fn db(&'db self) -> &'db dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>> {
 		self.db
 	}
 
@@ -123,7 +123,7 @@ where
 				let node_hash = decode_hash::<L::Hash>(data)
 					.ok_or_else(|| Box::new(TrieError::InvalidHash(parent_hash, data.to_vec())))?;
 				let (node_data, meta) = self.db
-					.get_with_meta(&node_hash, partial_key, parent_meta)
+					.get_with_meta(&node_hash, partial_key, self.layout.layout_meta())
 					.ok_or_else(|| {
 						if partial_key == EMPTY_PREFIX {
 							Box::new(TrieError::InvalidStateRoot(node_hash))
@@ -134,11 +134,16 @@ where
 
 				(Some(node_hash), node_data, meta)
 			}
-			NodeHandle::Inline(data) => (None, data.to_vec(), self.layout.meta_for_stored_inline_node(parent_meta)),
+			NodeHandle::Inline(data) => (None, data.to_vec(), self.layout.meta_for_stored_inline_node()),
 		};
 		let owned_node = OwnedNode::new::<L::Meta, L::Codec>(node_data, &mut meta)
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or(parent_hash), e)))?;
 		Ok((owned_node, node_hash, meta))
+	}
+
+	/// Get current value of Trie layout.
+	pub fn layout(&self) -> L {
+		self.layout.clone()
 	}
 }
 
@@ -159,6 +164,7 @@ where
 			db: self.db,
 			query,
 			hash: *self.root,
+			layout: self.layout.clone(),
 		}.look_up(NibbleSlice::new(key))
 	}
 

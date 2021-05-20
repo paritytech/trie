@@ -17,7 +17,7 @@ use trie_standardmap::*;
 use log::debug;
 use memory_db::{MemoryDB, PrefixedKey};
 use hash_db::{Hasher, HashDB};
-use trie_db::{TrieDBMut, TrieMut, NodeCodec,
+use trie_db::{TrieDBMut, TrieMut, NodeCodec, GlobalMeta,
 	TrieLayout, DBValue, Value, StateMeta};
 use reference_trie::{ExtensionLayout, NoExtensionLayout,
 	RefHasher, test_layouts, ReferenceNodeCodec,
@@ -31,7 +31,7 @@ type PrefixedMemoryDB<T> = MemoryDB::<
 >;
 
 fn populate_trie<'db, T: TrieLayout>(
-	db: &'db mut dyn HashDB<T::Hash, DBValue, T::Meta>,
+	db: &'db mut dyn HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>>,
 	root: &'db mut <T::Hash as Hasher>::Out,
 	v: &[(Vec<u8>, Vec<u8>)]
 ) -> TrieDBMut<'db, T> {
@@ -39,7 +39,7 @@ fn populate_trie<'db, T: TrieLayout>(
 }
 
 fn populate_trie_and_flag<'db, T: TrieLayout>(
-	db: &'db mut dyn HashDB<T::Hash, DBValue, T::Meta>,
+	db: &'db mut dyn HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>>,
 	root: &'db mut <T::Hash as Hasher>::Out,
 	v: &[(Vec<u8>, Vec<u8>)],
 	flag: &[(Vec<u8>, StateMeta<T>)],
@@ -561,6 +561,7 @@ fn register_proof_without_value() {
 	type Updatable = CheckMetaHasherNoExt;
 	type VF = TestMetaHasher<RefHasher>;
 	type Meta = reference_trie::ValueRange;
+	type GlobalMeta = <reference_trie::ValueRange as trie_db::Meta>::MetaInput;
 	type MemoryDB = memory_db::MemoryDB<
 		RefHasher,
 		PrefixedKey<RefHasher>,
@@ -592,18 +593,18 @@ fn register_proof_without_value() {
 	unsafe impl Send for ProofRecorder { }
 	unsafe impl Sync for ProofRecorder { }
 
-	impl HashDB<RefHasher, DBValue, Meta> for ProofRecorder {
+	impl HashDB<RefHasher, DBValue, Meta, GlobalMeta> for ProofRecorder {
 		fn get(&self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) -> Option<DBValue> {
-			self.get_with_meta(key, prefix, None).map(|v| v.0)
+			self.get_with_meta(key, prefix, false).map(|v| v.0)
 		}
 
 		fn get_with_meta(
 			&self,
 			key: &<RefHasher as Hasher>::Out,
 			prefix: Prefix,
-			parent_meta: Option<&Meta>,
+			global_meta: GlobalMeta,
 		) -> Option<(DBValue, Meta)> {
-			let v = self.db.get_with_meta(key, prefix, parent_meta);
+			let v = self.db.get_with_meta(key, prefix, global_meta);
 			if let Some(v) = v.as_ref() {
 				self.record.borrow_mut().entry(key[..].to_vec())
 					.or_insert_with(|| {
@@ -648,11 +649,11 @@ fn register_proof_without_value() {
 		}
 	}
 
-	impl AsHashDB<RefHasher, DBValue, Meta> for ProofRecorder {
-		fn as_hash_db(&self) -> &dyn HashDB<RefHasher, DBValue, Meta> {
+	impl AsHashDB<RefHasher, DBValue, Meta, GlobalMeta> for ProofRecorder {
+		fn as_hash_db(&self) -> &dyn HashDB<RefHasher, DBValue, Meta, GlobalMeta> {
 			self
 		}
-		fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (dyn HashDB<RefHasher, DBValue, Meta> + 'a) {
+		fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (dyn HashDB<RefHasher, DBValue, Meta, GlobalMeta> + 'a) {
 			self
 		}
 	}

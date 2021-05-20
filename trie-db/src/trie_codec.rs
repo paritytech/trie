@@ -30,7 +30,7 @@ use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout,
 	nibble_ops::NIBBLE_LENGTH, node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode},
-	nibble::LeftNibbleSlice, Meta,
+	nibble::LeftNibbleSlice, Meta, GlobalMeta,
 };
 use crate::rstd::{
 	boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec, vec::Vec,
@@ -480,23 +480,25 @@ impl<'a, C: NodeCodec<M>, M: Meta> DecoderStackEntry<'a, C, M> {
 //
 /// This function makes the assumption that all child references in an inline trie node are inline
 /// references.
-pub fn decode_compact<L, DB>(db: &mut DB, encoded: &[Vec<u8>])
+pub fn decode_compact<L, DB>(db: &mut DB, encoded: &[Vec<u8>], layout: &L)
 	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
-		DB: HashDB<L::Hash, DBValue, L::Meta>,
+		DB: HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 {
-	decode_compact_from_iter::<L, DB, _>(db, encoded.iter().map(Vec::as_slice))
+	// TODO layout from first value (root) if L, otherwhise just use default.
+	decode_compact_from_iter::<L, DB, _>(db, encoded.iter().map(Vec::as_slice), layout)
 }
 
 /// Variant of 'decode_compact' that accept an iterator of encoded nodes as input.
-pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I)
+pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I, layout: &L)
 	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
-		DB: HashDB<L::Hash, DBValue, L::Meta>,
+		DB: HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 		I: IntoIterator<Item = &'a [u8]>,
 {
+	// TODO layout from first value (root) if L, otherwhise just use default.
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
 	let mut stack: Vec<DecoderStackEntry<L::Codec, L::Meta>> = Vec::new();
@@ -506,7 +508,7 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I)
 
 	for (i, encoded_node) in encoded.into_iter().enumerate() {
 		let parent_meta = stack.last().map(|entry| &entry.meta);
-		let (encoded_node, mut meta) = L::MetaHasher::extract_value(encoded_node, parent_meta);
+		let (encoded_node, mut meta) = L::MetaHasher::extract_value(encoded_node, layout.layout_meta());
 		let node = L::Codec::decode(&encoded_node[..], &mut meta)
 			.map_err(|err| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), err)))?;
 

@@ -557,7 +557,7 @@ where
 	fn contains(&self, key: &H::Out) -> bool { PlainDB::contains(self, key) }
 }
 
-impl<H, KF, T, M, VF> HashDB<H, T, VF::Meta> for MemoryDB<H, KF, T, VF, M>
+impl<H, KF, T, M, VF> HashDB<H, T, VF::Meta, VF::GlobalMeta> for MemoryDB<H, KF, T, VF, M>
 where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
@@ -576,13 +576,13 @@ where
 			_ => None
 		}
 	}
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, parent_meta: Option<&VF::Meta>) -> Option<(T, VF::Meta)> {
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, global: VF::GlobalMeta) -> Option<(T, VF::Meta)> {
 		if key == &self.hashed_null_node {
 			return Some((self.null_node_data.clone(), Default::default()));
 		}		
 
-		<Self as HashDB<H, T, VF::Meta>>::get(&self, key, prefix)
-			.map(|value| VF::extract_value_owned(value, parent_meta))
+		<Self as HashDB<H, T, VF::Meta, VF::GlobalMeta>>::get(&self, key, prefix)
+			.map(|value| VF::extract_value_owned(value, global))
 	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
 		if key == &self.hashed_null_node {
@@ -665,7 +665,7 @@ where
 	}
 }
 
-impl<H, KF, T, M, VF> HashDBRef<H, T, VF::Meta> for MemoryDB<H, KF, T, VF, M>
+impl<H, KF, T, M, VF> HashDBRef<H, T, VF::Meta, VF::GlobalMeta> for MemoryDB<H, KF, T, VF, M>
 where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
@@ -677,8 +677,8 @@ where
 	fn access_from(&self, key: &H::Out, at: Option<&H::Out>) -> Option<T> {
 		HashDB::access_from(self, key, at)
 	}
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, parent: Option<&VF::Meta>) -> Option<(T, VF::Meta)> {
-		HashDB::get_with_meta(self, key, prefix, parent)
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, global: VF::GlobalMeta) -> Option<(T, VF::Meta)> {
+		HashDB::get_with_meta(self, key, prefix, global)
 	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool { HashDB::contains(self, key, prefix) }
 }
@@ -696,7 +696,7 @@ where
 	fn as_plain_db_mut(&mut self) -> &mut dyn PlainDB<H::Out, T> { self }
 }
 
-impl<H, KF, T, M, VF> AsHashDB<H, T, VF::Meta> for MemoryDB<H, KF, T, VF, M>
+impl<H, KF, T, M, VF> AsHashDB<H, T, VF::Meta, VF::GlobalMeta> for MemoryDB<H, KF, T, VF, M>
 where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a[u8]> + Clone + Send + Sync,
@@ -704,8 +704,8 @@ where
 	M: MemTracker<T> + Send + Sync,
 	VF: MetaHasher<H, T> + Send + Sync,
 {
-	fn as_hash_db(&self) -> &dyn HashDB<H, T, VF::Meta> { self }
-	fn as_hash_db_mut(&mut self) -> &mut dyn HashDB<H, T, VF::Meta> { self }
+	fn as_hash_db(&self) -> &dyn HashDB<H, T, VF::Meta, VF::GlobalMeta> { self }
+	fn as_hash_db_mut(&mut self) -> &mut dyn HashDB<H, T, VF::Meta, VF::GlobalMeta> { self }
 }
 
 #[cfg(test)]

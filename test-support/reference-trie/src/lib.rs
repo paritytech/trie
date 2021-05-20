@@ -32,6 +32,7 @@ use trie_db::{
 	Meta,
 	ChildrenDecoded,
 	NodeChange,
+	GlobalMeta,
 };
 use std::borrow::Borrow;
 
@@ -213,13 +214,12 @@ impl TrieLayout for CheckMetaHasherNoExt {
 			self.0 = true;
 		}
 	}
-	fn set_root_meta(root_meta: &mut Self::Meta, global_meta: &<Self::Meta as Meta>::MetaInput) {
-		if *global_meta {
+	fn set_root_meta(root_meta: &mut Self::Meta, global_meta: GlobalMeta<Self>) {
+		if global_meta {
 			root_meta.recorded_do_value_hash = true;
 		}
 	}
 }
-
 
 /// Test value function: prepend optional encoded size of value
 pub struct TestMetaHasher<H>(PhantomData<H>);
@@ -230,6 +230,7 @@ pub struct TestMetaHasherProof<H>(PhantomData<H>);
 
 impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 	type Meta = ValueRange;
+	type GlobalMeta = bool;
 
 	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out {
 		match &meta {
@@ -282,7 +283,7 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 		Self::stored_value(value.as_slice(), meta)
 	}
 
-	fn extract_value<'a>(mut stored: &'a [u8], parent_meta: Option<&Self::Meta>) -> (&'a [u8], Self::Meta) {
+	fn extract_value(mut stored: &[u8], global_meta: Self::GlobalMeta) -> (&[u8], Self::Meta) {
 		let input = &mut stored;
 		let range: Option<(u32, u32)> = Decode::decode(input).ok().flatten();
 		let mut contain_hash = false;
@@ -303,13 +304,13 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 		let _offset = meta.read_state_meta(stored)
 			.expect("State meta reading failure.");
 		//let stored = &stored[offset..];
-		meta.do_value_hash = meta.recorded_do_value_hash || parent_meta.map(|m| m.do_value_hash).unwrap_or(false);
+		meta.do_value_hash = meta.recorded_do_value_hash || global_meta;
 		(stored, meta)
 	}
 
-	fn extract_value_owned(mut stored: DBValue, parent_meta: Option<&Self::Meta>) -> (DBValue, Self::Meta) {
+	fn extract_value_owned(mut stored: DBValue, global_meta: Self::GlobalMeta) -> (DBValue, Self::Meta) {
 		let len = stored.len();
-		let (v, meta) = Self::extract_value(stored.as_slice(), parent_meta);
+		let (v, meta) = Self::extract_value(stored.as_slice(), global_meta);
 		let removed = len - v.len();
 		(stored.split_off(removed), meta)
 	}
@@ -390,19 +391,17 @@ impl Meta for ValueRange {
 	}
 
 	fn meta_for_new(
-		_input: Self::MetaInput,
-		parent: Option<&Self>,
+		input: Self::MetaInput,
 	) -> Self {
 		let mut result = Self::default();
-		result.do_value_hash = parent.map(|p| p.do_value_hash).unwrap_or_default();
+		result.do_value_hash = input;
 		result
 	}
 
 	fn meta_for_existing_inline_node(
 		input: Self::MetaInput,
-		parent: Option<&Self>,
 	) -> Self {
-		Self::meta_for_new(input, parent)
+		Self::meta_for_new(input)
 	}
 
 	fn meta_for_empty(
@@ -602,7 +601,6 @@ impl Meta for VersionedValueRange {
 
 	fn meta_for_new(
 		input: Self::MetaInput,
-		_parent: Option<&Self>,
 	) -> Self {
 		let old_remaining_children = if matches!(input, Version::Old) {
 			Some(Vec::new())
@@ -614,7 +612,6 @@ impl Meta for VersionedValueRange {
 
 	fn meta_for_existing_inline_node(
 		input: Self::MetaInput,
-		_parent: Option<&Self>,
 	) -> Self {
 		let old_remaining_children = if matches!(input, Version::Old) {
 			Some(Vec::new())
@@ -744,6 +741,7 @@ pub struct TestUpdatableMetaHasher<H>(PhantomData<H>);
 
 impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestUpdatableMetaHasher<H> {
 	type Meta = VersionedValueRange;
+	type GlobalMeta = Version;
 
 	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out {
 		if matches!(meta.version, Version::New) {
@@ -773,7 +771,7 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestUpdatableMetaHasher<H> {
 		Self::stored_value(value.as_slice(), meta)
 	}
 
-	fn extract_value<'a>(mut stored: &'a [u8], _parent_meta: Option<&Self::Meta>) -> (&'a [u8], Self::Meta) {
+	fn extract_value(mut stored: &[u8], _meta: Self::GlobalMeta) -> (&[u8], Self::Meta) {
 		let len = stored.len();
 		let input = &mut stored;
 		// if len == 1 it is new empty trie.
@@ -792,7 +790,7 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestUpdatableMetaHasher<H> {
 		})
 	}
 
-	fn extract_value_owned(mut stored: DBValue, _parent_meta: Option<&Self::Meta>) -> (DBValue, Self::Meta) {
+	fn extract_value_owned(mut stored: DBValue, _meta: Self::GlobalMeta) -> (DBValue, Self::Meta) {
 		// TODO factor with extract_value
 		let len = stored.len();
 		let input = &mut stored.as_slice();
@@ -1777,7 +1775,7 @@ pub fn compare_implementations<T, DB> (
 )
 	where
 		T: TrieLayout,
-		DB : hash_db::HashDB<T::Hash, DBValue, T::Meta> + Eq,
+		DB : hash_db::HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>> + Eq,
 {
 	let root_new = calc_root_build::<T, _, _, _, _>(data.clone(), &mut hashdb);
 	let root = {
@@ -1791,7 +1789,7 @@ pub fn compare_implementations<T, DB> (
 	};
 	if root_new != root {
 		{
-			let db : &dyn hash_db::HashDB<_, _, _> = &hashdb;
+			let db : &dyn hash_db::HashDB<_, _, _, _> = &hashdb;
 			let t = TrieDB::<T>::new(&db, &root_new).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -1799,7 +1797,7 @@ pub fn compare_implementations<T, DB> (
 			}
 		}
 		{
-			let db : &dyn hash_db::HashDB<_, _, _> = &memdb;
+			let db : &dyn hash_db::HashDB<_, _, _, _> = &memdb;
 			let t = TrieDB::<T>::new(&db, &root).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -1814,7 +1812,7 @@ pub fn compare_implementations<T, DB> (
 }
 
 /// Compare trie builder and trie root implementations.
-pub fn compare_root<T: TrieLayout, DB: hash_db::HashDB<T::Hash, DBValue, T::Meta>>(
+pub fn compare_root<T: TrieLayout, DB: hash_db::HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>>>(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
 	mut memdb: DB,
 ) {
@@ -1885,7 +1883,7 @@ pub fn calc_root_build<T, I, A, B, DB>(
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord + fmt::Debug,
 		B: AsRef<[u8]> + fmt::Debug,
-		DB: hash_db::HashDB<T::Hash, DBValue, T::Meta>,
+		DB: hash_db::HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>>,
 {
 	let mut cb = TrieBuilder::<T, DB>::new(hashdb);
 	trie_visit(data.into_iter(), &mut cb, &T::default());
@@ -1901,7 +1899,7 @@ pub fn compare_implementations_unordered<T, DB> (
 )
 	where
 		T: TrieLayout,
-		DB : hash_db::HashDB<T::Hash, DBValue, T::Meta> + Eq,
+		DB : hash_db::HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>> + Eq,
 {
 	let mut b_map = std::collections::btree_map::BTreeMap::new();
 	let root = {
@@ -1921,7 +1919,7 @@ pub fn compare_implementations_unordered<T, DB> (
 
 	if root != root_new {
 		{
-			let db : &dyn hash_db::HashDB<_, _, _> = &memdb;
+			let db : &dyn hash_db::HashDB<_, _, _, _> = &memdb;
 			let t = TrieDB::<T>::new(&db, &root).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -1929,7 +1927,7 @@ pub fn compare_implementations_unordered<T, DB> (
 			}
 		}
 		{
-			let db : &dyn hash_db::HashDB<_, _, _> = &hashdb;
+			let db : &dyn hash_db::HashDB<_, _, _, _> = &hashdb;
 			let t = TrieDB::<T>::new(&db, &root_new).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -1943,13 +1941,13 @@ pub fn compare_implementations_unordered<T, DB> (
 
 /// Testing utility that uses some periodic removal over
 /// its input test data.
-pub fn compare_insert_remove<T, DB: hash_db::HashDB<T::Hash, DBValue, T::Meta>>(
+pub fn compare_insert_remove<T, DB: hash_db::HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>>>(
 	data: Vec<(bool, Vec<u8>, Vec<u8>)>,
 	mut memdb: DB,
 )
 	where
 		T: TrieLayout,
-		DB : hash_db::HashDB<T::Hash, DBValue, T::Meta> + Eq,
+		DB : hash_db::HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>> + Eq,
 {
 
 	let mut data2 = std::collections::BTreeMap::new();

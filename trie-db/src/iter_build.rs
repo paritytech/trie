@@ -23,7 +23,7 @@ use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
 use crate::nibble::nibble_ops;
 use crate::node_codec::NodeCodec;
-use crate::{TrieLayout, TrieHash, DBValue};
+use crate::{TrieLayout, TrieHash, DBValue, GlobalMeta};
 use crate::node::Value;
 
 macro_rules! exponential_out {
@@ -65,7 +65,7 @@ impl<T, V> CacheAccum<T, V>
 	#[inline(always)]
 	fn set_cache_value(&mut self, depth: usize, value: Option<V>, layout: &T) {
 		if self.0.is_empty() || self.0[self.0.len() - 1].2 < depth {
-			let meta = layout.meta_for_new_node(self.last_meta());
+			let meta = layout.meta_for_new_node();
 			self.0.push((new_vec_slice_buffer(), None, depth, meta));
 		}
 		let last = self.0.len() - 1;
@@ -76,7 +76,7 @@ impl<T, V> CacheAccum<T, V>
 	#[inline(always)]
 	fn set_node(&mut self, depth: usize, nibble_index: usize, node: CacheNode<TrieHash<T>>, layout: &T) {
 		if self.0.is_empty() || self.0[self.0.len() - 1].2 < depth {
-			let meta = layout.meta_for_new_node(self.last_meta());
+			let meta = layout.meta_for_new_node();
 			self.0.push((new_vec_slice_buffer(), None, depth, meta));
 		}
 
@@ -146,7 +146,7 @@ impl<T, V> CacheAccum<T, V>
 		(k2, v2): &(impl AsRef<[u8]>, impl AsRef<[u8]>),
 		layout: &T,
 	) {
-		let mut meta = layout.meta_for_new_node(self.last_meta());
+		let mut meta = layout.meta_for_new_node();
 		let nibble_value = nibble_ops::left_nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
 		let nkey = NibbleSlice::new_offset(&k2.as_ref()[..], target_depth + 1);
@@ -171,7 +171,7 @@ impl<T, V> CacheAccum<T, V>
 	) {
 
 		while self.last_depth() > new_depth || is_last && !self.is_empty() {
-			let extension_meta = T::USE_EXTENSION.then(|| layout.meta_for_new_node(self.last_last_meta()));
+			let extension_meta = T::USE_EXTENSION.then(|| layout.meta_for_new_node());
 
 			let lix = self.last_depth();
 			let llix = max(self.last_last_depth(), new_depth);
@@ -310,7 +310,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F, layout: &T)
 			// one single element corner case
 			let (k2, v2) = previous_value;
 			let nkey = NibbleSlice::new_offset(&k2.as_ref()[..], last_depth);
-			let mut meta = layout.meta_for_new_node(None);
+			let mut meta = layout.meta_for_new_node();
 			let encoded = T::Codec::leaf_node(nkey.right(), Value::Value(&v2.as_ref()[..]), &mut meta);
 			let pr = NibbleSlice::new_offset(
 				&k2.as_ref()[..],
@@ -364,7 +364,7 @@ impl<'a, T: TrieLayout, DB> TrieBuilder<'a, T, DB> {
 impl<'a, T, DB> ProcessEncodedNode<TrieHash<T>, T::Meta> for TrieBuilder<'a, T, DB>
 	where
 		T: TrieLayout,
-		DB: HashDB<T::Hash, DBValue, T::Meta>,
+		DB: HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>>,
 {
 	fn process(
 		&mut self,

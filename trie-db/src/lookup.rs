@@ -19,16 +19,18 @@ use crate::nibble::NibbleSlice;
 use crate::node::{Node, NodeHandle, decode_hash, Value};
 use crate::node_codec::NodeCodec;
 use crate::rstd::boxed::Box;
-use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash};
+use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash, GlobalMeta};
 
 /// Trie lookup helper object.
 pub struct Lookup<'a, L: TrieLayout, Q: Query<L::Hash>> {
 	/// database to query from.
-	pub db: &'a dyn HashDBRef<L::Hash, DBValue, L::Meta>,
+	pub db: &'a dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 	/// Query object to record nodes and transform data.
 	pub query: Q,
 	/// Hash to start at
 	pub hash: TrieHash<L>,
+	/// Layout for the trie.
+	pub layout: L,
 }
 
 impl<'a, L, Q> Lookup<'a, L, Q>
@@ -68,7 +70,7 @@ where
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
 			let hash = self.hash;
-			let (node_data, mut meta) = match self.db.get_with_meta(&hash, key.mid(key_nibbles).left(), parent_meta.as_ref()) {
+			let (node_data, mut meta) = match self.db.get_with_meta(&hash, key.mid(key_nibbles).left(), self.layout.layout_meta()) {
 				Some(value) => value,
 				None => return Err(Box::new(match depth {
 					0 => TrieError::InvalidStateRoot(hash),

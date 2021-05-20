@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout};
+use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout, GlobalMeta};
 use hash_db::{Hasher, EMPTY_PREFIX};
 use crate::triedb::TrieDB;
 use crate::node::{NodePlan, NodeHandle, OwnedNode};
@@ -252,7 +252,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 	}
 
 	/// Access inner hash db.
-	pub fn db(&self) -> &dyn hash_db::HashDBRef<L::Hash, DBValue, L::Meta> {
+	pub fn db(&self) -> &dyn hash_db::HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>> {
 		self.db.db()
 	}
 }

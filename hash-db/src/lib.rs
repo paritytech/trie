@@ -107,7 +107,7 @@ impl<'a, K, V> PlainDBRef<K, V> for &'a mut dyn PlainDB<K, V> {
 }
 
 /// Trait modelling datastore keyed by a hash defined by the `Hasher`.
-pub trait HashDB<H: Hasher, T, M>: Send + Sync + AsHashDB<H, T, M> {
+pub trait HashDB<H: Hasher, T, M, GM>: Send + Sync + AsHashDB<H, T, M, GM> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
@@ -115,7 +115,7 @@ pub trait HashDB<H: Hasher, T, M>: Send + Sync + AsHashDB<H, T, M> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	/// Resolve associated meta, and allow inheriting meta from parent definition.
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, parent: Option<&M>) -> Option<(T, M)>;
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, global_meta: GM) -> Option<(T, M)>;
 
 	/// Access additional content or indicate additional content already accessed and needed.
 	///
@@ -153,7 +153,7 @@ pub trait HashDB<H: Hasher, T, M>: Send + Sync + AsHashDB<H, T, M> {
 }
 
 /// Trait for immutable reference of HashDB.
-pub trait HashDBRef<H: Hasher, T, M> {
+pub trait HashDBRef<H: Hasher, T, M, GM> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
@@ -161,7 +161,7 @@ pub trait HashDBRef<H: Hasher, T, M> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	/// Resolve associated meta.
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, parent: Option<&M>) -> Option<(T, M)>;
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, global_meta: GM) -> Option<(T, M)>;
 
 	/// TODO
 	fn access_from(&self, _key: &H::Out, _at: Option<&H::Out>) -> Option<T>;
@@ -170,26 +170,26 @@ pub trait HashDBRef<H: Hasher, T, M> {
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool;
 }
 
-impl<'a, H: Hasher, T, M> HashDBRef<H, T, M> for &'a dyn HashDB<H, T, M> {
+impl<'a, H: Hasher, T, M, GM> HashDBRef<H, T, M, GM> for &'a dyn HashDB<H, T, M, GM> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(*self, key, prefix) }
 	fn access_from(&self, key: &H::Out, at: Option<&H::Out>) -> Option<T> {
 		HashDB::access_from(*self, key, at)
 	}
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, parent: Option<&M>) -> Option<(T, M)> {
-		HashDB::get_with_meta(*self, key, prefix, parent)
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, global_meta: GM) -> Option<(T, M)> {
+		HashDB::get_with_meta(*self, key, prefix, global_meta)
 	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
 		HashDB::contains(*self, key, prefix)
 	}
 }
 
-impl<'a, H: Hasher, T, M> HashDBRef<H, T, M> for &'a mut dyn HashDB<H, T, M> {
+impl<'a, H: Hasher, T, M, GM> HashDBRef<H, T, M, GM> for &'a mut dyn HashDB<H, T, M, GM> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(*self, key, prefix) }
 	fn access_from(&self, key: &H::Out, at: Option<&H::Out>) -> Option<T> {
 		HashDB::access_from(*self, key, at)
 	}
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, parent: Option<&M>) -> Option<(T, M)> {
-		HashDB::get_with_meta(*self, key, prefix, parent)
+	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, global_meta: GM) -> Option<(T, M)> {
+		HashDB::get_with_meta(*self, key, prefix, global_meta)
 	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
 		HashDB::contains(*self, key, prefix)
@@ -197,11 +197,11 @@ impl<'a, H: Hasher, T, M> HashDBRef<H, T, M> for &'a mut dyn HashDB<H, T, M> {
 }
 
 /// Upcast trait for HashDB.
-pub trait AsHashDB<H: Hasher, T, M> {
+pub trait AsHashDB<H: Hasher, T, M, GM> {
 	/// Perform upcast to HashDB for anything that derives from HashDB.
-	fn as_hash_db(&self) -> &dyn HashDB<H, T, M>;
+	fn as_hash_db(&self) -> &dyn HashDB<H, T, M, GM>;
 	/// Perform mutable upcast to HashDB for anything that derives from HashDB.
-	fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (dyn HashDB<H, T, M> + 'a);
+	fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (dyn HashDB<H, T, M, GM> + 'a);
 }
 
 /// Upcast trait for PlainDB.
@@ -221,6 +221,7 @@ pub trait MetaHasher<H: Hasher, T>: Send + Sync {
 	/// Also meta can register information that is not
 	/// stored, in this case default initiate these.
 	type Meta: Default + Clone;
+	type GlobalMeta;
 
 	/// Produce hash, from its hashable value and its metadata.
 	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out;
@@ -232,11 +233,11 @@ pub trait MetaHasher<H: Hasher, T>: Send + Sync {
 	fn stored_value_owned(value: T, meta: Self::Meta) -> T;
 
 	/// Get meta and hashable value from stored value.
-	fn extract_value<'a>(stored: &'a [u8], parent_meta: Option<&Self::Meta>) -> (&'a [u8], Self::Meta);
+	fn extract_value(stored: &[u8], global_meta: Self::GlobalMeta) -> (&[u8], Self::Meta);
 
 	/// Same as `extract_value` but consiming an allocated
 	/// buffer.
-	fn extract_value_owned(stored: T, parent_meta: Option<&Self::Meta>) -> (T, Self::Meta);
+	fn extract_value_owned(stored: T, global_meta: Self::GlobalMeta) -> (T, Self::Meta);
 }
 
 /// Default `MetaHasher` implementation, stored value
@@ -249,6 +250,7 @@ impl<H, T> MetaHasher<H, T> for NoMeta
 		T: for<'a> From<&'a [u8]>,
 {
 	type Meta = ();
+	type GlobalMeta = ();
 
 	fn hash(value: &[u8], _meta: &Self::Meta) -> H::Out {
 		H::hash(value)
@@ -262,11 +264,11 @@ impl<H, T> MetaHasher<H, T> for NoMeta
 		value
 	}
 
-	fn extract_value<'a>(stored: &'a [u8], _parent_meta: Option<&Self::Meta>) -> (&'a [u8], Self::Meta) {
+	fn extract_value(stored: &[u8], _global_meta: Self::GlobalMeta) -> (&[u8], Self::Meta) {
 		(stored, ())
 	}
 
-	fn extract_value_owned(stored: T, _parent_meta: Option<&Self::Meta>) -> (T, Self::Meta) {
+	fn extract_value_owned(stored: T, _global_meta: Self::GlobalMeta) -> (T, Self::Meta) {
 		(stored, ())
 	}
 }
@@ -276,9 +278,9 @@ impl<H, T> MetaHasher<H, T> for NoMeta
 // implementing-a-trait-for-reference-and-non-reference-types-causes-conflicting-im
 // This means we need concrete impls of AsHashDB in several places, which somewhat defeats
 // the point of the trait.
-impl<'a, H: Hasher, T, VF> AsHashDB<H, T, VF> for &'a mut dyn HashDB<H, T, VF> {
-	fn as_hash_db(&self) -> &dyn HashDB<H, T, VF> { &**self }
-	fn as_hash_db_mut<'b>(&'b mut self) -> &'b mut (dyn HashDB<H, T, VF> + 'b) { &mut **self }
+impl<'a, H: Hasher, T, VF, GM> AsHashDB<H, T, VF, GM> for &'a mut dyn HashDB<H, T, VF, GM> {
+	fn as_hash_db(&self) -> &dyn HashDB<H, T, VF, GM> { &**self }
+	fn as_hash_db_mut<'b>(&'b mut self) -> &'b mut (dyn HashDB<H, T, VF, GM> + 'b) { &mut **self }
 }
 
 #[cfg(feature = "std")]

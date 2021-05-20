@@ -14,7 +14,7 @@
 
 //! In-memory trie representation.
 
-use super::{DBValue, node::NodeKey, Meta, NodeChange};
+use super::{DBValue, node::NodeKey, Meta, NodeChange, GlobalMeta};
 use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError,
 	StateMeta};
 use super::lookup::Lookup;
@@ -195,7 +195,7 @@ impl<L: TrieLayout> Node<L>
 		parent_hash: TrieHash<L>,
 		parent_meta: &L::Meta,
 		child: EncodedNodeHandle,
-		db: &dyn HashDB<L::Hash, DBValue, L::Meta>,
+		db: &dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 		storage: &mut NodeStorage<L>,
 		layout: &L,
 	) -> Result<NodeHandle<TrieHash<L>>, TrieHash<L>, CError<L>> {
@@ -206,7 +206,7 @@ impl<L: TrieLayout> Node<L>
 				NodeHandle::Hash(hash)
 			},
 			EncodedNodeHandle::Inline(data) => {
-				let meta = layout.meta_for_stored_inline_node(Some(parent_meta));
+				let meta = layout.meta_for_stored_inline_node();
 				let child = Node::from_encoded(parent_hash, data, db, storage, meta, layout)?;
 				NodeHandle::InMemory(storage.alloc(Stored::New(child)))
 			},
@@ -218,7 +218,7 @@ impl<L: TrieLayout> Node<L>
 	fn from_encoded<'a, 'b>(
 		node_hash: TrieHash<L>,
 		data: &'a[u8],
-		db: &dyn HashDB<L::Hash, DBValue, L::Meta>,
+		db: &dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 		storage: &'b mut NodeStorage<L>,
 		mut meta: L::Meta, 
 		layout: &L,
@@ -280,7 +280,7 @@ impl<L: TrieLayout> Node<L>
 	fn into_encoded_with_root_meta<F>(
 		mut self,
 		mut child_cb: F,
-		root_meta: Option<&<L::Meta as Meta>::MetaInput>,
+		root_meta: Option<<L::Meta as Meta>::MetaInput>,
 	) -> (Vec<u8>, L::Meta)
 	where
 		F: FnMut(NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
@@ -515,7 +515,7 @@ where
 {
 	layout: L,
 	storage: NodeStorage<L>,
-	db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta>,
+	db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 	root: &'a mut TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
 	death_row: HashSet<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
@@ -529,14 +529,14 @@ where
 	L: TrieLayout,
 {
 	/// Create a new trie with backing database `db` and empty `root`.
-	pub fn new(db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta>, root: &'a mut TrieHash<L>) -> Self {
+	pub fn new(db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>, root: &'a mut TrieHash<L>) -> Self {
 		Self::new_with_layout(db, root, Default::default())
 	}
 
 	/// Create a new trie with backing database `db` and empty `root`.
 	/// This could use a context specific layout.
 	pub fn new_with_layout(
-		db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta>,
+		db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 		root: &'a mut TrieHash<L>,
 		layout: L,
 	) -> Self {
@@ -557,7 +557,7 @@ where
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
 	pub fn from_existing(
-		db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta>,
+		db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 		root: &'a mut TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Self::from_existing_with_layout(db, root, Default::default())
@@ -566,7 +566,7 @@ where
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
 	pub fn from_existing_with_layout(
-		db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta>,
+		db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 		root: &'a mut TrieHash<L>,
 		mut layout: L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
@@ -574,7 +574,7 @@ where
 			return Err(Box::new(TrieError::InvalidStateRoot(*root)));
 		}
 		if L::READ_ROOT_STATE_META {
-			if let Some((encoded, mut meta)) = db.get_with_meta(root, EMPTY_PREFIX, None) {
+			if let Some((encoded, mut meta)) = db.get_with_meta(root, EMPTY_PREFIX, layout.layout_meta()) {
 				// read state meta
 				let _ = L::Codec::decode_plan(encoded.as_slice(), &mut meta)
 					.map_err(|e| Box::new(TrieError::DecoderError(*root, e)))?;
@@ -598,12 +598,12 @@ where
 		})
 	}
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue, L::Meta> {
+	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>> {
 		self.db
 	}
 
 	/// Get the backing database mutably.
-	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue, L::Meta> {
+	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>> {
 		self.db
 	}
 
@@ -614,7 +614,7 @@ where
 		key: Prefix,
 		parent_meta: Option<&L::Meta>,
 	) -> Result<StorageHandle, TrieHash<L>, CError<L>> {
-		let (node_encoded, meta) = self.db.get_with_meta(&hash, key, parent_meta)
+		let (node_encoded, meta) = self.db.get_with_meta(&hash, key, self.layout.layout_meta())
 			.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
 		let node = Node::from_encoded(
 			hash,
@@ -726,6 +726,7 @@ where
 					db: &self.db,
 					query: |v: &[u8]| v.to_vec(),
 					hash: *hash,
+					layout: self.layout.clone(),
 				}.look_up(partial),
 				NodeHandle::InMemory(ref handle) => match self.storage[handle] {
 					Node::Empty(_) => return Ok(None),
@@ -862,7 +863,7 @@ where
 						self.set_children(&mut children, &mut meta, Some(new_child), changed, idx)
 					} else {
 						// Original had nothing there. compose a leaf.
-						let meta_leaf = self.layout.meta_for_new_node(Some(&meta));
+						let meta_leaf = self.layout.meta_for_new_node();
 						let leaf = self.storage.alloc(
 							Stored::New(Node::Leaf(key.to_stored(), Value::Value(value), meta_leaf))
 						);
@@ -909,7 +910,7 @@ where
 					let mut children = empty_children();
 					let alloc_storage = self.storage.alloc(Stored::New(low));
 
-					let mut meta_branch = self.layout.meta_for_new_node(parent_meta);
+					let mut meta_branch = self.layout.meta_for_new_node();
 					let changed = self.set_children(
 						&mut children,
 						&mut meta_branch,
@@ -927,7 +928,7 @@ where
 						))
 					} else {
 						let ix = partial.at(common);
-						let meta_leaf = self.layout.meta_for_new_node(Some(&meta_branch));
+						let meta_leaf = self.layout.meta_for_new_node();
 						let stored_leaf = Node::Leaf(partial.mid(common + 1).to_stored(), Value::Value(value), meta_leaf);
 						let leaf = self.storage.alloc(Stored::New(stored_leaf));
 
@@ -965,7 +966,7 @@ where
 						)
 					} else {
 						// Original had nothing there. compose a leaf.
-						let meta_leaf = self.layout.meta_for_new_node(Some(&meta));
+						let meta_leaf = self.layout.meta_for_new_node();
 						let leaf = self.storage.alloc(
 							Stored::New(Node::Leaf(key.to_stored(), Value::Value(value), meta_leaf)),
 						);
@@ -1016,7 +1017,7 @@ where
 						(Node::Branch(children, stored_value, meta), NodeChange::EncodedMeta)
 					} else {
 						let idx = existing_key.at(common) as usize;
-						let mut meta_branch = self.layout.meta_for_new_node(parent_meta);
+						let mut meta_branch = self.layout.meta_for_new_node();
 						let new_leaf = Node::Leaf(
 							existing_key.mid(common + 1).to_stored(),
 							stored_value,
@@ -1075,7 +1076,7 @@ where
 
 					// always replace since we took a leaf and made an extension.
 					let leaf = self.storage.alloc(Stored::New(branch)).into();
-					let mut meta_extension = self.layout.meta_for_new_node(parent_meta);
+					let mut meta_extension = self.layout.meta_for_new_node();
 					let changed = self.extension_child_callback(
 						&mut meta_extension,
 						&leaf,
@@ -1104,7 +1105,7 @@ where
 					let augmented_low = self.insert_inspector(low, key, value, old_val, parent_meta)?
 						.unwrap_node(); // TODO all those unwrap_node could actually give rise more precise change
 					// make an extension using it. this is a replacement.
-					let mut meta_extension = self.layout.meta_for_new_node(parent_meta);
+					let mut meta_extension = self.layout.meta_for_new_node();
 					let leaf = self.storage.alloc(Stored::New(augmented_low));
 					let changed = self.extension_child_callback(
 						&mut meta_extension,
@@ -1150,7 +1151,7 @@ where
 					};
 
 					let changed = NodeChange::EncodedMeta;
-					let meta_branch = self.layout.meta_for_new_node(parent_meta);
+					let meta_branch = self.layout.meta_for_new_node();
 					// No need to register set branch (was here before).
 					children[idx] = child;
 					// continue inserting.
@@ -1200,7 +1201,7 @@ where
 					let augmented_low = self.insert_inspector(low, key, value, old_val, parent_meta)?
 						.unwrap_node();
 
-					let new_meta = self.layout.meta_for_new_node(parent_meta);
+					let new_meta = self.layout.meta_for_new_node();
 					// always replace, since this extension is not the one we started with.
 					// this is known because the partial key is only the common prefix.
 					InsertAction(NodeChange::EncodedMeta, Node::Extension(
@@ -1836,7 +1837,7 @@ where
 						k.drop_lasts(mov);
 						cr
 					},
-					global_meta.as_ref(),
+					global_meta,
 				);
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
@@ -1943,6 +1944,11 @@ where
 			NodeChange::None
 			| NodeChange::Meta => false,
 		})
+	}
+
+	/// Get current value of Trie layout.
+	pub fn layout(&self) -> L {
+		self.layout.clone()
 	}
 }
 

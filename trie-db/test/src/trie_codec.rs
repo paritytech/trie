@@ -81,7 +81,8 @@ fn test_decode_compact<L: TrieLayout>(
 ) {
 	// Reconstruct the partial DB from the compact encoding.
 	let mut db = MemoryDB::<L>::default();
-	let (root, used) = decode_compact::<L, _>(&mut db, encoded).unwrap();
+	let layout = L::default();
+	let (root, used) = decode_compact::<L, _>(&mut db, encoded, &layout).unwrap();
 	assert_eq!(root, expected_root);
 	assert_eq!(used, expected_used);
 
@@ -146,7 +147,8 @@ fn trie_decoding_fails_with_incomplete_database_internal<T: TrieLayout>() {
 
 		// Reconstruct the partial DB from the compact encoding.
 		let mut db = MemoryDB::<T>::default();
-		match decode_compact::<T, _>(&mut db, &encoded[..encoded.len() - 1]) {
+		let layout = T::default();
+		match decode_compact::<T, _>(&mut db, &encoded[..encoded.len() - 1], &layout) {
 			Err(err) => match *err {
 				TrieError::IncompleteDatabase(_) => {}
 				_ => panic!("got unexpected TrieError"),
