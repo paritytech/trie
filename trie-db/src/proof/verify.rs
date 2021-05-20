@@ -142,7 +142,7 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 		self.complete_children()?;
 		Ok(match self.node {
 			Node::Empty =>
-				C::empty_node().to_vec(),
+				C::empty_node(&mut ()).to_vec(),
 			Node::Leaf(partial, _) => {
 				C::leaf_node(partial.right(), self.value, &mut ())
 			}

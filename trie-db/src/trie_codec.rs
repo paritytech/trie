@@ -443,7 +443,7 @@ impl<'a, C: NodeCodec<M>, M: Meta> DecoderStackEntry<'a, C, M> {
 	fn encode_node(mut self) -> (Vec<u8>, M) {
 		(match self.node {
 			Node::Empty =>
-				C::empty_node().to_vec(),
+				C::empty_node(&mut self.meta).to_vec(),
 			Node::Leaf(partial, value) =>
 				C::leaf_node(partial.right(), value, &mut self.meta),
 			Node::Extension(partial, _) =>

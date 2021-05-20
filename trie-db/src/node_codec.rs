@@ -61,7 +61,11 @@ pub trait NodeCodec<M: Meta>: Sized {
 	fn is_empty_node(data: &[u8]) -> bool;
 
 	/// Returns an encoded empty node.
-	fn empty_node() -> &'static [u8];
+	fn empty_node(meta: &mut M) -> Vec<u8>;
+
+
+	/// Returns an encoded empty node without meta handling.
+	fn empty_node_no_meta() -> &'static [u8];
 
 	/// Returns an encoded leaf node
 	fn leaf_node(partial: Partial, value: Value, meta: &mut M) -> Vec<u8>;

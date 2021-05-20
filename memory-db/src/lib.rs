@@ -578,7 +578,7 @@ where
 	}
 	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, global: VF::GlobalMeta) -> Option<(T, VF::Meta)> {
 		if key == &self.hashed_null_node {
-			return Some((self.null_node_data.clone(), Default::default()));
+			return Some(VF::extract_value_owned(self.null_node_data.clone(), global));
 		}		
 
 		<Self as HashDB<H, T, VF::Meta, VF::GlobalMeta>>::get(&self, key, prefix)

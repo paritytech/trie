@@ -18,7 +18,7 @@ use log::debug;
 use memory_db::{MemoryDB, PrefixedKey};
 use hash_db::{Hasher, HashDB};
 use trie_db::{TrieDBMut, TrieMut, NodeCodec, GlobalMeta,
-	TrieLayout, DBValue, Value, StateMeta};
+	TrieLayout, DBValue, Value};
 use reference_trie::{ExtensionLayout, NoExtensionLayout,
 	RefHasher, test_layouts, ReferenceNodeCodec,
 	ReferenceNodeCodecNoExt, reference_trie_root_iter_build as reference_trie_root};
@@ -35,29 +35,27 @@ fn populate_trie<'db, T: TrieLayout>(
 	root: &'db mut <T::Hash as Hasher>::Out,
 	v: &[(Vec<u8>, Vec<u8>)]
 ) -> TrieDBMut<'db, T> {
-	populate_trie_and_flag(db, root, v, &[])
+	populate_trie_and_flag(db, root, v, None)
 }
 
 fn populate_trie_and_flag<'db, T: TrieLayout>(
 	db: &'db mut dyn HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>>,
 	root: &'db mut <T::Hash as Hasher>::Out,
 	v: &[(Vec<u8>, Vec<u8>)],
-	flag: &[(Vec<u8>, StateMeta<T>)],
+	flagged_layout: Option<T>,
 ) -> TrieDBMut<'db, T> {
-	{
-		// first set flag and commit (flag behavior is not read
-		// at this point).
-		let mut t = TrieDBMut::<T>::new(db, root);
-		for i in 0..flag.len() {
-			let key: &[u8]= &flag[i].0;
-			if !t.flag(key, flag[i].1.clone()).unwrap() {
-				t.insert(key, b"dummy").unwrap();
-				assert!(t.flag(key, flag[i].1.clone()).unwrap());
-			}
+	let mut t = if let Some(layout) = flagged_layout {
+		let prev_root = root.clone();
+		{
+			let mut t = TrieDBMut::<T>::new_with_layout(db, root, layout);
+			t.force_layout_meta().unwrap();
 		}
-	}
+		assert!(&prev_root != root);
+		TrieDBMut::<T>::from_existing(db, root).unwrap()
+	} else {
+		TrieDBMut::<T>::new(db, root)
+	};
 
-	let mut t = TrieDBMut::<T>::from_existing(db, root).unwrap();
 	for i in 0..v.len() {
 		let key: &[u8]= &v[i].0;
 		let val: &[u8] = &v[i].1;
@@ -573,13 +571,11 @@ fn register_proof_without_value() {
 		(b"test1234".to_vec(), vec![2;36]),
 		(b"te".to_vec(), vec![3;32]),
 	];
-	let flag = [
-		(b"te".to_vec(), true),
-	];
 
 	let mut memdb = MemoryDB::default();
 	let mut root = Default::default();
-	let _ = populate_trie_and_flag::<Updatable>(&mut memdb, &mut root, &x, &flag);
+	let layout = CheckMetaHasherNoExt(true); // flagged for hashed.
+	let _ = populate_trie_and_flag::<Updatable>(&mut memdb, &mut root, &x, Some(layout));
 	{
 		let trie = TrieDB::<Updatable>::new(&memdb, &root).unwrap();
 		println!("{:?}", trie);

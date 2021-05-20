@@ -302,8 +302,8 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F, layout: &T)
 		}
 	} else {
 		// nothing null root corner case
-		let empty_meta = <T::Meta as crate::Meta>::meta_for_empty();
-		callback.process(hash_db::EMPTY_PREFIX, T::Codec::empty_node().to_vec(), true, empty_meta);
+		let mut empty_meta = <T::Meta as crate::Meta>::meta_for_empty();
+		callback.process(hash_db::EMPTY_PREFIX, T::Codec::empty_node(&mut empty_meta).to_vec(), true, empty_meta);
 	}
 }
 

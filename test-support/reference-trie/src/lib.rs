@@ -260,7 +260,7 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 			stored.extend_from_slice(value);
 			return stored;
 		}
-		if meta.unused_value {
+		if meta.do_value_hash && meta.unused_value {
 			if let Some(range) = meta.range.as_ref() {
 				if range.end - range.start >= INNER_HASH_TRESHOLD {
 					// Waring this assume that encoded value does not start by this, so it is tightly coupled
@@ -284,6 +284,12 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 	}
 
 	fn extract_value(mut stored: &[u8], global_meta: Self::GlobalMeta) -> (&[u8], Self::Meta) {
+		// handle empty trie optimisation.
+		if stored == &[0] {
+			let mut meta = Self::Meta::default();
+			meta.do_value_hash = global_meta;
+			return (stored, meta);
+		}
 		let input = &mut stored;
 		let range: Option<(u32, u32)> = Decode::decode(input).ok().flatten();
 		let mut contain_hash = false;
@@ -1390,7 +1396,7 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodec<H> {
 	type HashOut = H::Out;
 
 	fn hashed_null_node() -> <H as Hasher>::Out {
-		H::hash(<Self as NodeCodec<M>>::empty_node())
+		H::hash(<Self as NodeCodec<M>>::empty_node_no_meta())
 	}
 
 	fn decode_plan_inner(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
@@ -1457,10 +1463,14 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodec<H> {
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
-		data == <Self as NodeCodec<M>>::empty_node()
+		data == <Self as NodeCodec<M>>::empty_node_no_meta()
 	}
 
-	fn empty_node() -> &'static[u8] {
+	fn empty_node(_meta: &mut M) -> Vec<u8> {
+		vec![EMPTY_TRIE]
+	}
+
+	fn empty_node_no_meta() -> &'static[u8] {
 		&[EMPTY_TRIE]
 	}
 
@@ -1642,7 +1652,7 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 	type HashOut = <H as Hasher>::Out;
 
 	fn hashed_null_node() -> <H as Hasher>::Out {
-		H::hash(<Self as NodeCodec<M>>::empty_node())
+		H::hash(<Self as NodeCodec<M>>::empty_node_no_meta())
 	}
 
 	fn decode_plan(data: &[u8], meta: &mut M) -> Result<NodePlan, Self::Error> {
@@ -1659,10 +1669,16 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
-		data == <Self as NodeCodec<M>>::empty_node()
+		data == <Self as NodeCodec<M>>::empty_node_no_meta()
 	}
 
-	fn empty_node() -> &'static [u8] {
+	fn empty_node(meta: &mut M) -> Vec<u8> {
+		let mut output = meta.write_state_meta();
+		output.extend_from_slice(&[EMPTY_TRIE_NO_EXT]);
+		output
+	}
+
+	fn empty_node_no_meta() -> &'static [u8] {
 		&[EMPTY_TRIE_NO_EXT]
 	}
 
