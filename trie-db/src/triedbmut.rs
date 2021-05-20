@@ -270,10 +270,25 @@ impl<L: TrieLayout> Node<L>
 	}
 
 	// TODO: parallelize
-	fn into_encoded<F>(self, mut child_cb: F) -> (Vec<u8>, L::Meta)
+	fn into_encoded<F>(self, child_cb: F) -> (Vec<u8>, L::Meta)
 	where
 		F: FnMut(NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
 	{
+		Self::into_encoded_with_root_meta(self, child_cb, None)
+	}
+
+	fn into_encoded_with_root_meta<F>(
+		mut self,
+		mut child_cb: F,
+		root_meta: Option<&<L::Meta as Meta>::MetaInput>,
+	) -> (Vec<u8>, L::Meta)
+	where
+		F: FnMut(NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
+	{
+		if let Some(root_meta) = root_meta {
+			L::set_root_meta(self.meta_mut(), root_meta);
+		}
+
 		match self {
 			Node::Empty(meta) => (L::Codec::empty_node().to_vec(), meta),
 			Node::Leaf(partial, value, mut meta) => {
@@ -329,6 +344,15 @@ impl<L: TrieLayout> Node<L>
 	}
 
 	pub(crate) fn meta(&self) -> &L::Meta {
+		match self {
+			Node::Leaf(_, _, meta)
+			| Node::Extension(_, _, meta)
+			| Node::Branch(_, _, meta)
+			| Node::NibbledBranch(_, _, _, meta)
+			| Node::Empty(meta) => meta,
+		}
+	}
+	pub(crate) fn meta_mut(&mut self) -> &mut L::Meta {
 		match self {
 			Node::Leaf(_, _, meta)
 			| Node::Extension(_, _, meta)
@@ -1799,16 +1823,24 @@ where
 		match self.storage.destroy(handle) {
 			Stored::New(node) => {
 				let mut k = NibbleVec::new();
-				let (encoded_root, meta) = node.into_encoded(
+
+				let global_meta  = if L::READ_ROOT_STATE_META {
+					Some(self.layout.layout_meta())
+				} else {
+					None
+				};
+				let (encoded_root, meta) = node.into_encoded_with_root_meta(
 					|child, o_slice, o_index| {
 						let mov = k.append_optional_slice_and_nibble(o_slice, o_index);
 						let cr = self.commit_child(child, &mut k);
 						k.drop_lasts(mov);
 						cr
-					}
+					},
+					global_meta.as_ref(),
 				);
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
+
 				*self.root = self.db.insert_with_meta(EMPTY_PREFIX, &encoded_root[..], meta);
 				self.hash_count += 1;
 

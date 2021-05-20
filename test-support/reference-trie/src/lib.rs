@@ -213,6 +213,11 @@ impl TrieLayout for CheckMetaHasherNoExt {
 			self.0 = true;
 		}
 	}
+	fn set_root_meta(root_meta: &mut Self::Meta, global_meta: &<Self::Meta as Meta>::MetaInput) {
+		if *global_meta {
+			root_meta.recorded_do_value_hash = true;
+		}
+	}
 }
 
 

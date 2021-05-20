@@ -450,6 +450,11 @@ pub trait TrieLayout: Default + Clone {
 	fn initialize_from_root_meta(&mut self, _root_meta: &Self::Meta) {
 	}
 
+	/// When `READ_ROOT_STATE_META` is set, we complete root meta with layout
+	/// state before encoding.
+	fn set_root_meta(_root_meta: &mut Self::Meta, _global_meta: &<Self::Meta as Meta>::MetaInput) {
+	}
+
 	/// Current global layout meta.
 	/// TODO consider merging mith all meta input function.
 	fn layout_meta(&self) -> <Self::Meta as Meta>::MetaInput;
