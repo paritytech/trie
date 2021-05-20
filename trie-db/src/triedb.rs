@@ -78,9 +78,20 @@ where
 	pub fn new_with_layout(
 		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta>,
 		root: &'db TrieHash<L>,
-		layout: L,
+		mut layout: L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
-		if !db.contains(root, EMPTY_PREFIX) {
+		if L::READ_ROOT_STATE_META {
+			if let Some((encoded, mut meta)) = db.get_with_meta(root, EMPTY_PREFIX, None) {
+				// read state meta
+				use crate::node_codec::NodeCodec;
+				let _ = L::Codec::decode_plan(encoded.as_slice(), &mut meta)
+					.map_err(|e| Box::new(TrieError::DecoderError(*root, e)))?;
+				layout.initialize_from_root_meta(&meta);
+				Ok(TrieDB {db, root, hash_count: 0, layout})
+			} else {
+				Err(Box::new(TrieError::InvalidStateRoot(*root)))
+			}
+		} else if !db.contains(root, EMPTY_PREFIX) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		} else {
 			Ok(TrieDB {db, root, hash_count: 0, layout})

@@ -544,10 +544,22 @@ where
 	pub fn from_existing_with_layout(
 		db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta>,
 		root: &'a mut TrieHash<L>,
-		layout: L,
+		mut layout: L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
 			return Err(Box::new(TrieError::InvalidStateRoot(*root)));
+		}
+		if L::READ_ROOT_STATE_META {
+			if let Some((encoded, mut meta)) = db.get_with_meta(root, EMPTY_PREFIX, None) {
+				// read state meta
+				let _ = L::Codec::decode_plan(encoded.as_slice(), &mut meta)
+					.map_err(|e| Box::new(TrieError::DecoderError(*root, e)))?;
+				layout.initialize_from_root_meta(&meta);
+			} else {
+				return Err(Box::new(TrieError::InvalidStateRoot(*root)))
+			}
+		} else if !db.contains(root, EMPTY_PREFIX) {
+			return Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		}
 
 		let root_handle = NodeHandle::Hash(*root);

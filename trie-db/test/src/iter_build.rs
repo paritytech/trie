@@ -15,7 +15,7 @@
 use trie_db::{DBValue, TrieLayout};
 use memory_db::{MemoryDB, HashKey, PrefixedKey};
 use reference_trie::{RefHasher, test_layouts,
-	ExtensionLayout, NoExtensionLayout, CheckMetaHasher};
+	ExtensionLayout, NoExtensionLayout, CheckMetaHasher, CheckMetaHasherNoExt};
 
 #[test]
 fn trie_root_empty () {
@@ -65,6 +65,7 @@ fn test_iter<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) {
 
 fn compare_implementations(data: Vec<(Vec<u8>, Vec<u8>)>) {
 	test_iter::<CheckMetaHasher>(data.clone());
+	test_iter::<CheckMetaHasherNoExt>(data.clone());
 	test_iter::<ExtensionLayout>(data.clone());
 	test_iter::<NoExtensionLayout>(data.clone());
 	compare_implementations_h(data.clone());

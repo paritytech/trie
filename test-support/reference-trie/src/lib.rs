@@ -55,6 +55,7 @@ macro_rules! test_layouts {
 		#[test]
 		fn $test() {
 			$test_internal::<reference_trie::CheckMetaHasher>();
+			$test_internal::<reference_trie::CheckMetaHasherNoExt>();
 			$test_internal::<reference_trie::NoExtensionLayout>();
 			$test_internal::<reference_trie::ExtensionLayout>();
 		}
@@ -92,6 +93,9 @@ impl TrieLayout for ExtensionLayout {
 	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::MetaInput {
 		()
 	}
+	fn layout_meta(&self) -> <Self::Meta as Meta>::MetaInput {
+		()
+	}
 }
 
 impl TrieConfiguration for ExtensionLayout { }
@@ -126,6 +130,9 @@ impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::MetaInput {
 		()
 	}
+	fn layout_meta(&self) -> <Self::Meta as Meta>::MetaInput {
+		()
+	}
 }
 
 /// Trie that allows empty values.
@@ -146,9 +153,13 @@ impl TrieLayout for AllowEmptyLayout {
 	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::MetaInput {
 		()
 	}
+	fn layout_meta(&self) -> <Self::Meta as Meta>::MetaInput {
+		()
+	}
 }
 
 /// Trie that use a dumb value function over its storage.
+/// TODO consider removal
 #[derive(Default, Clone)]
 pub struct CheckMetaHasher;
 
@@ -163,21 +174,25 @@ impl TrieLayout for CheckMetaHasher {
 	type Meta = ValueRange;
 
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
-		()
+		false
 	}
 	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::MetaInput {
-		()
+		false
+	}
+	fn layout_meta(&self) -> <Self::Meta as Meta>::MetaInput {
+		false
 	}
 }
 
 /// Trie that use a dumb value function over its storage.
 #[derive(Default, Clone)]
-pub struct CheckMetaHasherNoExt;
+pub struct CheckMetaHasherNoExt(pub bool);
 
 impl TrieLayout for CheckMetaHasherNoExt {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
 	const USE_META: bool = true;
+	const READ_ROOT_STATE_META: bool = true;
 
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
@@ -185,10 +200,18 @@ impl TrieLayout for CheckMetaHasherNoExt {
 	type Meta = ValueRange;
 
 	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
-		()
+		self.0
 	}
 	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::MetaInput {
-		()
+		self.0
+	}
+	fn layout_meta(&self) -> <Self::Meta as Meta>::MetaInput {
+		self.0
+	}
+	fn initialize_from_root_meta(&mut self, root_meta: &Self::Meta) {
+		if root_meta.recorded_do_value_hash {
+			self.0 = true;
+		}
 	}
 }
 
@@ -316,7 +339,9 @@ pub type ValueRange = ValueMeta;
 pub const INNER_HASH_TRESHOLD: usize = 1;
 
 impl Meta for ValueRange {
-	type MetaInput = ();
+	/// If true apply inner hashing of value
+	/// starting from this trie branch.
+	type MetaInput = bool;
 
 	/// If true apply inner hashing of value
 	/// starting from this trie branch.
@@ -501,6 +526,9 @@ impl TrieLayout for Old {
 	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::MetaInput {
 		()
 	}
+	fn layout_meta(&self) -> <Self::Meta as Meta>::MetaInput {
+		()
+	}
 }
 
 /// Trie that use a dumb value function over its storage.
@@ -532,6 +560,9 @@ impl TrieLayout for Updatable {
 		self.0
 	}
 	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::MetaInput {
+		self.0
+	}
+	fn layout_meta(&self) -> <Self::Meta as Meta>::MetaInput {
 		self.0
 	}
 }

@@ -664,7 +664,7 @@ fn register_proof_without_value() {
 
 	let root_proof = root.clone();
 	{
-		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb, &mut root, CheckMetaHasherNoExt)
+		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb, &mut root, CheckMetaHasherNoExt::default())
 			.unwrap();
 		// touch te value (test1 remains untouch).
 		trie.get(b"te").unwrap();
@@ -697,8 +697,11 @@ fn register_proof_without_value() {
 	let mut memdb_from_proof = db_unpacked.clone();
 	let mut root_proof = root_unpacked.clone();
 	{
-		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb_from_proof, &mut root_proof, CheckMetaHasherNoExt)
-			.unwrap();
+		let mut trie = TrieDBMut::from_existing_with_layout(
+			&mut memdb_from_proof,
+			&mut root_proof,
+			CheckMetaHasherNoExt::default(),
+		).unwrap();
 		trie.get(b"te").unwrap();
 		trie.insert(b"test12", &[2u8;36][..]).unwrap();
 		trie.remove(b"test1234").unwrap();
@@ -714,8 +717,11 @@ fn register_proof_without_value() {
 	}
 
 	{
-		let trie = TrieDBMut::from_existing_with_layout(&mut memdb_from_proof, &mut root_proof, CheckMetaHasherNoExt)
-			.unwrap();
+		let trie = TrieDBMut::from_existing_with_layout(
+			&mut memdb_from_proof,
+			&mut root_proof,
+			CheckMetaHasherNoExt::default(),
+		).unwrap();
 		assert!(trie.get(b"te").unwrap().is_some());
 		assert!(trie.get(b"test1").is_err()); // TODO check incomplete db error
 	}
