@@ -221,7 +221,8 @@ pub trait MetaHasher<H: Hasher, T>: Send + Sync {
 	/// Also meta can register information that is not
 	/// stored, in this case default initiate these.
 	type Meta: Default + Clone;
-	/// Global meta that applies to all 
+	/// Global meta that applies to all read individual
+	/// content meta.
 	type GlobalMeta;
 
 	/// Produce hash, from its hashable value and its metadata.
