@@ -464,11 +464,11 @@ impl<L: TrieLayout> NodeStorage<L>
 	}
 
 	/// Remove a node from the storage, consuming the handle and returning the node.
-	fn destroy(&mut self, handle: StorageHandle) -> Stored<L> {
+	fn destroy(&mut self, handle: StorageHandle, layout: &L) -> Stored<L> {
 		let idx = handle.0;
 
 		self.free_indices.push_back(idx);
-		let meta = L::Meta::meta_for_empty();
+		let meta = L::Meta::meta_for_empty(layout.layout_meta());
 		mem::replace(&mut self.nodes[idx], Stored::New(Node::Empty(meta)))
 	}
 }
@@ -744,7 +744,7 @@ where
 			NodeHandle::Hash(h) => self.cache(h, key.left())?,
 		};
 		// cache then destroy for hash handle (handle being root in most case)
-		let stored = self.storage.destroy(h);
+		let stored = self.storage.destroy(h, &self.layout);
 		let (new_stored, changed) = self.inspect(stored, key, move |trie, stored, key| {
 			trie.insert_inspector(stored, key, value, old_val).map(|a| a.into_action())
 		})?.expect("Insertion never deletes.");
@@ -1120,10 +1120,10 @@ where
 		old_val: &mut Value,
 	) -> Result<Option<(StorageHandle, bool)>, TrieHash<L>, CError<L>> {
 		let stored = match handle {
-			NodeHandle::InMemory(h) => self.storage.destroy(h),
+			NodeHandle::InMemory(h) => self.storage.destroy(h, &self.layout),
 			NodeHandle::Hash(h) => {
 				let handle = self.cache(h, key.left())?;
-				self.storage.destroy(handle)
+				self.storage.destroy(handle, &self.layout)
 			}
 		};
 
@@ -1409,10 +1409,10 @@ where
 						};
 						let child_prefix = (alloc_start.as_ref().map(|start| &start[..]).unwrap_or(start), prefix_end);
 						let stored = match child {
-							NodeHandle::InMemory(h) => self.storage.destroy(h),
+							NodeHandle::InMemory(h) => self.storage.destroy(h, &self.layout),
 							NodeHandle::Hash(h) => {
 								let handle = self.cache(h, child_prefix)?;
-								self.storage.destroy(handle)
+								self.storage.destroy(handle, &self.layout)
 							}
 						};
 						let child_node = match stored {
@@ -1485,10 +1485,10 @@ where
 				let child_prefix = (alloc_start.as_ref().map(|start| &start[..]).unwrap_or(start), prefix_end);
 
 				let stored = match child {
-					NodeHandle::InMemory(h) => self.storage.destroy(h),
+					NodeHandle::InMemory(h) => self.storage.destroy(h, &self.layout),
 					NodeHandle::Hash(h) => {
 						let handle = self.cache(h, child_prefix)?;
-						self.storage.destroy(handle)
+						self.storage.destroy(handle, &self.layout)
 					}
 				};
 
@@ -1571,7 +1571,7 @@ where
 			NodeHandle::InMemory(h) => h,
 		};
 
-		match self.storage.destroy(handle) {
+		match self.storage.destroy(handle, &self.layout) {
 			Stored::New(node) => {
 				let mut k = NibbleVec::new();
 
@@ -1620,7 +1620,7 @@ where
 		match handle {
 			NodeHandle::Hash(hash) => ChildReference::Hash(hash),
 			NodeHandle::InMemory(storage_handle) => {
-				match self.storage.destroy(storage_handle) {
+				match self.storage.destroy(storage_handle, &self.layout) {
 					Stored::Cached(_, hash) => ChildReference::Hash(hash),
 					Stored::New(node) => {
 						let (encoded, meta) = {
@@ -1672,7 +1672,7 @@ where
 				NodeHandle::Hash(h) => self.cache(h, EMPTY_PREFIX)?,
 				NodeHandle::InMemory(StorageHandle(x)) => StorageHandle(x),
 			};
-			match self.storage.destroy(root) {
+			match self.storage.destroy(root, &self.layout) {
 				Stored::Cached(node, hash) => {
 					self.death_row.insert((hash, Default::default()));
 					self.root_handle = NodeHandle::InMemory(self.storage.alloc(Stored::New(node)));

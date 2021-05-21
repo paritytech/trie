@@ -496,6 +496,7 @@ pub trait Meta: Clone {
 
 	/// Empty node meta creation.
 	fn meta_for_empty(
+		input: Self::GlobalMeta,
 	) -> Self;
 
 	/// Value written at a given range (call from codec
@@ -562,6 +563,7 @@ impl Meta for () {
 	}
 
 	fn meta_for_empty(
+		_input: Self::GlobalMeta,
 	) -> Self {
 		()
 	}

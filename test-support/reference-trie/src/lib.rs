@@ -380,8 +380,9 @@ impl Meta for ValueRange {
 	}
 
 	fn meta_for_empty(
+		input: Self::GlobalMeta,
 	) -> Self {
-		Default::default()
+		Self::meta_for_new(input)
 	}
 
 	fn encoded_value_callback(
@@ -567,9 +568,10 @@ impl Meta for VersionedValueRange {
 	}
 
 	fn meta_for_empty(
+		input: Self::GlobalMeta,
 	) -> Self {
 		// empty is same for new and old, using new
-		VersionedValueRange { range: None, version: Version::New, old_remaining_children: None }
+		VersionedValueRange { range: None, version: input, old_remaining_children: None }
 	}
 
 	fn encoded_value_callback(
