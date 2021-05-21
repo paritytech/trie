@@ -602,7 +602,8 @@ fn register_proof_without_value() {
 		) -> Option<(DBValue, Meta)> {
 			let v = self.db.get_with_meta(key, prefix, global_meta);
 			if let Some(v) = v.as_ref() {
-				self.record.borrow_mut().entry(key[..].to_vec())
+				self.record.borrow_mut()
+					.entry(key[..].to_vec())
 					.or_insert_with(|| {
 						let mut v = v.clone();
 						v.1.set_accessed_value(false);

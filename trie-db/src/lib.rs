@@ -141,7 +141,7 @@ pub type TrieKeyItem<'a, U, E> = Result<Vec<u8>, U, E>;
 /// This is implemented for any &mut recorder (where the query will return
 /// a DBValue), any function taking raw bytes (where no recording will be made),
 /// or any tuple of (&mut Recorder, FnOnce(&[u8]))
-pub trait Query<H: Hasher> {
+pub trait Query<H: Hasher, M> {
 	/// Output item.
 	type Item;
 
@@ -149,27 +149,27 @@ pub trait Query<H: Hasher> {
 	fn decode(self, data: &[u8]) -> Self::Item;
 
 	/// Record that a node has been passed through.
-	fn record(&mut self, _hash: &H::Out, _data: &[u8], _depth: u32) {}
+	fn record(&mut self, _hash: &H::Out, _data: &[u8], _depth: u32, _meta: &M) {}
 }
 
-impl<'a, H: Hasher> Query<H> for &'a mut Recorder<H::Out> {
+impl<'a, H: Hasher, M: Clone> Query<H, M> for &'a mut Recorder<H::Out, M> {
 	type Item = DBValue;
 	fn decode(self, value: &[u8]) -> DBValue { value.to_vec() }
-	fn record(&mut self, hash: &H::Out, data: &[u8], depth: u32) {
-		(&mut **self).record(hash, data, depth);
+	fn record(&mut self, hash: &H::Out, data: &[u8], depth: u32, meta: &M) {
+		(&mut **self).record(hash, data, depth, meta);
 	}
 }
 
-impl<F, T, H: Hasher> Query<H> for F where F: for<'a> FnOnce(&'a [u8]) -> T {
+impl<F, T, H: Hasher, M> Query<H, M> for F where F: for<'a> FnOnce(&'a [u8]) -> T {
 	type Item = T;
 	fn decode(self, value: &[u8]) -> T { (self)(value) }
 }
 
-impl<'a, F, T, H: Hasher> Query<H> for (&'a mut Recorder<H::Out>, F) where F: FnOnce(&[u8]) -> T {
+impl<'a, F, T, H: Hasher, M: Clone> Query<H, M> for (&'a mut Recorder<H::Out, M>, F) where F: FnOnce(&[u8]) -> T {
 	type Item = T;
 	fn decode(self, value: &[u8]) -> T { (self.1)(value) }
-	fn record(&mut self, hash: &H::Out, data: &[u8], depth: u32) {
-		self.0.record(hash, data, depth)
+	fn record(&mut self, hash: &H::Out, data: &[u8], depth: u32, meta : &M) {
+		self.0.record(hash, data, depth, meta)
 	}
 }
 
@@ -196,7 +196,7 @@ pub trait Trie<L: TrieLayout> {
 
 	/// Search for the key with the given query parameter. See the docs of the `Query`
 	/// trait for more details.
-	fn get_with<'a, 'key, Q: Query<L::Hash>>(
+	fn get_with<'a, 'key, Q: Query<L::Hash, L::Meta>>(
 		&'a self,
 		key: &'key [u8],
 		query: Q
@@ -315,7 +315,7 @@ impl<'db, L: TrieLayout> Trie<L> for TrieKinds<'db, L> {
 		wrapper!(self, contains, key)
 	}
 
-	fn get_with<'a, 'key, Q: Query<L::Hash>>(
+	fn get_with<'a, 'key, Q: Query<L::Hash, L::Meta>>(
 		&'a self, key: &'key [u8],
 		query: Q,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>

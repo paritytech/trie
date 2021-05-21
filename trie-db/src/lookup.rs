@@ -22,7 +22,7 @@ use crate::rstd::boxed::Box;
 use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash, GlobalMeta};
 
 /// Trie lookup helper object.
-pub struct Lookup<'a, L: TrieLayout, Q: Query<L::Hash>> {
+pub struct Lookup<'a, L: TrieLayout, Q: Query<L::Hash, L::Meta>> {
 	/// database to query from.
 	pub db: &'a dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 	/// Query object to record nodes and transform data.
@@ -36,7 +36,7 @@ pub struct Lookup<'a, L: TrieLayout, Q: Query<L::Hash>> {
 impl<'a, L, Q> Lookup<'a, L, Q>
 where
 	L: TrieLayout,
-	Q: Query<L::Hash>,
+	Q: Query<L::Hash, L::Meta>,
 {
 	fn decode(self, v: Value) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		match v {
@@ -77,7 +77,7 @@ where
 				})),
 			};
 
-			self.query.record(&hash, &node_data, depth);
+			self.query.record(&hash, &node_data, depth, &meta);
 
 			// this loop iterates through all inline children (usually max 1)
 			// without incrementing the depth.

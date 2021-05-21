@@ -19,7 +19,7 @@ use crate::rstd::vec::Vec;
 /// A record of a visited node.
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(PartialEq, Eq, Clone)]
-pub struct Record<HO> {
+pub struct Record<HO, M> {
 	/// The depth of this node.
 	pub depth: u32,
 
@@ -28,22 +28,25 @@ pub struct Record<HO> {
 
 	/// The hash of the data.
 	pub hash: HO,
+
+	/// The associated meta.
+	pub meta: M,
 }
 
 /// Records trie nodes as they pass it.
 #[cfg_attr(feature = "std", derive(Debug))]
-pub struct Recorder<HO> {
-	nodes: Vec<Record<HO>>,
+pub struct Recorder<HO, M> {
+	nodes: Vec<Record<HO, M>>,
 	min_depth: u32,
 }
 
-impl<HO: Copy> Default for Recorder<HO> {
+impl<HO: Copy, M> Default for Recorder<HO, M> {
 	fn default() -> Self {
 		Recorder::new()
 	}
 }
 
-impl<HO: Copy> Recorder<HO> {
+impl<HO: Copy, M> Recorder<HO, M> {
 	/// Create a new `Recorder` which records all given nodes.
 	#[inline]
 	pub fn new() -> Self {
@@ -58,19 +61,22 @@ impl<HO: Copy> Recorder<HO> {
 		}
 	}
 
+	/// Drain all visited records.
+	pub fn drain(&mut self) -> Vec<Record<HO, M>> {
+		crate::rstd::mem::replace(&mut self.nodes, Vec::new())
+	}
+}
+
+impl<HO: Copy, M: Clone> Recorder<HO, M> {
 	/// Record a visited node, given its hash, data, and depth.
-	pub fn record(&mut self, hash: &HO, data: &[u8], depth: u32) {
+	pub fn record(&mut self, hash: &HO, data: &[u8], depth: u32, meta: &M) {
 		if depth >= self.min_depth {
 			self.nodes.push(Record {
 				depth,
 				data: data.into(),
 				hash: *hash,
+				meta: meta.clone(),
 			})
 		}
-	}
-
-	/// Drain all visited records.
-	pub fn drain(&mut self) -> Vec<Record<HO>> {
-		crate::rstd::mem::replace(&mut self.nodes, Vec::new())
 	}
 }

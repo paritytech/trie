@@ -412,7 +412,12 @@ fn test_trie_codec_proof<L: TrieLayout>(
 	// Populate a partial trie DB with recorded nodes.
 	let mut partial_db = <MemoryDB<L::Hash, HashKey<_>, _>>::default();
 	for record in recorder.drain() {
-		partial_db.emplace(record.hash, EMPTY_PREFIX, record.data);
+	for record in recorder.drain() {
+		if L::USE_META {
+			partial_db.insert_with_meta(EMPTY_PREFIX, &record.data, record.meta);
+		} else {
+			partial_db.emplace(record.hash, EMPTY_PREFIX, record.data);
+		}
 	}
 
 	// Compactly encode the partial trie DB.

@@ -27,19 +27,21 @@ fn basic_recorder() {
 	let node2 = vec![4, 5, 6, 7, 8, 9, 10];
 
 	let (hash1, hash2) = (RefHasher::hash(&node1), RefHasher::hash(&node2));
-	basic.record(&hash1, &node1, 0);
-	basic.record(&hash2, &node2, 456);
+	basic.record(&hash1, &node1, 0, &());
+	basic.record(&hash2, &node2, 456, &());
 
 	let record1 = Record {
 		data: node1,
 		hash: hash1,
 		depth: 0,
+		meta: (),
 	};
 
 	let record2 = Record {
 		data: node2,
 		hash: hash2,
 		depth: 456,
+		meta: (),
 	};
 
 
@@ -55,8 +57,8 @@ fn basic_recorder_min_depth() {
 
 	let hash1 = RefHasher::hash(&node1);
 	let hash2 = RefHasher::hash(&node2);
-	basic.record(&hash1, &node1, 0);
-	basic.record(&hash2, &node2, 456);
+	basic.record(&hash1, &node1, 0, &());
+	basic.record(&hash2, &node2, 456, &());
 
 	let records = basic.drain();
 
@@ -66,6 +68,7 @@ fn basic_recorder_min_depth() {
 		data: node2,
 		hash: hash2,
 		depth: 456,
+		meta: (),
 	});
 }
 

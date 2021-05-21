@@ -152,7 +152,7 @@ where
 {
 	fn root(&self) -> &TrieHash<L> { self.root }
 
-	fn get_with<'a, 'key, Q: Query<L::Hash>>(
+	fn get_with<'a, 'key, Q: Query<L::Hash, L::Meta>>(
 		&'a self,
 		key: &'key [u8],
 		query: Q,
