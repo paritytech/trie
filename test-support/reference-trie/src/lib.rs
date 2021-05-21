@@ -337,6 +337,10 @@ impl Meta for ValueRange {
 		self.recorded_do_value_hash
 	}
 
+	fn extract_global_meta(&self) -> Self::GlobalMeta {
+		self.recorded_do_value_hash
+	}
+
 	fn read_state_meta(&mut self, data: &[u8]) -> Result<usize, &'static str> {
 		let offset = if data[0] == ENCODED_META_NO_EXT {
 			if data.len() < 2 {
@@ -535,6 +539,10 @@ impl Meta for VersionedValueRange {
 
 	fn has_state_meta(&self) -> bool {
 		false
+	}
+
+	fn extract_global_meta(&self) -> Self::GlobalMeta {
+		self.version.clone()
 	}
 
 	fn read_state_meta(&mut self, _data: &[u8]) -> Result<usize, &'static str> {

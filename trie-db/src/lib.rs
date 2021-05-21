@@ -499,6 +499,9 @@ pub trait Meta: Clone {
 		input: Self::GlobalMeta,
 	) -> Self;
 
+	/// Read global meta from this meta.
+	fn extract_global_meta(&self) -> Self::GlobalMeta;
+
 	/// Value written at a given range (call from codec
 	/// for node that contains value (leaf or branch)).
 	fn encoded_value_callback(
@@ -565,6 +568,10 @@ impl Meta for () {
 	fn meta_for_empty(
 		_input: Self::GlobalMeta,
 	) -> Self {
+		()
+	}
+
+	fn extract_global_meta(&self) -> Self::GlobalMeta {
 		()
 	}
 
