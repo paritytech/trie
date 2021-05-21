@@ -19,7 +19,7 @@ use std::iter::once;
 use std::marker::PhantomData;
 use std::ops::Range;
 use parity_scale_codec::{Decode, Input, Output, Encode, Compact, Error as CodecError};
-use trie_root::Hasher;
+use trie_root::{Hasher, MetaHasher};
 
 use trie_db::{
 	node::{NibbleSlicePlan, NodePlan, Value, ValuePlan, NodeHandlePlan},
@@ -388,7 +388,7 @@ impl Meta for ValueRange {
 	}
 
 	fn write_state_meta(&self) -> Vec<u8> {
-		if self.do_value_hash {
+		if self.recorded_do_value_hash {
 			// Note that this only works for some codecs (if the first byte do not overlay).
 			[ENCODED_META_NO_EXT, ALLOW_HASH_META].to_vec()
 		} else {
@@ -867,9 +867,9 @@ pub fn reference_trie_root<T: TrieLayout, I, A, B>(input: I) -> <T::Hash as Hash
 	B: AsRef<[u8]> + fmt::Debug,
 {
 	if T::USE_EXTENSION {
-		trie_root::trie_root::<T::Hash, ReferenceTrieStream, _, _, _>(input)
+		trie_root::trie_root::<T::Hash, T::MetaHasher, ReferenceTrieStream, _, _, _>(input, Default::default())
 	} else {
-		trie_root::trie_root_no_extension::<T::Hash, ReferenceTrieStreamNoExt, _, _, _>(input)
+		trie_root::trie_root_no_extension::<T::Hash, T::MetaHasher, ReferenceTrieStreamNoExt, _, _, _>(input, Default::default())
 	}
 }
 
@@ -900,7 +900,7 @@ fn reference_trie_root_unhashed<I, A, B>(input: I) -> Vec<u8> where
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	trie_root::unhashed_trie::<RefHasher, ReferenceTrieStream, _, _, _>(input)
+	trie_root::unhashed_trie::<RefHasher, hash_db::NoMeta, ReferenceTrieStream, _, _, _>(input, Default::default())
 }
 
 fn reference_trie_root_unhashed_no_extension<I, A, B>(input: I) -> Vec<u8> where
@@ -908,7 +908,7 @@ fn reference_trie_root_unhashed_no_extension<I, A, B>(input: I) -> Vec<u8> where
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	trie_root::unhashed_trie_no_extension::<RefHasher, ReferenceTrieStreamNoExt, _, _, _>(input)
+	trie_root::unhashed_trie_no_extension::<RefHasher, TestMetaHasher<RefHasher>, ReferenceTrieStreamNoExt, _, _, _>(input, Default::default())
 }
 
 const EMPTY_TRIE: u8 = 0;
@@ -1019,7 +1019,9 @@ pub struct ReferenceTrieStream {
 }
 
 impl TrieStream for ReferenceTrieStream {
-	fn new() -> Self {
+	type GlobalMeta = ();
+
+	fn new(_meta: ()) -> Self {
 		ReferenceTrieStream {
 			buffer: Vec::new()
 		}
@@ -1063,18 +1065,28 @@ impl TrieStream for ReferenceTrieStream {
 	}
 
 	fn out(self) -> Vec<u8> { self.buffer }
+
+	fn hash_root<H: Hasher>(self) -> H::Out {
+		H::hash(&self.buffer)
+	}
 }
 
 /// Reference implementation of a `TrieStream` without extension.
 #[derive(Default, Clone)]
 pub struct ReferenceTrieStreamNoExt {
-	buffer: Vec<u8>
+	buffer: Vec<u8>,
+	inner_value_hashing: bool,
+	current_value_range: Option<Range<usize>>,
 }
 
 impl TrieStream for ReferenceTrieStreamNoExt {
-	fn new() -> Self {
+	type GlobalMeta = bool;
+
+	fn new(meta: bool) -> Self {
 		ReferenceTrieStreamNoExt {
-			buffer: Vec::new()
+			buffer: Vec::new(),
+			inner_value_hashing: meta,
+			current_value_range: None,
 		}
 	}
 
@@ -1084,7 +1096,9 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 
 	fn append_leaf(&mut self, key: &[u8], value: &[u8]) {
 		self.buffer.extend(fuse_nibbles_node_no_extension(key, NodeKindNoExt::Leaf));
-		value.encode_to(&mut self.buffer);
+		Compact(value.len() as u32).encode_to(&mut self.buffer);
+		self.current_value_range = Some(self.buffer.len()..self.buffer.len() + value.len());
+		self.buffer.extend_from_slice(value);
 	}
 
 	fn begin_branch(
@@ -1119,14 +1133,56 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 	}
 
 	fn append_substream<H: Hasher>(&mut self, other: Self) {
+		let inner_value_hashing = other.inner_value_hashing;
+		let range = other.current_value_range.clone();
 		let data = other.out();
 		match data.len() {
 			0..=31 => data.encode_to(&mut self.buffer),
-			_ => H::hash(&data).as_ref().encode_to(&mut self.buffer),
+			_ => {
+				if inner_value_hashing
+					&& range.as_ref().map(|r| r.end - r.start >= INNER_HASH_TRESHOLD).unwrap_or_default() {
+					let meta = ValueMeta {
+						range: range,
+						unused_value: false,
+						contain_hash: false,
+						do_value_hash: true,
+						recorded_do_value_hash: false,
+					};
+					<TestMetaHasher<H> as MetaHasher<H, Vec<u8>>>::hash(&data, &meta).as_ref().encode_to(&mut self.buffer);
+				} else {
+					H::hash(&data).as_ref().encode_to(&mut self.buffer);
+				}
+			},
 		}
 	}
 
 	fn out(self) -> Vec<u8> { self.buffer }
+	fn hash_root<H: Hasher>(self) -> H::Out {
+		let inner_value_hashing = self.inner_value_hashing;
+		let range = self.current_value_range;
+		let data = self.buffer;
+		if inner_value_hashing
+			&& range.as_ref().map(|r| r.end - r.start >= INNER_HASH_TRESHOLD).unwrap_or_default() {
+			let meta = ValueMeta {
+				range: range,
+				unused_value: false,
+				contain_hash: false,
+				do_value_hash: true,
+				recorded_do_value_hash: true,
+			};
+			// Add the recorded_do_value_hash to encoded
+			let mut encoded = meta.write_state_meta();
+			let encoded = if encoded.len() > 0 {
+				encoded.extend(data);
+				encoded
+			} else {
+				data
+			};
+			<TestMetaHasher<H> as MetaHasher<H, Vec<u8>>>::hash(&encoded, &meta)
+		} else {
+			H::hash(&data)
+		}
+	}
 }
 
 /// A node header.
