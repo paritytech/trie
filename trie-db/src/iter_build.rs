@@ -18,7 +18,7 @@
 //! See `trie_visit` function.
 
 use hash_db::{Hasher, HashDB, Prefix, MetaHasher};
-use crate::rstd::{cmp::max, marker::PhantomData, vec::Vec};
+use crate::rstd::{cmp::max, vec::Vec};
 use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
 use crate::nibble::nibble_ops;
@@ -46,7 +46,7 @@ type ArrayNode<T> = [CacheNode<TrieHash<T>>; 16];
 /// Note that it is not memory optimal (all depth are allocated even if some are empty due
 /// to node partial).
 /// Three field are used, a cache over the children, an optional associated value and the depth.
-struct CacheAccum<T: TrieLayout, V> (Vec<(ArrayNode<T>, Option<V>, usize, T::Meta)>, PhantomData<T>);
+struct CacheAccum<T: TrieLayout, V> (Vec<(ArrayNode<T>, Option<V>, usize)>, T);
 
 /// Initially allocated cache depth.
 const INITIAL_DEPTH: usize = 10;
@@ -57,16 +57,15 @@ impl<T, V> CacheAccum<T, V>
 		V: AsRef<[u8]>,
 {
 
-	fn new() -> Self {
+	fn new(layout: T) -> Self {
 		let v = Vec::with_capacity(INITIAL_DEPTH);
-		CacheAccum(v, PhantomData)
+		CacheAccum(v, layout)
 	}
 
 	#[inline(always)]
-	fn set_cache_value(&mut self, depth: usize, value: Option<V>, layout: &T) {
+	fn set_cache_value(&mut self, depth: usize, value: Option<V>) {
 		if self.0.is_empty() || self.0[self.0.len() - 1].2 < depth {
-			let meta = layout.meta_for_new_node();
-			self.0.push((new_vec_slice_buffer(), None, depth, meta));
+			self.0.push((new_vec_slice_buffer(), None, depth));
 		}
 		let last = self.0.len() - 1;
 		debug_assert!(self.0[last].2 <= depth);
@@ -74,10 +73,9 @@ impl<T, V> CacheAccum<T, V>
 	}
 
 	#[inline(always)]
-	fn set_node(&mut self, depth: usize, nibble_index: usize, node: CacheNode<TrieHash<T>>, layout: &T) {
+	fn set_node(&mut self, depth: usize, nibble_index: usize, node: CacheNode<TrieHash<T>>) {
 		if self.0.is_empty() || self.0[self.0.len() - 1].2 < depth {
-			let meta = layout.meta_for_new_node();
-			self.0.push((new_vec_slice_buffer(), None, depth, meta));
+			self.0.push((new_vec_slice_buffer(), None, depth));
 		}
 
 		let last = self.0.len() - 1;
@@ -122,9 +120,8 @@ impl<T, V> CacheAccum<T, V>
 		callback: &mut impl ProcessEncodedNode<TrieHash<T>, T::Meta>,
 		target_depth: usize,
 		(k2, v2): &(impl AsRef<[u8]>, impl AsRef<[u8]>),
-		layout: &T,
 	) {
-		let mut meta = layout.meta_for_new_node();
+		let mut meta = self.1.meta_for_new_node();
 		let nibble_value = nibble_ops::left_nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
 		let nkey = NibbleSlice::new_offset(&k2.as_ref()[..], target_depth + 1);
@@ -136,7 +133,7 @@ impl<T, V> CacheAccum<T, V>
 		let hash = callback.process(pr.left(), encoded, false, meta);
 
 		// insert hash in branch (first level branch only at this point)
-		self.set_node(target_depth, nibble_value as usize, Some(hash), layout);
+		self.set_node(target_depth, nibble_value as usize, Some(hash));
 	}
 
 	fn flush_branch(
@@ -145,11 +142,10 @@ impl<T, V> CacheAccum<T, V>
 		ref_branch: impl AsRef<[u8]> + Ord,
 		new_depth: usize,
 		is_last: bool,
-		layout: &T,
 	) {
 
 		while self.last_depth() > new_depth || is_last && !self.is_empty() {
-			let extension_meta = T::USE_EXTENSION.then(|| layout.meta_for_new_node());
+			let extension_meta = T::USE_EXTENSION.then(|| self.1.meta_for_new_node());
 
 			let lix = self.last_depth();
 			let llix = max(self.last_last_depth(), new_depth);
@@ -176,7 +172,7 @@ impl<T, V> CacheAccum<T, V>
 			if !is_root {
 				// put hash in parent
 				let nibble: u8 = nibble_ops::left_nibble_at(&ref_branch.as_ref()[..], llix);
-				self.set_node(llix, nibble as usize, Some(h), layout);
+				self.set_node(llix, nibble as usize, Some(h));
 			}
 		}
 	}
@@ -194,7 +190,9 @@ impl<T, V> CacheAccum<T, V>
 		let last = self.0.len() - 1;
 		assert_eq!(self.0[last].2, branch_d);
 
-		let (children, v, depth, mut meta) = self.0.pop().expect("checked");
+		let (children, v, depth) = self.0.pop().expect("checked");
+
+		let mut meta = self.1.meta_for_new_node();
 		debug_assert!(branch_d == depth);
 		// encode branch
 		let encoded = T::Codec::branch_node(
@@ -224,7 +222,8 @@ impl<T, V> CacheAccum<T, V>
 		is_root: bool,
 		nkey: Option<(usize, usize)>,
 	) -> ChildReference<TrieHash<T>> {
-		let (children, v, depth, mut meta) = self.0.pop().expect("checked");
+		let (children, v, depth) = self.0.pop().expect("checked");
+		let mut meta = self.1.meta_for_new_node();
 		debug_assert!(branch_d == depth);
 		// encode branch
 		let nkeyix = nkey.unwrap_or((branch_d, 0));
@@ -253,7 +252,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F, layout: &T)
 		B: AsRef<[u8]>,
 		F: ProcessEncodedNode<TrieHash<T>, T::Meta>,
 {
-	let mut depth_queue = CacheAccum::<T, B>::new();
+	let mut depth_queue = CacheAccum::<T, B>::new(layout.clone());
 	// compare iter ordering
 	let mut iter_input = input.into_iter();
 	if let Some(mut previous_value) = iter_input.next() {
@@ -269,15 +268,15 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F, layout: &T)
 			if common_depth == previous_value.0.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE {
 				// the new key include the previous one : branch value case
 				// just stored value at branch depth
-				depth_queue.set_cache_value(common_depth, Some(previous_value.1), &layout);
+				depth_queue.set_cache_value(common_depth, Some(previous_value.1));
 			} else if depth_item >= last_depth {
 				// put previous with next (common branch previous value can be flush)
-				depth_queue.flush_value(callback, depth_item, &previous_value, &layout);
+				depth_queue.flush_value(callback, depth_item, &previous_value);
 			} else if depth_item < last_depth {
 				// do not put with next, previous is last of a branch
-				depth_queue.flush_value(callback, last_depth, &previous_value, &layout);
+				depth_queue.flush_value(callback, last_depth, &previous_value);
 				let ref_branches = previous_value.0;
-				depth_queue.flush_branch(callback, ref_branches, depth_item, false, &layout);
+				depth_queue.flush_branch(callback, ref_branches, depth_item, false);
 			}
 
 			previous_value = (k, v);
@@ -296,9 +295,9 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F, layout: &T)
 			);
 			callback.process(pr.left(), encoded, true, meta);
 		} else {
-			depth_queue.flush_value(callback, last_depth, &previous_value, &layout);
+			depth_queue.flush_value(callback, last_depth, &previous_value);
 			let ref_branches = previous_value.0;
-			depth_queue.flush_branch(callback, ref_branches, 0, true, &layout);
+			depth_queue.flush_branch(callback, ref_branches, 0, true);
 		}
 	} else {
 		// nothing null root corner case
