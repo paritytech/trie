@@ -337,6 +337,12 @@ impl Meta for ValueRange {
 		self.recorded_do_value_hash
 	}
 
+	fn set_global_meta(&mut self, global_meta: Self::GlobalMeta) {
+		if global_meta {
+			self.recorded_do_value_hash = true;
+		}
+	}
+
 	fn extract_global_meta(&self) -> Self::GlobalMeta {
 		self.recorded_do_value_hash
 	}
@@ -535,6 +541,9 @@ impl Meta for VersionedValueRange {
 	type StateMeta = ();
 
 	fn set_state_meta(&mut self, _state_meta: Self::StateMeta) {
+	}
+
+	fn set_global_meta(&mut self, _global_meta: Self::GlobalMeta) {
 	}
 
 	fn has_state_meta(&self) -> bool {

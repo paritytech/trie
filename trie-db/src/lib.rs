@@ -499,6 +499,9 @@ pub trait Meta: Clone {
 		input: Self::GlobalMeta,
 	) -> Self;
 
+	/// Insert global meta in existing meta.
+	fn set_global_meta(&mut self, global_meta: Self::GlobalMeta);
+
 	/// Read global meta from this meta.
 	fn extract_global_meta(&self) -> Self::GlobalMeta;
 
@@ -569,6 +572,9 @@ impl Meta for () {
 		_input: Self::GlobalMeta,
 	) -> Self {
 		()
+	}
+
+	fn set_global_meta(&mut self, _global_meta: Self::GlobalMeta) {
 	}
 
 	fn extract_global_meta(&self) -> Self::GlobalMeta {
