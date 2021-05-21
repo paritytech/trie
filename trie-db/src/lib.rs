@@ -428,20 +428,14 @@ pub trait TrieLayout: Default + Clone {
 	>;
 
 	/// Meta state input for new node.
-	fn metainput_for_new_node(&self) -> GlobalMeta<Self>;
-
-	/// Meta state input for stored inline node (inline node do not have stored meta).
-	fn metainput_for_stored_inline_node(&self) -> GlobalMeta<Self>;
-
-	/// Meta state input for new node.
 	fn meta_for_new_node(&self) -> Self::Meta {
-		<Self::Meta as Meta>::meta_for_new(self.metainput_for_new_node())
+		<Self::Meta as Meta>::meta_for_new(self.layout_meta())
 	}
 
 	/// Meta state input for new node.
 	fn meta_for_stored_inline_node(&self) -> Self::Meta {
 		<Self::Meta as Meta>::meta_for_existing_inline_node(
-			self.metainput_for_stored_inline_node(),
+			self.layout_meta(),
 		)
 	}
 
@@ -574,31 +568,6 @@ pub trait Meta: Clone {
 	fn meta_for_empty(
 	) -> Self;
 
-	/// Set a value, return true if node
-	/// need update.
-	/// For instance if if we count
-	/// access in meta, even if unchanged,
-	/// then we can return true and node will be updated
-	/// in storage.
-	/// This is only for existing modified value, new value
-	/// do not call this.
-	/// Can be use to trigger node update with same value by
-	/// forcing a new `NodeChange` status.
-	fn set_value_callback(
-		&mut self,
-		new_value: Option<&[u8]>,
-		is_branch: bool,
-		changed: NodeChange,
-	) -> NodeChange;
-
-	/// Callback on addition or removal of child.
-	fn set_child_callback(
-		&mut self,
-		child: Option<&Self>,
-		changed: NodeChange,
-		at: usize,
-	) -> NodeChange;
-
 	/// Value written at a given range (call from codec
 	/// for node that contains value (leaf or branch)).
 	fn encoded_value_callback(
@@ -667,28 +636,10 @@ impl Meta for () {
 		()
 	}
 
-	fn set_value_callback(
-		&mut self,
-		_new_value: Option<&[u8]>,
-		_is_branch: bool,
-		changed: NodeChange,
-	) -> NodeChange {
-		changed
-	}
-
 	fn encoded_value_callback(
 		&mut self,
 		_value_plan: crate::node::ValuePlan,
 	) {
-	}
-
-	fn set_child_callback(
-		&mut self,
-		_child: Option<&Self>,
-		changed: NodeChange,
-		_at: usize,
-	) -> NodeChange {
-		changed
 	}
 
 	fn decoded_callback(

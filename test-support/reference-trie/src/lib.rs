@@ -31,7 +31,6 @@ use trie_db::{
 	Partial,
 	Meta,
 	ChildrenDecoded,
-	NodeChange,
 	GlobalMeta,
 };
 use std::borrow::Borrow;
@@ -88,12 +87,6 @@ impl TrieLayout for ExtensionLayout {
 	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
-	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		()
-	}
-	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		()
-	}
 	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
@@ -125,12 +118,6 @@ impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
-	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		()
-	}
-	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		()
-	}
 	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
@@ -148,12 +135,6 @@ impl TrieLayout for AllowEmptyLayout {
 	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
-	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		()
-	}
-	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		()
-	}
 	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
@@ -174,12 +155,6 @@ impl TrieLayout for CheckMetaHasher {
 	type MetaHasher = TestMetaHasher<RefHasher>;
 	type Meta = ValueRange;
 
-	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		false
-	}
-	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		false
-	}
 	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		false
 	}
@@ -200,12 +175,6 @@ impl TrieLayout for CheckMetaHasherNoExt {
 	type MetaHasher = TestMetaHasher<RefHasher>;
 	type Meta = ValueRange;
 
-	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		self.0
-	}
-	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		self.0
-	}
 	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		self.0
 	}
@@ -415,15 +384,6 @@ impl Meta for ValueRange {
 		Default::default()
 	}
 
-	fn set_value_callback(
-		&mut self,
-		_new_value: Option<&[u8]>,
-		_is_branch: bool,
-		changed: NodeChange,
-	) -> NodeChange {
-		changed
-	}
-
 	fn encoded_value_callback(
 		&mut self,
 		value_plan: ValuePlan,
@@ -436,15 +396,6 @@ impl Meta for ValueRange {
 
 		self.range = Some(range);
 		self.contain_hash = contain_hash;
-	}
-
-	fn set_child_callback(
-		&mut self,
-		_child: Option<&Self>,
-		changed: NodeChange,
-		_at: usize,
-	) -> NodeChange {
-		changed
 	}
 
 	fn decoded_callback(
@@ -530,12 +481,6 @@ impl TrieLayout for Old {
 	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
-	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		()
-	}
-	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		()
-	}
 	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
@@ -566,12 +511,6 @@ impl TrieLayout for Updatable {
 	type MetaHasher = TestUpdatableMetaHasher<RefHasher>;
 	type Meta = VersionedValueRange;
 
-	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		self.0
-	}
-	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		self.0
-	}
 	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		self.0
 	}
@@ -633,35 +572,6 @@ impl Meta for VersionedValueRange {
 		VersionedValueRange { range: None, version: Version::New, old_remaining_children: None }
 	}
 
-
-	fn set_value_callback(
-		&mut self,
-		new_value: Option<&[u8]>,
-		is_branch: bool,
-		changed: NodeChange,
-	) -> NodeChange {
-		if let Version::New = self.version {
-			return changed;
-		}
-		if is_branch {
-			// branch switch to new when all children are
-			// new, changing or adding value do not change this fact.
-			if let Some(remaining) = self.old_remaining_children.as_ref() {
-				if !remaining.is_empty() {
-					return changed;
-				}
-			} else {
-				unreachable!("lazy init on decode and not none on new");
-			}
-		}
-		self.version = Version::New;
-		if new_value.map(|v| v.len() >= INNER_HASH_TRESHOLD).unwrap_or(false) {
-			NodeChange::EncodedMeta
-		} else {
-			NodeChange::Meta
-		}.combine(changed)
-	}
-
 	fn encoded_value_callback(
 		&mut self,
 		value_plan: ValuePlan,
@@ -677,42 +587,6 @@ impl Meta for VersionedValueRange {
 				self.range = Some(range);
 			}
 		}
-	}
-
-	fn set_child_callback(
-		&mut self,
-		child: Option<&Self>,
-		changed: NodeChange,
-		at: usize,
-	) -> NodeChange {
-		// for new child or removed one
-		if matches!(self.version, Version::Old) {
-			// consider delete as new
-			let child_version = child.map(|child| child.version).unwrap_or(Version::New);
-			if let Some(remaining) = self.old_remaining_children.as_mut() {
-				let mut remove = None;
-				for (index, value) in remaining.iter().enumerate() {
-					if at as u8 == *value {
-						remove = Some(index);
-						break;
-					}
-				}
-				if let Some(index) = remove {
-					remaining.remove(index);
-				}
-				if matches!(child_version, Version::Old) {
-					remaining.push(at as u8);
-				}
-				if remaining.is_empty() {
-					self.version = Version::New;
-					self.old_remaining_children = None;
-					return NodeChange::EncodedMeta;
-				}
-			} else {
-				unreachable!("lazy init on decode and not none on new");
-			}
-		}
-		changed
 	}
 
 	fn decoded_callback(
@@ -1156,7 +1030,6 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 		}
 	}
 
-	fn out(self) -> Vec<u8> { self.buffer }
 	fn hash_root<H: Hasher>(self) -> H::Out {
 		let inner_value_hashing = self.inner_value_hashing;
 		let range = self.current_value_range;
@@ -1183,6 +1056,8 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 			H::hash(&data)
 		}
 	}
+
+	fn out(self) -> Vec<u8> { self.buffer }
 }
 
 /// A node header.
