@@ -278,7 +278,7 @@ impl<L: TrieLayout> Node<L>
 	fn into_encoded_with_root_meta<F>(
 		mut self,
 		mut child_cb: F,
-		root_meta: Option<<L::Meta as Meta>::MetaInput>,
+		root_meta: Option<GlobalMeta<L>>,
 	) -> (Vec<u8>, L::Meta)
 	where
 		F: FnMut(NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,

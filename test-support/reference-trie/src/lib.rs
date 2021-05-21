@@ -88,13 +88,13 @@ impl TrieLayout for ExtensionLayout {
 	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
-	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
-	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
-	fn layout_meta(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
 }
@@ -125,13 +125,13 @@ impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
-	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
-	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
-	fn layout_meta(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
 }
@@ -148,13 +148,13 @@ impl TrieLayout for AllowEmptyLayout {
 	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
-	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
-	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
-	fn layout_meta(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
 }
@@ -174,13 +174,13 @@ impl TrieLayout for CheckMetaHasher {
 	type MetaHasher = TestMetaHasher<RefHasher>;
 	type Meta = ValueRange;
 
-	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		false
 	}
-	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		false
 	}
-	fn layout_meta(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		false
 	}
 }
@@ -200,13 +200,13 @@ impl TrieLayout for CheckMetaHasherNoExt {
 	type MetaHasher = TestMetaHasher<RefHasher>;
 	type Meta = ValueRange;
 
-	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		self.0
 	}
-	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		self.0
 	}
-	fn layout_meta(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		self.0
 	}
 	fn initialize_from_root_meta(&mut self, root_meta: &Self::Meta) {
@@ -353,7 +353,7 @@ pub const INNER_HASH_TRESHOLD: usize = 1;
 impl Meta for ValueRange {
 	/// If true apply inner hashing of value
 	/// starting from this trie branch.
-	type MetaInput = bool;
+	type GlobalMeta = bool;
 
 	/// If true apply inner hashing of value
 	/// starting from this trie branch.
@@ -397,7 +397,7 @@ impl Meta for ValueRange {
 	}
 
 	fn meta_for_new(
-		input: Self::MetaInput,
+		input: Self::GlobalMeta,
 	) -> Self {
 		let mut result = Self::default();
 		result.do_value_hash = input;
@@ -405,7 +405,7 @@ impl Meta for ValueRange {
 	}
 
 	fn meta_for_existing_inline_node(
-		input: Self::MetaInput,
+		input: Self::GlobalMeta,
 	) -> Self {
 		Self::meta_for_new(input)
 	}
@@ -530,13 +530,13 @@ impl TrieLayout for Old {
 	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
-	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
-	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
-	fn layout_meta(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
 }
@@ -566,13 +566,13 @@ impl TrieLayout for Updatable {
 	type MetaHasher = TestUpdatableMetaHasher<RefHasher>;
 	type Meta = VersionedValueRange;
 
-	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn metainput_for_new_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		self.0
 	}
-	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn metainput_for_stored_inline_node(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		self.0
 	}
-	fn layout_meta(&self) -> <Self::Meta as Meta>::MetaInput {
+	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		self.0
 	}
 }
@@ -586,7 +586,7 @@ pub struct VersionedValueRange {
 }
 
 impl Meta for VersionedValueRange {
-	type MetaInput = Version;
+	type GlobalMeta = Version;
 
 	type StateMeta = ();
 
@@ -606,7 +606,7 @@ impl Meta for VersionedValueRange {
 	}
 
 	fn meta_for_new(
-		input: Self::MetaInput,
+		input: Self::GlobalMeta,
 	) -> Self {
 		let old_remaining_children = if matches!(input, Version::Old) {
 			Some(Vec::new())
@@ -617,7 +617,7 @@ impl Meta for VersionedValueRange {
 	}
 
 	fn meta_for_existing_inline_node(
-		input: Self::MetaInput,
+		input: Self::GlobalMeta,
 	) -> Self {
 		let old_remaining_children = if matches!(input, Version::Old) {
 			Some(Vec::new())

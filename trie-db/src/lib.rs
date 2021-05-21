@@ -539,8 +539,7 @@ impl NodeChange {
 pub trait Meta: Clone {
 	/// Global trie meta this will derive from.
 	/// Usually it holds specific behavior from layout context.
-	/// TODO rename to LayoutMeta.
-	type MetaInput;
+	type GlobalMeta;
 
 	/// Meta to encode in state.
 	type StateMeta: Clone + MaybeDebug;
@@ -563,12 +562,12 @@ pub trait Meta: Clone {
 	/// `meta_for_new` but the fact that it complicate code and is not required
 	/// by current use cases.
 	fn meta_for_existing_inline_node(
-		input: Self::MetaInput,
+		input: Self::GlobalMeta,
 	) -> Self;
 
 	/// Leaf meta creation.
 	fn meta_for_new(
-		input: Self::MetaInput,
+		input: Self::GlobalMeta,
 	) -> Self;
 
 	/// Empty node meta creation.
@@ -632,7 +631,7 @@ pub enum ChildrenDecoded {
 }
 
 impl Meta for () {
-	type MetaInput = ();
+	type GlobalMeta = ();
 
 	type StateMeta = ();
 
@@ -652,13 +651,13 @@ impl Meta for () {
 	}
 
 	fn meta_for_new(
-		_input: Self::MetaInput,
+		_input: Self::GlobalMeta,
 	) -> Self {
 		()
 	}
 
 	fn meta_for_existing_inline_node(
-		_input: Self::MetaInput,
+		_input: Self::GlobalMeta,
 	) -> Self {
 		()
 	}
@@ -768,6 +767,6 @@ pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 /// Alias accessor to state of meta.
 pub type StateMeta<L> = <<L as TrieLayout>::Meta as Meta>::StateMeta;
 /// Alias accessor to global meta.
-pub type GlobalMeta<L> = <<L as TrieLayout>::Meta as Meta>::MetaInput;
+pub type GlobalMeta<L> = <<L as TrieLayout>::Meta as Meta>::GlobalMeta;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
 pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec<<L as TrieLayout>::Meta>>::Error;

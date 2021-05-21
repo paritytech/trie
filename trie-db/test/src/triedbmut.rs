@@ -559,7 +559,7 @@ fn register_proof_without_value() {
 	type Updatable = CheckMetaHasherNoExt;
 	type VF = TestMetaHasher<RefHasher>;
 	type Meta = reference_trie::ValueRange;
-	type GlobalMeta = <reference_trie::ValueRange as trie_db::Meta>::MetaInput;
+	type GlobalMeta = <reference_trie::ValueRange as trie_db::Meta>::GlobalMeta;
 	type MemoryDB = memory_db::MemoryDB<
 		RefHasher,
 		PrefixedKey<RefHasher>,
