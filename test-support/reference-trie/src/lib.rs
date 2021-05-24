@@ -1017,7 +1017,9 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 			self.buffer.extend(&branch_node(maybe_value.is_some(), has_children));
 		}
 		if let Some(value) = maybe_value {
-			value.encode_to(&mut self.buffer);
+			Compact(value.len() as u32).encode_to(&mut self.buffer);
+			self.current_value_range = Some(self.buffer.len()..self.buffer.len() + value.len());
+			self.buffer.extend_from_slice(value);
 		}
 	}
 
