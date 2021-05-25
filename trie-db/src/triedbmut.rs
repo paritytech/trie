@@ -1323,6 +1323,14 @@ where
 		node: Node<L>,
 		key: NibbleSlice,
 	) -> Result<Node<L>, TrieHash<L>, CError<L>> {
+		self.fix_inner(node, key, false)
+	}
+	fn fix_inner(
+		&mut self,
+		node: Node<L>,
+		key: NibbleSlice,
+		recurse_extension: bool,
+	) -> Result<Node<L>, TrieHash<L>, CError<L>> {
 		match node {
 			Node::Branch(mut children, value, meta) => {
 				// if only a single value, transmute to leaf/extension and feed through fixed.
@@ -1468,19 +1476,32 @@ where
 				}
 			},
 			Node::Extension(partial, child, meta) => {
-				// We could advance key, but this code can also be called
-				// recursively, so there might be some prefix from branch.
-				let last = partial.1[partial.1.len() - 1] & (255 >> 4);
 				let mut key2 = key.clone();
-				key2.advance((partial.1.len() * nibble_ops::NIBBLE_PER_BYTE) - partial.0 - 1);
-				let (start, alloc_start, prefix_end) = match key2.left() {
-					(start, None) => (start, None, Some(nibble_ops::push_at_left(0, last, 0))),
-					(start, Some(v)) => {
-						let mut so: BackingByteVec = start.into();
-						// Complete last byte with `last`.
-						so.push(nibble_ops::pad_left(v) | last);
-						(start, Some(so), None)
-					},
+				let (start, alloc_start, prefix_end) = if !recurse_extension {
+					// We could advance key, but this code can also be called
+					// recursively, so there might be some prefix from branch.
+					let last = partial.1[partial.1.len() - 1] & (255 >> 4);
+					key2.advance((partial.1.len() * nibble_ops::NIBBLE_PER_BYTE) - partial.0 - 1);
+					match key2.left() {
+						(start, None) => (start, None, Some(nibble_ops::push_at_left(0, last, 0))),
+						(start, Some(v)) => {
+							let mut so: BackingByteVec = start.into();
+							// Complete last byte with `last`.
+							so.push(nibble_ops::pad_left(v) | last);
+							(start, Some(so), None)
+						},
+					}
+				} else {
+					let k2 = key2.left();
+
+					let mut so: NibbleVec = Default::default();
+					so.append_optional_slice_and_nibble(Some(&NibbleSlice::new(k2.0)), None);
+					if let Some(n) = k2.1 {
+						so.push(n >> nibble_ops::BIT_PER_NIBBLE);
+					}
+					so.append_optional_slice_and_nibble(Some(&NibbleSlice::from_stored(&partial)), None);
+					let so = so.as_prefix();
+					(k2.0, Some(so.0.into()), so.1)
 				};
 				let child_prefix = (alloc_start.as_ref().map(|start| &start[..]).unwrap_or(start), prefix_end);
 
@@ -1515,7 +1536,8 @@ where
 							"fixing: extension combination. new_partial={:?}",
 							partial,
 						);
-						self.fix(Node::Extension(partial, sub_child, meta), key)
+						
+						self.fix_inner(Node::Extension(partial, sub_child, meta), key.into(), true)
 					}
 					Node::Leaf(sub_partial, value, meta) => {
 						// combine with node below.

@@ -85,14 +85,13 @@ fn reference_hashed_null_node<T: TrieLayout>() -> <T::Hash as Hasher>::Out {
 #[test]
 fn playpen() {
 	env_logger::init();
-//	playpen_internal::<CheckMetaHasherNoExt>();
-//	playpen_internal::<CheckMetaHasher>();
-//	playpen_internal::<NoExtensionLayout>();
+	playpen_internal::<CheckMetaHasherNoExt>();
+	playpen_internal::<CheckMetaHasher>();
+	playpen_internal::<NoExtensionLayout>();
 	playpen_internal::<ExtensionLayout>();
 }
 fn playpen_internal<T: TrieLayout>() {
 	let mut seed = [0u8;32];
-	seed = [45, 199, 161, 216, 56, 91, 208, 167, 204, 53, 186, 114, 57, 51, 153, 254, 251, 218, 216, 141, 199, 182, 83, 86, 48, 145, 36, 255, 86, 121, 28, 213];
 	for test_i in 0..10_000 {
 		if test_i % 50 == 0 {
 			debug!("{:?} of 10000 stress tests done", test_i);
