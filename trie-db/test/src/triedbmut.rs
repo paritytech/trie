@@ -20,7 +20,7 @@ use hash_db::{Hasher, HashDB};
 use trie_db::{TrieDBMut, TrieMut, NodeCodec, GlobalMeta,
 	TrieLayout, DBValue, Value};
 use reference_trie::{ExtensionLayout, NoExtensionLayout,
-	RefHasher, test_layouts, ReferenceNodeCodec,
+	RefHasher, test_layouts, ReferenceNodeCodec, CheckMetaHasher, CheckMetaHasherNoExt,
 	ReferenceNodeCodecNoExt, reference_trie_root_iter_build as reference_trie_root};
 
 type PrefixedMemoryDB<T> = MemoryDB::<
@@ -82,12 +82,14 @@ fn reference_hashed_null_node<T: TrieLayout>() -> <T::Hash as Hasher>::Out {
 #[test]
 fn playpen() {
 	env_logger::init();
-	playpen_internal::<NoExtensionLayout>();
+//	playpen_internal::<CheckMetaHasherNoExt>();
+//	playpen_internal::<CheckMetaHasher>();
+//	playpen_internal::<NoExtensionLayout>();
 	playpen_internal::<ExtensionLayout>();
 }
 fn playpen_internal<T: TrieLayout>() {
 	let mut seed = Default::default();
-	for test_i in 0..10 {
+	for test_i in 0..10_000 {
 		if test_i % 50 == 0 {
 			debug!("{:?} of 10000 stress tests done", test_i);
 		}

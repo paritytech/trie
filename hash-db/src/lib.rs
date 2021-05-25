@@ -1,4 +1,4 @@
-// Copyright 2017, 2018 Parity Technologies
+// Copyright 2017, 2021 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -119,9 +119,9 @@ pub trait HashDB<H: Hasher, T, M, GM>: Send + Sync + AsHashDB<H, T, M, GM> {
 
 	/// Access additional content or indicate additional content already accessed and needed.
 	///
-	/// In one case `at` is `None` and no reply is expected, this is a callback indicate access.
+	/// In one case `at` is `None` and no reply is expected, just a callback on content access.
 	///
-	/// In the other case `at` is `Some` and we also got additional content (eg if value
+	/// In the other case `at` is `Some` and we try to fetch additional content (eg if value
 	/// of a trie node is stored externally for performance purpose).
 	fn access_from(&self, _key: &H::Out, _at: Option<&H::Out>) -> Option<T> {
 		None
@@ -163,7 +163,7 @@ pub trait HashDBRef<H: Hasher, T, M, GM> {
 	/// Resolve associated meta.
 	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, global_meta: GM) -> Option<(T, M)>;
 
-	/// TODO
+	/// Callback for content access.
 	fn access_from(&self, _key: &H::Out, _at: Option<&H::Out>) -> Option<T>;
 
 	/// Check for the existance of a hash-key.

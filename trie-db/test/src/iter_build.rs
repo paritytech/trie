@@ -73,6 +73,8 @@ fn compare_implementations(data: Vec<(Vec<u8>, Vec<u8>)>) {
 }
 
 fn compare_implementations_prefixed(data: Vec<(Vec<u8>, Vec<u8>)>) {
+	compare_implementations_prefixed_internal::<CheckMetaHasherNoExt>(data.clone());
+	compare_implementations_prefixed_internal::<CheckMetaHasher>(data.clone());
 	compare_implementations_prefixed_internal::<NoExtensionLayout>(data.clone());
 	compare_implementations_prefixed_internal::<ExtensionLayout>(data.clone());
 }
@@ -82,6 +84,8 @@ fn compare_implementations_prefixed_internal<T: TrieLayout>(data: Vec<(Vec<u8>, 
 	reference_trie::compare_implementations::<T, _>(data, memdb, hashdb);
 }
 fn compare_implementations_h(data: Vec<(Vec<u8>, Vec<u8>)>) {
+	compare_implementations_h_internal::<CheckMetaHasherNoExt>(data.clone());
+	compare_implementations_h_internal::<CheckMetaHasher>(data.clone());
 	compare_implementations_h_internal::<NoExtensionLayout>(data.clone());
 	compare_implementations_h_internal::<ExtensionLayout>(data.clone());
 }
