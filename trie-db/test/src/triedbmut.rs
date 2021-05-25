@@ -64,11 +64,14 @@ fn populate_trie_and_flag<'db, T: TrieLayout>(
 	t
 }
 
-fn unpopulate_trie<'db, T: TrieLayout>(t: &mut TrieDBMut<'db, T>, v: &[(Vec<u8>, Vec<u8>)]) {
-	for i in v {
+fn unpopulate_trie<'db, T: TrieLayout>(t: &mut TrieDBMut<'db, T>, v: &[(Vec<u8>, Vec<u8>)]) -> bool {
+	for (_ix, i) in v.into_iter().enumerate() {
 		let key: &[u8]= &i.0;
-		t.remove(key).unwrap();
+		if t.remove(key).is_err() {
+			return false;
+		}
 	}
+	true
 }
 
 fn reference_hashed_null_node<T: TrieLayout>() -> <T::Hash as Hasher>::Out {
@@ -88,11 +91,13 @@ fn playpen() {
 	playpen_internal::<ExtensionLayout>();
 }
 fn playpen_internal<T: TrieLayout>() {
-	let mut seed = Default::default();
+	let mut seed = [0u8;32];
+	seed = [45, 199, 161, 216, 56, 91, 208, 167, 204, 53, 186, 114, 57, 51, 153, 254, 251, 218, 216, 141, 199, 182, 83, 86, 48, 145, 36, 255, 86, 121, 28, 213];
 	for test_i in 0..10_000 {
 		if test_i % 50 == 0 {
 			debug!("{:?} of 10000 stress tests done", test_i);
 		}
+		let initial_seed = seed.clone();
 		let x = StandardMap {
 			alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
 			min_key: 5,
@@ -116,7 +121,7 @@ fn playpen_internal<T: TrieLayout>() {
 			}
 		}
 		assert_eq!(*memtrie.root(), real);
-		unpopulate_trie(&mut memtrie, &x);
+		assert!(unpopulate_trie(&mut memtrie, &x), "{:?}", (test_i, initial_seed));
 		memtrie.commit();
 		let hashed_null_node = reference_hashed_null_node::<T>();
 		if *memtrie.root() != hashed_null_node {
