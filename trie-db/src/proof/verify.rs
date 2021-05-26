@@ -327,6 +327,7 @@ fn match_key_to_node<'a>(key: &LeftNibbleSlice<'a>, prefix_len: usize, node: &No
 				match value {
 					Value::NoValue => ValueMatch::NotOmitted,
 					// TODO simply consider using NoValue for omitted.
+					// This is closer to original code for review.
 					Value::HashedValue(_, len) => if len == &0 {
 						ValueMatch::MatchesLeaf
 					} else {

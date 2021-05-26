@@ -153,7 +153,7 @@ impl TrieLayout for CheckMetaHasher {
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
 	type MetaHasher = TestMetaHasher<RefHasher>;
-	type Meta = ValueRange;
+	type Meta = ValueMeta;
 
 	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		false
@@ -173,7 +173,7 @@ impl TrieLayout for CheckMetaHasherNoExt {
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
 	type MetaHasher = TestMetaHasher<RefHasher>;
-	type Meta = ValueRange;
+	type Meta = ValueMeta;
 
 	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		self.0
@@ -198,7 +198,7 @@ pub struct TestMetaHasher<H>(PhantomData<H>);
 pub struct TestMetaHasherProof<H>(PhantomData<H>);
 
 impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
-	type Meta = ValueRange;
+	type Meta = ValueMeta;
 	type GlobalMeta = bool;
 
 	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out {
@@ -291,7 +291,7 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 	}
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct ValueMeta {
 	pub range: Option<core::ops::Range<usize>>,
 	// When `do_value_hash` is true, try to
@@ -312,14 +312,11 @@ pub struct ValueMeta {
 	pub unused_value: bool,
 }
 
-/// Test Meta input. TODO remove alias
-pub type ValueRange = ValueMeta;
-
 /// Treshold for using hash of value instead of value
 /// in encoded trie node.
 pub const INNER_HASH_TRESHOLD: usize = 1;
 
-impl Meta for ValueRange {
+impl Meta for ValueMeta {
 	/// If true apply inner hashing of value
 	/// starting from this trie branch.
 	type GlobalMeta = bool;
@@ -424,7 +421,7 @@ impl Meta for ValueRange {
 	}
 }
 
-impl ValueRange {
+impl ValueMeta {
 	pub fn set_accessed_value(&mut self, accessed: bool) {
 		self.unused_value = !accessed;
 	}
@@ -467,7 +464,7 @@ pub fn inner_hashed_value<H: Hasher>(x: &[u8], range: Option<(usize, usize)>) ->
 }
 
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Version {
 	Old,
 	New,
@@ -520,7 +517,7 @@ impl TrieLayout for Updatable {
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
 	type MetaHasher = TestUpdatableMetaHasher<RefHasher>;
-	type Meta = VersionedValueRange;
+	type Meta = VersionedValueMeta;
 
 	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		self.0
@@ -528,14 +525,14 @@ impl TrieLayout for Updatable {
 }
 
 /// Test Meta input.
-#[derive(Default, Clone)]
-pub struct VersionedValueRange {
+#[derive(Default, Clone, Debug)]
+pub struct VersionedValueMeta {
 	range: Option<core::ops::Range<usize>>,
 	old_remaining_children: Option<Vec<u8>>,
 	version: Version,
 }
 
-impl Meta for VersionedValueRange {
+impl Meta for VersionedValueMeta {
 	type GlobalMeta = Version;
 
 	type StateMeta = ();
@@ -570,7 +567,7 @@ impl Meta for VersionedValueRange {
 		} else {
 			None
 		};
-		VersionedValueRange { range: None, version: input, old_remaining_children }
+		VersionedValueMeta { range: None, version: input, old_remaining_children }
 	}
 
 	fn meta_for_existing_inline_node(
@@ -581,14 +578,14 @@ impl Meta for VersionedValueRange {
 		} else {
 			None
 		};
-		VersionedValueRange { range: None, version: input, old_remaining_children }
+		VersionedValueMeta { range: None, version: input, old_remaining_children }
 	}
 
 	fn meta_for_empty(
 		input: Self::GlobalMeta,
 	) -> Self {
 		// empty is same for new and old, using new
-		VersionedValueRange { range: None, version: input, old_remaining_children: None }
+		VersionedValueMeta { range: None, version: input, old_remaining_children: None }
 	}
 
 	fn encoded_value_callback(
@@ -639,7 +636,7 @@ impl Meta for VersionedValueRange {
 pub struct TestUpdatableMetaHasher<H>(PhantomData<H>);
 
 impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestUpdatableMetaHasher<H> {
-	type Meta = VersionedValueRange;
+	type Meta = VersionedValueMeta;
 	type GlobalMeta = Version;
 
 	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out {
@@ -682,7 +679,7 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestUpdatableMetaHasher<H> {
 		};
 		let read_bytes = len - input.len();
 		let stored = &stored[read_bytes..];
-		(stored, VersionedValueRange {
+		(stored, VersionedValueMeta {
 			old_remaining_children,
 			range: None,
 			version,
@@ -702,7 +699,7 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestUpdatableMetaHasher<H> {
 		};
 		let read_bytes = len - input.len();
 		let stored = stored.split_off(read_bytes);
-		(stored, VersionedValueRange {
+		(stored, VersionedValueMeta {
 			old_remaining_children,
 			range: None,
 			version,
@@ -821,10 +818,8 @@ const LEAF_PREFIX_MASK_NO_EXT: u8 = 0b_01 << 6;
 const BRANCH_WITHOUT_MASK_NO_EXT: u8 = 0b_10 << 6;
 const BRANCH_WITH_MASK_NO_EXT: u8 = 0b_11 << 6;
 const EMPTY_TRIE_NO_EXT: u8 = FIRST_PREFIX | 0b_00;
-// TODO rem pub
-pub const ENCODED_META_NO_EXT: u8 = FIRST_PREFIX | 0b_10_10;
-// TODO rem pub
-pub const ALLOW_HASH_META: u8 = 1;
+const ENCODED_META_NO_EXT: u8 = FIRST_PREFIX | 0b_10_10;
+const ALLOW_HASH_META: u8 = 1;
 const DEAD_HEADER_META_HASHED_VALUE: u8 = FIRST_PREFIX | 0b_11_10;
 
 /// Create a leaf/extension node, encoding a number of nibbles. Note that this
@@ -1055,26 +1050,30 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 		let inner_value_hashing = self.inner_value_hashing;
 		let range = self.current_value_range;
 		let data = self.buffer;
+		let meta = ValueMeta {
+			range: range,
+			unused_value: false,
+			contain_hash: false,
+			do_value_hash: inner_value_hashing,
+			recorded_do_value_hash: inner_value_hashing,
+		};
+			
+		// Add the recorded_do_value_hash to encoded
+		let mut encoded = meta.write_state_meta();
+		let encoded = if encoded.len() > 0 {
+			encoded.extend(data);
+			encoded
+		} else {
+			data
+		};
+
 		if inner_value_hashing
-			&& range.as_ref().map(|r| r.end - r.start >= INNER_HASH_TRESHOLD).unwrap_or_default() {
-			let meta = ValueMeta {
-				range: range,
-				unused_value: false,
-				contain_hash: false,
-				do_value_hash: true,
-				recorded_do_value_hash: true,
-			};
-			// Add the recorded_do_value_hash to encoded
-			let mut encoded = meta.write_state_meta();
-			let encoded = if encoded.len() > 0 {
-				encoded.extend(data);
-				encoded
-			} else {
-				data
-			};
+			&& meta.range.as_ref().map(|r| r.end - r.start >= INNER_HASH_TRESHOLD)
+				.unwrap_or_default() {
+		
 			<TestMetaHasher<H> as MetaHasher<H, Vec<u8>>>::hash(&encoded, &meta)
 		} else {
-			H::hash(&data)
+			H::hash(&encoded)
 		}
 	}
 

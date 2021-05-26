@@ -498,7 +498,6 @@ pub fn decode_compact<L, DB>(db: &mut DB, encoded: &[Vec<u8>])
 			layout.initialize_from_root_meta(&meta);
 		}
 	}
-	// TODO layout from first value (root) if L, otherwhise just use default.
 	decode_compact_from_iter::<L, DB, _>(db, encoded.iter().map(Vec::as_slice), &layout)
 }
 
@@ -510,7 +509,6 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I, layout: &
 		DB: HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 		I: IntoIterator<Item = &'a [u8]>,
 {
-	// TODO layout from first value (root) if L, otherwhise just use default.
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
 	let mut stack: Vec<DecoderStackEntry<L::Codec, L::Meta>> = Vec::new();

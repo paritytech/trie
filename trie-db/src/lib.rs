@@ -460,7 +460,7 @@ pub trait TrieLayout: Default + Clone {
 /// transient information.
 /// Can be use to do custom codec and serialization dependant on layout
 /// state.
-pub trait Meta: Clone {
+pub trait Meta: Clone + MaybeDebug {
 	/// Global trie meta this will derive from.
 	/// Usually it holds specific behavior from layout context.
 	type GlobalMeta;

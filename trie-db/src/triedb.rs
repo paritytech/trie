@@ -195,7 +195,7 @@ where
 	node_key: NodeHandle<'a>,
 	partial_key: NibbleVec,
 	index: Option<u8>,
-	// TODO consider adding meta
+	show_meta: bool,
 }
 
 #[cfg(feature="std")]
@@ -204,34 +204,43 @@ where
 	L: TrieLayout,
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		let show_meta = self.show_meta;
 		match self.trie.get_raw_or_lookup(
 			<TrieHash<L>>::default(),
 			self.node_key,
 			self.partial_key.as_prefix()
 		) {
-			Ok((owned_node, _node_hash, _meta)) => match owned_node.node() {
-				Node::Leaf(slice, value) =>
-					match (f.debug_struct("Node::Leaf"), self.index) {
-						(ref mut d, Some(i)) => d.field("index", &i),
-						(ref mut d, _) => d,
+			Ok((owned_node, _node_hash, meta)) => match owned_node.node() {
+				Node::Leaf(slice, value) => {
+					let mut disp = f.debug_struct("Node::Leaf");
+					if let Some(i) = self.index {
+						disp.field("index", &i);
 					}
-						.field("slice", &slice)
-						.field("value", &value)
-						.finish(),
+					disp.field("slice", &slice)
+						.field("value", &value);
+					if show_meta {
+						disp.field("meta", &meta);
+					}
+					disp.finish()
+				},
 				Node::Extension(slice, item) => {
-					match (f.debug_struct("Node::Extension"), self.index) {
-						(ref mut d, Some(i)) => d.field("index", &i),
-						(ref mut d, _) => d,
+					let mut disp = f.debug_struct("Node::Extension");
+					if let Some(i) = self.index {
+						disp.field("index", &i);
 					}
-						.field("slice", &slice)
+					disp.field("slice", &slice)
 						.field("item", &TrieAwareDebugNode {
 							trie: self.trie,
 							node_key: item,
 							partial_key: self.partial_key
 								.clone_append_optional_slice_and_nibble(Some(&slice), None),
 							index: None,
-						})
-						.finish()
+							show_meta,
+						});
+					if show_meta {
+						disp.field("meta", &meta);
+					}
+					disp.finish()
 				},
 				Node::Branch(ref nodes, ref value) => {
 					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.into_iter()
@@ -243,15 +252,19 @@ where
 							node_key: n,
 							partial_key: self.partial_key
 								.clone_append_optional_slice_and_nibble(None, Some(i as u8)),
+							show_meta,
 						})
 						.collect();
-					match (f.debug_struct("Node::Branch"), self.index) {
-						(ref mut d, Some(ref i)) => d.field("index", i),
-						(ref mut d, _) => d,
+					let mut disp = f.debug_struct("Node::Branch");
+					if let Some(i) = self.index {
+						disp.field("index", &i);
 					}
-						.field("nodes", &nodes)
-						.field("value", &value)
-						.finish()
+					disp.field("nodes", &nodes)
+						.field("value", &value);
+					if show_meta {
+						disp.field("meta", &meta);
+					}
+					disp.finish()
 				},
 				Node::NibbledBranch(slice, nodes, value) => {
 					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.iter()
@@ -263,17 +276,27 @@ where
 							node_key: n,
 							partial_key: self.partial_key
 								.clone_append_optional_slice_and_nibble(Some(&slice), Some(i as u8)),
+							show_meta,
 						}).collect();
-					match (f.debug_struct("Node::NibbledBranch"), self.index) {
-						(ref mut d, Some(ref i)) => d.field("index", i),
-						(ref mut d, _) => d,
+					let mut disp = f.debug_struct("Node::NibbledBranch");
+					if let Some(i) = self.index {
+						disp.field("index", &i);
 					}
-						.field("slice", &slice)
+					disp.field("slice", &slice)
 						.field("nodes", &nodes)
-						.field("value", &value)
-						.finish()
+						.field("value", &value);
+					if show_meta {
+						disp.field("meta", &meta);
+					}
+					disp.finish()
 				},
-				Node::Empty => f.debug_struct("Node::Empty").finish(),
+				Node::Empty => {
+					let mut disp = f.debug_struct("Node::Empty");
+					if show_meta {
+						disp.field("meta", &meta);
+					}
+					disp.finish()
+				},
 			},
 			Err(e) => f.debug_struct("BROKEN_NODE")
 				.field("index", &self.index)
@@ -297,6 +320,31 @@ where
 				node_key: NodeHandle::Hash(self.root().as_ref()),
 				partial_key: NibbleVec::new(),
 				index: None,
+				show_meta: false,
+			})
+			.finish()
+	}
+}
+
+/// Use this struct to display a trie with associated
+/// nodes metas.
+#[cfg(feature="std")]
+pub struct DebugWithMeta<'db, L: TrieLayout>(pub &'db TrieDB<'db, L>);
+
+#[cfg(feature="std")]
+impl<'db, L> fmt::Debug for DebugWithMeta<'db, L>
+where
+	L: TrieLayout,
+{
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		f.debug_struct("TrieDBWithMeta")
+			.field("hash_count", &self.0.hash_count)
+			.field("root", &TrieAwareDebugNode {
+				trie: self.0,
+				node_key: NodeHandle::Hash(self.0.root().as_ref()),
+				partial_key: NibbleVec::new(),
+				index: None,
+				show_meta: true,
 			})
 			.finish()
 	}
