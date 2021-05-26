@@ -450,7 +450,6 @@ pub trait TrieLayout: Default + Clone {
 	}
 
 	/// Current global layout meta.
-	/// TODO consider merging mith all meta input function.
 	/// TODO rename simply 'meta'
 	fn layout_meta(&self) -> GlobalMeta<Self>;
 }
