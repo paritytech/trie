@@ -244,6 +244,41 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 		Ok(())
 	}
 
+	/// Advance the iterator into a prefix, no value out of the prefix will be accessed
+	/// or returned after this operation.
+	pub fn prefix_then_seek(&mut self, prefix: &[u8], seek: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+		if seek.starts_with(prefix) {
+			self.seek_prefix(seek)?;
+			let prefix_len = prefix.len() * crate::nibble::nibble_ops::NIBBLE_PER_BYTE;
+			let mut len = 0;
+			// look first prefix in trail
+			for i in 0..self.trail.len() {
+				match self.trail[i].node.node_plan() {
+					NodePlan::Empty => {},
+					NodePlan::Branch { .. } => {
+						len += 1;
+					},
+					NodePlan::Leaf { partial, .. } => {
+						len += partial.len();
+					},
+					NodePlan::Extension { partial, .. } => {
+						len += partial.len();
+					},
+					NodePlan::NibbledBranch { partial, .. } => {
+						len += 1;
+						len += partial.len();
+					},
+				}
+				if len > prefix_len {
+					self.trail = self.trail.split_off(i);
+					return Ok(());
+				}
+			}
+		}
+		// default to empty iter
+		self.trail.clear();
+		Ok(())
+	}
 }
 
 impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
