@@ -58,7 +58,7 @@ mod node_codec;
 mod trie_codec;
 
 pub use hash_db::{HashDB, HashDBRef, Hasher};
-pub use self::triedb::{TrieDB, TrieDBIterator};
+pub use self::triedb::{TrieDB, TrieDBIterator, TrieDBKeyIterator};
 pub use self::triedbmut::{TrieDBMut, ChildReference, Value};
 pub use self::sectriedbmut::SecTrieDBMut;
 pub use self::sectriedb::SecTrieDB;
