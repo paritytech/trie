@@ -376,6 +376,22 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 			inner,
 		})
 	}
+
+	/// Create a new iterator, but limited to a given prefix.
+	/// It then do a seek operation from prefixed context (using `seek` lose
+	/// prefix context by default).
+	pub fn new_prefixed_then_seek(
+		db: &'a TrieDB<L>,
+		prefix: &[u8],
+		start_at: &[u8],
+	) -> Result<TrieDBIterator<'a, L>, TrieHash<L>, CError<L>> {
+		let mut inner = TrieDBNodeIterator::new(db)?;
+		inner.prefix_then_seek(prefix, start_at)?;
+
+		Ok(TrieDBIterator {
+			inner,
+		})
+	}
 }
 
 impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBIterator<'a, L> {
@@ -396,6 +412,22 @@ impl<'a, L: TrieLayout> TrieDBKeyIterator<'a, L> {
 	pub fn new_prefixed(db: &'a TrieDB<L>, prefix: &[u8]) -> Result<TrieDBKeyIterator<'a, L>, TrieHash<L>, CError<L>> {
 		let mut inner = TrieDBNodeIterator::new(db)?;
 		inner.prefix(prefix)?;
+
+		Ok(TrieDBKeyIterator {
+			inner,
+		})
+	}
+
+	/// Create a new iterator, but limited to a given prefix.
+	/// It then do a seek operation from prefixed context (using `seek` lose
+	/// prefix context by default).
+	pub fn new_prefixed_then_seek(
+		db: &'a TrieDB<L>,
+		prefix: &[u8],
+		start_at: &[u8],
+	) -> Result<TrieDBKeyIterator<'a, L>, TrieHash<L>, CError<L>> {
+		let mut inner = TrieDBNodeIterator::new(db)?;
+		inner.prefix_then_seek(prefix, start_at)?;
 
 		Ok(TrieDBKeyIterator {
 			inner,
