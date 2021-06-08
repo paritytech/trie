@@ -50,6 +50,7 @@ pub enum Value<'a> {
 	/// Value byte slice.
 	Value(&'a [u8]),
 	/// Hash byte slice and original value length.
+	/// TODO remove size!!
 	HashedValue(&'a [u8], usize),
 }
 
@@ -137,7 +138,9 @@ pub enum ValuePlan {
 	/// Node with no value attached.
 	NoValue,
 	/// Range for byte representation in encoded node.
-	Value(Range<usize>),
+	/// Additional usize mark start of range with value length
+	/// included.
+	Value(Range<usize>, usize),
 	/// Range for hash in encoded node and original
 	/// value size.
 	HashedValue(Range<usize>, usize),
@@ -148,7 +151,7 @@ impl ValuePlan {
 	pub fn build<'a, 'b>(&'a self, data: &'b [u8]) -> Value<'b> {
 		match self {
 			ValuePlan::NoValue => Value::NoValue,
-			ValuePlan::Value(range) => Value::Value(&data[range.clone()]),
+			ValuePlan::Value(range, _) => Value::Value(&data[range.clone()]),
 			ValuePlan::HashedValue(range, size) => Value::HashedValue(&data[range.clone()], *size),
 		}
 	}

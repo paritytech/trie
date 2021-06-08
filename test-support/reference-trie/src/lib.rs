@@ -397,7 +397,7 @@ impl Meta for ValueMeta {
 		value_plan: ValuePlan,
 	) {
 		let (contain_hash, range) = match value_plan {
-			ValuePlan::Value(range) => (false, range),
+			ValuePlan::Value(range, _) => (false, range),
 			ValuePlan::HashedValue(range, _size) => (true, range),
 			ValuePlan::NoValue => return,
 		};
@@ -594,7 +594,7 @@ impl Meta for VersionedValueMeta {
 	) {
 		if matches!(self.version, Version::New) {
 			let range = match value_plan {
-				ValuePlan::Value(range) => range,
+				ValuePlan::Value(range, _) => range,
 				ValuePlan::HashedValue(_range, _size) => unimplemented!(),
 				ValuePlan::NoValue => return,
 			};
@@ -1359,8 +1359,9 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodec<H> {
 				let bitmap = Bitmap::decode(&data[bitmap_range])?;
 
 				let value = if has_value {
+					let start = input.offset;
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-					ValuePlan::Value(input.take(count)?)
+					ValuePlan::Value(input.take(count)?, start)
 				} else {
 					ValuePlan::NoValue
 				};
@@ -1403,11 +1404,12 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodec<H> {
 					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE
 				)?;
 				let partial_padding = nibble_ops::number_padding(nibble_count);
+				let start = input.offset;
 				let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
 				let value = input.take(count)?;
 				Ok(NodePlan::Leaf {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
-					value: ValuePlan::Value(value),
+					value: ValuePlan::Value(value, start),
 				})
 			}
 		}
@@ -1429,11 +1431,12 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodec<H> {
 		let mut output = partial_to_key(partial, LEAF_NODE_OFFSET, LEAF_NODE_OVER);
 		match value {
 			Value::Value(value) => {
+				let start_len = output.len();
 				Compact(value.len() as u32).encode_to(&mut output);
 				let start = output.len();
 				output.extend_from_slice(value);
 				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::Value(start..end));
+				meta.encoded_value_callback(ValuePlan::Value(start..end, start_len));
 			},
 			_ => unimplemented!("unsupported"),
 		}
@@ -1469,11 +1472,12 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodec<H> {
 		let mut prefix: [u8; 3] = [0; 3];
 		let have_value = match maybe_value {
 			Value::Value(value) => {
+				let start_len = output.len();
 				Compact(value.len() as u32).encode_to(&mut output);
 				let start = output.len();
 				output.extend_from_slice(value);
 				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::Value(start..end));
+				meta.encoded_value_callback(ValuePlan::Value(start..end, start_len));
 				true
 			},
 			Value::NoValue => {
@@ -1541,11 +1545,12 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 				let bitmap_range = input.take(BITMAP_LENGTH)?;
 				let bitmap = Bitmap::decode(&data[bitmap_range])?;
 				let value = if has_value {
+					let start_len = input.offset;
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
 					if contains_hash {
 						ValuePlan::HashedValue(input.take(H::LENGTH)?, count)
 					} else {
-						ValuePlan::Value(input.take(count)?)
+						ValuePlan::Value(input.take(count)?, start_len)
 					}
 				} else {
 					ValuePlan::NoValue
@@ -1581,11 +1586,12 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE
 				)?;
 				let partial_padding = nibble_ops::number_padding(nibble_count);
+				let start = input.offset;
 				let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
 				let value = if contains_hash {
 					ValuePlan::HashedValue(input.take(H::LENGTH)?, count)
 				} else {
-					ValuePlan::Value(input.take(count)?)
+					ValuePlan::Value(input.take(count)?, start)
 				};
 
 				NodePlan::Leaf {
@@ -1638,11 +1644,12 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 		output.append(&mut partial_encode(partial, NodeKindNoExt::Leaf));
 		match value {
 			Value::Value(value) => {
+				let start_len = output.len();
 				Compact(value.len() as u32).encode_to(&mut output);
 				let start = output.len();
 				output.extend_from_slice(value);
 				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::Value(start..end));
+				meta.encoded_value_callback(ValuePlan::Value(start..end, start_len));
 			},
 			Value::HashedValue(hash, size) => {
 				debug_assert!(hash.len() == H::LENGTH);
@@ -1700,11 +1707,12 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 		(0..BITMAP_LENGTH).for_each(|_| output.push(0));
 		match maybe_value {
 			Value::Value(value) => {
+				let start_len = output.len();
 				Compact(value.len() as u32).encode_to(&mut output);
 				let start = output.len();
 				output.extend_from_slice(value);
 				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::Value(start..end));
+				meta.encoded_value_callback(ValuePlan::Value(start..end, start_len));
 			},
 			Value::HashedValue(hash, size) => {
 				debug_assert!(hash.len() == H::LENGTH);

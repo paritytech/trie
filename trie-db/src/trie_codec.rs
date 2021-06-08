@@ -310,7 +310,7 @@ impl<'a, I: Iterator<Item = &'a [u8]>> MatchKeys<'a, I> {
 			let mut node_key = prefix.clone();
 			match node.node_plan() {
 				NodePlan::NibbledBranch{partial, value: ValuePlan::HashedValue(..), ..}
-				| NodePlan::NibbledBranch{partial, value: ValuePlan::Value(_), ..}
+				| NodePlan::NibbledBranch{partial, value: ValuePlan::Value(..), ..}
 				| NodePlan::Leaf {partial, ..} => {
 					let node_data = node.data();
 					let partial = partial.build(node_data);

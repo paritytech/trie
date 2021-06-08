@@ -476,6 +476,8 @@ pub trait Meta: Clone + MaybeDebug {
 	/// Insert associated state meta.
 	fn set_state_meta(&mut self, state_meta: Self::StateMeta);
 
+	// TODO ! get_state_meta and remove do_value_hash
+
 	/// Check if contains state meta (act as a value for trie structure).
 	fn has_state_meta(&self) -> bool;
 
