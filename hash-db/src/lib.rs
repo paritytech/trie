@@ -244,6 +244,7 @@ pub trait MetaHasher<H: Hasher, T>: Send + Sync {
 
 /// Default `MetaHasher` implementation, stored value
 /// is the same as hashed value, no meta data added.
+#[derive(Default, Clone, Copy)]
 pub struct NoMeta;
 
 impl<H, T> MetaHasher<H, T> for NoMeta
