@@ -24,13 +24,16 @@ use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH, NibbleSlice,
 	node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, Value, ValuePlan}, NodeCodec, Recorder,
 	Result as TrieResult, Trie, TrieError, TrieHash,
-	TrieLayout,
+	TrieLayout, Meta, MetaHasher,
 };
 
-struct StackEntry<'a, C: NodeCodec<()>> {
+struct StackEntry<'a, M: Meta, C: NodeCodec<M>> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: LeftNibbleSlice<'a>,
+	/// Stacked node.
 	node: OwnedNode<Vec<u8>>,
+	/// Meta for stacked node.
+	meta: M,
 	/// The hash of the node or None if it is referenced inline.
 	node_hash: Option<C::HashOut>,
 	/// Whether the value should be omitted in the generated proof.
@@ -45,16 +48,16 @@ struct StackEntry<'a, C: NodeCodec<()>> {
 	_marker: PhantomData<C>,
 }
 
-impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
+impl<'a, M: Meta, C: NodeCodec<M>> StackEntry<'a, M, C> {
 	fn new(
 		prefix: LeftNibbleSlice<'a>,
 		node_data: Vec<u8>,
 		node_hash: Option<C::HashOut>,
 		output_index: Option<usize>,
+		mut meta: M,
 	) -> TrieResult<Self, C::HashOut, C::Error>
 	{
-		// TODO implement meta support to allow hashed value.
-		let node = OwnedNode::new::<(), C>(node_data, &mut ())
+		let node = OwnedNode::new::<M, C>(node_data, &mut meta)
 			.map_err(|err| Box::new(
 				TrieError::DecoderError(node_hash.unwrap_or_default(), err)
 			))?;
@@ -71,19 +74,21 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 			child_index: 0,
 			children: vec![None; children_len],
 			output_index,
+			meta,
 			_marker: PhantomData::default(),
 		})
 	}
 
 	/// Encode this entry to an encoded trie node with data properly omitted.
-	fn encode_node(mut self) -> TrieResult<Vec<u8>, C::HashOut, C::Error> {
+	fn encode_node(mut self) -> TrieResult<(Vec<u8>, M), C::HashOut, C::Error> {
 		let node_data = self.node.data();
-		Ok(match self.node.node_plan() {
+		let node_meta = &mut self.meta;
+		let encoded = match self.node.node_plan() {
 			NodePlan::Empty => node_data.to_vec(),
 			NodePlan::Leaf { .. } if !self.omit_value => node_data.to_vec(),
 			NodePlan::Leaf { partial, value: _ } => {
 				let partial = partial.build(node_data);
-				C::leaf_node(partial.right(), Value::Value(&[]), &mut ())
+				C::leaf_node(partial.right(), Value::Value(&[]), node_meta)
 			}
 			NodePlan::Extension { .. } if self.child_index == 0 => node_data.to_vec(),
 			NodePlan::Extension { partial: partial_plan, child: _ } => {
@@ -98,7 +103,7 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 					partial.right_iter(),
 					partial.len(),
 					child,
-					&mut (),
+					node_meta,
 				)
 			}
 			NodePlan::Branch { value, children } => {
@@ -111,7 +116,7 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 				C::branch_node(
 					self.children.into_iter(),
 					value_with_omission(node_data, value, self.omit_value),
-					&mut (),
+					node_meta,
 				)
 			},
 			NodePlan::NibbledBranch { partial: partial_plan, value, children } => {
@@ -127,10 +132,11 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 					partial.len(),
 					self.children.into_iter(),
 					value_with_omission(node_data, value, self.omit_value),
-					&mut (),
+					node_meta,
 				)
 			},
-		})
+		};
+		Ok((encoded, self.meta))
 	}
 
 	/// Populate the remaining references in `children` with references copied from
@@ -164,7 +170,9 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 	/// Sets the reference for the child at index `child_index`. If the child is hash-referenced in
 	/// the trie, the proof node reference will be an omitted child. If the child is
 	/// inline-referenced in the trie, the proof node reference will also be inline.
-	fn set_child(&mut self, encoded_child: &[u8]) {
+	/// Return true if child was inline.
+	fn set_child(&mut self, encoded_child: &[u8]) -> bool {
+		let mut inline = false;
 		let child_ref = match self.node.node_plan() {
 			NodePlan::Empty | NodePlan::Leaf { .. } => panic!(
 				"empty and leaf nodes have no children; \
@@ -178,7 +186,7 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 					set_child is called when the only child is popped from the stack; \
 					child_index is 0 before child is pushed to the stack; qed"
 				);
-				Some(Self::replacement_child_ref(encoded_child, child))
+				Some(Self::replacement_child_ref(encoded_child, child, &mut inline))
 			}
 			NodePlan::Branch { children, .. } | NodePlan::NibbledBranch { children, .. } => {
 				assert!(
@@ -189,22 +197,24 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 				);
 				children[self.child_index]
 					.as_ref()
-					.map(|child| Self::replacement_child_ref(encoded_child, child))
+					.map(|child| Self::replacement_child_ref(encoded_child, child, &mut inline))
 			}
 		};
 		self.children[self.child_index] = child_ref;
 		self.child_index += 1;
+		inline
 	}
 
 	/// Build a proof node child reference. If the child is hash-referenced in the trie, the proof
 	/// node reference will be an omitted child. If the child is inline-referenced in the trie, the
 	/// proof node reference will also be inline.
-	fn replacement_child_ref(encoded_child: &[u8], child: &NodeHandlePlan)
+	fn replacement_child_ref(encoded_child: &[u8], child: &NodeHandlePlan, inline: &mut bool)
 							 -> ChildReference<C::HashOut>
 	{
 		match child {
 			NodeHandlePlan::Hash(_) => ChildReference::Inline(C::HashOut::default(), 0),
 			NodeHandlePlan::Inline(_) => {
+				*inline = true;
 				let mut hash = C::HashOut::default();
 				assert!(
 					encoded_child.len() <= hash.as_ref().len(),
@@ -215,7 +225,7 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 				);
 				&mut hash.as_mut()[..encoded_child.len()].copy_from_slice(encoded_child);
 				ChildReference::Inline(hash, encoded_child.len())
-			}
+			},
 		}
 	}
 }
@@ -227,10 +237,11 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 									  -> TrieResult<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 	where
 		T: Trie<L>,
-		L: TrieLayout<Meta=()>,
+		L: TrieLayout,
 		I: IntoIterator<Item=&'a K>,
 		K: 'a + AsRef<[u8]>
 {
+	let layout = trie.layout();
 	// Sort and deduplicate keys.
 	let mut keys = keys.into_iter()
 		.map(|key| key.as_ref())
@@ -240,7 +251,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
-	let mut stack = <Vec<StackEntry<L::Codec>>>::new();
+	let mut stack = <Vec<StackEntry<L::Meta, L::Codec>>>::new();
 
 	// The mutated trie nodes comprising the final proof.
 	let mut proof_nodes = Vec::new();
@@ -249,7 +260,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 		let key = LeftNibbleSlice::new(key_bytes);
 
 		// Unwind the stack until the new entry is a child of the last entry on the stack.
-		unwind_stack(&mut stack, &mut proof_nodes, Some(&key))?;
+		unwind_stack::<L>(&mut stack, &mut proof_nodes, Some(&key))?;
 
 		// Perform the trie lookup for the next key, recording the sequence of nodes traversed.
 		let mut recorder = Recorder::new();
@@ -274,7 +285,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 
 		loop {
 			let step = match stack.last_mut() {
-				Some(entry) => match_key_to_node::<L::Codec>(
+				Some(entry) => match_key_to_node::<L::Meta, L::Codec>(
 					entry.node.data(),
 					entry.node.node_plan(),
 					&mut entry.omit_value,
@@ -314,6 +325,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 								child_record.data,
 								Some(child_record.hash),
 								Some(output_index),
+								child_record.meta,
 							)?
 						}
 						NodeHandle::Inline(data) => {
@@ -327,6 +339,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 								data.to_vec(),
 								None,
 								None,
+								layout.meta_for_stored_inline_node(),
 							)?
 						}
 					};
@@ -355,7 +368,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 		}
 	}
 
-	unwind_stack(&mut stack, &mut proof_nodes, None)?;
+	unwind_stack::<L>(&mut stack, &mut proof_nodes, None)?;
 	Ok(proof_nodes)
 }
 
@@ -369,7 +382,7 @@ enum Step<'a> {
 
 /// Determine the next algorithmic step to take by matching the current key against the current top
 /// entry on the stack.
-fn match_key_to_node<'a, C: NodeCodec<()>>(
+fn match_key_to_node<'a, M: Meta, C: NodeCodec<M>>(
 	node_data: &'a [u8],
 	node_plan: &NodePlan,
 	omit_value: &mut bool,
@@ -410,7 +423,7 @@ fn match_key_to_node<'a, C: NodeCodec<()>>(
 			}
 		}
 		NodePlan::Branch { value, children: child_handles } =>
-			match_key_to_branch_node::<C>(
+			match_key_to_branch_node::<M, C>(
 				node_data,
 				value,
 				&child_handles,
@@ -422,7 +435,7 @@ fn match_key_to_node<'a, C: NodeCodec<()>>(
 				NibbleSlice::new(&[]),
 			)?,
 		NodePlan::NibbledBranch { partial: partial_plan, value, children: child_handles } =>
-			match_key_to_branch_node::<C>(
+			match_key_to_branch_node::<M, C>(
 				node_data,
 				value,
 				&child_handles,
@@ -436,7 +449,7 @@ fn match_key_to_node<'a, C: NodeCodec<()>>(
 	})
 }
 
-fn match_key_to_branch_node<'a, 'b, C: NodeCodec<()>>(
+fn match_key_to_branch_node<'a, 'b, M: Meta, C: NodeCodec<M>>(
 	node_data: &'a [u8],
 	value_range: &'b ValuePlan,
 	child_handles: &'b [Option<NodeHandlePlan>; NIBBLE_LENGTH],
@@ -513,12 +526,11 @@ fn value_with_omission<'a>(
 /// Unwind the stack until the given key is prefixed by the entry at the top of the stack. If the
 /// key is None, unwind the stack completely. As entries are popped from the stack, they are
 /// encoded into proof nodes and added to the finalized proof.
-fn unwind_stack<C: NodeCodec<()>>(
-	stack: &mut Vec<StackEntry<C>>,
+fn unwind_stack<L: TrieLayout>(
+	stack: &mut Vec<StackEntry<L::Meta, L::Codec>>,
 	proof_nodes: &mut Vec<Vec<u8>>,
 	maybe_key: Option<&LeftNibbleSlice>,
-) -> TrieResult<(), C::HashOut, C::Error>
-{
+) -> TrieResult<(), TrieHash<L>, CError<L>> {
 	while let Some(entry) = stack.pop() {
 		match maybe_key {
 			Some(key) if key.starts_with(&entry.prefix) => {
@@ -529,9 +541,16 @@ fn unwind_stack<C: NodeCodec<()>>(
 			_ => {
 				// Pop and finalize node from the stack.
 				let index = entry.output_index;
-				let encoded = entry.encode_node()?;
+				let (mut encoded, meta) = entry.encode_node()?;
+				let mut inline = false;
 				if let Some(parent_entry) = stack.last_mut() {
-					parent_entry.set_child(&encoded);
+					inline = parent_entry.set_child(&encoded);
+				}
+				if !inline {
+					encoded = L::MetaHasher::stored_value_owned(
+						encoded,
+						meta,
+					);
 				}
 				if let Some(index) = index {
 					proof_nodes[index] = encoded;

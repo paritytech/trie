@@ -17,7 +17,7 @@ use crate::rstd::{
 };
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH,
-	node::{Node, Value, NodeHandle}, NodeCodec, TrieHash, TrieLayout,
+	node::{Node, Value, NodeHandle}, NodeCodec, TrieHash, TrieLayout, Meta, MetaHasher,
 };
 use hash_db::Hasher;
 
@@ -94,10 +94,11 @@ impl<HO: std::fmt::Debug, CE: std::error::Error + 'static> std::error::Error for
 	}
 }
 
-struct StackEntry<'a, C: NodeCodec<()>> {
+struct StackEntry<'a, M: Meta, C: NodeCodec<M>> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: LeftNibbleSlice<'a>,
 	node: Node<'a>,
+	meta: M,
 	is_inline: bool,
 	/// The value associated with this trie node.
 	value: Value<'a>,
@@ -109,12 +110,11 @@ struct StackEntry<'a, C: NodeCodec<()>> {
 	_marker: PhantomData<C>,
 }
 
-impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
-	fn new(node_data: &'a [u8], prefix: LeftNibbleSlice<'a>, is_inline: bool)
+impl<'a, M: Meta, C: NodeCodec<M>> StackEntry<'a, M, C> {
+	fn new(node_data: &'a [u8], prefix: LeftNibbleSlice<'a>, is_inline: bool, mut meta: M)
 		   -> Result<Self, Error<C::HashOut, C::Error>>
 	{
-		// TODO implement meta support to allow hashed value.
-		let node = C::decode(node_data, &mut ())
+		let node = C::decode(node_data, &mut meta)
 			.map_err(Error::DecodeError)?;
 		let children_len = match &node {
 			Node::Empty | Node::Leaf(..) => 0,
@@ -133,6 +133,7 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 			value,
 			child_index: 0,
 			children: vec![None; children_len],
+			meta,
 			_marker: PhantomData::default(),
 		})
 	}
@@ -142,9 +143,9 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 		self.complete_children()?;
 		Ok(match self.node {
 			Node::Empty =>
-				C::empty_node(&mut ()).to_vec(),
+				C::empty_node(&mut self.meta).to_vec(),
 			Node::Leaf(partial, _) => {
-				C::leaf_node(partial.right(), self.value, &mut ())
+				C::leaf_node(partial.right(), self.value, &mut self.meta)
 			}
 			Node::Extension(partial, _) => {
 				let child = self.children[0]
@@ -153,14 +154,14 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 					partial.right_iter(),
 					partial.len(),
 					child,
-					&mut (),
+					&mut self.meta,
 				)
 			}
 			Node::Branch(_, _) =>
 				C::branch_node(
 					self.children.iter(),
 					self.value,
-					&mut (),
+					&mut self.meta,
 				),
 			Node::NibbledBranch(partial, _, _) =>
 				C::branch_node_nibbled(
@@ -168,7 +169,7 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 					partial.len(),
 					self.children.iter(),
 					self.value,
-					&mut (),
+					&mut self.meta,
 				),
 		})
 	}
@@ -177,15 +178,16 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 		&mut self,
 		child_prefix: LeftNibbleSlice<'a>,
 		proof_iter: &mut I,
+		inline_meta: impl Fn() -> M,
 	) -> Result<Self, Error<C::HashOut, C::Error>>
 		where
-			I: Iterator<Item=&'a Vec<u8>>,
+			I: Iterator<Item=(&'a [u8], M)>,
 	{
 		match self.node {
 			Node::Extension(_, child) => {
 				// Guaranteed because of sorted keys order.
 				assert_eq!(self.child_index, 0);
-				Self::make_child_entry(proof_iter, child, child_prefix)
+				Self::make_child_entry(proof_iter, child, child_prefix, inline_meta)
 			}
 			Node::Branch(children, _) | Node::NibbledBranch(_, children, _) => {
 				// because this is a branch
@@ -203,7 +205,7 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 				}
 				let child = children[self.child_index]
 					.expect("guaranteed by advance_item");
-				Self::make_child_entry(proof_iter, child, child_prefix)
+				Self::make_child_entry(proof_iter, child, child_prefix, inline_meta)
 			}
 			_ => panic!("cannot have children"),
 		}
@@ -237,18 +239,19 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 		proof_iter: &mut I,
 		child: NodeHandle<'a>,
 		prefix: LeftNibbleSlice<'a>,
+		inline_meta: impl Fn() -> M,
 	) -> Result<Self, Error<C::HashOut, C::Error>>
 		where
-			I: Iterator<Item=&'a Vec<u8>>,
+			I: Iterator<Item = (&'a [u8], M)>,
 	{
 		match child {
 			NodeHandle::Inline(data) => {
 				if data.is_empty() {
-					let node_data = proof_iter.next()
+					let (node_data, node_meta) = proof_iter.next()
 						.ok_or(Error::IncompleteProof)?;
-					StackEntry::new(node_data, prefix, false)
+					StackEntry::new(node_data, prefix, false, node_meta)
 				} else {
-					StackEntry::new(data, prefix, true)
+					StackEntry::new(data, prefix, true, inline_meta())
 				}
 			}
 			NodeHandle::Hash(data) => {
@@ -397,10 +400,14 @@ enum Step<'a> {
 }
 
 /// Verify a compact proof for key-value pairs in a trie given a root hash.
-pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Vec<u8>], items: I)
-									-> Result<(), Error<TrieHash<L>, CError<L>>>
+pub fn verify_proof<'a, L, I, K, V>(
+	root: &<L::Hash as Hasher>::Out,
+	proof: &[Vec<u8>],
+	items: I,
+	layout: L,
+)	-> Result<(), Error<TrieHash<L>, CError<L>>>
 	where
-		L: TrieLayout<Meta = ()>,
+		L: TrieLayout,
 		I: IntoIterator<Item = &'a (K, Option<V>)>,
 		K: 'a + AsRef<[u8]>,
 		V: 'a + AsRef<[u8]>,
@@ -427,27 +434,30 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 	}
 
 	// Iterate simultaneously in order through proof nodes and key-value pairs to verify.
-	let mut proof_iter = proof.iter();
+	let mut proof_iter = proof.iter().map(|stored| {
+		L::MetaHasher::extract_value(stored.as_slice(), layout.layout_meta())
+	});
 	let mut items_iter = items.into_iter().peekable();
 
 	// A stack of child references to fill in omitted branch children for later trie nodes in the
 	// proof.
-	let mut stack: Vec<StackEntry<L::Codec>> = Vec::new();
+	let mut stack: Vec<StackEntry<L::Meta, L::Codec>> = Vec::new();
 
-	let root_node = match proof_iter.next() {
+	let (root_node, meta) = match proof_iter.next() {
 		Some(node) => node,
 		None => return Err(Error::IncompleteProof),
 	};
 	let mut last_entry = StackEntry::new(
 		root_node,
 		LeftNibbleSlice::new(&[]),
-		false
+		false,
+		meta,
 	)?;
 	loop {
 		// Insert omitted value.
 		match last_entry.advance_item(&mut items_iter)? {
 			Step::Descend(child_prefix) => {
-				let next_entry = last_entry.advance_child_index(child_prefix, &mut proof_iter)?;
+				let next_entry = last_entry.advance_child_index(child_prefix, &mut proof_iter, || layout.meta_for_stored_inline_node())?;
 				stack.push(last_entry);
 				last_entry = next_entry;
 			}

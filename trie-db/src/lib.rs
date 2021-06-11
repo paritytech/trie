@@ -178,6 +178,9 @@ pub trait Trie<L: TrieLayout> {
 	/// Return the root of the trie.
 	fn root(&self) -> &TrieHash<L>;
 
+	/// Return the current layout in use.
+	fn layout(&self) -> L;
+
 	/// Is the trie empty?
 	fn is_empty(&self) -> bool { *self.root() == L::Codec::hashed_null_node() }
 
@@ -305,6 +308,10 @@ macro_rules! wrapper {
 impl<'db, L: TrieLayout> Trie<L> for TrieKinds<'db, L> {
 	fn root(&self) -> &TrieHash<L> {
 		wrapper!(self, root,)
+	}
+
+	fn layout(&self) -> L {
+		wrapper!(self, layout,)
 	}
 
 	fn is_empty(&self) -> bool {
