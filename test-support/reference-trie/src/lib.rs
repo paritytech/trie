@@ -276,7 +276,7 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 			recorded_do_value_hash: false,
 		};
 		// get recorded_do_value_hash
-		let _offset = meta.read_state_meta(stored)
+		let _offset = meta.read_state_meta2(stored)
 			.expect("State meta reading failure.");
 		//let stored = &stored[offset..];
 		meta.do_value_hash = meta.recorded_do_value_hash || global_meta;
@@ -326,25 +326,22 @@ impl Meta for ValueMeta {
 	type StateMeta = bool;
 
 	fn set_state_meta(&mut self, state_meta: Self::StateMeta) {
-		self.recorded_do_value_hash = state_meta;
 		self.do_value_hash = state_meta;
 	}
 
-	fn has_state_meta(&self) -> bool {
-		self.recorded_do_value_hash
+	fn read_state_meta(&self) -> bool {
+		self.do_value_hash
 	}
 
 	fn set_global_meta(&mut self, global_meta: Self::GlobalMeta) {
-		if global_meta {
-			self.recorded_do_value_hash = true;
-		}
+		self.recorded_do_value_hash = global_meta;
 	}
 
-	fn extract_global_meta(&self) -> Self::GlobalMeta {
+	fn read_global_meta(&self) -> Self::GlobalMeta {
 		self.recorded_do_value_hash
 	}
 
-	fn read_state_meta(&mut self, data: &[u8]) -> Result<usize, &'static str> {
+	fn read_state_meta2(&mut self, data: &[u8]) -> Result<usize, &'static str> {
 		let offset = if data[0] == ENCODED_META_NO_EXT {
 			if data.len() < 2 {
 				return Err("Invalid encoded meta.");
@@ -414,10 +411,6 @@ impl Meta for ValueMeta {
 
 	fn contains_hash_of_value(&self) -> bool {
 		self.contain_hash
-	}
-
-	fn do_value_hash(&self) -> bool {
-		self.unused_value
 	}
 }
 
@@ -540,18 +533,18 @@ impl Meta for VersionedValueMeta {
 	fn set_state_meta(&mut self, _state_meta: Self::StateMeta) {
 	}
 
-	fn set_global_meta(&mut self, _global_meta: Self::GlobalMeta) {
-	}
-
-	fn has_state_meta(&self) -> bool {
+	fn read_state_meta(&self) -> bool {
 		false
 	}
 
-	fn extract_global_meta(&self) -> Self::GlobalMeta {
+	fn set_global_meta(&mut self, _global_meta: Self::GlobalMeta) {
+	}
+
+	fn read_global_meta(&self) -> Self::GlobalMeta {
 		self.version.clone()
 	}
 
-	fn read_state_meta(&mut self, _data: &[u8]) -> Result<usize, &'static str> {
+	fn read_state_meta2(&mut self, _data: &[u8]) -> Result<usize, &'static str> {
 		Ok(0)
 	}
 
@@ -624,10 +617,6 @@ impl Meta for VersionedValueMeta {
 	}
 
 	fn contains_hash_of_value(&self) -> bool {
-		false
-	}
-
-	fn do_value_hash(&self) -> bool {
 		false
 	}
 }
@@ -1523,7 +1512,7 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 			return Err(CodecError::from("Empty encoded node."));
 		}
 		let offset = if let Some(meta) = meta {
-			meta.read_state_meta(data)?
+			meta.read_state_meta2(data)?
 		} else {
 			0
 		};

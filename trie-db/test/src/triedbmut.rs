@@ -92,7 +92,8 @@ fn playpen() {
 }
 fn playpen_internal<T: TrieLayout>() {
 	let mut seed = [0u8;32];
-	for test_i in 0..10_000 {
+	//for test_i in 0..10_000 {
+	for test_i in 0..10 {
 		if test_i % 50 == 0 {
 			debug!("{:?} of 10000 stress tests done", test_i);
 		}

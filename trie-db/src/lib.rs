@@ -475,18 +475,22 @@ pub trait Meta: Clone + MaybeDebug {
 	type StateMeta: Clone + MaybeDebug;
 
 	/// Get state meta from node encoded form.
-	fn read_state_meta(&mut self, input: &[u8]) -> crate::rstd::result::Result<usize, &'static str>;
+	fn read_state_meta2(&mut self, input: &[u8]) -> crate::rstd::result::Result<usize, &'static str>;
 
 	/// Encode state meta to be include in state.
 	fn write_state_meta(&self) -> Vec<u8>;
 
+	/// Read state meta data stored.
+	fn read_state_meta(&self) -> bool;
+
 	/// Insert associated state meta.
 	fn set_state_meta(&mut self, state_meta: Self::StateMeta);
 
-	// TODO ! get_state_meta and remove do_value_hash
+	/// Insert global meta in existing meta.
+	fn set_global_meta(&mut self, global_meta: Self::GlobalMeta);
 
-	/// Check if contains state meta (act as a value for trie structure).
-	fn has_state_meta(&self) -> bool;
+	/// Read global meta from this meta.
+	fn read_global_meta(&self) -> Self::GlobalMeta;
 
 	/// Meta for inline node are not stored, but require a default instantiation
 	/// in case it stops being inline.
@@ -497,7 +501,7 @@ pub trait Meta: Clone + MaybeDebug {
 		input: Self::GlobalMeta,
 	) -> Self;
 
-	/// Leaf meta creation.
+	/// Node meta creation.
 	fn meta_for_new(
 		input: Self::GlobalMeta,
 	) -> Self;
@@ -506,12 +510,6 @@ pub trait Meta: Clone + MaybeDebug {
 	fn meta_for_empty(
 		input: Self::GlobalMeta,
 	) -> Self;
-
-	/// Insert global meta in existing meta.
-	fn set_global_meta(&mut self, global_meta: Self::GlobalMeta);
-
-	/// Read global meta from this meta.
-	fn extract_global_meta(&self) -> Self::GlobalMeta;
 
 	/// Value written at a given range (call from codec
 	/// for node that contains value (leaf or branch)).
@@ -528,10 +526,6 @@ pub trait Meta: Clone + MaybeDebug {
 
 	/// Indicate if stored value is incomplete and only contains hash of value.
 	fn contains_hash_of_value(&self) -> bool;
-
-	/// Should value be store as a has if possible.
-	/// (mostly for proof when value is not accessed).
-	fn do_value_hash(&self) -> bool;
 }
 
 /// Small enum indicating representation of a given children.
@@ -552,11 +546,7 @@ impl Meta for () {
 	fn set_state_meta(&mut self, _state_meta: Self::StateMeta) {
 	}
 
-	fn has_state_meta(&self) -> bool {
-		false
-	}
-
-	fn read_state_meta(&mut self, _input: &[u8]) -> crate::rstd::result::Result<usize, &'static str> {
+	fn read_state_meta2(&mut self, _input: &[u8]) -> crate::rstd::result::Result<usize, &'static str> {
 		Ok(0)
 	}
 
@@ -585,7 +575,7 @@ impl Meta for () {
 	fn set_global_meta(&mut self, _global_meta: Self::GlobalMeta) {
 	}
 
-	fn extract_global_meta(&self) -> Self::GlobalMeta {
+	fn read_global_meta(&self) -> Self::GlobalMeta {
 		()
 	}
 
@@ -605,7 +595,7 @@ impl Meta for () {
 		false
 	}
 
-	fn do_value_hash(&self) -> bool {
+	fn read_state_meta(&self) -> bool {
 		false
 	}
 }
