@@ -194,10 +194,6 @@ impl<T, V> CacheAccum<T, V>
 
 		let mut meta = self.1.meta_for_new_node();
 
-		if T::READ_ROOT_STATE_META && is_root {
-			T::set_root_meta(&mut meta, self.1.layout_meta());
-		}
-
 		debug_assert!(branch_d == depth);
 		// encode branch
 		let encoded = T::Codec::branch_node(
@@ -229,10 +225,6 @@ impl<T, V> CacheAccum<T, V>
 	) -> ChildReference<TrieHash<T>> {
 		let (children, v, depth) = self.0.pop().expect("checked");
 		let mut meta = self.1.meta_for_new_node();
-
-		if T::READ_ROOT_STATE_META && is_root {
-			T::set_root_meta(&mut meta, self.1.layout_meta());
-		}
 
 		debug_assert!(branch_d == depth);
 		// encode branch

@@ -168,7 +168,6 @@ impl TrieLayout for CheckMetaHasherNoExt {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
 	const USE_META: bool = true;
-	const READ_ROOT_STATE_META: bool = true;
 
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
@@ -177,16 +176,6 @@ impl TrieLayout for CheckMetaHasherNoExt {
 
 	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		self.0
-	}
-	fn initialize_from_root_meta(&mut self, root_meta: &Self::Meta) {
-		if root_meta.recorded_do_value_hash {
-			self.0 = true;
-		}
-	}
-	fn set_root_meta(root_meta: &mut Self::Meta, global_meta: GlobalMeta<Self>) {
-		if global_meta {
-			root_meta.recorded_do_value_hash = true;
-		}
 	}
 }
 

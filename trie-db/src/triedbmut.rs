@@ -268,25 +268,10 @@ impl<L: TrieLayout> Node<L>
 	}
 
 	// TODO: parallelize
-	fn into_encoded<F>(self, child_cb: F) -> (Vec<u8>, L::Meta)
+	fn into_encoded<F>(self, mut child_cb: F) -> (Vec<u8>, L::Meta)
 	where
 		F: FnMut(NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
 	{
-		Self::into_encoded_with_root_meta(self, child_cb, None)
-	}
-
-	fn into_encoded_with_root_meta<F>(
-		mut self,
-		mut child_cb: F,
-		root_meta: Option<GlobalMeta<L>>,
-	) -> (Vec<u8>, L::Meta)
-	where
-		F: FnMut(NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
-	{
-		if let Some(root_meta) = root_meta {
-			L::set_root_meta(self.meta_mut(), root_meta);
-		}
-
 		match self {
 			Node::Empty(mut meta) => (L::Codec::empty_node(&mut meta).to_vec(), meta),
 			Node::Leaf(partial, value, mut meta) => {
@@ -338,16 +323,6 @@ impl<L: TrieLayout> Node<L>
 					&mut meta,
 				), meta)
 			},
-		}
-	}
-
-	pub(crate) fn meta_mut(&mut self) -> &mut L::Meta {
-		match self {
-			Node::Leaf(_, _, meta)
-			| Node::Extension(_, _, meta)
-			| Node::Branch(_, _, meta)
-			| Node::NibbledBranch(_, _, _, meta)
-			| Node::Empty(meta) => meta,
 		}
 	}
 }
@@ -570,22 +545,10 @@ where
 	pub fn from_existing_with_layout(
 		db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 		root: &'a mut TrieHash<L>,
-		mut layout: L,
+		layout: L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
 			return Err(Box::new(TrieError::InvalidStateRoot(*root)));
-		}
-		if L::READ_ROOT_STATE_META {
-			if let Some((encoded, mut meta)) = db.get_with_meta(root, EMPTY_PREFIX, layout.layout_meta()) {
-				// read state meta
-				let _ = L::Codec::decode_plan(encoded.as_slice(), &mut meta)
-					.map_err(|e| Box::new(TrieError::DecoderError(*root, e)))?;
-				layout.initialize_from_root_meta(&meta);
-			} else {
-				return Err(Box::new(TrieError::InvalidStateRoot(*root)))
-			}
-		} else if !db.contains(root, EMPTY_PREFIX) {
-			return Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		}
 
 		let root_handle = NodeHandle::Hash(*root);
@@ -1597,19 +1560,13 @@ where
 			Stored::New(node) => {
 				let mut k = NibbleVec::new();
 
-				let global_meta  = if L::READ_ROOT_STATE_META {
-					Some(self.layout.layout_meta())
-				} else {
-					None
-				};
-				let (encoded_root, meta) = node.into_encoded_with_root_meta(
+				let (encoded_root, meta) = node.into_encoded(
 					|child, o_slice, o_index| {
 						let mov = k.append_optional_slice_and_nibble(o_slice, o_index);
 						let cr = self.commit_child(child, &mut k);
 						k.drop_lasts(mov);
 						cr
 					},
-					global_meta,
 				);
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
@@ -1682,27 +1639,6 @@ where
 			NodeHandle::Hash(h) => NodeHandle::Hash(h),
 			NodeHandle::InMemory(StorageHandle(x)) => NodeHandle::InMemory(StorageHandle(x)),
 		}
-	}
-
-	/// Force update of meta in state from layout value (update root even
-	/// if there was no changes done).
-	pub fn force_layout_meta(
-		&mut self,
-	) -> Result<(), TrieHash<L>, CError<L>> {
-		if L::READ_ROOT_STATE_META {
-			let root = match self.root_handle {
-				NodeHandle::Hash(h) => self.cache(h, EMPTY_PREFIX)?,
-				NodeHandle::InMemory(StorageHandle(x)) => StorageHandle(x),
-			};
-			match self.storage.destroy(root, &self.layout) {
-				Stored::Cached(node, hash) => {
-					self.death_row.insert((hash, Default::default()));
-					self.root_handle = NodeHandle::InMemory(self.storage.alloc(Stored::New(node)));
-				},
-				Stored::New(_node) => (),
-			}
-		}
-		Ok(())
 	}
 
 	/// Get current value of Trie layout.

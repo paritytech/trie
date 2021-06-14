@@ -45,13 +45,7 @@ fn populate_trie_and_flag<'db, T: TrieLayout>(
 	flagged_layout: Option<T>,
 ) -> TrieDBMut<'db, T> {
 	let mut t = if let Some(layout) = flagged_layout {
-		let prev_root = root.clone();
-		{
-			let mut t = TrieDBMut::<T>::new_with_layout(db, root, layout);
-			t.force_layout_meta().unwrap();
-		}
-		assert!(&prev_root != root);
-		TrieDBMut::<T>::from_existing(db, root).unwrap()
+		TrieDBMut::<T>::new_with_layout(db, root, layout)
 	} else {
 		TrieDBMut::<T>::new(db, root)
 	};
@@ -495,15 +489,16 @@ fn register_proof_without_value() {
 	let mut memdb = MemoryDB::default();
 	let mut root = Default::default();
 	let layout = CheckMetaHasherNoExt(true); // flagged for hashed.
-	let _ = populate_trie_and_flag::<Updatable>(&mut memdb, &mut root, &x, Some(layout));
+	let _ = populate_trie_and_flag::<Updatable>(&mut memdb, &mut root, &x, Some(layout.clone()));
 	{
-		let trie = TrieDB::<Updatable>::new(&memdb, &root).unwrap();
+		let trie = TrieDB::<Updatable>::new_with_layout(&memdb, &root,  layout.clone()).unwrap();
 		println!("{:?}", trie);
 	}
 
 	struct ProofRecorder {
 		db: MemoryDB,
 		record: RefCell<HashMap<Vec<u8>, (Vec<u8>, Meta)>>,
+		global_meta: GlobalMeta,
 	}
 	// Only to test without threads.
 	unsafe impl Send for ProofRecorder { }
@@ -541,7 +536,7 @@ fn register_proof_without_value() {
 		}
 
 		fn contains(&self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) -> bool {
-			self.get(key, prefix).is_some()
+			self.get_with_meta(key, prefix, self.global_meta).is_some()
 		}
 
 		fn emplace(&mut self, key: <RefHasher as Hasher>::Out, prefix: Prefix, value: DBValue) {
@@ -578,11 +573,12 @@ fn register_proof_without_value() {
 	let mut memdb = ProofRecorder {
 		db: memdb,
 		record: Default::default(),
+		global_meta: true,
 	};
 
 	let root_proof = root.clone();
 	{
-		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb, &mut root, CheckMetaHasherNoExt::default())
+		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb, &mut root, layout.clone())
 			.unwrap();
 		// touch te value (test1 remains untouch).
 		trie.get(b"te").unwrap();
@@ -618,7 +614,7 @@ fn register_proof_without_value() {
 		let mut trie = TrieDBMut::from_existing_with_layout(
 			&mut memdb_from_proof,
 			&mut root_proof,
-			CheckMetaHasherNoExt::default(),
+			layout.clone(),
 		).unwrap();
 		trie.get(b"te").unwrap();
 		trie.insert(b"test12", &[2u8;36][..]).unwrap();
@@ -629,7 +625,7 @@ fn register_proof_without_value() {
 	let mut root_proof = root_unpacked.clone();
 	{
 		use trie_db::Trie;
-		let trie = TrieDB::<CheckMetaHasherNoExt>::new(&memdb_from_proof, &root_proof).unwrap();
+		let trie = TrieDB::<CheckMetaHasherNoExt>::new_with_layout(&memdb_from_proof, &root_proof, layout.clone()).unwrap();
 		assert!(trie.get(b"te").unwrap().is_some());
 		assert!(trie.get(b"test1").is_err()); // TODO check incomplete db error
 	}
@@ -638,7 +634,7 @@ fn register_proof_without_value() {
 		let trie = TrieDBMut::from_existing_with_layout(
 			&mut memdb_from_proof,
 			&mut root_proof,
-			CheckMetaHasherNoExt::default(),
+			layout.clone(),
 		).unwrap();
 		assert!(trie.get(b"te").unwrap().is_some());
 		assert!(trie.get(b"test1").is_err()); // TODO check incomplete db error

@@ -486,18 +486,7 @@ pub fn decode_compact<L, DB>(db: &mut DB, encoded: &[Vec<u8>])
 		L: TrieLayout,
 		DB: HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
 {
-	let mut layout = L::default();
-	if L::READ_ROOT_STATE_META {
-		// encoded first value is always root
-		if encoded.len() > 0 {
-			let stored = encoded[0].clone();
-			let (encoded, mut meta) = L::MetaHasher::extract_value_owned(stored, layout.layout_meta());
-			// read state meta
-			let _ = L::Codec::decode_plan(encoded.as_slice(), &mut meta)
-				.map_err(|e| Box::new(TrieError::DecoderError(Default::default(), e)))?;
-			layout.initialize_from_root_meta(&meta);
-		}
-	}
+	let layout = L::default();
 	decode_compact_from_iter::<L, DB, _>(db, encoded.iter().map(Vec::as_slice), &layout)
 }
 

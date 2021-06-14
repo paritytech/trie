@@ -414,11 +414,7 @@ pub trait TrieLayout: Default + Clone {
 	const ALLOW_EMPTY: bool = false;
 	/// Indicate if we need to manage meta, skipping some processing
 	/// if we don't.
-	/// TODO check if still used.
 	const USE_META: bool = false;
-	/// When this is set to true, trie on instantiation will read their root node
-	/// and associated state meta.
-	const READ_ROOT_STATE_META: bool = false;
 
 	/// Hasher to use for this trie.
 	type Hash: Hasher;
@@ -446,18 +442,7 @@ pub trait TrieLayout: Default + Clone {
 		)
 	}
 
-	/// When `READ_ROOT_STATE_META` is set, we complete layout value initialization
-	/// from meta read in root node (state meta or non state meta).
-	fn initialize_from_root_meta(&mut self, _root_meta: &Self::Meta) {
-	}
-
-	/// When `READ_ROOT_STATE_META` is set, we complete root meta with layout
-	/// state before encoding.
-	fn set_root_meta(_root_meta: &mut Self::Meta, _global_meta: GlobalMeta<Self>) {
-	}
-
 	/// Current global layout meta.
-	/// TODO rename simply 'meta'
 	fn layout_meta(&self) -> GlobalMeta<Self>;
 }
 
