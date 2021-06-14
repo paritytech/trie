@@ -276,7 +276,7 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 			recorded_do_value_hash: false,
 		};
 		// get recorded_do_value_hash
-		let _offset = meta.read_state_meta2(stored)
+		let _offset = meta.decode_state_meta(stored)
 			.expect("State meta reading failure.");
 		//let stored = &stored[offset..];
 		meta.do_value_hash = meta.recorded_do_value_hash || global_meta;
@@ -341,7 +341,7 @@ impl Meta for ValueMeta {
 		self.recorded_do_value_hash
 	}
 
-	fn read_state_meta2(&mut self, data: &[u8]) -> Result<usize, &'static str> {
+	fn decode_state_meta(&mut self, data: &[u8]) -> Result<usize, &'static str> {
 		let offset = if data[0] == ENCODED_META_NO_EXT {
 			if data.len() < 2 {
 				return Err("Invalid encoded meta.");
@@ -360,7 +360,7 @@ impl Meta for ValueMeta {
 		Ok(offset)
 	}
 
-	fn write_state_meta(&self) -> Vec<u8> {
+	fn encode_state_meta(&self) -> Vec<u8> {
 		if self.recorded_do_value_hash {
 			// Note that this only works for some codecs (if the first byte do not overlay).
 			[ENCODED_META_NO_EXT, ALLOW_HASH_META].to_vec()
@@ -542,14 +542,6 @@ impl Meta for VersionedValueMeta {
 
 	fn read_global_meta(&self) -> Self::GlobalMeta {
 		self.version.clone()
-	}
-
-	fn read_state_meta2(&mut self, _data: &[u8]) -> Result<usize, &'static str> {
-		Ok(0)
-	}
-
-	fn write_state_meta(&self) -> Vec<u8> {
-		Vec::new()
 	}
 
 	fn meta_for_new(
@@ -1048,7 +1040,7 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 		};
 			
 		// Add the recorded_do_value_hash to encoded
-		let mut encoded = meta.write_state_meta();
+		let mut encoded = meta.encode_state_meta();
 		let encoded = if encoded.len() > 0 {
 			encoded.extend(data);
 			encoded
@@ -1512,7 +1504,7 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 			return Err(CodecError::from("Empty encoded node."));
 		}
 		let offset = if let Some(meta) = meta {
-			meta.read_state_meta2(data)?
+			meta.decode_state_meta(data)?
 		} else {
 			0
 		};
@@ -1619,7 +1611,7 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 	}
 
 	fn empty_node(meta: &mut M) -> Vec<u8> {
-		let mut output = meta.write_state_meta();
+		let mut output = meta.encode_state_meta();
 		output.extend_from_slice(&[EMPTY_TRIE_NO_EXT]);
 		output
 	}
@@ -1629,7 +1621,7 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 	}
 
 	fn leaf_node(partial: Partial, value: Value, meta: &mut M) -> Vec<u8> {
-		let mut output = meta.write_state_meta();
+		let mut output = meta.encode_state_meta();
 		output.append(&mut partial_encode(partial, NodeKindNoExt::Leaf));
 		match value {
 			Value::Value(value) => {
@@ -1677,7 +1669,7 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 		maybe_value: Value,
 		meta: &mut M,
 	) -> Vec<u8> {
-		let mut output = meta.write_state_meta();
+		let mut output = meta.encode_state_meta();
 		output.append(&mut if let Value::NoValue = &maybe_value {
 			partial_from_iterator_encode(
 				partial,

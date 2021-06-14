@@ -475,10 +475,14 @@ pub trait Meta: Clone + MaybeDebug {
 	type StateMeta: Clone + MaybeDebug;
 
 	/// Get state meta from node encoded form.
-	fn read_state_meta2(&mut self, input: &[u8]) -> crate::rstd::result::Result<usize, &'static str>;
+	fn decode_state_meta(&mut self, _input: &[u8]) -> crate::rstd::result::Result<usize, &'static str> {
+		Ok(0)
+	}
 
 	/// Encode state meta to be include in state.
-	fn write_state_meta(&self) -> Vec<u8>;
+	fn encode_state_meta(&self) -> Vec<u8> {
+		Vec::new()
+	}
 
 	/// Read state meta data stored.
 	fn read_state_meta(&self) -> bool;
@@ -544,14 +548,6 @@ impl Meta for () {
 	type StateMeta = ();
 
 	fn set_state_meta(&mut self, _state_meta: Self::StateMeta) {
-	}
-
-	fn read_state_meta2(&mut self, _input: &[u8]) -> crate::rstd::result::Result<usize, &'static str> {
-		Ok(0)
-	}
-
-	fn write_state_meta(&self) -> Vec<u8> {
-		Vec::new()
 	}
 
 	fn meta_for_new(
