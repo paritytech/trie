@@ -533,8 +533,8 @@ impl Meta for VersionedValueMeta {
 	fn set_state_meta(&mut self, _state_meta: Self::StateMeta) {
 	}
 
-	fn read_state_meta(&self) -> bool {
-		false
+	fn read_state_meta(&self) -> Self::StateMeta {
+		()
 	}
 
 	fn set_global_meta(&mut self, _global_meta: Self::GlobalMeta) {

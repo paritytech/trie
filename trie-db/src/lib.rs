@@ -485,7 +485,7 @@ pub trait Meta: Clone + MaybeDebug {
 	}
 
 	/// Read state meta data stored.
-	fn read_state_meta(&self) -> bool;
+	fn read_state_meta(&self) -> Self::StateMeta;
 
 	/// Insert associated state meta.
 	fn set_state_meta(&mut self, state_meta: Self::StateMeta);
@@ -591,8 +591,8 @@ impl Meta for () {
 		false
 	}
 
-	fn read_state_meta(&self) -> bool {
-		false
+	fn read_state_meta(&self) -> Self::StateMeta {
+		()
 	}
 }
 
