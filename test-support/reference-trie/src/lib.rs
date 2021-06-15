@@ -54,7 +54,6 @@ macro_rules! test_layouts {
 	($test:ident, $test_internal:ident) => {
 		#[test]
 		fn $test() {
-			$test_internal::<reference_trie::CheckMetaHasher>();
 			$test_internal::<reference_trie::CheckMetaHasherNoExt>();
 			$test_internal::<reference_trie::NoExtensionLayout>();
 			$test_internal::<reference_trie::ExtensionLayout>();
@@ -137,26 +136,6 @@ impl TrieLayout for AllowEmptyLayout {
 
 	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
-	}
-}
-
-/// Trie that use a dumb value function over its storage.
-/// TODO consider removal
-#[derive(Default, Clone)]
-pub struct CheckMetaHasher;
-
-impl TrieLayout for CheckMetaHasher {
-	const USE_EXTENSION: bool = true;
-	const ALLOW_EMPTY: bool = false;
-	const USE_META: bool = true;
-
-	type Hash = RefHasher;
-	type Codec = ReferenceNodeCodec<RefHasher>;
-	type MetaHasher = TestMetaHasher<RefHasher>;
-	type Meta = ValueMeta;
-
-	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		false
 	}
 }
 
@@ -473,36 +452,6 @@ impl TrieLayout for Old {
 
 	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
-	}
-}
-
-/// Trie that use a dumb value function over its storage.
-#[derive(Default, Clone)]
-pub struct Updatable(Version);
-
-impl Updatable {
-	/// Old trie codec.
-	pub fn old() -> Self {
-		Updatable(Version::Old)
-	}
-	/// New trie codec.
-	pub fn new() -> Self {
-		Updatable(Version::New)
-	}
-}
-
-impl TrieLayout for Updatable {
-	const USE_EXTENSION: bool = false;
-	const ALLOW_EMPTY: bool = false;
-	const USE_META: bool = true;
-
-	type Hash = RefHasher;
-	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
-	type MetaHasher = TestUpdatableMetaHasher<RefHasher>;
-	type Meta = VersionedValueMeta;
-
-	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		self.0
 	}
 }
 

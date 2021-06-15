@@ -15,7 +15,7 @@
 use trie_db::{DBValue, TrieLayout};
 use memory_db::{MemoryDB, HashKey, PrefixedKey};
 use reference_trie::{RefHasher, test_layouts,
-	ExtensionLayout, NoExtensionLayout, CheckMetaHasher, CheckMetaHasherNoExt};
+	ExtensionLayout, NoExtensionLayout, CheckMetaHasherNoExt};
 
 #[test]
 fn trie_root_empty () {
@@ -64,7 +64,6 @@ fn test_iter<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) {
 }
 
 fn compare_implementations(data: Vec<(Vec<u8>, Vec<u8>)>) {
-	test_iter::<CheckMetaHasher>(data.clone());
 	test_iter::<CheckMetaHasherNoExt>(data.clone());
 	test_iter::<ExtensionLayout>(data.clone());
 	test_iter::<NoExtensionLayout>(data.clone());
@@ -74,7 +73,6 @@ fn compare_implementations(data: Vec<(Vec<u8>, Vec<u8>)>) {
 
 fn compare_implementations_prefixed(data: Vec<(Vec<u8>, Vec<u8>)>) {
 	compare_implementations_prefixed_internal::<CheckMetaHasherNoExt>(data.clone());
-	compare_implementations_prefixed_internal::<CheckMetaHasher>(data.clone());
 	compare_implementations_prefixed_internal::<NoExtensionLayout>(data.clone());
 	compare_implementations_prefixed_internal::<ExtensionLayout>(data.clone());
 }
@@ -85,7 +83,6 @@ fn compare_implementations_prefixed_internal<T: TrieLayout>(data: Vec<(Vec<u8>, 
 }
 fn compare_implementations_h(data: Vec<(Vec<u8>, Vec<u8>)>) {
 	compare_implementations_h_internal::<CheckMetaHasherNoExt>(data.clone());
-	compare_implementations_h_internal::<CheckMetaHasher>(data.clone());
 	compare_implementations_h_internal::<NoExtensionLayout>(data.clone());
 	compare_implementations_h_internal::<ExtensionLayout>(data.clone());
 }

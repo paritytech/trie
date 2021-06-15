@@ -20,7 +20,7 @@ use hash_db::{Hasher, HashDB};
 use trie_db::{TrieDBMut, TrieMut, NodeCodec, GlobalMeta,
 	TrieLayout, DBValue, Value};
 use reference_trie::{ExtensionLayout, NoExtensionLayout,
-	RefHasher, test_layouts, ReferenceNodeCodec, CheckMetaHasher, CheckMetaHasherNoExt,
+	RefHasher, test_layouts, ReferenceNodeCodec, CheckMetaHasherNoExt,
 	ReferenceNodeCodecNoExt, reference_trie_root_iter_build as reference_trie_root};
 
 type PrefixedMemoryDB<T> = MemoryDB::<
@@ -80,14 +80,12 @@ fn reference_hashed_null_node<T: TrieLayout>() -> <T::Hash as Hasher>::Out {
 fn playpen() {
 	env_logger::init();
 	playpen_internal::<CheckMetaHasherNoExt>();
-	playpen_internal::<CheckMetaHasher>();
 	playpen_internal::<NoExtensionLayout>();
 	playpen_internal::<ExtensionLayout>();
 }
 fn playpen_internal<T: TrieLayout>() {
 	let mut seed = [0u8;32];
-	//for test_i in 0..10_000 {
-	for test_i in 0..10 {
+	for test_i in 0..10_000 {
 		if test_i % 50 == 0 {
 			debug!("{:?} of 10000 stress tests done", test_i);
 		}
@@ -347,7 +345,7 @@ fn test_at_three_internal<T: TrieLayout>() {
 test_layouts!(stress, stress_internal);
 fn stress_internal<T: TrieLayout>() {
 	let mut seed = Default::default();
-	for _ in 0..50 {
+	for _ in 0..1000 {
 		let x = StandardMap {
 			alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
 			min_key: 5,
@@ -470,7 +468,7 @@ fn register_proof_without_value() {
 	use reference_trie::{CheckMetaHasherNoExt, TestMetaHasher};
 	use hash_db::{Prefix, AsHashDB};
 
-	type Updatable = CheckMetaHasherNoExt;
+	type Layout = CheckMetaHasherNoExt;
 	type VF = TestMetaHasher<RefHasher>;
 	type Meta = reference_trie::ValueMeta;
 	type GlobalMeta = <reference_trie::ValueMeta as trie_db::Meta>::GlobalMeta;
@@ -489,9 +487,9 @@ fn register_proof_without_value() {
 	let mut memdb = MemoryDB::default();
 	let mut root = Default::default();
 	let layout = CheckMetaHasherNoExt(true); // flagged for hashed.
-	let _ = populate_trie_and_flag::<Updatable>(&mut memdb, &mut root, &x, Some(layout.clone()));
+	let _ = populate_trie_and_flag::<Layout>(&mut memdb, &mut root, &x, Some(layout.clone()));
 	{
-		let trie = TrieDB::<Updatable>::new_with_layout(&memdb, &root,  layout.clone()).unwrap();
+		let trie = TrieDB::<Layout>::new_with_layout(&memdb, &root,  layout.clone()).unwrap();
 		println!("{:?}", trie);
 	}
 
