@@ -527,7 +527,6 @@ fn register_proof_without_value() {
 		}
 
 		fn access_from(&self, key: &<RefHasher as Hasher>::Out, _at: Option<&<RefHasher as Hasher>::Out>) -> Option<DBValue> {
-
 			self.record.borrow_mut().entry(key[..].to_vec())
 				.and_modify(|entry| entry.1.set_accessed_value(true));
 			None
