@@ -432,18 +432,18 @@ pub trait TrieLayout: Default + Clone {
 
 	/// Meta state input for new node.
 	fn meta_for_new_node(&self) -> Self::Meta {
-		<Self::Meta as Meta>::meta_for_new(self.layout_meta())
+		<Self::Meta as Meta>::meta_for_new(self.global_meta())
 	}
 
 	/// Meta state input for new node.
 	fn meta_for_stored_inline_node(&self) -> Self::Meta {
 		<Self::Meta as Meta>::meta_for_existing_inline_node(
-			self.layout_meta(),
+			self.global_meta(),
 		)
 	}
 
 	/// Current global layout meta.
-	fn layout_meta(&self) -> GlobalMeta<Self>;
+	fn global_meta(&self) -> GlobalMeta<Self>;
 }
 
 /// Trie node level meta.

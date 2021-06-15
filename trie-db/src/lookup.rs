@@ -69,7 +69,7 @@ where
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
 			let hash = self.hash;
-			let (node_data, mut meta) = match self.db.get_with_meta(&hash, key.mid(key_nibbles).left(), self.layout.layout_meta()) {
+			let (node_data, mut meta) = match self.db.get_with_meta(&hash, key.mid(key_nibbles).left(), self.layout.global_meta()) {
 				Some(value) => value,
 				None => return Err(Box::new(match depth {
 					0 => TrieError::InvalidStateRoot(hash),

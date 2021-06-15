@@ -87,7 +87,7 @@ impl TrieLayout for ExtensionLayout {
 	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
-	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
+	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
 }
@@ -118,7 +118,7 @@ impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
-	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
+	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
 }
@@ -135,7 +135,7 @@ impl TrieLayout for AllowEmptyLayout {
 	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
-	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
+	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
 }
@@ -155,7 +155,7 @@ impl TrieLayout for CheckMetaHasher {
 	type MetaHasher = TestMetaHasher<RefHasher>;
 	type Meta = ValueMeta;
 
-	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
+	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		false
 	}
 }
@@ -174,7 +174,7 @@ impl TrieLayout for CheckMetaHasherNoExt {
 	type MetaHasher = TestMetaHasher<RefHasher>;
 	type Meta = ValueMeta;
 
-	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
+	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		self.0
 	}
 }
@@ -471,7 +471,7 @@ impl TrieLayout for Old {
 	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
-	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
+	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
 	}
 }
@@ -501,7 +501,7 @@ impl TrieLayout for Updatable {
 	type MetaHasher = TestUpdatableMetaHasher<RefHasher>;
 	type Meta = VersionedValueMeta;
 
-	fn layout_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
+	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		self.0
 	}
 }

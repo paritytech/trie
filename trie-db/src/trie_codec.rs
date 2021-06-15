@@ -506,7 +506,7 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I, layout: &
 	let mut prefix = NibbleVec::new();
 
 	for (i, encoded_node) in encoded.into_iter().enumerate() {
-		let (encoded_node, mut meta) = L::MetaHasher::extract_value(encoded_node, layout.layout_meta());
+		let (encoded_node, mut meta) = L::MetaHasher::extract_value(encoded_node, layout.global_meta());
 		let node = L::Codec::decode(&encoded_node[..], &mut meta)
 			.map_err(|err| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), err)))?;
 

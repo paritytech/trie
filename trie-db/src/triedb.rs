@@ -111,7 +111,7 @@ where
 				let node_hash = decode_hash::<L::Hash>(data)
 					.ok_or_else(|| Box::new(TrieError::InvalidHash(parent_hash, data.to_vec())))?;
 				let (node_data, meta) = self.db
-					.get_with_meta(&node_hash, partial_key, self.layout.layout_meta())
+					.get_with_meta(&node_hash, partial_key, self.layout.global_meta())
 					.ok_or_else(|| {
 						if partial_key == EMPTY_PREFIX {
 							Box::new(TrieError::InvalidStateRoot(node_hash))

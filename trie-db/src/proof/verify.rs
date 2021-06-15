@@ -435,7 +435,7 @@ pub fn verify_proof<'a, L, I, K, V>(
 
 	// Iterate simultaneously in order through proof nodes and key-value pairs to verify.
 	let mut proof_iter = proof.iter().map(|stored| {
-		L::MetaHasher::extract_value(stored.as_slice(), layout.layout_meta())
+		L::MetaHasher::extract_value(stored.as_slice(), layout.global_meta())
 	});
 	let mut items_iter = items.into_iter().peekable();
 

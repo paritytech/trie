@@ -443,7 +443,7 @@ impl<L: TrieLayout> NodeStorage<L>
 		let idx = handle.0;
 
 		self.free_indices.push_back(idx);
-		let meta = L::Meta::meta_for_empty(layout.layout_meta());
+		let meta = L::Meta::meta_for_empty(layout.global_meta());
 		mem::replace(&mut self.nodes[idx], Stored::New(Node::Empty(meta)))
 	}
 }
@@ -578,7 +578,7 @@ where
 		hash: TrieHash<L>,
 		key: Prefix,
 	) -> Result<StorageHandle, TrieHash<L>, CError<L>> {
-		let (node_encoded, meta) = self.db.get_with_meta(&hash, key, self.layout.layout_meta())
+		let (node_encoded, meta) = self.db.get_with_meta(&hash, key, self.layout.global_meta())
 			.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
 		let node = Node::from_encoded(
 			hash,
