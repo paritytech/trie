@@ -97,7 +97,6 @@ impl From<Option<DBValue>> for Value {
 	}
 }
 
-
 impl Value {
 	fn as_slice(&self) -> EncodedValue {
 		match self {

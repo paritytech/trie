@@ -163,6 +163,31 @@ impl TrieLayout for CheckMetaHasherNoExt {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TestMetaHasher;
 
+/// Switch to hashed value variant.
+pub	fn to_hashed_variant<H: Hasher>(value: &[u8], meta: &mut TrieMeta) -> Option<DBValue> {
+	if meta.contain_hash {
+		return None;
+	}
+	if meta.unused_value && meta.apply_inner_hashing {
+		let mut stored = Vec::with_capacity(value.len() + 1);
+		if meta.range.is_some() {
+			// Warning this assumes that encoded value cannot start by this,
+			// so it is tightly coupled with the header type of the codec.
+			stored.push(trie_constants::DEAD_HEADER_META_HASHED_VALUE);
+			let range = meta.range.as_ref().expect("Tested in condition");
+			// store hash instead of value.
+			let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
+			stored.extend_from_slice(value.as_slice());
+			meta.contain_hash = true;
+			return Some(stored);
+		}
+		stored.extend_from_slice(value);
+		return Some(stored)
+	}
+	None
+}
+
+
 impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher {
 	type Meta = TrieMeta;
 	type GlobalMeta = Option<u32>;
@@ -175,7 +200,7 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher {
 			},
 			TrieMeta { range: Some(_range), contain_hash: true, .. } => {
 				// value contains a hash of data (already inner_hashed_value).
-				H::hash(value)
+				H::hash(&value[1..])
 			},
 			_ => {
 				H::hash(value)
@@ -183,58 +208,36 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher {
 		}
 	}
 
-	fn stored_value(value: &[u8], mut meta: Self::Meta) -> DBValue {
-		let mut stored = Vec::with_capacity(value.len() + 1);
-		if meta.contain_hash {
-			// already contain hash, just flag it.
-			stored.push(trie_constants::DEAD_HEADER_META_HASHED_VALUE);
-			stored.extend_from_slice(value);
-			return stored;
-		}
-		if meta.unused_value && meta.apply_inner_hashing {
-			if meta.range.is_some() {
-				// Warning this assumes that encoded value cannot start by this,
-				// so it is tightly coupled with the header type of the codec.
-				stored.push(trie_constants::DEAD_HEADER_META_HASHED_VALUE);
-				let range = meta.range.as_ref().expect("Tested in condition");
-				meta.contain_hash = true; // useless but could be with meta as &mut
-				// store hash instead of value.
-				let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
-				stored.extend_from_slice(value.as_slice());
-				return stored;
-			}
-		}
-		stored.extend_from_slice(value);
-		stored
+	fn stored_value(value: &[u8], _meta: Self::Meta) -> DBValue {
+		value.to_vec()
 	}
 
-	fn stored_value_owned(value: DBValue, meta: Self::Meta) -> DBValue {
-		<Self as MetaHasher<H, DBValue>>::stored_value(value.as_slice(), meta)
+	fn stored_value_owned(value: DBValue, _meta: Self::Meta) -> DBValue {
+		value
 	}
 
-	fn extract_value(mut stored: &[u8], global_meta: Self::GlobalMeta) -> (&[u8], Self::Meta) {
-		let input = &mut stored;
-		let mut contain_hash = false;
-		if input.get(0) == Some(&trie_constants::DEAD_HEADER_META_HASHED_VALUE) {
-			contain_hash = true;
-			*input = &input[1..];
-		}
+	fn extract_value(stored: &[u8], global: Self::GlobalMeta) -> (&[u8], Self::Meta) {
 		let mut meta = TrieMeta {
 			range: None,
-			unused_value: contain_hash,
-			contain_hash,
+			unused_value: false,
+			contain_hash: false,
 			apply_inner_hashing: false,
 			try_inner_hashing: None,
 		};
-		meta.set_global_meta(global_meta);
+		meta.set_global_meta(global);
 		(stored, meta)
 	}
 
-	fn extract_value_owned(mut stored: DBValue, global: Self::GlobalMeta) -> (DBValue, Self::Meta) {
-		let len = stored.len();
-		let (v, meta) = <Self as MetaHasher<H, DBValue>>::extract_value(stored.as_slice(), global);
-		let removed = len - v.len();
-		(stored.split_off(removed), meta)
+	fn extract_value_owned(stored: DBValue, global: Self::GlobalMeta) -> (DBValue, Self::Meta) {
+		let mut meta = TrieMeta {
+			range: None,
+			unused_value: false,
+			contain_hash: false,
+			apply_inner_hashing: false,
+			try_inner_hashing: None,
+		};
+		meta.set_global_meta(global);
+		(stored, meta)
 	}
 }
 
@@ -340,10 +343,6 @@ impl Meta for TrieMeta {
 		self.range = Some(range);
 		self.contain_hash = contain_hash;
 	}
-
-	fn contains_hash_of_value(&self) -> bool {
-		self.contain_hash
-	}
 }
 
 impl TrieMeta {
@@ -429,8 +428,8 @@ mod codec_alt_hashing {
 		) -> Result<NodePlan, Error> {
 			let mut input = ByteSliceInput::new(data);
 
-			let contains_hash = meta.contains_hash_of_value();
 			let header = NodeHeader::decode(&mut input)?;
+			let contains_hash = header.contains_hash_of_value();
 			let alt_hashing = header.alt_hashing();
 			meta.set_state_meta(alt_hashing);
 
@@ -443,7 +442,7 @@ mod codec_alt_hashing {
 
 			match header {
 				NodeHeader::Null => Ok(NodePlan::Empty),
-				NodeHeader::AltHashBranch(nibble_count)
+				NodeHeader::AltHashBranch(nibble_count, _)
 				| NodeHeader::Branch(_, nibble_count) => {
 					let padding = nibble_count % nibble_ops::NIBBLE_PER_BYTE != 0;
 					// check that the padding is valid (if any)
@@ -488,7 +487,7 @@ mod codec_alt_hashing {
 						children,
 					})
 				},
-				NodeHeader::AltHashLeaf(nibble_count)
+				NodeHeader::AltHashLeaf(nibble_count, _)
 				| NodeHeader::Leaf(nibble_count) => {
 					let padding = nibble_count % nibble_ops::NIBBLE_PER_BYTE != 0;
 					// check that the padding is valid (if any)
@@ -552,6 +551,7 @@ mod codec_alt_hashing {
 		}
 
 		fn leaf_node(partial: Partial, value: Value, meta: &mut M) -> Vec<u8> {
+			let contains_hash = matches!(&value, Value::HashedValue(..));
 			// Note that we use AltHash type only if inner hashing will occur,
 			// this way we allow changing hash threshold.
 			// With fix inner hashing alt hash can be use with all node, but
@@ -560,7 +560,11 @@ mod codec_alt_hashing {
 			let mut output = if meta.read_global_meta().as_ref().map(|threshold|
 				value_do_hash(&value, threshold)
 			).unwrap_or(meta.read_state_meta()) {
-				partial_encode(partial, NodeKind::AltHashLeaf)
+				if contains_hash {
+					partial_encode(partial, NodeKind::AltHashLeafHash)
+				} else {
+					partial_encode(partial, NodeKind::AltHashLeaf)
+				}
 			} else {
 				partial_encode(partial, NodeKind::Leaf)
 			};
@@ -609,6 +613,7 @@ mod codec_alt_hashing {
 			value: Value,
 			meta: &mut M,
 		) -> Vec<u8> {
+			let contains_hash = matches!(&value, Value::HashedValue(..));
 			let mut output = match (&value,  meta.read_global_meta().as_ref().map(|threshold|
 				value_do_hash(&value, threshold)
 			).unwrap_or(meta.read_state_meta())) {
@@ -619,7 +624,11 @@ mod codec_alt_hashing {
 					partial_from_iterator_encode(partial, number_nibble, NodeKind::BranchWithValue)
 				},
 				(_, true) => {
-					partial_from_iterator_encode(partial, number_nibble, NodeKind::AltHashBranchWithValue)
+					if contains_hash {
+						partial_from_iterator_encode(partial, number_nibble, NodeKind::AltHashBranchWithValueHash)
+					} else {
+						partial_from_iterator_encode(partial, number_nibble, NodeKind::AltHashBranchWithValue)
+					}
 				},
 			};
 
@@ -689,9 +698,13 @@ mod codec_alt_hashing {
 			NodeKind::Leaf => NodeHeader::Leaf(nibble_count).encode_to(&mut output),
 			NodeKind::BranchWithValue => NodeHeader::Branch(true, nibble_count).encode_to(&mut output),
 			NodeKind::BranchNoValue => NodeHeader::Branch(false, nibble_count).encode_to(&mut output),
-			NodeKind::AltHashLeaf => NodeHeader::AltHashLeaf(nibble_count).encode_to(&mut output),
-			NodeKind::AltHashBranchWithValue => NodeHeader::AltHashBranch(nibble_count)
+			NodeKind::AltHashLeaf => NodeHeader::AltHashLeaf(nibble_count, false).encode_to(&mut output),
+			NodeKind::AltHashBranchWithValue => NodeHeader::AltHashBranch(nibble_count, false)
 				.encode_to(&mut output),
+			NodeKind::AltHashLeafHash => NodeHeader::AltHashLeaf(nibble_count, true).encode_to(&mut output),
+			NodeKind::AltHashBranchWithValueHash => NodeHeader::AltHashBranch(nibble_count, true)
+				.encode_to(&mut output),
+
 		};
 		output.extend(partial);
 		output
@@ -710,9 +723,13 @@ mod codec_alt_hashing {
 			NodeKind::Leaf => NodeHeader::Leaf(nibble_count).encode_to(&mut output),
 			NodeKind::BranchWithValue => NodeHeader::Branch(true, nibble_count).encode_to(&mut output),
 			NodeKind::BranchNoValue => NodeHeader::Branch(false, nibble_count).encode_to(&mut output),
-			NodeKind::AltHashLeaf => NodeHeader::AltHashLeaf(nibble_count).encode_to(&mut output),
-			NodeKind::AltHashBranchWithValue => NodeHeader::AltHashBranch(nibble_count)
+			NodeKind::AltHashLeaf => NodeHeader::AltHashLeaf(nibble_count, false).encode_to(&mut output),
+			NodeKind::AltHashBranchWithValue => NodeHeader::AltHashBranch(nibble_count, false)
 				.encode_to(&mut output),
+			NodeKind::AltHashLeafHash => NodeHeader::AltHashLeaf(nibble_count, true).encode_to(&mut output),
+			NodeKind::AltHashBranchWithValueHash => NodeHeader::AltHashBranch(nibble_count, true)
+				.encode_to(&mut output),
+
 		};
 		if number_nibble_encoded > 0 {
 			output.push(nibble_ops::pad_right((partial.0).1));
@@ -725,10 +742,24 @@ mod codec_alt_hashing {
 	#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 	pub(crate) enum NodeHeader {
 		Null,
+		// contains wether there is a value and nibble count
 		Branch(bool, usize),
+		// contains nibble count
 		Leaf(usize),
-		AltHashBranch(usize),
-		AltHashLeaf(usize),
+		// contains nibble count and wether the value is a hash.
+		AltHashBranch(usize, bool),
+		// contains nibble count and wether the value is a hash.
+		AltHashLeaf(usize, bool),
+	}
+
+	impl NodeHeader {
+		fn contains_hash_of_value(&self) -> bool {
+			match self {
+				NodeHeader::AltHashBranch(_, true)
+				| NodeHeader::AltHashLeaf(_, true) => true,
+				_ => false,
+			}
+		}
 	}
 
 	/// NodeHeader without content
@@ -738,10 +769,15 @@ mod codec_alt_hashing {
 		BranchWithValue,
 		AltHashLeaf,
 		AltHashBranchWithValue,
+		AltHashLeafHash,
+		AltHashBranchWithValueHash,
 	}
 
 	impl Encode for NodeHeader {
 		fn encode_to<T: Output + ?Sized>(&self, output: &mut T) {
+			if self.contains_hash_of_value() {
+				output.write(&[trie_constants::DEAD_HEADER_META_HASHED_VALUE]);
+			}
 			match self {
 				NodeHeader::Null => output.push_byte(trie_constants::EMPTY_TRIE),
 				NodeHeader::Branch(true, nibble_count)	=>
@@ -750,9 +786,9 @@ mod codec_alt_hashing {
 					encode_size_and_prefix(*nibble_count, trie_constants::BRANCH_WITHOUT_MASK, 2, output),
 				NodeHeader::Leaf(nibble_count) =>
 					encode_size_and_prefix(*nibble_count, trie_constants::LEAF_PREFIX_MASK, 2, output),
-				NodeHeader::AltHashBranch(nibble_count)	=>
+				NodeHeader::AltHashBranch(nibble_count, _)	=>
 					encode_size_and_prefix(*nibble_count, trie_constants::ALT_HASHING_BRANCH_WITH_MASK, 4, output),
-				NodeHeader::AltHashLeaf(nibble_count)	=>
+				NodeHeader::AltHashLeaf(nibble_count, _)	=>
 					encode_size_and_prefix(*nibble_count, trie_constants::ALT_HASHING_LEAF_PREFIX_MASK, 3, output),
 			}
 		}
@@ -775,19 +811,25 @@ mod codec_alt_hashing {
 
 	impl Decode for NodeHeader {
 		fn decode<I: Input>(input: &mut I) -> Result<Self, Error> {
-			let i = input.read_byte()?;
+			let mut i = input.read_byte()?;
 			if i == trie_constants::EMPTY_TRIE {
 				return Ok(NodeHeader::Null);
 			}
+			let contain_hash = if trie_constants::DEAD_HEADER_META_HASHED_VALUE == i {
+				i = input.read_byte()?;
+				true
+			} else {
+				false
+			};
 			match i & (0b11 << 6) {
 				trie_constants::LEAF_PREFIX_MASK => Ok(NodeHeader::Leaf(decode_size(i, input, 2)?)),
 				trie_constants::BRANCH_WITH_MASK => Ok(NodeHeader::Branch(true, decode_size(i, input, 2)?)),
 				trie_constants::BRANCH_WITHOUT_MASK => Ok(NodeHeader::Branch(false, decode_size(i, input, 2)?)),
 				trie_constants::EMPTY_TRIE => {
 					if i & (0b111 << 5) == trie_constants::ALT_HASHING_LEAF_PREFIX_MASK {
-						Ok(NodeHeader::AltHashLeaf(decode_size(i, input, 3)?))
+						Ok(NodeHeader::AltHashLeaf(decode_size(i, input, 3)?, contain_hash))
 					} else if i & (0b1111 << 4) == trie_constants::ALT_HASHING_BRANCH_WITH_MASK {
-						Ok(NodeHeader::AltHashBranch(decode_size(i, input, 4)?))
+						Ok(NodeHeader::AltHashBranch(decode_size(i, input, 4)?, contain_hash))
 					} else {
 						// do not allow any special encoding
 						Err("Unallowed encoding".into())
@@ -888,6 +930,8 @@ mod codec_alt_hashing {
 				size_and_prefix_iterator(size, trie_constants::ALT_HASHING_LEAF_PREFIX_MASK, 3),
 			NodeKind::AltHashBranchWithValue =>
 				size_and_prefix_iterator(size, trie_constants::ALT_HASHING_BRANCH_WITH_MASK, 4),
+			NodeKind::AltHashBranchWithValueHash
+			| NodeKind::AltHashLeafHash => unreachable!("only added value that do not contain hash"),
 		};
 		iter_start
 			.chain(if nibbles.len() % 2 == 1 { Some(nibbles[0]) } else { None })
@@ -1138,10 +1182,6 @@ impl Meta for VersionedValueMeta {
 				self.old_remaining_children = Some(non_inline_children);
 			}
 		}
-	}
-
-	fn contains_hash_of_value(&self) -> bool {
-		false
 	}
 }
 
@@ -1888,7 +1928,6 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodec<H> {
 impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 	fn decode_plan_inner2<M: Meta>(
 		data: &[u8],
-		contains_hash: bool,
 		meta: Option<&mut M>,
 	) -> std::result::Result<NodePlan, CodecError> {
 		if data.len() < 1 {
@@ -1919,11 +1958,7 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 				let value = if has_value {
 					let start_len = input.offset;
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-					if contains_hash {
-						ValuePlan::HashedValue(input.take(H::LENGTH)?, count)
-					} else {
-						ValuePlan::Value(input.take(count)?, start_len)
-					}
+					ValuePlan::Value(input.take(count)?, start_len)
 				} else {
 					ValuePlan::NoValue
 				};
@@ -1960,11 +1995,7 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 				let partial_padding = nibble_ops::number_padding(nibble_count);
 				let start = input.offset;
 				let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-				let value = if contains_hash {
-					ValuePlan::HashedValue(input.take(H::LENGTH)?, count)
-				} else {
-					ValuePlan::Value(input.take(count)?, start)
-				};
+				let value = ValuePlan::Value(input.take(count)?, start);
 
 				NodePlan::Leaf {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
@@ -1985,8 +2016,7 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 	}
 
 	fn decode_plan(data: &[u8], meta: &mut M) -> Result<NodePlan, Self::Error> {
-		let contains_hash = meta.contains_hash_of_value();
-		Self::decode_plan_inner2(data, contains_hash, Some(meta)).map(|plan| {
+		Self::decode_plan_inner2(data, Some(meta)).map(|plan| {
 			meta.decoded_callback(&plan);
 			plan
 		})
@@ -1994,7 +2024,7 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 
 	fn decode_plan_inner(data: &[u8]) -> std::result::Result<NodePlan, Self::Error> {
 		let meta: Option<&mut M> = None;
-		Self::decode_plan_inner2(data, false, meta)
+		Self::decode_plan_inner2(data, meta)
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {

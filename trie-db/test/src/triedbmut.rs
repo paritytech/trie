@@ -599,10 +599,18 @@ fn register_proof_without_value() {
 		VF,
 	>;
 	let mut memdb_from_proof = MemoryDBProof::default();
-	for (_key, value) in memdb.record.into_inner().into_iter() {
+	for (_key, mut value) in memdb.record.into_inner().into_iter() {
+		let v = if let Some(changed) = reference_trie::to_hashed_variant::<RefHasher>(
+			value.0.as_slice(),
+			&mut value.1,
+		) {
+			changed
+		} else {
+			value.0
+		};
 		memdb_from_proof.insert_with_meta(
 			hash_db::EMPTY_PREFIX,
-			value.0.as_slice(),
+			v.as_slice(),
 			value.1,
 		);
 	}

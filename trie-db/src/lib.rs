@@ -512,9 +512,6 @@ pub trait Meta: Clone + MaybeDebug {
 		&mut self,
 		node_plan: &crate::node::NodePlan,
 	);
-
-	/// Indicate if stored value is incomplete and only contains hash of value.
-	fn contains_hash_of_value(&self) -> bool;
 }
 
 /// Small enum indicating representation of a given children.
@@ -570,10 +567,6 @@ impl Meta for () {
 		&mut self,
 		_node_plan: &crate::node::NodePlan,
 	) {
-	}
-
-	fn contains_hash_of_value(&self) -> bool {
-		false
 	}
 
 	fn read_state_meta(&self) -> Self::StateMeta {
