@@ -42,11 +42,8 @@ pub use hash_db::Hasher;
 
 /// Byte-stream oriented trait for constructing closed-form tries.
 pub trait TrieStream {
-	/// Global meta to apply on new nodes.
-	type GlobalMeta: Default + Clone;
-
 	/// Construct a new `TrieStream`
-	fn new(global: Self::GlobalMeta) -> Self;
+	fn new(alt_threshold: Option<u32>) -> Self;
 	/// Append an Empty node
 	fn append_empty_data(&mut self);
 	/// Start a new Branch node, possibly with a value; takes a list indicating
@@ -98,17 +95,17 @@ fn shared_prefix_length<T: Eq>(first: &[T], second: &[T]) -> usize {
 /// let root = hex!["0807d5393ae7f349481063ebb5dbaf6bda58db282a385ca97f37dccba717cb79"];
 /// assert_eq!(trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v), root);
 /// ```
-pub fn trie_root<H, S, I, A, B>(input: I, meta: S::GlobalMeta) -> H::Out where
+pub fn trie_root<H, S, I, A, B>(input: I, threshold: Option<u32>) -> H::Out where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	H: Hasher,
 	S: TrieStream,
 {
-	trie_root_inner::<H, S, I, A, B>(input, false, meta)
+	trie_root_inner::<H, S, I, A, B>(input, false, threshold)
 }
 
-fn trie_root_inner<H, S, I, A, B>(input: I, no_extension: bool, meta: S::GlobalMeta) -> H::Out where
+fn trie_root_inner<H, S, I, A, B>(input: I, no_extension: bool, threshold: Option<u32>) -> H::Out where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
@@ -137,38 +134,38 @@ fn trie_root_inner<H, S, I, A, B>(input: I, no_extension: bool, meta: S::GlobalM
 		.map(|((_, v), w)| (&nibbles[w[0]..w[1]], v))
 		.collect::<Vec<_>>();
 
-	let mut stream = S::new(meta.clone());
-	build_trie::<H, S, _, _>(&input, 0, &mut stream, no_extension, meta);
+	let mut stream = S::new(threshold.clone());
+	build_trie::<H, S, _, _>(&input, 0, &mut stream, no_extension, threshold);
 	stream.hash_root::<H>()
 }
 
 /// Variant of `trie_root` for patricia trie without extension node.
 /// See [`trie_root`].
-pub fn trie_root_no_extension<H, S, I, A, B>(input: I, meta: S::GlobalMeta) -> H::Out where
+pub fn trie_root_no_extension<H, S, I, A, B>(input: I, threshold: Option<u32>) -> H::Out where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	H: Hasher,
 	S: TrieStream,
 {
-	trie_root_inner::<H, S, I, A, B>(input, true, meta)
+	trie_root_inner::<H, S, I, A, B>(input, true, threshold)
 }
 
 //#[cfg(test)]	// consider feature="std"
 /// Method similar to `trie_root` but returning the root encoded
 /// node instead of its hash.
 /// Mainly use for testing or debugging.
-pub fn unhashed_trie<H, S, I, A, B>(input: I, meta: S::GlobalMeta) -> Vec<u8> where
+pub fn unhashed_trie<H, S, I, A, B>(input: I, threshold: Option<u32>) -> Vec<u8> where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	H: Hasher,
 	S: TrieStream,
 {
-	unhashed_trie_inner::<H, S, I, A, B>(input, false, meta)
+	unhashed_trie_inner::<H, S, I, A, B>(input, false, threshold)
 }
 
-fn unhashed_trie_inner<H, S, I, A, B>(input: I, no_extension: bool, meta: S::GlobalMeta) -> Vec<u8> where
+fn unhashed_trie_inner<H, S, I, A, B>(input: I, no_extension: bool, threshold: Option<u32>) -> Vec<u8> where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
@@ -196,21 +193,21 @@ fn unhashed_trie_inner<H, S, I, A, B>(input: I, no_extension: bool, meta: S::Glo
 		.map(|((_, v), w)| (&nibbles[w[0]..w[1]], v))
 		.collect::<Vec<_>>();
 
-	let mut stream = S::new(meta.clone());
-	build_trie::<H, S, _, _>(&input, 0, &mut stream, no_extension, meta);
+	let mut stream = S::new(threshold.clone());
+	build_trie::<H, S, _, _>(&input, 0, &mut stream, no_extension, threshold);
 	stream.out()
 }
 
 /// Variant of `unhashed_trie` for patricia trie without extension node.
 /// See [`unhashed_trie`].
-pub fn unhashed_trie_no_extension<H, S, I, A, B>(input: I, meta: S::GlobalMeta) -> Vec<u8> where
+pub fn unhashed_trie_no_extension<H, S, I, A, B>(input: I, threshold: Option<u32>) -> Vec<u8> where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	H: Hasher,
 	S: TrieStream,
 {
-	unhashed_trie_inner::<H, S, I, A, B>(input, true, meta)
+	unhashed_trie_inner::<H, S, I, A, B>(input, true, threshold)
 }
 
 /// Generates a key-hashed (secure) trie root hash for a vector of key-value tuples.
@@ -230,7 +227,7 @@ pub fn unhashed_trie_no_extension<H, S, I, A, B>(input: I, meta: S::GlobalMeta) 
 /// let root = hex!["d6e02b2bd48aa04fd2ad87cfac1144a29ca7f7dc60f4526c7b7040763abe3d43"];
 /// assert_eq!(sec_trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v), root);
 /// ```
-pub fn sec_trie_root<H, S, I, A, B>(input: I, meta: S::GlobalMeta) -> H::Out where
+pub fn sec_trie_root<H, S, I, A, B>(input: I, threshold: Option<u32>) -> H::Out where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]>,
 	B: AsRef<[u8]>,
@@ -238,12 +235,12 @@ pub fn sec_trie_root<H, S, I, A, B>(input: I, meta: S::GlobalMeta) -> H::Out whe
 	H::Out: Ord,
 	S: TrieStream,
 {
-	trie_root::<H, S, _, _, _>(input.into_iter().map(|(k, v)| (H::hash(k.as_ref()), v)), meta)
+	trie_root::<H, S, _, _, _>(input.into_iter().map(|(k, v)| (H::hash(k.as_ref()), v)), threshold)
 }
 
 /// Takes a slice of key/value tuples where the key is a slice of nibbles
 /// and encodes it into the provided `Stream`.
-fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_extension: bool, meta: S::GlobalMeta) where
+fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_extension: bool, threshold: Option<u32>) where
 	A: AsRef<[u8]>,
 	B: AsRef<[u8]>,
 	H: Hasher,
@@ -281,7 +278,7 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 					shared_nibble_count,
 					stream,
 					no_extension,
-					meta,
+					threshold,
 				);
 				return;
 			} else { (cursor, None) };
@@ -322,7 +319,7 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 						cursor + 1,
 						stream,
 						no_extension,
-						meta.clone(),
+						threshold.clone(),
 					);
 					begin += count;
 				} else {
@@ -340,14 +337,14 @@ fn build_trie_trampoline<H, S, A, B>(
 	cursor: usize,
 	stream: &mut S,
 	no_extension: bool,
-	meta: S::GlobalMeta,
+	threshold: Option<u32>,
 ) where
 	A: AsRef<[u8]>,
 	B: AsRef<[u8]>,
 	H: Hasher,
 	S: TrieStream,
 {
-	let mut substream = S::new(meta.clone());
-	build_trie::<H, _, _, _>(input, cursor, &mut substream, no_extension, meta);
+	let mut substream = S::new(threshold.clone());
+	build_trie::<H, _, _, _>(input, cursor, &mut substream, no_extension, threshold);
 	stream.append_substream::<H>(substream);
 }

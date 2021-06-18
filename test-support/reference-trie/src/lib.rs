@@ -707,8 +707,6 @@ mod codec_alt_hashing {
 		val.encoded_size() >= *threshold as usize
 	}
 	impl TrieStream for ReferenceTrieStreamNoExt {
-		type GlobalMeta = Option<u32>;
-
 		fn new(meta: Option<u32>) -> Self {
 			Self {
 				buffer: Vec::new(),
@@ -999,9 +997,7 @@ pub struct ReferenceTrieStream {
 }
 
 impl TrieStream for ReferenceTrieStream {
-	type GlobalMeta = ();
-
-	fn new(_meta: ()) -> Self {
+	fn new(_meta: Option<u32>) -> Self {
 		ReferenceTrieStream {
 			buffer: Vec::new()
 		}
