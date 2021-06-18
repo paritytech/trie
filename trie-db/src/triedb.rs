@@ -110,8 +110,8 @@ where
 			NodeHandle::Hash(data) => {
 				let node_hash = decode_hash::<L::Hash>(data)
 					.ok_or_else(|| Box::new(TrieError::InvalidHash(parent_hash, data.to_vec())))?;
-				let (node_data, meta) = self.db
-					.get_with_meta(&node_hash, partial_key, self.layout.global_meta())
+				let node_data = self.db
+					.get(&node_hash, partial_key)
 					.ok_or_else(|| {
 						if partial_key == EMPTY_PREFIX {
 							Box::new(TrieError::InvalidStateRoot(node_hash))
@@ -120,6 +120,7 @@ where
 						}
 					})?;
 
+				let meta = self.layout.meta_for_new_node();
 				(Some(node_hash), node_data, meta)
 			}
 			NodeHandle::Inline(data) => (None, data.to_vec(), self.layout.meta_for_stored_inline_node()),

@@ -576,14 +576,6 @@ where
 			_ => None
 		}
 	}
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, global: VF::GlobalMeta) -> Option<(T, VF::Meta)> {
-		if key == &self.hashed_null_node {
-			return Some(VF::extract_value_owned(self.null_node_data.clone(), global));
-		}
-
-		<Self as HashDB<H, T, VF::Meta, VF::GlobalMeta>>::get(&self, key, prefix)
-			.map(|value| VF::extract_value_owned(value, global))
-	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
 		if key == &self.hashed_null_node {
 			return true;
@@ -676,9 +668,6 @@ where
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(self, key, prefix) }
 	fn access_from(&self, key: &H::Out, at: Option<&H::Out>) -> Option<T> {
 		HashDB::access_from(self, key, at)
-	}
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, global: VF::GlobalMeta) -> Option<(T, VF::Meta)> {
-		HashDB::get_with_meta(self, key, prefix, global)
 	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool { HashDB::contains(self, key, prefix) }
 }

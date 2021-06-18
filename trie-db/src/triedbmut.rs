@@ -577,8 +577,9 @@ where
 		hash: TrieHash<L>,
 		key: Prefix,
 	) -> Result<StorageHandle, TrieHash<L>, CError<L>> {
-		let (node_encoded, meta) = self.db.get_with_meta(&hash, key, self.layout.global_meta())
+		let node_encoded = self.db.get(&hash, key)
 			.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
+		let meta = self.layout.meta_for_new_node();
 		let node = Node::from_encoded(
 			hash,
 			&node_encoded,

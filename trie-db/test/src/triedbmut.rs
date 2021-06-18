@@ -495,8 +495,7 @@ fn register_proof_without_value() {
 
 	struct ProofRecorder {
 		db: MemoryDB,
-		record: RefCell<HashMap<Vec<u8>, (Vec<u8>, Meta)>>,
-		global_meta: GlobalMeta,
+		record: RefCell<HashMap<Vec<u8>, (Vec<u8>, Meta, bool)>>,
 	}
 	// Only to test without threads.
 	unsafe impl Send for ProofRecorder { }
@@ -504,28 +503,18 @@ fn register_proof_without_value() {
 
 	impl HashDB<RefHasher, DBValue, Meta, GlobalMeta> for ProofRecorder {
 		fn get(&self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) -> Option<DBValue> {
-			self.get_with_meta(key, prefix, None).map(|v| v.0)
-		}
-
-		fn get_with_meta(
-			&self,
-			key: &<RefHasher as Hasher>::Out,
-			prefix: Prefix,
-			global_meta: GlobalMeta,
-		) -> Option<(DBValue, Meta)> {
-			let v = self.db.get_with_meta(key, prefix, global_meta);
+			let v = self.db.get(key, prefix);
 			if let Some(v) = v.as_ref() {
 				self.record.borrow_mut()
 					.entry(key[..].to_vec())
 					.or_insert_with(|| {
-						let mut v = v.clone();
-						v.1.set_accessed_value(false);
+						let mut meta = Meta::default();
 						// Fully init meta by decoding.
 						let _ = <CheckMetaHasherNoExt as TrieLayout>::Codec::decode_plan(
-							v.0.as_slice(),
-							&mut v.1,
+							v.as_slice(),
+							&mut meta,
 						);
-						v
+						(v.clone(), meta, false)
 					});
 			}
 			v
@@ -533,12 +522,12 @@ fn register_proof_without_value() {
 
 		fn access_from(&self, key: &<RefHasher as Hasher>::Out, _at: Option<&<RefHasher as Hasher>::Out>) -> Option<DBValue> {
 			self.record.borrow_mut().entry(key[..].to_vec())
-				.and_modify(|entry| entry.1.set_accessed_value(true));
+				.and_modify(|entry| { entry.2 = true; } );
 			None
 		}
 
 		fn contains(&self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) -> bool {
-			self.get_with_meta(key, prefix, self.global_meta).is_some()
+			self.get(key, prefix).is_some()
 		}
 
 		fn emplace(&mut self, key: <RefHasher as Hasher>::Out, prefix: Prefix, value: DBValue) {
@@ -575,7 +564,6 @@ fn register_proof_without_value() {
 	let mut memdb = ProofRecorder {
 		db: memdb,
 		record: Default::default(),
-		global_meta: Some(1),
 	};
 
 	let root_proof = root.clone();
@@ -603,6 +591,7 @@ fn register_proof_without_value() {
 		let v = if let Some(changed) = reference_trie::to_hashed_variant::<RefHasher>(
 			value.0.as_slice(),
 			&mut value.1,
+			value.2,
 		) {
 			changed
 		} else {

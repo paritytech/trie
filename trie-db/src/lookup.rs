@@ -69,7 +69,7 @@ where
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
 			let hash = self.hash;
-			let (node_data, mut meta) = match self.db.get_with_meta(&hash, key.mid(key_nibbles).left(), self.layout.global_meta()) {
+			let node_data = match self.db.get(&hash, key.mid(key_nibbles).left()) {
 				Some(value) => value,
 				None => return Err(Box::new(match depth {
 					0 => TrieError::InvalidStateRoot(hash),
@@ -77,6 +77,7 @@ where
 				})),
 			};
 
+			let mut meta = self.layout.meta_for_new_node();
 			self.query.record(&hash, &node_data, depth, &meta);
 
 			// this loop iterates through all inline children (usually max 1)

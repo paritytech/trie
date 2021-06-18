@@ -112,11 +112,6 @@ pub trait HashDB<H: Hasher, T, M, GM>: Send + Sync + AsHashDB<H, T, M, GM> {
 	/// hash is not known.
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
 
-	/// Look up a given hash into the bytes that hash to it, returning None if the
-	/// hash is not known.
-	/// Resolve associated meta, and allow inheriting meta from parent definition.
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, global_meta: GM) -> Option<(T, M)>;
-
 	/// Access additional content or indicate additional content already accessed and needed.
 	///
 	/// In one case `at` is `None` and no reply is expected, just a callback on content access.
@@ -143,7 +138,7 @@ pub trait HashDB<H: Hasher, T, M, GM>: Send + Sync + AsHashDB<H, T, M, GM> {
 	/// It can be "owed" more than once.
 	fn remove(&mut self, key: &H::Out, prefix: Prefix);
 
-	/// Insert with inner meta.
+	/// Insert with alternate hashing info.
 	fn insert_with_meta(
 		&mut self,
 		prefix: Prefix,
@@ -158,11 +153,6 @@ pub trait HashDBRef<H: Hasher, T, M, GM> {
 	/// hash is not known.
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
 
-	/// Look up a given hash into the bytes that hash to it, returning None if the
-	/// hash is not known.
-	/// Resolve associated meta.
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, global_meta: GM) -> Option<(T, M)>;
-
 	/// Callback for content access.
 	fn access_from(&self, _key: &H::Out, _at: Option<&H::Out>) -> Option<T>;
 
@@ -175,9 +165,6 @@ impl<'a, H: Hasher, T, M, GM> HashDBRef<H, T, M, GM> for &'a dyn HashDB<H, T, M,
 	fn access_from(&self, key: &H::Out, at: Option<&H::Out>) -> Option<T> {
 		HashDB::access_from(*self, key, at)
 	}
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, global_meta: GM) -> Option<(T, M)> {
-		HashDB::get_with_meta(*self, key, prefix, global_meta)
-	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
 		HashDB::contains(*self, key, prefix)
 	}
@@ -187,9 +174,6 @@ impl<'a, H: Hasher, T, M, GM> HashDBRef<H, T, M, GM> for &'a mut dyn HashDB<H, T
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(*self, key, prefix) }
 	fn access_from(&self, key: &H::Out, at: Option<&H::Out>) -> Option<T> {
 		HashDB::access_from(*self, key, at)
-	}
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, global_meta: GM) -> Option<(T, M)> {
-		HashDB::get_with_meta(*self, key, prefix, global_meta)
 	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
 		HashDB::contains(*self, key, prefix)

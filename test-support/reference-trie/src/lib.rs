@@ -164,25 +164,18 @@ impl TrieLayout for CheckMetaHasherNoExt {
 pub struct TestMetaHasher;
 
 /// Switch to hashed value variant.
-pub	fn to_hashed_variant<H: Hasher>(value: &[u8], meta: &mut TrieMeta) -> Option<DBValue> {
-	if meta.contain_hash {
-		return None;
-	}
-	if meta.unused_value && meta.apply_inner_hashing {
+pub	fn to_hashed_variant<H: Hasher>(value: &[u8], meta: &mut TrieMeta, used_value: bool) -> Option<DBValue> {
+	if !meta.contain_hash && meta.apply_inner_hashing && !used_value && meta.range.is_some() {
 		let mut stored = Vec::with_capacity(value.len() + 1);
-		if meta.range.is_some() {
-			// Warning this assumes that encoded value cannot start by this,
-			// so it is tightly coupled with the header type of the codec.
-			stored.push(trie_constants::DEAD_HEADER_META_HASHED_VALUE);
-			let range = meta.range.as_ref().expect("Tested in condition");
-			// store hash instead of value.
-			let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
-			stored.extend_from_slice(value.as_slice());
-			meta.contain_hash = true;
-			return Some(stored);
-		}
-		stored.extend_from_slice(value);
-		return Some(stored)
+		// Warning this assumes that encoded value cannot start by this,
+		// so it is tightly coupled with the header type of the codec.
+		stored.push(trie_constants::DEAD_HEADER_META_HASHED_VALUE);
+		let range = meta.range.as_ref().expect("Tested in condition");
+		// store hash instead of value.
+		let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
+		stored.extend_from_slice(value.as_slice());
+		meta.contain_hash = true;
+		return Some(stored);
 	}
 	None
 }
@@ -219,7 +212,6 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher {
 	fn extract_value(stored: &[u8], global: Self::GlobalMeta) -> (&[u8], Self::Meta) {
 		let mut meta = TrieMeta {
 			range: None,
-			unused_value: false,
 			contain_hash: false,
 			apply_inner_hashing: false,
 			try_inner_hashing: None,
@@ -231,7 +223,6 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher {
 	fn extract_value_owned(stored: DBValue, global: Self::GlobalMeta) -> (DBValue, Self::Meta) {
 		let mut meta = TrieMeta {
 			range: None,
-			unused_value: false,
 			contain_hash: false,
 			apply_inner_hashing: false,
 			try_inner_hashing: None,
@@ -260,12 +251,6 @@ pub struct TrieMeta {
 	/// Does current encoded contains a hash instead of
 	/// a value (information stored in meta for proofs).
 	pub contain_hash: bool,
-	/// Record if a value was accessed, this is
-	/// set as accessed by defalult, but can be
-	/// change on access explicitely: `HashDB::get_with_meta`.
-	/// and reset on access explicitely: `HashDB::access_from`.
-	/// Not strictly needed in this struct, but does not add memory usage here.
-	pub unused_value: bool,
 }
 
 impl Meta for TrieMeta {
@@ -342,19 +327,6 @@ impl Meta for TrieMeta {
 
 		self.range = Some(range);
 		self.contain_hash = contain_hash;
-	}
-}
-
-impl TrieMeta {
-	/// Was value accessed.
-	pub fn accessed_value(&mut self) -> bool {
-		!self.unused_value
-	}
-
-	/// For proof, this allow setting node as unaccessed until
-	/// a call to `access_from`.
-	pub fn set_accessed_value(&mut self, accessed: bool) {
-		self.unused_value = !accessed;
 	}
 }
 
@@ -1020,7 +992,6 @@ mod codec_alt_hashing {
 					if apply_inner_hashing {
 						let meta = TrieMeta {
 							range: range,
-							unused_value: false,
 							contain_hash: false,
 							// Using `inner_value_hashing` instead to check this.
 							// And unused in hasher.
@@ -1042,7 +1013,6 @@ mod codec_alt_hashing {
 			let data = self.buffer;
 			let meta = TrieMeta {
 				range: range,
-				unused_value: false,
 				contain_hash: false,
 				try_inner_hashing: None,
 				apply_inner_hashing: true,
@@ -1182,81 +1152,6 @@ impl Meta for VersionedValueMeta {
 				self.old_remaining_children = Some(non_inline_children);
 			}
 		}
-	}
-}
-
-/// Test value function: prepend optional encoded size of value
-pub struct TestUpdatableMetaHasher<H>(PhantomData<H>);
-
-impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestUpdatableMetaHasher<H> {
-	type Meta = VersionedValueMeta;
-	type GlobalMeta = Version;
-
-	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out {
-		if matches!(meta.version, Version::New) {
-			if let Some(range) = meta.range.as_ref() {
-				assert!(matches!(meta.version,Version::New));
-				let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
-				return H::hash(value.as_slice());
-			}
-		}
-		H::hash(value)
-	}
-
-	fn stored_value(value: &[u8], meta: Self::Meta) -> DBValue {
-		if let Version::Old = meta.version {
-			// non empty empty trie byte for old node
-			let mut stored = Vec::with_capacity(value.len() + 20);
-			stored.push(EMPTY_TRIE); // 1 byte
-			stored.extend_from_slice(meta.old_remaining_children.encode().as_slice()); // max 18 byt
-			stored.extend_from_slice(value);
-			stored
-		} else {
-			value.to_vec()
-		}
-	}
-
-	fn stored_value_owned(value: DBValue, meta: Self::Meta) -> DBValue {
-		Self::stored_value(value.as_slice(), meta)
-	}
-
-	fn extract_value(mut stored: &[u8], _meta: Self::GlobalMeta) -> (&[u8], Self::Meta) {
-		let len = stored.len();
-		let input = &mut stored;
-		// if len == 1 it is new empty trie.
-		let (version, old_remaining_children) = if input[0] == EMPTY_TRIE && input.len() > 1 {
-			*input = &input[1..];
-			(Version::Old, Decode::decode(input).ok().flatten())
-		} else {
-			(Version::New, None)
-		};
-		let read_bytes = len - input.len();
-		let stored = &stored[read_bytes..];
-		(stored, VersionedValueMeta {
-			old_remaining_children,
-			range: None,
-			version,
-		})
-	}
-
-	fn extract_value_owned(mut stored: DBValue, _meta: Self::GlobalMeta) -> (DBValue, Self::Meta) {
-		// TODO factor with extract_value
-		let len = stored.len();
-		let input = &mut stored.as_slice();
-		// if len == 1 it is new empty trie.
-		let (version, old_remaining_children) = if input[0] == EMPTY_TRIE && input.len() > 1 {
-			*input = &input[1..];
-			(Version::Old, Decode::decode(input).ok().flatten())
-		} else {
-			(Version::New, None)
-		};
-		let read_bytes = len - input.len();
-		let stored = stored.split_off(read_bytes);
-		(stored, VersionedValueMeta {
-			old_remaining_children,
-			range: None,
-			version,
-		})
 	}
 }
 
