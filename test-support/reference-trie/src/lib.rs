@@ -201,7 +201,7 @@ mod codec_alt_hashing {
 			let header = NodeHeader::decode(&mut input)?;
 			let contains_hash = header.contains_hash_of_value();
 			let alt_hashing = header.alt_hashing();
-			meta.set_state_meta(alt_hashing);
+			meta.apply_inner_hashing = alt_hashing;
 
 			let branch_has_value = if let NodeHeader::Branch(has_value, _) = &header {
 				*has_value
@@ -322,9 +322,9 @@ mod codec_alt_hashing {
 			// With fix inner hashing alt hash can be use with all node, but
 			// that is not better (encoding can use an additional nibble byte
 			// sometime).
-			let mut output = if meta.read_global_meta().as_ref().map(|threshold|
+			let mut output = if meta.try_inner_hashing.as_ref().map(|threshold|
 				value_do_hash(&value, threshold)
-			).unwrap_or(meta.read_state_meta()) {
+			).unwrap_or(meta.apply_inner_hashing) {
 				if contains_hash {
 					partial_encode(partial, NodeKind::AltHashLeafHash)
 				} else {
@@ -379,9 +379,9 @@ mod codec_alt_hashing {
 			meta: &mut Meta,
 		) -> Vec<u8> {
 			let contains_hash = matches!(&value, Value::HashedValue(..));
-			let mut output = match (&value,  meta.read_global_meta().as_ref().map(|threshold|
+			let mut output = match (&value,  meta.try_inner_hashing.as_ref().map(|threshold|
 				value_do_hash(&value, threshold)
-			).unwrap_or(meta.read_state_meta())) {
+			).unwrap_or(meta.apply_inner_hashing)) {
 				(&Value::NoValue, _) => {
 					partial_from_iterator_encode(partial, number_nibble, NodeKind::BranchNoValue)
 				},

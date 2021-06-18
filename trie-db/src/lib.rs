@@ -497,7 +497,6 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 }
 
 /// Meta info use by trie state.
-/// TODO rename to just Meta
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct Meta {
 	/// Range of encoded value or hashed value.
@@ -521,33 +520,12 @@ pub struct Meta {
 use node::{ValuePlan, NodePlan};
 
 impl Meta {
-	/// Indicate this node needs inner hashing.
-	pub fn set_state_meta(&mut self, state_meta: bool) {
-		self.apply_inner_hashing = state_meta;
-	}
-
-	/// Should inner hashing be applied to this node.
-	pub fn read_state_meta(&self) -> bool {
-		self.apply_inner_hashing
-	}
-
-	/// Should a threshold be applied on this node value
-	/// on change to check if we use alt hashing.
-	pub fn read_global_meta(&self) -> Option<u32> {
-		self.try_inner_hashing
-	}
-
-	/// Define threshold to apply on this node when changing its value.
-	pub fn set_global_meta(&mut self, threshold: Option<u32>) {
-		self.try_inner_hashing = threshold;
-	}
-
 	/// Initiate the node meta, with a given threshold.
 	pub fn new(
 		threshold: Option<u32>,
 	) -> Self {
 		let mut result = Self::default();
-		result.set_global_meta(threshold);
+		result.try_inner_hashing = threshold;
 		result
 	}
 
