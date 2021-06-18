@@ -468,7 +468,7 @@ fn register_proof_without_value() {
 	use hash_db::{Prefix, AsHashDB};
 
 	type Layout = CheckMetaHasherNoExt;
-	type Meta = reference_trie::TrieMeta;
+	type Meta = trie_db::TrieMeta;
 	type MemoryDB = memory_db::MemoryDB<
 		RefHasher,
 		PrefixedKey<RefHasher>,

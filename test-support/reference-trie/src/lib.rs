@@ -30,6 +30,7 @@ use trie_db::{
 	TrieRoot,
 	Partial,
 	Meta,
+	TrieMeta,
 };
 use std::borrow::Borrow;
 
@@ -168,120 +169,6 @@ pub	fn to_hashed_variant<H: Hasher>(value: &[u8], meta: &mut TrieMeta, used_valu
 	}
 	None
 }
-
-
-/// Meta use by trie state.
-#[derive(Default, Clone, Debug)]
-pub struct TrieMeta {
-	/// Range of encoded value or hashed value.
-	/// When encoded value, it includes the length of the value.
-	pub range: Option<core::ops::Range<usize>>,
-	/// Defined in the trie layout, when used with
-	/// `TrieDbMut` it switch nodes to alternative hashing
-	/// method by defining the threshold to use with alternative
-	/// hashing.
-	/// Trie codec or other proof manipulation will always use
-	/// `None` in order to prevent state change on reencoding.
-	pub try_inner_hashing: Option<u32>,
-	/// Flag indicating alternative value hash is currently use
-	/// or will be use.
-	pub apply_inner_hashing: bool,
-	/// Does current encoded contains a hash instead of
-	/// a value (information stored in meta for proofs).
-	pub contain_hash: bool,
-}
-
-impl Meta for TrieMeta {
-	/// When true apply inner hashing of value.
-	type GlobalMeta = Option<u32>;
-
-	/// When true apply inner hashing of value.
-	type StateMeta = bool;
-
-	fn set_state_meta(&mut self, state_meta: Self::StateMeta) {
-		self.apply_inner_hashing = state_meta;
-	}
-
-	fn read_state_meta(&self) -> Self::StateMeta {
-		self.apply_inner_hashing
-	}
-
-	fn read_global_meta(&self) -> Self::GlobalMeta {
-		self.try_inner_hashing
-	}
-
-	fn set_global_meta(&mut self, global_meta: Self::GlobalMeta) {
-		self.try_inner_hashing = global_meta;
-	}
-
-	fn meta_for_new(
-		global: Self::GlobalMeta,
-	) -> Self {
-		let mut result = Self::default();
-		result.set_global_meta(global);
-		result
-	}
-
-	fn meta_for_existing_inline_node(
-		global: Self::GlobalMeta,
-	) -> Self {
-		Self::meta_for_new(global)
-	}
-
-	fn meta_for_empty(
-		global: Self::GlobalMeta,
-	) -> Self {
-		Self::meta_for_new(global)
-	}
-
-	fn encoded_value_callback(
-		&mut self,
-		value_plan: ValuePlan,
-	) {
-		let (contain_hash, range) = match value_plan {
-			ValuePlan::Value(range, with_len) => (false, with_len..range.end),
-			ValuePlan::HashedValue(range, _size) => (true, range),
-			ValuePlan::NoValue => return,
-		};
-
-		if let Some(threshold) = self.try_inner_hashing.clone() {
-			self.apply_inner_hashing = range.end - range.start >= threshold as usize;
-		}
-
-		self.range = Some(range);
-		self.contain_hash = contain_hash;
-	}
-
-	fn decoded_callback(
-		&mut self,
-		node_plan: &NodePlan,
-	) {
-		let (contain_hash, range) = match node_plan.value_plan() {
-			Some(ValuePlan::Value(range, with_len)) => (false, *with_len..range.end),
-			Some(ValuePlan::HashedValue(range, _size)) => (true, range.clone()),
-			Some(ValuePlan::NoValue) => return,
-			None => return,
-		};
-
-		self.range = Some(range);
-		self.contain_hash = contain_hash;
-	}
-
-	fn resolve_alt_hashing(&self) -> hash_db::AltHashing {
-		let mut result = hash_db::AltHashing::default();
-		if self.contain_hash {
-			// TODO store contain hash offset from codec!!
-			result.encoded_offset = 1;
-			return result;
-		}
-		if self.apply_inner_hashing {
-			result.value_range = self.range.as_ref()
-				.map(|range| (range.start, range.end));
-		}
-		result
-	}
-}
-
 
 /// Treshold for using hash of value instead of value
 /// in encoded trie node.
