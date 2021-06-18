@@ -107,7 +107,7 @@ impl<'a, K, V> PlainDBRef<K, V> for &'a mut dyn PlainDB<K, V> {
 }
 
 /// Trait modelling datastore keyed by a hash defined by the `Hasher`.
-pub trait HashDB<H: Hasher, T, M, GM>: Send + Sync + AsHashDB<H, T, M, GM> {
+pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
@@ -133,22 +133,93 @@ pub trait HashDB<H: Hasher, T, M, GM>: Send + Sync + AsHashDB<H, T, M, GM> {
 	/// Like `insert()`, except you provide the key and the data is all moved.
 	fn emplace(&mut self, key: H::Out, prefix: Prefix, value: T);
 
+	/// `emplace` variant using reference to data.
+	fn emplace_ref(&mut self, key: &H::Out, prefix: Prefix, value: &[u8]);
+
 	/// Remove a datum previously inserted. Insertions can be "owed" such that the same number of
 	/// `insert()`s may happen without the data being eventually being inserted into the DB.
 	/// It can be "owed" more than once.
 	fn remove(&mut self, key: &H::Out, prefix: Prefix);
 
 	/// Insert with alternate hashing info.
-	fn insert_with_meta(
+	fn alt_insert(
 		&mut self,
 		prefix: Prefix,
 		value: &[u8],
-		meta: M,
-	) -> H::Out;
+		alt_hashing: AltHashing,
+	) -> H::Out {
+		if !alt_hashing.is_active() {
+			return self.insert(prefix, value);
+		}
+		let hash_value = &value[alt_hashing.encoded_offset..];
+		if alt_hashing.value_range.is_some() {
+			let hash_value = alt_hashed_value::<H>(value, alt_hashing.value_range);
+			let key = H::hash(hash_value.as_slice());
+			self.emplace_ref(&key, prefix, value);
+			key
+		} else {
+			let key = H::hash(hash_value);
+			self.emplace_ref(&key, prefix, value);
+			key
+		}
+	}
 }
 
+/// Define how alternate hashing should be applied by the hash db.
+#[derive(Default, Clone, Debug)]
+pub struct AltHashing {
+	/// Allow skipping first bytes.
+	pub encoded_offset: usize,
+	/// Apply hashing to value range first.
+	/// This range is defined after applying offset (on encoded content).
+	pub value_range: Option<(usize, usize)>,
+}
+
+impl AltHashing {
+	fn is_active(&self) -> bool {
+		self.encoded_offset > 0 || self.value_range.is_some()
+	}
+}
+
+/// Representation with hashing of inner value applied.
+pub fn alt_hashed_value<H: Hasher>(x: &[u8], range: Option<(usize, usize)>) -> Vec<u8> {
+	if let Some((start, end)) = range {
+		let len = x.len();
+		if start < len && end == len {
+			// terminal inner hash
+			let hash_end = H::hash(&x[start..]);
+			let mut buff = vec![0; x.len() + hash_end.as_ref().len() - (end - start)];
+			buff[..start].copy_from_slice(&x[..start]);
+			buff[start..].copy_from_slice(hash_end.as_ref());
+			return buff;
+		}
+		if start == 0 && end < len {
+			// start inner hash
+			let hash_start = H::hash(&x[..start]);
+			let hash_len = hash_start.as_ref().len();
+			let mut buff = vec![0; x.len() + hash_len - (end - start)];
+			buff[..hash_len].copy_from_slice(hash_start.as_ref());
+			buff[hash_len..].copy_from_slice(&x[end..]);
+			return buff;
+		}
+		if start < len && end < len {
+			// middle inner hash
+			let hash_middle = H::hash(&x[start..end]);
+			let hash_len = hash_middle.as_ref().len();
+			let mut buff = vec![0; x.len() + hash_len - (end - start)];
+			buff[..start].copy_from_slice(&x[..start]);
+			buff[start..start + hash_len].copy_from_slice(hash_middle.as_ref());
+			buff[start + hash_len..].copy_from_slice(&x[end..]);
+			return buff;
+		}
+	}
+	// if anything wrong default to hash
+	x.to_vec()
+}
+
+
 /// Trait for immutable reference of HashDB.
-pub trait HashDBRef<H: Hasher, T, M, GM> {
+pub trait HashDBRef<H: Hasher, T> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
@@ -160,7 +231,7 @@ pub trait HashDBRef<H: Hasher, T, M, GM> {
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool;
 }
 
-impl<'a, H: Hasher, T, M, GM> HashDBRef<H, T, M, GM> for &'a dyn HashDB<H, T, M, GM> {
+impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a dyn HashDB<H, T> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(*self, key, prefix) }
 	fn access_from(&self, key: &H::Out, at: Option<&H::Out>) -> Option<T> {
 		HashDB::access_from(*self, key, at)
@@ -170,7 +241,7 @@ impl<'a, H: Hasher, T, M, GM> HashDBRef<H, T, M, GM> for &'a dyn HashDB<H, T, M,
 	}
 }
 
-impl<'a, H: Hasher, T, M, GM> HashDBRef<H, T, M, GM> for &'a mut dyn HashDB<H, T, M, GM> {
+impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a mut dyn HashDB<H, T> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(*self, key, prefix) }
 	fn access_from(&self, key: &H::Out, at: Option<&H::Out>) -> Option<T> {
 		HashDB::access_from(*self, key, at)
@@ -181,11 +252,11 @@ impl<'a, H: Hasher, T, M, GM> HashDBRef<H, T, M, GM> for &'a mut dyn HashDB<H, T
 }
 
 /// Upcast trait for HashDB.
-pub trait AsHashDB<H: Hasher, T, M, GM> {
+pub trait AsHashDB<H: Hasher, T> {
 	/// Perform upcast to HashDB for anything that derives from HashDB.
-	fn as_hash_db(&self) -> &dyn HashDB<H, T, M, GM>;
+	fn as_hash_db(&self) -> &dyn HashDB<H, T>;
 	/// Perform mutable upcast to HashDB for anything that derives from HashDB.
-	fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (dyn HashDB<H, T, M, GM> + 'a);
+	fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (dyn HashDB<H, T> + 'a);
 }
 
 /// Upcast trait for PlainDB.
@@ -265,9 +336,9 @@ impl<H, T> MetaHasher<H, T> for NoMeta
 // implementing-a-trait-for-reference-and-non-reference-types-causes-conflicting-im
 // This means we need concrete impls of AsHashDB in several places, which somewhat defeats
 // the point of the trait.
-impl<'a, H: Hasher, T, VF, GM> AsHashDB<H, T, VF, GM> for &'a mut dyn HashDB<H, T, VF, GM> {
-	fn as_hash_db(&self) -> &dyn HashDB<H, T, VF, GM> { &**self }
-	fn as_hash_db_mut<'b>(&'b mut self) -> &'b mut (dyn HashDB<H, T, VF, GM> + 'b) { &mut **self }
+impl<'a, H: Hasher, T> AsHashDB<H, T> for &'a mut dyn HashDB<H, T> {
+	fn as_hash_db(&self) -> &dyn HashDB<H, T> { &**self }
+	fn as_hash_db_mut<'b>(&'b mut self) -> &'b mut (dyn HashDB<H, T> + 'b) { &mut **self }
 }
 
 #[cfg(feature = "std")]

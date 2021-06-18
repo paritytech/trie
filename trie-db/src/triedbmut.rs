@@ -14,7 +14,7 @@
 
 //! In-memory trie representation.
 
-use super::{DBValue, node::NodeKey, Meta, GlobalMeta};
+use super::{DBValue, node::NodeKey, Meta};
 use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode,
@@ -192,7 +192,7 @@ impl<L: TrieLayout> Node<L>
 	fn inline_or_hash(
 		parent_hash: TrieHash<L>,
 		child: EncodedNodeHandle,
-		db: &dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &dyn HashDB<L::Hash, DBValue>,
 		storage: &mut NodeStorage<L>,
 		layout: &L,
 	) -> Result<NodeHandle<TrieHash<L>>, TrieHash<L>, CError<L>> {
@@ -215,7 +215,7 @@ impl<L: TrieLayout> Node<L>
 	fn from_encoded<'a, 'b>(
 		node_hash: TrieHash<L>,
 		data: &'a[u8],
-		db: &dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &dyn HashDB<L::Hash, DBValue>,
 		storage: &'b mut NodeStorage<L>,
 		mut meta: L::Meta, 
 		layout: &L,
@@ -491,7 +491,7 @@ where
 {
 	layout: L,
 	storage: NodeStorage<L>,
-	db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+	db: &'a mut dyn HashDB<L::Hash, DBValue>,
 	root: &'a mut TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
 	death_row: HashSet<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
@@ -505,14 +505,14 @@ where
 	L: TrieLayout,
 {
 	/// Create a new trie with backing database `db` and empty `root`.
-	pub fn new(db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>, root: &'a mut TrieHash<L>) -> Self {
+	pub fn new(db: &'a mut dyn HashDB<L::Hash, DBValue>, root: &'a mut TrieHash<L>) -> Self {
 		Self::new_with_layout(db, root, Default::default())
 	}
 
 	/// Create a new trie with backing database `db` and empty `root`.
 	/// This could use a context specific layout.
 	pub fn new_with_layout(
-		db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &'a mut dyn HashDB<L::Hash, DBValue>,
 		root: &'a mut TrieHash<L>,
 		layout: L,
 	) -> Self {
@@ -533,7 +533,7 @@ where
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
 	pub fn from_existing(
-		db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &'a mut dyn HashDB<L::Hash, DBValue>,
 		root: &'a mut TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Self::from_existing_with_layout(db, root, Default::default())
@@ -542,7 +542,7 @@ where
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
 	pub fn from_existing_with_layout(
-		db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &'a mut dyn HashDB<L::Hash, DBValue>,
 		root: &'a mut TrieHash<L>,
 		layout: L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
@@ -562,12 +562,12 @@ where
 		})
 	}
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>> {
+	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue> {
 		self.db
 	}
 
 	/// Get the backing database mutably.
-	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>> {
+	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue> {
 		self.db
 	}
 
@@ -1571,7 +1571,7 @@ where
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
 
-				*self.root = self.db.insert_with_meta(EMPTY_PREFIX, &encoded_root[..], meta);
+				*self.root = self.db.alt_insert(EMPTY_PREFIX, &encoded_root[..], meta.resolve_alt_hashing());
 				self.hash_count += 1;
 
 				self.root_handle = NodeHandle::Hash(*self.root);
@@ -1616,7 +1616,7 @@ where
 							node.into_encoded(commit_child)
 						};
 						if encoded.len() >= L::Hash::LENGTH {
-							let hash = self.db.insert_with_meta(prefix.as_prefix(), &encoded[..], meta);
+							let hash = self.db.alt_insert(prefix.as_prefix(), &encoded[..], meta.resolve_alt_hashing());
 							self.hash_count +=1;
 							ChildReference::Hash(hash)
 						} else {

@@ -20,7 +20,7 @@ use std::marker::PhantomData;
 use std::ops::Range;
 use parity_scale_codec::{Decode, Input, Output, Encode, Compact, Error as CodecError};
 use trie_root::{Hasher, MetaHasher};
-
+use hash_db::alt_hashed_value as inner_hashed_value;
 use trie_db::{
 	node::{NibbleSlicePlan, NodePlan, Value, ValuePlan, NodeHandlePlan},
 	triedbmut::ChildReference,
@@ -30,8 +30,6 @@ use trie_db::{
 	TrieRoot,
 	Partial,
 	Meta,
-	ChildrenDecoded,
-	GlobalMeta,
 };
 use std::borrow::Borrow;
 
@@ -328,47 +326,26 @@ impl Meta for TrieMeta {
 		self.range = Some(range);
 		self.contain_hash = contain_hash;
 	}
+
+	fn resolve_alt_hashing(&self) -> hash_db::AltHashing {
+		let mut result = hash_db::AltHashing::default();
+		if self.contain_hash {
+			// TODO store contain hash offset from codec!!
+			result.encoded_offset = 1;
+			return result;
+		}
+		if self.apply_inner_hashing {
+			result.value_range = self.range.as_ref()
+				.map(|range| (range.start, range.end));
+		}
+		result
+	}
 }
+
 
 /// Treshold for using hash of value instead of value
 /// in encoded trie node.
 pub const INNER_HASH_TRESHOLD: usize = 1;
-
-/// Representation with inner hash.
-pub fn inner_hashed_value<H: Hasher>(x: &[u8], range: Option<(usize, usize)>) -> Vec<u8> {
-	if let Some((start, end)) = range {
-		let len = x.len();
-		if start < len && end == len {
-			// terminal inner hash
-			let hash_end = H::hash(&x[start..]);
-			let mut buff = vec![0; x.len() + hash_end.as_ref().len() - (end - start)];
-			buff[..start].copy_from_slice(&x[..start]);
-			buff[start..].copy_from_slice(hash_end.as_ref());
-			return buff;
-		}
-		if start == 0 && end < len {
-			// start inner hash
-			let hash_start = H::hash(&x[..start]);
-			let hash_len = hash_start.as_ref().len();
-			let mut buff = vec![0; x.len() + hash_len - (end - start)];
-			buff[..hash_len].copy_from_slice(hash_start.as_ref());
-			buff[hash_len..].copy_from_slice(&x[end..]);
-			return buff;
-		}
-		if start < len && end < len {
-			// middle inner hash
-			let hash_middle = H::hash(&x[start..end]);
-			let hash_len = hash_middle.as_ref().len();
-			let mut buff = vec![0; x.len() + hash_len - (end - start)];
-			buff[..start].copy_from_slice(&x[..start]);
-			buff[start..start + hash_len].copy_from_slice(hash_middle.as_ref());
-			buff[start + hash_len..].copy_from_slice(&x[end..]);
-			return buff;
-		}
-	}
-	// if anything wrong default to hash
-	x.to_vec()
-}
 
 mod codec_alt_hashing {
 	use super::*;
@@ -1060,98 +1037,6 @@ impl TrieLayout for Old {
 
 	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		()
-	}
-}
-
-/// Test Meta input.
-#[derive(Default, Clone, Debug)]
-pub struct VersionedValueMeta {
-	range: Option<core::ops::Range<usize>>,
-	old_remaining_children: Option<Vec<u8>>,
-	version: Version,
-}
-
-impl Meta for VersionedValueMeta {
-	type GlobalMeta = Version;
-
-	type StateMeta = ();
-
-	fn set_state_meta(&mut self, _state_meta: Self::StateMeta) {
-	}
-
-	fn read_state_meta(&self) -> Self::StateMeta {
-		()
-	}
-
-	fn set_global_meta(&mut self, _global_meta: Self::GlobalMeta) {
-	}
-
-	fn read_global_meta(&self) -> Self::GlobalMeta {
-		self.version.clone()
-	}
-
-	fn meta_for_new(
-		input: Self::GlobalMeta,
-	) -> Self {
-		let old_remaining_children = if matches!(input, Version::Old) {
-			Some(Vec::new())
-		} else {
-			None
-		};
-		VersionedValueMeta { range: None, version: input, old_remaining_children }
-	}
-
-	fn meta_for_existing_inline_node(
-		input: Self::GlobalMeta,
-	) -> Self {
-		let old_remaining_children = if matches!(input, Version::Old) {
-			Some(Vec::new())
-		} else {
-			None
-		};
-		VersionedValueMeta { range: None, version: input, old_remaining_children }
-	}
-
-	fn meta_for_empty(
-		input: Self::GlobalMeta,
-	) -> Self {
-		// empty is same for new and old, using new
-		VersionedValueMeta { range: None, version: input, old_remaining_children: None }
-	}
-
-	fn encoded_value_callback(
-		&mut self,
-		value_plan: ValuePlan,
-	) {
-		if matches!(self.version, Version::New) {
-			let range = match value_plan {
-				ValuePlan::Value(range, _) => range,
-				ValuePlan::HashedValue(_range, _size) => unimplemented!(),
-				ValuePlan::NoValue => return,
-			};
-
-			if range.end - range.start >= INNER_HASH_TRESHOLD {
-				self.range = Some(range);
-			}
-		}
-	}
-
-	fn decoded_callback(
-		&mut self,
-		node_plan: &trie_db::node::NodePlan,
-	) {
-		if matches!(self.version, Version::Old) {
-			if self.old_remaining_children.is_none() {
-				let mut non_inline_children = Vec::new();
-				for (index, child) in node_plan.inline_children().enumerate() {
-					if matches!(child, ChildrenDecoded::Hash) {
-						// overflow for radix > 256, ok with current hex trie only implementation.
-						non_inline_children.push(index as u8);
-					}
-				}
-				self.old_remaining_children = Some(non_inline_children);
-			}
-		}
 	}
 }
 
@@ -2047,7 +1932,7 @@ pub fn compare_implementations<T, DB> (
 )
 	where
 		T: TrieLayout,
-		DB : hash_db::HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>> + Eq,
+		DB : hash_db::HashDB<T::Hash, DBValue> + Eq,
 {
 	let root_new = calc_root_build::<T, _, _, _, _>(data.clone(), &mut hashdb);
 	let root = {
@@ -2061,7 +1946,7 @@ pub fn compare_implementations<T, DB> (
 	};
 	if root_new != root {
 		{
-			let db : &dyn hash_db::HashDB<_, _, _, _> = &hashdb;
+			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
 			let t = TrieDB::<T>::new(&db, &root_new).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -2069,7 +1954,7 @@ pub fn compare_implementations<T, DB> (
 			}
 		}
 		{
-			let db : &dyn hash_db::HashDB<_, _, _, _> = &memdb;
+			let db : &dyn hash_db::HashDB<_, _> = &memdb;
 			let t = TrieDB::<T>::new(&db, &root).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -2084,7 +1969,7 @@ pub fn compare_implementations<T, DB> (
 }
 
 /// Compare trie builder and trie root implementations.
-pub fn compare_root<T: TrieLayout, DB: hash_db::HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>>>(
+pub fn compare_root<T: TrieLayout, DB: hash_db::HashDB<T::Hash, DBValue>>(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
 	mut memdb: DB,
 ) {
@@ -2155,7 +2040,7 @@ pub fn calc_root_build<T, I, A, B, DB>(
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord + fmt::Debug,
 		B: AsRef<[u8]> + fmt::Debug,
-		DB: hash_db::HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>>,
+		DB: hash_db::HashDB<T::Hash, DBValue>,
 {
 	let mut cb = TrieBuilder::<T, DB>::new(hashdb);
 	trie_visit(data.into_iter(), &mut cb, &T::default());
@@ -2171,7 +2056,7 @@ pub fn compare_implementations_unordered<T, DB> (
 )
 	where
 		T: TrieLayout,
-		DB : hash_db::HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>> + Eq,
+		DB : hash_db::HashDB<T::Hash, DBValue> + Eq,
 {
 	let mut b_map = std::collections::btree_map::BTreeMap::new();
 	let root = {
@@ -2191,7 +2076,7 @@ pub fn compare_implementations_unordered<T, DB> (
 
 	if root != root_new {
 		{
-			let db : &dyn hash_db::HashDB<_, _, _, _> = &memdb;
+			let db : &dyn hash_db::HashDB<_, _> = &memdb;
 			let t = TrieDB::<T>::new(&db, &root).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -2199,7 +2084,7 @@ pub fn compare_implementations_unordered<T, DB> (
 			}
 		}
 		{
-			let db : &dyn hash_db::HashDB<_, _, _, _> = &hashdb;
+			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
 			let t = TrieDB::<T>::new(&db, &root_new).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -2213,13 +2098,13 @@ pub fn compare_implementations_unordered<T, DB> (
 
 /// Testing utility that uses some periodic removal over
 /// its input test data.
-pub fn compare_insert_remove<T, DB: hash_db::HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>>>(
+pub fn compare_insert_remove<T, DB: hash_db::HashDB<T::Hash, DBValue>>(
 	data: Vec<(bool, Vec<u8>, Vec<u8>)>,
 	mut memdb: DB,
 )
 	where
 		T: TrieLayout,
-		DB : hash_db::HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>> + Eq,
+		DB : hash_db::HashDB<T::Hash, DBValue> + Eq,
 {
 
 	let mut data2 = std::collections::BTreeMap::new();

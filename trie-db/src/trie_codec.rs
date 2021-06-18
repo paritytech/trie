@@ -30,7 +30,7 @@ use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout,
 	nibble_ops::NIBBLE_LENGTH, node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode},
-	nibble::LeftNibbleSlice, Meta, GlobalMeta,
+	nibble::LeftNibbleSlice, Meta,
 };
 use crate::rstd::{
 	boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec, vec::Vec,
@@ -484,7 +484,7 @@ pub fn decode_compact<L, DB>(db: &mut DB, encoded: &[Vec<u8>])
 	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
-		DB: HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		DB: HashDB<L::Hash, DBValue>,
 {
 	let layout = L::default();
 	decode_compact_from_iter::<L, DB, _>(db, encoded.iter().map(Vec::as_slice), &layout)
@@ -495,7 +495,7 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I, layout: &
 	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
-		DB: HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		DB: HashDB<L::Hash, DBValue>,
 		I: IntoIterator<Item = &'a [u8]>,
 {
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
@@ -533,7 +533,7 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I, layout: &
 			// Since `advance_child_index` returned true, the preconditions for `encode_node` are
 			// satisfied.
 			let (node_data, meta) = last_entry.encode_node();
-			let node_hash = db.insert_with_meta(prefix.as_prefix(), node_data.as_ref(), meta);
+			let node_hash = db.alt_insert(prefix.as_prefix(), node_data.as_ref(), meta.resolve_alt_hashing());
 
 			if let Some(entry) = stack.pop() {
 				last_entry = entry;

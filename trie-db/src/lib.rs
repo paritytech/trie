@@ -360,7 +360,7 @@ where
 	/// Create new immutable instance of Trie.
 	pub fn readonly(
 		&self,
-		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>
 	) -> Result<TrieKinds<'db, L>, TrieHash<L>, CError<L>> {
 		match self.spec {
@@ -373,7 +373,7 @@ where
 	/// Create new mutable instance of Trie.
 	pub fn create(
 		&self,
-		db: &'db mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
 	) -> Box<dyn TrieMut<L> + 'db> {
 		match self.spec {
@@ -386,7 +386,7 @@ where
 	/// Create new mutable instance of trie and check for errors.
 	pub fn from_existing(
 		&self,
-		db: &'db mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
 	) -> Result<Box<dyn TrieMut<L> + 'db>, TrieHash<L>, CError<L>> {
 		match self.spec {
@@ -512,6 +512,9 @@ pub trait Meta: Clone + MaybeDebug {
 		&mut self,
 		node_plan: &crate::node::NodePlan,
 	);
+
+	/// Get hashing behavior.
+	fn resolve_alt_hashing(&self) -> hash_db::AltHashing;
 }
 
 /// Small enum indicating representation of a given children.
@@ -572,6 +575,10 @@ impl Meta for () {
 	fn read_state_meta(&self) -> Self::StateMeta {
 		()
 	}
+
+	fn resolve_alt_hashing(&self) -> hash_db::AltHashing {
+		hash_db::AltHashing::default()
+	}
 }
 
 /// This trait associates a trie definition with preferred methods.
@@ -580,7 +587,7 @@ impl Meta for () {
 pub trait TrieConfiguration: Sized + TrieLayout {
 	/// Operation to build a trie db from its ordered iterator over its key/values.
 	fn trie_build<DB, I, A, B>(&self, db: &mut DB, input: I) -> <Self::Hash as Hasher>::Out where
-		DB: HashDB<Self::Hash, DBValue, Self::Meta, GlobalMeta<Self>>,
+		DB: HashDB<Self::Hash, DBValue>,
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,

@@ -14,7 +14,7 @@
 
 
 use trie_db::{
-	DBValue, encode_compact, decode_compact,
+	DBValue, encode_compact, decode_compact, Meta,
 	Trie, TrieMut, TrieDB, TrieError, TrieDBMut, TrieLayout, Recorder,
 };
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
@@ -25,7 +25,6 @@ type MemoryDB<T> = memory_db::MemoryDB<
 	<T as TrieLayout>::Hash,
 	memory_db::HashKey<<T as TrieLayout>::Hash>,
 	DBValue,
-	<T as TrieLayout>::MetaHasher,
 >;
 
 fn test_encode_compact<L: TrieLayout>(
@@ -62,7 +61,7 @@ fn test_encode_compact<L: TrieLayout>(
 	let mut partial_db = MemoryDB::<L>::default();
 	for record in recorder.drain() {
 		if L::USE_META {
-			partial_db.insert_with_meta(EMPTY_PREFIX, &record.data, record.meta);
+			partial_db.alt_insert(EMPTY_PREFIX, &record.data, record.meta.resolve_alt_hashing());
 		} else {
 			partial_db.insert(EMPTY_PREFIX, &record.data);
 		}

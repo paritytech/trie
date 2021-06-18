@@ -17,8 +17,8 @@ use trie_standardmap::*;
 use log::debug;
 use memory_db::{MemoryDB, PrefixedKey};
 use hash_db::{Hasher, HashDB};
-use trie_db::{TrieDBMut, TrieMut, NodeCodec, GlobalMeta,
-	TrieLayout, DBValue, Value};
+use trie_db::{TrieDBMut, TrieMut, NodeCodec,
+	TrieLayout, DBValue, Value, Meta};
 use reference_trie::{ExtensionLayout, NoExtensionLayout,
 	RefHasher, test_layouts, ReferenceNodeCodec, CheckMetaHasherNoExt,
 	ReferenceNodeCodecNoExt, reference_trie_root_iter_build as reference_trie_root};
@@ -27,11 +27,10 @@ type PrefixedMemoryDB<T> = MemoryDB::<
 	<T as TrieLayout>::Hash,
 	PrefixedKey<<T as TrieLayout>::Hash>,
 	DBValue,
-	<T as TrieLayout>::MetaHasher,
 >;
 
 fn populate_trie<'db, T: TrieLayout>(
-	db: &'db mut dyn HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>>,
+	db: &'db mut dyn HashDB<T::Hash, DBValue>,
 	root: &'db mut <T::Hash as Hasher>::Out,
 	v: &[(Vec<u8>, Vec<u8>)]
 ) -> TrieDBMut<'db, T> {
@@ -39,7 +38,7 @@ fn populate_trie<'db, T: TrieLayout>(
 }
 
 fn populate_trie_and_flag<'db, T: TrieLayout>(
-	db: &'db mut dyn HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>>,
+	db: &'db mut dyn HashDB<T::Hash, DBValue>,
 	root: &'db mut <T::Hash as Hasher>::Out,
 	v: &[(Vec<u8>, Vec<u8>)],
 	flagged_layout: Option<T>,
@@ -465,18 +464,15 @@ fn register_proof_without_value() {
 	use trie_db::TrieDB;
 	use std::collections::HashMap;
 	use std::cell::RefCell;
-	use reference_trie::{CheckMetaHasherNoExt, TestMetaHasher};
+	use reference_trie::CheckMetaHasherNoExt;
 	use hash_db::{Prefix, AsHashDB};
 
 	type Layout = CheckMetaHasherNoExt;
-	type VF = TestMetaHasher;
 	type Meta = reference_trie::TrieMeta;
-	type GlobalMeta = <reference_trie::TrieMeta as trie_db::Meta>::GlobalMeta;
 	type MemoryDB = memory_db::MemoryDB<
 		RefHasher,
 		PrefixedKey<RefHasher>,
 		DBValue,
-		VF,
 	>;
 	let x = [
 		(b"test1".to_vec(), vec![1;32]), // inline
@@ -501,7 +497,7 @@ fn register_proof_without_value() {
 	unsafe impl Send for ProofRecorder { }
 	unsafe impl Sync for ProofRecorder { }
 
-	impl HashDB<RefHasher, DBValue, Meta, GlobalMeta> for ProofRecorder {
+	impl HashDB<RefHasher, DBValue> for ProofRecorder {
 		fn get(&self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) -> Option<DBValue> {
 			let v = self.db.get(key, prefix);
 			if let Some(v) = v.as_ref() {
@@ -534,17 +530,21 @@ fn register_proof_without_value() {
 			self.db.emplace(key, prefix, value)
 		}
 
+		fn emplace_ref(&mut self, key: &<RefHasher as Hasher>::Out, prefix: Prefix, value: &[u8]) {
+			self.db.emplace_ref(key, prefix, value)
+		}
+
 		fn insert(&mut self, prefix: Prefix, value: &[u8]) -> <RefHasher as Hasher>::Out {
 			self.db.insert(prefix, value)
 		}
 
-		fn insert_with_meta(
+		fn alt_insert(
 			&mut self,
 			prefix: Prefix,
 			value: &[u8],
-			meta: Meta,
+			alt_hashing: hash_db::AltHashing,
 		) -> <RefHasher as Hasher>::Out {
-			self.db.insert_with_meta(prefix, value, meta)
+			self.db.alt_insert(prefix, value, alt_hashing)
 		}
 
 		fn remove(&mut self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) {
@@ -552,11 +552,11 @@ fn register_proof_without_value() {
 		}
 	}
 
-	impl AsHashDB<RefHasher, DBValue, Meta, GlobalMeta> for ProofRecorder {
-		fn as_hash_db(&self) -> &dyn HashDB<RefHasher, DBValue, Meta, GlobalMeta> {
+	impl AsHashDB<RefHasher, DBValue> for ProofRecorder {
+		fn as_hash_db(&self) -> &dyn HashDB<RefHasher, DBValue> {
 			self
 		}
-		fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (dyn HashDB<RefHasher, DBValue, Meta, GlobalMeta> + 'a) {
+		fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (dyn HashDB<RefHasher, DBValue> + 'a) {
 			self
 		}
 	}
@@ -584,7 +584,6 @@ fn register_proof_without_value() {
 		RefHasher,
 		memory_db::HashKey<RefHasher>,
 		DBValue,
-		VF,
 	>;
 	let mut memdb_from_proof = MemoryDBProof::default();
 	for (_key, mut value) in memdb.record.into_inner().into_iter() {
@@ -597,10 +596,10 @@ fn register_proof_without_value() {
 		} else {
 			value.0
 		};
-		memdb_from_proof.insert_with_meta(
+		memdb_from_proof.alt_insert(
 			hash_db::EMPTY_PREFIX,
 			v.as_slice(),
-			value.1,
+			value.1.resolve_alt_hashing(),
 		);
 	}
 

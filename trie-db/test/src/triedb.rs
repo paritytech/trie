@@ -22,7 +22,6 @@ type PrefixedMemoryDB<T> = MemoryDB::<
 	<T as TrieLayout>::Hash,
 	PrefixedKey<<T as TrieLayout>::Hash>,
 	DBValue,
-	<T as TrieLayout>::MetaHasher,
 >;
 
 test_layouts!(iterator_works, iterator_works_internal);
@@ -60,7 +59,7 @@ fn iterator_seek_works_internal<T: TrieLayout>() {
 		(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
 	];
 
-	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue, T::MetaHasher>::default();
+	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
 	{
 		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);

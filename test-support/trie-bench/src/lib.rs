@@ -46,7 +46,7 @@ where
 			trie_root::<L::Hash, L::MetaHasher, S, _, _, _>(d.0.clone(), Default::default())
 		})),
 		Fun::new("Fill", |b, d: &TrieInsertionList| b.iter(&mut || {
-			let mut memdb = MemoryDB::<_, HashKey<L::Hash>, _, L::MetaHasher>::new(
+			let mut memdb = MemoryDB::<_, HashKey<L::Hash>, _>::new(
 				&L::Codec::empty_node_no_meta()[..],
 			);
 			let mut root = <TrieHash<L>>::default();
@@ -56,7 +56,7 @@ where
 			}
 		})),
 		Fun::new("Iter", |b, d: &TrieInsertionList| {
-			let mut memdb = MemoryDB::<_, HashKey<_>, _, L::MetaHasher>::new(
+			let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(
 				&L::Codec::empty_node_no_meta()[..],
 			);
 			let mut root = <TrieHash<L>>::default();

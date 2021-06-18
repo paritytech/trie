@@ -23,7 +23,7 @@ use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
 use crate::nibble::nibble_ops;
 use crate::node_codec::NodeCodec;
-use crate::{TrieLayout, TrieHash, DBValue, GlobalMeta};
+use crate::{TrieLayout, TrieHash, DBValue, Meta};
 use crate::node::Value;
 
 macro_rules! exponential_out {
@@ -343,7 +343,7 @@ impl<'a, T: TrieLayout, DB> TrieBuilder<'a, T, DB> {
 impl<'a, T, DB> ProcessEncodedNode<TrieHash<T>, T::Meta> for TrieBuilder<'a, T, DB>
 	where
 		T: TrieLayout,
-		DB: HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>>,
+		DB: HashDB<T::Hash, DBValue>,
 {
 	fn process(
 		&mut self,
@@ -362,7 +362,7 @@ impl<'a, T, DB> ProcessEncodedNode<TrieHash<T>, T::Meta> for TrieBuilder<'a, T, 
 		let hash = if !T::USE_META {
 			self.db.insert(prefix, &encoded_node[..])
 		} else {
-			self.db.insert_with_meta(prefix, &encoded_node[..], meta)
+			self.db.alt_insert(prefix, &encoded_node[..], meta.resolve_alt_hashing())
 		};
 		if is_root {
 			self.root = Some(hash);

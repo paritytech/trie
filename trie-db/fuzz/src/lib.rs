@@ -414,7 +414,7 @@ fn test_trie_codec_proof<L: TrieLayout>(
 	for record in recorder.drain() {
 	for record in recorder.drain() {
 		if L::USE_META {
-			partial_db.insert_with_meta(EMPTY_PREFIX, &record.data, record.meta);
+			partial_db.alt_insert(EMPTY_PREFIX, &record.data, record.meta.resolve_alt_hashing());
 		} else {
 			partial_db.emplace(record.hash, EMPTY_PREFIX, record.data);
 		}

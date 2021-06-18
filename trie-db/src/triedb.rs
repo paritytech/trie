@@ -16,7 +16,7 @@ use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
 use crate::nibble::NibbleSlice;
 use crate::iterator::TrieDBNodeIterator;
 use crate::rstd::boxed::Box;
-use crate::{DBValue, GlobalMeta};
+use crate::DBValue;
 use super::node::{NodeHandle, Node, Value, OwnedNode, decode_hash};
 use super::lookup::Lookup;
 use super::{Result, Trie, TrieItem, TrieKeyItem, TrieError, TrieIterator, Query,
@@ -53,7 +53,7 @@ where
 	L: TrieLayout,
 {
 	layout: L,
-	db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+	db: &'db dyn HashDBRef<L::Hash, DBValue>,
 	root: &'db TrieHash<L>,
 	/// The number of hashes performed so far in operations on this trie.
 	hash_count: usize,
@@ -66,7 +66,7 @@ where
 	/// Create a new trie with the backing database `db` and `root`
 	/// Returns an error if `root` does not exist
 	pub fn new(
-		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Self::new_with_layout(db, root, Default::default())
@@ -76,7 +76,7 @@ where
 	/// Returns an error if `root` does not exist
 	/// This can use a context specific layout.
 	pub fn new_with_layout(
-		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
 		layout: L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
@@ -88,7 +88,7 @@ where
 	}
 
 	/// Get the backing database.
-	pub fn db(&'db self) -> &'db dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>> {
+	pub fn db(&'db self) -> &'db dyn HashDBRef<L::Hash, DBValue> {
 		self.db
 	}
 
