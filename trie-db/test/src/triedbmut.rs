@@ -469,9 +469,9 @@ fn register_proof_without_value() {
 	use hash_db::{Prefix, AsHashDB};
 
 	type Layout = CheckMetaHasherNoExt;
-	type VF = TestMetaHasher<RefHasher>;
-	type Meta = reference_trie::ValueMeta;
-	type GlobalMeta = <reference_trie::ValueMeta as trie_db::Meta>::GlobalMeta;
+	type VF = TestMetaHasher;
+	type Meta = reference_trie::TrieMeta;
+	type GlobalMeta = <reference_trie::TrieMeta as trie_db::Meta>::GlobalMeta;
 	type MemoryDB = memory_db::MemoryDB<
 		RefHasher,
 		PrefixedKey<RefHasher>,
@@ -486,7 +486,7 @@ fn register_proof_without_value() {
 
 	let mut memdb = MemoryDB::default();
 	let mut root = Default::default();
-	let layout = CheckMetaHasherNoExt(true); // flagged for hashed.
+	let layout = CheckMetaHasherNoExt(Some(1)); // flagged for hashed.
 	let _ = populate_trie_and_flag::<Layout>(&mut memdb, &mut root, &x, Some(layout.clone()));
 	{
 		let trie = TrieDB::<Layout>::new_with_layout(&memdb, &root,  layout.clone()).unwrap();
@@ -504,7 +504,7 @@ fn register_proof_without_value() {
 
 	impl HashDB<RefHasher, DBValue, Meta, GlobalMeta> for ProofRecorder {
 		fn get(&self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) -> Option<DBValue> {
-			self.get_with_meta(key, prefix, false).map(|v| v.0)
+			self.get_with_meta(key, prefix, None).map(|v| v.0)
 		}
 
 		fn get_with_meta(
@@ -520,6 +520,11 @@ fn register_proof_without_value() {
 					.or_insert_with(|| {
 						let mut v = v.clone();
 						v.1.set_accessed_value(false);
+						// Fully init meta by decoding.
+						let _ = <CheckMetaHasherNoExt as TrieLayout>::Codec::decode_plan(
+							v.0.as_slice(),
+							&mut v.1,
+						);
 						v
 					});
 			}
@@ -570,7 +575,7 @@ fn register_proof_without_value() {
 	let mut memdb = ProofRecorder {
 		db: memdb,
 		record: Default::default(),
-		global_meta: true,
+		global_meta: Some(1),
 	};
 
 	let root_proof = root.clone();

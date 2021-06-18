@@ -139,9 +139,9 @@ impl TrieLayout for AllowEmptyLayout {
 	}
 }
 
-/// Trie that use a dumb value function over its storage.
-#[derive(Default, Clone)]
-pub struct CheckMetaHasherNoExt(pub bool);
+/// Contains threshold for applying alt_hashing.
+#[derive(Default, Clone, Debug)]
+pub struct CheckMetaHasherNoExt(pub Option<u32>);
 
 impl TrieLayout for CheckMetaHasherNoExt {
 	const USE_EXTENSION: bool = false;
@@ -149,37 +149,31 @@ impl TrieLayout for CheckMetaHasherNoExt {
 	const USE_META: bool = true;
 
 	type Hash = RefHasher;
-	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
-	type MetaHasher = TestMetaHasher<RefHasher>;
-	type Meta = ValueMeta;
+	type Codec = ReferenceNodeCodecNoExtMeta<RefHasher>;
+	type MetaHasher = TestMetaHasher;
+	type Meta = TrieMeta;
 
 	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		self.0
 	}
 }
 
-/// Test value function: prepend optional encoded size of value
-pub struct TestMetaHasher<H>(PhantomData<H>);
-
-/// Test value function: prepend optional encoded size of value.
+/// Test alt hashing.
 /// Also allow indicating that value is a hash of value.
-pub struct TestMetaHasherProof<H>(PhantomData<H>);
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TestMetaHasher;
 
-impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
-	type Meta = ValueMeta;
-	type GlobalMeta = bool;
+impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher {
+	type Meta = TrieMeta;
+	type GlobalMeta = Option<u32>;
 
 	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out {
 		match &meta {
-			ValueMeta { range: Some(range), contain_hash: false, do_value_hash, .. } => {
-				if *do_value_hash {
-					let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
-					H::hash(value.as_slice())
-				} else {
-					H::hash(value)
-				}
+			TrieMeta { range: Some(range), contain_hash: false, apply_inner_hashing: true, .. } => {
+				let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
+				H::hash(value.as_slice())
 			},
-			ValueMeta { range: Some(_range), contain_hash: true, .. } => {
+			TrieMeta { range: Some(_range), contain_hash: true, .. } => {
 				// value contains a hash of data (already inner_hashed_value).
 				H::hash(value)
 			},
@@ -190,26 +184,24 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 	}
 
 	fn stored_value(value: &[u8], mut meta: Self::Meta) -> DBValue {
-		let mut stored = meta.range.as_ref().map(|range| (range.start as u32, range.end as u32)).encode();
+		let mut stored = Vec::with_capacity(value.len() + 1);
 		if meta.contain_hash {
 			// already contain hash, just flag it.
-			stored.push(DEAD_HEADER_META_HASHED_VALUE);
+			stored.push(trie_constants::DEAD_HEADER_META_HASHED_VALUE);
 			stored.extend_from_slice(value);
 			return stored;
 		}
-		if meta.do_value_hash && meta.unused_value {
-			if let Some(range) = meta.range.as_ref() {
-				if range.end - range.start >= INNER_HASH_TRESHOLD {
-					// Waring this assume that encoded value does not start by this, so it is tightly coupled
-					// with the header type of the codec: only for optimization.
-					stored.push(DEAD_HEADER_META_HASHED_VALUE);
-					let range = meta.range.as_ref().expect("Tested in condition");
-					meta.contain_hash = true; // useless but could be with meta as &mut
-					// store hash instead of value.
-					let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
-					stored.extend_from_slice(value.as_slice());
-					return stored;
-				}
+		if meta.unused_value && meta.apply_inner_hashing {
+			if meta.range.is_some() {
+				// Warning this assumes that encoded value cannot start by this,
+				// so it is tightly coupled with the header type of the codec.
+				stored.push(trie_constants::DEAD_HEADER_META_HASHED_VALUE);
+				let range = meta.range.as_ref().expect("Tested in condition");
+				meta.contain_hash = true; // useless but could be with meta as &mut
+				// store hash instead of value.
+				let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
+				stored.extend_from_slice(value.as_slice());
+				return stored;
 			}
 		}
 		stored.extend_from_slice(value);
@@ -217,144 +209,103 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher<H> {
 	}
 
 	fn stored_value_owned(value: DBValue, meta: Self::Meta) -> DBValue {
-		Self::stored_value(value.as_slice(), meta)
+		<Self as MetaHasher<H, DBValue>>::stored_value(value.as_slice(), meta)
 	}
 
 	fn extract_value(mut stored: &[u8], global_meta: Self::GlobalMeta) -> (&[u8], Self::Meta) {
-		// handle empty trie optimisation.
-		if stored == &[0] {
-			let mut meta = Self::Meta::default();
-			meta.do_value_hash = global_meta;
-			return (stored, meta);
-		}
 		let input = &mut stored;
-		let range: Option<(u32, u32)> = Decode::decode(input).ok().flatten();
 		let mut contain_hash = false;
-		if input.get(0) == Some(&DEAD_HEADER_META_HASHED_VALUE) {
-			debug_assert!(range.is_some());
+		if input.get(0) == Some(&trie_constants::DEAD_HEADER_META_HASHED_VALUE) {
 			contain_hash = true;
 			*input = &input[1..];
 		}
-		let range = range.map(|range| range.0 as usize .. range.1 as usize);
-		let mut meta = ValueMeta {
-			range,
+		let mut meta = TrieMeta {
+			range: None,
 			unused_value: contain_hash,
 			contain_hash,
-			do_value_hash: false,
-			recorded_do_value_hash: false,
+			apply_inner_hashing: false,
+			try_inner_hashing: None,
 		};
-		// get recorded_do_value_hash
-		let _offset = meta.decode_state_meta(stored)
-			.expect("State meta reading failure.");
-		//let stored = &stored[offset..];
-		meta.do_value_hash = meta.recorded_do_value_hash || global_meta;
+		meta.set_global_meta(global_meta);
 		(stored, meta)
 	}
 
-	fn extract_value_owned(mut stored: DBValue, global_meta: Self::GlobalMeta) -> (DBValue, Self::Meta) {
+	fn extract_value_owned(mut stored: DBValue, global: Self::GlobalMeta) -> (DBValue, Self::Meta) {
 		let len = stored.len();
-		let (v, meta) = Self::extract_value(stored.as_slice(), global_meta);
+		let (v, meta) = <Self as MetaHasher<H, DBValue>>::extract_value(stored.as_slice(), global);
 		let removed = len - v.len();
 		(stored.split_off(removed), meta)
 	}
 }
 
+/// Meta use by trie state.
 #[derive(Default, Clone, Debug)]
-pub struct ValueMeta {
+pub struct TrieMeta {
+	/// Range of encoded value or hashed value.
+	/// When encoded value, it includes the length of the value.
 	pub range: Option<core::ops::Range<usize>>,
-	// When `do_value_hash` is true, try to
-	// store this behavior in top node
-	// encoded (need to be part of state).
-	pub recorded_do_value_hash: bool,
-	// Does current encoded contains a hash instead of
-	// a value (information stored in meta for proofs).
+	/// Defined in the trie layout, when used with
+	/// `TrieDbMut` it switch nodes to alternative hashing
+	/// method by defining the threshold to use with alternative
+	/// hashing.
+	/// Trie codec or other proof manipulation will always use
+	/// `None` in order to prevent state change on reencoding.
+	pub try_inner_hashing: Option<u32>,
+	/// Flag indicating alternative value hash is currently use
+	/// or will be use.
+	pub apply_inner_hashing: bool,
+	/// Does current encoded contains a hash instead of
+	/// a value (information stored in meta for proofs).
 	pub contain_hash: bool,
-	// Flag indicating if value hash can run.
-	// When defined for a node it gets active
-	// for all children node
-	pub do_value_hash: bool,
-	// Record if a value was accessed, this is
-	// set as accessed by defalult, but can be
-	// change on access explicitely: `HashDB::get_with_meta`.
-	// and reset on access explicitely: `HashDB::access_from`.
+	/// Record if a value was accessed, this is
+	/// set as accessed by defalult, but can be
+	/// change on access explicitely: `HashDB::get_with_meta`.
+	/// and reset on access explicitely: `HashDB::access_from`.
+	/// Not strictly needed in this struct, but does not add memory usage here.
 	pub unused_value: bool,
 }
 
-/// Treshold for using hash of value instead of value
-/// in encoded trie node.
-pub const INNER_HASH_TRESHOLD: usize = 1;
+impl Meta for TrieMeta {
+	/// When true apply inner hashing of value.
+	type GlobalMeta = Option<u32>;
 
-impl Meta for ValueMeta {
-	/// If true apply inner hashing of value
-	/// starting from this trie branch.
-	type GlobalMeta = bool;
-
-	/// If true apply inner hashing of value
-	/// starting from this trie branch.
+	/// When true apply inner hashing of value.
 	type StateMeta = bool;
 
 	fn set_state_meta(&mut self, state_meta: Self::StateMeta) {
-		self.do_value_hash = state_meta;
+		self.apply_inner_hashing = state_meta;
 	}
 
-	fn read_state_meta(&self) -> bool {
-		self.do_value_hash
-	}
-
-	fn set_global_meta(&mut self, global_meta: Self::GlobalMeta) {
-		self.recorded_do_value_hash = global_meta;
+	fn read_state_meta(&self) -> Self::StateMeta {
+		self.apply_inner_hashing
 	}
 
 	fn read_global_meta(&self) -> Self::GlobalMeta {
-		self.recorded_do_value_hash
+		self.try_inner_hashing
 	}
 
-	fn decode_state_meta(&mut self, data: &[u8]) -> Result<usize, &'static str> {
-		let offset = if data[0] == ENCODED_META_NO_EXT {
-			if data.len() < 2 {
-				return Err("Invalid encoded meta.");
-			}
-			match data[1] {
-				ALLOW_HASH_META => {
-					self.recorded_do_value_hash = true;
-					self.do_value_hash = true;
-					2
-				},
-				_ => return Err("Invalid encoded meta."),
-			}
-		} else {
-			0
-		};
-		Ok(offset)
-	}
-
-	fn encode_state_meta(&self) -> Vec<u8> {
-		if self.recorded_do_value_hash {
-			// Note that this only works for some codecs (if the first byte do not overlay).
-			[ENCODED_META_NO_EXT, ALLOW_HASH_META].to_vec()
-		} else {
-			Vec::new()
-		}
+	fn set_global_meta(&mut self, global_meta: Self::GlobalMeta) {
+		self.try_inner_hashing = global_meta;
 	}
 
 	fn meta_for_new(
-		input: Self::GlobalMeta,
+		global: Self::GlobalMeta,
 	) -> Self {
 		let mut result = Self::default();
-		result.do_value_hash = input;
+		result.set_global_meta(global);
 		result
 	}
 
 	fn meta_for_existing_inline_node(
-		input: Self::GlobalMeta,
+		global: Self::GlobalMeta,
 	) -> Self {
-		Self::meta_for_new(input)
+		Self::meta_for_new(global)
 	}
 
 	fn meta_for_empty(
-		input: Self::GlobalMeta,
+		global: Self::GlobalMeta,
 	) -> Self {
-		Self::meta_for_new(input)
+		Self::meta_for_new(global)
 	}
 
 	fn encoded_value_callback(
@@ -362,10 +313,14 @@ impl Meta for ValueMeta {
 		value_plan: ValuePlan,
 	) {
 		let (contain_hash, range) = match value_plan {
-			ValuePlan::Value(range, _) => (false, range),
+			ValuePlan::Value(range, with_len) => (false, with_len..range.end),
 			ValuePlan::HashedValue(range, _size) => (true, range),
 			ValuePlan::NoValue => return,
 		};
+
+		if let Some(threshold) = self.try_inner_hashing.clone() {
+			self.apply_inner_hashing = range.end - range.start >= threshold as usize;
+		}
 
 		self.range = Some(range);
 		self.contain_hash = contain_hash;
@@ -373,8 +328,17 @@ impl Meta for ValueMeta {
 
 	fn decoded_callback(
 		&mut self,
-		_node_plan: &trie_db::node::NodePlan,
+		node_plan: &NodePlan,
 	) {
+		let (contain_hash, range) = match node_plan.value_plan() {
+			Some(ValuePlan::Value(range, with_len)) => (false, *with_len..range.end),
+			Some(ValuePlan::HashedValue(range, _size)) => (true, range.clone()),
+			Some(ValuePlan::NoValue) => return,
+			None => return,
+		};
+
+		self.range = Some(range);
+		self.contain_hash = contain_hash;
 	}
 
 	fn contains_hash_of_value(&self) -> bool {
@@ -382,11 +346,22 @@ impl Meta for ValueMeta {
 	}
 }
 
-impl ValueMeta {
+impl TrieMeta {
+	/// Was value accessed.
+	pub fn accessed_value(&mut self) -> bool {
+		!self.unused_value
+	}
+
+	/// For proof, this allow setting node as unaccessed until
+	/// a call to `access_from`.
 	pub fn set_accessed_value(&mut self, accessed: bool) {
 		self.unused_value = !accessed;
 	}
 }
+
+/// Treshold for using hash of value instead of value
+/// in encoded trie node.
+pub const INNER_HASH_TRESHOLD: usize = 1;
 
 /// Representation with inner hash.
 pub fn inner_hashed_value<H: Hasher>(x: &[u8], range: Option<(usize, usize)>) -> Vec<u8> {
@@ -424,6 +399,625 @@ pub fn inner_hashed_value<H: Hasher>(x: &[u8], range: Option<(usize, usize)>) ->
 	x.to_vec()
 }
 
+mod codec_alt_hashing {
+	use super::*;
+	use super::TestMetaHasher as StateHasher;
+	use super::CodecError as Error;
+	use super::NodeCodec as NodeCodecT;
+
+	/// Constants specific to encoding with alt hashing.
+	pub mod trie_constants {
+		const FIRST_PREFIX: u8 = 0b_00 << 6;
+		/// In proof this header is used when only hashed value is stored.
+		pub const DEAD_HEADER_META_HASHED_VALUE: u8 = EMPTY_TRIE | 0b_00_01;
+		pub const NIBBLE_SIZE_BOUND: usize = u16::max_value() as usize;
+		pub const LEAF_PREFIX_MASK: u8 = 0b_01 << 6;
+		pub const BRANCH_WITHOUT_MASK: u8 = 0b_10 << 6;
+		pub const BRANCH_WITH_MASK: u8 = 0b_11 << 6;
+		pub const EMPTY_TRIE: u8 = FIRST_PREFIX | (0b_00 << 4);
+		pub const ALT_HASHING_LEAF_PREFIX_MASK: u8 = FIRST_PREFIX | (0b_1 << 5);
+		pub const ALT_HASHING_BRANCH_WITH_MASK: u8 = FIRST_PREFIX | (0b_01 << 4);
+	}
+
+	#[derive(Default, Clone)]
+	pub struct NodeCodec<H>(PhantomData<H>);
+
+	impl<H: Hasher> NodeCodec<H> {
+		fn decode_plan_inner_hashed<M: Meta<StateMeta = bool>>(
+			data: &[u8],
+			meta: &mut M,
+		) -> Result<NodePlan, Error> {
+			let mut input = ByteSliceInput::new(data);
+
+			let contains_hash = meta.contains_hash_of_value();
+			let header = NodeHeader::decode(&mut input)?;
+			let alt_hashing = header.alt_hashing();
+			meta.set_state_meta(alt_hashing);
+
+			let branch_has_value = if let NodeHeader::Branch(has_value, _) = &header {
+				*has_value
+			} else {
+				// alt_hash_branch
+				true
+			};
+
+			match header {
+				NodeHeader::Null => Ok(NodePlan::Empty),
+				NodeHeader::AltHashBranch(nibble_count)
+				| NodeHeader::Branch(_, nibble_count) => {
+					let padding = nibble_count % nibble_ops::NIBBLE_PER_BYTE != 0;
+					// check that the padding is valid (if any)
+					if padding && nibble_ops::pad_left(data[input.offset]) != 0 {
+						return Err(CodecError::from("Bad format"));
+					}
+					let partial = input.take(
+						(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE,
+					)?;
+					let partial_padding = nibble_ops::number_padding(nibble_count);
+					let bitmap_range = input.take(BITMAP_LENGTH)?;
+					let bitmap = Bitmap::decode(&data[bitmap_range])?;
+					let value = if branch_has_value {
+						if alt_hashing && contains_hash {
+							ValuePlan::HashedValue(input.take(H::LENGTH)?, 0)
+						} else {
+							let with_len = input.offset;
+							let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
+							ValuePlan::Value(input.take(count)?, with_len)
+						}
+					} else {
+						ValuePlan::NoValue
+					};
+					let mut children = [
+						None, None, None, None, None, None, None, None,
+						None, None, None, None, None, None, None, None,
+					];
+					for i in 0..nibble_ops::NIBBLE_LENGTH {
+						if bitmap.value_at(i) {
+							let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
+							let range = input.take(count)?;
+							children[i] = Some(if count == H::LENGTH {
+								NodeHandlePlan::Hash(range)
+							} else {
+								NodeHandlePlan::Inline(range)
+							});
+						}
+					}
+					Ok(NodePlan::NibbledBranch {
+						partial: NibbleSlicePlan::new(partial, partial_padding),
+						value,
+						children,
+					})
+				},
+				NodeHeader::AltHashLeaf(nibble_count)
+				| NodeHeader::Leaf(nibble_count) => {
+					let padding = nibble_count % nibble_ops::NIBBLE_PER_BYTE != 0;
+					// check that the padding is valid (if any)
+					if padding && nibble_ops::pad_left(data[input.offset]) != 0 {
+						return Err(CodecError::from("Bad format"));
+					}
+					let partial = input.take(
+						(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE,
+					)?;
+					let partial_padding = nibble_ops::number_padding(nibble_count);
+					let value = if alt_hashing && contains_hash {
+						ValuePlan::HashedValue(input.take(H::LENGTH)?, 0)
+					} else {
+						let with_len = input.offset;
+						let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
+						ValuePlan::Value(input.take(count)?, with_len)
+					};
+
+					Ok(NodePlan::Leaf {
+						partial: NibbleSlicePlan::new(partial, partial_padding),
+						value,
+					})
+				}
+			}
+		}
+	}
+
+	impl<H, M> NodeCodecT<M> for NodeCodec<H>
+		where
+			H: Hasher,
+			M: Meta<StateMeta = bool, GlobalMeta = Option<u32>>,
+	{
+		type Error = Error;
+		type HashOut = H::Out;
+
+		fn hashed_null_node() -> <H as Hasher>::Out {
+			H::hash(<Self as NodeCodecT<M>>::empty_node_no_meta())
+		}
+
+		fn decode_plan(data: &[u8], meta: &mut M) -> Result<NodePlan, Self::Error> {
+			Self::decode_plan_inner_hashed(data, meta).map(|plan| {
+				meta.decoded_callback(&plan);
+				plan
+			})
+		}
+
+		fn decode_plan_inner(_data: &[u8]) -> Result<NodePlan, Self::Error> {
+			unreachable!("decode_plan is implemented")
+		}
+
+		fn is_empty_node(data: &[u8]) -> bool {
+			data == <Self as NodeCodecT<M>>::empty_node_no_meta()
+		}
+
+		fn empty_node(_meta: &mut M) -> Vec<u8> {
+			vec![trie_constants::EMPTY_TRIE]
+		}
+
+		fn empty_node_no_meta() -> &'static [u8] {
+			&[trie_constants::EMPTY_TRIE]
+		}
+
+		fn leaf_node(partial: Partial, value: Value, meta: &mut M) -> Vec<u8> {
+			// Note that we use AltHash type only if inner hashing will occur,
+			// this way we allow changing hash threshold.
+			// With fix inner hashing alt hash can be use with all node, but
+			// that is not better (encoding can use an additional nibble byte
+			// sometime).
+			let mut output = if meta.read_global_meta().as_ref().map(|threshold|
+				value_do_hash(&value, threshold)
+			).unwrap_or(meta.read_state_meta()) {
+				partial_encode(partial, NodeKind::AltHashLeaf)
+			} else {
+				partial_encode(partial, NodeKind::Leaf)
+			};
+			match value {
+				Value::Value(value) => {
+					let with_len = output.len();
+					Compact(value.len() as u32).encode_to(&mut output);
+					let start = output.len();
+					output.extend_from_slice(value);
+					let end = output.len();
+					meta.encoded_value_callback(ValuePlan::Value(start..end, with_len));
+				},
+				Value::HashedValue(hash, _size) => {
+					debug_assert!(hash.len() == H::LENGTH);
+					let start = output.len();
+					output.extend_from_slice(hash);
+					let end = output.len();
+					meta.encoded_value_callback(ValuePlan::HashedValue(start..end, 0));
+				},
+				Value::NoValue => unimplemented!("No support for incomplete nodes"),
+			}
+			output
+		}
+
+		fn extension_node(
+			_partial: impl Iterator<Item = u8>,
+			_nbnibble: usize,
+			_child: ChildReference<<H as Hasher>::Out>,
+			_meta: &mut M,
+		) -> Vec<u8> {
+			unreachable!()
+		}
+
+		fn branch_node(
+			_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
+			_maybe_value: Value,
+			_meta: &mut M,
+		) -> Vec<u8> {
+			unreachable!()
+		}
+
+		fn branch_node_nibbled(
+			partial: impl Iterator<Item = u8>,
+			number_nibble: usize,
+			children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
+			value: Value,
+			meta: &mut M,
+		) -> Vec<u8> {
+			let mut output = match (&value,  meta.read_global_meta().as_ref().map(|threshold|
+				value_do_hash(&value, threshold)
+			).unwrap_or(meta.read_state_meta())) {
+				(&Value::NoValue, _) => {
+					partial_from_iterator_encode(partial, number_nibble, NodeKind::BranchNoValue)
+				},
+				(_, false) => {
+					partial_from_iterator_encode(partial, number_nibble, NodeKind::BranchWithValue)
+				},
+				(_, true) => {
+					partial_from_iterator_encode(partial, number_nibble, NodeKind::AltHashBranchWithValue)
+				},
+			};
+
+			let bitmap_index = output.len();
+			let mut bitmap: [u8; BITMAP_LENGTH] = [0; BITMAP_LENGTH];
+			(0..BITMAP_LENGTH).for_each(|_|output.push(0));
+			match value {
+				Value::Value(value) => {
+					let with_len = output.len();
+					Compact(value.len() as u32).encode_to(&mut output);
+					let start = output.len();
+					output.extend_from_slice(value);
+					let end = output.len();
+					meta.encoded_value_callback(ValuePlan::Value(start..end, with_len));
+				},
+				Value::HashedValue(hash, _size) => {
+					debug_assert!(hash.len() == H::LENGTH);
+					let start = output.len();
+					output.extend_from_slice(hash);
+					let end = output.len();
+					meta.encoded_value_callback(ValuePlan::HashedValue(start..end, 0));
+				},
+				Value::NoValue => (),
+			}
+			Bitmap::encode(children.map(|maybe_child| match maybe_child.borrow() {
+				Some(ChildReference::Hash(h)) => {
+					h.as_ref().encode_to(&mut output);
+					true
+				}
+				&Some(ChildReference::Inline(inline_data, len)) => {
+					inline_data.as_ref()[..len].encode_to(&mut output);
+					true
+				}
+				None => false,
+			}), bitmap.as_mut());
+			output[bitmap_index..bitmap_index + BITMAP_LENGTH]
+				.copy_from_slice(&bitmap[..BITMAP_LENGTH]);
+			output
+		}
+	}
+
+	// utils
+
+	fn value_do_hash(val: &Value, threshold: &u32) -> bool {
+		match val {
+			Value::Value(val) => {
+				val.encoded_size() >= *threshold as usize
+			},
+			Value::HashedValue(..) => true, // can only keep hashed
+			Value::NoValue => {
+				false
+			},
+		}
+	}
+
+	/// Encode and allocate node type header (type and size), and partial value.
+	/// It uses an iterator over encoded partial bytes as input.
+	fn partial_from_iterator_encode<I: Iterator<Item = u8>>(
+		partial: I,
+		nibble_count: usize,
+		node_kind: NodeKind,
+	) -> Vec<u8> {
+		let nibble_count = std::cmp::min(trie_constants::NIBBLE_SIZE_BOUND, nibble_count);
+
+		let mut output = Vec::with_capacity(3 + (nibble_count / nibble_ops::NIBBLE_PER_BYTE));
+		match node_kind {
+			NodeKind::Leaf => NodeHeader::Leaf(nibble_count).encode_to(&mut output),
+			NodeKind::BranchWithValue => NodeHeader::Branch(true, nibble_count).encode_to(&mut output),
+			NodeKind::BranchNoValue => NodeHeader::Branch(false, nibble_count).encode_to(&mut output),
+			NodeKind::AltHashLeaf => NodeHeader::AltHashLeaf(nibble_count).encode_to(&mut output),
+			NodeKind::AltHashBranchWithValue => NodeHeader::AltHashBranch(nibble_count)
+				.encode_to(&mut output),
+		};
+		output.extend(partial);
+		output
+	}
+
+	/// Encode and allocate node type header (type and size), and partial value.
+	/// Same as `partial_from_iterator_encode` but uses non encoded `Partial` as input.
+	fn partial_encode(partial: Partial, node_kind: NodeKind) -> Vec<u8> {
+		let number_nibble_encoded = (partial.0).0 as usize;
+		let nibble_count = partial.1.len() * nibble_ops::NIBBLE_PER_BYTE + number_nibble_encoded;
+
+		let nibble_count = std::cmp::min(trie_constants::NIBBLE_SIZE_BOUND, nibble_count);
+
+		let mut output = Vec::with_capacity(3 + partial.1.len());
+		match node_kind {
+			NodeKind::Leaf => NodeHeader::Leaf(nibble_count).encode_to(&mut output),
+			NodeKind::BranchWithValue => NodeHeader::Branch(true, nibble_count).encode_to(&mut output),
+			NodeKind::BranchNoValue => NodeHeader::Branch(false, nibble_count).encode_to(&mut output),
+			NodeKind::AltHashLeaf => NodeHeader::AltHashLeaf(nibble_count).encode_to(&mut output),
+			NodeKind::AltHashBranchWithValue => NodeHeader::AltHashBranch(nibble_count)
+				.encode_to(&mut output),
+		};
+		if number_nibble_encoded > 0 {
+			output.push(nibble_ops::pad_right((partial.0).1));
+		}
+		output.extend_from_slice(&partial.1[..]);
+		output
+	}
+
+	/// A node header
+	#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+	pub(crate) enum NodeHeader {
+		Null,
+		Branch(bool, usize),
+		Leaf(usize),
+		AltHashBranch(usize),
+		AltHashLeaf(usize),
+	}
+
+	/// NodeHeader without content
+	pub(crate) enum NodeKind {
+		Leaf,
+		BranchNoValue,
+		BranchWithValue,
+		AltHashLeaf,
+		AltHashBranchWithValue,
+	}
+
+	impl Encode for NodeHeader {
+		fn encode_to<T: Output + ?Sized>(&self, output: &mut T) {
+			match self {
+				NodeHeader::Null => output.push_byte(trie_constants::EMPTY_TRIE),
+				NodeHeader::Branch(true, nibble_count)	=>
+					encode_size_and_prefix(*nibble_count, trie_constants::BRANCH_WITH_MASK, 2, output),
+				NodeHeader::Branch(false, nibble_count) =>
+					encode_size_and_prefix(*nibble_count, trie_constants::BRANCH_WITHOUT_MASK, 2, output),
+				NodeHeader::Leaf(nibble_count) =>
+					encode_size_and_prefix(*nibble_count, trie_constants::LEAF_PREFIX_MASK, 2, output),
+				NodeHeader::AltHashBranch(nibble_count)	=>
+					encode_size_and_prefix(*nibble_count, trie_constants::ALT_HASHING_BRANCH_WITH_MASK, 4, output),
+				NodeHeader::AltHashLeaf(nibble_count)	=>
+					encode_size_and_prefix(*nibble_count, trie_constants::ALT_HASHING_LEAF_PREFIX_MASK, 3, output),
+			}
+		}
+	}
+
+	impl NodeHeader {
+		/// Is this header using alternate hashing scheme.
+		pub(crate) fn alt_hashing(&self) -> bool {
+			match self {
+				NodeHeader::Null
+				| NodeHeader::Leaf(..)
+				| NodeHeader::Branch(..) => false,
+				NodeHeader::AltHashBranch(..)
+				| NodeHeader::AltHashLeaf(..) => true,
+			}
+		}
+	}
+
+	impl parity_scale_codec::EncodeLike for NodeHeader {}
+
+	impl Decode for NodeHeader {
+		fn decode<I: Input>(input: &mut I) -> Result<Self, Error> {
+			let i = input.read_byte()?;
+			if i == trie_constants::EMPTY_TRIE {
+				return Ok(NodeHeader::Null);
+			}
+			match i & (0b11 << 6) {
+				trie_constants::LEAF_PREFIX_MASK => Ok(NodeHeader::Leaf(decode_size(i, input, 2)?)),
+				trie_constants::BRANCH_WITH_MASK => Ok(NodeHeader::Branch(true, decode_size(i, input, 2)?)),
+				trie_constants::BRANCH_WITHOUT_MASK => Ok(NodeHeader::Branch(false, decode_size(i, input, 2)?)),
+				trie_constants::EMPTY_TRIE => {
+					if i & (0b111 << 5) == trie_constants::ALT_HASHING_LEAF_PREFIX_MASK {
+						Ok(NodeHeader::AltHashLeaf(decode_size(i, input, 3)?))
+					} else if i & (0b1111 << 4) == trie_constants::ALT_HASHING_BRANCH_WITH_MASK {
+						Ok(NodeHeader::AltHashBranch(decode_size(i, input, 4)?))
+					} else {
+						// do not allow any special encoding
+						Err("Unallowed encoding".into())
+					}
+				},
+				_ => unreachable!(),
+			}
+		}
+	}
+
+	/// Returns an iterator over encoded bytes for node header and size.
+	/// Size encoding allows unlimited, length inefficient, representation, but
+	/// is bounded to 16 bit maximum value to avoid possible DOS.
+	pub(crate) fn size_and_prefix_iterator(
+		size: usize,
+		prefix: u8,
+		prefix_mask: usize,
+	) -> impl Iterator<Item = u8> {
+		let size = std::cmp::min(trie_constants::NIBBLE_SIZE_BOUND, size);
+
+		let max_value = 255u8 >> prefix_mask;
+		let l1 = std::cmp::min(max_value as usize - 1, size);
+		let (first_byte, mut rem) = if size == l1 {
+			(once(prefix + l1 as u8), 0)
+		} else {
+			(once(prefix + max_value as u8), size - l1)
+		};
+		let next_bytes = move || {
+			if rem > 0 {
+				if rem < 256 {
+					let result = rem - 1;
+					rem = 0;
+					Some(result as u8)
+				} else {
+					rem = rem.saturating_sub(255);
+					Some(255)
+				}
+			} else {
+				None
+			}
+		};
+		first_byte.chain(std::iter::from_fn(next_bytes))
+	}
+
+	/// Encodes size and prefix to a stream output (prefix on 2 first bit only).
+	fn encode_size_and_prefix<W>(size: usize, prefix: u8, prefix_mask: usize, out: &mut W)
+		where W: Output + ?Sized,
+	{
+		for b in size_and_prefix_iterator(size, prefix, prefix_mask) {
+			out.push_byte(b)
+		}
+	}
+
+	/// Decode size only from stream input and header byte.
+	fn decode_size(
+		first: u8,
+		input: &mut impl Input,
+		prefix_mask: usize,
+	) -> Result<usize, Error> {
+		let max_value = 255u8 >> prefix_mask;
+		let mut result = (first & max_value) as usize;
+		if result < max_value as usize {
+			return Ok(result);
+		}
+		result -= 1;
+		while result <= trie_constants::NIBBLE_SIZE_BOUND {
+			let n = input.read_byte()? as usize;
+			if n < 255 {
+				return Ok(result + n + 1);
+			}
+			result += 255;
+		}
+		Ok(trie_constants::NIBBLE_SIZE_BOUND)
+	}
+
+	/// Reference implementation of a `TrieStream` without extension.
+	#[derive(Default, Clone)]
+	pub struct ReferenceTrieStreamNoExt {
+		/// Current node buffer.
+		buffer: Vec<u8>,
+		/// Global trie alt hashing activation.
+		inner_value_hashing: Option<u32>,
+		/// For current node, do we use alt hashing.
+		apply_inner_hashing: bool,
+		/// Keep trace of position of encoded value.
+		current_value_range: Option<Range<usize>>,
+	}
+
+	/// Create a leaf/branch node, encoding a number of nibbles.
+	fn fuse_nibbles_node<'a>(nibbles: &'a [u8], kind: NodeKind) -> impl Iterator<Item = u8> + 'a {
+		let size = std::cmp::min(trie_constants::NIBBLE_SIZE_BOUND, nibbles.len());
+
+		let iter_start = match kind {
+			NodeKind::Leaf => size_and_prefix_iterator(size, trie_constants::LEAF_PREFIX_MASK, 2),
+			NodeKind::BranchNoValue => size_and_prefix_iterator(size, trie_constants::BRANCH_WITHOUT_MASK, 2),
+			NodeKind::BranchWithValue => size_and_prefix_iterator(size, trie_constants::BRANCH_WITH_MASK, 2),
+			NodeKind::AltHashLeaf =>
+				size_and_prefix_iterator(size, trie_constants::ALT_HASHING_LEAF_PREFIX_MASK, 3),
+			NodeKind::AltHashBranchWithValue =>
+				size_and_prefix_iterator(size, trie_constants::ALT_HASHING_BRANCH_WITH_MASK, 4),
+		};
+		iter_start
+			.chain(if nibbles.len() % 2 == 1 { Some(nibbles[0]) } else { None })
+			.chain(nibbles[nibbles.len() % 2..].chunks(2).map(|ch| ch[0] << 4 | ch[1]))
+	}
+	fn value_do_hash_stream(val: &[u8], threshold: &u32) -> bool {
+		val.encoded_size() >= *threshold as usize
+	}
+	impl TrieStream for ReferenceTrieStreamNoExt {
+		type GlobalMeta = Option<u32>;
+
+		fn new(meta: Option<u32>) -> Self {
+			Self {
+				buffer: Vec::new(),
+				inner_value_hashing: meta,
+				apply_inner_hashing: false,
+				current_value_range: None,
+			}
+		}
+
+		fn append_empty_data(&mut self) {
+			self.buffer.push(trie_constants::EMPTY_TRIE);
+		}
+
+		fn append_leaf(&mut self, key: &[u8], value: &[u8]) {
+			self.apply_inner_hashing = self.inner_value_hashing.as_ref().map(|threshold|
+				value_do_hash_stream(value, threshold)
+			).unwrap_or(false);
+			let kind = if self.apply_inner_hashing {
+				NodeKind::AltHashLeaf
+			} else {
+				NodeKind::Leaf
+			};
+			self.buffer.extend(fuse_nibbles_node(key, kind));
+			let start = self.buffer.len();
+			Compact(value.len() as u32).encode_to(&mut self.buffer);
+			self.buffer.extend_from_slice(value);
+			self.current_value_range = Some(start..self.buffer.len());
+		}
+
+		fn begin_branch(
+			&mut self,
+			maybe_partial: Option<&[u8]>,
+			maybe_value: Option<&[u8]>,
+			has_children: impl Iterator<Item = bool>,
+		) {
+			if let Some(partial) = maybe_partial {
+				if let Some(value) = maybe_value {
+					self.apply_inner_hashing = self.inner_value_hashing.as_ref().map(|threshold|
+						value_do_hash_stream(value, threshold)
+					).unwrap_or(false);
+					let kind = if self.apply_inner_hashing {
+						NodeKind::AltHashBranchWithValue
+					} else {
+						NodeKind::BranchWithValue
+					};
+					self.buffer.extend(fuse_nibbles_node(partial, kind));
+				} else {
+					self.buffer.extend(fuse_nibbles_node(partial, NodeKind::BranchNoValue));
+				}
+				let bm = branch_node_bit_mask(has_children);
+				self.buffer.extend([bm.0,bm.1].iter());
+			} else {
+				debug_assert!(false, "trie stream codec only for no extension trie");
+				self.buffer.extend(&branch_node(maybe_value.is_some(), has_children));
+			}
+			if let Some(value) = maybe_value {
+				let start = self.buffer.len();
+				Compact(value.len() as u32).encode_to(&mut self.buffer);
+				self.buffer.extend_from_slice(value);
+				self.current_value_range = Some(start..self.buffer.len());
+			}
+		}
+
+		fn append_extension(&mut self, _key: &[u8]) {
+			debug_assert!(false, "trie stream codec only for no extension trie");
+		}
+
+		fn append_substream<H: Hasher>(&mut self, other: Self) {
+			let apply_inner_hashing = other.apply_inner_hashing;
+			let range = other.current_value_range.clone();
+			let data = other.out();
+			match data.len() {
+				0..=31 => data.encode_to(&mut self.buffer),
+				_ => {
+					if apply_inner_hashing {
+						let meta = TrieMeta {
+							range: range,
+							unused_value: false,
+							contain_hash: false,
+							// Using `inner_value_hashing` instead to check this.
+							// And unused in hasher.
+							try_inner_hashing: None,
+							apply_inner_hashing: true,
+						};
+						<StateHasher as MetaHasher<H, Vec<u8>>>::hash(&data, &meta).as_ref()
+							.encode_to(&mut self.buffer);
+					} else {
+						H::hash(&data).as_ref().encode_to(&mut self.buffer);
+					}
+				},
+			}
+		}
+
+		fn hash_root<H: Hasher>(self) -> H::Out {
+			let apply_inner_hashing = self.apply_inner_hashing;
+			let range = self.current_value_range;
+			let data = self.buffer;
+			let meta = TrieMeta {
+				range: range,
+				unused_value: false,
+				contain_hash: false,
+				try_inner_hashing: None,
+				apply_inner_hashing: true,
+			};
+
+			if apply_inner_hashing {
+				<StateHasher as MetaHasher<H, Vec<u8>>>::hash(&data, &meta)
+			} else {
+				H::hash(&data)
+			}
+		}
+
+		fn out(self) -> Vec<u8> { self.buffer }
+	}
+}
+
+pub use codec_alt_hashing::NodeCodec as ReferenceNodeCodecNoExtMeta;
+pub use codec_alt_hashing::ReferenceTrieStreamNoExt;
+pub use codec_alt_hashing::trie_constants;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Version {
@@ -717,7 +1311,7 @@ fn reference_trie_root_unhashed_no_extension<I, A, B>(input: I) -> Vec<u8> where
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	trie_root::unhashed_trie_no_extension::<RefHasher, TestMetaHasher<RefHasher>, ReferenceTrieStreamNoExt, _, _, _>(input, Default::default())
+	trie_root::unhashed_trie_no_extension::<RefHasher, TestMetaHasher, ReferenceTrieStreamNoExt, _, _, _>(input, Default::default())
 }
 
 const EMPTY_TRIE: u8 = 0;
@@ -737,9 +1331,6 @@ const LEAF_PREFIX_MASK_NO_EXT: u8 = 0b_01 << 6;
 const BRANCH_WITHOUT_MASK_NO_EXT: u8 = 0b_10 << 6;
 const BRANCH_WITH_MASK_NO_EXT: u8 = 0b_11 << 6;
 const EMPTY_TRIE_NO_EXT: u8 = FIRST_PREFIX | 0b_00;
-const ENCODED_META_NO_EXT: u8 = FIRST_PREFIX | 0b_10_10;
-const ALLOW_HASH_META: u8 = 1;
-const DEAD_HEADER_META_HASHED_VALUE: u8 = FIRST_PREFIX | 0b_11_10;
 
 /// Create a leaf/extension node, encoding a number of nibbles. Note that this
 /// cannot handle a number of nibbles that is zero or greater than 125 and if
@@ -764,23 +1355,6 @@ enum NodeKindNoExt {
 	Leaf,
 	BranchNoValue,
 	BranchWithValue,
-}
-
-/// Create a leaf or branch node header followed by its encoded partial nibbles.
-fn fuse_nibbles_node_no_extension<'a>(
-	nibbles: &'a [u8],
-	kind: NodeKindNoExt,
-) -> impl Iterator<Item = u8> + 'a {
-	let size = ::std::cmp::min(NIBBLE_SIZE_BOUND_NO_EXT, nibbles.len());
-
-	let iter_start = match kind {
-		NodeKindNoExt::Leaf => size_and_prefix_iterator(size, LEAF_PREFIX_MASK_NO_EXT),
-		NodeKindNoExt::BranchNoValue => size_and_prefix_iterator(size, BRANCH_WITHOUT_MASK_NO_EXT),
-		NodeKindNoExt::BranchWithValue => size_and_prefix_iterator(size, BRANCH_WITH_MASK_NO_EXT),
-	};
-	iter_start
-		.chain(if nibbles.len() % 2 == 1 { Some(nibbles[0]) } else { None })
-		.chain(nibbles[nibbles.len() % 2..].chunks(2).map(|ch| ch[0] << 4 | ch[1]))
 }
 
 /// Encoding of branch header and children bitmap (for trie stream radix 16).
@@ -876,127 +1450,6 @@ impl TrieStream for ReferenceTrieStream {
 	fn hash_root<H: Hasher>(self) -> H::Out {
 		H::hash(&self.buffer)
 	}
-}
-
-/// Reference implementation of a `TrieStream` without extension.
-#[derive(Default, Clone)]
-pub struct ReferenceTrieStreamNoExt {
-	buffer: Vec<u8>,
-	inner_value_hashing: bool,
-	current_value_range: Option<Range<usize>>,
-}
-
-impl TrieStream for ReferenceTrieStreamNoExt {
-	type GlobalMeta = bool;
-
-	fn new(meta: bool) -> Self {
-		ReferenceTrieStreamNoExt {
-			buffer: Vec::new(),
-			inner_value_hashing: meta,
-			current_value_range: None,
-		}
-	}
-
-	fn append_empty_data(&mut self) {
-		self.buffer.push(EMPTY_TRIE_NO_EXT);
-	}
-
-	fn append_leaf(&mut self, key: &[u8], value: &[u8]) {
-		self.buffer.extend(fuse_nibbles_node_no_extension(key, NodeKindNoExt::Leaf));
-		Compact(value.len() as u32).encode_to(&mut self.buffer);
-		self.current_value_range = Some(self.buffer.len()..self.buffer.len() + value.len());
-		self.buffer.extend_from_slice(value);
-	}
-
-	fn begin_branch(
-		&mut self,
-		maybe_key: Option<&[u8]>,
-		maybe_value: Option<&[u8]>,
-		has_children: impl Iterator<Item = bool>
-	) {
-		if let Some(partial) = maybe_key {
-			if maybe_value.is_some() {
-				self.buffer.extend(
-					fuse_nibbles_node_no_extension(partial, NodeKindNoExt::BranchWithValue)
-				);
-			} else {
-				self.buffer.extend(
-					fuse_nibbles_node_no_extension(partial, NodeKindNoExt::BranchNoValue)
-				);
-			}
-			let bitmap = branch_node_bit_mask(has_children);
-			self.buffer.extend([bitmap.0, bitmap.1].iter());
-		} else {
-			// should not happen
-			self.buffer.extend(&branch_node(maybe_value.is_some(), has_children));
-		}
-		if let Some(value) = maybe_value {
-			Compact(value.len() as u32).encode_to(&mut self.buffer);
-			self.current_value_range = Some(self.buffer.len()..self.buffer.len() + value.len());
-			self.buffer.extend_from_slice(value);
-		}
-	}
-
-	fn append_extension(&mut self, _key: &[u8]) {
-		// should not happen
-	}
-
-	fn append_substream<H: Hasher>(&mut self, other: Self) {
-		let inner_value_hashing = other.inner_value_hashing;
-		let range = other.current_value_range.clone();
-		let data = other.out();
-		match data.len() {
-			0..=31 => data.encode_to(&mut self.buffer),
-			_ => {
-				if inner_value_hashing
-					&& range.as_ref().map(|r| r.end - r.start >= INNER_HASH_TRESHOLD).unwrap_or_default() {
-					let meta = ValueMeta {
-						range: range,
-						unused_value: false,
-						contain_hash: false,
-						do_value_hash: true,
-						recorded_do_value_hash: false,
-					};
-					<TestMetaHasher<H> as MetaHasher<H, Vec<u8>>>::hash(&data, &meta).as_ref().encode_to(&mut self.buffer);
-				} else {
-					H::hash(&data).as_ref().encode_to(&mut self.buffer);
-				}
-			},
-		}
-	}
-
-	fn hash_root<H: Hasher>(self) -> H::Out {
-		let inner_value_hashing = self.inner_value_hashing;
-		let range = self.current_value_range;
-		let data = self.buffer;
-		let meta = ValueMeta {
-			range: range,
-			unused_value: false,
-			contain_hash: false,
-			do_value_hash: inner_value_hashing,
-			recorded_do_value_hash: inner_value_hashing,
-		};
-			
-		// Add the recorded_do_value_hash to encoded
-		let mut encoded = meta.encode_state_meta();
-		let encoded = if encoded.len() > 0 {
-			encoded.extend(data);
-			encoded
-		} else {
-			data
-		};
-
-		if inner_value_hashing
-			&& meta.range.as_ref().map(|r| r.end - r.start >= INNER_HASH_TRESHOLD)
-				.unwrap_or_default() {
-		
-			<TestMetaHasher<H> as MetaHasher<H, Vec<u8>>>::hash(&encoded, &meta)
-		} else {
-			H::hash(&encoded)
-		}
-	}
-
-	fn out(self) -> Vec<u8> { self.buffer }
 }
 
 /// A node header.
