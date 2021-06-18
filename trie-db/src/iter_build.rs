@@ -17,7 +17,7 @@
 //! implementation.
 //! See `trie_visit` function.
 
-use hash_db::{Hasher, HashDB, Prefix, MetaHasher};
+use hash_db::{Hasher, HashDB, Prefix};
 use crate::rstd::{cmp::max, vec::Vec};
 use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
@@ -403,10 +403,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>, T::Meta> for TrieRoot<T> {
 		let hash = if !T::USE_META {
 			<T::Hash as Hasher>::hash(encoded_node.as_slice())
 		} else {
-			<T::MetaHasher as MetaHasher<_, _>>::hash(
-				&encoded_node[..],
-				&meta,
-			)
+			meta.resolve_alt_hashing().alt_hash::<T::Hash>(&encoded_node[..])
 		};
 		if is_root {
 			self.root = Some(hash);
@@ -468,10 +465,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>, T::Meta> for TrieRootPrint<T
 		let hash = if !T::USE_META {
 			<T::Hash as Hasher>::hash(encoded_node.as_slice())
 		} else {
-			<T::MetaHasher as MetaHasher<_, _>>::hash(
-				&encoded_node[..],
-				&meta,
-			)
+			meta.resolve_alt_hashing().alt_hash::<T::Hash>(&encoded_node[..])
 		};
 		if is_root {
 			self.root = Some(hash);
@@ -499,10 +493,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>, T::Meta> for TrieRootUnhashe
 		let hash = if !T::USE_META {
 			<T::Hash as Hasher>::hash(encoded_node.as_slice())
 		} else {
-			<T::MetaHasher as MetaHasher<_, _>>::hash(
-				&encoded_node[..],
-				&meta,
-			)
+			meta.resolve_alt_hashing().alt_hash::<T::Hash>(&encoded_node[..])
 		};
 
 		if is_root {

@@ -81,7 +81,6 @@ impl TrieLayout for ExtensionLayout {
 	const ALLOW_EMPTY: bool = false;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
-	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
 	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
@@ -112,7 +111,6 @@ impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	const ALLOW_EMPTY: bool = false;
 	type Hash = H;
 	type Codec = ReferenceNodeCodecNoExt<H>;
-	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
 	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
@@ -129,7 +127,6 @@ impl TrieLayout for AllowEmptyLayout {
 	const ALLOW_EMPTY: bool = true;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
-	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
 	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
@@ -148,18 +145,12 @@ impl TrieLayout for CheckMetaHasherNoExt {
 
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExtMeta<RefHasher>;
-	type MetaHasher = TestMetaHasher;
 	type Meta = TrieMeta;
 
 	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
 		self.0
 	}
 }
-
-/// Test alt hashing.
-/// Also allow indicating that value is a hash of value.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TestMetaHasher;
 
 /// Switch to hashed value variant.
 pub	fn to_hashed_variant<H: Hasher>(value: &[u8], meta: &mut TrieMeta, used_value: bool) -> Option<DBValue> {
@@ -178,27 +169,6 @@ pub	fn to_hashed_variant<H: Hasher>(value: &[u8], meta: &mut TrieMeta, used_valu
 	None
 }
 
-
-impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher {
-	type Meta = TrieMeta;
-	type GlobalMeta = Option<u32>;
-
-	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out {
-		match &meta {
-			TrieMeta { range: Some(range), contain_hash: false, apply_inner_hashing: true, .. } => {
-				let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
-				H::hash(value.as_slice())
-			},
-			TrieMeta { range: Some(_range), contain_hash: true, .. } => {
-				// value contains a hash of data (already inner_hashed_value).
-				H::hash(&value[1..])
-			},
-			_ => {
-				H::hash(value)
-			},
-		}
-	}
-}
 
 /// Meta use by trie state.
 #[derive(Default, Clone, Debug)]
@@ -1001,7 +971,6 @@ impl TrieLayout for Old {
 	const ALLOW_EMPTY: bool = false;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
-	type MetaHasher = hash_db::NoMeta;
 	type Meta = ();
 
 	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {

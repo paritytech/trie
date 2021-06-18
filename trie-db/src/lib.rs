@@ -37,7 +37,7 @@ mod rstd {
 #[cfg(feature = "std")]
 use self::rstd::{fmt, Error};
 
-use hash_db::{MaybeDebug, MetaHasher};
+use hash_db::MaybeDebug;
 use self::rstd::{boxed::Box, vec::Vec};
 
 pub mod node;
@@ -422,13 +422,6 @@ pub trait TrieLayout: Default + Clone {
 	type Codec: NodeCodec<Self::Meta, HashOut=<Self::Hash as Hasher>::Out>;
 	/// Trait `Meta` implementation to use with this layout.
 	type Meta: Meta;
-	/// Value function to manage meta.
-	type MetaHasher: MetaHasher<
-		Self::Hash,
-		DBValue,
-		Meta = Self::Meta,
-		GlobalMeta = GlobalMeta<Self>,
-	>;
 
 	/// Meta state input for new node.
 	fn meta_for_new_node(&self) -> Self::Meta {

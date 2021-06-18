@@ -107,7 +107,6 @@ fn random_value(seed: &mut <KeccakHasher as Hasher>::Out) -> Vec<u8> {
 pub fn standard_benchmark<L, S>(b: &mut Criterion, name: &str)
 	where
 		L: TrieLayout + 'static,
-		L::MetaHasher: Send + Sync,
 		S: TrieStream,
 {
 

@@ -274,41 +274,6 @@ pub trait AsPlainDB<K, V> {
 	fn as_plain_db_mut<'a>(&'a mut self) -> &'a mut (dyn PlainDB<K, V> + 'a);
 }
 
-/// Trait allowing to apply different hashing strategy
-/// depneding on stored value or encoded value with meta.
-pub trait MetaHasher<H: Hasher, T>: Send + Sync {
-	/// Additional content fetchable from storage.
-	/// `Default` should be use for undefined content
-	/// (eg in some case null node).
-	/// Also meta can register information that is not
-	/// stored, in this case default initiate these.
-	type Meta: Default + Clone;
-	/// Global meta that applies to all read individual
-	/// content meta.
-	type GlobalMeta;
-
-	/// Produce hash, from its hashable value and its metadata.
-	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out;
-}
-
-/// Default `MetaHasher` implementation, stored value
-/// is the same as hashed value, no meta data added.
-#[derive(Default, Clone, Copy)]
-pub struct NoMeta;
-
-impl<H, T> MetaHasher<H, T> for NoMeta
-	where
-		H: Hasher,
-		T: for<'a> From<&'a [u8]>,
-{
-	type Meta = ();
-	type GlobalMeta = ();
-
-	fn hash(value: &[u8], _meta: &Self::Meta) -> H::Out {
-		H::hash(value)
-	}
-}
-
 // NOTE: There used to be a `impl<T> AsHashDB for T` but that does not work with generics.
 // See https://stackoverflow.com/questions/48432842/
 // implementing-a-trait-for-reference-and-non-reference-types-causes-conflicting-im
