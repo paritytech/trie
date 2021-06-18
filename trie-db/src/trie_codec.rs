@@ -29,10 +29,11 @@ use hash_db::HashDB;
 use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout,
-	nibble_ops::NIBBLE_LENGTH, node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode},
+	nibble_ops::NIBBLE_LENGTH, node::{NodeHandlePlan, NodePlan, OwnedNode},
 };
 use crate::rstd::{
-	boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec, vec::Vec,
+	boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec,
+	vec::Vec, borrow::Borrow,
 };
 
 struct EncoderStackEntry<C: NodeCodec> {
@@ -250,8 +251,8 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 	Ok(output)
 }
 
-struct DecoderStackEntry<'a, C: NodeCodec> {
-	node: Node<'a>,
+struct DecoderStackEntry<C: NodeCodec, E: Borrow<[u8]>> {
+	node: OwnedNode<E>,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
@@ -260,7 +261,7 @@ struct DecoderStackEntry<'a, C: NodeCodec> {
 	_marker: PhantomData<C>,
 }
 
-impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
+impl<C: NodeCodec, E: Borrow<[u8]>> DecoderStackEntry<C, E> {
 	/// Advance the child index until either it exceeds the number of children or the child is
 	/// marked as omitted. Omitted children are indicated by an empty inline reference. For each
 	/// child that is passed over and not omitted, copy over the child reference from the node to
@@ -270,13 +271,13 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	/// list is complete. If this returns true and the entry is an extension node, then
 	/// `children[0]` is guaranteed to be Some.
 	fn advance_child_index(&mut self) -> Result<bool, C::HashOut, C::Error> {
-		match self.node {
-			Node::Extension(_, child) if self.child_index == 0 => {
+		match self.node.node_plan() {
+			NodePlan::Extension{ child, .. } if self.child_index == 0 => {
 				match child {
-					NodeHandle::Inline(data) if data.is_empty() =>
+					NodeHandlePlan::Inline(data) if data.is_empty() =>
 						return Ok(false),
 					_ => {
-						let child_ref = child.try_into()
+						let child_ref = child.build(self.node.data()).try_into()
 							.map_err(|hash| Box::new(
 								TrieError::InvalidHash(C::HashOut::default(), hash)
 							))?;
@@ -285,13 +286,13 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 				}
 				self.child_index += 1;
 			}
-			Node::Branch(children, _) | Node::NibbledBranch(_, children, _) => {
+			NodePlan::Branch { children, .. } | NodePlan::NibbledBranch { children, .. } => {
 				while self.child_index < NIBBLE_LENGTH {
-					match children[self.child_index] {
-						Some(NodeHandle::Inline(data)) if data.is_empty() =>
+					match &children[self.child_index] {
+						Some(NodeHandlePlan::Inline(data)) if data.is_empty() =>
 							return Ok(false),
 						Some(child) => {
-							let child_ref = child.try_into()
+							let child_ref = child.build(self.node.data()).try_into()
 								.map_err(|hash| Box::new(
 									TrieError::InvalidHash(C::HashOut::default(), hash)
 								))?;
@@ -310,16 +311,16 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	/// Push the partial key of this entry's node (including the branch nibble) to the given
 	/// prefix.
 	fn push_to_prefix(&self, prefix: &mut NibbleVec) {
-		match self.node {
-			Node::Empty => {}
-			Node::Leaf(partial, _) | Node::Extension(partial, _) => {
-				prefix.append_partial(partial.right());
+		match self.node.node_plan() {
+			NodePlan::Empty => {}
+			NodePlan::Leaf{ partial, .. } | NodePlan::Extension { partial, .. } => {
+				prefix.append_partial(partial.build(self.node.data()).right());
 			}
-			Node::Branch(_, _) => {
+			NodePlan::Branch { .. } => {
 				prefix.push(self.child_index as u8);
 			}
-			Node::NibbledBranch(partial, _, _) => {
-				prefix.append_partial(partial.right());
+			NodePlan::NibbledBranch { partial, .. } => {
+				prefix.append_partial(partial.build(self.node.data()).right());
 				prefix.push(self.child_index as u8);
 			}
 		}
@@ -328,15 +329,15 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	/// Pop the partial key of this entry's node (including the branch nibble) from the given
 	/// prefix.
 	fn pop_from_prefix(&self, prefix: &mut NibbleVec) {
-		match self.node {
-			Node::Empty => {}
-			Node::Leaf(partial, _) | Node::Extension(partial, _) => {
+		match self.node.node_plan() {
+			NodePlan::Empty => {}
+			NodePlan::Leaf { partial, .. } | NodePlan::Extension { partial, .. } => {
 				prefix.drop_lasts(partial.len());
 			}
-			Node::Branch(_, _) => {
+			NodePlan::Branch{..} => {
 				prefix.pop();
 			}
-			Node::NibbledBranch(partial, _, _) => {
+			NodePlan::NibbledBranch{ partial, .. } => {
 				prefix.pop();
 				prefix.drop_lasts(partial.len());
 			}
@@ -348,27 +349,31 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	/// Preconditions:
 	/// - if node is an extension node, then `children[0]` is Some.
 	fn encode_node(self) -> Vec<u8> {
-		match self.node {
-			Node::Empty =>
+		match self.node.node_plan() {
+			NodePlan::Empty =>
 				C::empty_node().to_vec(),
-			Node::Leaf(partial, value) =>
-				C::leaf_node(partial.right(), value),
-			Node::Extension(partial, _) =>
+			NodePlan::Leaf { partial, value } =>
+				C::leaf_node(partial.build(self.node.data()).right(), &self.node.data()[value.clone()]),
+			NodePlan::Extension { partial, .. } =>
 				C::extension_node(
-					partial.right_iter(),
+					partial.build(self.node.data()).right_iter(),
 					partial.len(),
 					self.children[0]
 						.expect("required by method precondition; qed"),
 				),
-			Node::Branch(_, value) =>
-				C::branch_node(self.children.into_iter(), value),
-			Node::NibbledBranch(partial, _, value) =>
+			NodePlan::Branch {value, .. } => {
+				let value = value.as_ref().map(|range| &self.node.data()[range.clone()]);
+				C::branch_node(self.children.iter(), value)
+			},
+			NodePlan::NibbledBranch { partial, value, .. } => {
+				let value = value.as_ref().map(|range| &self.node.data()[range.clone()]);
 				C::branch_node_nibbled(
-					partial.right_iter(),
+					partial.build(self.node.data()).right_iter(),
 					partial.len(),
 					self.children.iter(),
 					value,
-				),
+				)
+			},
 		}
 	}
 }
@@ -402,21 +407,44 @@ pub fn decode_compact_from_iter<'a, L, DB, T, I>(db: &mut DB, encoded: I)
 		DB: HashDB<L::Hash, T>,
 		I: IntoIterator<Item = &'a [u8]>,
 {
+	decode_compact_from_iter_inner::<L, DB, T, _, &'a [u8]>(db, encoded.into_iter())
+}
+
+/// Owned variant of 'decode_compact' that accept an iterator of encoded nodes as input.
+/// Allows removing memory from iterator during iteration.
+pub fn decode_compact_from_iter_owned<'a, L, DB, T, I>(db: &mut DB, encoded: I)
+	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
+	where
+		L: TrieLayout,
+		DB: HashDB<L::Hash, T>,
+		I: IntoIterator<Item = Vec<u8>>,
+{
+	decode_compact_from_iter_inner::<L, DB, T, _, Vec<u8>>(db, encoded.into_iter())
+}
+
+fn decode_compact_from_iter_inner<'a, L, DB, T, I, E>(db: &mut DB, encoded: I)
+	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
+	where
+		L: TrieLayout,
+		DB: HashDB<L::Hash, T>,
+		I: Iterator<Item = E>,
+		E: Borrow<[u8]>,
+{
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
-	let mut stack: Vec<DecoderStackEntry<L::Codec>> = Vec::new();
+	let mut stack: Vec<DecoderStackEntry<L::Codec, E>> = Vec::new();
 
 	// The prefix of the next item to be read from the slice of encoded items.
 	let mut prefix = NibbleVec::new();
 
 	for (i, encoded_node) in encoded.into_iter().enumerate() {
-		let node = L::Codec::decode(encoded_node)
+		let node = OwnedNode::new::<L::Codec>(encoded_node)
 			.map_err(|err| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), err)))?;
 
-		let children_len = match node {
-			Node::Empty | Node::Leaf(..) => 0,
-			Node::Extension(..) => 1,
-			Node::Branch(..) | Node::NibbledBranch(..) => NIBBLE_LENGTH,
+		let children_len = match node.node_plan() {
+			NodePlan::Empty | NodePlan::Leaf{..} => 0,
+			NodePlan::Extension{..} => 1,
+			NodePlan::Branch{..} | NodePlan::NibbledBranch{..} => NIBBLE_LENGTH,
 		};
 		let mut last_entry = DecoderStackEntry {
 			node,
