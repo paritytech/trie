@@ -599,7 +599,7 @@ fn register_proof_without_value() {
 		memdb_from_proof.alt_insert(
 			hash_db::EMPTY_PREFIX,
 			v.as_slice(),
-			value.1.resolve_alt_hashing(),
+			value.1.resolve_alt_hashing::<<Layout as TrieLayout>::Codec>(),
 		);
 	}
 

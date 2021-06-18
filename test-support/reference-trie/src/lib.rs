@@ -289,6 +289,7 @@ mod codec_alt_hashing {
 		where
 			H: Hasher,
 	{
+		const OFFSET_CONTAINS_HASH: usize = 1;
 		type Error = Error;
 		type HashOut = H::Out;
 
@@ -458,7 +459,7 @@ mod codec_alt_hashing {
 	) -> Vec<u8> {
 		let nibble_count = std::cmp::min(trie_constants::NIBBLE_SIZE_BOUND, nibble_count);
 
-		let mut output = Vec::with_capacity(3 + (nibble_count / nibble_ops::NIBBLE_PER_BYTE));
+		let mut output = Vec::with_capacity(4 + (nibble_count / nibble_ops::NIBBLE_PER_BYTE));
 		match node_kind {
 			NodeKind::Leaf => NodeHeader::Leaf(nibble_count).encode_to(&mut output),
 			NodeKind::BranchWithValue => NodeHeader::Branch(true, nibble_count).encode_to(&mut output),
@@ -783,15 +784,10 @@ mod codec_alt_hashing {
 				0..=31 => data.encode_to(&mut self.buffer),
 				_ => {
 					if apply_inner_hashing {
-						let meta = Meta {
-							range: range,
-							contain_hash: false,
-							// Using `inner_value_hashing` instead to check this.
-							// And unused in hasher.
-							try_inner_hashing: None,
-							apply_inner_hashing: true,
-						};
-						meta.resolve_alt_hashing().alt_hash::<H>(&data).as_ref()
+						hash_db::AltHashing {
+							encoded_offset: 0,
+							value_range: range.map(|r| (r.start, r.end)),
+						}.alt_hash::<H>(&data).as_ref()
 							.encode_to(&mut self.buffer);
 					} else {
 						H::hash(&data).as_ref().encode_to(&mut self.buffer);
@@ -804,15 +800,12 @@ mod codec_alt_hashing {
 			let apply_inner_hashing = self.apply_inner_hashing;
 			let range = self.current_value_range;
 			let data = self.buffer;
-			let meta = Meta {
-				range: range,
-				contain_hash: false,
-				try_inner_hashing: None,
-				apply_inner_hashing: true,
-			};
 
 			if apply_inner_hashing {
-				meta.resolve_alt_hashing().alt_hash::<H>(&data)
+				hash_db::AltHashing {
+					encoded_offset: 0,
+					value_range: range.map(|r| (r.start, r.end)),
+				}.alt_hash::<H>(&data)
 			} else {
 				H::hash(&data)
 			}

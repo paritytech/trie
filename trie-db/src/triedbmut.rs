@@ -1571,7 +1571,11 @@ where
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
 
-				*self.root = self.db.alt_insert(EMPTY_PREFIX, &encoded_root[..], meta.resolve_alt_hashing());
+				*self.root = self.db.alt_insert(
+					EMPTY_PREFIX,
+					&encoded_root[..],
+					meta.resolve_alt_hashing::<L::Codec>(),
+				);
 				self.hash_count += 1;
 
 				self.root_handle = NodeHandle::Hash(*self.root);
@@ -1616,7 +1620,11 @@ where
 							node.into_encoded(commit_child)
 						};
 						if encoded.len() >= L::Hash::LENGTH {
-							let hash = self.db.alt_insert(prefix.as_prefix(), &encoded[..], meta.resolve_alt_hashing());
+							let hash = self.db.alt_insert(
+								prefix.as_prefix(),
+								&encoded[..],
+								meta.resolve_alt_hashing::<L::Codec>(),
+							);
 							self.hash_count +=1;
 							ChildReference::Hash(hash)
 						} else {

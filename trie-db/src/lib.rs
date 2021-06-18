@@ -566,11 +566,10 @@ impl Meta {
 	}
 
 	/// Get alternate hashing parameter for the hasher.
-	pub fn resolve_alt_hashing(&self) -> hash_db::AltHashing {
+	pub fn resolve_alt_hashing<C: NodeCodec>(&self) -> hash_db::AltHashing {
 		let mut result = hash_db::AltHashing::default();
 		if self.contain_hash {
-			// TODO store contain hash offset from codec!!
-			result.encoded_offset = 1;
+			result.encoded_offset = C::OFFSET_CONTAINS_HASH;
 			return result;
 		}
 		if self.apply_inner_hashing {
@@ -581,15 +580,7 @@ impl Meta {
 	}
 }
 
-
-
 /// Alias accessor to hasher hash output type from a `TrieLayout`.
 pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
-/// Alias accessor to state of meta.
-/// TODO remove or rename
-pub type StateMeta = bool;
-/// Alias accessor to global meta.
-/// TODO remove or rename
-pub type GlobalMeta = Option<u32>;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
 pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;

@@ -61,7 +61,11 @@ fn test_encode_compact<L: TrieLayout>(
 	let mut partial_db = MemoryDB::<L>::default();
 	for record in recorder.drain() {
 		if L::USE_META {
-			partial_db.alt_insert(EMPTY_PREFIX, &record.data, record.meta.resolve_alt_hashing());
+			partial_db.alt_insert(
+				EMPTY_PREFIX,
+				&record.data,
+				record.meta.resolve_alt_hashing::<L::Codec>(),
+			);
 		} else {
 			partial_db.insert(EMPTY_PREFIX, &record.data);
 		}

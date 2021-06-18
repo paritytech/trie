@@ -527,7 +527,11 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I, layout: &
 			// Since `advance_child_index` returned true, the preconditions for `encode_node` are
 			// satisfied.
 			let (node_data, meta) = last_entry.encode_node();
-			let node_hash = db.alt_insert(prefix.as_prefix(), node_data.as_ref(), meta.resolve_alt_hashing());
+			let node_hash = db.alt_insert(
+				prefix.as_prefix(),
+				node_data.as_ref(),
+				meta.resolve_alt_hashing::<L::Codec>(),
+			);
 
 			if let Some(entry) = stack.pop() {
 				last_entry = entry;
