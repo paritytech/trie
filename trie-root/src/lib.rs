@@ -38,7 +38,7 @@ mod rstd {
 
 use self::rstd::*;
 
-pub use hash_db::{Hasher, MetaHasher};
+pub use hash_db::Hasher;
 
 /// Byte-stream oriented trait for constructing closed-form tries.
 pub trait TrieStream {
@@ -98,23 +98,21 @@ fn shared_prefix_length<T: Eq>(first: &[T], second: &[T]) -> usize {
 /// let root = hex!["0807d5393ae7f349481063ebb5dbaf6bda58db282a385ca97f37dccba717cb79"];
 /// assert_eq!(trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v), root);
 /// ```
-pub fn trie_root<H, M, S, I, A, B>(input: I, meta: S::GlobalMeta) -> H::Out where
+pub fn trie_root<H, S, I, A, B>(input: I, meta: S::GlobalMeta) -> H::Out where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	H: Hasher,
-	M: MetaHasher<H, Vec<u8>>,
 	S: TrieStream,
 {
-	trie_root_inner::<H, M, S, I, A, B>(input, false, meta)
+	trie_root_inner::<H, S, I, A, B>(input, false, meta)
 }
 
-fn trie_root_inner<H, M, S, I, A, B>(input: I, no_extension: bool, meta: S::GlobalMeta) -> H::Out where
+fn trie_root_inner<H, S, I, A, B>(input: I, no_extension: bool, meta: S::GlobalMeta) -> H::Out where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	H: Hasher,
-	M: MetaHasher<H, Vec<u8>>,
 	S: TrieStream,
 {
 	// first put elements into btree to sort them and to remove duplicates
@@ -140,44 +138,41 @@ fn trie_root_inner<H, M, S, I, A, B>(input: I, no_extension: bool, meta: S::Glob
 		.collect::<Vec<_>>();
 
 	let mut stream = S::new(meta.clone());
-	build_trie::<H, M, S, _, _>(&input, 0, &mut stream, no_extension, meta);
+	build_trie::<H, S, _, _>(&input, 0, &mut stream, no_extension, meta);
 	stream.hash_root::<H>()
 }
 
 /// Variant of `trie_root` for patricia trie without extension node.
 /// See [`trie_root`].
-pub fn trie_root_no_extension<H, M, S, I, A, B>(input: I, meta: S::GlobalMeta) -> H::Out where
+pub fn trie_root_no_extension<H, S, I, A, B>(input: I, meta: S::GlobalMeta) -> H::Out where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	H: Hasher,
-	M: MetaHasher<H, Vec<u8>>,
 	S: TrieStream,
 {
-	trie_root_inner::<H, M, S, I, A, B>(input, true, meta)
+	trie_root_inner::<H, S, I, A, B>(input, true, meta)
 }
 
 //#[cfg(test)]	// consider feature="std"
 /// Method similar to `trie_root` but returning the root encoded
 /// node instead of its hash.
 /// Mainly use for testing or debugging.
-pub fn unhashed_trie<H, M, S, I, A, B>(input: I, meta: S::GlobalMeta) -> Vec<u8> where
+pub fn unhashed_trie<H, S, I, A, B>(input: I, meta: S::GlobalMeta) -> Vec<u8> where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	H: Hasher,
-	M: MetaHasher<H, Vec<u8>>,
 	S: TrieStream,
 {
-	unhashed_trie_inner::<H, M, S, I, A, B>(input, false, meta)
+	unhashed_trie_inner::<H, S, I, A, B>(input, false, meta)
 }
 
-fn unhashed_trie_inner<H, M, S, I, A, B>(input: I, no_extension: bool, meta: S::GlobalMeta) -> Vec<u8> where
+fn unhashed_trie_inner<H, S, I, A, B>(input: I, no_extension: bool, meta: S::GlobalMeta) -> Vec<u8> where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	H: Hasher,
-	M: MetaHasher<H, Vec<u8>>,
 	S: TrieStream,
 {
 	// first put elements into btree to sort them and to remove duplicates
@@ -202,21 +197,20 @@ fn unhashed_trie_inner<H, M, S, I, A, B>(input: I, no_extension: bool, meta: S::
 		.collect::<Vec<_>>();
 
 	let mut stream = S::new(meta.clone());
-	build_trie::<H, M, S, _, _>(&input, 0, &mut stream, no_extension, meta);
+	build_trie::<H, S, _, _>(&input, 0, &mut stream, no_extension, meta);
 	stream.out()
 }
 
 /// Variant of `unhashed_trie` for patricia trie without extension node.
 /// See [`unhashed_trie`].
-pub fn unhashed_trie_no_extension<H, M, S, I, A, B>(input: I, meta: S::GlobalMeta) -> Vec<u8> where
+pub fn unhashed_trie_no_extension<H, S, I, A, B>(input: I, meta: S::GlobalMeta) -> Vec<u8> where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
 	H: Hasher,
-	M: MetaHasher<H, Vec<u8>>,
 	S: TrieStream,
 {
-	unhashed_trie_inner::<H, M, S, I, A, B>(input, true, meta)
+	unhashed_trie_inner::<H, S, I, A, B>(input, true, meta)
 }
 
 /// Generates a key-hashed (secure) trie root hash for a vector of key-value tuples.
@@ -236,25 +230,23 @@ pub fn unhashed_trie_no_extension<H, M, S, I, A, B>(input: I, meta: S::GlobalMet
 /// let root = hex!["d6e02b2bd48aa04fd2ad87cfac1144a29ca7f7dc60f4526c7b7040763abe3d43"];
 /// assert_eq!(sec_trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v), root);
 /// ```
-pub fn sec_trie_root<H, M, S, I, A, B>(input: I, meta: S::GlobalMeta) -> H::Out where
+pub fn sec_trie_root<H, S, I, A, B>(input: I, meta: S::GlobalMeta) -> H::Out where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]>,
 	B: AsRef<[u8]>,
 	H: Hasher,
-	M: MetaHasher<H, Vec<u8>>,
 	H::Out: Ord,
 	S: TrieStream,
 {
-	trie_root::<H, M, S, _, _, _>(input.into_iter().map(|(k, v)| (H::hash(k.as_ref()), v)), meta)
+	trie_root::<H, S, _, _, _>(input.into_iter().map(|(k, v)| (H::hash(k.as_ref()), v)), meta)
 }
 
 /// Takes a slice of key/value tuples where the key is a slice of nibbles
 /// and encodes it into the provided `Stream`.
-fn build_trie<H, M, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_extension: bool, meta: S::GlobalMeta) where
+fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_extension: bool, meta: S::GlobalMeta) where
 	A: AsRef<[u8]>,
 	B: AsRef<[u8]>,
 	H: Hasher,
-	M: MetaHasher<H, Vec<u8>>,
 	S: TrieStream,
 {
 	match input.len() {
@@ -284,7 +276,7 @@ fn build_trie<H, M, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no
 				}
 			} else if shared_nibble_count > cursor {
 				stream.append_extension(&key[cursor..shared_nibble_count]);
-				build_trie_trampoline::<H, M, _, _, _>(
+				build_trie_trampoline::<H, _, _, _>(
 					input,
 					shared_nibble_count,
 					stream,
@@ -325,7 +317,7 @@ fn build_trie<H, M, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no
 			let mut begin = match value { None => 0, _ => 1 };
 			for &count in &shared_nibble_counts {
 				if count > 0 {
-					build_trie_trampoline::<H, M, S, _, _>(
+					build_trie_trampoline::<H, S, _, _>(
 						&input[begin..(begin + count)],
 						cursor + 1,
 						stream,
@@ -343,7 +335,7 @@ fn build_trie<H, M, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no
 	}
 }
 
-fn build_trie_trampoline<H, M, S, A, B>(
+fn build_trie_trampoline<H, S, A, B>(
 	input: &[(A, B)],
 	cursor: usize,
 	stream: &mut S,
@@ -353,10 +345,9 @@ fn build_trie_trampoline<H, M, S, A, B>(
 	A: AsRef<[u8]>,
 	B: AsRef<[u8]>,
 	H: Hasher,
-	M: MetaHasher<H, Vec<u8>>,
 	S: TrieStream,
 {
 	let mut substream = S::new(meta.clone());
-	build_trie::<H, M, _, _, _>(input, cursor, &mut substream, no_extension, meta);
+	build_trie::<H, _, _, _>(input, cursor, &mut substream, no_extension, meta);
 	stream.append_substream::<H>(substream);
 }

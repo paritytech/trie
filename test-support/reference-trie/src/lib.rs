@@ -19,7 +19,7 @@ use std::iter::once;
 use std::marker::PhantomData;
 use std::ops::Range;
 use parity_scale_codec::{Decode, Input, Output, Encode, Compact, Error as CodecError};
-use trie_root::{Hasher, MetaHasher};
+use trie_root::Hasher;
 use hash_db::alt_hashed_value as inner_hashed_value;
 use trie_db::{
 	node::{NibbleSlicePlan, NodePlan, Value, ValuePlan, NodeHandlePlan},
@@ -319,7 +319,6 @@ pub const INNER_HASH_TRESHOLD: usize = 1;
 
 mod codec_alt_hashing {
 	use super::*;
-	use super::TestMetaHasher as StateHasher;
 	use super::CodecError as Error;
 	use super::NodeCodec as NodeCodecT;
 
@@ -945,7 +944,7 @@ mod codec_alt_hashing {
 							try_inner_hashing: None,
 							apply_inner_hashing: true,
 						};
-						<StateHasher as MetaHasher<H, Vec<u8>>>::hash(&data, &meta).as_ref()
+						meta.resolve_alt_hashing().alt_hash::<H>(&data).as_ref()
 							.encode_to(&mut self.buffer);
 					} else {
 						H::hash(&data).as_ref().encode_to(&mut self.buffer);
@@ -966,7 +965,7 @@ mod codec_alt_hashing {
 			};
 
 			if apply_inner_hashing {
-				<StateHasher as MetaHasher<H, Vec<u8>>>::hash(&data, &meta)
+				meta.resolve_alt_hashing().alt_hash::<H>(&data)
 			} else {
 				H::hash(&data)
 			}
@@ -1060,9 +1059,9 @@ pub fn reference_trie_root<T: TrieLayout, I, A, B>(input: I) -> <T::Hash as Hash
 	B: AsRef<[u8]> + fmt::Debug,
 {
 	if T::USE_EXTENSION {
-		trie_root::trie_root::<T::Hash, T::MetaHasher, ReferenceTrieStream, _, _, _>(input, Default::default())
+		trie_root::trie_root::<T::Hash, ReferenceTrieStream, _, _, _>(input, Default::default())
 	} else {
-		trie_root::trie_root_no_extension::<T::Hash, T::MetaHasher, ReferenceTrieStreamNoExt, _, _, _>(input, Default::default())
+		trie_root::trie_root_no_extension::<T::Hash, ReferenceTrieStreamNoExt, _, _, _>(input, Default::default())
 	}
 }
 
@@ -1093,7 +1092,7 @@ fn reference_trie_root_unhashed<I, A, B>(input: I) -> Vec<u8> where
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	trie_root::unhashed_trie::<RefHasher, hash_db::NoMeta, ReferenceTrieStream, _, _, _>(input, Default::default())
+	trie_root::unhashed_trie::<RefHasher, ReferenceTrieStream, _, _, _>(input, Default::default())
 }
 
 fn reference_trie_root_unhashed_no_extension<I, A, B>(input: I) -> Vec<u8> where
@@ -1101,7 +1100,7 @@ fn reference_trie_root_unhashed_no_extension<I, A, B>(input: I) -> Vec<u8> where
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	trie_root::unhashed_trie_no_extension::<RefHasher, TestMetaHasher, ReferenceTrieStreamNoExt, _, _, _>(input, Default::default())
+	trie_root::unhashed_trie_no_extension::<RefHasher, ReferenceTrieStreamNoExt, _, _, _>(input, Default::default())
 }
 
 const EMPTY_TRIE: u8 = 0;

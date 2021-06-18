@@ -43,7 +43,7 @@ where
 {
 	let funs = vec![
 		Fun::new("Closed", |b, d: &TrieInsertionList| b.iter(&mut || {
-			trie_root::<L::Hash, L::MetaHasher, S, _, _, _>(d.0.clone(), Default::default())
+			trie_root::<L::Hash, S, _, _, _>(d.0.clone(), Default::default())
 		})),
 		Fun::new("Fill", |b, d: &TrieInsertionList| b.iter(&mut || {
 			let mut memdb = MemoryDB::<_, HashKey<L::Hash>, _>::new(
