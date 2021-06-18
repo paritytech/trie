@@ -198,36 +198,6 @@ impl<H: Hasher> hash_db::MetaHasher<H, DBValue> for TestMetaHasher {
 			},
 		}
 	}
-
-	fn stored_value(value: &[u8], _meta: Self::Meta) -> DBValue {
-		value.to_vec()
-	}
-
-	fn stored_value_owned(value: DBValue, _meta: Self::Meta) -> DBValue {
-		value
-	}
-
-	fn extract_value(stored: &[u8], global: Self::GlobalMeta) -> (&[u8], Self::Meta) {
-		let mut meta = TrieMeta {
-			range: None,
-			contain_hash: false,
-			apply_inner_hashing: false,
-			try_inner_hashing: None,
-		};
-		meta.set_global_meta(global);
-		(stored, meta)
-	}
-
-	fn extract_value_owned(stored: DBValue, global: Self::GlobalMeta) -> (DBValue, Self::Meta) {
-		let mut meta = TrieMeta {
-			range: None,
-			contain_hash: false,
-			apply_inner_hashing: false,
-			try_inner_hashing: None,
-		};
-		meta.set_global_meta(global);
-		(stored, meta)
-	}
 }
 
 /// Meta use by trie state.

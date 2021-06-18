@@ -11,13 +11,14 @@
 // limitations under the License.
 
 //! Verification of compact proofs for Merkle-Patricia tries.
+// TODO try remove Meta (unused)
 
 use crate::rstd::{
 	convert::TryInto, iter::Peekable, marker::PhantomData, result::Result, vec, vec::Vec,
 };
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH,
-	node::{Node, Value, NodeHandle}, NodeCodec, TrieHash, TrieLayout, Meta, MetaHasher,
+	node::{Node, Value, NodeHandle}, NodeCodec, TrieHash, TrieLayout, Meta,
 };
 use hash_db::Hasher;
 
@@ -434,9 +435,7 @@ pub fn verify_proof<'a, L, I, K, V>(
 	}
 
 	// Iterate simultaneously in order through proof nodes and key-value pairs to verify.
-	let mut proof_iter = proof.iter().map(|stored| {
-		L::MetaHasher::extract_value(stored.as_slice(), layout.global_meta())
-	});
+	let mut proof_iter = proof.iter().map(|stored| (stored.as_slice(), layout.meta_for_new_node()));
 	let mut items_iter = items.into_iter().peekable();
 
 	// A stack of child references to fill in omitted branch children for later trie nodes in the

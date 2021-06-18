@@ -25,7 +25,7 @@
 //! expected to save roughly (n - 1) hashes in size where n is the number of nodes in the partial
 //! trie.
 
-use hash_db::{HashDB, MetaHasher};
+use hash_db::HashDB;
 use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout,
@@ -238,10 +238,7 @@ pub fn encode_compact_keyed_callback<'a, L, I>(
 						stack.push(last_entry);
 						break;
 					} else {
-						output[last_entry.output_index] = L::MetaHasher::stored_value_owned(
-							last_entry.encode_node()?,
-							last_entry.meta,
-						);
+						output[last_entry.output_index] = last_entry.encode_node()?;
 					}
 				}
 
@@ -281,10 +278,7 @@ pub fn encode_compact_keyed_callback<'a, L, I>(
 	}
 
 	while let Some(mut entry) = stack.pop() {
-		output[entry.output_index] = L::MetaHasher::stored_value_owned(
-			entry.encode_node()?,
-			entry.meta,
-		);
+		output[entry.output_index] = entry.encode_node()?;
 	}
 
 	Ok(output)
@@ -506,7 +500,7 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I, layout: &
 	let mut prefix = NibbleVec::new();
 
 	for (i, encoded_node) in encoded.into_iter().enumerate() {
-		let (encoded_node, mut meta) = L::MetaHasher::extract_value(encoded_node, layout.global_meta());
+		let mut meta = layout.meta_for_new_node();
 		let node = L::Codec::decode(&encoded_node[..], &mut meta)
 			.map_err(|err| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), err)))?;
 

@@ -24,7 +24,7 @@ use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH, NibbleSlice,
 	node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, Value, ValuePlan}, NodeCodec, Recorder,
 	Result as TrieResult, Trie, TrieError, TrieHash,
-	TrieLayout, Meta, MetaHasher,
+	TrieLayout, Meta,
 };
 
 struct StackEntry<'a, M: Meta, C: NodeCodec<M>> {
@@ -80,7 +80,7 @@ impl<'a, M: Meta, C: NodeCodec<M>> StackEntry<'a, M, C> {
 	}
 
 	/// Encode this entry to an encoded trie node with data properly omitted.
-	fn encode_node(mut self) -> TrieResult<(Vec<u8>, M), C::HashOut, C::Error> {
+	fn encode_node(mut self) -> TrieResult<Vec<u8>, C::HashOut, C::Error> {
 		let node_data = self.node.data();
 		let node_meta = &mut self.meta;
 		let encoded = match self.node.node_plan() {
@@ -136,7 +136,7 @@ impl<'a, M: Meta, C: NodeCodec<M>> StackEntry<'a, M, C> {
 				)
 			},
 		};
-		Ok((encoded, self.meta))
+		Ok(encoded)
 	}
 
 	/// Populate the remaining references in `children` with references copied from
@@ -541,16 +541,9 @@ fn unwind_stack<L: TrieLayout>(
 			_ => {
 				// Pop and finalize node from the stack.
 				let index = entry.output_index;
-				let (mut encoded, meta) = entry.encode_node()?;
-				let mut inline = false;
+				let encoded = entry.encode_node()?;
 				if let Some(parent_entry) = stack.last_mut() {
-					inline = parent_entry.set_child(&encoded);
-				}
-				if !inline {
-					encoded = L::MetaHasher::stored_value_owned(
-						encoded,
-						meta,
-					);
+					parent_entry.set_child(&encoded);
 				}
 				if let Some(index) = index {
 					proof_nodes[index] = encoded;

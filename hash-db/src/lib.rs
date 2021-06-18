@@ -151,17 +151,9 @@ pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 		if !alt_hashing.is_active() {
 			return self.insert(prefix, value);
 		}
-		let hash_value = &value[alt_hashing.encoded_offset..];
-		if alt_hashing.value_range.is_some() {
-			let hash_value = alt_hashed_value::<H>(value, alt_hashing.value_range);
-			let key = H::hash(hash_value.as_slice());
-			self.emplace_ref(&key, prefix, value);
-			key
-		} else {
-			let key = H::hash(hash_value);
-			self.emplace_ref(&key, prefix, value);
-			key
-		}
+		let key = alt_hashing.alt_hash::<H>(value);
+		self.emplace_ref(&key, prefix, value);
+		key
 	}
 }
 
@@ -178,6 +170,21 @@ pub struct AltHashing {
 impl AltHashing {
 	fn is_active(&self) -> bool {
 		self.encoded_offset > 0 || self.value_range.is_some()
+	}
+
+	/// Apply hash from alt_hashing.
+	pub fn alt_hash<H: Hasher>(&self, value: &[u8]) -> H::Out {
+		if !self.is_active() {
+			return H::hash(value);
+		}
+		let hash_value = &value[self.encoded_offset..];
+		if self.value_range.is_some() {
+			let hash_value = alt_hashed_value::<H>(value, self.value_range);
+			H::hash(hash_value.as_slice())
+		} else {
+			H::hash(hash_value)
+		}
+
 	}
 }
 
@@ -282,19 +289,6 @@ pub trait MetaHasher<H: Hasher, T>: Send + Sync {
 
 	/// Produce hash, from its hashable value and its metadata.
 	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out;
-
-	/// Produce stored value, for hashable value and its meta.
-	fn stored_value(value: &[u8], meta: Self::Meta) -> T;
-
-	/// Same as `stored_value` but consiming an allocated data.
-	fn stored_value_owned(value: T, meta: Self::Meta) -> T;
-
-	/// Get meta and hashable value from stored value.
-	fn extract_value(stored: &[u8], global_meta: Self::GlobalMeta) -> (&[u8], Self::Meta);
-
-	/// Same as `extract_value` but consiming an allocated
-	/// buffer.
-	fn extract_value_owned(stored: T, global_meta: Self::GlobalMeta) -> (T, Self::Meta);
 }
 
 /// Default `MetaHasher` implementation, stored value
@@ -312,22 +306,6 @@ impl<H, T> MetaHasher<H, T> for NoMeta
 
 	fn hash(value: &[u8], _meta: &Self::Meta) -> H::Out {
 		H::hash(value)
-	}
-
-	fn stored_value(value: &[u8], _meta: Self::Meta) -> T {
-		value.into()
-	}
-
-	fn stored_value_owned(value: T, _meta: Self::Meta) -> T {
-		value
-	}
-
-	fn extract_value(stored: &[u8], _global_meta: Self::GlobalMeta) -> (&[u8], Self::Meta) {
-		(stored, ())
-	}
-
-	fn extract_value_owned(stored: T, _global_meta: Self::GlobalMeta) -> (T, Self::Meta) {
-		(stored, ())
 	}
 }
 
