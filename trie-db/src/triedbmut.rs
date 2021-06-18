@@ -127,20 +127,20 @@ impl Value {
 /// an inline node.
 enum Node<L: TrieLayout> {
 	/// Empty node.
-	Empty(L::Meta),
+	Empty(Meta),
 	/// A leaf node contains the end of a key and a value.
 	/// This key is encoded from a `NibbleSlice`, meaning it contains
 	/// a flag indicating it is a leaf.
-	Leaf(NodeKey, Value, L::Meta),
+	Leaf(NodeKey, Value, Meta),
 	/// An extension contains a shared portion of a key and a child node.
 	/// The shared portion is encoded from a `NibbleSlice` meaning it contains
 	/// a flag indicating it is an extension.
 	/// The child node is always a branch.
-	Extension(NodeKey, NodeHandle<TrieHash<L>>, L::Meta),
+	Extension(NodeKey, NodeHandle<TrieHash<L>>, Meta),
 	/// A branch has up to 16 children and an optional value.
-	Branch(Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>, Value, L::Meta),
+	Branch(Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>, Value, Meta),
 	/// Branch node with support for a nibble (to avoid extension node).
-	NibbledBranch(NodeKey, Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>, Value, L::Meta),
+	NibbledBranch(NodeKey, Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>, Value, Meta),
 }
 
 #[cfg(feature = "std")]
@@ -203,7 +203,7 @@ impl<L: TrieLayout> Node<L>
 				NodeHandle::Hash(hash)
 			},
 			EncodedNodeHandle::Inline(data) => {
-				let meta = layout.meta_for_stored_inline_node();
+				let meta = layout.new_meta();
 				let child = Node::from_encoded(parent_hash, data, db, storage, meta, layout)?;
 				NodeHandle::InMemory(storage.alloc(Stored::New(child)))
 			},
@@ -217,7 +217,7 @@ impl<L: TrieLayout> Node<L>
 		data: &'a[u8],
 		db: &dyn HashDB<L::Hash, DBValue>,
 		storage: &'b mut NodeStorage<L>,
-		mut meta: L::Meta, 
+		mut meta: Meta, 
 		layout: &L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		let encoded_node = L::Codec::decode(data, &mut meta)
@@ -267,12 +267,12 @@ impl<L: TrieLayout> Node<L>
 	}
 
 	// TODO: parallelize
-	fn into_encoded<F>(self, mut child_cb: F) -> (Vec<u8>, L::Meta)
+	fn into_encoded<F>(self, mut child_cb: F) -> (Vec<u8>, Meta)
 	where
 		F: FnMut(NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
 	{
 		match self {
-			Node::Empty(mut meta) => (L::Codec::empty_node(&mut meta).to_vec(), meta),
+			Node::Empty(meta) => (L::Codec::empty_node().to_vec(), meta),
 			Node::Leaf(partial, value, mut meta) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				(L::Codec::leaf_node(pr.right(), value.as_slice(), &mut meta), meta)
@@ -442,7 +442,7 @@ impl<L: TrieLayout> NodeStorage<L>
 		let idx = handle.0;
 
 		self.free_indices.push_back(idx);
-		let meta = L::Meta::meta_for_empty(layout.global_meta());
+		let meta = layout.new_meta();
 		mem::replace(&mut self.nodes[idx], Stored::New(Node::Empty(meta)))
 	}
 }
@@ -579,7 +579,7 @@ where
 	) -> Result<StorageHandle, TrieHash<L>, CError<L>> {
 		let node_encoded = self.db.get(&hash, key)
 			.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
-		let meta = self.layout.meta_for_new_node();
+		let meta = self.layout.new_meta();
 		let node = Node::from_encoded(
 			hash,
 			&node_encoded,
@@ -762,7 +762,7 @@ where
 						}
 					} else {
 						// Original had nothing there. compose a leaf.
-						let meta_leaf = self.layout.meta_for_new_node();
+						let meta_leaf = self.layout.new_meta();
 						let leaf = self.storage.alloc(
 							Stored::New(Node::Leaf(key.to_stored(), Value::Value(value), meta_leaf))
 						);
@@ -810,7 +810,7 @@ where
 					let mut children = empty_children();
 					let alloc_storage = self.storage.alloc(Stored::New(low));
 
-					let meta_branch = self.layout.meta_for_new_node();
+					let meta_branch = self.layout.new_meta();
 					children[ix as usize] = Some(alloc_storage.into());
 
 					if partial.len() - common == 0 {
@@ -822,7 +822,7 @@ where
 						))
 					} else {
 						let ix = partial.at(common);
-						let meta_leaf = self.layout.meta_for_new_node();
+						let meta_leaf = self.layout.new_meta();
 						let stored_leaf = Node::Leaf(partial.mid(common + 1).to_stored(), Value::Value(value), meta_leaf);
 						let leaf = self.storage.alloc(Stored::New(stored_leaf));
 
@@ -857,7 +857,7 @@ where
 						}
 					} else {
 						// Original had nothing there. compose a leaf.
-						let meta_leaf = self.layout.meta_for_new_node();
+						let meta_leaf = self.layout.new_meta();
 						let leaf = self.storage.alloc(
 							Stored::New(Node::Leaf(key.to_stored(), Value::Value(value), meta_leaf)),
 						);
@@ -904,7 +904,7 @@ where
 						Node::Branch(children, stored_value, meta)
 					} else {
 						let idx = existing_key.at(common) as usize;
-						let meta_branch = self.layout.meta_for_new_node();
+						let meta_branch = self.layout.new_meta();
 						let new_leaf = Node::Leaf(
 							existing_key.mid(common + 1).to_stored(),
 							stored_value,
@@ -956,7 +956,7 @@ where
 
 					// always replace since we took a leaf and made an extension.
 					let leaf = self.storage.alloc(Stored::New(branch));
-					let meta_extension = self.layout.meta_for_new_node();
+					let meta_extension = self.layout.new_meta();
 					InsertAction::Replace(Node::Extension(existing_key.to_stored(), leaf.into(), meta_extension))
 				} else {
 					debug_assert!(L::USE_EXTENSION);
@@ -983,7 +983,7 @@ where
 					InsertAction::Replace(Node::Extension(
 						existing_key.to_stored_range(common),
 						self.storage.alloc(Stored::New(augmented_low)).into(),
-						self.layout.meta_for_new_node(),
+						self.layout.new_meta(),
 					))
 				}
 			},
@@ -1018,7 +1018,7 @@ where
 					};
 
 					// continue inserting.
-					let meta_branch = self.layout.meta_for_new_node();
+					let meta_branch = self.layout.new_meta();
 					let branch_action = self.insert_inspector(
 						Node::Branch(children, Value::NoValue, meta_branch),
 						key,
@@ -1062,7 +1062,7 @@ where
 					let augmented_low = self.insert_inspector(low, key, value, old_val)?
 						.unwrap_node();
 
-					let new_meta = self.layout.meta_for_new_node();
+					let new_meta = self.layout.new_meta();
 					// always replace, since this extension is not the one we started with.
 					// this is known because the partial key is only the common prefix.
 					InsertAction::Replace(Node::Extension(

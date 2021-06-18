@@ -18,7 +18,7 @@ use log::debug;
 use memory_db::{MemoryDB, PrefixedKey};
 use hash_db::{Hasher, HashDB};
 use trie_db::{TrieDBMut, TrieMut, NodeCodec,
-	TrieLayout, DBValue, Value, Meta};
+	TrieLayout, DBValue, Value};
 use reference_trie::{ExtensionLayout, NoExtensionLayout,
 	RefHasher, test_layouts, ReferenceNodeCodec, CheckMetaHasherNoExt,
 	ReferenceNodeCodecNoExt, reference_trie_root_iter_build as reference_trie_root};
@@ -69,9 +69,9 @@ fn unpopulate_trie<'db, T: TrieLayout>(t: &mut TrieDBMut<'db, T>, v: &[(Vec<u8>,
 
 fn reference_hashed_null_node<T: TrieLayout>() -> <T::Hash as Hasher>::Out {
 	if T::USE_EXTENSION {
-		<ReferenceNodeCodec<T::Hash> as NodeCodec<T::Meta>>::hashed_null_node()
+		<ReferenceNodeCodec<T::Hash> as NodeCodec>::hashed_null_node()
 	} else {
-		<ReferenceNodeCodecNoExt<T::Hash> as NodeCodec<T::Meta>>::hashed_null_node()
+		<ReferenceNodeCodecNoExt<T::Hash> as NodeCodec>::hashed_null_node()
 	}
 }
 
@@ -468,7 +468,7 @@ fn register_proof_without_value() {
 	use hash_db::{Prefix, AsHashDB};
 
 	type Layout = CheckMetaHasherNoExt;
-	type Meta = trie_db::TrieMeta;
+	type Meta = trie_db::Meta;
 	type MemoryDB = memory_db::MemoryDB<
 		RefHasher,
 		PrefixedKey<RefHasher>,

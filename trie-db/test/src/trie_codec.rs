@@ -14,7 +14,7 @@
 
 
 use trie_db::{
-	DBValue, encode_compact, decode_compact, Meta,
+	DBValue, encode_compact, decode_compact,
 	Trie, TrieMut, TrieDB, TrieError, TrieDBMut, TrieLayout, Recorder,
 };
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};

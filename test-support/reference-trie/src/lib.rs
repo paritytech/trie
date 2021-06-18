@@ -30,7 +30,6 @@ use trie_db::{
 	TrieRoot,
 	Partial,
 	Meta,
-	TrieMeta,
 };
 use std::borrow::Borrow;
 
@@ -82,10 +81,9 @@ impl TrieLayout for ExtensionLayout {
 	const ALLOW_EMPTY: bool = false;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
-	type Meta = ();
 
-	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		()
+	fn alt_threshold(&self) -> Option<u32> {
+		None
 	}
 }
 
@@ -112,10 +110,9 @@ impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	const ALLOW_EMPTY: bool = false;
 	type Hash = H;
 	type Codec = ReferenceNodeCodecNoExt<H>;
-	type Meta = ();
 
-	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		()
+	fn alt_threshold(&self) -> Option<u32> {
+		None
 	}
 }
 
@@ -128,10 +125,9 @@ impl TrieLayout for AllowEmptyLayout {
 	const ALLOW_EMPTY: bool = true;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
-	type Meta = ();
 
-	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		()
+	fn alt_threshold(&self) -> Option<u32> {
+		None
 	}
 }
 
@@ -146,15 +142,14 @@ impl TrieLayout for CheckMetaHasherNoExt {
 
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExtMeta<RefHasher>;
-	type Meta = TrieMeta;
 
-	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
+	fn alt_threshold(&self) -> Option<u32> {
 		self.0
 	}
 }
 
 /// Switch to hashed value variant.
-pub	fn to_hashed_variant<H: Hasher>(value: &[u8], meta: &mut TrieMeta, used_value: bool) -> Option<DBValue> {
+pub	fn to_hashed_variant<H: Hasher>(value: &[u8], meta: &mut Meta, used_value: bool) -> Option<DBValue> {
 	if !meta.contain_hash && meta.apply_inner_hashing && !used_value && meta.range.is_some() {
 		let mut stored = Vec::with_capacity(value.len() + 1);
 		// Warning this assumes that encoded value cannot start by this,
@@ -197,9 +192,9 @@ mod codec_alt_hashing {
 	pub struct NodeCodec<H>(PhantomData<H>);
 
 	impl<H: Hasher> NodeCodec<H> {
-		fn decode_plan_inner_hashed<M: Meta<StateMeta = bool>>(
+		fn decode_plan_inner_hashed(
 			data: &[u8],
-			meta: &mut M,
+			meta: &mut Meta,
 		) -> Result<NodePlan, Error> {
 			let mut input = ByteSliceInput::new(data);
 
@@ -290,19 +285,18 @@ mod codec_alt_hashing {
 		}
 	}
 
-	impl<H, M> NodeCodecT<M> for NodeCodec<H>
+	impl<H> NodeCodecT for NodeCodec<H>
 		where
 			H: Hasher,
-			M: Meta<StateMeta = bool, GlobalMeta = Option<u32>>,
 	{
 		type Error = Error;
 		type HashOut = H::Out;
 
 		fn hashed_null_node() -> <H as Hasher>::Out {
-			H::hash(<Self as NodeCodecT<M>>::empty_node_no_meta())
+			H::hash(<Self as NodeCodecT>::empty_node())
 		}
 
-		fn decode_plan(data: &[u8], meta: &mut M) -> Result<NodePlan, Self::Error> {
+		fn decode_plan(data: &[u8], meta: &mut Meta) -> Result<NodePlan, Self::Error> {
 			Self::decode_plan_inner_hashed(data, meta).map(|plan| {
 				meta.decoded_callback(&plan);
 				plan
@@ -314,18 +308,14 @@ mod codec_alt_hashing {
 		}
 
 		fn is_empty_node(data: &[u8]) -> bool {
-			data == <Self as NodeCodecT<M>>::empty_node_no_meta()
+			data == <Self as NodeCodecT>::empty_node()
 		}
 
-		fn empty_node(_meta: &mut M) -> Vec<u8> {
-			vec![trie_constants::EMPTY_TRIE]
-		}
-
-		fn empty_node_no_meta() -> &'static [u8] {
+		fn empty_node() -> &'static [u8] {
 			&[trie_constants::EMPTY_TRIE]
 		}
 
-		fn leaf_node(partial: Partial, value: Value, meta: &mut M) -> Vec<u8> {
+		fn leaf_node(partial: Partial, value: Value, meta: &mut Meta) -> Vec<u8> {
 			let contains_hash = matches!(&value, Value::HashedValue(..));
 			// Note that we use AltHash type only if inner hashing will occur,
 			// this way we allow changing hash threshold.
@@ -368,7 +358,7 @@ mod codec_alt_hashing {
 			_partial: impl Iterator<Item = u8>,
 			_nbnibble: usize,
 			_child: ChildReference<<H as Hasher>::Out>,
-			_meta: &mut M,
+			_meta: &mut Meta,
 		) -> Vec<u8> {
 			unreachable!()
 		}
@@ -376,7 +366,7 @@ mod codec_alt_hashing {
 		fn branch_node(
 			_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 			_maybe_value: Value,
-			_meta: &mut M,
+			_meta: &mut Meta,
 		) -> Vec<u8> {
 			unreachable!()
 		}
@@ -386,7 +376,7 @@ mod codec_alt_hashing {
 			number_nibble: usize,
 			children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 			value: Value,
-			meta: &mut M,
+			meta: &mut Meta,
 		) -> Vec<u8> {
 			let contains_hash = matches!(&value, Value::HashedValue(..));
 			let mut output = match (&value,  meta.read_global_meta().as_ref().map(|threshold|
@@ -793,7 +783,7 @@ mod codec_alt_hashing {
 				0..=31 => data.encode_to(&mut self.buffer),
 				_ => {
 					if apply_inner_hashing {
-						let meta = TrieMeta {
+						let meta = Meta {
 							range: range,
 							contain_hash: false,
 							// Using `inner_value_hashing` instead to check this.
@@ -814,7 +804,7 @@ mod codec_alt_hashing {
 			let apply_inner_hashing = self.apply_inner_hashing;
 			let range = self.current_value_range;
 			let data = self.buffer;
-			let meta = TrieMeta {
+			let meta = Meta {
 				range: range,
 				contain_hash: false,
 				try_inner_hashing: None,
@@ -835,35 +825,6 @@ mod codec_alt_hashing {
 pub use codec_alt_hashing::NodeCodec as ReferenceNodeCodecNoExtMeta;
 pub use codec_alt_hashing::ReferenceTrieStreamNoExt;
 pub use codec_alt_hashing::trie_constants;
-
-#[derive(Clone, Copy, Debug)]
-pub enum Version {
-	Old,
-	New,
-}
-
-impl Default for Version {
-	fn default() -> Self {
-		// freshly created nodes are New.
-		Version::New
-	}
-}
-
-/// previous layout in updatable scenario.
-#[derive(Default, Clone)]
-pub struct Old;
-
-impl TrieLayout for Old {
-	const USE_EXTENSION: bool = false;
-	const ALLOW_EMPTY: bool = false;
-	type Hash = RefHasher;
-	type Codec = ReferenceNodeCodecNoExt<RefHasher>;
-	type Meta = ();
-
-	fn global_meta(&self) -> <Self::Meta as Meta>::GlobalMeta {
-		()
-	}
-}
 
 impl<H: Hasher> TrieConfiguration for GenericNoExtensionLayout<H> { }
 
@@ -1359,12 +1320,12 @@ impl<'a> Input for ByteSliceInput<'a> {
 // but due to the current limitations of Rust const evaluation we can't do
 // `const HASHED_NULL_NODE: <KeccakHasher as Hasher>::Out = <KeccakHasher as Hasher>::Out( … … )`.
 // Perhaps one day soon?
-impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodec<H> {
+impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 	type Error = CodecError;
 	type HashOut = H::Out;
 
 	fn hashed_null_node() -> <H as Hasher>::Out {
-		H::hash(<Self as NodeCodec<M>>::empty_node_no_meta())
+		H::hash(<Self as NodeCodec>::empty_node())
 	}
 
 	fn decode_plan_inner(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
@@ -1433,18 +1394,14 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodec<H> {
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
-		data == <Self as NodeCodec<M>>::empty_node_no_meta()
+		data == <Self as NodeCodec>::empty_node()
 	}
 
-	fn empty_node(_meta: &mut M) -> Vec<u8> {
-		vec![EMPTY_TRIE]
-	}
-
-	fn empty_node_no_meta() -> &'static[u8] {
+	fn empty_node() -> &'static[u8] {
 		&[EMPTY_TRIE]
 	}
 
-	fn leaf_node(partial: Partial, value: Value, meta: &mut M) -> Vec<u8> {
+	fn leaf_node(partial: Partial, value: Value, meta: &mut Meta) -> Vec<u8> {
 		let mut output = partial_to_key(partial, LEAF_NODE_OFFSET, LEAF_NODE_OVER);
 		match value {
 			Value::Value(value) => {
@@ -1464,7 +1421,7 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodec<H> {
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
 		child: ChildReference<Self::HashOut>,
-		_meta: &mut M,
+		_meta: &mut Meta,
 	) -> Vec<u8> {
 		let mut output = partial_from_iterator_to_key(
 			partial,
@@ -1483,7 +1440,7 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodec<H> {
 	fn branch_node(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Value,
-		meta: &mut M,
+		meta: &mut Meta,
 	) -> Vec<u8> {
 		let mut output = vec![0; BITMAP_LENGTH + 1];
 		let mut prefix: [u8; 3] = [0; 3];
@@ -1524,27 +1481,32 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodec<H> {
 		_number_nibble: usize,
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		_maybe_value: Value,
-		_meta: &mut M,
+		_meta: &mut Meta,
 	) -> Vec<u8> {
 		unreachable!()
 	}
 }
 
-impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
-	fn decode_plan_inner2<M: Meta>(
-		data: &[u8],
-		meta: Option<&mut M>,
-	) -> std::result::Result<NodePlan, CodecError> {
+impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
+	type Error = CodecError;
+	type HashOut = <H as Hasher>::Out;
+
+	fn hashed_null_node() -> <H as Hasher>::Out {
+		H::hash(<Self as NodeCodec>::empty_node())
+	}
+
+	fn decode_plan(data: &[u8], meta: &mut Meta) -> Result<NodePlan, Self::Error> {
+		Self::decode_plan_inner(data).map(|plan| {
+			meta.decoded_callback(&plan);
+			plan
+		})
+	}
+
+	fn decode_plan_inner(data: &[u8]) -> std::result::Result<NodePlan, Self::Error> {
 		if data.len() < 1 {
 			return Err(CodecError::from("Empty encoded node."));
 		}
-		let offset = if let Some(meta) = meta {
-			meta.decode_state_meta(data)?
-		} else {
-			0
-		};
 		let mut input = ByteSliceInput::new(data);
-		let _ = input.take(offset)?;
 
 		Ok(match NodeHeaderNoExt::decode(&mut input)? {
 			NodeHeaderNoExt::Null => NodePlan::Empty,
@@ -1609,46 +1571,17 @@ impl<H: Hasher> ReferenceNodeCodecNoExt<H> {
 			}
 		})
 	}
-}
-
-
-impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
-	type Error = CodecError;
-	type HashOut = <H as Hasher>::Out;
-
-	fn hashed_null_node() -> <H as Hasher>::Out {
-		H::hash(<Self as NodeCodec<M>>::empty_node_no_meta())
-	}
-
-	fn decode_plan(data: &[u8], meta: &mut M) -> Result<NodePlan, Self::Error> {
-		Self::decode_plan_inner2(data, Some(meta)).map(|plan| {
-			meta.decoded_callback(&plan);
-			plan
-		})
-	}
-
-	fn decode_plan_inner(data: &[u8]) -> std::result::Result<NodePlan, Self::Error> {
-		let meta: Option<&mut M> = None;
-		Self::decode_plan_inner2(data, meta)
-	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
-		data == <Self as NodeCodec<M>>::empty_node_no_meta()
+		data == <Self as NodeCodec>::empty_node()
 	}
 
-	fn empty_node(meta: &mut M) -> Vec<u8> {
-		let mut output = meta.encode_state_meta();
-		output.extend_from_slice(&[EMPTY_TRIE_NO_EXT]);
-		output
-	}
-
-	fn empty_node_no_meta() -> &'static [u8] {
+	fn empty_node() -> &'static [u8] {
 		&[EMPTY_TRIE_NO_EXT]
 	}
 
-	fn leaf_node(partial: Partial, value: Value, meta: &mut M) -> Vec<u8> {
-		let mut output = meta.encode_state_meta();
-		output.append(&mut partial_encode(partial, NodeKindNoExt::Leaf));
+	fn leaf_node(partial: Partial, value: Value, meta: &mut Meta) -> Vec<u8> {
+		let mut output = partial_encode(partial, NodeKindNoExt::Leaf);
 		match value {
 			Value::Value(value) => {
 				let start_len = output.len();
@@ -1675,7 +1608,7 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 		_partial: impl Iterator<Item = u8>,
 		_nbnibble: usize,
 		_child: ChildReference<<H as Hasher>::Out>,
-		_met: &mut M,
+		_met: &mut Meta,
 	) -> Vec<u8> {
 		unreachable!()
 	}
@@ -1683,7 +1616,7 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 	fn branch_node(
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		_maybe_value: Value,
-		_meta: &mut M,
+		_meta: &mut Meta,
 	) -> Vec<u8> {
 		unreachable!()
 	}
@@ -1693,10 +1626,9 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Value,
-		meta: &mut M,
+		meta: &mut Meta,
 	) -> Vec<u8> {
-		let mut output = meta.encode_state_meta();
-		output.append(&mut if let Value::NoValue = &maybe_value {
+		let mut output = if let Value::NoValue = &maybe_value {
 			partial_from_iterator_encode(
 				partial,
 				number_nibble,
@@ -1708,7 +1640,7 @@ impl<H: Hasher, M: Meta> NodeCodec<M> for ReferenceNodeCodecNoExt<H> {
 				number_nibble,
 				NodeKindNoExt::BranchWithValue,
 			)
-		});
+		};
 		let bitmap_index = output.len();
 		let mut bitmap: [u8; BITMAP_LENGTH] = [0; BITMAP_LENGTH];
 		(0..BITMAP_LENGTH).for_each(|_| output.push(0));
@@ -1997,10 +1929,10 @@ mod tests {
 	fn too_big_nibble_length() {
 		// + 1 for 0 added byte of nibble encode
 		let input = vec![0u8; (NIBBLE_SIZE_BOUND_NO_EXT as usize + 1) / 2 + 1];
-		let enc = <ReferenceNodeCodecNoExt<RefHasher> as NodeCodec<_>>
-		::leaf_node(((0, 0), &input), Value::Value(&[1]), &mut ());
-		let dec = <ReferenceNodeCodecNoExt<RefHasher> as NodeCodec<_>>
-		::decode(&enc, &mut ()).unwrap();
+		let enc = <ReferenceNodeCodecNoExt<RefHasher> as NodeCodec>
+		::leaf_node(((0, 0), &input), Value::Value(&[1]), &mut Default::default());
+		let dec = <ReferenceNodeCodecNoExt<RefHasher> as NodeCodec>
+		::decode(&enc, &mut Default::default()).unwrap();
 		let o_sl = if let Node::Leaf(sl, _) = dec {
 			Some(sl)
 		} else { None };

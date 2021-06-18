@@ -68,7 +68,7 @@ where
 		self.raw.contains(L::Hash::hash(key).as_ref())
 	}
 
-	fn get_with<'a, 'key, Q: Query<L::Hash, L::Meta>>(
+	fn get_with<'a, 'key, Q: Query<L::Hash>>(
 		&'a self,
 		key: &'key [u8],
 		query: Q,

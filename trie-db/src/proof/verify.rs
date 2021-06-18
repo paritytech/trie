@@ -95,11 +95,11 @@ impl<HO: std::fmt::Debug, CE: std::error::Error + 'static> std::error::Error for
 	}
 }
 
-struct StackEntry<'a, M: Meta, C: NodeCodec<M>> {
+struct StackEntry<'a, C: NodeCodec> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: LeftNibbleSlice<'a>,
 	node: Node<'a>,
-	meta: M,
+	meta: Meta,
 	is_inline: bool,
 	/// The value associated with this trie node.
 	value: Value<'a>,
@@ -111,8 +111,8 @@ struct StackEntry<'a, M: Meta, C: NodeCodec<M>> {
 	_marker: PhantomData<C>,
 }
 
-impl<'a, M: Meta, C: NodeCodec<M>> StackEntry<'a, M, C> {
-	fn new(node_data: &'a [u8], prefix: LeftNibbleSlice<'a>, is_inline: bool, mut meta: M)
+impl<'a, C: NodeCodec> StackEntry<'a, C> {
+	fn new(node_data: &'a [u8], prefix: LeftNibbleSlice<'a>, is_inline: bool, mut meta: Meta)
 		   -> Result<Self, Error<C::HashOut, C::Error>>
 	{
 		let node = C::decode(node_data, &mut meta)
@@ -144,7 +144,7 @@ impl<'a, M: Meta, C: NodeCodec<M>> StackEntry<'a, M, C> {
 		self.complete_children()?;
 		Ok(match self.node {
 			Node::Empty =>
-				C::empty_node(&mut self.meta).to_vec(),
+				C::empty_node().to_vec(),
 			Node::Leaf(partial, _) => {
 				C::leaf_node(partial.right(), self.value, &mut self.meta)
 			}
@@ -179,10 +179,10 @@ impl<'a, M: Meta, C: NodeCodec<M>> StackEntry<'a, M, C> {
 		&mut self,
 		child_prefix: LeftNibbleSlice<'a>,
 		proof_iter: &mut I,
-		inline_meta: impl Fn() -> M,
+		inline_meta: impl Fn() -> Meta,
 	) -> Result<Self, Error<C::HashOut, C::Error>>
 		where
-			I: Iterator<Item=(&'a [u8], M)>,
+			I: Iterator<Item=(&'a [u8], Meta)>,
 	{
 		match self.node {
 			Node::Extension(_, child) => {
@@ -240,10 +240,10 @@ impl<'a, M: Meta, C: NodeCodec<M>> StackEntry<'a, M, C> {
 		proof_iter: &mut I,
 		child: NodeHandle<'a>,
 		prefix: LeftNibbleSlice<'a>,
-		inline_meta: impl Fn() -> M,
+		inline_meta: impl Fn() -> Meta,
 	) -> Result<Self, Error<C::HashOut, C::Error>>
 		where
-			I: Iterator<Item = (&'a [u8], M)>,
+			I: Iterator<Item = (&'a [u8], Meta)>,
 	{
 		match child {
 			NodeHandle::Inline(data) => {
@@ -435,12 +435,12 @@ pub fn verify_proof<'a, L, I, K, V>(
 	}
 
 	// Iterate simultaneously in order through proof nodes and key-value pairs to verify.
-	let mut proof_iter = proof.iter().map(|stored| (stored.as_slice(), layout.meta_for_new_node()));
+	let mut proof_iter = proof.iter().map(|stored| (stored.as_slice(), layout.new_meta()));
 	let mut items_iter = items.into_iter().peekable();
 
 	// A stack of child references to fill in omitted branch children for later trie nodes in the
 	// proof.
-	let mut stack: Vec<StackEntry<L::Meta, L::Codec>> = Vec::new();
+	let mut stack: Vec<StackEntry<L::Codec>> = Vec::new();
 
 	let (root_node, meta) = match proof_iter.next() {
 		Some(node) => node,
@@ -456,7 +456,7 @@ pub fn verify_proof<'a, L, I, K, V>(
 		// Insert omitted value.
 		match last_entry.advance_item(&mut items_iter)? {
 			Step::Descend(child_prefix) => {
-				let next_entry = last_entry.advance_child_index(child_prefix, &mut proof_iter, || layout.meta_for_stored_inline_node())?;
+				let next_entry = last_entry.advance_child_index(child_prefix, &mut proof_iter, || layout.new_meta())?;
 				stack.push(last_entry);
 				last_entry = next_entry;
 			}

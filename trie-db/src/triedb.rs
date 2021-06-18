@@ -20,7 +20,7 @@ use crate::DBValue;
 use super::node::{NodeHandle, Node, Value, OwnedNode, decode_hash};
 use super::lookup::Lookup;
 use super::{Result, Trie, TrieItem, TrieKeyItem, TrieError, TrieIterator, Query,
-	TrieLayout, CError, TrieHash};
+	TrieLayout, CError, TrieHash, Meta};
 use super::nibble::NibbleVec;
 
 #[cfg(feature = "std")]
@@ -105,7 +105,7 @@ where
 		parent_hash: TrieHash<L>,
 		node_handle: NodeHandle,
 		partial_key: Prefix,
-	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>, L::Meta), TrieHash<L>, CError<L>> {
+	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>, Meta), TrieHash<L>, CError<L>> {
 		let (node_hash, node_data, mut meta) = match node_handle {
 			NodeHandle::Hash(data) => {
 				let node_hash = decode_hash::<L::Hash>(data)
@@ -120,12 +120,12 @@ where
 						}
 					})?;
 
-				let meta = self.layout.meta_for_new_node();
+				let meta = self.layout.new_meta();
 				(Some(node_hash), node_data, meta)
 			}
-			NodeHandle::Inline(data) => (None, data.to_vec(), self.layout.meta_for_stored_inline_node()),
+			NodeHandle::Inline(data) => (None, data.to_vec(), self.layout.new_meta()),
 		};
-		let owned_node = OwnedNode::new::<L::Meta, L::Codec>(node_data, &mut meta)
+		let owned_node = OwnedNode::new::<L::Codec>(node_data, &mut meta)
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or(parent_hash), e)))?;
 		Ok((owned_node, node_hash, meta))
 	}
@@ -146,7 +146,7 @@ where
 		self.layout.clone()
 	}
 
-	fn get_with<'a, 'key, Q: Query<L::Hash, L::Meta>>(
+	fn get_with<'a, 'key, Q: Query<L::Hash>>(
 		&'a self,
 		key: &'key [u8],
 		query: Q,

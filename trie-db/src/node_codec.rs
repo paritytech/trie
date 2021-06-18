@@ -30,7 +30,7 @@ pub type Partial<'a> = ((u8, u8), &'a[u8]);
 /// Trait for trie node encoding/decoding.
 /// Uses a type parameter to allow registering
 /// positions without colling decode plan.
-pub trait NodeCodec<M: Meta>: Sized {
+pub trait NodeCodec: Sized {
 	/// Codec error type.
 	type Error: Error;
 
@@ -42,7 +42,7 @@ pub trait NodeCodec<M: Meta>: Sized {
 	fn hashed_null_node() -> Self::HashOut;
 
 	/// Decode bytes to a `NodePlan`. Returns `Self::E` on failure.
-	fn decode_plan(data: &[u8], meta: &mut M) -> Result<NodePlan, Self::Error> {
+	fn decode_plan(data: &[u8], meta: &mut Meta) -> Result<NodePlan, Self::Error> {
 		Self::decode_plan_inner(data).map(|plan| {
 			meta.decoded_callback(&plan);
 			plan
@@ -53,7 +53,7 @@ pub trait NodeCodec<M: Meta>: Sized {
 	fn decode_plan_inner(data: &[u8]) -> Result<NodePlan, Self::Error>;
 
 	/// Decode bytes to a `Node`. Returns `Self::E` on failure.
-	fn decode<'a>(data: &'a [u8], meta: &mut M) -> Result<Node<'a>, Self::Error> {
+	fn decode<'a>(data: &'a [u8], meta: &mut Meta) -> Result<Node<'a>, Self::Error> {
 		Ok(Self::decode_plan(data, meta)?.build(data))
 	}
 
@@ -61,14 +61,10 @@ pub trait NodeCodec<M: Meta>: Sized {
 	fn is_empty_node(data: &[u8]) -> bool;
 
 	/// Returns an encoded empty node.
-	fn empty_node(meta: &mut M) -> Vec<u8>;
-
-
-	/// Returns an encoded empty node without meta handling.
-	fn empty_node_no_meta() -> &'static [u8];
+	fn empty_node() -> &'static [u8];
 
 	/// Returns an encoded leaf node
-	fn leaf_node(partial: Partial, value: Value, meta: &mut M) -> Vec<u8>;
+	fn leaf_node(partial: Partial, value: Value, meta: &mut Meta) -> Vec<u8>;
 
 	/// Returns an encoded extension node
 	/// Note that number_nibble is the number of element of the iterator
@@ -78,7 +74,7 @@ pub trait NodeCodec<M: Meta>: Sized {
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
 		child_ref: ChildReference<Self::HashOut>,
-		meta: &mut M,
+		meta: &mut Meta,
 	) -> Vec<u8>;
 
 	/// Returns an encoded branch node.
@@ -86,7 +82,7 @@ pub trait NodeCodec<M: Meta>: Sized {
 	fn branch_node(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Value,
-		meta: &mut M,
+		meta: &mut Meta,
 	) -> Vec<u8>;
 
 	/// Returns an encoded branch node with a possible partial path.
@@ -96,6 +92,6 @@ pub trait NodeCodec<M: Meta>: Sized {
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Value,
-		meta: &mut M,
+		meta: &mut Meta,
 	) -> Vec<u8>;
 }

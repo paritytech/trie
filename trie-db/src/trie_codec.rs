@@ -38,7 +38,7 @@ use crate::rstd::{
 };
 use crate::node::ValuePlan;
 
-struct EncoderStackEntry<C: NodeCodec<M>, M: Meta> {
+struct EncoderStackEntry<C: NodeCodec> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: NibbleVec,
 	node: Rc<OwnedNode<DBValue>>,
@@ -48,14 +48,14 @@ struct EncoderStackEntry<C: NodeCodec<M>, M: Meta> {
 	/// Flags indicating whether each child is omitted in the encoded node.
 	omit_children: Vec<bool>,
 	/// Meta from serialized. Can also contain flags.
-	meta: M,
+	meta: Meta,
 	/// The encoding of the subtrie nodes rooted at this entry, which is built up in
 	/// `encode_compact`.
 	output_index: usize,
-	_marker: PhantomData<(M, C)>,
+	_marker: PhantomData<C>,
 }
 
-impl<C: NodeCodec<M>, M: Meta> EncoderStackEntry<C, M> {
+impl<C: NodeCodec> EncoderStackEntry<C> {
 	/// Given the prefix of the next child node, identify its index and advance `child_index` to
 	/// that. For a given entry, this must be called sequentially only with strictly increasing
 	/// child prefixes. Returns an error if the child prefix is not a child of this entry or if
@@ -185,8 +185,8 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 pub fn encode_compact_keyed_callback<'a, L, I>(
 	db: &TrieDB<L>,
 	matches: I,
-	match_callback: impl Fn(&mut L::Meta),
-	default_callback: impl Fn(&mut L::Meta),
+	match_callback: impl Fn(&mut Meta),
+	default_callback: impl Fn(&mut Meta),
 ) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
@@ -199,7 +199,7 @@ pub fn encode_compact_keyed_callback<'a, L, I>(
 
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
-	let mut stack: Vec<EncoderStackEntry<L::Codec, L::Meta>> = Vec::new();
+	let mut stack: Vec<EncoderStackEntry<L::Codec>> = Vec::new();
 
 	// TrieDBNodeIterator guarantees that:
 	// - It yields at least one node.
@@ -336,9 +336,9 @@ impl<'a, I: Iterator<Item = &'a [u8]>> MatchKeys<'a, I> {
 	}
 }
 
-struct DecoderStackEntry<'a, C: NodeCodec<M>, M: Meta> {
+struct DecoderStackEntry<'a, C: NodeCodec> {
 	node: Node<'a>,
-	meta: M,
+	meta: Meta,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
@@ -347,7 +347,7 @@ struct DecoderStackEntry<'a, C: NodeCodec<M>, M: Meta> {
 	_marker: PhantomData<C>,
 }
 
-impl<'a, C: NodeCodec<M>, M: Meta> DecoderStackEntry<'a, C, M> {
+impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	/// Advance the child index until either it exceeds the number of children or the child is
 	/// marked as omitted. Omitted children are indicated by an empty inline reference. For each
 	/// child that is passed over and not omitted, copy over the child reference from the node to
@@ -434,10 +434,10 @@ impl<'a, C: NodeCodec<M>, M: Meta> DecoderStackEntry<'a, C, M> {
 	///
 	/// Preconditions:
 	/// - if node is an extension node, then `children[0]` is Some.
-	fn encode_node(mut self) -> (Vec<u8>, M) {
+	fn encode_node(mut self) -> (Vec<u8>, Meta) {
 		(match self.node {
 			Node::Empty =>
-				C::empty_node(&mut self.meta).to_vec(),
+				C::empty_node().to_vec(),
 			Node::Leaf(partial, value) =>
 				C::leaf_node(partial.right(), value, &mut self.meta),
 			Node::Extension(partial, _) =>
@@ -494,13 +494,13 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I, layout: &
 {
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
-	let mut stack: Vec<DecoderStackEntry<L::Codec, L::Meta>> = Vec::new();
+	let mut stack: Vec<DecoderStackEntry<L::Codec>> = Vec::new();
 
 	// The prefix of the next item to be read from the slice of encoded items.
 	let mut prefix = NibbleVec::new();
 
 	for (i, encoded_node) in encoded.into_iter().enumerate() {
-		let mut meta = layout.meta_for_new_node();
+		let mut meta = layout.new_meta();
 		let node = L::Codec::decode(&encoded_node[..], &mut meta)
 			.map_err(|err| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), err)))?;
 

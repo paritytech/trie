@@ -273,7 +273,7 @@ pub struct OwnedNode<D: Borrow<[u8]>> {
 
 impl<D: Borrow<[u8]>> OwnedNode<D> {
 	/// Construct an `OwnedNode` by decoding an owned data source according to some codec.
-	pub fn new<M: Meta, C: NodeCodec<M>>(data: D, meta: &mut M) -> Result<Self, C::Error> {
+	pub fn new<C: NodeCodec>(data: D, meta: &mut Meta) -> Result<Self, C::Error> {
 		let plan = C::decode_plan(data.borrow(), meta)?;
 		Ok(OwnedNode { data, plan })
 	}
