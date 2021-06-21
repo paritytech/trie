@@ -117,11 +117,12 @@ pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 	/// hash is not known.
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
 
-	/// Access additional content or indicate additional content already accessed and needed.
+	/// Access additional content or indicates additional content being accessed.
 	///
-	/// In one case `at` is `None` and no reply is expected, just a callback on content access.
+	/// When `at` is `None`, no reply is expected, acts as a callback on content access
+	/// (eg access to a trie node value).
 	///
-	/// In the other case `at` is `Some` and we try to fetch additional content (eg if value
+	/// When `at` is `Some`, we also try to fetch additional content (eg if value
 	/// of a trie node is stored externally for performance purpose).
 	fn access_from(&self, _key: &H::Out, _at: Option<&H::Out>) -> Option<T> {
 		None
@@ -147,6 +148,10 @@ pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 	fn remove(&mut self, key: &H::Out, prefix: Prefix);
 
 	/// Insert with alternate hashing info.
+	///
+	/// This operation allows different hashing scheme.
+	/// Currently `AltHashing` allows inner hashing of a range
+	/// of byte (eg to exclude some values from a trie node proof when unaccessed).
 	fn alt_insert(
 		&mut self,
 		prefix: Prefix,
@@ -166,9 +171,18 @@ pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 #[derive(Default, Clone, Debug)]
 pub struct AltHashing {
 	/// Allow skipping first bytes.
+	/// Can be use to add some metadata to some content without
+	/// changing the resulting hash.
+	/// (eg indicate that a trie node in proof does not contains
+	/// a value but its hash).
 	pub encoded_offset: usize,
-	/// Apply hashing to value range first.
-	/// This range is defined after applying offset (on encoded content).
+
+	/// Indicate a specific range of bytes, that could be used to apply
+	/// some alternate hashing.
+	/// Named `value_range` because first use case is with trie node
+	/// where there value is hashed a first time internally.
+	///
+	/// This range is defined with offseted content included.
 	pub value_range: Option<(usize, usize)>,
 }
 
@@ -177,7 +191,7 @@ impl AltHashing {
 		self.encoded_offset > 0 || self.value_range.is_some()
 	}
 
-	/// Apply hash from alt_hashing.
+	/// Apply hash with alternate hashing scheme.
 	pub fn alt_hash<H: Hasher>(&self, value: &[u8]) -> H::Out {
 		if !self.is_active() {
 			return H::hash(value);
@@ -193,7 +207,9 @@ impl AltHashing {
 	}
 }
 
-/// Representation with hashing of inner value applied.
+/// Representation of hash db value before final hashing.
+/// eg for a trie node with inner hashing of value, this is the encoded node with
+/// value replaced by its hash.
 pub fn alt_hashed_value<H: Hasher>(x: &[u8], range: Option<(usize, usize)>) -> Vec<u8> {
 	if let Some((start, end)) = range {
 		let len = x.len();

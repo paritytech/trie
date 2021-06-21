@@ -114,7 +114,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 		let mut full_key_nibbles = 0;
 		loop {
 			let (next_node, next_node_hash, next_node_meta) = {
-				self.descend(node, node_hash.clone(), meta.clone());
+				self.descend(node, node_hash, meta);
 				let crumb = self.trail.last_mut()
 					.expect(
 						"descend_into_node pushes a crumb onto the trial; \
