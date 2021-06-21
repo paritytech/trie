@@ -138,8 +138,8 @@ pub enum ValuePlan {
 	NoValue,
 	/// Range for byte representation in encoded node.
 	/// Additional usize mark start of range with value length
-	/// included.
-	/// TODO remove size???
+	/// included (alternate hashing does hash and replace the
+	/// encoded value length too).
 	Value(Range<usize>, usize),
 	/// Range for hash in encoded node and original
 	/// value size.
