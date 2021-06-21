@@ -16,7 +16,7 @@ use hash_db::Hasher;
 use crate::nibble::{self, NibbleSlice};
 use crate::nibble::nibble_ops;
 use crate::node_codec::NodeCodec;
-use crate::{ChildrenDecoded, Meta};
+use crate::Meta;
 
 use crate::rstd::{borrow::Borrow, ops::Range};
 
@@ -219,35 +219,6 @@ impl NodePlan {
 			},
 		}
 	}
-
-	/// Iterator on children being inline.
-	pub fn inline_children<'a>(&'a self) -> impl Iterator<Item = ChildrenDecoded> + 'a {
-		let (children, child) = match self {
-			NodePlan::Leaf { .. }
-			| NodePlan::Empty => (None, None),
-			NodePlan::Extension { child, .. } => (None, Some(child)),
-			NodePlan::Branch { children, .. }
-			| NodePlan::NibbledBranch { children, .. } => (Some(children), None),
-		};
-		fn is_inline(plan: &Option<NodeHandlePlan>) -> ChildrenDecoded {
-			match plan {
-				Some(NodeHandlePlan::Hash(..)) => ChildrenDecoded::Hash,
-				Some(NodeHandlePlan::Inline(..)) => ChildrenDecoded::Inline,
-				None => ChildrenDecoded::None,
-			}
-		}
-		fn is_inline2(plan: &NodeHandlePlan) -> ChildrenDecoded {
-			match plan {
-				NodeHandlePlan::Hash(..) => ChildrenDecoded::Hash,
-				NodeHandlePlan::Inline(..) => ChildrenDecoded::Inline,
-			}
-		}
-
-		children.into_iter()
-			.flat_map(|children| children.iter().map(is_inline))
-			.chain(child.into_iter().map(is_inline2))
-	}
-
 
 	/// Access value plan from node plan, return `None` for
 	/// node that cannot contain a `ValuePlan`.

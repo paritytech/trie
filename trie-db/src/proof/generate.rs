@@ -170,9 +170,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 	/// Sets the reference for the child at index `child_index`. If the child is hash-referenced in
 	/// the trie, the proof node reference will be an omitted child. If the child is
 	/// inline-referenced in the trie, the proof node reference will also be inline.
-	/// Return true if child was inline.
-	fn set_child(&mut self, encoded_child: &[u8]) -> bool {
-		let mut inline = false;
+	fn set_child(&mut self, encoded_child: &[u8]) {
 		let child_ref = match self.node.node_plan() {
 			NodePlan::Empty | NodePlan::Leaf { .. } => panic!(
 				"empty and leaf nodes have no children; \
@@ -186,7 +184,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 					set_child is called when the only child is popped from the stack; \
 					child_index is 0 before child is pushed to the stack; qed"
 				);
-				Some(Self::replacement_child_ref(encoded_child, child, &mut inline))
+				Some(Self::replacement_child_ref(encoded_child, child))
 			}
 			NodePlan::Branch { children, .. } | NodePlan::NibbledBranch { children, .. } => {
 				assert!(
@@ -197,24 +195,22 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 				);
 				children[self.child_index]
 					.as_ref()
-					.map(|child| Self::replacement_child_ref(encoded_child, child, &mut inline))
+					.map(|child| Self::replacement_child_ref(encoded_child, child))
 			}
 		};
 		self.children[self.child_index] = child_ref;
 		self.child_index += 1;
-		inline
 	}
 
 	/// Build a proof node child reference. If the child is hash-referenced in the trie, the proof
 	/// node reference will be an omitted child. If the child is inline-referenced in the trie, the
 	/// proof node reference will also be inline.
-	fn replacement_child_ref(encoded_child: &[u8], child: &NodeHandlePlan, inline: &mut bool)
+	fn replacement_child_ref(encoded_child: &[u8], child: &NodeHandlePlan)
 							 -> ChildReference<C::HashOut>
 	{
 		match child {
 			NodeHandlePlan::Hash(_) => ChildReference::Inline(C::HashOut::default(), 0),
 			NodeHandlePlan::Inline(_) => {
-				*inline = true;
 				let mut hash = C::HashOut::default();
 				assert!(
 					encoded_child.len() <= hash.as_ref().len(),
