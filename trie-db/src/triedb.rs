@@ -21,6 +21,7 @@ use super::node::{NodeHandle, Node, Value, OwnedNode, decode_hash};
 use super::lookup::Lookup;
 use super::{Result, Trie, TrieItem, TrieKeyItem, TrieError, TrieIterator, Query,
 	TrieLayout, CError, TrieHash, Meta};
+#[cfg(feature = "std")]
 use super::nibble::NibbleVec;
 
 #[cfg(feature = "std")]
