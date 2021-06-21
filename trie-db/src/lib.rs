@@ -536,7 +536,7 @@ impl Meta {
 	) {
 		let (contain_hash, range) = match value_plan {
 			ValuePlan::Value(range, with_len) => (false, with_len..range.end),
-			ValuePlan::HashedValue(range, _size) => (true, range),
+			ValuePlan::HashedValue(range) => (true, range),
 			ValuePlan::NoValue => return,
 		};
 
@@ -555,7 +555,7 @@ impl Meta {
 	) {
 		let (contain_hash, range) = match node_plan.value_plan() {
 			Some(ValuePlan::Value(range, with_len)) => (false, *with_len..range.end),
-			Some(ValuePlan::HashedValue(range, _size)) => (true, range.clone()),
+			Some(ValuePlan::HashedValue(range)) => (true, range.clone()),
 			Some(ValuePlan::NoValue) => return,
 			None => return,
 		};

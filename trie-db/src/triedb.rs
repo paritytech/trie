@@ -462,7 +462,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 								self.inner.db().access_from(key, None);
 							}
 						},
-						Value::HashedValue(hash, _) =>  {
+						Value::HashedValue(hash) =>  {
 							let mut res = TrieHash::<L>::default();
 							res.as_mut().copy_from_slice(hash);
 							if let Some(key) = node_key.as_ref() {

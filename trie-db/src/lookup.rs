@@ -45,7 +45,7 @@ where
 				self.db.access_from(&self.hash, None);
 				Ok(Some(self.query.decode(value)))
 			},
-			Value::HashedValue(hash, _size) => {
+			Value::HashedValue(hash) => {
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash);
 				if let Some(_) = self.db.access_from(&self.hash, Some(&res)) {

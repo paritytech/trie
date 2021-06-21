@@ -74,8 +74,8 @@ pub enum Value {
 	NoValue,
 	/// Value bytes.
 	Value(DBValue),
-	/// Hash of bytes and original value length.
-	HashedValue(DBValue, usize),
+	/// Hash of value bytes.
+	HashedValue(DBValue),
 }
 
 impl<'a> From<EncodedValue<'a>> for Value {
@@ -83,7 +83,7 @@ impl<'a> From<EncodedValue<'a>> for Value {
 		match v {
 			EncodedValue::NoValue => Value::NoValue,
 			EncodedValue::Value(value) => Value::Value(value.to_vec()),
-			EncodedValue::HashedValue(hash, size) => Value::HashedValue(hash.to_vec(), size),
+			EncodedValue::HashedValue(hash) => Value::HashedValue(hash.to_vec()),
 		}
 	}
 }
@@ -102,7 +102,7 @@ impl Value {
 		match self {
 			Value::NoValue => EncodedValue::NoValue,
 			Value::Value(value) => EncodedValue::Value(value.as_slice()),
-			Value::HashedValue(hash, size) => EncodedValue::HashedValue(hash.as_slice(), *size),
+			Value::HashedValue(hash) => EncodedValue::HashedValue(hash.as_slice()),
 		}
 	}
 
@@ -110,7 +110,7 @@ impl Value {
 		match self {
 			Value::NoValue => Ok(None),
 			Value::Value(value) => Ok(Some(value.clone())),
-			Value::HashedValue(hash, _size) => {
+			Value::HashedValue(hash) => {
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash.as_slice());
 				Err(Box::new(TrieError::IncompleteDatabase(res)))
@@ -159,7 +159,7 @@ impl Debug for Value {
 		match self {
 			Self::NoValue => write!(fmt, "None"),
 			Self::Value(value) => write!(fmt, "Some({:?})", ToHex(value)),
-			Self::HashedValue(value, _) => write!(fmt, "Hashed({:?})", ToHex(value)),
+			Self::HashedValue(value) => write!(fmt, "Hashed({:?})", ToHex(value)),
 		}
 	}
 }

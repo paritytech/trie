@@ -331,7 +331,7 @@ fn match_key_to_node<'a>(key: &LeftNibbleSlice<'a>, prefix_len: usize, node: &No
 				key.len() == prefix_len + partial.len() {
 				match value {
 					Value::NoValue => ValueMatch::NotOmitted,
-					Value::HashedValue(_, _len) => ValueMatch::NotOmitted,
+					Value::HashedValue(_) => ValueMatch::NotOmitted,
 					Value::Value(value) => if value.is_empty() {
 						ValueMatch::MatchesLeaf
 					} else {

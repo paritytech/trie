@@ -901,14 +901,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				let end = output.len();
 				meta.encoded_value_callback(ValuePlan::Value(start..end, start_len));
 			},
-			Value::HashedValue(hash, size) => {
-				debug_assert!(hash.len() == H::LENGTH);
-				Compact(size as u32).encode_to(&mut output);
-				let start = output.len();
-				output.extend_from_slice(hash);
-				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::HashedValue(start..end, size));
-			},
+			Value::HashedValue(_) => unimplemented!("No support for inner hashed value"),
 			Value::NoValue => unreachable!(),
 		}
 		output
@@ -963,14 +956,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				let end = output.len();
 				meta.encoded_value_callback(ValuePlan::Value(start..end, start_len));
 			},
-			Value::HashedValue(hash, size) => {
-				debug_assert!(hash.len() == H::LENGTH);
-				Compact(size as u32).encode_to(&mut output);
-				let start = output.len();
-				output.extend_from_slice(hash);
-				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::HashedValue(start..end, size));
-			},
+			Value::HashedValue(_) => unimplemented!("No support for inner hashed value"),
 			Value::NoValue => (),
 		}
 
