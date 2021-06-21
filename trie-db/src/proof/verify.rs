@@ -1,3 +1,5 @@
+// Copyright 2019, 2021 Parity Technologies
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -11,7 +13,6 @@
 // limitations under the License.
 
 //! Verification of compact proofs for Merkle-Patricia tries.
-// TODO try remove Meta (unused)
 
 use crate::rstd::{
 	convert::TryInto, iter::Peekable, marker::PhantomData, result::Result, vec, vec::Vec,
@@ -330,13 +331,7 @@ fn match_key_to_node<'a>(key: &LeftNibbleSlice<'a>, prefix_len: usize, node: &No
 				key.len() == prefix_len + partial.len() {
 				match value {
 					Value::NoValue => ValueMatch::NotOmitted,
-					// TODO simply consider using NoValue for omitted.
-					// This is closer to original code for review.
-					Value::HashedValue(_, len) => if len == &0 {
-						ValueMatch::MatchesLeaf
-					} else {
-						ValueMatch::NotOmitted
-					},
+					Value::HashedValue(_, _len) => ValueMatch::NotOmitted,
 					Value::Value(value) => if value.is_empty() {
 						ValueMatch::MatchesLeaf
 					} else {
