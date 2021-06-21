@@ -23,7 +23,7 @@ use std::hash;
 #[cfg(not(feature = "std"))]
 use core::hash;
 #[cfg(not(feature = "std"))]
-use alloc::vec;
+use alloc::{vec, vec::Vec};
 
 #[cfg(feature = "std")]
 pub trait MaybeDebug: Debug {}
