@@ -467,7 +467,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 							res.as_mut().copy_from_slice(hash);
 							if let Some(key) = node_key.as_ref() {
 								if let Some(_) = self.inner.db().access_from(key, Some(&res)) {
-									unimplemented!("Reinject value in value and continue");
+									unimplemented!("Switch back to Value::Value node.");
 								}
 							}
 

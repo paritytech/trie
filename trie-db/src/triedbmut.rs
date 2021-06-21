@@ -111,8 +111,6 @@ impl Value {
 			Value::NoValue => Ok(None),
 			Value::Value(value) => Ok(Some(value.clone())),
 			Value::HashedValue(hash, _size) => {
-				// TODO this is only for inline node so most likely never this.
-				// but still considerr using access_from
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash.as_slice());
 				Err(Box::new(TrieError::IncompleteDatabase(res)))
@@ -120,7 +118,6 @@ impl Value {
 		}
 	}
 }
-
 
 /// Node types in the Trie.
 /// `M` is associated meta, no meta indicates
@@ -374,13 +371,6 @@ enum Stored<L: TrieLayout> {
 pub enum ChildReference<HO> { // `HO` is e.g. `H256`, i.e. the output of a `Hasher`
 	Hash(HO),
 	Inline(HO, usize), // usize is the length of the node data we store in the `H::Out`
-}
-
-impl<HO> ChildReference<HO> {
-	/// Is child reference inline.
-	pub fn is_inline(&self) -> bool {
-		matches!(self, ChildReference::Inline(..))
-	}
 }
 
 impl<'a, HO> TryFrom<EncodedNodeHandle<'a>> for ChildReference<HO>

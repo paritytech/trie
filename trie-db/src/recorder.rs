@@ -62,13 +62,6 @@ impl<HO: Copy> Recorder<HO> {
 		}
 	}
 
-	/// Drain all visited records.
-	pub fn drain(&mut self) -> Vec<Record<HO>> {
-		crate::rstd::mem::replace(&mut self.nodes, Vec::new())
-	}
-}
-
-impl<HO: Copy> Recorder<HO> {
 	/// Record a visited node, given its hash, data, and depth.
 	pub fn record(&mut self, hash: &HO, data: &[u8], depth: u32, meta: &Meta) {
 		if depth >= self.min_depth {
@@ -79,5 +72,10 @@ impl<HO: Copy> Recorder<HO> {
 				meta: meta.clone(),
 			})
 		}
+	}
+
+	/// Drain all visited records.
+	pub fn drain(&mut self) -> Vec<Record<HO>> {
+		crate::rstd::mem::replace(&mut self.nodes, Vec::new())
 	}
 }
