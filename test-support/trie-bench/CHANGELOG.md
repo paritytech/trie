@@ -5,7 +5,8 @@ The format is based on [Keep a Changelog].
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
 ## [Unreleased]
-
+## [0.27.1] - 2021-06-24
+- Update parity-scale-codec to 2.2.0-rc.2.
 ## [0.27.0] - 2021-01-27
 - Update memory-db to 0.26.
 - Update parity-scale-codec to 2.0.
