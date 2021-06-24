@@ -15,4 +15,4 @@ memory-db = { path = "../../memory-db", version = "0.26.0" }
 trie-root = { path = "../../trie-root", version = "0.16.0" }
 trie-db = { path = "../../trie-db", version = "0.22.0" }
 criterion = "0.3.3"
-parity-scale-codec = { version = "2.2.0-rc.1" }
+parity-scale-codec = { version = "2.2.0-rc.2" }
