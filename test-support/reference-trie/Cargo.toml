@@ -1,6 +1,6 @@
 [package]
 name = "reference-trie"
-version = "0.23.1"
+version = "0.23.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Simple reference trie format"
 repository = "https://github.com/paritytech/trie/"
