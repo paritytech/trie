@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
-## [0.27.0] - 2021-07-01
+## [0.27.0] - 2021-07-02
 - Update `parity-util-mem` to 0.10. [#137](https://github.com/paritytech/trie/pull/137)
 
 ## [0.26.0] - 2021-01-27
