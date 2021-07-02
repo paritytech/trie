@@ -7,7 +7,8 @@ The format is based on [Keep a Changelog].
 ## [Unreleased]
 
 ## [0.28.0] - 2021-07-02
-- Updated `memory-db to 0.27.
+- Updated memory-db to 0.27. [#139](https://github.com/paritytech/trie/pull/139)
+- Updated parity-scale-codec to 2.0. [#137](https://github.com/paritytech/trie/pull/137)
 
 ## [0.27.1] - 2021-06-24
 - Updated parity-scale-codec to 2.2.0-rc.2.
