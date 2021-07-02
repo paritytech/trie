@@ -1,6 +1,6 @@
 [package]
 name = "memory-db"
-version = "0.26.0"
+version = "0.27.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "In-memory implementation of hash-db, useful for tests"
 repository = "https://github.com/paritytech/trie"
@@ -9,11 +9,11 @@ edition = "2018"
 
 [dependencies]
 parity-util-mem = { version = "0.10.0", default-features = false, features = ["hashbrown"] }
-hash-db = { path = "../hash-db", default-features = false, version = "0.15.2"}
+hash-db = { version = "0.15.2", path = "../hash-db", default-features = false }
 hashbrown = { version = "0.11", default-features = false, features = [ "ahash" ] }
 
 [dev-dependencies]
-keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.15.2"}
+keccak-hasher = { path = "../test-support/keccak-hasher" }
 criterion = "0.3.3"
 
 [features]
