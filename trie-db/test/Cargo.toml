@@ -23,5 +23,5 @@ keccak-hasher = { path = "../../test-support/keccak-hasher", version = "0.15.2" 
 reference-trie = { path = "../../test-support/reference-trie", version = "0.23.0" }
 hex-literal = "0.3"
 criterion = "0.3"
-env_logger = "0.8"
+env_logger = "0.9"
 log = "0.4"
