@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.22.6] - 2021-07-02
+- Updated `hashbrown` to 0.11. [#131](https://github.com/paritytech/trie/pull/131)
+
 ## [0.22.3] - 2021-01-28
 ### Added
 - Decode with an iterator. [#121](https://github.com/paritytech/trie/pull/121)
