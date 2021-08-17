@@ -74,7 +74,6 @@ macro_rules! test_layouts_no_meta {
 	};
 }
 
-
 /// Trie layout using extension nodes.
 #[derive(Default, Clone)]
 pub struct ExtensionLayout;

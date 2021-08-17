@@ -213,7 +213,7 @@ pub trait AsPlainDB<K, V> {
 }
 
 /// Trait allowing to apply different hashing strategy
-/// depneding on stored value or encoded value with meta.
+/// depending on stored value or encoded value with meta.
 pub trait MetaHasher<H: Hasher, T>: Send + Sync {
 	/// Additional content fetchable from storage.
 	/// `Default` should be use for undefined content
