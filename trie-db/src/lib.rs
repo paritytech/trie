@@ -568,7 +568,7 @@ impl Meta {
 	pub fn resolve_alt_hashing<C: NodeCodec>(&self) -> hash_db::AltHashing {
 		let mut result = hash_db::AltHashing::default();
 		if self.contain_hash {
-			result.encoded_offset = C::OFFSET_CONTAINS_HASH;
+			result.encoded_offset = C::OFFSET_IF_CONTAINS_HASH;
 			return result;
 		}
 		if self.apply_inner_hashing {

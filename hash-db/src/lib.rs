@@ -170,9 +170,10 @@ pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 /// Define how alternate hashing should be applied by the hash db.
 #[derive(Default, Clone, Debug)]
 pub struct AltHashing {
-	/// Allow skipping first bytes.
-	/// Can be use to add some metadata to some content without
-	/// changing the resulting hash.
+	/// Allow skipping first bytes when hashing.
+	/// First bytes are then not part of trie state and do
+	/// not modify trie root. First bytes can contain additional
+	/// metadata.
 	/// (eg indicate that a trie node in proof does not contains
 	/// a value but its hash).
 	pub encoded_offset: usize,
@@ -244,7 +245,6 @@ pub fn alt_hashed_value<H: Hasher>(x: &[u8], range: Option<(usize, usize)>) -> V
 	// if anything wrong default to hash
 	x.to_vec()
 }
-
 
 /// Trait for immutable reference of HashDB.
 pub trait HashDBRef<H: Hasher, T> {
