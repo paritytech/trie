@@ -17,14 +17,14 @@ use hash_db::Hasher;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
 	calc_root,
-	proof::{generate_proof, verify_proof},
 	reference_trie_root_iter_build as reference_trie_root,
-	TrieDBMut,
-	TrieDBIterator,
 	compare_insert_remove,
 };
 use std::convert::TryInto;
-use trie_db::{DBValue, Trie, TrieDB, TrieLayout, TrieMut};
+use trie_db::{DBValue, Trie, TrieDB, TrieLayout, TrieMut,
+	TrieDBIterator, TrieDBMut,
+};
+use trie_db::proof::{generate_proof, verify_proof};
 
 fn fuzz_to_data(input: &[u8]) -> Vec<(Vec<u8>,Vec<u8>)> {
 	let mut result = Vec::new();
@@ -280,7 +280,7 @@ pub fn fuzz_that_verify_accepts_valid_proofs<T: TrieLayout>(input: &[u8]) {
 	keys.dedup();
 
 	let (root, proof, items) = test_generate_proof::<T>(data, keys);
-	assert!(verify_proof::<T, _, _, _>(&root, &proof, items.iter()).is_ok());
+	assert!(verify_proof::<T, _, _, _>(&root, &proof, items.iter(), Default::default()).is_ok());
 }
 
 pub fn fuzz_that_trie_codec_proofs<T: TrieLayout>(input: &[u8]) {
@@ -339,7 +339,7 @@ pub fn fuzz_that_verify_rejects_invalid_proofs<T: TrieLayout>(input: &[u8]) {
 		(_, value) if value.is_some() => *value = None,
 		(_, value) => *value = Some(DBValue::new()),
 	}
-	assert!(verify_proof::<T, _, _, _>(&root, &proof, items.iter()).is_err());
+	assert!(verify_proof::<T, _, _, _>(&root, &proof, items.iter(), Default::default()).is_err());
 }
 
 fn test_generate_proof<L: TrieLayout>(
@@ -379,7 +379,7 @@ fn test_trie_codec_proof<L: TrieLayout>(
 )
 {
 	use hash_db::{HashDB, EMPTY_PREFIX};
-	use reference_trie::{
+	use trie_db::{
 		Recorder,
 		encode_compact, decode_compact,
 	};
@@ -412,9 +412,12 @@ fn test_trie_codec_proof<L: TrieLayout>(
 	// Populate a partial trie DB with recorded nodes.
 	let mut partial_db = <MemoryDB<L::Hash, HashKey<_>, _>>::default();
 	for record in recorder.drain() {
-	for record in recorder.drain() {
 		if L::USE_META {
-			partial_db.insert_with_meta(EMPTY_PREFIX, &record.data, record.meta);
+			partial_db.alt_insert(
+				EMPTY_PREFIX,
+				&record.data,
+				record.meta.resolve_alt_hashing::<L::Codec>(),
+			);
 		} else {
 			partial_db.emplace(record.hash, EMPTY_PREFIX, record.data);
 		}
@@ -429,7 +432,7 @@ fn test_trie_codec_proof<L: TrieLayout>(
 	let expected_used = compact_trie.len();
 	// Reconstruct the partial DB from the compact encoding.
 	let mut db = <MemoryDB<L::Hash, HashKey<_>, _>>::default();
-	let (root, used) = decode_compact::<L, _, _>(&mut db, &compact_trie).unwrap();
+	let (root, used) = decode_compact::<L, _>(&mut db, &compact_trie).unwrap();
 	assert_eq!(root, expected_root);
 	assert_eq!(used, expected_used);
 

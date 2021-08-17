@@ -1,4 +1,4 @@
-// Copyright 2017, 2020 Parity Technologies
+// Copyright 2017, 2021 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 
 use hash_db::{HashDBRef, Hasher};
 use super::{Result, DBValue, TrieDB, Trie, TrieDBIterator, TrieItem, TrieKeyItem, TrieIterator, Query,
-	TrieLayout, CError, TrieHash, GlobalMeta};
+	TrieLayout, CError, TrieHash};
 
 use crate::rstd::boxed::Box;
 
@@ -37,14 +37,14 @@ where
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
 	pub fn new(
-		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(FatDB { raw: TrieDB::new(db, root)? })
 	}
 
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>> { self.raw.db() }
+	pub fn db(&self) -> &dyn HashDBRef<L::Hash, DBValue> { self.raw.db() }
 }
 
 impl<'db, L> Trie<L> for FatDB<'db, L>
@@ -53,11 +53,13 @@ where
 {
 	fn root(&self) -> &TrieHash<L> { self.raw.root() }
 
+	fn layout(&self) -> L { self.raw.layout() }
+
 	fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
 		self.raw.contains(L::Hash::hash(key).as_ref())
 	}
 
-	fn get_with<'a, 'key, Q: Query<L::Hash, L::Meta>>(&'a self, key: &'key [u8], query: Q)
+	fn get_with<'a, 'key, Q: Query<L::Hash>>(&'a self, key: &'key [u8], query: Q)
 		-> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
 		where 'a: 'key
 	{

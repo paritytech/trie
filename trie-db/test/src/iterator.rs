@@ -25,7 +25,6 @@ type MemoryDB<T> = memory_db::MemoryDB<
 	<T as TrieLayout>::Hash,
 	memory_db::PrefixedKey<<T as TrieLayout>::Hash>,
 	DBValue,
-	<T as TrieLayout>::MetaHasher,
 >;
 
 fn build_trie_db<T: TrieLayout>(pairs: &[(Vec<u8>, Vec<u8>)])

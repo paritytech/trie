@@ -1,4 +1,4 @@
-// Copyright 2017, 2019 Parity Technologies
+// Copyright 2017, 2021 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -37,7 +37,7 @@ mod rstd {
 #[cfg(feature = "std")]
 use self::rstd::{fmt, Error};
 
-use hash_db::{MaybeDebug, MetaHasher};
+use hash_db::MaybeDebug;
 use self::rstd::{boxed::Box, vec::Vec};
 
 pub mod node;
@@ -58,7 +58,7 @@ mod node_codec;
 mod trie_codec;
 
 pub use hash_db::{HashDB, HashDBRef, Hasher};
-pub use self::triedb::{TrieDB, TrieDBIterator};
+pub use self::triedb::{TrieDB, TrieDBIterator, TrieDBKeyIterator};
 pub use self::triedbmut::{TrieDBMut, ChildReference, Value};
 pub use self::sectriedbmut::SecTrieDBMut;
 pub use self::sectriedb::SecTrieDB;
@@ -71,8 +71,7 @@ pub use crate::node_codec::{NodeCodec, Partial};
 pub use crate::iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed};
 pub use crate::iterator::TrieDBNodeIterator;
-pub use crate::trie_codec::{decode_compact, decode_compact_from_iter, encode_compact,
-	encode_compact_keyed_callback};
+pub use crate::trie_codec::{decode_compact, decode_compact_from_iter, encode_compact};
 
 #[cfg(feature = "std")]
 pub use crate::iter_build::TrieRootPrint;
@@ -141,7 +140,7 @@ pub type TrieKeyItem<'a, U, E> = Result<Vec<u8>, U, E>;
 /// This is implemented for any &mut recorder (where the query will return
 /// a DBValue), any function taking raw bytes (where no recording will be made),
 /// or any tuple of (&mut Recorder, FnOnce(&[u8]))
-pub trait Query<H: Hasher, M> {
+pub trait Query<H: Hasher> {
 	/// Output item.
 	type Item;
 
@@ -149,26 +148,26 @@ pub trait Query<H: Hasher, M> {
 	fn decode(self, data: &[u8]) -> Self::Item;
 
 	/// Record that a node has been passed through.
-	fn record(&mut self, _hash: &H::Out, _data: &[u8], _depth: u32, _meta: &M) {}
+	fn record(&mut self, _hash: &H::Out, _data: &[u8], _depth: u32, _meta: &Meta) {}
 }
 
-impl<'a, H: Hasher, M: Clone> Query<H, M> for &'a mut Recorder<H::Out, M> {
+impl<'a, H: Hasher> Query<H> for &'a mut Recorder<H::Out> {
 	type Item = DBValue;
 	fn decode(self, value: &[u8]) -> DBValue { value.to_vec() }
-	fn record(&mut self, hash: &H::Out, data: &[u8], depth: u32, meta: &M) {
+	fn record(&mut self, hash: &H::Out, data: &[u8], depth: u32, meta: &Meta) {
 		(&mut **self).record(hash, data, depth, meta);
 	}
 }
 
-impl<F, T, H: Hasher, M> Query<H, M> for F where F: for<'a> FnOnce(&'a [u8]) -> T {
+impl<F, T, H: Hasher> Query<H> for F where F: for<'a> FnOnce(&'a [u8]) -> T {
 	type Item = T;
 	fn decode(self, value: &[u8]) -> T { (self)(value) }
 }
 
-impl<'a, F, T, H: Hasher, M: Clone> Query<H, M> for (&'a mut Recorder<H::Out, M>, F) where F: FnOnce(&[u8]) -> T {
+impl<'a, F, T, H: Hasher> Query<H> for (&'a mut Recorder<H::Out>, F) where F: FnOnce(&[u8]) -> T {
 	type Item = T;
 	fn decode(self, value: &[u8]) -> T { (self.1)(value) }
-	fn record(&mut self, hash: &H::Out, data: &[u8], depth: u32, meta : &M) {
+	fn record(&mut self, hash: &H::Out, data: &[u8], depth: u32, meta : &Meta) {
 		self.0.record(hash, data, depth, meta)
 	}
 }
@@ -177,6 +176,9 @@ impl<'a, F, T, H: Hasher, M: Clone> Query<H, M> for (&'a mut Recorder<H::Out, M>
 pub trait Trie<L: TrieLayout> {
 	/// Return the root of the trie.
 	fn root(&self) -> &TrieHash<L>;
+
+	/// Return the current layout in use.
+	fn layout(&self) -> L;
 
 	/// Is the trie empty?
 	fn is_empty(&self) -> bool { *self.root() == L::Codec::hashed_null_node() }
@@ -196,7 +198,7 @@ pub trait Trie<L: TrieLayout> {
 
 	/// Search for the key with the given query parameter. See the docs of the `Query`
 	/// trait for more details.
-	fn get_with<'a, 'key, Q: Query<L::Hash, L::Meta>>(
+	fn get_with<'a, 'key, Q: Query<L::Hash>>(
 		&'a self,
 		key: &'key [u8],
 		query: Q
@@ -307,6 +309,10 @@ impl<'db, L: TrieLayout> Trie<L> for TrieKinds<'db, L> {
 		wrapper!(self, root,)
 	}
 
+	fn layout(&self) -> L {
+		wrapper!(self, layout,)
+	}
+
 	fn is_empty(&self) -> bool {
 		wrapper!(self, is_empty,)
 	}
@@ -315,7 +321,7 @@ impl<'db, L: TrieLayout> Trie<L> for TrieKinds<'db, L> {
 		wrapper!(self, contains, key)
 	}
 
-	fn get_with<'a, 'key, Q: Query<L::Hash, L::Meta>>(
+	fn get_with<'a, 'key, Q: Query<L::Hash>>(
 		&'a self, key: &'key [u8],
 		query: Q,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
@@ -353,7 +359,7 @@ where
 	/// Create new immutable instance of Trie.
 	pub fn readonly(
 		&self,
-		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>
 	) -> Result<TrieKinds<'db, L>, TrieHash<L>, CError<L>> {
 		match self.spec {
@@ -366,7 +372,7 @@ where
 	/// Create new mutable instance of Trie.
 	pub fn create(
 		&self,
-		db: &'db mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
 	) -> Box<dyn TrieMut<L> + 'db> {
 		match self.spec {
@@ -379,7 +385,7 @@ where
 	/// Create new mutable instance of trie and check for errors.
 	pub fn from_existing(
 		&self,
-		db: &'db mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
 	) -> Result<Box<dyn TrieMut<L> + 'db>, TrieHash<L>, CError<L>> {
 		match self.spec {
@@ -407,123 +413,20 @@ pub trait TrieLayout: Default + Clone {
 	const ALLOW_EMPTY: bool = false;
 	/// Indicate if we need to manage meta, skipping some processing
 	/// if we don't.
-	/// TODO check if still used.
 	const USE_META: bool = false;
-	/// When this is set to true, trie on instantiation will read their root node
-	/// and associated state meta.
-	const READ_ROOT_STATE_META: bool = false;
 
 	/// Hasher to use for this trie.
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
-	type Codec: NodeCodec<Self::Meta, HashOut=<Self::Hash as Hasher>::Out>;
-	/// Trait `Meta` implementation to use with this layout.
-	type Meta: Meta;
-	/// Value function to manage meta.
-	type MetaHasher: MetaHasher<
-		Self::Hash,
-		DBValue,
-		Meta = Self::Meta,
-		GlobalMeta = GlobalMeta<Self>,
-	>;
+	type Codec: NodeCodec<HashOut=<Self::Hash as Hasher>::Out>;
 
-	/// Meta state input for new node.
-	fn meta_for_new_node(&self) -> Self::Meta {
-		<Self::Meta as Meta>::meta_for_new(self.layout_meta())
+	/// Default meta with state initialized from this layout.
+	fn new_meta(&self) -> Meta {
+		Meta::new(self.alt_threshold())
 	}
 
-	/// Meta state input for new node.
-	fn meta_for_stored_inline_node(&self) -> Self::Meta {
-		<Self::Meta as Meta>::meta_for_existing_inline_node(
-			self.layout_meta(),
-		)
-	}
-
-	/// When `READ_ROOT_STATE_META` is set, we complete layout value initialization
-	/// from meta read in root node (state meta or non state meta).
-	fn initialize_from_root_meta(&mut self, _root_meta: &Self::Meta) {
-	}
-
-	/// When `READ_ROOT_STATE_META` is set, we complete root meta with layout
-	/// state before encoding.
-	fn set_root_meta(_root_meta: &mut Self::Meta, _global_meta: GlobalMeta<Self>) {
-	}
-
-	/// Current global layout meta.
-	/// TODO consider merging mith all meta input function.
-	/// TODO rename simply 'meta'
-	fn layout_meta(&self) -> GlobalMeta<Self>;
-}
-
-/// Trie node level meta.
-/// Additional information stored with node or/and containing processing
-/// transient information.
-/// Can be use to do custom codec and serialization dependant on layout
-/// state.
-pub trait Meta: Clone {
-	/// Global trie meta this will derive from.
-	/// Usually it holds specific behavior from layout context.
-	type GlobalMeta;
-
-	/// Meta to encode in state.
-	type StateMeta: Clone + MaybeDebug;
-
-	/// Get state meta from node encoded form.
-	fn read_state_meta(&mut self, input: &[u8]) -> crate::rstd::result::Result<usize, &'static str>;
-
-	/// Encode state meta to be include in state.
-	fn write_state_meta(&self) -> Vec<u8>;
-
-	/// Insert associated state meta.
-	fn set_state_meta(&mut self, state_meta: Self::StateMeta);
-
-	/// Check if contains state meta (act as a value for trie structure).
-	fn has_state_meta(&self) -> bool;
-
-	/// Meta for inline node are not stored, but require a default instantiation
-	/// in case it stops being inline.
-	/// There is currently no good reason to avoid passing parent meta as in
-	/// `meta_for_new` but the fact that it complicate code and is not required
-	/// by current use cases.
-	fn meta_for_existing_inline_node(
-		input: Self::GlobalMeta,
-	) -> Self;
-
-	/// Leaf meta creation.
-	fn meta_for_new(
-		input: Self::GlobalMeta,
-	) -> Self;
-
-	/// Empty node meta creation.
-	fn meta_for_empty(
-		input: Self::GlobalMeta,
-	) -> Self;
-
-	/// Insert global meta in existing meta.
-	fn set_global_meta(&mut self, global_meta: Self::GlobalMeta);
-
-	/// Read global meta from this meta.
-	fn extract_global_meta(&self) -> Self::GlobalMeta;
-
-	/// Value written at a given range (call from codec
-	/// for node that contains value (leaf or branch)).
-	fn encoded_value_callback(
-		&mut self,
-		value_plan: crate::node::ValuePlan,
-	);
-
-	/// Register info from node plan when decoded.
-	fn decoded_callback(
-		&mut self,
-		node_plan: &crate::node::NodePlan,
-	);
-
-	/// Indicate if stored value is incomplete and only contains hash of value.
-	fn contains_hash_of_value(&self) -> bool;
-
-	/// Should value be store as a has if possible.
-	/// (mostly for proof when value is not accessed).
-	fn do_value_hash(&self) -> bool;
+	/// Alternate hashing threshold to apply on node change.
+	fn alt_threshold(&self) -> Option<u32>;
 }
 
 /// Small enum indicating representation of a given children.
@@ -536,79 +439,13 @@ pub enum ChildrenDecoded {
 	None,
 }
 
-impl Meta for () {
-	type GlobalMeta = ();
-
-	type StateMeta = ();
-
-	fn set_state_meta(&mut self, _state_meta: Self::StateMeta) {
-	}
-
-	fn has_state_meta(&self) -> bool {
-		false
-	}
-
-	fn read_state_meta(&mut self, _input: &[u8]) -> crate::rstd::result::Result<usize, &'static str> {
-		Ok(0)
-	}
-
-	fn write_state_meta(&self) -> Vec<u8> {
-		Vec::new()
-	}
-
-	fn meta_for_new(
-		_input: Self::GlobalMeta,
-	) -> Self {
-		()
-	}
-
-	fn meta_for_existing_inline_node(
-		_input: Self::GlobalMeta,
-	) -> Self {
-		()
-	}
-
-	fn meta_for_empty(
-		_input: Self::GlobalMeta,
-	) -> Self {
-		()
-	}
-
-	fn set_global_meta(&mut self, _global_meta: Self::GlobalMeta) {
-	}
-
-	fn extract_global_meta(&self) -> Self::GlobalMeta {
-		()
-	}
-
-	fn encoded_value_callback(
-		&mut self,
-		_value_plan: crate::node::ValuePlan,
-	) {
-	}
-
-	fn decoded_callback(
-		&mut self,
-		_node_plan: &crate::node::NodePlan,
-	) {
-	}
-
-	fn contains_hash_of_value(&self) -> bool {
-		false
-	}
-
-	fn do_value_hash(&self) -> bool {
-		false
-	}
-}
-
 /// This trait associates a trie definition with preferred methods.
 /// It also contains own default implementations and can be
 /// used to allow switching implementation.
 pub trait TrieConfiguration: Sized + TrieLayout {
 	/// Operation to build a trie db from its ordered iterator over its key/values.
 	fn trie_build<DB, I, A, B>(&self, db: &mut DB, input: I) -> <Self::Hash as Hasher>::Out where
-		DB: HashDB<Self::Hash, DBValue, Self::Meta, GlobalMeta<Self>>,
+		DB: HashDB<Self::Hash, DBValue>,
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,
@@ -658,11 +495,91 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 	}
 }
 
+/// Meta info use by trie state.
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
+pub struct Meta {
+	/// Range of encoded value or hashed value.
+	/// When encoded value, it includes the length of the value.
+	pub range: Option<core::ops::Range<usize>>,
+	/// Defined in the trie layout, when used with
+	/// `TrieDbMut` it switch nodes to alternative hashing
+	/// method by defining the threshold to use with alternative
+	/// hashing.
+	/// Trie codec or other proof manipulation will always use
+	/// `None` in order to prevent state change on reencoding.
+	pub try_inner_hashing: Option<u32>,
+	/// Flag indicating alternative value hash is currently use
+	/// or will be use.
+	pub apply_inner_hashing: bool,
+	/// Does current encoded contains a hash instead of
+	/// a value (information stored in meta for proofs).
+	pub contain_hash: bool,
+}
+
+use node::{ValuePlan, NodePlan};
+
+impl Meta {
+	/// Initiate the node meta, with a given threshold.
+	pub fn new(
+		threshold: Option<u32>,
+	) -> Self {
+		let mut result = Self::default();
+		result.try_inner_hashing = threshold;
+		result
+	}
+
+	/// Callback when encoding and a new
+	/// value is written.
+	pub fn encoded_value_callback(
+		&mut self,
+		value_plan: ValuePlan,
+	) {
+		let (contain_hash, range) = match value_plan {
+			ValuePlan::Value(range, with_len) => (false, with_len..range.end),
+			ValuePlan::HashedValue(range) => (true, range),
+			ValuePlan::NoValue => return,
+		};
+
+		if let Some(threshold) = self.try_inner_hashing.clone() {
+			self.apply_inner_hashing = range.end - range.start >= threshold as usize;
+		}
+
+		self.range = Some(range);
+		self.contain_hash = contain_hash;
+	}
+
+	/// Callback to update from the decoded node.
+	pub fn decoded_callback(
+		&mut self,
+		node_plan: &NodePlan,
+	) {
+		let (contain_hash, range) = match node_plan.value_plan() {
+			Some(ValuePlan::Value(range, with_len)) => (false, *with_len..range.end),
+			Some(ValuePlan::HashedValue(range)) => (true, range.clone()),
+			Some(ValuePlan::NoValue) => return,
+			None => return,
+		};
+
+		self.range = Some(range);
+		self.contain_hash = contain_hash;
+	}
+
+	/// Get alternate hashing parameter for the hasher.
+	pub fn resolve_alt_hashing<C: NodeCodec>(&self) -> hash_db::AltHashing {
+		let mut result = hash_db::AltHashing::default();
+		if self.contain_hash {
+			result.encoded_offset = C::OFFSET_CONTAINS_HASH;
+			return result;
+		}
+		if self.apply_inner_hashing {
+			result.value_range = self.range.as_ref()
+				.map(|range| (range.start, range.end));
+		}
+		result
+	}
+}
+
 /// Alias accessor to hasher hash output type from a `TrieLayout`.
 pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
-/// Alias accessor to state of meta.
-pub type StateMeta<L> = <<L as TrieLayout>::Meta as Meta>::StateMeta;
-/// Alias accessor to global meta.
-pub type GlobalMeta<L> = <<L as TrieLayout>::Meta as Meta>::GlobalMeta;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
-pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec<<L as TrieLayout>::Meta>>::Error;
+pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;

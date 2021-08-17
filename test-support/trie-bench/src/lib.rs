@@ -43,11 +43,11 @@ where
 {
 	let funs = vec![
 		Fun::new("Closed", |b, d: &TrieInsertionList| b.iter(&mut || {
-			trie_root::<L::Hash, L::MetaHasher, S, _, _, _>(d.0.clone(), Default::default())
+			trie_root::<L::Hash, S, _, _, _>(d.0.clone(), Default::default())
 		})),
 		Fun::new("Fill", |b, d: &TrieInsertionList| b.iter(&mut || {
-			let mut memdb = MemoryDB::<_, HashKey<L::Hash>, _, L::MetaHasher>::new(
-				&L::Codec::empty_node_no_meta()[..],
+			let mut memdb = MemoryDB::<_, HashKey<L::Hash>, _>::new(
+				L::Codec::empty_node(),
 			);
 			let mut root = <TrieHash<L>>::default();
 			let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);
@@ -56,8 +56,8 @@ where
 			}
 		})),
 		Fun::new("Iter", |b, d: &TrieInsertionList| {
-			let mut memdb = MemoryDB::<_, HashKey<_>, _, L::MetaHasher>::new(
-				&L::Codec::empty_node_no_meta()[..],
+			let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(
+				L::Codec::empty_node(),
 			);
 			let mut root = <TrieHash<L>>::default();
 			{
@@ -107,7 +107,6 @@ fn random_value(seed: &mut <KeccakHasher as Hasher>::Out) -> Vec<u8> {
 pub fn standard_benchmark<L, S>(b: &mut Criterion, name: &str)
 	where
 		L: TrieLayout + 'static,
-		L::MetaHasher: Send + Sync,
 		S: TrieStream,
 {
 

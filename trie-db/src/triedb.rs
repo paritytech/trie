@@ -1,4 +1,4 @@
-// Copyright 2017, 2020 Parity Technologies
+// Copyright 2017, 2021 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,11 +16,12 @@ use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
 use crate::nibble::NibbleSlice;
 use crate::iterator::TrieDBNodeIterator;
 use crate::rstd::boxed::Box;
-use crate::{DBValue, GlobalMeta};
+use crate::DBValue;
 use super::node::{NodeHandle, Node, Value, OwnedNode, decode_hash};
 use super::lookup::Lookup;
 use super::{Result, Trie, TrieItem, TrieKeyItem, TrieError, TrieIterator, Query,
-	TrieLayout, CError, TrieHash};
+	TrieLayout, CError, TrieHash, Meta};
+#[cfg(feature = "std")]
 use super::nibble::NibbleVec;
 
 #[cfg(feature = "std")]
@@ -53,7 +54,7 @@ where
 	L: TrieLayout,
 {
 	layout: L,
-	db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+	db: &'db dyn HashDBRef<L::Hash, DBValue>,
 	root: &'db TrieHash<L>,
 	/// The number of hashes performed so far in operations on this trie.
 	hash_count: usize,
@@ -66,7 +67,7 @@ where
 	/// Create a new trie with the backing database `db` and `root`
 	/// Returns an error if `root` does not exist
 	pub fn new(
-		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Self::new_with_layout(db, root, Default::default())
@@ -76,22 +77,11 @@ where
 	/// Returns an error if `root` does not exist
 	/// This can use a context specific layout.
 	pub fn new_with_layout(
-		db: &'db dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
-		mut layout: L,
+		layout: L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
-		if L::READ_ROOT_STATE_META {
-			if let Some((encoded, mut meta)) = db.get_with_meta(root, EMPTY_PREFIX, layout.layout_meta()) {
-				// read state meta
-				use crate::node_codec::NodeCodec;
-				let _ = L::Codec::decode_plan(encoded.as_slice(), &mut meta)
-					.map_err(|e| Box::new(TrieError::DecoderError(*root, e)))?;
-				layout.initialize_from_root_meta(&meta);
-				Ok(TrieDB {db, root, hash_count: 0, layout})
-			} else {
-				Err(Box::new(TrieError::InvalidStateRoot(*root)))
-			}
-		} else if !db.contains(root, EMPTY_PREFIX) {
+		if !db.contains(root, EMPTY_PREFIX) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		} else {
 			Ok(TrieDB {db, root, hash_count: 0, layout})
@@ -99,7 +89,7 @@ where
 	}
 
 	/// Get the backing database.
-	pub fn db(&'db self) -> &'db dyn HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>> {
+	pub fn db(&'db self) -> &'db dyn HashDBRef<L::Hash, DBValue> {
 		self.db
 	}
 
@@ -116,13 +106,13 @@ where
 		parent_hash: TrieHash<L>,
 		node_handle: NodeHandle,
 		partial_key: Prefix,
-	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>, L::Meta), TrieHash<L>, CError<L>> {
+	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>, Meta), TrieHash<L>, CError<L>> {
 		let (node_hash, node_data, mut meta) = match node_handle {
 			NodeHandle::Hash(data) => {
 				let node_hash = decode_hash::<L::Hash>(data)
 					.ok_or_else(|| Box::new(TrieError::InvalidHash(parent_hash, data.to_vec())))?;
-				let (node_data, meta) = self.db
-					.get_with_meta(&node_hash, partial_key, self.layout.layout_meta())
+				let node_data = self.db
+					.get(&node_hash, partial_key)
 					.ok_or_else(|| {
 						if partial_key == EMPTY_PREFIX {
 							Box::new(TrieError::InvalidStateRoot(node_hash))
@@ -131,11 +121,12 @@ where
 						}
 					})?;
 
+				let meta = self.layout.new_meta();
 				(Some(node_hash), node_data, meta)
 			}
-			NodeHandle::Inline(data) => (None, data.to_vec(), self.layout.meta_for_stored_inline_node()),
+			NodeHandle::Inline(data) => (None, data.to_vec(), self.layout.new_meta()),
 		};
-		let owned_node = OwnedNode::new::<L::Meta, L::Codec>(node_data, &mut meta)
+		let owned_node = OwnedNode::new::<L::Codec>(node_data, &mut meta)
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or(parent_hash), e)))?;
 		Ok((owned_node, node_hash, meta))
 	}
@@ -152,7 +143,11 @@ where
 {
 	fn root(&self) -> &TrieHash<L> { self.root }
 
-	fn get_with<'a, 'key, Q: Query<L::Hash, L::Meta>>(
+	fn layout(&self) -> L {
+		self.layout.clone()
+	}
+
+	fn get_with<'a, 'key, Q: Query<L::Hash>>(
 		&'a self,
 		key: &'key [u8],
 		query: Q,
@@ -195,7 +190,7 @@ where
 	node_key: NodeHandle<'a>,
 	partial_key: NibbleVec,
 	index: Option<u8>,
-	// TODO consider adding meta
+	show_meta: bool,
 }
 
 #[cfg(feature="std")]
@@ -204,34 +199,43 @@ where
 	L: TrieLayout,
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		let show_meta = self.show_meta;
 		match self.trie.get_raw_or_lookup(
 			<TrieHash<L>>::default(),
 			self.node_key,
 			self.partial_key.as_prefix()
 		) {
-			Ok((owned_node, _node_hash, _meta)) => match owned_node.node() {
-				Node::Leaf(slice, value) =>
-					match (f.debug_struct("Node::Leaf"), self.index) {
-						(ref mut d, Some(i)) => d.field("index", &i),
-						(ref mut d, _) => d,
+			Ok((owned_node, _node_hash, meta)) => match owned_node.node() {
+				Node::Leaf(slice, value) => {
+					let mut disp = f.debug_struct("Node::Leaf");
+					if let Some(i) = self.index {
+						disp.field("index", &i);
 					}
-						.field("slice", &slice)
-						.field("value", &value)
-						.finish(),
+					disp.field("slice", &slice)
+						.field("value", &value);
+					if show_meta {
+						disp.field("meta", &meta);
+					}
+					disp.finish()
+				},
 				Node::Extension(slice, item) => {
-					match (f.debug_struct("Node::Extension"), self.index) {
-						(ref mut d, Some(i)) => d.field("index", &i),
-						(ref mut d, _) => d,
+					let mut disp = f.debug_struct("Node::Extension");
+					if let Some(i) = self.index {
+						disp.field("index", &i);
 					}
-						.field("slice", &slice)
+					disp.field("slice", &slice)
 						.field("item", &TrieAwareDebugNode {
 							trie: self.trie,
 							node_key: item,
 							partial_key: self.partial_key
 								.clone_append_optional_slice_and_nibble(Some(&slice), None),
 							index: None,
-						})
-						.finish()
+							show_meta,
+						});
+					if show_meta {
+						disp.field("meta", &meta);
+					}
+					disp.finish()
 				},
 				Node::Branch(ref nodes, ref value) => {
 					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.into_iter()
@@ -243,15 +247,19 @@ where
 							node_key: n,
 							partial_key: self.partial_key
 								.clone_append_optional_slice_and_nibble(None, Some(i as u8)),
+							show_meta,
 						})
 						.collect();
-					match (f.debug_struct("Node::Branch"), self.index) {
-						(ref mut d, Some(ref i)) => d.field("index", i),
-						(ref mut d, _) => d,
+					let mut disp = f.debug_struct("Node::Branch");
+					if let Some(i) = self.index {
+						disp.field("index", &i);
 					}
-						.field("nodes", &nodes)
-						.field("value", &value)
-						.finish()
+					disp.field("nodes", &nodes)
+						.field("value", &value);
+					if show_meta {
+						disp.field("meta", &meta);
+					}
+					disp.finish()
 				},
 				Node::NibbledBranch(slice, nodes, value) => {
 					let nodes: Vec<TrieAwareDebugNode<L>> = nodes.iter()
@@ -263,17 +271,27 @@ where
 							node_key: n,
 							partial_key: self.partial_key
 								.clone_append_optional_slice_and_nibble(Some(&slice), Some(i as u8)),
+							show_meta,
 						}).collect();
-					match (f.debug_struct("Node::NibbledBranch"), self.index) {
-						(ref mut d, Some(ref i)) => d.field("index", i),
-						(ref mut d, _) => d,
+					let mut disp = f.debug_struct("Node::NibbledBranch");
+					if let Some(i) = self.index {
+						disp.field("index", &i);
 					}
-						.field("slice", &slice)
+					disp.field("slice", &slice)
 						.field("nodes", &nodes)
-						.field("value", &value)
-						.finish()
+						.field("value", &value);
+					if show_meta {
+						disp.field("meta", &meta);
+					}
+					disp.finish()
 				},
-				Node::Empty => f.debug_struct("Node::Empty").finish(),
+				Node::Empty => {
+					let mut disp = f.debug_struct("Node::Empty");
+					if show_meta {
+						disp.field("meta", &meta);
+					}
+					disp.finish()
+				},
 			},
 			Err(e) => f.debug_struct("BROKEN_NODE")
 				.field("index", &self.index)
@@ -297,6 +315,31 @@ where
 				node_key: NodeHandle::Hash(self.root().as_ref()),
 				partial_key: NibbleVec::new(),
 				index: None,
+				show_meta: false,
+			})
+			.finish()
+	}
+}
+
+/// Use this struct to display a trie with associated
+/// nodes metas.
+#[cfg(feature="std")]
+pub struct DebugWithMeta<'db, L: TrieLayout>(pub &'db TrieDB<'db, L>);
+
+#[cfg(feature="std")]
+impl<'db, L> fmt::Debug for DebugWithMeta<'db, L>
+where
+	L: TrieLayout,
+{
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		f.debug_struct("TrieDBWithMeta")
+			.field("hash_count", &self.0.hash_count)
+			.field("root", &TrieAwareDebugNode {
+				trie: self.0,
+				node_key: NodeHandle::Hash(self.0.root().as_ref()),
+				partial_key: NibbleVec::new(),
+				index: None,
+				show_meta: true,
 			})
 			.finish()
 	}
@@ -369,6 +412,22 @@ impl<'a, L: TrieLayout> TrieDBKeyIterator<'a, L> {
 			inner,
 		})
 	}
+
+	/// Create a new iterator, but limited to a given prefix.
+	/// It then do a seek operation from prefixed context (using `seek` lose
+	/// prefix context by default).
+	pub fn new_prefixed_then_seek(
+		db: &'a TrieDB<L>,
+		prefix: &[u8],
+		start_at: &[u8],
+	) -> Result<TrieDBKeyIterator<'a, L>, TrieHash<L>, CError<L>> {
+		let mut inner = TrieDBNodeIterator::new(db)?;
+		inner.prefix_then_seek(prefix, start_at)?;
+
+		Ok(TrieDBKeyIterator {
+			inner,
+		})
+	}
 }
 
 impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBKeyIterator<'a, L> {
@@ -403,12 +462,12 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 								self.inner.db().access_from(key, None);
 							}
 						},
-						Value::HashedValue(hash, _) =>  {
+						Value::HashedValue(hash) =>  {
 							let mut res = TrieHash::<L>::default();
 							res.as_mut().copy_from_slice(hash);
 							if let Some(key) = node_key.as_ref() {
 								if let Some(_) = self.inner.db().access_from(key, Some(&res)) {
-									unimplemented!("Reinject value in value and continue");
+									unimplemented!("Switch back to Value::Value node.");
 								}
 							}
 

@@ -1,4 +1,4 @@
-// Copyright 2017, 2020 Parity Technologies
+// Copyright 2017, 2021 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 
 //! In-memory trie representation.
 
-use super::{DBValue, node::NodeKey, Meta, GlobalMeta};
+use super::{DBValue, node::NodeKey, Meta};
 use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode,
@@ -74,8 +74,8 @@ pub enum Value {
 	NoValue,
 	/// Value bytes.
 	Value(DBValue),
-	/// Hash of bytes and original value length.
-	HashedValue(DBValue, usize),
+	/// Hash of value bytes.
+	HashedValue(DBValue),
 }
 
 impl<'a> From<EncodedValue<'a>> for Value {
@@ -83,7 +83,7 @@ impl<'a> From<EncodedValue<'a>> for Value {
 		match v {
 			EncodedValue::NoValue => Value::NoValue,
 			EncodedValue::Value(value) => Value::Value(value.to_vec()),
-			EncodedValue::HashedValue(hash, size) => Value::HashedValue(hash.to_vec(), size),
+			EncodedValue::HashedValue(hash) => Value::HashedValue(hash.to_vec()),
 		}
 	}
 }
@@ -97,13 +97,12 @@ impl From<Option<DBValue>> for Value {
 	}
 }
 
-
 impl Value {
 	fn as_slice(&self) -> EncodedValue {
 		match self {
 			Value::NoValue => EncodedValue::NoValue,
 			Value::Value(value) => EncodedValue::Value(value.as_slice()),
-			Value::HashedValue(hash, size) => EncodedValue::HashedValue(hash.as_slice(), *size),
+			Value::HashedValue(hash) => EncodedValue::HashedValue(hash.as_slice()),
 		}
 	}
 
@@ -111,9 +110,7 @@ impl Value {
 		match self {
 			Value::NoValue => Ok(None),
 			Value::Value(value) => Ok(Some(value.clone())),
-			Value::HashedValue(hash, _size) => {
-				// TODO this is only for inline node so most likely never this.
-				// but still considerr using access_from
+			Value::HashedValue(hash) => {
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash.as_slice());
 				Err(Box::new(TrieError::IncompleteDatabase(res)))
@@ -122,26 +119,25 @@ impl Value {
 	}
 }
 
-
 /// Node types in the Trie.
 /// `M` is associated meta, no meta indicates
 /// an inline node.
 enum Node<L: TrieLayout> {
 	/// Empty node.
-	Empty(L::Meta),
+	Empty(Meta),
 	/// A leaf node contains the end of a key and a value.
 	/// This key is encoded from a `NibbleSlice`, meaning it contains
 	/// a flag indicating it is a leaf.
-	Leaf(NodeKey, Value, L::Meta),
+	Leaf(NodeKey, Value, Meta),
 	/// An extension contains a shared portion of a key and a child node.
 	/// The shared portion is encoded from a `NibbleSlice` meaning it contains
 	/// a flag indicating it is an extension.
 	/// The child node is always a branch.
-	Extension(NodeKey, NodeHandle<TrieHash<L>>, L::Meta),
+	Extension(NodeKey, NodeHandle<TrieHash<L>>, Meta),
 	/// A branch has up to 16 children and an optional value.
-	Branch(Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>, Value, L::Meta),
+	Branch(Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>, Value, Meta),
 	/// Branch node with support for a nibble (to avoid extension node).
-	NibbledBranch(NodeKey, Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>, Value, L::Meta),
+	NibbledBranch(NodeKey, Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>, Value, Meta),
 }
 
 #[cfg(feature = "std")]
@@ -163,7 +159,7 @@ impl Debug for Value {
 		match self {
 			Self::NoValue => write!(fmt, "None"),
 			Self::Value(value) => write!(fmt, "Some({:?})", ToHex(value)),
-			Self::HashedValue(value, _) => write!(fmt, "Hashed({:?})", ToHex(value)),
+			Self::HashedValue(value) => write!(fmt, "Hashed({:?})", ToHex(value)),
 		}
 	}
 }
@@ -193,7 +189,7 @@ impl<L: TrieLayout> Node<L>
 	fn inline_or_hash(
 		parent_hash: TrieHash<L>,
 		child: EncodedNodeHandle,
-		db: &dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &dyn HashDB<L::Hash, DBValue>,
 		storage: &mut NodeStorage<L>,
 		layout: &L,
 	) -> Result<NodeHandle<TrieHash<L>>, TrieHash<L>, CError<L>> {
@@ -204,7 +200,7 @@ impl<L: TrieLayout> Node<L>
 				NodeHandle::Hash(hash)
 			},
 			EncodedNodeHandle::Inline(data) => {
-				let meta = layout.meta_for_stored_inline_node();
+				let meta = layout.new_meta();
 				let child = Node::from_encoded(parent_hash, data, db, storage, meta, layout)?;
 				NodeHandle::InMemory(storage.alloc(Stored::New(child)))
 			},
@@ -216,9 +212,9 @@ impl<L: TrieLayout> Node<L>
 	fn from_encoded<'a, 'b>(
 		node_hash: TrieHash<L>,
 		data: &'a[u8],
-		db: &dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &dyn HashDB<L::Hash, DBValue>,
 		storage: &'b mut NodeStorage<L>,
-		mut meta: L::Meta, 
+		mut meta: Meta, 
 		layout: &L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		let encoded_node = L::Codec::decode(data, &mut meta)
@@ -268,27 +264,12 @@ impl<L: TrieLayout> Node<L>
 	}
 
 	// TODO: parallelize
-	fn into_encoded<F>(self, child_cb: F) -> (Vec<u8>, L::Meta)
+	fn into_encoded<F>(self, mut child_cb: F) -> (Vec<u8>, Meta)
 	where
 		F: FnMut(NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
 	{
-		Self::into_encoded_with_root_meta(self, child_cb, None)
-	}
-
-	fn into_encoded_with_root_meta<F>(
-		mut self,
-		mut child_cb: F,
-		root_meta: Option<GlobalMeta<L>>,
-	) -> (Vec<u8>, L::Meta)
-	where
-		F: FnMut(NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
-	{
-		if let Some(root_meta) = root_meta {
-			L::set_root_meta(self.meta_mut(), root_meta);
-		}
-
 		match self {
-			Node::Empty(mut meta) => (L::Codec::empty_node(&mut meta).to_vec(), meta),
+			Node::Empty(meta) => (L::Codec::empty_node().to_vec(), meta),
 			Node::Leaf(partial, value, mut meta) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				(L::Codec::leaf_node(pr.right(), value.as_slice(), &mut meta), meta)
@@ -338,16 +319,6 @@ impl<L: TrieLayout> Node<L>
 					&mut meta,
 				), meta)
 			},
-		}
-	}
-
-	pub(crate) fn meta_mut(&mut self) -> &mut L::Meta {
-		match self {
-			Node::Leaf(_, _, meta)
-			| Node::Extension(_, _, meta)
-			| Node::Branch(_, _, meta)
-			| Node::NibbledBranch(_, _, _, meta)
-			| Node::Empty(meta) => meta,
 		}
 	}
 }
@@ -400,13 +371,6 @@ enum Stored<L: TrieLayout> {
 pub enum ChildReference<HO> { // `HO` is e.g. `H256`, i.e. the output of a `Hasher`
 	Hash(HO),
 	Inline(HO, usize), // usize is the length of the node data we store in the `H::Out`
-}
-
-impl<HO> ChildReference<HO> {
-	/// Is child reference inline.
-	pub fn is_inline(&self) -> bool {
-		matches!(self, ChildReference::Inline(..))
-	}
 }
 
 impl<'a, HO> TryFrom<EncodedNodeHandle<'a>> for ChildReference<HO>
@@ -468,7 +432,7 @@ impl<L: TrieLayout> NodeStorage<L>
 		let idx = handle.0;
 
 		self.free_indices.push_back(idx);
-		let meta = L::Meta::meta_for_empty(layout.layout_meta());
+		let meta = layout.new_meta();
 		mem::replace(&mut self.nodes[idx], Stored::New(Node::Empty(meta)))
 	}
 }
@@ -517,7 +481,7 @@ where
 {
 	layout: L,
 	storage: NodeStorage<L>,
-	db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+	db: &'a mut dyn HashDB<L::Hash, DBValue>,
 	root: &'a mut TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
 	death_row: HashSet<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
@@ -531,14 +495,14 @@ where
 	L: TrieLayout,
 {
 	/// Create a new trie with backing database `db` and empty `root`.
-	pub fn new(db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>, root: &'a mut TrieHash<L>) -> Self {
+	pub fn new(db: &'a mut dyn HashDB<L::Hash, DBValue>, root: &'a mut TrieHash<L>) -> Self {
 		Self::new_with_layout(db, root, Default::default())
 	}
 
 	/// Create a new trie with backing database `db` and empty `root`.
 	/// This could use a context specific layout.
 	pub fn new_with_layout(
-		db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &'a mut dyn HashDB<L::Hash, DBValue>,
 		root: &'a mut TrieHash<L>,
 		layout: L,
 	) -> Self {
@@ -559,7 +523,7 @@ where
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
 	pub fn from_existing(
-		db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &'a mut dyn HashDB<L::Hash, DBValue>,
 		root: &'a mut TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Self::from_existing_with_layout(db, root, Default::default())
@@ -568,24 +532,12 @@ where
 	/// Create a new trie with the backing database `db` and `root.
 	/// Returns an error if `root` does not exist.
 	pub fn from_existing_with_layout(
-		db: &'a mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		db: &'a mut dyn HashDB<L::Hash, DBValue>,
 		root: &'a mut TrieHash<L>,
-		mut layout: L,
+		layout: L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
 			return Err(Box::new(TrieError::InvalidStateRoot(*root)));
-		}
-		if L::READ_ROOT_STATE_META {
-			if let Some((encoded, mut meta)) = db.get_with_meta(root, EMPTY_PREFIX, layout.layout_meta()) {
-				// read state meta
-				let _ = L::Codec::decode_plan(encoded.as_slice(), &mut meta)
-					.map_err(|e| Box::new(TrieError::DecoderError(*root, e)))?;
-				layout.initialize_from_root_meta(&meta);
-			} else {
-				return Err(Box::new(TrieError::InvalidStateRoot(*root)))
-			}
-		} else if !db.contains(root, EMPTY_PREFIX) {
-			return Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		}
 
 		let root_handle = NodeHandle::Hash(*root);
@@ -600,12 +552,12 @@ where
 		})
 	}
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>> {
+	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue> {
 		self.db
 	}
 
 	/// Get the backing database mutably.
-	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>> {
+	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue> {
 		self.db
 	}
 
@@ -615,8 +567,9 @@ where
 		hash: TrieHash<L>,
 		key: Prefix,
 	) -> Result<StorageHandle, TrieHash<L>, CError<L>> {
-		let (node_encoded, meta) = self.db.get_with_meta(&hash, key, self.layout.layout_meta())
+		let node_encoded = self.db.get(&hash, key)
 			.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
+		let meta = self.layout.new_meta();
 		let node = Node::from_encoded(
 			hash,
 			&node_encoded,
@@ -799,7 +752,7 @@ where
 						}
 					} else {
 						// Original had nothing there. compose a leaf.
-						let meta_leaf = self.layout.meta_for_new_node();
+						let meta_leaf = self.layout.new_meta();
 						let leaf = self.storage.alloc(
 							Stored::New(Node::Leaf(key.to_stored(), Value::Value(value), meta_leaf))
 						);
@@ -847,7 +800,7 @@ where
 					let mut children = empty_children();
 					let alloc_storage = self.storage.alloc(Stored::New(low));
 
-					let meta_branch = self.layout.meta_for_new_node();
+					let meta_branch = self.layout.new_meta();
 					children[ix as usize] = Some(alloc_storage.into());
 
 					if partial.len() - common == 0 {
@@ -859,7 +812,7 @@ where
 						))
 					} else {
 						let ix = partial.at(common);
-						let meta_leaf = self.layout.meta_for_new_node();
+						let meta_leaf = self.layout.new_meta();
 						let stored_leaf = Node::Leaf(partial.mid(common + 1).to_stored(), Value::Value(value), meta_leaf);
 						let leaf = self.storage.alloc(Stored::New(stored_leaf));
 
@@ -894,7 +847,7 @@ where
 						}
 					} else {
 						// Original had nothing there. compose a leaf.
-						let meta_leaf = self.layout.meta_for_new_node();
+						let meta_leaf = self.layout.new_meta();
 						let leaf = self.storage.alloc(
 							Stored::New(Node::Leaf(key.to_stored(), Value::Value(value), meta_leaf)),
 						);
@@ -941,7 +894,7 @@ where
 						Node::Branch(children, stored_value, meta)
 					} else {
 						let idx = existing_key.at(common) as usize;
-						let meta_branch = self.layout.meta_for_new_node();
+						let meta_branch = self.layout.new_meta();
 						let new_leaf = Node::Leaf(
 							existing_key.mid(common + 1).to_stored(),
 							stored_value,
@@ -993,7 +946,7 @@ where
 
 					// always replace since we took a leaf and made an extension.
 					let leaf = self.storage.alloc(Stored::New(branch));
-					let meta_extension = self.layout.meta_for_new_node();
+					let meta_extension = self.layout.new_meta();
 					InsertAction::Replace(Node::Extension(existing_key.to_stored(), leaf.into(), meta_extension))
 				} else {
 					debug_assert!(L::USE_EXTENSION);
@@ -1020,7 +973,7 @@ where
 					InsertAction::Replace(Node::Extension(
 						existing_key.to_stored_range(common),
 						self.storage.alloc(Stored::New(augmented_low)).into(),
-						self.layout.meta_for_new_node(),
+						self.layout.new_meta(),
 					))
 				}
 			},
@@ -1055,7 +1008,7 @@ where
 					};
 
 					// continue inserting.
-					let meta_branch = self.layout.meta_for_new_node();
+					let meta_branch = self.layout.new_meta();
 					let branch_action = self.insert_inspector(
 						Node::Branch(children, Value::NoValue, meta_branch),
 						key,
@@ -1099,7 +1052,7 @@ where
 					let augmented_low = self.insert_inspector(low, key, value, old_val)?
 						.unwrap_node();
 
-					let new_meta = self.layout.meta_for_new_node();
+					let new_meta = self.layout.new_meta();
 					// always replace, since this extension is not the one we started with.
 					// this is known because the partial key is only the common prefix.
 					InsertAction::Replace(Node::Extension(
@@ -1323,6 +1276,14 @@ where
 		node: Node<L>,
 		key: NibbleSlice,
 	) -> Result<Node<L>, TrieHash<L>, CError<L>> {
+		self.fix_inner(node, key, false)
+	}
+	fn fix_inner(
+		&mut self,
+		node: Node<L>,
+		key: NibbleSlice,
+		recurse_extension: bool,
+	) -> Result<Node<L>, TrieHash<L>, CError<L>> {
 		match node {
 			Node::Branch(mut children, value, meta) => {
 				// if only a single value, transmute to leaf/extension and feed through fixed.
@@ -1468,19 +1429,32 @@ where
 				}
 			},
 			Node::Extension(partial, child, meta) => {
-				// We could advance key, but this code can also be called
-				// recursively, so there might be some prefix from branch.
-				let last = partial.1[partial.1.len() - 1] & (255 >> 4);
 				let mut key2 = key.clone();
-				key2.advance((partial.1.len() * nibble_ops::NIBBLE_PER_BYTE) - partial.0 - 1);
-				let (start, alloc_start, prefix_end) = match key2.left() {
-					(start, None) => (start, None, Some(nibble_ops::push_at_left(0, last, 0))),
-					(start, Some(v)) => {
-						let mut so: BackingByteVec = start.into();
-						// Complete last byte with `last`.
-						so.push(nibble_ops::pad_left(v) | last);
-						(start, Some(so), None)
-					},
+				let (start, alloc_start, prefix_end) = if !recurse_extension {
+					// We could advance key, but this code can also be called
+					// recursively, so there might be some prefix from branch.
+					let last = partial.1[partial.1.len() - 1] & (255 >> 4);
+					key2.advance((partial.1.len() * nibble_ops::NIBBLE_PER_BYTE) - partial.0 - 1);
+					match key2.left() {
+						(start, None) => (start, None, Some(nibble_ops::push_at_left(0, last, 0))),
+						(start, Some(v)) => {
+							let mut so: BackingByteVec = start.into();
+							// Complete last byte with `last`.
+							so.push(nibble_ops::pad_left(v) | last);
+							(start, Some(so), None)
+						},
+					}
+				} else {
+					let k2 = key2.left();
+
+					let mut so: NibbleVec = Default::default();
+					so.append_optional_slice_and_nibble(Some(&NibbleSlice::new(k2.0)), None);
+					if let Some(n) = k2.1 {
+						so.push(n >> nibble_ops::BIT_PER_NIBBLE);
+					}
+					so.append_optional_slice_and_nibble(Some(&NibbleSlice::from_stored(&partial)), None);
+					let so = so.as_prefix();
+					(k2.0, Some(so.0.into()), so.1)
 				};
 				let child_prefix = (alloc_start.as_ref().map(|start| &start[..]).unwrap_or(start), prefix_end);
 
@@ -1515,7 +1489,8 @@ where
 							"fixing: extension combination. new_partial={:?}",
 							partial,
 						);
-						self.fix(Node::Extension(partial, sub_child, meta), key)
+						
+						self.fix_inner(Node::Extension(partial, sub_child, meta), key.into(), true)
 					}
 					Node::Leaf(sub_partial, value, meta) => {
 						// combine with node below.
@@ -1575,24 +1550,22 @@ where
 			Stored::New(node) => {
 				let mut k = NibbleVec::new();
 
-				let global_meta  = if L::READ_ROOT_STATE_META {
-					Some(self.layout.layout_meta())
-				} else {
-					None
-				};
-				let (encoded_root, meta) = node.into_encoded_with_root_meta(
+				let (encoded_root, meta) = node.into_encoded(
 					|child, o_slice, o_index| {
 						let mov = k.append_optional_slice_and_nibble(o_slice, o_index);
 						let cr = self.commit_child(child, &mut k);
 						k.drop_lasts(mov);
 						cr
 					},
-					global_meta,
 				);
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
 
-				*self.root = self.db.insert_with_meta(EMPTY_PREFIX, &encoded_root[..], meta);
+				*self.root = self.db.alt_insert(
+					EMPTY_PREFIX,
+					&encoded_root[..],
+					meta.resolve_alt_hashing::<L::Codec>(),
+				);
 				self.hash_count += 1;
 
 				self.root_handle = NodeHandle::Hash(*self.root);
@@ -1637,7 +1610,11 @@ where
 							node.into_encoded(commit_child)
 						};
 						if encoded.len() >= L::Hash::LENGTH {
-							let hash = self.db.insert_with_meta(prefix.as_prefix(), &encoded[..], meta);
+							let hash = self.db.alt_insert(
+								prefix.as_prefix(),
+								&encoded[..],
+								meta.resolve_alt_hashing::<L::Codec>(),
+							);
 							self.hash_count +=1;
 							ChildReference::Hash(hash)
 						} else {
@@ -1660,27 +1637,6 @@ where
 			NodeHandle::Hash(h) => NodeHandle::Hash(h),
 			NodeHandle::InMemory(StorageHandle(x)) => NodeHandle::InMemory(StorageHandle(x)),
 		}
-	}
-
-	/// Force update of meta in state from layout value (update root even
-	/// if there was no changes done).
-	pub fn force_layout_meta(
-		&mut self,
-	) -> Result<(), TrieHash<L>, CError<L>> {
-		if L::READ_ROOT_STATE_META {
-			let root = match self.root_handle {
-				NodeHandle::Hash(h) => self.cache(h, EMPTY_PREFIX)?,
-				NodeHandle::InMemory(StorageHandle(x)) => StorageHandle(x),
-			};
-			match self.storage.destroy(root, &self.layout) {
-				Stored::Cached(node, hash) => {
-					self.death_row.insert((hash, Default::default()));
-					self.root_handle = NodeHandle::InMemory(self.storage.alloc(Stored::New(node)));
-				},
-				Stored::New(_node) => (),
-			}
-		}
-		Ok(())
 	}
 
 	/// Get current value of Trie layout.

@@ -492,7 +492,8 @@ fn trie_proof_verification(c: &mut Criterion) {
 			verify_proof::<Layout, _, _, _>(
 				&root,
 				&proof,
-				items.iter()
+				items.iter(),
+				Default::default(),
 			).unwrap();
 		})
 	);

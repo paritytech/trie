@@ -17,21 +17,20 @@ use trie_standardmap::*;
 use log::debug;
 use memory_db::{MemoryDB, PrefixedKey};
 use hash_db::{Hasher, HashDB};
-use trie_db::{TrieDBMut, TrieMut, NodeCodec, GlobalMeta,
+use trie_db::{TrieDBMut, TrieMut, NodeCodec,
 	TrieLayout, DBValue, Value};
 use reference_trie::{ExtensionLayout, NoExtensionLayout,
-	RefHasher, test_layouts, ReferenceNodeCodec,
+	RefHasher, test_layouts, ReferenceNodeCodec, AltHashNoExt,
 	ReferenceNodeCodecNoExt, reference_trie_root_iter_build as reference_trie_root};
 
 type PrefixedMemoryDB<T> = MemoryDB::<
 	<T as TrieLayout>::Hash,
 	PrefixedKey<<T as TrieLayout>::Hash>,
 	DBValue,
-	<T as TrieLayout>::MetaHasher,
 >;
 
 fn populate_trie<'db, T: TrieLayout>(
-	db: &'db mut dyn HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>>,
+	db: &'db mut dyn HashDB<T::Hash, DBValue>,
 	root: &'db mut <T::Hash as Hasher>::Out,
 	v: &[(Vec<u8>, Vec<u8>)]
 ) -> TrieDBMut<'db, T> {
@@ -39,19 +38,13 @@ fn populate_trie<'db, T: TrieLayout>(
 }
 
 fn populate_trie_and_flag<'db, T: TrieLayout>(
-	db: &'db mut dyn HashDB<T::Hash, DBValue, T::Meta, GlobalMeta<T>>,
+	db: &'db mut dyn HashDB<T::Hash, DBValue>,
 	root: &'db mut <T::Hash as Hasher>::Out,
 	v: &[(Vec<u8>, Vec<u8>)],
 	flagged_layout: Option<T>,
 ) -> TrieDBMut<'db, T> {
 	let mut t = if let Some(layout) = flagged_layout {
-		let prev_root = root.clone();
-		{
-			let mut t = TrieDBMut::<T>::new_with_layout(db, root, layout);
-			t.force_layout_meta().unwrap();
-		}
-		assert!(&prev_root != root);
-		TrieDBMut::<T>::from_existing(db, root).unwrap()
+		TrieDBMut::<T>::new_with_layout(db, root, layout)
 	} else {
 		TrieDBMut::<T>::new(db, root)
 	};
@@ -64,33 +57,38 @@ fn populate_trie_and_flag<'db, T: TrieLayout>(
 	t
 }
 
-fn unpopulate_trie<'db, T: TrieLayout>(t: &mut TrieDBMut<'db, T>, v: &[(Vec<u8>, Vec<u8>)]) {
-	for i in v {
+fn unpopulate_trie<'db, T: TrieLayout>(t: &mut TrieDBMut<'db, T>, v: &[(Vec<u8>, Vec<u8>)]) -> bool {
+	for (_ix, i) in v.into_iter().enumerate() {
 		let key: &[u8]= &i.0;
-		t.remove(key).unwrap();
+		if t.remove(key).is_err() {
+			return false;
+		}
 	}
+	true
 }
 
 fn reference_hashed_null_node<T: TrieLayout>() -> <T::Hash as Hasher>::Out {
 	if T::USE_EXTENSION {
-		<ReferenceNodeCodec<T::Hash> as NodeCodec<T::Meta>>::hashed_null_node()
+		<ReferenceNodeCodec<T::Hash> as NodeCodec>::hashed_null_node()
 	} else {
-		<ReferenceNodeCodecNoExt<T::Hash> as NodeCodec<T::Meta>>::hashed_null_node()
+		<ReferenceNodeCodecNoExt<T::Hash> as NodeCodec>::hashed_null_node()
 	}
 }
 
 #[test]
 fn playpen() {
 	env_logger::init();
+	playpen_internal::<AltHashNoExt>();
 	playpen_internal::<NoExtensionLayout>();
 	playpen_internal::<ExtensionLayout>();
 }
 fn playpen_internal<T: TrieLayout>() {
-	let mut seed = Default::default();
-	for test_i in 0..10 {
+	let mut seed = [0u8;32];
+	for test_i in 0..10_000 {
 		if test_i % 50 == 0 {
 			debug!("{:?} of 10000 stress tests done", test_i);
 		}
+		let initial_seed = seed.clone();
 		let x = StandardMap {
 			alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
 			min_key: 5,
@@ -114,7 +112,7 @@ fn playpen_internal<T: TrieLayout>() {
 			}
 		}
 		assert_eq!(*memtrie.root(), real);
-		unpopulate_trie(&mut memtrie, &x);
+		assert!(unpopulate_trie(&mut memtrie, &x), "{:?}", (test_i, initial_seed));
 		memtrie.commit();
 		let hashed_null_node = reference_hashed_null_node::<T>();
 		if *memtrie.root() != hashed_null_node {
@@ -346,7 +344,7 @@ fn test_at_three_internal<T: TrieLayout>() {
 test_layouts!(stress, stress_internal);
 fn stress_internal<T: TrieLayout>() {
 	let mut seed = Default::default();
-	for _ in 0..50 {
+	for _ in 0..1000 {
 		let x = StandardMap {
 			alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
 			min_key: 5,
@@ -466,18 +464,15 @@ fn register_proof_without_value() {
 	use trie_db::TrieDB;
 	use std::collections::HashMap;
 	use std::cell::RefCell;
-	use reference_trie::{CheckMetaHasherNoExt, TestMetaHasher};
+	use reference_trie::AltHashNoExt;
 	use hash_db::{Prefix, AsHashDB};
 
-	type Updatable = CheckMetaHasherNoExt;
-	type VF = TestMetaHasher<RefHasher>;
-	type Meta = reference_trie::ValueRange;
-	type GlobalMeta = <reference_trie::ValueRange as trie_db::Meta>::GlobalMeta;
+	type Layout = AltHashNoExt;
+	type Meta = trie_db::Meta;
 	type MemoryDB = memory_db::MemoryDB<
 		RefHasher,
 		PrefixedKey<RefHasher>,
 		DBValue,
-		VF,
 	>;
 	let x = [
 		(b"test1".to_vec(), vec![1;32]), // inline
@@ -487,49 +482,43 @@ fn register_proof_without_value() {
 
 	let mut memdb = MemoryDB::default();
 	let mut root = Default::default();
-	let layout = CheckMetaHasherNoExt(true); // flagged for hashed.
-	let _ = populate_trie_and_flag::<Updatable>(&mut memdb, &mut root, &x, Some(layout));
+	let layout = AltHashNoExt(Some(1)); // flagged for hashed.
+	let _ = populate_trie_and_flag::<Layout>(&mut memdb, &mut root, &x, Some(layout.clone()));
 	{
-		let trie = TrieDB::<Updatable>::new(&memdb, &root).unwrap();
+		let trie = TrieDB::<Layout>::new_with_layout(&memdb, &root,  layout.clone()).unwrap();
 		println!("{:?}", trie);
 	}
 
 	struct ProofRecorder {
 		db: MemoryDB,
-		record: RefCell<HashMap<Vec<u8>, (Vec<u8>, Meta)>>,
+		record: RefCell<HashMap<Vec<u8>, (Vec<u8>, Meta, bool)>>,
 	}
 	// Only to test without threads.
 	unsafe impl Send for ProofRecorder { }
 	unsafe impl Sync for ProofRecorder { }
 
-	impl HashDB<RefHasher, DBValue, Meta, GlobalMeta> for ProofRecorder {
+	impl HashDB<RefHasher, DBValue> for ProofRecorder {
 		fn get(&self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) -> Option<DBValue> {
-			self.get_with_meta(key, prefix, false).map(|v| v.0)
-		}
-
-		fn get_with_meta(
-			&self,
-			key: &<RefHasher as Hasher>::Out,
-			prefix: Prefix,
-			global_meta: GlobalMeta,
-		) -> Option<(DBValue, Meta)> {
-			let v = self.db.get_with_meta(key, prefix, global_meta);
+			let v = self.db.get(key, prefix);
 			if let Some(v) = v.as_ref() {
 				self.record.borrow_mut()
 					.entry(key[..].to_vec())
 					.or_insert_with(|| {
-						let mut v = v.clone();
-						v.1.set_accessed_value(false);
-						v
+						let mut meta = Meta::default();
+						// Fully init meta by decoding.
+						let _ = <AltHashNoExt as TrieLayout>::Codec::decode_plan(
+							v.as_slice(),
+							&mut meta,
+						);
+						(v.clone(), meta, false)
 					});
 			}
 			v
 		}
 
 		fn access_from(&self, key: &<RefHasher as Hasher>::Out, _at: Option<&<RefHasher as Hasher>::Out>) -> Option<DBValue> {
-
 			self.record.borrow_mut().entry(key[..].to_vec())
-				.and_modify(|entry| entry.1.set_accessed_value(true));
+				.and_modify(|entry| { entry.2 = true; } );
 			None
 		}
 
@@ -541,17 +530,21 @@ fn register_proof_without_value() {
 			self.db.emplace(key, prefix, value)
 		}
 
+		fn emplace_ref(&mut self, key: &<RefHasher as Hasher>::Out, prefix: Prefix, value: &[u8]) {
+			self.db.emplace_ref(key, prefix, value)
+		}
+
 		fn insert(&mut self, prefix: Prefix, value: &[u8]) -> <RefHasher as Hasher>::Out {
 			self.db.insert(prefix, value)
 		}
 
-		fn insert_with_meta(
+		fn alt_insert(
 			&mut self,
 			prefix: Prefix,
 			value: &[u8],
-			meta: Meta,
+			alt_hashing: hash_db::AltHashing,
 		) -> <RefHasher as Hasher>::Out {
-			self.db.insert_with_meta(prefix, value, meta)
+			self.db.alt_insert(prefix, value, alt_hashing)
 		}
 
 		fn remove(&mut self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) {
@@ -559,11 +552,11 @@ fn register_proof_without_value() {
 		}
 	}
 
-	impl AsHashDB<RefHasher, DBValue, Meta, GlobalMeta> for ProofRecorder {
-		fn as_hash_db(&self) -> &dyn HashDB<RefHasher, DBValue, Meta, GlobalMeta> {
+	impl AsHashDB<RefHasher, DBValue> for ProofRecorder {
+		fn as_hash_db(&self) -> &dyn HashDB<RefHasher, DBValue> {
 			self
 		}
-		fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (dyn HashDB<RefHasher, DBValue, Meta, GlobalMeta> + 'a) {
+		fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (dyn HashDB<RefHasher, DBValue> + 'a) {
 			self
 		}
 	}
@@ -575,7 +568,7 @@ fn register_proof_without_value() {
 
 	let root_proof = root.clone();
 	{
-		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb, &mut root, CheckMetaHasherNoExt::default())
+		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb, &mut root, layout.clone())
 			.unwrap();
 		// touch te value (test1 remains untouch).
 		trie.get(b"te").unwrap();
@@ -591,14 +584,22 @@ fn register_proof_without_value() {
 		RefHasher,
 		memory_db::HashKey<RefHasher>,
 		DBValue,
-		VF,
 	>;
 	let mut memdb_from_proof = MemoryDBProof::default();
-	for (_key, value) in memdb.record.into_inner().into_iter() {
-		memdb_from_proof.insert_with_meta(
-			hash_db::EMPTY_PREFIX,
+	for (_key, mut value) in memdb.record.into_inner().into_iter() {
+		let v = if let Some(changed) = reference_trie::to_hashed_variant::<RefHasher>(
 			value.0.as_slice(),
-			value.1,
+			&mut value.1,
+			value.2,
+		) {
+			changed
+		} else {
+			value.0
+		};
+		memdb_from_proof.alt_insert(
+			hash_db::EMPTY_PREFIX,
+			v.as_slice(),
+			value.1.resolve_alt_hashing::<<Layout as TrieLayout>::Codec>(),
 		);
 	}
 
@@ -611,7 +612,7 @@ fn register_proof_without_value() {
 		let mut trie = TrieDBMut::from_existing_with_layout(
 			&mut memdb_from_proof,
 			&mut root_proof,
-			CheckMetaHasherNoExt::default(),
+			layout.clone(),
 		).unwrap();
 		trie.get(b"te").unwrap();
 		trie.insert(b"test12", &[2u8;36][..]).unwrap();
@@ -622,7 +623,7 @@ fn register_proof_without_value() {
 	let mut root_proof = root_unpacked.clone();
 	{
 		use trie_db::Trie;
-		let trie = TrieDB::<CheckMetaHasherNoExt>::new(&memdb_from_proof, &root_proof).unwrap();
+		let trie = TrieDB::<AltHashNoExt>::new_with_layout(&memdb_from_proof, &root_proof, layout.clone()).unwrap();
 		assert!(trie.get(b"te").unwrap().is_some());
 		assert!(trie.get(b"test1").is_err()); // TODO check incomplete db error
 	}
@@ -631,7 +632,7 @@ fn register_proof_without_value() {
 		let trie = TrieDBMut::from_existing_with_layout(
 			&mut memdb_from_proof,
 			&mut root_proof,
-			CheckMetaHasherNoExt::default(),
+			layout.clone(),
 		).unwrap();
 		assert!(trie.get(b"te").unwrap().is_some());
 		assert!(trie.get(b"test1").is_err()); // TODO check incomplete db error

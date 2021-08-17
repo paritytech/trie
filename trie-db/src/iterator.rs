@@ -1,4 +1,4 @@
-// Copyright 2017, 2020 Parity Technologies
+// Copyright 2017, 2021 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout, GlobalMeta};
+use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout, Meta};
 use hash_db::{Hasher, EMPTY_PREFIX};
 use crate::triedb::TrieDB;
 use crate::node::{NodePlan, NodeHandle, OwnedNode};
@@ -31,14 +31,14 @@ enum Status {
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Eq, PartialEq)]
-struct Crumb<H: Hasher, M> {
+struct Crumb<H: Hasher> {
 	hash: Option<H::Out>,
-	meta: M,
+	meta: Meta,
 	node: Rc<OwnedNode<DBValue>>,
 	status: Status,
 }
 
-impl<H: Hasher, M> Crumb<H, M> {
+impl<H: Hasher> Crumb<H> {
 	/// Move on to next status in the node's sequence.
 	fn increment(&mut self) {
 		self.status = match (self.status, self.node.node_plan()) {
@@ -58,7 +58,7 @@ impl<H: Hasher, M> Crumb<H, M> {
 /// Iterator for going through all nodes in the trie in pre-order traversal order.
 pub struct TrieDBNodeIterator<'a, L: TrieLayout> {
 	db: &'a TrieDB<'a, L>,
-	trail: Vec<Crumb<L::Hash, L::Meta>>,
+	trail: Vec<Crumb<L::Hash>>,
 	key_nibbles: NibbleVec,
 }
 
@@ -80,7 +80,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 	}
 
 	/// Descend into a payload.
-	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<TrieHash<L>>, meta: L::Meta) {
+	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<TrieHash<L>>, meta: Meta) {
 		self.trail.push(Crumb {
 			hash: node_hash,
 			meta,
@@ -114,7 +114,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 		let mut full_key_nibbles = 0;
 		loop {
 			let (next_node, next_node_hash, next_node_meta) = {
-				self.descend(node, node_hash.clone(), meta.clone());
+				self.descend(node, node_hash, meta);
 				let crumb = self.trail.last_mut()
 					.expect(
 						"descend_into_node pushes a crumb onto the trial; \
@@ -283,7 +283,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 	}
 
 	/// Access inner hash db.
-	pub fn db(&self) -> &dyn hash_db::HashDBRef<L::Hash, DBValue, L::Meta, GlobalMeta<L>> {
+	pub fn db(&self) -> &dyn hash_db::HashDBRef<L::Hash, DBValue> {
 		self.db.db()
 	}
 }
@@ -299,14 +299,14 @@ impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
 }
 
 impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
-	type Item = Result<(NibbleVec, Option<TrieHash<L>>, L::Meta, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
+	type Item = Result<(NibbleVec, Option<TrieHash<L>>, Meta, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		enum IterStep<O, M, E> {
+		enum IterStep<O, E> {
 			YieldNode,
 			PopTrail,
 			Continue,
-			Descend(Result<(OwnedNode<DBValue>, Option<O>, M), O, E>),
+			Descend(Result<(OwnedNode<DBValue>, Option<O>, Meta), O, E>),
 		}
 		loop {
 			let iter_step = {
@@ -331,7 +331,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 					(Status::At, NodePlan::Extension { partial: partial_plan, child }) => {
 						let partial = partial_plan.build(node_data);
 						self.key_nibbles.append_partial(partial.right());
-						IterStep::Descend::<TrieHash<L>, L::Meta, CError<L>>(
+						IterStep::Descend::<TrieHash<L>, CError<L>>(
 							self.db.get_raw_or_lookup(
 								b.hash.unwrap_or_default(),
 								child.build(node_data),
@@ -354,7 +354,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 						if let Some(child) = &children[i] {
 							self.key_nibbles.pop();
 							self.key_nibbles.push(i as u8);
-							IterStep::Descend::<TrieHash<L>, L::Meta, CError<L>>(
+							IterStep::Descend::<TrieHash<L>, CError<L>>(
 								self.db.get_raw_or_lookup(
 									b.hash.unwrap_or_default(),
 									child.build(node_data),
@@ -398,10 +398,10 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 					self.trail.last_mut()?
 						.increment();
 				},
-				IterStep::Descend::<TrieHash<L>, L::Meta, CError<L>>(Ok((node, node_hash, meta))) => {
+				IterStep::Descend::<TrieHash<L>, CError<L>>(Ok((node, node_hash, meta))) => {
 					self.descend(node, node_hash, meta);
 				},
-				IterStep::Descend::<TrieHash<L>, L::Meta, CError<L>>(Err(err)) => {
+				IterStep::Descend::<TrieHash<L>, CError<L>>(Err(err)) => {
 					// Increment here as there is an implicit PopTrail.
 					self.trail.last_mut()
 						.expect(

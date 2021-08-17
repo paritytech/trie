@@ -1,4 +1,4 @@
-// Copyright 2017, 2018 Parity Technologies
+// Copyright 2017, 2021 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,12 +16,17 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
 #[cfg(feature = "std")]
 use std::fmt::Debug;
 #[cfg(feature = "std")]
 use std::hash;
 #[cfg(not(feature = "std"))]
 use core::hash;
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
 
 #[cfg(feature = "std")]
 pub trait MaybeDebug: Debug {}
@@ -107,21 +112,17 @@ impl<'a, K, V> PlainDBRef<K, V> for &'a mut dyn PlainDB<K, V> {
 }
 
 /// Trait modelling datastore keyed by a hash defined by the `Hasher`.
-pub trait HashDB<H: Hasher, T, M, GM>: Send + Sync + AsHashDB<H, T, M, GM> {
+pub trait HashDB<H: Hasher, T>: Send + Sync + AsHashDB<H, T> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
 
-	/// Look up a given hash into the bytes that hash to it, returning None if the
-	/// hash is not known.
-	/// Resolve associated meta, and allow inheriting meta from parent definition.
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, global_meta: GM) -> Option<(T, M)>;
-
-	/// Access additional content or indicate additional content already accessed and needed.
+	/// Access additional content or indicates additional content being accessed.
 	///
-	/// In one case `at` is `None` and no reply is expected, this is a callback indicate access.
+	/// When `at` is `None`, no reply is expected, acts as a callback on content access
+	/// (eg access to a trie node value).
 	///
-	/// In the other case `at` is `Some` and we also got additional content (eg if value
+	/// When `at` is `Some`, we also try to fetch additional content (eg if value
 	/// of a trie node is stored externally for performance purpose).
 	fn access_from(&self, _key: &H::Out, _at: Option<&H::Out>) -> Option<T> {
 		None
@@ -138,58 +139,140 @@ pub trait HashDB<H: Hasher, T, M, GM>: Send + Sync + AsHashDB<H, T, M, GM> {
 	/// Like `insert()`, except you provide the key and the data is all moved.
 	fn emplace(&mut self, key: H::Out, prefix: Prefix, value: T);
 
+	/// `emplace` variant using reference to data.
+	fn emplace_ref(&mut self, key: &H::Out, prefix: Prefix, value: &[u8]);
+
 	/// Remove a datum previously inserted. Insertions can be "owed" such that the same number of
 	/// `insert()`s may happen without the data being eventually being inserted into the DB.
 	/// It can be "owed" more than once.
 	fn remove(&mut self, key: &H::Out, prefix: Prefix);
 
-	/// Insert with inner meta.
-	fn insert_with_meta(
+	/// Insert with alternate hashing info.
+	///
+	/// This operation allows different hashing scheme.
+	/// Currently `AltHashing` allows inner hashing of a range
+	/// of byte (eg to exclude some values from a trie node proof when unaccessed).
+	fn alt_insert(
 		&mut self,
 		prefix: Prefix,
 		value: &[u8],
-		meta: M,
-	) -> H::Out;
+		alt_hashing: AltHashing,
+	) -> H::Out {
+		if !alt_hashing.is_active() {
+			return self.insert(prefix, value);
+		}
+		let key = alt_hashing.alt_hash::<H>(value);
+		self.emplace_ref(&key, prefix, value);
+		key
+	}
 }
 
+/// Define how alternate hashing should be applied by the hash db.
+#[derive(Default, Clone, Debug)]
+pub struct AltHashing {
+	/// Allow skipping first bytes.
+	/// Can be use to add some metadata to some content without
+	/// changing the resulting hash.
+	/// (eg indicate that a trie node in proof does not contains
+	/// a value but its hash).
+	pub encoded_offset: usize,
+
+	/// Indicate a specific range of bytes, that could be used to apply
+	/// some alternate hashing.
+	/// Named `value_range` because first use case is with trie node
+	/// where there value is hashed a first time internally.
+	///
+	/// This range is defined with offseted content included.
+	pub value_range: Option<(usize, usize)>,
+}
+
+impl AltHashing {
+	fn is_active(&self) -> bool {
+		self.encoded_offset > 0 || self.value_range.is_some()
+	}
+
+	/// Apply hash with alternate hashing scheme.
+	pub fn alt_hash<H: Hasher>(&self, value: &[u8]) -> H::Out {
+		if !self.is_active() {
+			return H::hash(value);
+		}
+		let hash_value = &value[self.encoded_offset..];
+		if self.value_range.is_some() {
+			let hash_value = alt_hashed_value::<H>(value, self.value_range);
+			H::hash(hash_value.as_slice())
+		} else {
+			H::hash(hash_value)
+		}
+
+	}
+}
+
+/// Representation of hash db value before final hashing.
+/// eg for a trie node with inner hashing of value, this is the encoded node with
+/// value replaced by its hash.
+pub fn alt_hashed_value<H: Hasher>(x: &[u8], range: Option<(usize, usize)>) -> Vec<u8> {
+	if let Some((start, end)) = range {
+		let len = x.len();
+		if start < len && end == len {
+			// terminal inner hash
+			let hash_end = H::hash(&x[start..]);
+			let mut buff = vec![0; x.len() + hash_end.as_ref().len() - (end - start)];
+			buff[..start].copy_from_slice(&x[..start]);
+			buff[start..].copy_from_slice(hash_end.as_ref());
+			return buff;
+		}
+		if start == 0 && end < len {
+			// start inner hash
+			let hash_start = H::hash(&x[..start]);
+			let hash_len = hash_start.as_ref().len();
+			let mut buff = vec![0; x.len() + hash_len - (end - start)];
+			buff[..hash_len].copy_from_slice(hash_start.as_ref());
+			buff[hash_len..].copy_from_slice(&x[end..]);
+			return buff;
+		}
+		if start < len && end < len {
+			// middle inner hash
+			let hash_middle = H::hash(&x[start..end]);
+			let hash_len = hash_middle.as_ref().len();
+			let mut buff = vec![0; x.len() + hash_len - (end - start)];
+			buff[..start].copy_from_slice(&x[..start]);
+			buff[start..start + hash_len].copy_from_slice(hash_middle.as_ref());
+			buff[start + hash_len..].copy_from_slice(&x[end..]);
+			return buff;
+		}
+	}
+	// if anything wrong default to hash
+	x.to_vec()
+}
+
+
 /// Trait for immutable reference of HashDB.
-pub trait HashDBRef<H: Hasher, T, M, GM> {
+pub trait HashDBRef<H: Hasher, T> {
 	/// Look up a given hash into the bytes that hash to it, returning None if the
 	/// hash is not known.
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T>;
 
-	/// Look up a given hash into the bytes that hash to it, returning None if the
-	/// hash is not known.
-	/// Resolve associated meta.
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, global_meta: GM) -> Option<(T, M)>;
-
-	/// TODO
+	/// Callback for content access.
 	fn access_from(&self, _key: &H::Out, _at: Option<&H::Out>) -> Option<T>;
 
 	/// Check for the existance of a hash-key.
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool;
 }
 
-impl<'a, H: Hasher, T, M, GM> HashDBRef<H, T, M, GM> for &'a dyn HashDB<H, T, M, GM> {
+impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a dyn HashDB<H, T> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(*self, key, prefix) }
 	fn access_from(&self, key: &H::Out, at: Option<&H::Out>) -> Option<T> {
 		HashDB::access_from(*self, key, at)
-	}
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, global_meta: GM) -> Option<(T, M)> {
-		HashDB::get_with_meta(*self, key, prefix, global_meta)
 	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
 		HashDB::contains(*self, key, prefix)
 	}
 }
 
-impl<'a, H: Hasher, T, M, GM> HashDBRef<H, T, M, GM> for &'a mut dyn HashDB<H, T, M, GM> {
+impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a mut dyn HashDB<H, T> {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(*self, key, prefix) }
 	fn access_from(&self, key: &H::Out, at: Option<&H::Out>) -> Option<T> {
 		HashDB::access_from(*self, key, at)
-	}
-	fn get_with_meta(&self, key: &H::Out, prefix: Prefix, global_meta: GM) -> Option<(T, M)> {
-		HashDB::get_with_meta(*self, key, prefix, global_meta)
 	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
 		HashDB::contains(*self, key, prefix)
@@ -197,11 +280,11 @@ impl<'a, H: Hasher, T, M, GM> HashDBRef<H, T, M, GM> for &'a mut dyn HashDB<H, T
 }
 
 /// Upcast trait for HashDB.
-pub trait AsHashDB<H: Hasher, T, M, GM> {
+pub trait AsHashDB<H: Hasher, T> {
 	/// Perform upcast to HashDB for anything that derives from HashDB.
-	fn as_hash_db(&self) -> &dyn HashDB<H, T, M, GM>;
+	fn as_hash_db(&self) -> &dyn HashDB<H, T>;
 	/// Perform mutable upcast to HashDB for anything that derives from HashDB.
-	fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (dyn HashDB<H, T, M, GM> + 'a);
+	fn as_hash_db_mut<'a>(&'a mut self) -> &'a mut (dyn HashDB<H, T> + 'a);
 }
 
 /// Upcast trait for PlainDB.
@@ -212,77 +295,14 @@ pub trait AsPlainDB<K, V> {
 	fn as_plain_db_mut<'a>(&'a mut self) -> &'a mut (dyn PlainDB<K, V> + 'a);
 }
 
-/// Trait allowing to apply different hashing strategy
-/// depending on stored value or encoded value with meta.
-pub trait MetaHasher<H: Hasher, T>: Send + Sync {
-	/// Additional content fetchable from storage.
-	/// `Default` should be use for undefined content
-	/// (eg in some case null node).
-	/// Also meta can register information that is not
-	/// stored, in this case default initiate these.
-	type Meta: Default + Clone;
-	/// Global meta that applies to all read individual
-	/// content meta.
-	type GlobalMeta;
-
-	/// Produce hash, from its hashable value and its metadata.
-	fn hash(value: &[u8], meta: &Self::Meta) -> H::Out;
-
-	/// Produce stored value, for hashable value and its meta.
-	fn stored_value(value: &[u8], meta: Self::Meta) -> T;
-
-	/// Same as `stored_value` but consiming an allocated data.
-	fn stored_value_owned(value: T, meta: Self::Meta) -> T;
-
-	/// Get meta and hashable value from stored value.
-	fn extract_value(stored: &[u8], global_meta: Self::GlobalMeta) -> (&[u8], Self::Meta);
-
-	/// Same as `extract_value` but consiming an allocated
-	/// buffer.
-	fn extract_value_owned(stored: T, global_meta: Self::GlobalMeta) -> (T, Self::Meta);
-}
-
-/// Default `MetaHasher` implementation, stored value
-/// is the same as hashed value, no meta data added.
-pub struct NoMeta;
-
-impl<H, T> MetaHasher<H, T> for NoMeta
-	where
-		H: Hasher,
-		T: for<'a> From<&'a [u8]>,
-{
-	type Meta = ();
-	type GlobalMeta = ();
-
-	fn hash(value: &[u8], _meta: &Self::Meta) -> H::Out {
-		H::hash(value)
-	}
-
-	fn stored_value(value: &[u8], _meta: Self::Meta) -> T {
-		value.into()
-	}
-
-	fn stored_value_owned(value: T, _meta: Self::Meta) -> T {
-		value
-	}
-
-	fn extract_value(stored: &[u8], _global_meta: Self::GlobalMeta) -> (&[u8], Self::Meta) {
-		(stored, ())
-	}
-
-	fn extract_value_owned(stored: T, _global_meta: Self::GlobalMeta) -> (T, Self::Meta) {
-		(stored, ())
-	}
-}
-
 // NOTE: There used to be a `impl<T> AsHashDB for T` but that does not work with generics.
 // See https://stackoverflow.com/questions/48432842/
 // implementing-a-trait-for-reference-and-non-reference-types-causes-conflicting-im
 // This means we need concrete impls of AsHashDB in several places, which somewhat defeats
 // the point of the trait.
-impl<'a, H: Hasher, T, VF, GM> AsHashDB<H, T, VF, GM> for &'a mut dyn HashDB<H, T, VF, GM> {
-	fn as_hash_db(&self) -> &dyn HashDB<H, T, VF, GM> { &**self }
-	fn as_hash_db_mut<'b>(&'b mut self) -> &'b mut (dyn HashDB<H, T, VF, GM> + 'b) { &mut **self }
+impl<'a, H: Hasher, T> AsHashDB<H, T> for &'a mut dyn HashDB<H, T> {
+	fn as_hash_db(&self) -> &dyn HashDB<H, T> { &**self }
+	fn as_hash_db_mut<'b>(&'b mut self) -> &'b mut (dyn HashDB<H, T> + 'b) { &mut **self }
 }
 
 #[cfg(feature = "std")]

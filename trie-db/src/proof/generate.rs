@@ -1,4 +1,4 @@
-// Copyright 2019 Parity Technologies
+// Copyright 2019, 2021 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,13 +24,16 @@ use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH, NibbleSlice,
 	node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, Value, ValuePlan}, NodeCodec, Recorder,
 	Result as TrieResult, Trie, TrieError, TrieHash,
-	TrieLayout,
+	TrieLayout, Meta,
 };
 
-struct StackEntry<'a, C: NodeCodec<()>> {
+struct StackEntry<'a, C: NodeCodec> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: LeftNibbleSlice<'a>,
+	/// Stacked node.
 	node: OwnedNode<Vec<u8>>,
+	/// Meta for stacked node.
+	meta: Meta,
 	/// The hash of the node or None if it is referenced inline.
 	node_hash: Option<C::HashOut>,
 	/// Whether the value should be omitted in the generated proof.
@@ -45,16 +48,16 @@ struct StackEntry<'a, C: NodeCodec<()>> {
 	_marker: PhantomData<C>,
 }
 
-impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
+impl<'a, C: NodeCodec> StackEntry<'a, C> {
 	fn new(
 		prefix: LeftNibbleSlice<'a>,
 		node_data: Vec<u8>,
 		node_hash: Option<C::HashOut>,
 		output_index: Option<usize>,
+		mut meta: Meta,
 	) -> TrieResult<Self, C::HashOut, C::Error>
 	{
-		// TODO implement meta support to allow hashed value.
-		let node = OwnedNode::new::<(), C>(node_data, &mut ())
+		let node = OwnedNode::new::<C>(node_data, &mut meta)
 			.map_err(|err| Box::new(
 				TrieError::DecoderError(node_hash.unwrap_or_default(), err)
 			))?;
@@ -71,6 +74,7 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 			child_index: 0,
 			children: vec![None; children_len],
 			output_index,
+			meta,
 			_marker: PhantomData::default(),
 		})
 	}
@@ -78,12 +82,13 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 	/// Encode this entry to an encoded trie node with data properly omitted.
 	fn encode_node(mut self) -> TrieResult<Vec<u8>, C::HashOut, C::Error> {
 		let node_data = self.node.data();
-		Ok(match self.node.node_plan() {
+		let node_meta = &mut self.meta;
+		let encoded = match self.node.node_plan() {
 			NodePlan::Empty => node_data.to_vec(),
 			NodePlan::Leaf { .. } if !self.omit_value => node_data.to_vec(),
 			NodePlan::Leaf { partial, value: _ } => {
 				let partial = partial.build(node_data);
-				C::leaf_node(partial.right(), Value::Value(&[]), &mut ())
+				C::leaf_node(partial.right(), Value::Value(&[]), node_meta)
 			}
 			NodePlan::Extension { .. } if self.child_index == 0 => node_data.to_vec(),
 			NodePlan::Extension { partial: partial_plan, child: _ } => {
@@ -98,7 +103,7 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 					partial.right_iter(),
 					partial.len(),
 					child,
-					&mut (),
+					node_meta,
 				)
 			}
 			NodePlan::Branch { value, children } => {
@@ -111,7 +116,7 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 				C::branch_node(
 					self.children.into_iter(),
 					value_with_omission(node_data, value, self.omit_value),
-					&mut (),
+					node_meta,
 				)
 			},
 			NodePlan::NibbledBranch { partial: partial_plan, value, children } => {
@@ -127,10 +132,11 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 					partial.len(),
 					self.children.into_iter(),
 					value_with_omission(node_data, value, self.omit_value),
-					&mut (),
+					node_meta,
 				)
 			},
-		})
+		};
+		Ok(encoded)
 	}
 
 	/// Populate the remaining references in `children` with references copied from
@@ -215,7 +221,7 @@ impl<'a, C: NodeCodec<()>> StackEntry<'a, C> {
 				);
 				&mut hash.as_mut()[..encoded_child.len()].copy_from_slice(encoded_child);
 				ChildReference::Inline(hash, encoded_child.len())
-			}
+			},
 		}
 	}
 }
@@ -227,10 +233,11 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 									  -> TrieResult<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 	where
 		T: Trie<L>,
-		L: TrieLayout<Meta=()>,
+		L: TrieLayout,
 		I: IntoIterator<Item=&'a K>,
 		K: 'a + AsRef<[u8]>
 {
+	let layout = trie.layout();
 	// Sort and deduplicate keys.
 	let mut keys = keys.into_iter()
 		.map(|key| key.as_ref())
@@ -249,7 +256,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 		let key = LeftNibbleSlice::new(key_bytes);
 
 		// Unwind the stack until the new entry is a child of the last entry on the stack.
-		unwind_stack(&mut stack, &mut proof_nodes, Some(&key))?;
+		unwind_stack::<L>(&mut stack, &mut proof_nodes, Some(&key))?;
 
 		// Perform the trie lookup for the next key, recording the sequence of nodes traversed.
 		let mut recorder = Recorder::new();
@@ -314,6 +321,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 								child_record.data,
 								Some(child_record.hash),
 								Some(output_index),
+								child_record.meta,
 							)?
 						}
 						NodeHandle::Inline(data) => {
@@ -327,6 +335,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 								data.to_vec(),
 								None,
 								None,
+								layout.new_meta(),
 							)?
 						}
 					};
@@ -355,7 +364,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 		}
 	}
 
-	unwind_stack(&mut stack, &mut proof_nodes, None)?;
+	unwind_stack::<L>(&mut stack, &mut proof_nodes, None)?;
 	Ok(proof_nodes)
 }
 
@@ -369,7 +378,7 @@ enum Step<'a> {
 
 /// Determine the next algorithmic step to take by matching the current key against the current top
 /// entry on the stack.
-fn match_key_to_node<'a, C: NodeCodec<()>>(
+fn match_key_to_node<'a, C: NodeCodec>(
 	node_data: &'a [u8],
 	node_plan: &NodePlan,
 	omit_value: &mut bool,
@@ -388,7 +397,7 @@ fn match_key_to_node<'a, C: NodeCodec<()>>(
 			{
 				*omit_value = true;
 				match value_range {
-					ValuePlan::Value(value_range) =>
+					ValuePlan::Value(value_range, _) =>
 						Step::FoundValue(Some(&node_data[value_range.clone()])),
 					_ => return Err(Box::new(
 						TrieError::IncompleteDatabase(C::HashOut::default())
@@ -436,7 +445,7 @@ fn match_key_to_node<'a, C: NodeCodec<()>>(
 	})
 }
 
-fn match_key_to_branch_node<'a, 'b, C: NodeCodec<()>>(
+fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 	node_data: &'a [u8],
 	value_range: &'b ValuePlan,
 	child_handles: &'b [Option<NodeHandlePlan>; NIBBLE_LENGTH],
@@ -455,7 +464,7 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec<()>>(
 	if key.len() == prefix_len + partial.len() {
 		*omit_value = true;
 		let value = match value_range {
-			ValuePlan::Value(range) => Some(&node_data[range.clone()]),
+			ValuePlan::Value(range, _) => Some(&node_data[range.clone()]),
 			ValuePlan::HashedValue(..) => return Err(Box::new(
 				TrieError::IncompleteDatabase(C::HashOut::default())
 			)),
@@ -513,12 +522,11 @@ fn value_with_omission<'a>(
 /// Unwind the stack until the given key is prefixed by the entry at the top of the stack. If the
 /// key is None, unwind the stack completely. As entries are popped from the stack, they are
 /// encoded into proof nodes and added to the finalized proof.
-fn unwind_stack<C: NodeCodec<()>>(
-	stack: &mut Vec<StackEntry<C>>,
+fn unwind_stack<L: TrieLayout>(
+	stack: &mut Vec<StackEntry<L::Codec>>,
 	proof_nodes: &mut Vec<Vec<u8>>,
 	maybe_key: Option<&LeftNibbleSlice>,
-) -> TrieResult<(), C::HashOut, C::Error>
-{
+) -> TrieResult<(), TrieHash<L>, CError<L>> {
 	while let Some(entry) = stack.pop() {
 		match maybe_key {
 			Some(key) if key.starts_with(&entry.prefix) => {

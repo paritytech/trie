@@ -1,4 +1,4 @@
-// Copyright 2019, 2020 Parity Technologies
+// Copyright 2019, 2021 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,20 +25,18 @@
 //! expected to save roughly (n - 1) hashes in size where n is the number of nodes in the partial
 //! trie.
 
-use hash_db::{HashDB, MetaHasher};
+use hash_db::HashDB;
 use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout,
 	nibble_ops::NIBBLE_LENGTH, node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode},
-	nibble::LeftNibbleSlice, Meta, GlobalMeta,
+	Meta,
 };
 use crate::rstd::{
 	boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec, vec::Vec,
-	cmp::Ordering,
 };
-use crate::node::ValuePlan;
 
-struct EncoderStackEntry<C: NodeCodec<M>, M: Meta> {
+struct EncoderStackEntry<C: NodeCodec> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: NibbleVec,
 	node: Rc<OwnedNode<DBValue>>,
@@ -48,14 +46,14 @@ struct EncoderStackEntry<C: NodeCodec<M>, M: Meta> {
 	/// Flags indicating whether each child is omitted in the encoded node.
 	omit_children: Vec<bool>,
 	/// Meta from serialized. Can also contain flags.
-	meta: M,
+	meta: Meta,
 	/// The encoding of the subtrie nodes rooted at this entry, which is built up in
 	/// `encode_compact`.
 	output_index: usize,
-	_marker: PhantomData<(M, C)>,
+	_marker: PhantomData<C>,
 }
 
-impl<C: NodeCodec<M>, M: Meta> EncoderStackEntry<C, M> {
+impl<C: NodeCodec> EncoderStackEntry<C> {
 	/// Given the prefix of the next child node, identify its index and advance `child_index` to
 	/// that. For a given entry, this must be called sequentially only with strictly increasing
 	/// child prefixes. Returns an error if the child prefix is not a child of this entry or if
@@ -176,30 +174,11 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 	where
 		L: TrieLayout,
 {
-	encode_compact_keyed_callback(db, core::iter::empty(), |_| { }, |_| { })
-}
-
-/// Variant of 'encode_compact' where for given key we apply callback.
-///
-/// The iterator of keys need to be sorted.
-pub fn encode_compact_keyed_callback<'a, L, I>(
-	db: &TrieDB<L>,
-	matches: I,
-	match_callback: impl Fn(&mut L::Meta),
-	default_callback: impl Fn(&mut L::Meta),
-) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
-	where
-		L: TrieLayout,
-		I: IntoIterator<Item = &'a [u8]>,
-{
-
-	let mut matches = MatchKeys::new(matches.into_iter());
-
 	let mut output = Vec::new();
 
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
-	let mut stack: Vec<EncoderStackEntry<L::Codec, L::Meta>> = Vec::new();
+	let mut stack: Vec<EncoderStackEntry<L::Codec>> = Vec::new();
 
 	// TrieDBNodeIterator guarantees that:
 	// - It yields at least one node.
@@ -213,7 +192,7 @@ pub fn encode_compact_keyed_callback<'a, L, I>(
 	// so at least one iteration always occurs.
 	for item in iter {
 		match item {
-			Ok((prefix, node_hash, mut meta, node)) => {
+			Ok((prefix, node_hash, meta, node)) => {
 				// Skip inline nodes, as they cannot contain hash references to other nodes by
 				// assumption.
 				if node_hash.is_none() {
@@ -238,10 +217,7 @@ pub fn encode_compact_keyed_callback<'a, L, I>(
 						stack.push(last_entry);
 						break;
 					} else {
-						output[last_entry.output_index] = L::MetaHasher::stored_value_owned(
-							last_entry.encode_node()?,
-							last_entry.meta,
-						);
+						output[last_entry.output_index] = last_entry.encode_node()?;
 					}
 				}
 
@@ -250,12 +226,6 @@ pub fn encode_compact_keyed_callback<'a, L, I>(
 					NodePlan::Extension { .. } => 1,
 					NodePlan::Branch { .. } | NodePlan::NibbledBranch { .. } => NIBBLE_LENGTH,
 				};
-
-				if matches.match_new_node_value(&prefix, &node) {
-					match_callback(&mut meta);
-				} else {
-					default_callback(&mut meta);
-				}
 
 				stack.push(EncoderStackEntry {
 					prefix,
@@ -281,70 +251,15 @@ pub fn encode_compact_keyed_callback<'a, L, I>(
 	}
 
 	while let Some(mut entry) = stack.pop() {
-		output[entry.output_index] = L::MetaHasher::stored_value_owned(
-			entry.encode_node()?,
-			entry.meta,
-		);
+		output[entry.output_index] = entry.encode_node()?;
 	}
 
 	Ok(output)
 }
 
-struct MatchKeys<'a, I> {
-	keys: I,
-	next_key: Option<&'a [u8]>,
-}
-
-impl<'a, I: Iterator<Item = &'a [u8]>> MatchKeys<'a, I> {
-	fn new(mut keys: I) -> Self {
-		let next_key = keys.next();
-		MatchKeys {
-			keys,
-			next_key,
-		}
-	}
-
-	fn match_new_node_value(&mut self, prefix: &NibbleVec, node: &Rc<OwnedNode<DBValue>>) -> bool {
-		if let Some(next) = self.next_key {
-
-			let mut node_key = prefix.clone();
-			match node.node_plan() {
-				NodePlan::NibbledBranch{partial, value: ValuePlan::HashedValue(..), ..}
-				| NodePlan::NibbledBranch{partial, value: ValuePlan::Value(_), ..}
-				| NodePlan::Leaf {partial, ..} => {
-					let node_data = node.data();
-					let partial = partial.build(node_data);
-					node_key.append_partial(partial.right());
-				},
-				_ => (),
-			};
-
-			// comparison is redundant with previous checks, could be optimized.
-			let node_key = LeftNibbleSlice::new(node_key.inner()).truncate(node_key.len());
-			let next = LeftNibbleSlice::new(next);
-			let (move_next, result) = match next.cmp(&node_key) {
-				Ordering::Less => (true, false),
-				Ordering::Greater => (false, false),
-				Ordering::Equal => {
-					(true, true)
-				},
-			};
-			if move_next {
-				self.next_key = self.keys.next();
-				if !result {
-					return self.match_new_node_value(prefix, node);
-				}
-			}
-			result
-		} else {
-			false
-		}
-	}
-}
-
-struct DecoderStackEntry<'a, C: NodeCodec<M>, M: Meta> {
+struct DecoderStackEntry<'a, C: NodeCodec> {
 	node: Node<'a>,
-	meta: M,
+	meta: Meta,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
@@ -353,7 +268,7 @@ struct DecoderStackEntry<'a, C: NodeCodec<M>, M: Meta> {
 	_marker: PhantomData<C>,
 }
 
-impl<'a, C: NodeCodec<M>, M: Meta> DecoderStackEntry<'a, C, M> {
+impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	/// Advance the child index until either it exceeds the number of children or the child is
 	/// marked as omitted. Omitted children are indicated by an empty inline reference. For each
 	/// child that is passed over and not omitted, copy over the child reference from the node to
@@ -440,10 +355,10 @@ impl<'a, C: NodeCodec<M>, M: Meta> DecoderStackEntry<'a, C, M> {
 	///
 	/// Preconditions:
 	/// - if node is an extension node, then `children[0]` is Some.
-	fn encode_node(mut self) -> (Vec<u8>, M) {
+	fn encode_node(mut self) -> (Vec<u8>, Meta) {
 		(match self.node {
 			Node::Empty =>
-				C::empty_node(&mut self.meta).to_vec(),
+				C::empty_node().to_vec(),
 			Node::Leaf(partial, value) =>
 				C::leaf_node(partial.right(), value, &mut self.meta),
 			Node::Extension(partial, _) =>
@@ -484,21 +399,9 @@ pub fn decode_compact<L, DB>(db: &mut DB, encoded: &[Vec<u8>])
 	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
-		DB: HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		DB: HashDB<L::Hash, DBValue>,
 {
-	let mut layout = L::default();
-	if L::READ_ROOT_STATE_META {
-		// encoded first value is always root
-		if encoded.len() > 0 {
-			let stored = encoded[0].clone();
-			let (encoded, mut meta) = L::MetaHasher::extract_value_owned(stored, layout.layout_meta());
-			// read state meta
-			let _ = L::Codec::decode_plan(encoded.as_slice(), &mut meta)
-				.map_err(|e| Box::new(TrieError::DecoderError(Default::default(), e)))?;
-			layout.initialize_from_root_meta(&meta);
-		}
-	}
-	// TODO layout from first value (root) if L, otherwhise just use default.
+	let layout = L::default();
 	decode_compact_from_iter::<L, DB, _>(db, encoded.iter().map(Vec::as_slice), &layout)
 }
 
@@ -507,19 +410,18 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I, layout: &
 	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 	where
 		L: TrieLayout,
-		DB: HashDB<L::Hash, DBValue, L::Meta, GlobalMeta<L>>,
+		DB: HashDB<L::Hash, DBValue>,
 		I: IntoIterator<Item = &'a [u8]>,
 {
-	// TODO layout from first value (root) if L, otherwhise just use default.
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
-	let mut stack: Vec<DecoderStackEntry<L::Codec, L::Meta>> = Vec::new();
+	let mut stack: Vec<DecoderStackEntry<L::Codec>> = Vec::new();
 
 	// The prefix of the next item to be read from the slice of encoded items.
 	let mut prefix = NibbleVec::new();
 
 	for (i, encoded_node) in encoded.into_iter().enumerate() {
-		let (encoded_node, mut meta) = L::MetaHasher::extract_value(encoded_node, layout.layout_meta());
+		let mut meta = layout.new_meta();
 		let node = L::Codec::decode(&encoded_node[..], &mut meta)
 			.map_err(|err| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), err)))?;
 
@@ -546,7 +448,11 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I, layout: &
 			// Since `advance_child_index` returned true, the preconditions for `encode_node` are
 			// satisfied.
 			let (node_data, meta) = last_entry.encode_node();
-			let node_hash = db.insert_with_meta(prefix.as_prefix(), node_data.as_ref(), meta);
+			let node_hash = db.alt_insert(
+				prefix.as_prefix(),
+				node_data.as_ref(),
+				meta.resolve_alt_hashing::<L::Codec>(),
+			);
 
 			if let Some(entry) = stack.pop() {
 				last_entry = entry;
