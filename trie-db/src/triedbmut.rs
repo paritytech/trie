@@ -877,7 +877,11 @@ where
 					#[cfg(feature = "std")]
 					trace!(target: "trie", "equivalent-leaf: REPLACE");
 					// equivalent leaf.
-					let unchanged = stored_value.as_slice() == EncodedValue::Value(&value);
+					let unchanged = if L::USE_META {
+						meta.unchanged(stored_value.as_slice(), EncodedValue::Value(&value), self.layout.alt_threshold()) 
+					} else {
+						stored_value.as_slice() == EncodedValue::Value(&value)
+					};
 					*old_val = stored_value;
 					match unchanged {
 						// unchanged. restore
