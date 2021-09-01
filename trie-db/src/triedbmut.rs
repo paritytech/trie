@@ -730,7 +730,11 @@ where
 				trace!(target: "trie", "branch: ROUTE,AUGMENT");
 
 				if partial.is_empty() {
-					let unchanged = stored_value.as_slice() == EncodedValue::Value(&value);
+					let unchanged = if L::USE_META {
+						meta.unchanged(stored_value.as_slice(), EncodedValue::Value(&value), self.layout.alt_threshold()) 
+					} else {
+						stored_value.as_slice() == EncodedValue::Value(&value)
+					};
 					let branch = Node::Branch(children, Value::Value(value), meta);
 					*old_val = stored_value;
 
@@ -770,7 +774,11 @@ where
 
 				let common = partial.common_prefix(&existing_key);
 				if common == existing_key.len() && common == partial.len() {
-					let unchanged = stored_value.as_slice() == EncodedValue::Value(&value);
+					let unchanged = if L::USE_META {
+						meta.unchanged(stored_value.as_slice(), EncodedValue::Value(&value), self.layout.alt_threshold()) 
+					} else {
+						stored_value.as_slice() == EncodedValue::Value(&value)
+					};
 					let branch = Node::NibbledBranch(
 						existing_key.to_stored(),
 						children,

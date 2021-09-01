@@ -577,6 +577,32 @@ impl Meta {
 		}
 		result
 	}
+
+	/// Indicate if node do change.
+	/// Return true if no change.
+	/// Self is current meta.
+	pub fn unchanged(&self, current_value: node::Value, new_value: node::Value, new_threshold: Option<u32>) -> bool {
+		if current_value != new_value {
+			return false;
+		}
+		// could get more precise size related check but would not be too useful.
+		if new_threshold.is_some() {
+			if !self.apply_inner_hashing {
+				return false;
+			}
+			if new_threshold != self.try_inner_hashing {
+				return false;
+			}
+		} else {
+			if self.apply_inner_hashing {
+				return false;
+			}
+			if self.try_inner_hashing.is_some() {
+				return false;
+			}
+		}
+		true
+	}
 }
 
 /// Alias accessor to hasher hash output type from a `TrieLayout`.
