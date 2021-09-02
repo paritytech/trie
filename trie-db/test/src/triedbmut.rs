@@ -72,7 +72,7 @@ fn reference_hashed_null_node() -> <KeccakHasher as Hasher>::Out {
 fn playpen() {
 	env_logger::init();
 	let mut seed = Default::default();
-	for test_i in 0..10 {
+	for test_i in 0..10_000 {
 		if test_i % 50 == 0 {
 			debug!("{:?} of 10000 stress tests done", test_i);
 		}
@@ -115,7 +115,7 @@ fn playpen() {
 
 	// no_extension
 	let mut seed = Default::default();
-	for test_i in 0..10 {
+	for test_i in 0..10_000 {
 		if test_i % 50 == 0 {
 			debug!("{:?} of 10000 stress tests done", test_i);
 		}
