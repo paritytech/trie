@@ -30,7 +30,6 @@ use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout,
 	nibble_ops::NIBBLE_LENGTH, node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode},
-	Meta,
 };
 use crate::rstd::{
 	boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec, vec::Vec,
@@ -45,8 +44,6 @@ struct EncoderStackEntry<C: NodeCodec> {
 	child_index: usize,
 	/// Flags indicating whether each child is omitted in the encoded node.
 	omit_children: Vec<bool>,
-	/// Meta from serialized. Can also contain flags.
-	meta: Meta,
 	/// The encoding of the subtrie nodes rooted at this entry, which is built up in
 	/// `encode_compact`.
 	output_index: usize,
@@ -108,14 +105,13 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 				} else {
 					let partial = partial.build(node_data);
 					let empty_child = ChildReference::Inline(C::HashOut::default(), 0);
-					C::extension_node(partial.right_iter(), partial.len(), empty_child, &mut self.meta)
+					C::extension_node(partial.right_iter(), partial.len(), empty_child)
 				}
 			}
 			NodePlan::Branch { value, children } => {
 				C::branch_node(
 					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
 					value.build(node_data),
-					&mut self.meta,
 				)
 			}
 			NodePlan::NibbledBranch { partial, value, children } => {
@@ -125,7 +121,6 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 					partial.len(),
 					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
 					value.build(node_data),
-					&mut self.meta,
 				)
 			}
 		})
@@ -192,7 +187,7 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 	// so at least one iteration always occurs.
 	for item in iter {
 		match item {
-			Ok((prefix, node_hash, meta, node)) => {
+			Ok((prefix, node_hash, node)) => {
 				// Skip inline nodes, as they cannot contain hash references to other nodes by
 				// assumption.
 				if node_hash.is_none() {
@@ -230,7 +225,6 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 				stack.push(EncoderStackEntry {
 					prefix,
 					node,
-					meta,
 					child_index: 0,
 					omit_children: vec![false; children_len],
 					output_index: output.len(),
@@ -259,7 +253,6 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 
 struct DecoderStackEntry<'a, C: NodeCodec> {
 	node: Node<'a>,
-	meta: Meta,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
@@ -355,31 +348,29 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	///
 	/// Preconditions:
 	/// - if node is an extension node, then `children[0]` is Some.
-	fn encode_node(mut self) -> (Vec<u8>, Meta) {
-		(match self.node {
+	fn encode_node(mut self) -> Vec<u8> {
+		match self.node {
 			Node::Empty =>
 				C::empty_node().to_vec(),
 			Node::Leaf(partial, value) =>
-				C::leaf_node(partial.right(), value, &mut self.meta),
+				C::leaf_node(partial.right(), value),
 			Node::Extension(partial, _) =>
 				C::extension_node(
 					partial.right_iter(),
 					partial.len(),
 					self.children[0]
 						.expect("required by method precondition; qed"),
-					&mut self.meta,
 				),
 			Node::Branch(_, value) =>
-				C::branch_node(self.children.into_iter(), value, &mut self.meta),
+				C::branch_node(self.children.into_iter(), value),
 			Node::NibbledBranch(partial, _, value) =>
 				C::branch_node_nibbled(
 					partial.right_iter(),
 					partial.len(),
 					self.children.iter(),
 					value,
-					&mut self.meta,
 				),
-		}, self.meta)
+		}
 	}
 }
 
@@ -421,8 +412,7 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I, layout: &
 	let mut prefix = NibbleVec::new();
 
 	for (i, encoded_node) in encoded.into_iter().enumerate() {
-		let mut meta = layout.new_meta();
-		let node = L::Codec::decode(&encoded_node[..], &mut meta)
+		let node = L::Codec::decode(&encoded_node[..])
 			.map_err(|err| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), err)))?;
 
 		let children_len = match node {
@@ -432,7 +422,6 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I, layout: &
 		};
 		let mut last_entry = DecoderStackEntry {
 			node,
-			meta,
 			child_index: 0,
 			children: vec![None; children_len],
 			_marker: PhantomData::default(),
@@ -447,7 +436,7 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I, layout: &
 
 			// Since `advance_child_index` returned true, the preconditions for `encode_node` are
 			// satisfied.
-			let (node_data, _meta) = last_entry.encode_node();
+			let node_data = last_entry.encode_node();
 			let node_hash = db.insert(
 				prefix.as_prefix(),
 				node_data.as_ref(),

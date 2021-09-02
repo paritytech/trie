@@ -16,7 +16,7 @@
 //! to parametrize the hashes used in the codec.
 
 use crate::node::{Node, NodePlan, Value};
-use crate::{MaybeDebug, ChildReference, Meta};
+use crate::{MaybeDebug, ChildReference};
 
 use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec};
 
@@ -46,19 +46,11 @@ pub trait NodeCodec: Sized {
 	fn hashed_null_node() -> Self::HashOut;
 
 	/// Decode bytes to a `NodePlan`. Returns `Self::E` on failure.
-	fn decode_plan(data: &[u8], meta: &mut Meta) -> Result<NodePlan, Self::Error> {
-		Self::decode_plan_inner(data).map(|plan| {
-			meta.decoded_callback(&plan);
-			plan
-		})
-	}
-
-	/// Inner implementation for `decode_plan`.
-	fn decode_plan_inner(data: &[u8]) -> Result<NodePlan, Self::Error>;
+	fn decode_plan(data: &[u8]) -> Result<NodePlan, Self::Error>;
 
 	/// Decode bytes to a `Node`. Returns `Self::E` on failure.
-	fn decode<'a>(data: &'a [u8], meta: &mut Meta) -> Result<Node<'a>, Self::Error> {
-		Ok(Self::decode_plan(data, meta)?.build(data))
+	fn decode<'a>(data: &'a [u8]) -> Result<Node<'a>, Self::Error> {
+		Ok(Self::decode_plan(data)?.build(data))
 	}
 
 	/// Check if the provided bytes correspond to the codecs "empty" node.
@@ -68,7 +60,7 @@ pub trait NodeCodec: Sized {
 	fn empty_node() -> &'static [u8];
 
 	/// Returns an encoded leaf node
-	fn leaf_node(partial: Partial, value: Value, meta: &mut Meta) -> Vec<u8>;
+	fn leaf_node(partial: Partial, value: Value) -> Vec<u8>;
 
 	/// Returns an encoded extension node
 	/// Note that number_nibble is the number of element of the iterator
@@ -78,7 +70,6 @@ pub trait NodeCodec: Sized {
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
 		child_ref: ChildReference<Self::HashOut>,
-		meta: &mut Meta,
 	) -> Vec<u8>;
 
 	/// Returns an encoded branch node.
@@ -86,7 +77,6 @@ pub trait NodeCodec: Sized {
 	fn branch_node(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Value,
-		meta: &mut Meta,
 	) -> Vec<u8>;
 
 	/// Returns an encoded branch node with a possible partial path.
@@ -96,6 +86,5 @@ pub trait NodeCodec: Sized {
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		value: Value,
-		meta: &mut Meta,
 	) -> Vec<u8>;
 }

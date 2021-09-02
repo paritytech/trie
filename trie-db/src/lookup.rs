@@ -76,14 +76,13 @@ where
 				})),
 			};
 
-			let mut meta = self.layout.new_meta();
-			self.query.record(&hash, &node_data, depth, &meta);
+			self.query.record(&hash, &node_data, depth);
 
 			// this loop iterates through all inline children (usually max 1)
 			// without incrementing the depth.
 			let mut node_data = &node_data[..];
 			loop {
-				let decoded = match L::Codec::decode(node_data, &mut meta) {
+				let decoded = match L::Codec::decode(node_data) {
 					Ok(node) => node,
 					Err(e) => {
 						return Err(Box::new(TrieError::DecoderError(hash, e)))

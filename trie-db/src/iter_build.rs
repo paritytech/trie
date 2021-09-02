@@ -23,7 +23,7 @@ use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
 use crate::nibble::nibble_ops;
 use crate::node_codec::NodeCodec;
-use crate::{TrieLayout, TrieHash, DBValue, Meta};
+use crate::{TrieLayout, TrieHash, DBValue};
 use crate::node::Value;
 
 macro_rules! exponential_out {
@@ -121,16 +121,15 @@ impl<T, V> CacheAccum<T, V>
 		target_depth: usize,
 		(k2, v2): &(impl AsRef<[u8]>, impl AsRef<[u8]>),
 	) {
-		let mut meta = self.1.new_meta();
 		let nibble_value = nibble_ops::left_nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
 		let nkey = NibbleSlice::new_offset(&k2.as_ref()[..], target_depth + 1);
-		let encoded = T::Codec::leaf_node(nkey.right(), Value::Value(&v2.as_ref()[..]), &mut meta);
+		let encoded = T::Codec::leaf_node(nkey.right(), Value::Value(&v2.as_ref()[..])); // TODO use value build like in triedbmut!!!
 		let pr = NibbleSlice::new_offset(
 			&k2.as_ref()[..],
 			k2.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE - nkey.len(),
 		);
-		let hash = callback.process(pr.left(), encoded, false, meta);
+		let hash = callback.process(pr.left(), encoded, false);
 
 		// insert hash in branch (first level branch only at this point)
 		self.set_node(target_depth, nibble_value as usize, Some(hash));
@@ -145,8 +144,6 @@ impl<T, V> CacheAccum<T, V>
 	) {
 
 		while self.last_depth() > new_depth || is_last && !self.is_empty() {
-			let extension_meta = T::USE_EXTENSION.then(|| self.1.new_meta());
-
 			let lix = self.last_depth();
 			let llix = max(self.last_last_depth(), new_depth);
 
@@ -163,8 +160,8 @@ impl<T, V> CacheAccum<T, V>
 				None
 			};
 
-			let h = if let Some(meta_ext) = extension_meta {
-				self.standard_extension(&ref_branch.as_ref()[..], callback, lix, is_root, nkey, meta_ext)
+			let h = if T::USE_EXTENSION {
+				self.standard_extension(&ref_branch.as_ref()[..], callback, lix, is_root, nkey)
 			} else {
 				// encode branch
 				self.no_extension(&ref_branch.as_ref()[..], callback, lix, is_root, nkey)
@@ -185,30 +182,26 @@ impl<T, V> CacheAccum<T, V>
 		branch_d: usize,
 		is_root: bool,
 		nkey: Option<(usize, usize)>,
-		mut meta_ext: Meta,
 	) -> ChildReference<TrieHash<T>> {
 		let last = self.0.len() - 1;
 		assert_eq!(self.0[last].2, branch_d);
 
 		let (children, v, depth) = self.0.pop().expect("checked");
 
-		let mut meta = self.1.new_meta();
-
 		debug_assert!(branch_d == depth);
 		// encode branch
 		let encoded = T::Codec::branch_node(
 			children.iter(),
 			v.as_ref().map(|v| v.as_ref()).into(),
-			&mut meta,
 		);
 		let pr = NibbleSlice::new_offset(&key_branch, branch_d);
-		let branch_hash = callback.process(pr.left(), encoded, is_root && nkey.is_none(), meta);
+		let branch_hash = callback.process(pr.left(), encoded, is_root && nkey.is_none());
 
 		if let Some(nkeyix) = nkey {
 			let pr = NibbleSlice::new_offset(&key_branch, nkeyix.0);
 			let nib = pr.right_range_iter(nkeyix.1);
-			let encoded = T::Codec::extension_node(nib, nkeyix.1, branch_hash, &mut meta_ext);
-			callback.process(pr.left(), encoded, is_root, meta_ext)
+			let encoded = T::Codec::extension_node(nib, nkeyix.1, branch_hash);
+			callback.process(pr.left(), encoded, is_root)
 		} else {
 			branch_hash
 		}
@@ -224,7 +217,6 @@ impl<T, V> CacheAccum<T, V>
 		nkey: Option<(usize, usize)>,
 	) -> ChildReference<TrieHash<T>> {
 		let (children, v, depth) = self.0.pop().expect("checked");
-		let mut meta = self.1.new_meta();
 
 		debug_assert!(branch_d == depth);
 		// encode branch
@@ -235,10 +227,8 @@ impl<T, V> CacheAccum<T, V>
 			nkeyix.1,
 			children.iter(),
 			v.as_ref().map(|v| v.as_ref()).into(),
-			&mut meta,
 		);
-		let result = callback.process(pr.left(), encoded, is_root, meta);
-		result
+		callback.process(pr.left(), encoded, is_root)
 	}
 }
 
@@ -289,13 +279,12 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F, layout: &T)
 			// one single element corner case
 			let (k2, v2) = previous_value;
 			let nkey = NibbleSlice::new_offset(&k2.as_ref()[..], last_depth);
-			let mut meta = layout.new_meta();
-			let encoded = T::Codec::leaf_node(nkey.right(), Value::Value(&v2.as_ref()[..]), &mut meta);
+			let encoded = T::Codec::leaf_node(nkey.right(), Value::Value(&v2.as_ref()[..]));
 			let pr = NibbleSlice::new_offset(
 				&k2.as_ref()[..],
 				k2.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE - nkey.len(),
 			);
-			callback.process(pr.left(), encoded, true, meta);
+			callback.process(pr.left(), encoded, true);
 		} else {
 			depth_queue.flush_value(callback, last_depth, &previous_value);
 			let ref_branches = previous_value.0;
@@ -303,8 +292,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F, layout: &T)
 		}
 	} else {
 		// nothing null root corner case
-		let empty_meta = layout.new_meta();
-		callback.process(hash_db::EMPTY_PREFIX, T::Codec::empty_node().to_vec(), true, empty_meta);
+		callback.process(hash_db::EMPTY_PREFIX, T::Codec::empty_node().to_vec(), true);
 	}
 }
 
@@ -322,7 +310,6 @@ pub trait ProcessEncodedNode<HO> {
 		prefix: Prefix,
 		encoded_node: Vec<u8>,
 		is_root: bool,
-		meta: Meta,
 	) -> ChildReference<HO>;
 }
 
@@ -350,7 +337,6 @@ impl<'a, T, DB> ProcessEncodedNode<TrieHash<T>> for TrieBuilder<'a, T, DB>
 		prefix: Prefix,
 		encoded_node: Vec<u8>,
 		is_root: bool,
-		meta: Meta,
 	) -> ChildReference<TrieHash<T>> {
 		let len = encoded_node.len();
 		if !is_root && len < <T::Hash as Hasher>::LENGTH {
@@ -387,7 +373,6 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 		_: Prefix,
 		encoded_node: Vec<u8>,
 		is_root: bool,
-		meta: Meta,
 	) -> ChildReference<TrieHash<T>> {
 		let len = encoded_node.len();
 		if !is_root && len < <T::Hash as Hasher>::LENGTH {
@@ -442,7 +427,6 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootPrint<T> {
 		p: Prefix,
 		encoded_node: Vec<u8>,
 		is_root: bool,
-		meta: Meta,
 	) -> ChildReference<TrieHash<T>> {
 		println!("Encoded node: {:x?}", &encoded_node);
 		println!("	with prefix: {:x?}", &p);
@@ -469,7 +453,6 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootUnhashed<T> {
 		_: Prefix,
 		encoded_node: Vec<u8>,
 		is_root: bool,
-		meta: Meta,
 	) -> ChildReference<<T::Hash as Hasher>::Out> {
 		let len = encoded_node.len();
 		if !is_root && len < <T::Hash as Hasher>::LENGTH {

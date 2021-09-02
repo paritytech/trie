@@ -148,14 +148,14 @@ pub trait Query<H: Hasher> {
 	fn decode(self, data: &[u8]) -> Self::Item;
 
 	/// Record that a node has been passed through.
-	fn record(&mut self, _hash: &H::Out, _data: &[u8], _depth: u32, _meta: &Meta) {}
+	fn record(&mut self, _hash: &H::Out, _data: &[u8], _depth: u32) {}
 }
 
 impl<'a, H: Hasher> Query<H> for &'a mut Recorder<H::Out> {
 	type Item = DBValue;
 	fn decode(self, value: &[u8]) -> DBValue { value.to_vec() }
-	fn record(&mut self, hash: &H::Out, data: &[u8], depth: u32, meta: &Meta) {
-		(&mut **self).record(hash, data, depth, meta);
+	fn record(&mut self, hash: &H::Out, data: &[u8], depth: u32) {
+		(&mut **self).record(hash, data, depth);
 	}
 }
 
@@ -167,8 +167,8 @@ impl<F, T, H: Hasher> Query<H> for F where F: for<'a> FnOnce(&'a [u8]) -> T {
 impl<'a, F, T, H: Hasher> Query<H> for (&'a mut Recorder<H::Out>, F) where F: FnOnce(&[u8]) -> T {
 	type Item = T;
 	fn decode(self, value: &[u8]) -> T { (self.1)(value) }
-	fn record(&mut self, hash: &H::Out, data: &[u8], depth: u32, meta : &Meta) {
-		self.0.record(hash, data, depth, meta)
+	fn record(&mut self, hash: &H::Out, data: &[u8], depth: u32) {
+		self.0.record(hash, data, depth)
 	}
 }
 
@@ -411,19 +411,11 @@ pub trait TrieLayout: Default + Clone {
 	const USE_EXTENSION: bool;
 	/// If true, the trie will allow empty values into `TrieDBMut`
 	const ALLOW_EMPTY: bool = false;
-	/// Indicate if we need to manage meta, skipping some processing
-	/// if we don't.
-	const USE_META: bool = false;
 
 	/// Hasher to use for this trie.
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
 	type Codec: NodeCodec<HashOut=<Self::Hash as Hasher>::Out>;
-
-	/// Default meta with state initialized from this layout.
-	fn new_meta(&self) -> Meta {
-		Meta::new(self.alt_threshold())
-	}
 
 	/// Alternate hashing threshold to apply on node change.
 	fn alt_threshold(&self) -> Option<u32>;
@@ -492,52 +484,6 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 			.enumerate()
 			.map(|(i, v)| (Self::encode_index(i as u32), v))
 		)
-	}
-}
-
-/// Meta info use by trie state.
-#[derive(Default, Clone, Debug, PartialEq, Eq)]
-pub struct Meta {
-	/// Defined in the trie layout, when used with
-	/// `TrieDbMut` it switch nodes to alternative hashing
-	/// method by defining the threshold to use with alternative
-	/// hashing.
-	/// Trie codec or other proof manipulation will always use
-	/// `None` in order to prevent state change on reencoding.
-	pub try_inner_hashing: Option<u32>,
-	/// Flag indicating alternative value hash is currently use
-	/// or will be use.
-	/// TODO rather redundant with try_inner_hashing
-	pub apply_inner_hashing: bool,
-}
-
-use node::{ValuePlan, NodePlan};
-
-impl Meta {
-	/// Initiate the node meta, with a given threshold.
-	pub fn new(
-		threshold: Option<u32>,
-	) -> Self {
-		let mut result = Self::default();
-		result.try_inner_hashing = threshold;
-		result
-	}
-
-	/// Callback when encoding and a new
-	/// value is written.
-	pub fn encoded_value_callback(
-		&mut self,
-		_value_plan: ValuePlan,
-	) {
-		// TODO remove
-	}
-
-	/// Callback to update from the decoded node.
-	pub fn decoded_callback(
-		&mut self,
-		node_plan: &NodePlan,
-	) {
-		// TODO remove
 	}
 }
 

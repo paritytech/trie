@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout, Meta};
+use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout};
 use hash_db::{Hasher, EMPTY_PREFIX};
 use crate::triedb::TrieDB;
 use crate::node::{NodePlan, NodeHandle, OwnedNode};
@@ -33,7 +33,6 @@ enum Status {
 #[derive(Eq, PartialEq)]
 struct Crumb<H: Hasher> {
 	hash: Option<H::Out>,
-	meta: Meta,
 	node: Rc<OwnedNode<DBValue>>,
 	status: Status,
 }
@@ -91,20 +90,19 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 			trail: Vec::with_capacity(8),
 			key_nibbles: NibbleVec::new(),
 		};
-		let (root_node, root_hash, meta) = db.get_raw_or_lookup(
+		let (root_node, root_hash) = db.get_raw_or_lookup(
 			*db.root(),
 			NodeHandle::Hash(db.root().as_ref()),
 			EMPTY_PREFIX
 		)?;
-		r.descend(root_node, root_hash, meta);
+		r.descend(root_node, root_hash);
 		Ok(r)
 	}
 
 	/// Descend into a payload.
-	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<TrieHash<L>>, meta: Meta) {
+	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<TrieHash<L>>) {
 		self.trail.push(Crumb {
 			hash: node_hash,
-			meta,
 			status: Status::Entering,
 			node: Rc::new(node),
 		});
@@ -142,7 +140,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 		self.key_nibbles.clear();
 		let key = NibbleSlice::new(key);
 
-		let (mut node, mut node_hash, mut meta) = self.db.get_raw_or_lookup(
+		let (mut node, mut node_hash) = self.db.get_raw_or_lookup(
 			<TrieHash<L>>::default(),
 			NodeHandle::Hash(self.db.root().as_ref()),
 			EMPTY_PREFIX
@@ -150,8 +148,8 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 		let mut partial = key;
 		let mut full_key_nibbles = 0;
 		loop {
-			let (next_node, next_node_hash, next_node_meta) = {
-				self.descend(node, node_hash, meta);
+			let (next_node, next_node_hash) = {
+				self.descend(node, node_hash);
 				let crumb = self.trail.last_mut()
 					.expect(
 						"descend_into_node pushes a crumb onto the trial; \
@@ -264,7 +262,6 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 
 			node = next_node;
 			node_hash = next_node_hash;
-			meta = next_node_meta;
 		}
 	}
 
@@ -336,14 +333,14 @@ impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
 }
 
 impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
-	type Item = Result<(NibbleVec, Option<TrieHash<L>>, Meta, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
+	type Item = Result<(NibbleVec, Option<TrieHash<L>>, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		enum IterStep<O, E> {
 			YieldNode,
 			PopTrail,
 			Continue,
-			Descend(Result<(OwnedNode<DBValue>, Option<O>, Meta), O, E>),
+			Descend(Result<(OwnedNode<DBValue>, Option<O>), O, E>),
 		}
 		loop {
 			let iter_step = {
@@ -421,7 +418,6 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 					return Some(Ok((
 						self.key_nibbles.clone(),
 						crumb.hash.clone(),
-						crumb.meta.clone(),
 						crumb.node.clone()
 					)));
 				},
@@ -435,8 +431,8 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 					self.trail.last_mut()?
 						.increment();
 				},
-				IterStep::Descend::<TrieHash<L>, CError<L>>(Ok((node, node_hash, meta))) => {
-					self.descend(node, node_hash, meta);
+				IterStep::Descend::<TrieHash<L>, CError<L>>(Ok((node, node_hash))) => {
+					self.descend(node, node_hash);
 				},
 				IterStep::Descend::<TrieHash<L>, CError<L>>(Err(err)) => {
 					// Increment here as there is an implicit PopTrail.

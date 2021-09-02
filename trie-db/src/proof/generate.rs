@@ -24,7 +24,7 @@ use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH, NibbleSlice,
 	node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, Value, ValuePlan}, NodeCodec, Recorder,
 	Result as TrieResult, Trie, TrieError, TrieHash,
-	TrieLayout, Meta,
+	TrieLayout,
 };
 
 struct StackEntry<'a, C: NodeCodec> {
@@ -32,8 +32,6 @@ struct StackEntry<'a, C: NodeCodec> {
 	prefix: LeftNibbleSlice<'a>,
 	/// Stacked node.
 	node: OwnedNode<Vec<u8>>,
-	/// Meta for stacked node.
-	meta: Meta,
 	/// The hash of the node or None if it is referenced inline.
 	node_hash: Option<C::HashOut>,
 	/// Whether the value should be omitted in the generated proof.
@@ -54,10 +52,9 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 		node_data: Vec<u8>,
 		node_hash: Option<C::HashOut>,
 		output_index: Option<usize>,
-		mut meta: Meta,
 	) -> TrieResult<Self, C::HashOut, C::Error>
 	{
-		let node = OwnedNode::new::<C>(node_data, &mut meta)
+		let node = OwnedNode::new::<C>(node_data)
 			.map_err(|err| Box::new(
 				TrieError::DecoderError(node_hash.unwrap_or_default(), err)
 			))?;
@@ -74,7 +71,6 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 			child_index: 0,
 			children: vec![None; children_len],
 			output_index,
-			meta,
 			_marker: PhantomData::default(),
 		})
 	}
@@ -82,13 +78,12 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 	/// Encode this entry to an encoded trie node with data properly omitted.
 	fn encode_node(mut self) -> TrieResult<Vec<u8>, C::HashOut, C::Error> {
 		let node_data = self.node.data();
-		let node_meta = &mut self.meta;
 		let encoded = match self.node.node_plan() {
 			NodePlan::Empty => node_data.to_vec(),
 			NodePlan::Leaf { .. } if !self.omit_value => node_data.to_vec(),
 			NodePlan::Leaf { partial, value: _ } => {
 				let partial = partial.build(node_data);
-				C::leaf_node(partial.right(), Value::Value(&[]), node_meta)
+				C::leaf_node(partial.right(), Value::Value(&[]))
 			}
 			NodePlan::Extension { .. } if self.child_index == 0 => node_data.to_vec(),
 			NodePlan::Extension { partial: partial_plan, child: _ } => {
@@ -103,7 +98,6 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 					partial.right_iter(),
 					partial.len(),
 					child,
-					node_meta,
 				)
 			}
 			NodePlan::Branch { value, children } => {
@@ -116,7 +110,6 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 				C::branch_node(
 					self.children.into_iter(),
 					value_with_omission(node_data, value, self.omit_value),
-					node_meta,
 				)
 			},
 			NodePlan::NibbledBranch { partial: partial_plan, value, children } => {
@@ -132,7 +125,6 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 					partial.len(),
 					self.children.into_iter(),
 					value_with_omission(node_data, value, self.omit_value),
-					node_meta,
 				)
 			},
 		};
@@ -321,7 +313,6 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 								child_record.data,
 								Some(child_record.hash),
 								Some(output_index),
-								child_record.meta,
 							)?
 						}
 						NodeHandle::Inline(data) => {
@@ -335,7 +326,6 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 								data.to_vec(),
 								None,
 								None,
-								layout.new_meta(),
 							)?
 						}
 					};

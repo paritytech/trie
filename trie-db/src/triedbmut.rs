@@ -14,7 +14,7 @@
 
 //! In-memory trie representation.
 
-use super::{DBValue, node::NodeKey, Meta};
+use super::{DBValue, node::NodeKey};
 use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode,
@@ -178,24 +178,22 @@ impl Value {
 }
 
 /// Node types in the Trie.
-/// `M` is associated meta, no meta indicates
-/// an inline node.
 enum Node<L: TrieLayout> {
 	/// Empty node.
-	Empty(Meta),
+	Empty,
 	/// A leaf node contains the end of a key and a value.
 	/// This key is encoded from a `NibbleSlice`, meaning it contains
 	/// a flag indicating it is a leaf.
-	Leaf(NodeKey, Value, Meta),
+	Leaf(NodeKey, Value),
 	/// An extension contains a shared portion of a key and a child node.
 	/// The shared portion is encoded from a `NibbleSlice` meaning it contains
 	/// a flag indicating it is an extension.
 	/// The child node is always a branch.
-	Extension(NodeKey, NodeHandle<TrieHash<L>>, Meta),
+	Extension(NodeKey, NodeHandle<TrieHash<L>>),
 	/// A branch has up to 16 children and an optional value.
-	Branch(Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>, Value, Meta),
+	Branch(Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>, Value),
 	/// Branch node with support for a nibble (to avoid extension node).
-	NibbledBranch(NodeKey, Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>, Value, Meta),
+	NibbledBranch(NodeKey, Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>, Value),
 }
 
 #[cfg(feature = "std")]
@@ -228,14 +226,14 @@ impl<L: TrieLayout> Debug for Node<L>
 {
 	fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
 		match *self {
-			Self::Empty(_) => write!(fmt, "Empty"),
-			Self::Leaf((ref a, ref b), ref c, _) =>
+			Self::Empty => write!(fmt, "Empty"),
+			Self::Leaf((ref a, ref b), ref c) =>
 				write!(fmt, "Leaf({:?}, {:?})", (a, ToHex(&*b)), c),
-			Self::Extension((ref a, ref b), ref c, _) =>
+			Self::Extension((ref a, ref b), ref c) =>
 				write!(fmt, "Extension({:?}, {:?})", (a, ToHex(&*b)), c),
-			Self::Branch(ref a, ref b, _) =>
+			Self::Branch(ref a, ref b) =>
 				write!(fmt, "Branch({:?}, {:?}", a, b),
-			Self::NibbledBranch((ref a, ref b), ref c, ref d, _) =>
+			Self::NibbledBranch((ref a, ref b), ref c, ref d) =>
 				write!(fmt, "NibbledBranch({:?}, {:?}, {:?})", (a, ToHex(&*b)), c, d),
 		}
 	}
@@ -258,8 +256,7 @@ impl<L: TrieLayout> Node<L>
 				NodeHandle::Hash(hash)
 			},
 			EncodedNodeHandle::Inline(data) => {
-				let meta = layout.new_meta();
-				let child = Node::from_encoded(parent_hash, data, db, storage, meta, layout)?;
+				let child = Node::from_encoded(parent_hash, data, db, storage, layout)?;
 				NodeHandle::InMemory(storage.alloc(Stored::New(child)))
 			},
 		};
@@ -272,18 +269,16 @@ impl<L: TrieLayout> Node<L>
 		data: &'a[u8],
 		db: &dyn HashDB<L::Hash, DBValue>,
 		storage: &'b mut NodeStorage<L>,
-		mut meta: Meta, 
 		layout: &L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
-		let encoded_node = L::Codec::decode(data, &mut meta)
+		let encoded_node = L::Codec::decode(data)
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash, e)))?;
 		let node = match encoded_node {
-			EncodedNode::Empty => Node::Empty(meta),
-			EncodedNode::Leaf(k, v) => Node::Leaf(k.into(), v.into(), meta),
+			EncodedNode::Empty => Node::Empty,
+			EncodedNode::Leaf(k, v) => Node::Leaf(k.into(), v.into()),
 			EncodedNode::Extension(key, cb) => Node::Extension(
 				key.into(),
 				Self::inline_or_hash(node_hash, cb, db, storage, layout)?,
-				meta,
 			),
 			EncodedNode::Branch(encoded_children, val) => {
 				let mut child = |i:usize| match encoded_children[i] {
@@ -299,7 +294,7 @@ impl<L: TrieLayout> Node<L>
 					child(12)?, child(13)?, child(14)?, child(15)?,
 				]);
 
-				Node::Branch(children, val.into(), meta)
+				Node::Branch(children, val.into())
 			},
 			EncodedNode::NibbledBranch(k, encoded_children, val) => {
 				let mut child = |i:usize| match encoded_children[i] {
@@ -315,38 +310,37 @@ impl<L: TrieLayout> Node<L>
 					child(12)?, child(13)?, child(14)?, child(15)?,
 				]);
 
-				Node::NibbledBranch(k.into(), children, val.into(), meta)
+				Node::NibbledBranch(k.into(), children, val.into())
 			},
 		};
 		Ok(node)
 	}
 
 	// TODO: parallelize
-	fn into_encoded<F>(self, mut child_cb: F) -> (Vec<u8>, Meta)
+	fn into_encoded<F>(self, mut child_cb: F) -> Vec<u8>
 	where
 		F: FnMut(Option<&[u8]>, NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
 	{
 		match self {
-			Node::Empty(meta) => (L::Codec::empty_node().to_vec(), meta),
-			Node::Leaf(partial, mut value, mut meta) => {
+			Node::Empty => L::Codec::empty_node().to_vec(),
+			Node::Leaf(partial, mut value) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let value = value.into_encode::<L::Hash, F>(&mut child_cb);
-				(L::Codec::leaf_node(pr.right(), value, &mut meta), meta)
+				L::Codec::leaf_node(pr.right(), value)
 			},
-			Node::Extension(partial, child, mut meta) => {
+			Node::Extension(partial, child) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
 				let c = child_cb(None, child, Some(&pr), None);
-				(L::Codec::extension_node(
+				L::Codec::extension_node(
 					it,
 					pr.len(),
 					c,
-					&mut meta,
-				), meta)
+				)
 			},
-			Node::Branch(mut children, mut value, mut meta) => {
+			Node::Branch(mut children, mut value) => {
 				let value = value.into_encode::<L::Hash, F>(&mut child_cb);
-				(L::Codec::branch_node(
+				L::Codec::branch_node(
 					// map the `NodeHandle`s from the Branch to `ChildReferences`
 					children.iter_mut()
 						.map(Option::take)
@@ -355,14 +349,13 @@ impl<L: TrieLayout> Node<L>
 							maybe_child.map(|child| child_cb(None, child, None, Some(i as u8)))
 						}),
 					value,
-					&mut meta,
-				), meta)
+				)
 			},
-			Node::NibbledBranch(partial, mut children, mut value, mut meta) => {
+			Node::NibbledBranch(partial, mut children, mut value) => {
 				let value = value.into_encode::<L::Hash, F>(&mut child_cb);
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
-				(L::Codec::branch_node_nibbled(
+				L::Codec::branch_node_nibbled(
 					it,
 					pr.len(),
 					// map the `NodeHandle`s from the Branch to `ChildReferences`
@@ -377,8 +370,7 @@ impl<L: TrieLayout> Node<L>
 							})
 						}),
 					value,
-					&mut meta,
-				), meta)
+				)
 			},
 		}
 	}
@@ -493,8 +485,7 @@ impl<L: TrieLayout> NodeStorage<L>
 		let idx = handle.0;
 
 		self.free_indices.push_back(idx);
-		let meta = layout.new_meta();
-		mem::replace(&mut self.nodes[idx], Stored::New(Node::Empty(meta)))
+		mem::replace(&mut self.nodes[idx], Stored::New(Node::Empty))
 	}
 }
 
@@ -631,13 +622,11 @@ where
 	) -> Result<StorageHandle, TrieHash<L>, CError<L>> {
 		let node_encoded = self.db.get(&hash, key)
 			.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
-		let meta = self.layout.new_meta();
 		let node = Node::from_encoded(
 			hash,
 			&node_encoded,
 			&*self.db,
 			&mut self.storage,
-			meta,
 			&self.layout,
 		)?;
 		Ok(self.storage.alloc(Stored::Cached(node, hash)))
@@ -697,15 +686,15 @@ where
 					layout: self.layout.clone(),
 				}.look_up(partial),
 				NodeHandle::InMemory(ref handle) => match self.storage[handle] {
-					Node::Empty(_) => return Ok(None),
-					Node::Leaf(ref key, ref value, _) => {
+					Node::Empty => return Ok(None),
+					Node::Leaf(ref key, ref value) => {
 						if NibbleSlice::from_stored(key) == partial {
 							return Ok(value.fetched_value().cloned());
 						} else {
 							return Ok(None);
 						}
 					},
-					Node::Extension(ref slice, ref child, _) => {
+					Node::Extension(ref slice, ref child) => {
 						let slice = NibbleSlice::from_stored(slice);
 						if partial.starts_with(&slice) {
 							(slice.len(), child)
@@ -713,7 +702,7 @@ where
 							return Ok(None);
 						}
 					},
-					Node::Branch(ref children, ref value, _) => {
+					Node::Branch(ref children, ref value) => {
 						if partial.is_empty() {
 							return Ok(value.fetched_value().cloned());
 						} else {
@@ -724,7 +713,7 @@ where
 							}
 						}
 					},
-					Node::NibbledBranch(ref slice, ref children, ref value, _) => {
+					Node::NibbledBranch(ref slice, ref children, ref value) => {
 						let slice = NibbleSlice::from_stored(slice);
 						if partial.is_empty() {
 							return Ok(value.fetched_value().cloned());
@@ -781,12 +770,13 @@ where
 		trace!(target: "trie", "augmented (partial: {:?}, value: {:?})", partial, ToHex(&value));
 
 		Ok(match node {
-			Node::Empty(meta) => {
+			Node::Empty => {
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "empty: COMPOSE");
-				InsertAction::Replace(Node::Leaf(partial.to_stored(), Value::Value(value), meta)) // TODO build value with threshold.
+				let value = Value::new(Some(value), self.layout.alt_threshold());
+				InsertAction::Replace(Node::Leaf(partial.to_stored(), value))
 			},
-			Node::Branch(mut children, stored_value, meta) => {
+			Node::Branch(mut children, stored_value) => {
 				debug_assert!(L::USE_EXTENSION);
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "branch: ROUTE,AUGMENT");
@@ -794,7 +784,7 @@ where
 				if partial.is_empty() {
 					let value = Value::new(Some(value), self.layout.alt_threshold());
 					let unchanged = stored_value.unchanged(&value);
-					let branch = Node::Branch(children, value, meta); // TODO build value with threshold.
+					let branch = Node::Branch(children, value);
 
 					*old_val = stored_value;
 
@@ -812,22 +802,22 @@ where
 						if !changed {
 							// The new node we composed didn't change.
 							// It means our branch is untouched too.
-							return Ok(InsertAction::Restore(Node::Branch(children, stored_value, meta)));
+							return Ok(InsertAction::Restore(Node::Branch(children, stored_value)));
 						}
 					} else {
 						// Original had nothing there. compose a leaf.
-						let meta_leaf = self.layout.new_meta();
+						let value = Value::new(Some(value), self.layout.alt_threshold());
 						let leaf = self.storage.alloc(
-							Stored::New(Node::Leaf(key.to_stored(), Value::Value(value), meta_leaf)) // TODO build value with threshold.
+							Stored::New(Node::Leaf(key.to_stored(), value))
 
 						);
 						children[idx] = Some(leaf.into());
 					}
 
-					InsertAction::Replace(Node::Branch(children, stored_value, meta))
+					InsertAction::Replace(Node::Branch(children, stored_value))
 				}
 			},
-			Node::NibbledBranch(encoded, mut children, stored_value, meta) => {
+			Node::NibbledBranch(encoded, mut children, stored_value) => {
 				debug_assert!(!L::USE_EXTENSION);
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "branch: ROUTE,AUGMENT");
@@ -841,7 +831,6 @@ where
 						existing_key.to_stored(),
 						children,
 						value,
-						meta,
 					);
 					*old_val = stored_value;
 
@@ -861,26 +850,23 @@ where
 						common,
 					);
 					let nbranch_partial = existing_key.mid(common + 1).to_stored();
-					let low = Node::NibbledBranch(nbranch_partial, children, stored_value, meta);
+					let low = Node::NibbledBranch(nbranch_partial, children, stored_value);
 					let ix = existing_key.at(common);
 					let mut children = empty_children();
 					let alloc_storage = self.storage.alloc(Stored::New(low));
 
-					let meta_branch = self.layout.new_meta();
 					children[ix as usize] = Some(alloc_storage.into());
 
+					let value = Value::new(Some(value), self.layout.alt_threshold());
 					if partial.len() - common == 0 {
 						InsertAction::Replace(Node::NibbledBranch(
 							existing_key.to_stored_range(common),
 							children,
-							Value::Value(value), // TODO build value with threshold.
-
-							meta_branch,
+							value,
 						))
 					} else {
 						let ix = partial.at(common);
-						let meta_leaf = self.layout.new_meta();
-						let stored_leaf = Node::Leaf(partial.mid(common + 1).to_stored(), Value::Value(value), meta_leaf); // TODO build value with threshold.
+						let stored_leaf = Node::Leaf(partial.mid(common + 1).to_stored(), value);
 
 						let leaf = self.storage.alloc(Stored::New(stored_leaf));
 
@@ -889,7 +875,6 @@ where
 							existing_key.to_stored_range(common),
 							children,
 							Value::NoValue,
-							meta_branch,
 						))
 					}
 				} else {
@@ -909,16 +894,14 @@ where
 								existing_key.to_stored(),
 								children,
 								stored_value,
-								meta,
 							);
 							return Ok(InsertAction::Restore(n_branch));
 						}
 					} else {
 						// Original had nothing there. compose a leaf.
-						let meta_leaf = self.layout.new_meta();
+						let value = Value::new(Some(value), self.layout.alt_threshold());
 						let leaf = self.storage.alloc(
-							Stored::New(Node::Leaf(key.to_stored(), Value::Value(value), meta_leaf)), // TODO build value with threshold.
-
+							Stored::New(Node::Leaf(key.to_stored(), value)),
 						);
 
 						children[idx] = Some(leaf.into());
@@ -927,11 +910,10 @@ where
 						existing_key.to_stored(),
 						children,
 						stored_value,
-						meta,
 					))
 				}
 			},
-			Node::Leaf(encoded, stored_value, meta) => {
+			Node::Leaf(encoded, stored_value) => {
 				let existing_key = NibbleSlice::from_stored(&encoded);
 				let common = partial.common_prefix(&existing_key);
 				if common == existing_key.len() && common == partial.len() {
@@ -943,10 +925,8 @@ where
 					*old_val = stored_value;
 					match unchanged {
 						// unchanged. restore
-						true => InsertAction::Restore(Node::Leaf(encoded.clone(), value, meta)),
-
-						false => InsertAction::Replace(Node::Leaf(encoded.clone(), value, meta)),
-
+						true => InsertAction::Restore(Node::Leaf(encoded.clone(), value)),
+						false => InsertAction::Replace(Node::Leaf(encoded.clone(), value)),
 					}
 				} else if (L::USE_EXTENSION && common == 0)
 					|| (!L::USE_EXTENSION && common < existing_key.len()) {
@@ -963,21 +943,19 @@ where
 					let mut children = empty_children();
 					let branch = if L::USE_EXTENSION && existing_key.is_empty() {
 						// always replace since branch isn't leaf.
-						Node::Branch(children, stored_value, meta)
+						Node::Branch(children, stored_value)
 					} else {
 						let idx = existing_key.at(common) as usize;
-						let meta_branch = self.layout.new_meta();
 						let new_leaf = Node::Leaf(
 							existing_key.mid(common + 1).to_stored(),
 							stored_value,
-							meta,
 						);
 						children[idx] = Some(self.storage.alloc(Stored::New(new_leaf)).into());
 
 						if L::USE_EXTENSION {
-							Node::Branch(children, Value::NoValue, meta_branch)
+							Node::Branch(children, Value::NoValue)
 						} else {
-							Node::NibbledBranch(partial.to_stored_range(common), children, Value::NoValue, meta_branch)
+							Node::NibbledBranch(partial.to_stored_range(common), children, Value::NoValue)
 						}
 					};
 
@@ -996,7 +974,6 @@ where
 						existing_key.to_stored(),
 						empty_children(),
 						stored_value,
-						meta,
 					);
 					// augment the new branch.
 					let branch = self.insert_inspector(branch, key, value, old_val)?
@@ -1011,15 +988,14 @@ where
 
 					// fully-shared prefix for an extension.
 					// make a stub branch and an extension.
-					let branch = Node::Branch(empty_children(), stored_value, meta);
+					let branch = Node::Branch(empty_children(), stored_value);
 					// augment the new branch.
 					key.advance(common);
 					let branch = self.insert_inspector(branch, key, value, old_val)?.unwrap_node();
 
 					// always replace since we took a leaf and made an extension.
 					let leaf = self.storage.alloc(Stored::New(branch));
-					let meta_extension = self.layout.new_meta();
-					InsertAction::Replace(Node::Extension(existing_key.to_stored(), leaf.into(), meta_extension))
+					InsertAction::Replace(Node::Extension(existing_key.to_stored(), leaf.into()))
 				} else {
 					debug_assert!(L::USE_EXTENSION);
 					#[cfg(feature = "std")]
@@ -1034,7 +1010,7 @@ where
 
 					// partially-shared prefix for an extension.
 					// start by making a leaf.
-					let low = Node::Leaf(existing_key.mid(common).to_stored(), stored_value, meta);
+					let low = Node::Leaf(existing_key.mid(common).to_stored(), stored_value);
 
 					// augment it. this will result in the Leaf -> common == 0 routine,
 					// which creates a branch.
@@ -1045,11 +1021,10 @@ where
 					InsertAction::Replace(Node::Extension(
 						existing_key.to_stored_range(common),
 						self.storage.alloc(Stored::New(augmented_low)).into(),
-						self.layout.new_meta(),
 					))
 				}
 			},
-			Node::Extension(encoded, child_branch, meta) => {
+			Node::Extension(encoded, child_branch) => {
 				debug_assert!(L::USE_EXTENSION);
 				let existing_key = NibbleSlice::from_stored(&encoded);
 				let common = partial.common_prefix(&existing_key);
@@ -1075,14 +1050,13 @@ where
 					} else {
 						// No need to register set branch (was here before).
 						// Note putting a branch in extension requires fix.
-						let ext = Node::Extension(existing_key.mid(1).to_stored(), child_branch, meta);
+						let ext = Node::Extension(existing_key.mid(1).to_stored(), child_branch);
 						Some(self.storage.alloc(Stored::New(ext)).into())
 					};
 
 					// continue inserting.
-					let meta_branch = self.layout.new_meta();
 					let branch_action = self.insert_inspector(
-						Node::Branch(children, Value::NoValue, meta_branch),
+						Node::Branch(children, Value::NoValue),
 						key,
 						value,
 						old_val,
@@ -1098,7 +1072,7 @@ where
 					key.advance(common);
 					let (new_child, changed) = self.insert_at(child_branch, key, value, old_val)?;
 	
-					let new_ext = Node::Extension(existing_key.to_stored(), new_child.into(), meta);
+					let new_ext = Node::Extension(existing_key.to_stored(), new_child.into());
 
 					// if the child branch wasn't changed, meaning this extension remains the same.
 					match changed {
@@ -1117,20 +1091,18 @@ where
 					);
 
 					// partially-shared.
-					let low = Node::Extension(existing_key.mid(common).to_stored(), child_branch, meta);
+					let low = Node::Extension(existing_key.mid(common).to_stored(), child_branch);
 					// augment the extension. this will take the common == 0 path,
 					// creating a branch.
 					key.advance(common);
 					let augmented_low = self.insert_inspector(low, key, value, old_val)?
 						.unwrap_node();
 
-					let new_meta = self.layout.new_meta();
 					// always replace, since this extension is not the one we started with.
 					// this is known because the partial key is only the common prefix.
 					InsertAction::Replace(Node::Extension(
 						existing_key.to_stored_range(common),
 						self.storage.alloc(Stored::New(augmented_low)).into(),
-						new_meta,
 					))
 				}
 			},
@@ -1170,24 +1142,24 @@ where
 	) -> Result<Action<L>, TrieHash<L>, CError<L>> {
 		let partial = *key;
 		Ok(match (node, partial.is_empty()) {
-			(Node::Empty(_), _) => Action::Delete,
-			(Node::Branch(c, Value::NoValue, meta), true) => {
-				Action::Restore(Node::Branch(c, Value::NoValue, meta))
+			(Node::Empty, _) => Action::Delete,
+			(Node::Branch(c, Value::NoValue), true) => {
+				Action::Restore(Node::Branch(c, Value::NoValue))
 			},
-			(Node::NibbledBranch(n, c, Value::NoValue, meta), true) => {
-				Action::Restore(Node::NibbledBranch(n, c, Value::NoValue, meta))
+			(Node::NibbledBranch(n, c, Value::NoValue), true) => {
+				Action::Restore(Node::NibbledBranch(n, c, Value::NoValue))
 			},
-			(Node::Branch(children, val, meta), true) => {
+			(Node::Branch(children, val), true) => {
 				*old_val = val;
 				// always replace since we took the value out.
-				Action::Replace(self.fix(Node::Branch(children, Value::NoValue, meta), *key)?)
+				Action::Replace(self.fix(Node::Branch(children, Value::NoValue), *key)?)
 			},
-			(Node::NibbledBranch(n, children, val, meta), true) => {
+			(Node::NibbledBranch(n, children, val), true) => {
 				*old_val = val;
 				// always replace since we took the value out.
-				Action::Replace(self.fix(Node::NibbledBranch(n, children, Value::NoValue, meta), *key)?)
+				Action::Replace(self.fix(Node::NibbledBranch(n, children, Value::NoValue), *key)?)
 			},
-			(Node::Branch(mut children, value, meta), false) => {
+			(Node::Branch(mut children, value), false) => {
 				let idx = partial.at(0) as usize;
 				if let Some(child) = children[idx].take() {
 					#[cfg(feature = "std")]
@@ -1201,7 +1173,7 @@ where
 					match self.remove_at(child, key, old_val)? {
 						Some((new, changed)) => {
 							children[idx] = Some(new.into());
-							let branch = Node::Branch(children, value, meta);
+							let branch = Node::Branch(children, value);
 							match changed {
 								// child was changed, so we were too.
 								true => Action::Replace(branch),
@@ -1214,15 +1186,15 @@ where
 							// the node may need fixing.
 							#[cfg(feature = "std")]
 							trace!(target: "trie", "branch child deleted, partial={:?}", partial);
-							Action::Replace(self.fix(Node::Branch(children, value, meta), prefix)?)
+							Action::Replace(self.fix(Node::Branch(children, value), prefix)?)
 						}
 					}
 				} else {
 					// no change needed.
-					Action::Restore(Node::Branch(children, value, meta))
+					Action::Restore(Node::Branch(children, value))
 				}
 			},
-			(Node::NibbledBranch(encoded, mut children, value, meta), false) => {
+			(Node::NibbledBranch(encoded, mut children, value), false) => {
 				let (common, existing_length) = {
 					let existing_key = NibbleSlice::from_stored(&encoded);
 					(existing_key.common_prefix(&partial), existing_key.len())
@@ -1231,15 +1203,15 @@ where
 
 					// replace val
 					if let Value::NoValue = value {
-						Action::Restore(Node::NibbledBranch(encoded, children, Value::NoValue, meta))
+						Action::Restore(Node::NibbledBranch(encoded, children, Value::NoValue))
 					} else {
 						*old_val = value;
-						let f = self.fix(Node::NibbledBranch(encoded, children, Value::NoValue, meta), *key);
+						let f = self.fix(Node::NibbledBranch(encoded, children, Value::NoValue), *key);
 						Action::Replace(f?)
 					}
 				} else if common < existing_length {
 					// partway through an extension -- nothing to do here.
-					Action::Restore(Node::NibbledBranch(encoded, children, value, meta))
+					Action::Restore(Node::NibbledBranch(encoded, children, value))
 				} else {
 					// common == existing_length && common < partial.len() : check children
 					let idx = partial.at(common) as usize;
@@ -1256,7 +1228,7 @@ where
 						match self.remove_at(child, key, old_val)? {
 							Some((new, changed)) => {
 								children[idx] = Some(new.into());
-								let branch = Node::NibbledBranch(encoded, children, value, meta);
+								let branch = Node::NibbledBranch(encoded, children, value);
 								match changed {
 									// child was changed, so we were too.
 									true => Action::Replace(branch),
@@ -1274,17 +1246,17 @@ where
 									partial,
 								);
 								Action::Replace(
-									self.fix(Node::NibbledBranch(encoded, children, value, meta), prefix)?
+									self.fix(Node::NibbledBranch(encoded, children, value), prefix)?
 								)
 							},
 						}
 					} else {
 						// no change needed.
-						Action::Restore(Node::NibbledBranch(encoded, children, value, meta))
+						Action::Restore(Node::NibbledBranch(encoded, children, value))
 					}
 				}
 			},
-			(Node::Leaf(encoded, value, meta), _) => {
+			(Node::Leaf(encoded, value), _) => {
 				if NibbleSlice::from_stored(&encoded) == partial {
 					// this is the node we were looking for. Let's delete it.
 					*old_val = value;
@@ -1298,10 +1270,10 @@ where
 						partial,
 						NibbleSlice::from_stored(&encoded),
 					);
-					Action::Restore(Node::Leaf(encoded, value, meta))
+					Action::Restore(Node::Leaf(encoded, value))
 				}
 			},
-			(Node::Extension(encoded, child_branch, meta), _) => {
+			(Node::Extension(encoded, child_branch), _) => {
 				let (common, existing_length) = {
 					let existing_key = NibbleSlice::from_stored(&encoded);
 					(existing_key.common_prefix(&partial), existing_key.len())
@@ -1318,9 +1290,9 @@ where
 							// otherwise, this extension may need fixing.
 							match changed {
 								true => Action::Replace(
-									self.fix(Node::Extension(encoded, new_child.into(), meta), prefix)?
+									self.fix(Node::Extension(encoded, new_child.into()), prefix)?
 								),
-								false => Action::Restore(Node::Extension(encoded, new_child.into(), meta)),
+								false => Action::Restore(Node::Extension(encoded, new_child.into())),
 							}
 						}
 						None => {
@@ -1331,7 +1303,7 @@ where
 					}
 				} else {
 					// partway through an extension -- nothing to do here.
-					Action::Restore(Node::Extension(encoded, child_branch, meta))
+					Action::Restore(Node::Extension(encoded, child_branch))
 				}
 			},
 		})
@@ -1357,7 +1329,7 @@ where
 		recurse_extension: bool,
 	) -> Result<Node<L>, TrieHash<L>, CError<L>> {
 		match node {
-			Node::Branch(mut children, value, meta) => {
+			Node::Branch(mut children, value) => {
 				// if only a single value, transmute to leaf/extension and feed through fixed.
 				#[cfg_attr(feature = "std", derive(Debug))]
 				enum UsedIndex {
@@ -1386,24 +1358,24 @@ where
 						let new_partial = NibbleSlice::new_offset(&[a], 1).to_stored();
 						let child = children[a as usize].take()
 							.expect("used_index only set if occupied; qed");
-						let new_node = Node::Extension(new_partial, child, meta);
+						let new_node = Node::Extension(new_partial, child);
 						self.fix(new_node, key)
 					}
 					(UsedIndex::None, value) => {
 						// make a leaf.
 						#[cfg(feature = "std")]
 						trace!(target: "trie", "fixing: branch -> leaf");
-						Ok(Node::Leaf(NibbleSlice::new(&[]).to_stored(), value, meta))
+						Ok(Node::Leaf(NibbleSlice::new(&[]).to_stored(), value))
 					}
 					(_, value) => {
 						// all is well.
 						#[cfg(feature = "std")]
 						trace!(target: "trie", "fixing: restoring branch");
-						Ok(Node::Branch(children, value, meta))
+						Ok(Node::Branch(children, value))
 					}
 				}
 			},
-			Node::NibbledBranch(enc_nibble, mut children, value, meta) => {
+			Node::NibbledBranch(enc_nibble, mut children, value) => {
 				// if only a single value, transmute to leaf/extension and feed through fixed.
 				#[cfg_attr(feature = "std", derive(Debug))]
 				enum UsedIndex {
@@ -1459,7 +1431,7 @@ where
 							},
 						};
 						match child_node {
-							Node::Leaf(sub_partial, value, meta) => {
+							Node::Leaf(sub_partial, value) => {
 								let mut enc_nibble = enc_nibble;
 								combine_key(
 									&mut enc_nibble,
@@ -1469,9 +1441,9 @@ where
 									&mut enc_nibble,
 									(sub_partial.0, &sub_partial.1[..]),
 								);
-								Ok(Node::Leaf(enc_nibble, value, meta))
+								Ok(Node::Leaf(enc_nibble, value))
 							},
-							Node::NibbledBranch(sub_partial, ch_children, ch_value, meta) => {
+							Node::NibbledBranch(sub_partial, ch_children, ch_value) => {
 								let mut enc_nibble = enc_nibble;
 								combine_key(
 									&mut enc_nibble,
@@ -1481,7 +1453,7 @@ where
 									&mut enc_nibble,
 									(sub_partial.0, &sub_partial.1[..]),
 								);
-								Ok(Node::NibbledBranch(enc_nibble, ch_children, ch_value, meta))
+								Ok(Node::NibbledBranch(enc_nibble, ch_children, ch_value))
 							},
 							_ => unreachable!(),
 						}
@@ -1490,17 +1462,17 @@ where
 						// make a leaf.
 						#[cfg(feature = "std")]
 						trace!(target: "trie", "fixing: branch -> leaf");
-						Ok(Node::Leaf(enc_nibble, value, meta))
+						Ok(Node::Leaf(enc_nibble, value))
 					},
 					(_, value) => {
 						// all is well.
 						#[cfg(feature = "std")]
 						trace!(target: "trie", "fixing: restoring branch");
-						Ok(Node::NibbledBranch(enc_nibble, children, value, meta))
+						Ok(Node::NibbledBranch(enc_nibble, children, value))
 					},
 				}
 			},
-			Node::Extension(partial, child, meta) => {
+			Node::Extension(partial, child) => {
 				let mut key2 = key.clone();
 				let (start, alloc_start, prefix_end) = if !recurse_extension {
 					// We could advance key, but this code can also be called
@@ -1544,7 +1516,7 @@ where
 				};
 
 				match child_node {
-					Node::Extension(sub_partial, sub_child, meta) => {
+					Node::Extension(sub_partial, sub_child) => {
 						// combine with node below.
 						if let Some(hash) = maybe_hash {
 							// delete the cached child since we are going to replace it.
@@ -1562,9 +1534,9 @@ where
 							partial,
 						);
 						
-						self.fix_inner(Node::Extension(partial, sub_child, meta), key.into(), true)
+						self.fix_inner(Node::Extension(partial, sub_child), key.into(), true)
 					}
-					Node::Leaf(sub_partial, value, meta) => {
+					Node::Leaf(sub_partial, value) => {
 						// combine with node below.
 						if let Some(hash) = maybe_hash {
 							// delete the cached child since we are going to replace it.
@@ -1579,7 +1551,7 @@ where
 							"fixing: extension -> leaf. new_partial={:?}",
 							partial,
 						);
-						Ok(Node::Leaf(partial, value, meta))
+						Ok(Node::Leaf(partial, value))
 					}
 					child_node => {
 						#[cfg(feature = "std")]
@@ -1592,7 +1564,7 @@ where
 							Stored::New(child_node)
 						};
 
-						Ok(Node::Extension(partial, self.storage.alloc(stored).into(), meta))
+						Ok(Node::Extension(partial, self.storage.alloc(stored).into()))
 					}
 				}
 			},
@@ -1622,7 +1594,7 @@ where
 			Stored::New(node) => {
 				let mut k = NibbleVec::new();
 
-				let (encoded_root, meta) = node.into_encoded(
+				let encoded_root = node.into_encoded(
 					|value_node, child, o_slice, o_index| {
 						if let Some(value) = value_node {
 							return ChildReference::Hash(self.db.insert(k.as_prefix(), value));
@@ -1670,7 +1642,7 @@ where
 				match self.storage.destroy(storage_handle, &self.layout) {
 					Stored::Cached(_, hash) => ChildReference::Hash(hash),
 					Stored::New(node) => {
-						let (encoded, meta) = {
+						let encoded = {
 							let commit_child = |
 								value_node: Option<&[u8]>,
 								node_handle,
@@ -1735,7 +1707,7 @@ where
 		match self.root_handle {
 			NodeHandle::Hash(h) => h == L::Codec::hashed_null_node(),
 			NodeHandle::InMemory(ref h) => match self.storage[h] {
-				Node::Empty(_) => true,
+				Node::Empty => true,
 				_ => false,
 			}
 		}

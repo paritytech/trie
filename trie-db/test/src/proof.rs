@@ -77,23 +77,21 @@ fn test_generate_proof<L: TrieLayout>(
 
 test_layouts!(trie_proof_works, trie_proof_works_internal);
 fn trie_proof_works_internal<T: TrieLayout>() {
-	if !T::USE_META {
-		let (root, proof, items) = test_generate_proof::<T>(
-			test_entries(),
-			vec![
-				b"do",
-				b"dog",
-				b"doge",
-				b"bravo",
-				b"alfabet", // None, not found under leaf node
-				b"d", // None, witness is extension node with omitted child
-				b"do\x10", // None, empty branch child
-				b"halp", // None, witness is extension node with non-omitted child
-			],
-		);
+	let (root, proof, items) = test_generate_proof::<T>(
+		test_entries(),
+		vec![
+			b"do",
+			b"dog",
+			b"doge",
+			b"bravo",
+			b"alfabet", // None, not found under leaf node
+			b"d", // None, witness is extension node with omitted child
+			b"do\x10", // None, empty branch child
+			b"halp", // None, witness is extension node with non-omitted child
+		],
+	);
 
-		verify_proof::<T, _, _, _>(&root, &proof, items.iter(), Default::default()).unwrap();
-	}
+	verify_proof::<T, _, _, _>(&root, &proof, items.iter(), Default::default()).unwrap();
 }
 
 test_layouts!(trie_proof_works_for_empty_trie, trie_proof_works_for_empty_trie_internal);

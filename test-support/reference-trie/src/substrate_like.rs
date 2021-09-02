@@ -28,7 +28,6 @@ pub struct AltHashNoExt(pub Option<u32>);
 impl TrieLayout for AltHashNoExt {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
-	const USE_META: bool = true;
 
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExtMeta<RefHasher>;
@@ -56,14 +55,11 @@ pub struct NodeCodec<H>(PhantomData<H>);
 impl<H: Hasher> NodeCodec<H> {
 	fn decode_plan_inner_hashed(
 		data: &[u8],
-		meta: &mut Meta,
 	) -> Result<NodePlan, Error> {
 		let mut input = ByteSliceInput::new(data);
 
 		let header = NodeHeader::decode(&mut input)?;
 		let contains_hash = header.contains_hash_of_value();
-		let alt_hashing = header.alt_hashing();
-		meta.apply_inner_hashing = alt_hashing;
 
 		let branch_has_value = if let NodeHeader::Branch(has_value, _) = &header {
 			*has_value
@@ -87,10 +83,8 @@ impl<H: Hasher> NodeCodec<H> {
 				let partial_padding = nibble_ops::number_padding(nibble_count);
 				let bitmap_range = input.take(BITMAP_LENGTH)?;
 				let bitmap = Bitmap::decode(&data[bitmap_range])?;
-				let with_len = input.offset;
-				let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
 				let value = if branch_has_value {
-					if alt_hashing && contains_hash {
+					if contains_hash {
 						ValuePlan::HashedValue(input.take(H::LENGTH)?)
 					} else {
 						let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
@@ -131,7 +125,7 @@ impl<H: Hasher> NodeCodec<H> {
 					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE,
 				)?;
 				let partial_padding = nibble_ops::number_padding(nibble_count);
-				let value = if alt_hashing && contains_hash {
+				let value = if contains_hash {
 					ValuePlan::HashedValue(input.take(H::LENGTH)?)
 				} else {
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
@@ -159,15 +153,8 @@ impl<H> NodeCodecT for NodeCodec<H>
 		H::hash(<Self as NodeCodecT>::empty_node())
 	}
 
-	fn decode_plan(data: &[u8], meta: &mut Meta) -> Result<NodePlan, Self::Error> {
-		Self::decode_plan_inner_hashed(data, meta).map(|plan| {
-			meta.decoded_callback(&plan);
-			plan
-		})
-	}
-
-	fn decode_plan_inner(_data: &[u8]) -> Result<NodePlan, Self::Error> {
-		unreachable!("decode_plan is implemented")
+	fn decode_plan(data: &[u8]) -> Result<NodePlan, Self::Error> {
+		Self::decode_plan_inner_hashed(data)
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
@@ -178,7 +165,7 @@ impl<H> NodeCodecT for NodeCodec<H>
 		&[trie_constants::EMPTY_TRIE]
 	}
 
-	fn leaf_node(partial: Partial, value: Value, meta: &mut Meta) -> Vec<u8> {
+	fn leaf_node(partial: Partial, value: Value) -> Vec<u8> {
 		let contains_hash = matches!(&value, Value::HashedValue(..));
 		let mut output = if contains_hash {
 			partial_encode(partial, NodeKind::AltHashLeaf)
@@ -188,17 +175,11 @@ impl<H> NodeCodecT for NodeCodec<H>
 		match value {
 			Value::Value(value) => {
 				Compact(value.len() as u32).encode_to(&mut output);
-				let start = output.len();
 				output.extend_from_slice(value);
-				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::Value(start..end));
 			},
 			Value::HashedValue(hash, _) => {
 				debug_assert!(hash.len() == H::LENGTH);
-				let start = output.len();
 				output.extend_from_slice(hash);
-				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::HashedValue(start..end));
 			},
 			Value::NoValue => unimplemented!("No support for incomplete nodes"),
 		}
@@ -209,7 +190,6 @@ impl<H> NodeCodecT for NodeCodec<H>
 		_partial: impl Iterator<Item = u8>,
 		_nbnibble: usize,
 		_child: ChildReference<<H as Hasher>::Out>,
-		_meta: &mut Meta,
 	) -> Vec<u8> {
 		unreachable!()
 	}
@@ -217,7 +197,6 @@ impl<H> NodeCodecT for NodeCodec<H>
 	fn branch_node(
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		_maybe_value: Value,
-		_meta: &mut Meta,
 	) -> Vec<u8> {
 		unreachable!()
 	}
@@ -227,7 +206,6 @@ impl<H> NodeCodecT for NodeCodec<H>
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		value: Value,
-		meta: &mut Meta,
 	) -> Vec<u8> {
 		let contains_hash = matches!(&value, Value::HashedValue(..));
 		let mut output = match (&value, contains_hash) {
@@ -251,14 +229,12 @@ impl<H> NodeCodecT for NodeCodec<H>
 				let start = output.len();
 				output.extend_from_slice(value);
 				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::Value(start..end));
 			},
 			Value::HashedValue(hash, _) => {
 				debug_assert!(hash.len() == H::LENGTH);
 				let start = output.len();
 				output.extend_from_slice(hash);
 				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::HashedValue(start..end));
 			},
 			Value::NoValue => (),
 		}

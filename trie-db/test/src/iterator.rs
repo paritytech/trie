@@ -65,7 +65,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 
 	if T::USE_EXTENSION {
 		match iter.next() {
-			Some(Ok((prefix, Some(_), _meta, node))) => {
+			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!(""), 0));
 				match node.node() {
 					Node::Extension(partial, _) =>
@@ -77,7 +77,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 		}
 
 		match iter.next() {
-			Some(Ok((prefix, Some(_), _meta, node))) => {
+			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("00"), 1));
 				match node.node() {
 					Node::Branch(_, _) => {},
@@ -88,7 +88,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 		}
 
 		match iter.next() {
-			Some(Ok((prefix, None, _meta, node))) => {
+			Some(Ok((prefix, None, node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("01"), 2));
 				match node.node() {
 					Node::Branch(_, _) => {},
@@ -99,7 +99,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 		}
 
 		match iter.next() {
-			Some(Ok((prefix, None, _meta, node))) => {
+			Some(Ok((prefix, None, node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("0120"), 3));
 				match node.node() {
 					Node::Leaf(partial, _) =>
@@ -111,7 +111,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 		}
 
 		match iter.next() {
-			Some(Ok((prefix, Some(_), _meta, node))) => {
+			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("02"), 2));
 				match node.node() {
 					Node::Leaf(partial, _) =>
@@ -125,7 +125,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 		assert!(iter.next().is_none());
 	} else {
 		match iter.next() {
-			Some(Ok((prefix, Some(_), _meta, node))) => {
+			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!(""), 0));
 				match node.node() {
 					Node::NibbledBranch(partial, _, _) =>
@@ -137,7 +137,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 		}
 
 		match iter.next() {
-			Some(Ok((prefix, None, _meta, node))) => {
+			Some(Ok((prefix, None, node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("01"), 2));
 				match node.node() {
 					Node::NibbledBranch(partial, _, _) =>
@@ -149,7 +149,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 		}
 
 		match iter.next() {
-			Some(Ok((prefix, None, _meta, node))) => {
+			Some(Ok((prefix, None, node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("0120"), 3));
 				match node.node() {
 					Node::Leaf(partial, _) =>
@@ -162,7 +162,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 		}
 
 		match iter.next() {
-			Some(Ok((prefix, Some(_), _meta, node))) => {
+			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("02"), 2));
 				match node.node() {
 					Node::Leaf(partial, _) =>
@@ -184,7 +184,7 @@ fn iterator_over_empty_works_internal<T: TrieLayout>() {
 	let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 
 	match iter.next() {
-		Some(Ok((prefix, Some(_), _meta, node))) => {
+		Some(Ok((prefix, Some(_), node))) => {
 			assert_eq!(prefix, nibble_vec(hex!(""), 0));
 			match node.node() {
 				Node::Empty => {},
@@ -211,28 +211,28 @@ fn seek_works_internal<T: TrieLayout>() {
 
 	TrieIterator::seek(&mut iter, &hex!("")[..]).unwrap();
 	match iter.next() {
-		Some(Ok((prefix, _, _meta, _))) =>
+		Some(Ok((prefix, _, _))) =>
 			assert_eq!(prefix, nibble_vec(hex!(""), 0)),
 		_ => panic!("unexpected item"),
 	}
 
 	TrieIterator::seek(&mut iter, &hex!("00")[..]).unwrap();
 	match iter.next() {
-		Some(Ok((prefix, _, _meta, _))) =>
+		Some(Ok((prefix, _, _))) =>
 			assert_eq!(prefix, nibble_vec(hex!("01"), 2)),
 		_ => panic!("unexpected item"),
 	}
 
 	TrieIterator::seek(&mut iter, &hex!("01")[..]).unwrap();
 	match iter.next() {
-		Some(Ok((prefix, _, _meta, _))) =>
+		Some(Ok((prefix, _, _))) =>
 			assert_eq!(prefix, nibble_vec(hex!("01"), 2)),
 		_ => panic!("unexpected item"),
 	}
 
 	TrieIterator::seek(&mut iter, &hex!("02")[..]).unwrap();
 	match iter.next() {
-		Some(Ok((prefix, _, _meta, _))) =>
+		Some(Ok((prefix, _, _))) =>
 			assert_eq!(prefix, nibble_vec(hex!("02"), 2)),
 		_ => panic!("unexpected item"),
 	}
@@ -249,7 +249,7 @@ fn seek_over_empty_works_internal<T: TrieLayout>() {
 
 	TrieIterator::seek(&mut iter, &hex!("")[..]).unwrap();
 	match iter.next() {
-		Some(Ok((prefix, _, _meta, node))) => {
+		Some(Ok((prefix, _, node))) => {
 			assert_eq!(prefix, nibble_vec(hex!(""), 0));
 			match node.node() {
 				Node::Empty => {},
@@ -281,7 +281,7 @@ fn iterate_over_incomplete_db_internal<T: TrieLayout>() {
 
 		TrieIterator::seek(&mut iter, &hex!("02")[..]).unwrap();
 		match iter.next() {
-			Some(Ok((_, Some(hash), _meta, node))) => {
+			Some(Ok((_, Some(hash), node))) => {
 				match node.node() {
 					Node::Leaf(_, _) => hash,
 					_ => panic!("unexpected node"),
@@ -325,7 +325,7 @@ fn iterate_over_incomplete_db_internal<T: TrieLayout>() {
 			_ => panic!("expected IncompleteDatabase error"),
 		}
 		match iter.next() {
-			Some(Ok((_, _, _, node))) => {
+			Some(Ok((_, _, node))) => {
 				match node.node() {
 					Node::Leaf(_, v) =>
 						assert_eq!(v, Value::Value(&vec![2; 32][..])),
@@ -355,7 +355,7 @@ fn prefix_works_internal<T: TrieLayout>() {
 
 	if T::USE_EXTENSION {
 		match iter.next() {
-			Some(Ok((prefix, None, _meta, node))) => {
+			Some(Ok((prefix, None, node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("01"), 2));
 				match node.node() {
 					Node::Branch(_, _) => {},
@@ -366,7 +366,7 @@ fn prefix_works_internal<T: TrieLayout>() {
 		}
 	} else {
 		match iter.next() {
-			Some(Ok((prefix, None, _meta, node))) => {
+			Some(Ok((prefix, None, node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("01"), 2));
 				match node.node() {
 					Node::NibbledBranch(partial, _, _) =>
@@ -379,7 +379,7 @@ fn prefix_works_internal<T: TrieLayout>() {
 	}
 
 	match iter.next() {
-		Some(Ok((prefix, None, _meta, node))) => {
+		Some(Ok((prefix, None, node))) => {
 			assert_eq!(prefix, nibble_vec(hex!("0120"), 3));
 			match node.node() {
 				Node::Leaf(partial, _) =>
@@ -407,7 +407,7 @@ fn prefix_over_empty_works_internal<T: TrieLayout>() {
 	let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 	iter.prefix(&hex!("")[..]).unwrap();
 	match iter.next() {
-		Some(Ok((prefix, Some(_), _meta, node))) => {
+		Some(Ok((prefix, Some(_), node))) => {
 			assert_eq!(prefix, nibble_vec(hex!(""), 0));
 			match node.node() {
 				Node::Empty => {},

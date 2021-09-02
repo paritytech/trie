@@ -30,7 +30,6 @@ use trie_db::{
 	TrieBuilder,
 	TrieRoot,
 	Partial,
-	Meta,
 };
 use std::borrow::Borrow;
 
@@ -637,7 +636,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		H::hash(<Self as NodeCodec>::empty_node())
 	}
 
-	fn decode_plan_inner(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
+	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
 		let mut input = ByteSliceInput::new(data);
 		match NodeHeader::decode(&mut input)? {
 			NodeHeader::Null => Ok(NodePlan::Empty),
@@ -708,15 +707,12 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		&[EMPTY_TRIE]
 	}
 
-	fn leaf_node(partial: Partial, value: Value, meta: &mut Meta) -> Vec<u8> {
+	fn leaf_node(partial: Partial, value: Value) -> Vec<u8> {
 		let mut output = partial_to_key(partial, LEAF_NODE_OFFSET, LEAF_NODE_OVER);
 		match value {
 			Value::Value(value) => {
 				Compact(value.len() as u32).encode_to(&mut output);
-				let start = output.len();
 				output.extend_from_slice(value);
-				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::Value(start..end));
 			},
 			_ => unimplemented!("unsupported"),
 		}
@@ -727,7 +723,6 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
 		child: ChildReference<Self::HashOut>,
-		_meta: &mut Meta,
 	) -> Vec<u8> {
 		let mut output = partial_from_iterator_to_key(
 			partial,
@@ -746,21 +741,16 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 	fn branch_node(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Value,
-		meta: &mut Meta,
 	) -> Vec<u8> {
 		let mut output = vec![0; BITMAP_LENGTH + 1];
 		let mut prefix: [u8; 3] = [0; 3];
 		let have_value = match maybe_value {
 			Value::Value(value) => {
 				Compact(value.len() as u32).encode_to(&mut output);
-				let start = output.len();
 				output.extend_from_slice(value);
-				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::Value(start..end));
 				true
 			},
 			Value::NoValue => {
-				meta.encoded_value_callback(ValuePlan::NoValue);
 				false
 			},
 			_ => unimplemented!("unsupported"),
@@ -786,7 +776,6 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		_number_nibble: usize,
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		_maybe_value: Value,
-		_meta: &mut Meta,
 	) -> Vec<u8> {
 		unreachable!()
 	}
@@ -800,14 +789,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		H::hash(<Self as NodeCodec>::empty_node())
 	}
 
-	fn decode_plan(data: &[u8], meta: &mut Meta) -> Result<NodePlan, Self::Error> {
-		Self::decode_plan_inner(data).map(|plan| {
-			meta.decoded_callback(&plan);
-			plan
-		})
-	}
-
-	fn decode_plan_inner(data: &[u8]) -> std::result::Result<NodePlan, Self::Error> {
+	fn decode_plan(data: &[u8]) -> Result<NodePlan, Self::Error> {
 		if data.len() < 1 {
 			return Err(CodecError::from("Empty encoded node."));
 		}
@@ -883,15 +865,12 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		&[EMPTY_TRIE_NO_EXT]
 	}
 
-	fn leaf_node(partial: Partial, value: Value, meta: &mut Meta) -> Vec<u8> {
+	fn leaf_node(partial: Partial, value: Value) -> Vec<u8> {
 		let mut output = partial_encode(partial, NodeKindNoExt::Leaf);
 		match value {
 			Value::Value(value) => {
 				Compact(value.len() as u32).encode_to(&mut output);
-				let start = output.len();
 				output.extend_from_slice(value);
-				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::Value(start..end));
 			},
 			Value::HashedValue(..) => unimplemented!("No support for inner hashed value"),
 			Value::NoValue => unreachable!(),
@@ -903,7 +882,6 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		_partial: impl Iterator<Item = u8>,
 		_nbnibble: usize,
 		_child: ChildReference<<H as Hasher>::Out>,
-		_met: &mut Meta,
 	) -> Vec<u8> {
 		unreachable!()
 	}
@@ -911,7 +889,6 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 	fn branch_node(
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		_maybe_value: Value,
-		_meta: &mut Meta,
 	) -> Vec<u8> {
 		unreachable!()
 	}
@@ -921,7 +898,6 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		maybe_value: Value,
-		meta: &mut Meta,
 	) -> Vec<u8> {
 		let mut output = if let Value::NoValue = &maybe_value {
 			partial_from_iterator_encode(
@@ -942,10 +918,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		match maybe_value {
 			Value::Value(value) => {
 				Compact(value.len() as u32).encode_to(&mut output);
-				let start = output.len();
 				output.extend_from_slice(value);
-				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::Value(start..end));
 			},
 			Value::HashedValue(..) => unimplemented!("No support for inner hashed value"),
 			Value::NoValue => (),
@@ -1217,9 +1190,9 @@ mod tests {
 		// + 1 for 0 added byte of nibble encode
 		let input = vec![0u8; (NIBBLE_SIZE_BOUND_NO_EXT as usize + 1) / 2 + 1];
 		let enc = <ReferenceNodeCodecNoExt<RefHasher> as NodeCodec>
-		::leaf_node(((0, 0), &input), Value::Value(&[1]), &mut Default::default());
+			::leaf_node(((0, 0), &input), Value::Value(&[1]));
 		let dec = <ReferenceNodeCodecNoExt<RefHasher> as NodeCodec>
-		::decode(&enc, &mut Default::default()).unwrap();
+			::decode(&enc).unwrap();
 		let o_sl = if let Node::Leaf(sl, _) = dec {
 			Some(sl)
 		} else { None };

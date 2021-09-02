@@ -20,7 +20,7 @@ use crate::DBValue;
 use super::node::{NodeHandle, Node, Value, OwnedNode, decode_hash};
 use super::lookup::Lookup;
 use super::{Result, Trie, TrieItem, TrieKeyItem, TrieError, TrieIterator, Query,
-	TrieLayout, CError, TrieHash, Meta};
+	TrieLayout, CError, TrieHash};
 #[cfg(feature = "std")]
 use super::nibble::NibbleVec;
 
@@ -116,8 +116,8 @@ where
 		parent_hash: TrieHash<L>,
 		node_handle: NodeHandle,
 		partial_key: Prefix,
-	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>, Meta), TrieHash<L>, CError<L>> {
-		let (node_hash, node_data, mut meta) = match node_handle {
+	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
+		let (node_hash, node_data) = match node_handle {
 			NodeHandle::Hash(data) => {
 				let node_hash = decode_hash::<L::Hash>(data)
 					.ok_or_else(|| Box::new(TrieError::InvalidHash(parent_hash, data.to_vec())))?;
@@ -131,14 +131,13 @@ where
 						}
 					})?;
 
-				let meta = self.layout.new_meta();
-				(Some(node_hash), node_data, meta)
+				(Some(node_hash), node_data)
 			}
-			NodeHandle::Inline(data) => (None, data.to_vec(), self.layout.new_meta()),
+			NodeHandle::Inline(data) => (None, data.to_vec()),
 		};
-		let owned_node = OwnedNode::new::<L::Codec>(node_data, &mut meta)
+		let owned_node = OwnedNode::new::<L::Codec>(node_data)
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or(parent_hash), e)))?;
-		Ok((owned_node, node_hash, meta))
+		Ok((owned_node, node_hash))
 	}
 
 	/// Get current value of Trie layout.
@@ -200,7 +199,6 @@ where
 	node_key: NodeHandle<'a>,
 	partial_key: NibbleVec,
 	index: Option<u8>,
-	show_meta: bool,
 }
 
 #[cfg(feature="std")]
@@ -209,13 +207,12 @@ where
 	L: TrieLayout,
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		let show_meta = self.show_meta;
 		match self.trie.get_raw_or_lookup(
 			<TrieHash<L>>::default(),
 			self.node_key,
 			self.partial_key.as_prefix()
 		) {
-			Ok((owned_node, _node_hash, meta)) => match owned_node.node() {
+			Ok((owned_node, _node_hash)) => match owned_node.node() {
 				Node::Leaf(slice, value) => {
 					let mut disp = f.debug_struct("Node::Leaf");
 					if let Some(i) = self.index {
@@ -223,9 +220,6 @@ where
 					}
 					disp.field("slice", &slice)
 						.field("value", &value);
-					if show_meta {
-						disp.field("meta", &meta);
-					}
 					disp.finish()
 				},
 				Node::Extension(slice, item) => {
@@ -240,11 +234,7 @@ where
 							partial_key: self.partial_key
 								.clone_append_optional_slice_and_nibble(Some(&slice), None),
 							index: None,
-							show_meta,
 						});
-					if show_meta {
-						disp.field("meta", &meta);
-					}
 					disp.finish()
 				},
 				Node::Branch(ref nodes, ref value) => {
@@ -257,7 +247,6 @@ where
 							node_key: n,
 							partial_key: self.partial_key
 								.clone_append_optional_slice_and_nibble(None, Some(i as u8)),
-							show_meta,
 						})
 						.collect();
 					let mut disp = f.debug_struct("Node::Branch");
@@ -266,9 +255,6 @@ where
 					}
 					disp.field("nodes", &nodes)
 						.field("value", &value);
-					if show_meta {
-						disp.field("meta", &meta);
-					}
 					disp.finish()
 				},
 				Node::NibbledBranch(slice, nodes, value) => {
@@ -281,7 +267,6 @@ where
 							node_key: n,
 							partial_key: self.partial_key
 								.clone_append_optional_slice_and_nibble(Some(&slice), Some(i as u8)),
-							show_meta,
 						}).collect();
 					let mut disp = f.debug_struct("Node::NibbledBranch");
 					if let Some(i) = self.index {
@@ -290,16 +275,10 @@ where
 					disp.field("slice", &slice)
 						.field("nodes", &nodes)
 						.field("value", &value);
-					if show_meta {
-						disp.field("meta", &meta);
-					}
 					disp.finish()
 				},
 				Node::Empty => {
 					let mut disp = f.debug_struct("Node::Empty");
-					if show_meta {
-						disp.field("meta", &meta);
-					}
 					disp.finish()
 				},
 			},
@@ -325,31 +304,6 @@ where
 				node_key: NodeHandle::Hash(self.root().as_ref()),
 				partial_key: NibbleVec::new(),
 				index: None,
-				show_meta: false,
-			})
-			.finish()
-	}
-}
-
-/// Use this struct to display a trie with associated
-/// nodes metas.
-#[cfg(feature="std")]
-pub struct DebugWithMeta<'db, L: TrieLayout>(pub &'db TrieDB<'db, L>);
-
-#[cfg(feature="std")]
-impl<'db, L> fmt::Debug for DebugWithMeta<'db, L>
-where
-	L: TrieLayout,
-{
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		f.debug_struct("TrieDBWithMeta")
-			.field("hash_count", &self.0.hash_count)
-			.field("root", &TrieAwareDebugNode {
-				trie: self.0,
-				node_key: NodeHandle::Hash(self.0.root().as_ref()),
-				partial_key: NibbleVec::new(),
-				index: None,
-				show_meta: true,
 			})
 			.finish()
 	}
@@ -479,7 +433,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 	fn next(&mut self) -> Option<Self::Item> {
 		while let Some(item) = self.inner.next() {
 			match item {
-				Ok((mut prefix, node_key, _meta, node)) => {
+				Ok((mut prefix, _, node)) => {
 					let maybe_value = match node.node() {
 						Node::Leaf(partial, value) => {
 							prefix.append_partial(partial.right());
@@ -516,7 +470,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 							}
 						},
 						Value::Value(value) => value.to_vec(),
-						Value::HashedValue(hash, Some(value)) => value,
+						Value::HashedValue(_hash, Some(value)) => value,
 						Value::NoValue => return None,
 					};
 					return Some(Ok((key, value)));
@@ -534,7 +488,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBKeyIterator<'a, L> {
 	fn next(&mut self) -> Option<Self::Item> {
 		while let Some(item) = self.inner.next() {
 			match item {
-				Ok((mut prefix, _, _, node)) => {
+				Ok((mut prefix, _, node)) => {
 					let maybe_value = match node.node() {
 						Node::Leaf(partial, value) => {
 							prefix.append_partial(partial.right());

@@ -15,7 +15,6 @@
 //! Trie query recorder.
 
 use crate::rstd::vec::Vec;
-use crate::Meta;
 
 /// A record of a visited node.
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -29,9 +28,6 @@ pub struct Record<HO> {
 
 	/// The hash of the data.
 	pub hash: HO,
-
-	/// The associated meta.
-	pub meta: Meta,
 }
 
 /// Records trie nodes as they pass it.
@@ -63,13 +59,12 @@ impl<HO: Copy> Recorder<HO> {
 	}
 
 	/// Record a visited node, given its hash, data, and depth.
-	pub fn record(&mut self, hash: &HO, data: &[u8], depth: u32, meta: &Meta) {
+	pub fn record(&mut self, hash: &HO, data: &[u8], depth: u32) {
 		if depth >= self.min_depth {
 			self.nodes.push(Record {
 				depth,
 				data: data.into(),
 				hash: *hash,
-				meta: meta.clone(),
 			})
 		}
 	}
