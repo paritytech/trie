@@ -14,7 +14,7 @@
 
 //! Trie lookup via HashDB.
 
-use hash_db::HashDBRef;
+use hash_db::{HashDBRef, Prefix};
 use crate::nibble::NibbleSlice;
 use crate::node::{Node, NodeHandle, decode_hash, Value};
 use crate::node_codec::NodeCodec;
@@ -38,18 +38,17 @@ where
 	L: TrieLayout,
 	Q: Query<L::Hash>,
 {
-	fn decode(self, v: Value) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
+	// TODO is it more a Value function??
+	fn decode(self, v: Value, prefix: Prefix) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		match v {
 			Value::NoValue => Ok(None),
-			Value::Value(value) => {
-				self.db.access_from(&self.hash, None);
-				Ok(Some(self.query.decode(value)))
-			},
-			Value::HashedValue(hash) => {
+			Value::Value(value) => Ok(Some(self.query.decode(value))),
+			Value::HashedValue(_, Some(value)) =>	Ok(Some(self.query.decode(value.as_slice()))),
+			Value::HashedValue(hash, None) => {
 				let mut res = TrieHash::<L>::default();
-				res.as_mut().copy_from_slice(hash);
-				if let Some(_) = self.db.access_from(&self.hash, Some(&res)) {
-					unimplemented!("Inject value into Value");
+				res.as_mut().copy_from_slice(hash); // TODO hash in value
+				if let Some(value) = self.db.get(&res, prefix) {
+					Ok(Some(self.query.decode(value.as_slice())))
 				} else {
 					Err(Box::new(TrieError::IncompleteDatabase(res)))
 				}
@@ -93,7 +92,9 @@ where
 				let next_node = match decoded {
 					Node::Leaf(slice, value) => {
 						return Ok(match slice == partial {
-							true => self.decode(value)?,
+							true => {
+								self.decode(value, key.mid(key_nibbles).left())?
+							},
 							false => None,
 						})
 					}
@@ -107,7 +108,9 @@ where
 						}
 					}
 					Node::Branch(children, value) => match partial.is_empty() {
-						true => return Ok(self.decode(value)?),
+						true => {
+							return Ok(self.decode(value, key.mid(key_nibbles).left())?)
+						},
 						false => match children[partial.at(0) as usize] {
 							Some(x) => {
 								partial = partial.mid(1);
@@ -123,7 +126,7 @@ where
 						}
 
 						match partial.len() == slice.len() {
-							true => return Ok(self.decode(value)?),
+							true => return Ok(self.decode(value, key.mid(key_nibbles).left())?),
 							false => match children[partial.at(slice.len()) as usize] {
 								Some(x) => {
 									partial = partial.mid(slice.len() + 1);

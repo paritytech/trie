@@ -492,37 +492,34 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 						}
 						_ => Value::NoValue,
 					};
-					match &maybe_value {
-						Value::Value(_value) =>  {
-							if let Some(key) = node_key.as_ref() {
-								self.inner.db().access_from(key, None);
+					if let Value::NoValue = maybe_value {
+						return None;
+					}
+					let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
+					let key = key_slice.to_vec();
+					if let Some(extra_nibble) = maybe_extra_nibble {
+						return Some(Err(Box::new(
+							TrieError::ValueAtIncompleteKey(key, extra_nibble)
+						)));
+					}
+					let value = match maybe_value {
+						// TODO is their a util fn ??
+						Value::HashedValue(hash, None) =>  {
+							if let Some(value) = self.inner.fetch_value(&hash) {
+								value
+							} else {
+								let mut res = TrieHash::<L>::default();
+								res.as_mut().copy_from_slice(hash); // TODO use hash directly in enum
+								return Some(Err(Box::new(
+									TrieError::IncompleteDatabase(res)
+								)));
 							}
 						},
-						Value::HashedValue(hash) =>  {
-							let mut res = TrieHash::<L>::default();
-							res.as_mut().copy_from_slice(hash);
-							if let Some(key) = node_key.as_ref() {
-								if let Some(_) = self.inner.db().access_from(key, Some(&res)) {
-									unimplemented!("Switch back to Value::Value node.");
-								}
-							}
-
-							return Some(Err(Box::new(
-								TrieError::IncompleteDatabase(res)
-							)));
-						},
-						Value::NoValue => (),
-					}
-					if let Value::Value(value) = maybe_value {
-						let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
-						let key = key_slice.to_vec();
-						if let Some(extra_nibble) = maybe_extra_nibble {
-							return Some(Err(Box::new(
-								TrieError::ValueAtIncompleteKey(key, extra_nibble)
-							)));
-						}
-						return Some(Ok((key, value.to_vec())));
-					}
+						Value::Value(value) => value.to_vec(),
+						Value::HashedValue(hash, Some(value)) => value,
+						Value::NoValue => return None,
+					};
+					return Some(Ok((key, value)));
 				},
 				Err(err) => return Some(Err(err)),
 			}

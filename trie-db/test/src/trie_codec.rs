@@ -60,15 +60,7 @@ fn test_encode_compact<L: TrieLayout>(
 	// Populate a partial trie DB with recorded nodes.
 	let mut partial_db = MemoryDB::<L>::default();
 	for record in recorder.drain() {
-		if L::USE_META {
-			partial_db.alt_insert(
-				EMPTY_PREFIX,
-				&record.data,
-				record.meta.resolve_alt_hashing::<L::Codec>(),
-			);
-		} else {
-			partial_db.insert(EMPTY_PREFIX, &record.data);
-		}
+		partial_db.insert(EMPTY_PREFIX, &record.data);
 	}
 
 	// Compactly encode the partial trie DB.

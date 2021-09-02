@@ -468,7 +468,6 @@ fn register_proof_without_value() {
 	use hash_db::{Prefix, AsHashDB};
 
 	type Layout = AltHashNoExt;
-	type Meta = trie_db::Meta;
 	type MemoryDB = memory_db::MemoryDB<
 		RefHasher,
 		PrefixedKey<RefHasher>,
@@ -491,7 +490,7 @@ fn register_proof_without_value() {
 
 	struct ProofRecorder {
 		db: MemoryDB,
-		record: RefCell<HashMap<Vec<u8>, (Vec<u8>, Meta, bool)>>,
+		record: RefCell<HashMap<Vec<u8>, Vec<u8>>>,
 	}
 	// Only to test without threads.
 	unsafe impl Send for ProofRecorder { }
@@ -503,23 +502,9 @@ fn register_proof_without_value() {
 			if let Some(v) = v.as_ref() {
 				self.record.borrow_mut()
 					.entry(key[..].to_vec())
-					.or_insert_with(|| {
-						let mut meta = Meta::default();
-						// Fully init meta by decoding.
-						let _ = <AltHashNoExt as TrieLayout>::Codec::decode_plan(
-							v.as_slice(),
-							&mut meta,
-						);
-						(v.clone(), meta, false)
-					});
+					.or_insert_with(|| v.clone());
 			}
 			v
-		}
-
-		fn access_from(&self, key: &<RefHasher as Hasher>::Out, _at: Option<&<RefHasher as Hasher>::Out>) -> Option<DBValue> {
-			self.record.borrow_mut().entry(key[..].to_vec())
-				.and_modify(|entry| { entry.2 = true; } );
-			None
 		}
 
 		fn contains(&self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) -> bool {
@@ -530,21 +515,8 @@ fn register_proof_without_value() {
 			self.db.emplace(key, prefix, value)
 		}
 
-		fn emplace_ref(&mut self, key: &<RefHasher as Hasher>::Out, prefix: Prefix, value: &[u8]) {
-			self.db.emplace_ref(key, prefix, value)
-		}
-
 		fn insert(&mut self, prefix: Prefix, value: &[u8]) -> <RefHasher as Hasher>::Out {
 			self.db.insert(prefix, value)
-		}
-
-		fn alt_insert(
-			&mut self,
-			prefix: Prefix,
-			value: &[u8],
-			alt_hashing: hash_db::AltHashing,
-		) -> <RefHasher as Hasher>::Out {
-			self.db.alt_insert(prefix, value, alt_hashing)
 		}
 
 		fn remove(&mut self, key: &<RefHasher as Hasher>::Out, prefix: Prefix) {
@@ -586,20 +558,10 @@ fn register_proof_without_value() {
 		DBValue,
 	>;
 	let mut memdb_from_proof = MemoryDBProof::default();
-	for (_key, mut value) in memdb.record.into_inner().into_iter() {
-		let v = if let Some(changed) = reference_trie::to_hashed_variant::<RefHasher>(
-			value.0.as_slice(),
-			&mut value.1,
-			value.2,
-		) {
-			changed
-		} else {
-			value.0
-		};
-		memdb_from_proof.alt_insert(
+	for (_key, value) in memdb.record.into_inner().into_iter() {
+		memdb_from_proof.insert(
 			hash_db::EMPTY_PREFIX,
-			v.as_slice(),
-			value.1.resolve_alt_hashing::<<Layout as TrieLayout>::Codec>(),
+			value.as_slice(),
 		);
 	}
 

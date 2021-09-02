@@ -40,10 +40,38 @@ use self::rstd::*;
 
 pub use hash_db::Hasher;
 
+/// Different possible value to use for node encoding.
+#[derive(Clone)]
+pub enum Value<'a> {
+	/// Contains a full value.
+	Value(&'a [u8]),
+	/// Contains hash of a value.
+	HashedValue(Vec<u8>),
+	/// No value attached.
+	NoValue,
+}
+
+impl<'a> Value<'a> {
+	fn new<H: Hasher>(value: Option<&'a [u8]>, threshold: Option<u32>) -> Value<'a> {
+		match value {
+			Some(value) => if let Some(threshold) = threshold {
+				if value.len() >= threshold as usize {
+					Value::HashedValue(H::hash(value).as_ref().to_vec())
+				} else {
+					Value::Value(value)
+				}
+			} else {
+				Value::Value(value)
+			},
+			None => Value::NoValue,
+		}
+	}
+}
+
 /// Byte-stream oriented trait for constructing closed-form tries.
 pub trait TrieStream {
 	/// Construct a new `TrieStream`
-	fn new(alt_threshold: Option<u32>) -> Self;
+	fn new() -> Self;
 	/// Append an Empty node
 	fn append_empty_data(&mut self);
 	/// Start a new Branch node, possibly with a value; takes a list indicating
@@ -51,24 +79,22 @@ pub trait TrieStream {
 	fn begin_branch(
 		&mut self,
 		maybe_key: Option<&[u8]>,
-		maybe_value: Option<&[u8]>,
+		maybe_value: Value,
 		has_children: impl Iterator<Item = bool>,
 	);
 	/// Append an empty child node. Optional.
 	fn append_empty_child(&mut self) {}
 	/// Wrap up a Branch node portion of a `TrieStream` and append the value
 	/// stored on the Branch (if any).
-	fn end_branch(&mut self, _value: Option<&[u8]>) {}
+	fn end_branch(&mut self, _value: Value) {}
 	/// Append a Leaf node
-	fn append_leaf(&mut self, key: &[u8], value: &[u8]);
+	fn append_leaf(&mut self, key: &[u8], value: Value);
 	/// Append an Extension node
 	fn append_extension(&mut self, key: &[u8]);
 	/// Append a Branch of Extension substream
 	fn append_substream<H: Hasher>(&mut self, other: Self);
 	/// Return the finished `TrieStream` as a vector of bytes.
 	fn out(self) -> Vec<u8>;
-	/// Finalize root of trie stream by hashing it.
-	fn hash_root<H: Hasher>(self) -> H::Out;
 }
 
 fn shared_prefix_length<T: Eq>(first: &[T], second: &[T]) -> usize {
@@ -134,9 +160,9 @@ fn trie_root_inner<H, S, I, A, B>(input: I, no_extension: bool, threshold: Optio
 		.map(|((_, v), w)| (&nibbles[w[0]..w[1]], v))
 		.collect::<Vec<_>>();
 
-	let mut stream = S::new(threshold.clone());
+	let mut stream = S::new();
 	build_trie::<H, S, _, _>(&input, 0, &mut stream, no_extension, threshold);
-	stream.hash_root::<H>()
+	H::hash(&stream.out())
 }
 
 /// Variant of `trie_root` for patricia trie without extension node.
@@ -193,7 +219,7 @@ fn unhashed_trie_inner<H, S, I, A, B>(input: I, no_extension: bool, threshold: O
 		.map(|((_, v), w)| (&nibbles[w[0]..w[1]], v))
 		.collect::<Vec<_>>();
 
-	let mut stream = S::new(threshold.clone());
+	let mut stream = S::new();
 	build_trie::<H, S, _, _>(&input, 0, &mut stream, no_extension, threshold);
 	stream.out()
 }
@@ -250,7 +276,10 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 		// No input, just append empty data.
 		0 => stream.append_empty_data(),
 		// Leaf node; append the remainder of the key and the value. Done.
-		1 => stream.append_leaf(&input[0].0.as_ref()[cursor..], &input[0].1.as_ref() ),
+		1 => {
+			let value = Value::new::<H>(Some(input[0].1.as_ref()), threshold);
+			stream.append_leaf(&input[0].0.as_ref()[cursor..], value )
+		},
 		// We have multiple items in the input. Figure out if we should add an
 		// extension node or a branch node.
 		_ => {
@@ -307,11 +336,12 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 			}
 
 			// Put out the node header:
-			stream.begin_branch(o_branch_slice, value, shared_nibble_counts.iter().map(|&n| n > 0));
+			let value = Value::new::<H>(value, threshold);
+			stream.begin_branch(o_branch_slice, value.clone(), shared_nibble_counts.iter().map(|&n| n > 0));
 
 			// Fill in each slot in the branch node. We don't need to bother with empty slots
 			// since they were registered in the header.
-			let mut begin = match value { None => 0, _ => 1 };
+			let mut begin = match &value { Value::NoValue => 0, _ => 1 };
 			for &count in &shared_nibble_counts {
 				if count > 0 {
 					build_trie_trampoline::<H, S, _, _>(
@@ -344,7 +374,7 @@ fn build_trie_trampoline<H, S, A, B>(
 	H: Hasher,
 	S: TrieStream,
 {
-	let mut substream = S::new(threshold.clone());
+	let mut substream = S::new();
 	build_trie::<H, _, _, _>(input, cursor, &mut substream, no_extension, threshold);
 	stream.append_substream::<H>(substream);
 }

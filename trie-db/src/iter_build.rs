@@ -359,11 +359,7 @@ impl<'a, T, DB> ProcessEncodedNode<TrieHash<T>> for TrieBuilder<'a, T, DB>
 
 			return ChildReference::Inline(h, len);
 		}
-		let hash = if !T::USE_META {
-			self.db.insert(prefix, &encoded_node[..])
-		} else {
-			self.db.alt_insert(prefix, &encoded_node[..], meta.resolve_alt_hashing::<T::Codec>())
-		};
+		let hash = self.db.insert(prefix, &encoded_node[..]);
 		if is_root {
 			self.root = Some(hash);
 		};
@@ -400,11 +396,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 
 			return ChildReference::Inline(h, len);
 		}
-		let hash = if !T::USE_META {
-			<T::Hash as Hasher>::hash(encoded_node.as_slice())
-		} else {
-			meta.resolve_alt_hashing::<T::Codec>().alt_hash::<T::Hash>(&encoded_node[..])
-		};
+		let hash = <T::Hash as Hasher>::hash(encoded_node.as_slice());
 		if is_root {
 			self.root = Some(hash);
 		};
@@ -462,11 +454,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootPrint<T> {
 			println!("	inline len {}", len);
 			return ChildReference::Inline(h, len);
 		}
-		let hash = if !T::USE_META {
-			<T::Hash as Hasher>::hash(encoded_node.as_slice())
-		} else {
-			meta.resolve_alt_hashing::<T::Codec>().alt_hash::<T::Hash>(&encoded_node[..])
-		};
+		let hash = <T::Hash as Hasher>::hash(encoded_node.as_slice());
 		if is_root {
 			self.root = Some(hash);
 		};
@@ -490,11 +478,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootUnhashed<T> {
 
 			return ChildReference::Inline(h, len);
 		}
-		let hash = if !T::USE_META {
-			<T::Hash as Hasher>::hash(encoded_node.as_slice())
-		} else {
-			meta.resolve_alt_hashing::<T::Codec>().alt_hash::<T::Hash>(&encoded_node[..])
-		};
+		let hash = <T::Hash as Hasher>::hash(encoded_node.as_slice());
 
 		if is_root {
 			self.root = Some(encoded_node);

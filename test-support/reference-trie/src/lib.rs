@@ -22,7 +22,6 @@ use std::marker::PhantomData;
 use std::ops::Range;
 use parity_scale_codec::{Decode, Input, Output, Encode, Compact, Error as CodecError};
 use trie_root::Hasher;
-use hash_db::alt_hashed_value as inner_hashed_value;
 use trie_db::{
 	node::{NibbleSlicePlan, NodePlan, Value, ValuePlan, NodeHandlePlan},
 	triedbmut::ChildReference,
@@ -41,12 +40,13 @@ use trie_db::{
 	TrieLayout, TrieMut,
 };
 pub use trie_root::TrieStream;
+use trie_root::Value as RValue;
 pub mod node {
 	pub use trie_db::node::Node;
 }
 
 pub use substrate_like::{trie_constants, ReferenceTrieStreamNoExt,
-	AltHashNoExt, to_hashed_variant,
+	AltHashNoExt,
 	NodeCodec as ReferenceNodeCodecNoExtMeta};
 
 
@@ -317,7 +317,7 @@ pub struct ReferenceTrieStream {
 }
 
 impl TrieStream for ReferenceTrieStream {
-	fn new(_meta: Option<u32>) -> Self {
+	fn new() -> Self {
 		ReferenceTrieStream {
 			buffer: Vec::new()
 		}
@@ -327,23 +327,27 @@ impl TrieStream for ReferenceTrieStream {
 		self.buffer.push(EMPTY_TRIE);
 	}
 
-	fn append_leaf(&mut self, key: &[u8], value: &[u8]) {
-		self.buffer.extend(fuse_nibbles_node(key, true));
-		value.encode_to(&mut self.buffer);
+	fn append_leaf(&mut self, key: &[u8], value: RValue) {
+		if let RValue::Value(value) = value {
+			self.buffer.extend(fuse_nibbles_node(key, true));
+			value.encode_to(&mut self.buffer);
+		} else {
+			unreachable!()
+		}
 	}
 
 	fn begin_branch(
 		&mut self,
 		maybe_key: Option<&[u8]>,
-		maybe_value: Option<&[u8]>,
+		maybe_value: RValue,
 		has_children: impl Iterator<Item = bool>,
 	) {
-		self.buffer.extend(&branch_node(maybe_value.is_some(), has_children));
+		self.buffer.extend(&branch_node(!matches!(maybe_value, RValue::NoValue), has_children));
 		if let Some(partial) = maybe_key {
 			// should not happen
 			self.buffer.extend(fuse_nibbles_node(partial, false));
 		}
-		if let Some(value) = maybe_value {
+		if let RValue::Value(value) = maybe_value {
 			value.encode_to(&mut self.buffer);
 		}
 	}
@@ -361,10 +365,6 @@ impl TrieStream for ReferenceTrieStream {
 	}
 
 	fn out(self) -> Vec<u8> { self.buffer }
-
-	fn hash_root<H: Hasher>(self) -> H::Out {
-		H::hash(&self.buffer)
-	}
 }
 
 /// A node header.
@@ -646,9 +646,8 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 				let bitmap = Bitmap::decode(&data[bitmap_range])?;
 
 				let value = if has_value {
-					let start = input.offset;
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-					ValuePlan::Value(input.take(count)?, start)
+					ValuePlan::Value(input.take(count)?)
 				} else {
 					ValuePlan::NoValue
 				};
@@ -691,12 +690,11 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE
 				)?;
 				let partial_padding = nibble_ops::number_padding(nibble_count);
-				let start = input.offset;
 				let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
 				let value = input.take(count)?;
 				Ok(NodePlan::Leaf {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
-					value: ValuePlan::Value(value, start),
+					value: ValuePlan::Value(value),
 				})
 			}
 		}
@@ -714,12 +712,11 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		let mut output = partial_to_key(partial, LEAF_NODE_OFFSET, LEAF_NODE_OVER);
 		match value {
 			Value::Value(value) => {
-				let start_len = output.len();
 				Compact(value.len() as u32).encode_to(&mut output);
 				let start = output.len();
 				output.extend_from_slice(value);
 				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::Value(start..end, start_len));
+				meta.encoded_value_callback(ValuePlan::Value(start..end));
 			},
 			_ => unimplemented!("unsupported"),
 		}
@@ -755,12 +752,11 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		let mut prefix: [u8; 3] = [0; 3];
 		let have_value = match maybe_value {
 			Value::Value(value) => {
-				let start_len = output.len();
 				Compact(value.len() as u32).encode_to(&mut output);
 				let start = output.len();
 				output.extend_from_slice(value);
 				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::Value(start..end, start_len));
+				meta.encoded_value_callback(ValuePlan::Value(start..end));
 				true
 			},
 			Value::NoValue => {
@@ -832,9 +828,8 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				let bitmap_range = input.take(BITMAP_LENGTH)?;
 				let bitmap = Bitmap::decode(&data[bitmap_range])?;
 				let value = if has_value {
-					let start_len = input.offset;
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-					ValuePlan::Value(input.take(count)?, start_len)
+					ValuePlan::Value(input.take(count)?)
 				} else {
 					ValuePlan::NoValue
 				};
@@ -869,9 +864,8 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE
 				)?;
 				let partial_padding = nibble_ops::number_padding(nibble_count);
-				let start = input.offset;
 				let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-				let value = ValuePlan::Value(input.take(count)?, start);
+				let value = ValuePlan::Value(input.take(count)?);
 
 				NodePlan::Leaf {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
@@ -893,14 +887,13 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		let mut output = partial_encode(partial, NodeKindNoExt::Leaf);
 		match value {
 			Value::Value(value) => {
-				let start_len = output.len();
 				Compact(value.len() as u32).encode_to(&mut output);
 				let start = output.len();
 				output.extend_from_slice(value);
 				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::Value(start..end, start_len));
+				meta.encoded_value_callback(ValuePlan::Value(start..end));
 			},
-			Value::HashedValue(_) => unimplemented!("No support for inner hashed value"),
+			Value::HashedValue(..) => unimplemented!("No support for inner hashed value"),
 			Value::NoValue => unreachable!(),
 		}
 		output
@@ -948,14 +941,13 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		(0..BITMAP_LENGTH).for_each(|_| output.push(0));
 		match maybe_value {
 			Value::Value(value) => {
-				let start_len = output.len();
 				Compact(value.len() as u32).encode_to(&mut output);
 				let start = output.len();
 				output.extend_from_slice(value);
 				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::Value(start..end, start_len));
+				meta.encoded_value_callback(ValuePlan::Value(start..end));
 			},
-			Value::HashedValue(_) => unimplemented!("No support for inner hashed value"),
+			Value::HashedValue(..) => unimplemented!("No support for inner hashed value"),
 			Value::NoValue => (),
 		}
 

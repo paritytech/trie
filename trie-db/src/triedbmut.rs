@@ -74,8 +74,8 @@ pub enum Value {
 	NoValue,
 	/// Value bytes.
 	Value(DBValue),
-	/// Hash of value bytes.
-	HashedValue(DBValue),
+	/// Hash of value bytes if calculated and value bytes. // TODO use hash type.
+	HashedValue(Option<DBValue>, DBValue),
 }
 
 impl<'a> From<EncodedValue<'a>> for Value {
@@ -83,38 +83,96 @@ impl<'a> From<EncodedValue<'a>> for Value {
 		match v {
 			EncodedValue::NoValue => Value::NoValue,
 			EncodedValue::Value(value) => Value::Value(value.to_vec()),
-			EncodedValue::HashedValue(hash) => Value::HashedValue(hash.to_vec()),
+			EncodedValue::HashedValue(hash, Some(value)) => Value::HashedValue(Some(hash.to_vec()), value),
+			EncodedValue::HashedValue(hash, None) => unimplemented!("TODO consider function with fetch"),
 		}
 	}
 }
 
-impl From<Option<DBValue>> for Value {
-	fn from(v: Option<DBValue>) -> Self {
+impl From<(Option<DBValue>, Option<u32>)> for Value {
+	fn from((v, threshold): (Option<DBValue>, Option<u32>)) -> Self {
 		match v {
-			Some(value) => Value::Value(value.to_vec()),
+			Some(value) => if threshold.map(|threshold| value.len() >= threshold as usize).unwrap_or(false) {
+				Value::HashedValue(None, value.to_vec())
+			} else {
+				Value::Value(value.to_vec())
+			},
 			None => Value::NoValue,
 		}
 	}
 }
 
+struct ToEncode<'a> {
+	value: EncodedValue<'a>,
+	attached: Option<DBValue>,
+}
+
 impl Value {
-	fn as_slice(&self) -> EncodedValue {
-		match self {
+	fn new(value: Option<DBValue>, new_threshold: Option<u32>) -> Self {
+		(value, new_threshold).into()
+	}
+
+	fn unchanged(&self, old_value: &Value) -> bool {
+		if let Value::HashedValue(Some(hash), value) = self {
+			if let Value::HashedValue(Some(old_hash), _) = old_value {
+				if hash == old_hash {
+					return true;
+				}
+			} else if let Value::HashedValue(None, old_value) = old_value {
+				if value == old_value {
+					return true;
+				}
+			}
+		} else if let Value::HashedValue(None, value) = self {
+			if let Value::HashedValue(_, old_value) = old_value {
+				if value == old_value {
+					return true;
+				}
+			}
+		} else if self == old_value {
+			return true;
+		}
+		false
+	}
+
+	fn into_encode<'a, H: Hasher, F>(&'a mut self, f: &mut F) -> EncodedValue<'a>
+	where
+		F: FnMut(Option<&[u8]>, NodeHandle<H::Out>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
+	{
+		if let Value::HashedValue(hash, value) = self {
+			let new_hash = if let ChildReference::Hash(hash) = f(Some(value), NodeHandle::Hash(Default::default()), None, None) {
+				hash
+			} else {
+				unreachable!()
+			};
+			if let Some(hash2) = hash.as_ref() {
+				debug_assert!(hash2.as_slice() == new_hash.as_ref());
+			} else {
+				*hash = Some(new_hash.as_ref().to_vec()); // TODO use hash in type
+			}
+		}
+		let value = match self {
 			Value::NoValue => EncodedValue::NoValue,
 			Value::Value(value) => EncodedValue::Value(value.as_slice()),
-			Value::HashedValue(hash) => EncodedValue::HashedValue(hash.as_slice()),
+			Value::HashedValue(Some(hash), _value) => EncodedValue::HashedValue(hash.as_slice(), None),
+			Value::HashedValue(None, _value) => unreachable!(),
+		};
+		value
+	}
+
+	fn attached(&self) -> Option<&DBValue> {
+		match self {
+			Value::NoValue => None,
+			Value::Value(value) => Some(value),
+			Value::HashedValue(_, value) => Some(value),
 		}
 	}
 
-	fn value_fetch<L: TrieLayout> (&self) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+	fn fetched_value(&self) -> Option<&DBValue> {
 		match self {
-			Value::NoValue => Ok(None),
-			Value::Value(value) => Ok(Some(value.clone())),
-			Value::HashedValue(hash) => {
-				let mut res = TrieHash::<L>::default();
-				res.as_mut().copy_from_slice(hash.as_slice());
-				Err(Box::new(TrieError::IncompleteDatabase(res)))
-			},
+			Value::NoValue => None,
+			Value::Value(value) => Some(value),
+			Value::HashedValue(_, value) => Some(value),
 		}
 	}
 }
@@ -159,7 +217,7 @@ impl Debug for Value {
 		match self {
 			Self::NoValue => write!(fmt, "None"),
 			Self::Value(value) => write!(fmt, "Some({:?})", ToHex(value)),
-			Self::HashedValue(value) => write!(fmt, "Hashed({:?})", ToHex(value)),
+			Self::HashedValue(_hash, value) => write!(fmt, "Hashed({:?})", ToHex(value)),
 		}
 	}
 }
@@ -266,18 +324,19 @@ impl<L: TrieLayout> Node<L>
 	// TODO: parallelize
 	fn into_encoded<F>(self, mut child_cb: F) -> (Vec<u8>, Meta)
 	where
-		F: FnMut(NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
+		F: FnMut(Option<&[u8]>, NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
 	{
 		match self {
 			Node::Empty(meta) => (L::Codec::empty_node().to_vec(), meta),
-			Node::Leaf(partial, value, mut meta) => {
+			Node::Leaf(partial, mut value, mut meta) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
-				(L::Codec::leaf_node(pr.right(), value.as_slice(), &mut meta), meta)
+				let value = value.into_encode::<L::Hash, F>(&mut child_cb);
+				(L::Codec::leaf_node(pr.right(), value, &mut meta), meta)
 			},
 			Node::Extension(partial, child, mut meta) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
-				let c = child_cb(child, Some(&pr), None);
+				let c = child_cb(None, child, Some(&pr), None);
 				(L::Codec::extension_node(
 					it,
 					pr.len(),
@@ -285,20 +344,22 @@ impl<L: TrieLayout> Node<L>
 					&mut meta,
 				), meta)
 			},
-			Node::Branch(mut children, value, mut meta) => {
+			Node::Branch(mut children, mut value, mut meta) => {
+				let value = value.into_encode::<L::Hash, F>(&mut child_cb);
 				(L::Codec::branch_node(
 					// map the `NodeHandle`s from the Branch to `ChildReferences`
 					children.iter_mut()
 						.map(Option::take)
 						.enumerate()
 						.map(|(i, maybe_child)| {
-							maybe_child.map(|child| child_cb(child, None, Some(i as u8)))
+							maybe_child.map(|child| child_cb(None, child, None, Some(i as u8)))
 						}),
-					value.as_slice(),
+					value,
 					&mut meta,
 				), meta)
 			},
-			Node::NibbledBranch(partial, mut children, value, mut meta) => {
+			Node::NibbledBranch(partial, mut children, mut value, mut meta) => {
+				let value = value.into_encode::<L::Hash, F>(&mut child_cb);
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
 				(L::Codec::branch_node_nibbled(
@@ -312,10 +373,10 @@ impl<L: TrieLayout> Node<L>
 							//let branch_index = [i as u8];
 							maybe_child.map(|child| {
 								let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
-								child_cb(child, Some(&pr), Some(i as u8))
+								child_cb(None, child, Some(&pr), Some(i as u8))
 							})
 						}),
-					value.as_slice(),
+					value,
 					&mut meta,
 				), meta)
 			},
@@ -487,6 +548,7 @@ where
 	death_row: HashSet<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
 	/// The number of hash operations this trie has performed.
 	/// Note that none are performed until changes are committed.
+	/// This omit value hashing. TODO consider adding value hashing too.
 	hash_count: usize,
 }
 
@@ -638,7 +700,7 @@ where
 					Node::Empty(_) => return Ok(None),
 					Node::Leaf(ref key, ref value, _) => {
 						if NibbleSlice::from_stored(key) == partial {
-							return Ok(value.value_fetch::<L>()?);
+							return Ok(value.fetched_value().cloned());
 						} else {
 							return Ok(None);
 						}
@@ -653,7 +715,7 @@ where
 					},
 					Node::Branch(ref children, ref value, _) => {
 						if partial.is_empty() {
-							return Ok(value.value_fetch::<L>()?);
+							return Ok(value.fetched_value().cloned());
 						} else {
 							let idx = partial.at(0);
 							match children[idx as usize].as_ref() {
@@ -665,7 +727,7 @@ where
 					Node::NibbledBranch(ref slice, ref children, ref value, _) => {
 						let slice = NibbleSlice::from_stored(slice);
 						if partial.is_empty() {
-							return Ok(value.value_fetch::<L>()?);
+							return Ok(value.fetched_value().cloned());
 						} else if partial.starts_with(&slice) {
 							let idx = partial.at(0);
 							match children[idx as usize].as_ref() {
@@ -722,7 +784,7 @@ where
 			Node::Empty(meta) => {
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "empty: COMPOSE");
-				InsertAction::Replace(Node::Leaf(partial.to_stored(), Value::Value(value), meta))
+				InsertAction::Replace(Node::Leaf(partial.to_stored(), Value::Value(value), meta)) // TODO build value with threshold.
 			},
 			Node::Branch(mut children, stored_value, meta) => {
 				debug_assert!(L::USE_EXTENSION);
@@ -730,12 +792,10 @@ where
 				trace!(target: "trie", "branch: ROUTE,AUGMENT");
 
 				if partial.is_empty() {
-					let unchanged = if L::USE_META {
-						meta.unchanged(stored_value.as_slice(), EncodedValue::Value(&value), self.layout.alt_threshold()) 
-					} else {
-						stored_value.as_slice() == EncodedValue::Value(&value)
-					};
-					let branch = Node::Branch(children, Value::Value(value), meta);
+					let value = Value::new(Some(value), self.layout.alt_threshold());
+					let unchanged = stored_value.unchanged(&value);
+					let branch = Node::Branch(children, value, meta); // TODO build value with threshold.
+
 					*old_val = stored_value;
 
 					match unchanged {
@@ -758,7 +818,8 @@ where
 						// Original had nothing there. compose a leaf.
 						let meta_leaf = self.layout.new_meta();
 						let leaf = self.storage.alloc(
-							Stored::New(Node::Leaf(key.to_stored(), Value::Value(value), meta_leaf))
+							Stored::New(Node::Leaf(key.to_stored(), Value::Value(value), meta_leaf)) // TODO build value with threshold.
+
 						);
 						children[idx] = Some(leaf.into());
 					}
@@ -774,15 +835,12 @@ where
 
 				let common = partial.common_prefix(&existing_key);
 				if common == existing_key.len() && common == partial.len() {
-					let unchanged = if L::USE_META {
-						meta.unchanged(stored_value.as_slice(), EncodedValue::Value(&value), self.layout.alt_threshold()) 
-					} else {
-						stored_value.as_slice() == EncodedValue::Value(&value)
-					};
+					let value = Value::new(Some(value), self.layout.alt_threshold());
+					let unchanged = stored_value.unchanged(&value);
 					let branch = Node::NibbledBranch(
 						existing_key.to_stored(),
 						children,
-						Value::Value(value),
+						value,
 						meta,
 					);
 					*old_val = stored_value;
@@ -815,13 +873,15 @@ where
 						InsertAction::Replace(Node::NibbledBranch(
 							existing_key.to_stored_range(common),
 							children,
-							Value::Value(value),
+							Value::Value(value), // TODO build value with threshold.
+
 							meta_branch,
 						))
 					} else {
 						let ix = partial.at(common);
 						let meta_leaf = self.layout.new_meta();
-						let stored_leaf = Node::Leaf(partial.mid(common + 1).to_stored(), Value::Value(value), meta_leaf);
+						let stored_leaf = Node::Leaf(partial.mid(common + 1).to_stored(), Value::Value(value), meta_leaf); // TODO build value with threshold.
+
 						let leaf = self.storage.alloc(Stored::New(stored_leaf));
 
 						children[ix as usize] = Some(leaf.into());
@@ -857,7 +917,8 @@ where
 						// Original had nothing there. compose a leaf.
 						let meta_leaf = self.layout.new_meta();
 						let leaf = self.storage.alloc(
-							Stored::New(Node::Leaf(key.to_stored(), Value::Value(value), meta_leaf)),
+							Stored::New(Node::Leaf(key.to_stored(), Value::Value(value), meta_leaf)), // TODO build value with threshold.
+
 						);
 
 						children[idx] = Some(leaf.into());
@@ -877,16 +938,15 @@ where
 					#[cfg(feature = "std")]
 					trace!(target: "trie", "equivalent-leaf: REPLACE");
 					// equivalent leaf.
-					let unchanged = if L::USE_META {
-						meta.unchanged(stored_value.as_slice(), EncodedValue::Value(&value), self.layout.alt_threshold()) 
-					} else {
-						stored_value.as_slice() == EncodedValue::Value(&value)
-					};
+					let value = Value::new(Some(value), self.layout.alt_threshold());
+					let unchanged = stored_value.unchanged(&value);
 					*old_val = stored_value;
 					match unchanged {
 						// unchanged. restore
-						true => InsertAction::Restore(Node::Leaf(encoded.clone(), Value::Value(value), meta)),
-						false => InsertAction::Replace(Node::Leaf(encoded.clone(), Value::Value(value), meta)),
+						true => InsertAction::Restore(Node::Leaf(encoded.clone(), value, meta)),
+
+						false => InsertAction::Replace(Node::Leaf(encoded.clone(), value, meta)),
+
 					}
 				} else if (L::USE_EXTENSION && common == 0)
 					|| (!L::USE_EXTENSION && common < existing_key.len()) {
@@ -1563,7 +1623,10 @@ where
 				let mut k = NibbleVec::new();
 
 				let (encoded_root, meta) = node.into_encoded(
-					|child, o_slice, o_index| {
+					|value_node, child, o_slice, o_index| {
+						if let Some(value) = value_node {
+							return ChildReference::Hash(self.db.insert(k.as_prefix(), value));
+						}
 						let mov = k.append_optional_slice_and_nibble(o_slice, o_index);
 						let cr = self.commit_child(child, &mut k);
 						k.drop_lasts(mov);
@@ -1573,10 +1636,9 @@ where
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
 
-				*self.root = self.db.alt_insert(
+				*self.root = self.db.insert(
 					EMPTY_PREFIX,
 					&encoded_root[..],
-					meta.resolve_alt_hashing::<L::Codec>(),
 				);
 				self.hash_count += 1;
 
@@ -1610,10 +1672,14 @@ where
 					Stored::New(node) => {
 						let (encoded, meta) = {
 							let commit_child = |
+								value_node: Option<&[u8]>,
 								node_handle,
 								o_slice: Option<&NibbleSlice>,
 								o_index: Option<u8>
 							| {
+								if let Some(value) = value_node {
+									return ChildReference::Hash(self.db.insert(prefix.as_prefix(), value));
+								}
 								let mov = prefix.append_optional_slice_and_nibble(o_slice, o_index);
 								let cr = self.commit_child(node_handle, prefix);
 								prefix.drop_lasts(mov);
@@ -1622,10 +1688,9 @@ where
 							node.into_encoded(commit_child)
 						};
 						if encoded.len() >= L::Hash::LENGTH {
-							let hash = self.db.alt_insert(
+							let hash = self.db.insert(
 								prefix.as_prefix(),
 								&encoded[..],
-								meta.resolve_alt_hashing::<L::Codec>(),
 							);
 							self.hash_count +=1;
 							ChildReference::Hash(hash)

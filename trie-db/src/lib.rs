@@ -498,9 +498,6 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 /// Meta info use by trie state.
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct Meta {
-	/// Range of encoded value or hashed value.
-	/// When encoded value, it includes the length of the value.
-	pub range: Option<core::ops::Range<usize>>,
 	/// Defined in the trie layout, when used with
 	/// `TrieDbMut` it switch nodes to alternative hashing
 	/// method by defining the threshold to use with alternative
@@ -510,10 +507,8 @@ pub struct Meta {
 	pub try_inner_hashing: Option<u32>,
 	/// Flag indicating alternative value hash is currently use
 	/// or will be use.
+	/// TODO rather redundant with try_inner_hashing
 	pub apply_inner_hashing: bool,
-	/// Does current encoded contains a hash instead of
-	/// a value (information stored in meta for proofs).
-	pub contain_hash: bool,
 }
 
 use node::{ValuePlan, NodePlan};
@@ -532,20 +527,9 @@ impl Meta {
 	/// value is written.
 	pub fn encoded_value_callback(
 		&mut self,
-		value_plan: ValuePlan,
+		_value_plan: ValuePlan,
 	) {
-		let (contain_hash, range) = match value_plan {
-			ValuePlan::Value(range, with_len) => (false, with_len..range.end),
-			ValuePlan::HashedValue(range) => (true, range),
-			ValuePlan::NoValue => return,
-		};
-
-		if let Some(threshold) = self.try_inner_hashing.clone() {
-			self.apply_inner_hashing = range.end - range.start >= threshold as usize;
-		}
-
-		self.range = Some(range);
-		self.contain_hash = contain_hash;
+		// TODO remove
 	}
 
 	/// Callback to update from the decoded node.
@@ -553,55 +537,7 @@ impl Meta {
 		&mut self,
 		node_plan: &NodePlan,
 	) {
-		let (contain_hash, range) = match node_plan.value_plan() {
-			Some(ValuePlan::Value(range, with_len)) => (false, *with_len..range.end),
-			Some(ValuePlan::HashedValue(range)) => (true, range.clone()),
-			Some(ValuePlan::NoValue) => return,
-			None => return,
-		};
-
-		self.range = Some(range);
-		self.contain_hash = contain_hash;
-	}
-
-	/// Get alternate hashing parameter for the hasher.
-	pub fn resolve_alt_hashing<C: NodeCodec>(&self) -> hash_db::AltHashing {
-		let mut result = hash_db::AltHashing::default();
-		if self.contain_hash {
-			result.encoded_offset = C::OFFSET_IF_CONTAINS_HASH;
-			return result;
-		}
-		if self.apply_inner_hashing {
-			result.value_range = self.range.as_ref()
-				.map(|range| (range.start, range.end));
-		}
-		result
-	}
-
-	/// Indicate if node do change.
-	/// Return true if no change.
-	/// Self is current meta.
-	pub fn unchanged(&self, current_value: node::Value, new_value: node::Value, new_threshold: Option<u32>) -> bool {
-		if current_value != new_value {
-			return false;
-		}
-		// could get more precise size related check but would not be too useful.
-		if new_threshold.is_some() {
-			if !self.apply_inner_hashing {
-				return false;
-			}
-			if new_threshold != self.try_inner_hashing {
-				return false;
-			}
-		} else {
-			if self.apply_inner_hashing {
-				return false;
-			}
-			if self.try_inner_hashing.is_some() {
-				return false;
-			}
-		}
-		true
+		// TODO remove
 	}
 }
 

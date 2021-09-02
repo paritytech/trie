@@ -595,10 +595,6 @@ where
 		}
 	}
 
-	fn emplace_ref(&mut self, key: &H::Out, prefix: Prefix, value: &[u8]) {
-		self.emplace(key.clone(), prefix, value.into())
-	}
-
 	fn insert(&mut self, prefix: Prefix, value: &[u8]) -> H::Out {
 		if T::from(value) == self.null_node_data {
 			return self.hashed_null_node;
@@ -637,9 +633,6 @@ where
 	M: MemTracker<T> + Send + Sync,
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> { HashDB::get(self, key, prefix) }
-	fn access_from(&self, key: &H::Out, at: Option<&H::Out>) -> Option<T> {
-		HashDB::access_from(self, key, at)
-	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool { HashDB::contains(self, key, prefix) }
 }
 

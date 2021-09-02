@@ -397,7 +397,7 @@ fn match_key_to_node<'a, C: NodeCodec>(
 			{
 				*omit_value = true;
 				match value_range {
-					ValuePlan::Value(value_range, _) =>
+					ValuePlan::Value(value_range) =>
 						Step::FoundValue(Some(&node_data[value_range.clone()])),
 					_ => return Err(Box::new(
 						TrieError::IncompleteDatabase(C::HashOut::default())
@@ -464,10 +464,13 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 	if key.len() == prefix_len + partial.len() {
 		*omit_value = true;
 		let value = match value_range {
-			ValuePlan::Value(range, _) => Some(&node_data[range.clone()]),
-			ValuePlan::HashedValue(..) => return Err(Box::new(
+			ValuePlan::Value(range) => Some(&node_data[range.clone()]),
+			ValuePlan::HashedValue(hash) => {
+				unimplemented!("TODO fetch from db");
+			/*return Err(Box::new(
 				TrieError::IncompleteDatabase(C::HashOut::default())
-			)),
+			)),*/
+			},
 			ValuePlan::NoValue => None,
 		};
 		return Ok(Step::FoundValue(value));

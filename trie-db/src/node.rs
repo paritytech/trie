@@ -17,6 +17,7 @@ use crate::nibble::{self, NibbleSlice};
 use crate::nibble::nibble_ops;
 use crate::node_codec::NodeCodec;
 use crate::Meta;
+use crate::DBValue;
 
 use crate::rstd::{borrow::Borrow, ops::Range};
 
@@ -49,8 +50,8 @@ pub enum Value<'a> {
 	NoValue,
 	/// Value byte slice.
 	Value(&'a [u8]),
-	/// Hash byte slice and original value length.
-	HashedValue(&'a [u8]),
+	/// Hash byte slice.
+	HashedValue(&'a [u8], Option<DBValue>),
 }
 
 impl<'a> From<Option<&'a [u8]>> for Value<'a> {
@@ -137,12 +138,9 @@ pub enum ValuePlan {
 	/// Node with no value attached.
 	NoValue,
 	/// Range for byte representation in encoded node.
-	/// Additional usize mark start of range with value length
-	/// included (alternate hashing does hash and replace the
-	/// encoded value length too).
-	Value(Range<usize>, usize),
+	Value(Range<usize>),
 	/// Range for hash in encoded node and original
-	/// value size.
+	/// value size. TODO range could be just slice since constant size.
 	HashedValue(Range<usize>),
 }
 
@@ -151,8 +149,8 @@ impl ValuePlan {
 	pub fn build<'a, 'b>(&'a self, data: &'b [u8]) -> Value<'b> {
 		match self {
 			ValuePlan::NoValue => Value::NoValue,
-			ValuePlan::Value(range, _) => Value::Value(&data[range.clone()]),
-			ValuePlan::HashedValue(range) => Value::HashedValue(&data[range.clone()]),
+			ValuePlan::Value(range) => Value::Value(&data[range.clone()]),
+			ValuePlan::HashedValue(range) => Value::HashedValue(&data[range.clone()], None),
 		}
 	}
 }

@@ -19,6 +19,7 @@
 use super::*;
 use super::CodecError as Error;
 use super::NodeCodec as NodeCodecT;
+use trie_db::node::Value;
 
 /// Contains threshold for applying alt_hashing.
 #[derive(Default, Clone, Debug)]
@@ -37,29 +38,9 @@ impl TrieLayout for AltHashNoExt {
 	}
 }
 
-/// Switch to hashed value variant.
-pub	fn to_hashed_variant<H: Hasher>(value: &[u8], meta: &mut Meta, used_value: bool) -> Option<DBValue> {
-	if !meta.contain_hash && meta.apply_inner_hashing && !used_value && meta.range.is_some() {
-		let mut stored = Vec::with_capacity(value.len() + 1);
-		// Warning this assumes that encoded value cannot start by this,
-		// so it is tightly coupled with the header type of the codec.
-		stored.push(trie_constants::DEAD_HEADER_META_HASHED_VALUE);
-		let range = meta.range.as_ref().expect("Tested in condition");
-		// store hash instead of value.
-		let value = inner_hashed_value::<H>(value, Some((range.start, range.end)));
-		stored.extend_from_slice(value.as_slice());
-		meta.contain_hash = true;
-		return Some(stored);
-	}
-	None
-}
-
-
 /// Constants specific to encoding with alt hashing.
 pub mod trie_constants {
 	const FIRST_PREFIX: u8 = 0b_00 << 6;
-	/// In proof this header is used when only hashed value is stored.
-	pub const DEAD_HEADER_META_HASHED_VALUE: u8 = EMPTY_TRIE | 0b_00_01;
 	pub const NIBBLE_SIZE_BOUND: usize = u16::max_value() as usize;
 	pub const LEAF_PREFIX_MASK: u8 = 0b_01 << 6;
 	pub const BRANCH_WITHOUT_MASK: u8 = 0b_10 << 6;
@@ -93,7 +74,7 @@ impl<H: Hasher> NodeCodec<H> {
 
 		match header {
 			NodeHeader::Null => Ok(NodePlan::Empty),
-			NodeHeader::AltHashBranch(nibble_count, _)
+			NodeHeader::AltHashBranch(nibble_count)
 			| NodeHeader::Branch(_, nibble_count) => {
 				let padding = nibble_count % nibble_ops::NIBBLE_PER_BYTE != 0;
 				// check that the padding is valid (if any)
@@ -106,13 +87,14 @@ impl<H: Hasher> NodeCodec<H> {
 				let partial_padding = nibble_ops::number_padding(nibble_count);
 				let bitmap_range = input.take(BITMAP_LENGTH)?;
 				let bitmap = Bitmap::decode(&data[bitmap_range])?;
+				let with_len = input.offset;
+				let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
 				let value = if branch_has_value {
 					if alt_hashing && contains_hash {
 						ValuePlan::HashedValue(input.take(H::LENGTH)?)
 					} else {
-						let with_len = input.offset;
 						let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-						ValuePlan::Value(input.take(count)?, with_len)
+						ValuePlan::Value(input.take(count)?)
 					}
 				} else {
 					ValuePlan::NoValue
@@ -138,7 +120,7 @@ impl<H: Hasher> NodeCodec<H> {
 					children,
 				})
 			},
-			NodeHeader::AltHashLeaf(nibble_count, _)
+			NodeHeader::AltHashLeaf(nibble_count)
 			| NodeHeader::Leaf(nibble_count) => {
 				let padding = nibble_count % nibble_ops::NIBBLE_PER_BYTE != 0;
 				// check that the padding is valid (if any)
@@ -152,9 +134,8 @@ impl<H: Hasher> NodeCodec<H> {
 				let value = if alt_hashing && contains_hash {
 					ValuePlan::HashedValue(input.take(H::LENGTH)?)
 				} else {
-					let with_len = input.offset;
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-					ValuePlan::Value(input.take(count)?, with_len)
+					ValuePlan::Value(input.take(count)?)
 				};
 
 				Ok(NodePlan::Leaf {
@@ -199,32 +180,20 @@ impl<H> NodeCodecT for NodeCodec<H>
 
 	fn leaf_node(partial: Partial, value: Value, meta: &mut Meta) -> Vec<u8> {
 		let contains_hash = matches!(&value, Value::HashedValue(..));
-		// Note that we use AltHash type only if inner hashing will occur,
-		// this way we allow changing hash threshold.
-		// With fix inner hashing alt hash can be use with all node, but
-		// that is not better (encoding can use an additional nibble byte
-		// sometime).
-		let mut output = if meta.try_inner_hashing.as_ref().map(|threshold|
-			value_do_hash(&value, threshold)
-		).unwrap_or(meta.apply_inner_hashing) {
-			if contains_hash {
-				partial_encode(partial, NodeKind::AltHashLeafHash)
-			} else {
-				partial_encode(partial, NodeKind::AltHashLeaf)
-			}
+		let mut output = if contains_hash {
+			partial_encode(partial, NodeKind::AltHashLeaf)
 		} else {
 			partial_encode(partial, NodeKind::Leaf)
 		};
 		match value {
 			Value::Value(value) => {
-				let with_len = output.len();
 				Compact(value.len() as u32).encode_to(&mut output);
 				let start = output.len();
 				output.extend_from_slice(value);
 				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::Value(start..end, with_len));
+				meta.encoded_value_callback(ValuePlan::Value(start..end));
 			},
-			Value::HashedValue(hash) => {
+			Value::HashedValue(hash, _) => {
 				debug_assert!(hash.len() == H::LENGTH);
 				let start = output.len();
 				output.extend_from_slice(hash);
@@ -261,9 +230,7 @@ impl<H> NodeCodecT for NodeCodec<H>
 		meta: &mut Meta,
 	) -> Vec<u8> {
 		let contains_hash = matches!(&value, Value::HashedValue(..));
-		let mut output = match (&value,  meta.try_inner_hashing.as_ref().map(|threshold|
-			value_do_hash(&value, threshold)
-		).unwrap_or(meta.apply_inner_hashing)) {
+		let mut output = match (&value, contains_hash) {
 			(&Value::NoValue, _) => {
 				partial_from_iterator_encode(partial, number_nibble, NodeKind::BranchNoValue)
 			},
@@ -271,11 +238,7 @@ impl<H> NodeCodecT for NodeCodec<H>
 				partial_from_iterator_encode(partial, number_nibble, NodeKind::BranchWithValue)
 			},
 			(_, true) => {
-				if contains_hash {
-					partial_from_iterator_encode(partial, number_nibble, NodeKind::AltHashBranchWithValueHash)
-				} else {
-					partial_from_iterator_encode(partial, number_nibble, NodeKind::AltHashBranchWithValue)
-				}
+				partial_from_iterator_encode(partial, number_nibble, NodeKind::AltHashBranchWithValue)
 			},
 		};
 
@@ -284,14 +247,13 @@ impl<H> NodeCodecT for NodeCodec<H>
 		(0..BITMAP_LENGTH).for_each(|_|output.push(0));
 		match value {
 			Value::Value(value) => {
-				let with_len = output.len();
 				Compact(value.len() as u32).encode_to(&mut output);
 				let start = output.len();
 				output.extend_from_slice(value);
 				let end = output.len();
-				meta.encoded_value_callback(ValuePlan::Value(start..end, with_len));
+				meta.encoded_value_callback(ValuePlan::Value(start..end));
 			},
-			Value::HashedValue(hash) => {
+			Value::HashedValue(hash, _) => {
 				debug_assert!(hash.len() == H::LENGTH);
 				let start = output.len();
 				output.extend_from_slice(hash);
@@ -319,18 +281,6 @@ impl<H> NodeCodecT for NodeCodec<H>
 
 // utils
 
-fn value_do_hash(val: &Value, threshold: &u32) -> bool {
-	match val {
-		Value::Value(val) => {
-			val.encoded_size() >= *threshold as usize
-		},
-		Value::HashedValue(..) => true, // can only keep hashed
-		Value::NoValue => {
-			false
-		},
-	}
-}
-
 /// Encode and allocate node type header (type and size), and partial value.
 /// It uses an iterator over encoded partial bytes as input.
 fn partial_from_iterator_encode<I: Iterator<Item = u8>>(
@@ -345,13 +295,9 @@ fn partial_from_iterator_encode<I: Iterator<Item = u8>>(
 		NodeKind::Leaf => NodeHeader::Leaf(nibble_count).encode_to(&mut output),
 		NodeKind::BranchWithValue => NodeHeader::Branch(true, nibble_count).encode_to(&mut output),
 		NodeKind::BranchNoValue => NodeHeader::Branch(false, nibble_count).encode_to(&mut output),
-		NodeKind::AltHashLeaf => NodeHeader::AltHashLeaf(nibble_count, false).encode_to(&mut output),
-		NodeKind::AltHashBranchWithValue => NodeHeader::AltHashBranch(nibble_count, false)
+		NodeKind::AltHashLeaf => NodeHeader::AltHashLeaf(nibble_count).encode_to(&mut output),
+		NodeKind::AltHashBranchWithValue => NodeHeader::AltHashBranch(nibble_count)
 			.encode_to(&mut output),
-		NodeKind::AltHashLeafHash => NodeHeader::AltHashLeaf(nibble_count, true).encode_to(&mut output),
-		NodeKind::AltHashBranchWithValueHash => NodeHeader::AltHashBranch(nibble_count, true)
-			.encode_to(&mut output),
-
 	};
 	output.extend(partial);
 	output
@@ -370,13 +316,9 @@ fn partial_encode(partial: Partial, node_kind: NodeKind) -> Vec<u8> {
 		NodeKind::Leaf => NodeHeader::Leaf(nibble_count).encode_to(&mut output),
 		NodeKind::BranchWithValue => NodeHeader::Branch(true, nibble_count).encode_to(&mut output),
 		NodeKind::BranchNoValue => NodeHeader::Branch(false, nibble_count).encode_to(&mut output),
-		NodeKind::AltHashLeaf => NodeHeader::AltHashLeaf(nibble_count, false).encode_to(&mut output),
-		NodeKind::AltHashBranchWithValue => NodeHeader::AltHashBranch(nibble_count, false)
+		NodeKind::AltHashLeaf => NodeHeader::AltHashLeaf(nibble_count).encode_to(&mut output),
+		NodeKind::AltHashBranchWithValue => NodeHeader::AltHashBranch(nibble_count)
 			.encode_to(&mut output),
-		NodeKind::AltHashLeafHash => NodeHeader::AltHashLeaf(nibble_count, true).encode_to(&mut output),
-		NodeKind::AltHashBranchWithValueHash => NodeHeader::AltHashBranch(nibble_count, true)
-			.encode_to(&mut output),
-
 	};
 	if number_nibble_encoded > 0 {
 		output.push(nibble_ops::pad_right((partial.0).1));
@@ -385,7 +327,7 @@ fn partial_encode(partial: Partial, node_kind: NodeKind) -> Vec<u8> {
 	output
 }
 
-/// A node header
+/// A node header.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub(crate) enum NodeHeader {
 	Null,
@@ -393,17 +335,17 @@ pub(crate) enum NodeHeader {
 	Branch(bool, usize),
 	// contains nibble count
 	Leaf(usize),
-	// contains nibble count and wether the value is a hash.
-	AltHashBranch(usize, bool),
-	// contains nibble count and wether the value is a hash.
-	AltHashLeaf(usize, bool),
+	// contains nibble count.
+	AltHashBranch(usize),
+	// contains nibble count.
+	AltHashLeaf(usize),
 }
 
 impl NodeHeader {
 	fn contains_hash_of_value(&self) -> bool {
 		match self {
-			NodeHeader::AltHashBranch(_, true)
-			| NodeHeader::AltHashLeaf(_, true) => true,
+			NodeHeader::AltHashBranch(_)
+			| NodeHeader::AltHashLeaf(_) => true,
 			_ => false,
 		}
 	}
@@ -416,15 +358,10 @@ pub(crate) enum NodeKind {
 	BranchWithValue,
 	AltHashLeaf,
 	AltHashBranchWithValue,
-	AltHashLeafHash,
-	AltHashBranchWithValueHash,
 }
 
 impl Encode for NodeHeader {
 	fn encode_to<T: Output + ?Sized>(&self, output: &mut T) {
-		if self.contains_hash_of_value() {
-			output.write(&[trie_constants::DEAD_HEADER_META_HASHED_VALUE]);
-		}
 		match self {
 			NodeHeader::Null => output.push_byte(trie_constants::EMPTY_TRIE),
 			NodeHeader::Branch(true, nibble_count)	=>
@@ -433,9 +370,9 @@ impl Encode for NodeHeader {
 				encode_size_and_prefix(*nibble_count, trie_constants::BRANCH_WITHOUT_MASK, 2, output),
 			NodeHeader::Leaf(nibble_count) =>
 				encode_size_and_prefix(*nibble_count, trie_constants::LEAF_PREFIX_MASK, 2, output),
-			NodeHeader::AltHashBranch(nibble_count, _)	=>
+			NodeHeader::AltHashBranch(nibble_count)	=>
 				encode_size_and_prefix(*nibble_count, trie_constants::ALT_HASHING_BRANCH_WITH_MASK, 4, output),
-			NodeHeader::AltHashLeaf(nibble_count, _)	=>
+			NodeHeader::AltHashLeaf(nibble_count)	=>
 				encode_size_and_prefix(*nibble_count, trie_constants::ALT_HASHING_LEAF_PREFIX_MASK, 3, output),
 		}
 	}
@@ -462,21 +399,15 @@ impl Decode for NodeHeader {
 		if i == trie_constants::EMPTY_TRIE {
 			return Ok(NodeHeader::Null);
 		}
-		let contain_hash = if trie_constants::DEAD_HEADER_META_HASHED_VALUE == i {
-			i = input.read_byte()?;
-			true
-		} else {
-			false
-		};
 		match i & (0b11 << 6) {
 			trie_constants::LEAF_PREFIX_MASK => Ok(NodeHeader::Leaf(decode_size(i, input, 2)?)),
 			trie_constants::BRANCH_WITH_MASK => Ok(NodeHeader::Branch(true, decode_size(i, input, 2)?)),
 			trie_constants::BRANCH_WITHOUT_MASK => Ok(NodeHeader::Branch(false, decode_size(i, input, 2)?)),
 			trie_constants::EMPTY_TRIE => {
 				if i & (0b111 << 5) == trie_constants::ALT_HASHING_LEAF_PREFIX_MASK {
-					Ok(NodeHeader::AltHashLeaf(decode_size(i, input, 3)?, contain_hash))
+					Ok(NodeHeader::AltHashLeaf(decode_size(i, input, 3)?))
 				} else if i & (0b1111 << 4) == trie_constants::ALT_HASHING_BRANCH_WITH_MASK {
-					Ok(NodeHeader::AltHashBranch(decode_size(i, input, 4)?, contain_hash))
+					Ok(NodeHeader::AltHashBranch(decode_size(i, input, 4)?))
 				} else {
 					// do not allow any special encoding
 					Err("Unallowed encoding".into())
@@ -557,12 +488,6 @@ fn decode_size(
 pub struct ReferenceTrieStreamNoExt {
 	/// Current node buffer.
 	buffer: Vec<u8>,
-	/// Global trie alt hashing activation.
-	inner_value_hashing: Option<u32>,
-	/// For current node, do we use alt hashing.
-	apply_inner_hashing: bool,
-	/// Keep trace of position of encoded value.
-	current_value_range: Option<Range<usize>>,
 }
 
 /// Create a leaf/branch node, encoding a number of nibbles.
@@ -577,23 +502,18 @@ fn fuse_nibbles_node<'a>(nibbles: &'a [u8], kind: NodeKind) -> impl Iterator<Ite
 			size_and_prefix_iterator(size, trie_constants::ALT_HASHING_LEAF_PREFIX_MASK, 3),
 		NodeKind::AltHashBranchWithValue =>
 			size_and_prefix_iterator(size, trie_constants::ALT_HASHING_BRANCH_WITH_MASK, 4),
-		NodeKind::AltHashBranchWithValueHash
-		| NodeKind::AltHashLeafHash => unreachable!("only added value that do not contain hash"),
 	};
 	iter_start
 		.chain(if nibbles.len() % 2 == 1 { Some(nibbles[0]) } else { None })
 		.chain(nibbles[nibbles.len() % 2..].chunks(2).map(|ch| ch[0] << 4 | ch[1]))
 }
-fn value_do_hash_stream(val: &[u8], threshold: &u32) -> bool {
-	val.encoded_size() >= *threshold as usize
-}
+
+use trie_root::Value as RValue;
 impl TrieStream for ReferenceTrieStreamNoExt {
-	fn new(meta: Option<u32>) -> Self {
+
+	fn new() -> Self {
 		Self {
 			buffer: Vec::new(),
-			inner_value_hashing: meta,
-			apply_inner_hashing: false,
-			current_value_range: None,
 		}
 	}
 
@@ -601,92 +521,65 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 		self.buffer.push(trie_constants::EMPTY_TRIE);
 	}
 
-	fn append_leaf(&mut self, key: &[u8], value: &[u8]) {
-		self.apply_inner_hashing = self.inner_value_hashing.as_ref().map(|threshold|
-			value_do_hash_stream(value, threshold)
-		).unwrap_or(false);
-		let kind = if self.apply_inner_hashing {
-			NodeKind::AltHashLeaf
-		} else {
-			NodeKind::Leaf
+	fn append_leaf(&mut self, key: &[u8], value: RValue) {
+		let kind = match &value {
+			RValue::NoValue => unreachable!(),
+			RValue::Value(..) => NodeKind::Leaf,
+			RValue::HashedValue(..) => NodeKind::AltHashLeaf,
 		};
 		self.buffer.extend(fuse_nibbles_node(key, kind));
-		let start = self.buffer.len();
-		Compact(value.len() as u32).encode_to(&mut self.buffer);
-		self.buffer.extend_from_slice(value);
-		self.current_value_range = Some(start..self.buffer.len());
+		match &value {
+			RValue::NoValue => unreachable!(),
+			RValue::Value(value) => {
+				Compact(value.len() as u32).encode_to(&mut self.buffer);
+				self.buffer.extend_from_slice(value);
+			},
+			RValue::HashedValue(hash) => {
+				self.buffer.extend_from_slice(hash.as_slice());
+			},
+		};
 	}
 
 	fn begin_branch(
 		&mut self,
 		maybe_partial: Option<&[u8]>,
-		maybe_value: Option<&[u8]>,
+		maybe_value: RValue,
 		has_children: impl Iterator<Item = bool>,
 	) {
 		if let Some(partial) = maybe_partial {
-			if let Some(value) = maybe_value {
-				self.apply_inner_hashing = self.inner_value_hashing.as_ref().map(|threshold|
-					value_do_hash_stream(value, threshold)
-				).unwrap_or(false);
-				let kind = if self.apply_inner_hashing {
-					NodeKind::AltHashBranchWithValue
-				} else {
-					NodeKind::BranchWithValue
-				};
-				self.buffer.extend(fuse_nibbles_node(partial, kind));
-			} else {
-				self.buffer.extend(fuse_nibbles_node(partial, NodeKind::BranchNoValue));
-			}
+			let kind = match &maybe_value {
+				RValue::NoValue => NodeKind::BranchNoValue,
+				RValue::Value(..) => NodeKind::BranchWithValue,
+				RValue::HashedValue(..) => NodeKind::AltHashBranchWithValue,
+			};
+	
+			self.buffer.extend(fuse_nibbles_node(partial, kind));
 			let bm = branch_node_bit_mask(has_children);
 			self.buffer.extend([bm.0,bm.1].iter());
 		} else {
-			debug_assert!(false, "trie stream codec only for no extension trie");
-			self.buffer.extend(&branch_node(maybe_value.is_some(), has_children));
+			unreachable!("trie stream codec only for no extension trie");
 		}
-		if let Some(value) = maybe_value {
-			let start = self.buffer.len();
-			Compact(value.len() as u32).encode_to(&mut self.buffer);
-			self.buffer.extend_from_slice(value);
-			self.current_value_range = Some(start..self.buffer.len());
-		}
-	}
-
-	fn append_extension(&mut self, _key: &[u8]) {
-		debug_assert!(false, "trie stream codec only for no extension trie");
-	}
-
-	fn append_substream<H: Hasher>(&mut self, other: Self) {
-		let apply_inner_hashing = other.apply_inner_hashing;
-		let range = other.current_value_range.clone();
-		let data = other.out();
-		match data.len() {
-			0..=31 => data.encode_to(&mut self.buffer),
-			_ => {
-				if apply_inner_hashing {
-					hash_db::AltHashing {
-						encoded_offset: 0,
-						value_range: range.map(|r| (r.start, r.end)),
-					}.alt_hash::<H>(&data).as_ref()
-						.encode_to(&mut self.buffer);
-				} else {
-					H::hash(&data).as_ref().encode_to(&mut self.buffer);
-				}
+		match maybe_value {
+			RValue::NoValue => (),
+			RValue::Value(value) => {
+				Compact(value.len() as u32).encode_to(&mut self.buffer);
+				self.buffer.extend_from_slice(value);
+			},
+			RValue::HashedValue(hash) => {
+				self.buffer.extend_from_slice(hash.as_slice());
 			},
 		}
 	}
 
-	fn hash_root<H: Hasher>(self) -> H::Out {
-		let apply_inner_hashing = self.apply_inner_hashing;
-		let range = self.current_value_range;
-		let data = self.buffer;
+	fn append_extension(&mut self, _key: &[u8]) {
+		unreachable!("trie stream codec only for no extension trie");
+	}
 
-		if apply_inner_hashing {
-			hash_db::AltHashing {
-				encoded_offset: 0,
-				value_range: range.map(|r| (r.start, r.end)),
-			}.alt_hash::<H>(&data)
-		} else {
-			H::hash(&data)
+	fn append_substream<H: Hasher>(&mut self, other: Self) {
+		let data = other.out();
+		match data.len() {
+			0..=31 => data.encode_to(&mut self.buffer),
+			_ => H::hash(&data).as_ref().encode_to(&mut self.buffer),
 		}
 	}
 
