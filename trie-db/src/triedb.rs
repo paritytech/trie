@@ -88,6 +88,16 @@ where
 		}
 	}
 
+	/// `new_with_layout`, but do not check root presence, if missing
+	/// this will fail at first node access.
+	pub fn new_with_layout_uncheck(
+		db: &'db dyn HashDBRef<L::Hash, DBValue>,
+		root: &'db TrieHash<L>,
+		layout: L,
+	) -> Self {
+		TrieDB {db, root, hash_count: 0, layout}
+	}
+	
 	/// Get the backing database.
 	pub fn db(&'db self) -> &'db dyn HashDBRef<L::Hash, DBValue> {
 		self.db
@@ -355,6 +365,24 @@ pub struct TrieDBKeyIterator<'a, L: TrieLayout> {
 	inner: TrieDBNodeIterator<'a, L>,
 }
 
+/// When there is guaranties the storage backend do not change,
+/// this can be use to suspend and restore the iterator.
+pub struct SuspendedTrieDBKeyIterator<L: TrieLayout> {
+	inner: crate::iterator::SuspendedTrieDBNodeIterator<L>,
+}
+
+impl<L: TrieLayout> SuspendedTrieDBKeyIterator<L> {
+	/// Restore iterator.
+	pub fn unsafe_restore<'a>(
+		self,
+		db: &'a TrieDB<'a, L>,
+	) -> TrieDBKeyIterator<'a, L> {
+		TrieDBKeyIterator {
+			inner: self.inner.unsafe_restore(db),
+		}
+	}
+}
+
 impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 	/// Create a new iterator.
 	pub fn new(db: &'a TrieDB<L>) -> Result<TrieDBIterator<'a, L>, TrieHash<L>, CError<L>> {
@@ -401,6 +429,14 @@ impl<'a, L: TrieLayout> TrieDBKeyIterator<'a, L> {
 	pub fn new(db: &'a TrieDB<L>) -> Result<TrieDBKeyIterator<'a, L>, TrieHash<L>, CError<L>> {
 		let inner = TrieDBNodeIterator::new(db)?;
 		Ok(TrieDBKeyIterator { inner })
+	}
+
+	/// Suspend iterator. Warning this does not hold guaranties it can be restore later.
+	/// Restoring require that trie backend did not change.
+	pub fn suspend(self) -> SuspendedTrieDBKeyIterator<L> {
+		SuspendedTrieDBKeyIterator {
+			inner: self.inner.suspend(),
+		}
 	}
 
 	/// Create a new iterator, but limited to a given prefix.

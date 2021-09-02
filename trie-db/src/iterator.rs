@@ -62,6 +62,27 @@ pub struct TrieDBNodeIterator<'a, L: TrieLayout> {
 	key_nibbles: NibbleVec,
 }
 
+/// When there is guaranties the storage backend do not change,
+/// this can be use to suspend and restore the iterator.
+pub struct SuspendedTrieDBNodeIterator<L: TrieLayout> {
+	trail: Vec<Crumb<L::Hash>>,
+	key_nibbles: NibbleVec,
+}
+
+impl<L: TrieLayout> SuspendedTrieDBNodeIterator<L> {
+	/// Restore iterator.
+	pub fn unsafe_restore<'a>(
+		self,
+		db: &'a TrieDB<'a, L>,
+	) -> TrieDBNodeIterator<'a, L> {
+		TrieDBNodeIterator {
+			db,
+			trail: self.trail,
+			key_nibbles: self.key_nibbles,
+		}
+	}
+}
+
 impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 	/// Create a new iterator.
 	pub fn new(db: &'a TrieDB<L>) -> Result<TrieDBNodeIterator<'a, L>, TrieHash<L>, CError<L>> {
@@ -87,6 +108,15 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 			status: Status::Entering,
 			node: Rc::new(node),
 		});
+	}
+
+	/// Suspend iterator. Warning this does not hold guaranties it can be restore later.
+	/// Restoring require that trie backend did not change.
+	pub fn suspend(self) -> SuspendedTrieDBNodeIterator<L> {
+		SuspendedTrieDBNodeIterator {
+			trail: self.trail,
+			key_nibbles: self.key_nibbles,
+		}
 	}
 }
 
