@@ -47,6 +47,7 @@ pub mod trie_constants {
 	pub const EMPTY_TRIE: u8 = FIRST_PREFIX | (0b_00 << 4);
 	pub const ALT_HASHING_LEAF_PREFIX_MASK: u8 = FIRST_PREFIX | (0b_1 << 5);
 	pub const ALT_HASHING_BRANCH_WITH_MASK: u8 = FIRST_PREFIX | (0b_01 << 4);
+	pub const ESCAPE_COMPACT_HEADER: u8 = EMPTY_TRIE | 0b_00_01;
 }
 
 #[derive(Default, Clone)]
@@ -145,7 +146,7 @@ impl<H> NodeCodecT for NodeCodec<H>
 	where
 		H: Hasher,
 {
-	const OFFSET_IF_CONTAINS_HASH: usize = 1;
+	const ESCAPE_HEADER: Option<&'static [u8]> = Some(&[trie_constants::ESCAPE_COMPACT_HEADER]);
 	type Error = Error;
 	type HashOut = H::Out;
 

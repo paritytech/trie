@@ -31,9 +31,9 @@ pub type Partial<'a> = ((u8, u8), &'a[u8]);
 /// Uses a type parameter to allow registering
 /// positions without colling decode plan.
 pub trait NodeCodec: Sized {
-	/// Allows adding unhashed bytes to indicate a node contains
-	/// a hashed value (metadata for custom proof format).
-	const OFFSET_IF_CONTAINS_HASH: usize = 0;
+	/// Escape header byte sequence to indicate next node is a
+	/// branch or leaf with hash of value, followed by the value node.
+	const ESCAPE_HEADER: Option<&'static[u8]> = None;
 
 	/// Codec error type.
 	type Error: Error;

@@ -50,15 +50,25 @@ pub enum Value<'a> {
 	/// Value byte slice.
 	Value(&'a [u8]),
 	/// Hash byte slice.
-	HashedValue(&'a [u8], Option<DBValue>),
+	HashedValue(&'a [u8], Option<DBValue>), // TODO check if value is of any use.
 }
 
-impl<'a> From<Option<&'a [u8]>> for Value<'a> {
-	fn from(v: Option<&'a [u8]>) -> Self {
-		match v {
-			Some(v) => Value::Value(v),
+impl<'a> Value<'a> {
+	pub(crate) fn new(value: Option<&'a [u8]>, threshold: Option<u32>) -> Option<Self> {
+		Some(match value {
+			Some(value) => {
+				if let Some(threshold) = threshold {
+					if value.len() >= threshold as usize {
+						return None;
+					} else {
+						Value::Value(value)
+					}
+				} else {
+					Value::Value(value)
+				}
+			},
 			None => Value::NoValue,
-		}
+		})
 	}
 }
 

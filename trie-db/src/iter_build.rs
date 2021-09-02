@@ -124,11 +124,22 @@ impl<T, V> CacheAccum<T, V>
 		let nibble_value = nibble_ops::left_nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
 		let nkey = NibbleSlice::new_offset(&k2.as_ref()[..], target_depth + 1);
-		let encoded = T::Codec::leaf_node(nkey.right(), Value::Value(&v2.as_ref()[..])); // TODO use value build like in triedbmut!!!
 		let pr = NibbleSlice::new_offset(
 			&k2.as_ref()[..],
 			k2.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE - nkey.len(),
 		);
+
+		let hashed;
+		let value = if let Some(value) = Value::new(Some(v2.as_ref()), self.1.alt_threshold()) {
+			value
+		} else {
+			hashed = callback.process_inner_hased_value(
+				pr.left(),
+				v2.as_ref(),
+			);
+			Value::HashedValue(hashed.as_ref(), None)
+		};
+		let encoded = T::Codec::leaf_node(nkey.right(), value);
 		let hash = callback.process(pr.left(), encoded, false);
 
 		// insert hash in branch (first level branch only at this point)
@@ -189,12 +200,24 @@ impl<T, V> CacheAccum<T, V>
 		let (children, v, depth) = self.0.pop().expect("checked");
 
 		debug_assert!(branch_d == depth);
+		let pr = NibbleSlice::new_offset(&key_branch, branch_d);
+
+		let hashed;
+		let value = if let Some(value) = Value::new(v.as_ref().map(|v| v.as_ref()), self.1.alt_threshold()) {
+			value
+		} else {
+			hashed = callback.process_inner_hased_value(
+				pr.left(),
+				v.as_ref().unwrap().as_ref(),
+			);
+			Value::HashedValue(hashed.as_ref(), None)
+		};
+
 		// encode branch
 		let encoded = T::Codec::branch_node(
 			children.iter(),
-			v.as_ref().map(|v| v.as_ref()).into(),
+			value,
 		);
-		let pr = NibbleSlice::new_offset(&key_branch, branch_d);
 		let branch_hash = callback.process(pr.left(), encoded, is_root && nkey.is_none());
 
 		if let Some(nkeyix) = nkey {
@@ -222,11 +245,22 @@ impl<T, V> CacheAccum<T, V>
 		// encode branch
 		let nkeyix = nkey.unwrap_or((branch_d, 0));
 		let pr = NibbleSlice::new_offset(&key_branch, nkeyix.0);
+		let hashed;
+		let value = if let Some(value) = Value::new(v.as_ref().map(|v| v.as_ref()), self.1.alt_threshold()) {
+			value
+		} else {
+			hashed = callback.process_inner_hased_value(
+				pr.left(),
+				v.as_ref().unwrap().as_ref(),
+			);
+			Value::HashedValue(hashed.as_ref(), None)
+		};
+
 		let encoded = T::Codec::branch_node_nibbled(
 			pr.right_range_iter(nkeyix.1),
 			nkeyix.1,
 			children.iter(),
-			v.as_ref().map(|v| v.as_ref()).into(),
+			value,
 		);
 		callback.process(pr.left(), encoded, is_root)
 	}
@@ -279,11 +313,24 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F, layout: &T)
 			// one single element corner case
 			let (k2, v2) = previous_value;
 			let nkey = NibbleSlice::new_offset(&k2.as_ref()[..], last_depth);
-			let encoded = T::Codec::leaf_node(nkey.right(), Value::Value(&v2.as_ref()[..]));
 			let pr = NibbleSlice::new_offset(
 				&k2.as_ref()[..],
 				k2.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE - nkey.len(),
 			);
+
+			let hashed;
+			let value = if let Some(value) = Value::new(Some(v2.as_ref()), layout.alt_threshold()) {
+				value
+			} else {
+				hashed = callback.process_inner_hased_value(
+					pr.left(),
+					v2.as_ref(),
+				);
+				Value::HashedValue(hashed.as_ref(), None)
+			};
+
+
+			let encoded = T::Codec::leaf_node(nkey.right(), value);
 			callback.process(pr.left(), encoded, true);
 		} else {
 			depth_queue.flush_value(callback, last_depth, &previous_value);
@@ -311,6 +358,13 @@ pub trait ProcessEncodedNode<HO> {
 		encoded_node: Vec<u8>,
 		is_root: bool,
 	) -> ChildReference<HO>;
+
+	/// Callback for hashed value in encoded node.
+	fn process_inner_hased_value(
+		&mut self,
+		prefix: Prefix,
+		value: &[u8],
+	) -> HO;
 }
 
 /// Get trie root and insert visited node in a hash_db.
@@ -351,6 +405,14 @@ impl<'a, T, DB> ProcessEncodedNode<TrieHash<T>> for TrieBuilder<'a, T, DB>
 		};
 		ChildReference::Hash(hash)
 	}
+
+	fn process_inner_hased_value(
+		&mut self,
+		prefix: Prefix,
+		value: &[u8],
+	) -> TrieHash<T> {
+		self.db.insert(prefix, value)
+	}
 }
 
 /// Calculate the trie root of the trie.
@@ -386,6 +448,14 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 			self.root = Some(hash);
 		};
 		ChildReference::Hash(hash)
+	}
+
+	fn process_inner_hased_value(
+		&mut self,
+		_prefix: Prefix,
+		value: &[u8],
+	) -> TrieHash<T> {
+		<T::Hash as Hasher>::hash(value)
 	}
 }
 
@@ -445,6 +515,15 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootPrint<T> {
 		println!("	hashed to {:x?}", hash.as_ref());
 		ChildReference::Hash(hash)
 	}
+
+	fn process_inner_hased_value(
+		&mut self,
+		_prefix: Prefix,
+		value: &[u8],
+	) -> TrieHash<T> {
+		println!("Hashed node: {:x?}", &value);
+		<T::Hash as Hasher>::hash(value)
+	}
 }
 
 impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootUnhashed<T> {
@@ -467,5 +546,13 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootUnhashed<T> {
 			self.root = Some(encoded_node);
 		};
 		ChildReference::Hash(hash)
+	}
+
+	fn process_inner_hased_value(
+		&mut self,
+		_prefix: Prefix,
+		value: &[u8],
+	) -> TrieHash<T> {
+		<T::Hash as Hasher>::hash(value)
 	}
 }
