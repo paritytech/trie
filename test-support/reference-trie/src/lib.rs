@@ -58,9 +58,9 @@ macro_rules! test_layouts {
 	($test:ident, $test_internal:ident) => {
 		#[test]
 		fn $test() {
-			$test_internal::<reference_trie::AltHashNoExt>();
+//			$test_internal::<reference_trie::AltHashNoExt>();
 			$test_internal::<reference_trie::NoExtensionLayout>();
-			$test_internal::<reference_trie::ExtensionLayout>();
+//			$test_internal::<reference_trie::ExtensionLayout>();
 		}
 	};
 }

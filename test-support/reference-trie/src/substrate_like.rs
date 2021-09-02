@@ -226,15 +226,11 @@ impl<H> NodeCodecT for NodeCodec<H>
 		match value {
 			Value::Value(value) => {
 				Compact(value.len() as u32).encode_to(&mut output);
-				let start = output.len();
 				output.extend_from_slice(value);
-				let end = output.len();
 			},
 			Value::HashedValue(hash, _) => {
 				debug_assert!(hash.len() == H::LENGTH);
-				let start = output.len();
 				output.extend_from_slice(hash);
-				let end = output.len();
 			},
 			Value::NoValue => (),
 		}
@@ -354,24 +350,11 @@ impl Encode for NodeHeader {
 	}
 }
 
-impl NodeHeader {
-	/// Is this header using alternate hashing scheme.
-	pub(crate) fn alt_hashing(&self) -> bool {
-		match self {
-			NodeHeader::Null
-			| NodeHeader::Leaf(..)
-			| NodeHeader::Branch(..) => false,
-			NodeHeader::AltHashBranch(..)
-			| NodeHeader::AltHashLeaf(..) => true,
-		}
-	}
-}
-
 impl parity_scale_codec::EncodeLike for NodeHeader {}
 
 impl Decode for NodeHeader {
 	fn decode<I: Input>(input: &mut I) -> Result<Self, Error> {
-		let mut i = input.read_byte()?;
+		let i = input.read_byte()?;
 		if i == trie_constants::EMPTY_TRIE {
 			return Ok(NodeHeader::Null);
 		}

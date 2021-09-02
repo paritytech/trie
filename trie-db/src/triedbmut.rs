@@ -75,7 +75,7 @@ pub enum Value {
 	/// Value bytes.
 	Value(DBValue),
 	/// Hash of value bytes if calculated and value bytes. // TODO use hash type.
-	HashedValue(Option<DBValue>, DBValue),
+	HashedValue(Option<DBValue>, Option<DBValue>),
 }
 
 impl<'a> From<EncodedValue<'a>> for Value {
@@ -83,8 +83,7 @@ impl<'a> From<EncodedValue<'a>> for Value {
 		match v {
 			EncodedValue::NoValue => Value::NoValue,
 			EncodedValue::Value(value) => Value::Value(value.to_vec()),
-			EncodedValue::HashedValue(hash, Some(value)) => Value::HashedValue(Some(hash.to_vec()), value),
-			EncodedValue::HashedValue(hash, None) => unimplemented!("TODO consider function with fetch"),
+			EncodedValue::HashedValue(hash, value) => Value::HashedValue(Some(hash.to_vec()), value),
 		}
 	}
 }
@@ -93,18 +92,13 @@ impl From<(Option<DBValue>, Option<u32>)> for Value {
 	fn from((v, threshold): (Option<DBValue>, Option<u32>)) -> Self {
 		match v {
 			Some(value) => if threshold.map(|threshold| value.len() >= threshold as usize).unwrap_or(false) {
-				Value::HashedValue(None, value.to_vec())
+				Value::HashedValue(None, Some(value.to_vec()))
 			} else {
 				Value::Value(value.to_vec())
 			},
 			None => Value::NoValue,
 		}
 	}
-}
-
-struct ToEncode<'a> {
-	value: EncodedValue<'a>,
-	attached: Option<DBValue>,
 }
 
 impl Value {
@@ -140,15 +134,17 @@ impl Value {
 		F: FnMut(Option<&[u8]>, NodeHandle<H::Out>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
 	{
 		if let Value::HashedValue(hash, value) = self {
-			let new_hash = if let ChildReference::Hash(hash) = f(Some(value), NodeHandle::Hash(Default::default()), None, None) {
-				hash
-			} else {
-				unreachable!()
-			};
-			if let Some(hash2) = hash.as_ref() {
-				debug_assert!(hash2.as_slice() == new_hash.as_ref());
-			} else {
-				*hash = Some(new_hash.as_ref().to_vec()); // TODO use hash in type
+			if let Some(value) = value.as_ref() {
+				let new_hash = if let ChildReference::Hash(hash) = f(Some(value.as_slice()), NodeHandle::Hash(Default::default()), None, None) {
+					hash
+				} else {
+					unreachable!()
+				};
+				if let Some(hash2) = hash.as_ref() {
+					debug_assert!(hash2.as_slice() == new_hash.as_ref());
+				} else {
+					*hash = Some(new_hash.as_ref().to_vec()); // TODO use hash in type
+				}
 			}
 		}
 		let value = match self {
@@ -160,19 +156,12 @@ impl Value {
 		value
 	}
 
-	fn attached(&self) -> Option<&DBValue> {
+	fn inline_fetched_value(&self) -> Option<DBValue> {
 		match self {
 			Value::NoValue => None,
-			Value::Value(value) => Some(value),
-			Value::HashedValue(_, value) => Some(value),
-		}
-	}
-
-	fn fetched_value(&self) -> Option<&DBValue> {
-		match self {
-			Value::NoValue => None,
-			Value::Value(value) => Some(value),
-			Value::HashedValue(_, value) => Some(value),
+			Value::Value(value) => Some(value.clone()),
+			Value::HashedValue(_, Some(value)) => Some(value.clone()),
+			Value::HashedValue(_, None) => unreachable!("unreachable for inline nodes"),
 		}
 	}
 }
@@ -215,7 +204,9 @@ impl Debug for Value {
 		match self {
 			Self::NoValue => write!(fmt, "None"),
 			Self::Value(value) => write!(fmt, "Some({:?})", ToHex(value)),
-			Self::HashedValue(_hash, value) => write!(fmt, "Hashed({:?})", ToHex(value)),
+			Self::HashedValue(_hash, Some(value)) => write!(fmt, "Some({:?})", ToHex(value)),
+			Self::HashedValue(Some(hash), _) => write!(fmt, "Hash({:?})", ToHex(hash)),
+			Self::HashedValue(_, _) => write!(fmt, "Invalid HashedValue"),
 		}
 	}
 }
@@ -481,7 +472,7 @@ impl<L: TrieLayout> NodeStorage<L>
 	}
 
 	/// Remove a node from the storage, consuming the handle and returning the node.
-	fn destroy(&mut self, handle: StorageHandle, layout: &L) -> Stored<L> {
+	fn destroy(&mut self, handle: StorageHandle) -> Stored<L> {
 		let idx = handle.0;
 
 		self.free_indices.push_back(idx);
@@ -689,7 +680,7 @@ where
 					Node::Empty => return Ok(None),
 					Node::Leaf(ref key, ref value) => {
 						if NibbleSlice::from_stored(key) == partial {
-							return Ok(value.fetched_value().cloned());
+							return Ok(value.inline_fetched_value());
 						} else {
 							return Ok(None);
 						}
@@ -704,7 +695,7 @@ where
 					},
 					Node::Branch(ref children, ref value) => {
 						if partial.is_empty() {
-							return Ok(value.fetched_value().cloned());
+							return Ok(value.inline_fetched_value());
 						} else {
 							let idx = partial.at(0);
 							match children[idx as usize].as_ref() {
@@ -716,7 +707,7 @@ where
 					Node::NibbledBranch(ref slice, ref children, ref value) => {
 						let slice = NibbleSlice::from_stored(slice);
 						if partial.is_empty() {
-							return Ok(value.fetched_value().cloned());
+							return Ok(value.inline_fetched_value());
 						} else if partial.starts_with(&slice) {
 							let idx = partial.at(0);
 							match children[idx as usize].as_ref() {
@@ -748,7 +739,7 @@ where
 			NodeHandle::Hash(h) => self.cache(h, key.left())?,
 		};
 		// cache then destroy for hash handle (handle being root in most case)
-		let stored = self.storage.destroy(h, &self.layout);
+		let stored = self.storage.destroy(h);
 		let (new_stored, changed) = self.inspect(stored, key, move |trie, stored, key| {
 			trie.insert_inspector(stored, key, value, old_val).map(|a| a.into_action())
 		})?.expect("Insertion never deletes.");
@@ -1117,10 +1108,10 @@ where
 		old_val: &mut Value,
 	) -> Result<Option<(StorageHandle, bool)>, TrieHash<L>, CError<L>> {
 		let stored = match handle {
-			NodeHandle::InMemory(h) => self.storage.destroy(h, &self.layout),
+			NodeHandle::InMemory(h) => self.storage.destroy(h),
 			NodeHandle::Hash(h) => {
 				let handle = self.cache(h, key.left())?;
-				self.storage.destroy(handle, &self.layout)
+				self.storage.destroy(handle)
 			}
 		};
 
@@ -1414,10 +1405,10 @@ where
 						};
 						let child_prefix = (alloc_start.as_ref().map(|start| &start[..]).unwrap_or(start), prefix_end);
 						let stored = match child {
-							NodeHandle::InMemory(h) => self.storage.destroy(h, &self.layout),
+							NodeHandle::InMemory(h) => self.storage.destroy(h),
 							NodeHandle::Hash(h) => {
 								let handle = self.cache(h, child_prefix)?;
-								self.storage.destroy(handle, &self.layout)
+								self.storage.destroy(handle)
 							}
 						};
 						let child_node = match stored {
@@ -1503,10 +1494,10 @@ where
 				let child_prefix = (alloc_start.as_ref().map(|start| &start[..]).unwrap_or(start), prefix_end);
 
 				let stored = match child {
-					NodeHandle::InMemory(h) => self.storage.destroy(h, &self.layout),
+					NodeHandle::InMemory(h) => self.storage.destroy(h),
 					NodeHandle::Hash(h) => {
 						let handle = self.cache(h, child_prefix)?;
-						self.storage.destroy(handle, &self.layout)
+						self.storage.destroy(handle)
 					}
 				};
 
@@ -1590,7 +1581,7 @@ where
 			NodeHandle::InMemory(h) => h,
 		};
 
-		match self.storage.destroy(handle, &self.layout) {
+		match self.storage.destroy(handle) {
 			Stored::New(node) => {
 				let mut k = NibbleVec::new();
 
@@ -1639,7 +1630,7 @@ where
 		match handle {
 			NodeHandle::Hash(hash) => ChildReference::Hash(hash),
 			NodeHandle::InMemory(storage_handle) => {
-				match self.storage.destroy(storage_handle, &self.layout) {
+				match self.storage.destroy(storage_handle) {
 					Stored::Cached(_, hash) => ChildReference::Hash(hash),
 					Stored::New(node) => {
 						let encoded = {
@@ -1751,10 +1742,10 @@ where
 		trace!(target: "trie", "remove: key={:#x?}", key);
 
 		let root_handle = self.root_handle();
-		let mut key = NibbleSlice::new(key);
+		let mut key_slice = NibbleSlice::new(key);
 		let mut old_val = Value::NoValue;
 
-		match self.remove_at(root_handle, &mut key, &mut old_val)? {
+		match self.remove_at(root_handle, &mut key_slice, &mut old_val)? {
 			Some((handle, _changed)) => {
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "remove: altered trie={}", _changed);
@@ -1766,6 +1757,12 @@ where
 				self.root_handle = NodeHandle::Hash(L::Codec::hashed_null_node());
 				*self.root = L::Codec::hashed_null_node();
 			}
+		}
+
+		if let Value::HashedValue(Some(h), _) = &old_val {
+			let mut hash = TrieHash::<L>::default();
+			hash.as_mut().copy_from_slice(h); //  TODO use H in value
+			self.db.remove(&hash, (key, None));
 		}
 
 		Ok(old_val)

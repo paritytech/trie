@@ -447,7 +447,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 						_ => Value::NoValue,
 					};
 					if let Value::NoValue = maybe_value {
-						return None;
+						continue;
 					}
 					let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
 					let key = key_slice.to_vec();
