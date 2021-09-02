@@ -22,8 +22,14 @@ use super::NodeCodec as NodeCodecT;
 use trie_db::node::Value;
 
 /// Contains threshold for applying alt_hashing.
-#[derive(Default, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct AltHashNoExt(pub Option<u32>);
+
+impl Default for AltHashNoExt {
+	fn default() -> Self {
+		AltHashNoExt(Some(1))
+	}
+}
 
 impl TrieLayout for AltHashNoExt {
 	const USE_EXTENSION: bool = false;
