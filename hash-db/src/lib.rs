@@ -16,17 +16,12 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-#[cfg(not(feature = "std"))]
-extern crate alloc;
-
 #[cfg(feature = "std")]
 use std::fmt::Debug;
 #[cfg(feature = "std")]
 use std::hash;
 #[cfg(not(feature = "std"))]
 use core::hash;
-#[cfg(not(feature = "std"))]
-use alloc::{vec, vec::Vec};
 
 #[cfg(feature = "std")]
 pub trait MaybeDebug: Debug {}

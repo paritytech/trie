@@ -124,6 +124,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 
 		assert!(iter.next().is_none());
 	} else {
+		let can_expand = T::default().alt_threshold().unwrap_or(T::Hash::LENGTH as u32) < T::Hash::LENGTH as u32;
 		match iter.next() {
 			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!(""), 0));
@@ -137,7 +138,10 @@ fn iterator_works_internal<T: TrieLayout>() {
 		}
 
 		match iter.next() {
-			Some(Ok((prefix, None, node))) => {
+			Some(Ok((prefix, hash, node))) => {
+				if !can_expand {
+					assert!(hash.is_none());
+				}
 				assert_eq!(prefix, nibble_vec(hex!("01"), 2));
 				match node.node() {
 					Node::NibbledBranch(partial, _, _) =>
@@ -149,7 +153,10 @@ fn iterator_works_internal<T: TrieLayout>() {
 		}
 
 		match iter.next() {
-			Some(Ok((prefix, None, node))) => {
+			Some(Ok((prefix, hash, node))) => {
+				if !can_expand {
+					assert!(hash.is_none());
+				}
 				assert_eq!(prefix, nibble_vec(hex!("0120"), 3));
 				match node.node() {
 					Node::Leaf(partial, _) =>
@@ -327,8 +334,9 @@ fn iterate_over_incomplete_db_internal<T: TrieLayout>() {
 		match iter.next() {
 			Some(Ok((_, _, node))) => {
 				match node.node() {
-					Node::Leaf(_, v) =>
-						assert_eq!(v, Value::Value(&vec![2; 32][..])),
+					Node::Leaf(_, v) => if !matches!(v, Value::HashedValue(..)) {
+						assert_eq!(v, Value::Value(&vec![2; 32][..]));
+					},
 					_ => panic!("unexpected node"),
 				}
 			}
@@ -341,6 +349,7 @@ fn iterate_over_incomplete_db_internal<T: TrieLayout>() {
 
 test_layouts!(prefix_works, prefix_works_internal);
 fn prefix_works_internal<T: TrieLayout>() {
+	let can_expand = T::default().alt_threshold().unwrap_or(T::Hash::LENGTH as u32) < T::Hash::LENGTH as u32;
 	let pairs = vec![
 		(hex!("01").to_vec(), b"aaaa".to_vec()),
 		(hex!("0123").to_vec(), b"bbbb".to_vec()),
@@ -366,7 +375,10 @@ fn prefix_works_internal<T: TrieLayout>() {
 		}
 	} else {
 		match iter.next() {
-			Some(Ok((prefix, None, node))) => {
+			Some(Ok((prefix, hash, node))) => {
+				if !can_expand {
+					debug_assert!(hash.is_none());
+				}
 				assert_eq!(prefix, nibble_vec(hex!("01"), 2));
 				match node.node() {
 					Node::NibbledBranch(partial, _, _) =>
@@ -379,7 +391,10 @@ fn prefix_works_internal<T: TrieLayout>() {
 	}
 
 	match iter.next() {
-		Some(Ok((prefix, None, node))) => {
+		Some(Ok((prefix, hash, node))) => {
+			if !can_expand {
+				debug_assert!(hash.is_none());
+			}
 			assert_eq!(prefix, nibble_vec(hex!("0120"), 3));
 			match node.node() {
 				Node::Leaf(partial, _) =>

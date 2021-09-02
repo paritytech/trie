@@ -424,6 +424,7 @@ fn insert_empty_internal<T: TrieLayout>() {
 
 test_layouts!(return_old_values, return_old_values_internal);
 fn return_old_values_internal<T: TrieLayout>() {
+	let threshold = T::default().alt_threshold();
 	let mut seed = Default::default();
 	let x = StandardMap {
 			alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
@@ -438,10 +439,18 @@ fn return_old_values_internal<T: TrieLayout>() {
 	let mut t = TrieDBMut::<T>::new(&mut db, &mut root);
 	for &(ref key, ref value) in &x {
 		assert!(t.insert(key, value).unwrap() == Value::NoValue);
-		assert_eq!(t.insert(key, value).unwrap(), Value::Value(value.clone()));
+		if threshold.map(|t| value.len() < t as usize).unwrap_or(true) {
+			assert_eq!(t.insert(key, value).unwrap(), Value::Value(value.clone()));
+		} else {
+			assert!(matches!(t.insert(key, value).unwrap(), Value::HashedValue(..)));
+		}
 	}
 	for (key, value) in x {
-		assert_eq!(t.remove(&key).unwrap(), Value::Value(value));
+		if threshold.map(|t| value.len() < t as usize).unwrap_or(true) {
+			assert_eq!(t.remove(&key).unwrap(), Value::Value(value));
+		} else {
+			assert!(matches!(t.remove(&key).unwrap(), Value::HashedValue(..)));
+		}
 		assert_eq!(t.remove(&key).unwrap(), Value::NoValue);
 	}
 }
