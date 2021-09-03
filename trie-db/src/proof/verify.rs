@@ -108,6 +108,10 @@ struct StackEntry<'a, C: NodeCodec> {
 	child_index: usize,
 	/// The child references to use in reconstructing the trie nodes.
 	children: Vec<Option<ChildReference<C::HashOut>>>,
+	/// Next proof entry is attached value.
+	is_next_value_to_hash: bool,
+	/// Technical to attach lifetime to entry.
+	next_value_hash: Option<(C::HashOut, &'a [u8])>, // TODO is value use : TODO debug check where eq value is done
 	_marker: PhantomData<C>,
 }
 
@@ -115,7 +119,13 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 	fn new(node_data: &'a [u8], prefix: LeftNibbleSlice<'a>, is_inline: bool)
 		   -> Result<Self, Error<C::HashOut, C::Error>>
 	{
-		let node = C::decode(node_data)
+		let mut attached_node = 0;
+		if let Some(header) = C::ESCAPE_HEADER {
+			if node_data.starts_with(header) {
+				attached_node = header.len();
+			}
+		}
+		let node = C::decode(&node_data[attached_node..])
 			.map_err(Error::DecodeError)?;
 		let children_len = match &node {
 			Node::Empty | Node::Leaf(..) => 0,
@@ -134,10 +144,19 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 			value,
 			child_index: 0,
 			children: vec![None; children_len],
+			is_next_value_to_hash: attached_node > 0,
+			next_value_hash: None,
 			_marker: PhantomData::default(),
 		})
 	}
 
+	fn value(&self) -> Value {
+		if let Some((hash, value)) = self.next_value_hash.as_ref() {
+			Value::HashedValue(hash.as_ref(), None)
+		} else {
+			self.value.clone()
+		}
+	}
 	/// Encode this entry to an encoded trie node with data properly reconstructed.
 	fn encode_node(mut self) -> Result<Vec<u8>, Error<C::HashOut, C::Error>> {
 		self.complete_children()?;
@@ -145,7 +164,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 			Node::Empty =>
 				C::empty_node().to_vec(),
 			Node::Leaf(partial, _) => {
-				C::leaf_node(partial.right(), self.value)
+				C::leaf_node(partial.right(), self.value())
 			}
 			Node::Extension(partial, _) => {
 				let child = self.children[0]
@@ -159,14 +178,14 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 			Node::Branch(_, _) =>
 				C::branch_node(
 					self.children.iter(),
-					self.value,
+					self.value(),
 				),
 			Node::NibbledBranch(partial, _, _) =>
 				C::branch_node_nibbled(
 					partial.right_iter(),
 					partial.len(),
 					self.children.iter(),
-					self.value,
+					self.value(),
 				),
 		})
 	}
@@ -271,7 +290,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 				if key.starts_with(&self.prefix) {
 					match match_key_to_node(&key, self.prefix.len(), &self.node) {
 						ValueMatch::MatchesLeaf => if let Some(value) = value {
-							self.value = Value::Value(value);
+							self.value = Value::Value(value); // TODO hashed value if node is next_node
 						} else {
 							return Err(Error::ValueMismatch(key_bytes.to_vec()));
 						},
@@ -393,7 +412,6 @@ pub fn verify_proof<'a, L, I, K, V>(
 	root: &<L::Hash as Hasher>::Out,
 	proof: &[Vec<u8>],
 	items: I,
-	layout: L,
 )	-> Result<(), Error<TrieHash<L>, CError<L>>>
 	where
 		L: TrieLayout,
@@ -434,16 +452,22 @@ pub fn verify_proof<'a, L, I, K, V>(
 		Some(node) => node,
 		None => return Err(Error::IncompleteProof),
 	};
-	let mut last_entry = StackEntry::new(
+	let mut last_entry = StackEntry::<L::Codec>::new(
 		root_node,
 		LeftNibbleSlice::new(&[]),
 		false,
 	)?;
+
 	loop {
 		// Insert omitted value.
 		match last_entry.advance_item(&mut items_iter)? {
 			Step::Descend(child_prefix) => {
-				let next_entry = last_entry.advance_child_index(child_prefix, &mut proof_iter)?;
+				let mut next_entry = last_entry.advance_child_index(child_prefix, &mut proof_iter)?;
+				if next_entry.is_next_value_to_hash {
+					let value_data = proof_iter.next()
+						.ok_or(Error::IncompleteProof)?;
+					next_entry.next_value_hash = Some((L::Hash::hash(&value_data), value_data));
+				}
 				stack.push(last_entry);
 				last_entry = next_entry;
 			}

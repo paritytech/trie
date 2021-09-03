@@ -75,6 +75,26 @@ fn test_generate_proof<L: TrieLayout>(
 	(root, proof, items)
 }
 
+test_layouts!(trie_proof_works2, trie_proof_works_internal2);
+fn trie_proof_works_internal2<T: TrieLayout>() {
+	let (root, proof, items) = test_generate_proof::<T>(
+		vec![
+			// "do" is at a hash-referenced branch node.
+			(&b"do"[..], b"verb"),
+			// "dog" is at a hash-referenced branch node.
+			(b"dog", b"puppy"),
+		],
+		vec![
+			b"do",
+			b"dog",
+		],
+	);
+
+	verify_proof::<T, _, _, _>(&root, &proof, items.iter()).unwrap();
+}
+
+
+
 test_layouts!(trie_proof_works, trie_proof_works_internal);
 fn trie_proof_works_internal<T: TrieLayout>() {
 	let (root, proof, items) = test_generate_proof::<T>(
@@ -91,7 +111,7 @@ fn trie_proof_works_internal<T: TrieLayout>() {
 		],
 	);
 
-	verify_proof::<T, _, _, _>(&root, &proof, items.iter(), Default::default()).unwrap();
+	verify_proof::<T, _, _, _>(&root, &proof, items.iter()).unwrap();
 }
 
 test_layouts!(trie_proof_works_for_empty_trie, trie_proof_works_for_empty_trie_internal);
@@ -105,7 +125,7 @@ fn trie_proof_works_for_empty_trie_internal<T: TrieLayout>() {
 		],
 	);
 
-	verify_proof::<T, _, _, _>(&root, &proof, items.iter(), Default::default()).unwrap();
+	verify_proof::<T, _, _, _>(&root, &proof, items.iter()).unwrap();
 }
 
 test_layouts!(test_verify_duplicate_keys, test_verify_duplicate_keys_internal);
@@ -124,7 +144,6 @@ fn test_verify_duplicate_keys_internal<T: TrieLayout>() {
 			&root,
 			&proof,
 			items.iter(),
-			Default::default(),
 	) {
 			key == b"bravo".to_vec()
 		} else {
@@ -144,7 +163,7 @@ fn test_verify_extraneaous_node_internal<T: TrieLayout>() {
 		(b"bravo", Some(b"bravo")),
 	];
 	assert!(matches!(
-		verify_proof::<T, _, _, _>(&root, &proof, items.iter(), Default::default()),
+		verify_proof::<T, _, _, _>(&root, &proof, items.iter()),
 		Err(VerifyError::ExtraneousNode)
 	));
 }
@@ -165,7 +184,6 @@ fn test_verify_extraneaous_value_internal<T: TrieLayout>() {
 			&root,
 			&proof,
 			items.iter(),
-			Default::default(),
 		) {
 			val == b"do".to_vec()
 		} else {
@@ -185,7 +203,7 @@ fn test_verify_extraneous_hash_reference() {
 		(&b"alfa"[..], Some(&[0; 32][..])),
 		(&b"do"[..], Some(&b"verb"[..])),
 	];
-	match verify_proof::<NoExtensionLayout, _, _, _>(&root, &proof, items.iter(), Default::default()) {
+	match verify_proof::<NoExtensionLayout, _, _, _>(&root, &proof, items.iter()) {
 		Err(VerifyError::ExtraneousHashReference(_)) => {}
 		result => panic!("expected VerifyError::ExtraneousHashReference, got {:?}", result),
 	}
@@ -203,7 +221,7 @@ fn test_verify_invalid_child_reference_internal<T: TrieLayout>() {
 	let items = vec![
 		(b"bravo", Some([0; 32])),
 	];
-	match verify_proof::<T, _, _, _>(&root, &proof, items.iter(), Default::default()) {
+	match verify_proof::<T, _, _, _>(&root, &proof, items.iter()) {
 		Err(VerifyError::InvalidChildReference(_)) => {}
 		result => panic!("expected VerifyError::InvalidChildReference, got {:?}", result),
 	}
@@ -225,7 +243,6 @@ fn test_verify_value_mismatch_some_to_none_internal<T: TrieLayout>() {
 			&root,
 			&proof,
 			items.iter(),
-			Default::default(),
 		) {
 			val == b"halp".to_vec()
 		} else {
@@ -250,7 +267,6 @@ fn test_verify_value_mismatch_none_to_some_internal<T: TrieLayout>() {
 			&root,
 			&proof,
 			items.iter(),
-			Default::default(),
 		) {
 			val == b"bravo".to_vec()
 		} else {
@@ -268,7 +284,7 @@ fn test_verify_incomplete_proof_internal<T: TrieLayout>() {
 
 	proof.pop();
 	assert!(matches!(
-		verify_proof::<T, _, _, _>(&root, &proof, items.iter(), Default::default()),
+		verify_proof::<T, _, _, _>(&root, &proof, items.iter()),
 		Err(VerifyError::IncompleteProof)
 	));
 }
@@ -283,7 +299,7 @@ fn test_verify_root_mismatch_internal<T: TrieLayout>() {
 	let items = vec![
 		(b"bravo", Some("incorrect")),
 	];
-	match verify_proof::<T, _, _, _>(&root, &proof, items.iter(), Default::default()) {
+	match verify_proof::<T, _, _, _>(&root, &proof, items.iter()) {
 		Err(VerifyError::RootMismatch(_)) => {}
 		result => panic!("expected VerifyError::RootMismatch, got {:?}", result),
 	}
@@ -297,7 +313,7 @@ fn test_verify_decode_error_internal<T: TrieLayout>() {
 	);
 
 	proof.insert(0, b"this is not a trie node".to_vec());
-	match verify_proof::<T, _, _, _>(&root, &proof, items.iter(), Default::default()) {
+	match verify_proof::<T, _, _, _>(&root, &proof, items.iter()) {
 		Err(VerifyError::DecodeError(_)) => {}
 		result => panic!("expected VerifyError::DecodeError, got {:?}", result),
 	}
