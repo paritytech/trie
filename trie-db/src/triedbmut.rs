@@ -747,6 +747,21 @@ where
 		Ok((self.storage.alloc(new_stored), changed))
 	}
 
+	fn replace_old_value(&mut self, old_value: &mut Value, new_value: Value, prefix: Prefix) {
+		match old_value {
+			Value::HashedValue(Some(hash_ve), _) => {
+				let mut hash = <TrieHash<L>>::default();
+				hash.as_mut()[..].copy_from_slice(&hash_ve[..]);
+				self.death_row.insert((
+					hash,
+					(prefix.0.into(), prefix.1),
+				));
+			},
+			_ => (),
+		}
+		*old_value = new_value;
+	}
+
 	/// The insertion inspector.
 	fn insert_inspector(
 		&mut self,
@@ -777,7 +792,7 @@ where
 					let unchanged = stored_value.unchanged(&value);
 					let branch = Node::Branch(children, value);
 
-					*old_val = stored_value;
+					self.replace_old_value(old_val, stored_value, key.left());
 
 					match unchanged {
 						true => InsertAction::Restore(branch),
@@ -823,7 +838,7 @@ where
 						children,
 						value,
 					);
-					*old_val = stored_value;
+					self.replace_old_value(old_val, stored_value, key.left());
 
 					match unchanged {
 						true => InsertAction::Restore(branch),
@@ -913,7 +928,7 @@ where
 					// equivalent leaf.
 					let value = Value::new(Some(value), self.layout.alt_threshold());
 					let unchanged = stored_value.unchanged(&value);
-					*old_val = stored_value;
+					self.replace_old_value(old_val, stored_value, key.left());
 					match unchanged {
 						// unchanged. restore
 						true => InsertAction::Restore(Node::Leaf(encoded.clone(), value)),
@@ -1141,12 +1156,12 @@ where
 				Action::Restore(Node::NibbledBranch(n, c, Value::NoValue))
 			},
 			(Node::Branch(children, val), true) => {
-				*old_val = val;
+				self.replace_old_value(old_val, val, key.left());
 				// always replace since we took the value out.
 				Action::Replace(self.fix(Node::Branch(children, Value::NoValue), *key)?)
 			},
 			(Node::NibbledBranch(n, children, val), true) => {
-				*old_val = val;
+				self.replace_old_value(old_val, val, key.left());
 				// always replace since we took the value out.
 				Action::Replace(self.fix(Node::NibbledBranch(n, children, Value::NoValue), *key)?)
 			},
@@ -1196,7 +1211,7 @@ where
 					if let Value::NoValue = value {
 						Action::Restore(Node::NibbledBranch(encoded, children, Value::NoValue))
 					} else {
-						*old_val = value;
+						self.replace_old_value(old_val, value, key.left());
 						let f = self.fix(Node::NibbledBranch(encoded, children, Value::NoValue), *key);
 						Action::Replace(f?)
 					}
@@ -1250,7 +1265,7 @@ where
 			(Node::Leaf(encoded, value), _) => {
 				if NibbleSlice::from_stored(&encoded) == partial {
 					// this is the node we were looking for. Let's delete it.
-					*old_val = value;
+					self.replace_old_value(old_val, value, key.left());
 					Action::Delete
 				} else {
 					// leaf the node alone.
