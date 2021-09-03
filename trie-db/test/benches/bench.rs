@@ -493,7 +493,6 @@ fn trie_proof_verification(c: &mut Criterion) {
 				&root,
 				&proof,
 				items.iter(),
-				Default::default(),
 			).unwrap();
 		})
 	);
