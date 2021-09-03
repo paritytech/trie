@@ -93,8 +93,9 @@ pub enum TrieError<T, E> {
 	/// The first parameter is the byte-aligned part of the prefix and the second parameter is the
 	/// remaining nibble.
 	ValueAtIncompleteKey(Vec<u8>, u8),
-	/// Corrupt Trie item
+	/// Corrupt Trie item.
 	DecoderError(T, E),
+	/// Hash is not value.
 	InvalidHash(T, Vec<u8>),
 }
 

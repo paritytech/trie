@@ -238,6 +238,18 @@ impl NodePlan {
 			| NodePlan::NibbledBranch { value, .. } => Some(value),
 		}
 	}
+
+	/// Mutable ccess value plan from node plan, return `None` for
+	/// node that cannot contain a `ValuePlan`.
+	pub fn value_plan_mut(&mut self) -> Option<&mut ValuePlan> {
+		match self {
+			NodePlan::Extension { .. }
+			| NodePlan::Empty => None,
+			NodePlan::Leaf { value, .. }
+			| NodePlan::Branch { value, .. }
+			| NodePlan::NibbledBranch { value, .. } => Some(value),
+		}
+	}
 }
 
 /// An `OwnedNode` is an owned type from which a `Node` can be constructed which borrows data from
@@ -264,6 +276,11 @@ impl<D: Borrow<[u8]>> OwnedNode<D> {
 	/// Returns a reference to the node decode plan.
 	pub fn node_plan(&self) -> &NodePlan {
 		&self.plan
+	}
+
+	/// Returns a mutable reference to the node decode plan.
+	pub fn node_plan_mut(&mut self) -> &mut NodePlan {
+		&mut self.plan
 	}
 
 	/// Construct a `Node` by borrowing data from this struct.
