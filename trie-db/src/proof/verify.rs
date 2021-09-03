@@ -111,7 +111,7 @@ struct StackEntry<'a, C: NodeCodec> {
 	/// Next proof entry is attached value.
 	is_next_value_to_hash: bool,
 	/// Technical to attach lifetime to entry.
-	next_value_hash: Option<(C::HashOut, &'a [u8])>, // TODO is value use : TODO debug check where eq value is done
+	next_value_hash: Option<C::HashOut>,
 	_marker: PhantomData<C>,
 }
 
@@ -151,12 +151,13 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 	}
 
 	fn value(&self) -> Value {
-		if let Some((hash, value)) = self.next_value_hash.as_ref() {
+		if let Some(hash) = self.next_value_hash.as_ref() {
 			Value::HashedValue(hash.as_ref(), None)
 		} else {
 			self.value.clone()
 		}
 	}
+
 	/// Encode this entry to an encoded trie node with data properly reconstructed.
 	fn encode_node(mut self) -> Result<Vec<u8>, Error<C::HashOut, C::Error>> {
 		self.complete_children()?;
@@ -279,10 +280,25 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 		}
 	}
 
-	fn advance_item<I>(&mut self, items_iter: &mut Peekable<I>)
+	fn set_value<H>(&mut self, value: &'a [u8])
+		where
+			H: Hasher<Out = C::HashOut>,
+	{
+		self.value = if self.is_next_value_to_hash {
+			let hash = H::hash(value);
+			self.next_value_hash = Some(hash);
+			// will be replace on encode
+			Value::NoValue
+		} else {
+			Value::Value(value)
+		};
+	}
+
+	fn advance_item<I, H>(&mut self, items_iter: &mut Peekable<I>)
 					   -> Result<Step<'a>, Error<C::HashOut, C::Error>>
 		where
-			I: Iterator<Item=(&'a [u8], Option<&'a [u8]>)>
+			I: Iterator<Item=(&'a [u8], Option<&'a [u8]>)>,
+			H: Hasher<Out = C::HashOut>,
 	{
 		let step = loop {
 			if let Some((key_bytes, value)) = items_iter.peek().cloned() {
@@ -290,12 +306,12 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 				if key.starts_with(&self.prefix) {
 					match match_key_to_node(&key, self.prefix.len(), &self.node) {
 						ValueMatch::MatchesLeaf => if let Some(value) = value {
-							self.value = Value::Value(value); // TODO hashed value if node is next_node
+							self.set_value::<H>(value);
 						} else {
 							return Err(Error::ValueMismatch(key_bytes.to_vec()));
 						},
 						ValueMatch::MatchesBranch => if let Some(value) = value {
-							self.value = Value::Value(value);
+							self.set_value::<H>(value);
 						} else {
 							self.value = Value::NoValue;
 						},
@@ -460,14 +476,9 @@ pub fn verify_proof<'a, L, I, K, V>(
 
 	loop {
 		// Insert omitted value.
-		match last_entry.advance_item(&mut items_iter)? {
+		match last_entry.advance_item::<_, L::Hash>(&mut items_iter)? {
 			Step::Descend(child_prefix) => {
-				let mut next_entry = last_entry.advance_child_index(child_prefix, &mut proof_iter)?;
-				if next_entry.is_next_value_to_hash {
-					let value_data = proof_iter.next()
-						.ok_or(Error::IncompleteProof)?;
-					next_entry.next_value_hash = Some((L::Hash::hash(&value_data), value_data));
-				}
+				let next_entry = last_entry.advance_child_index(child_prefix, &mut proof_iter)?;
 				stack.push(last_entry);
 				last_entry = next_entry;
 			}

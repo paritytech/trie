@@ -381,8 +381,6 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 						the value was found by traversing recorded nodes, so there must be none \
 						remaining"
 					);
-					// order of nodes ensure this is called just after matching value.
-					proof_nodes.push(value);
 					break;
 				},
 				Step::FoundValue(value) => {

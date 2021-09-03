@@ -216,6 +216,10 @@ fn test_verify_invalid_child_reference_internal<T: TrieLayout>() {
 		vec![b"bravo"],
 	);
 
+	if T::default().alt_threshold().map(|t| t as usize <= b"bravo".len() ).unwrap_or(false) {
+		// node will not be inline: ignore test
+		return;
+	}
 	// InvalidChildReference because "bravo" is in an inline leaf node and a 32-byte value cannot
 	// fit in an inline leaf.
 	let items = vec![
