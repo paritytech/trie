@@ -1759,12 +1759,6 @@ where
 			}
 		}
 
-		if let Value::HashedValue(Some(h), _) = &old_val {
-			let mut hash = TrieHash::<L>::default();
-			hash.as_mut().copy_from_slice(h); //  TODO use H in value
-			self.db.remove(&hash, (key, None));
-		}
-
 		Ok(old_val)
 	}
 }
