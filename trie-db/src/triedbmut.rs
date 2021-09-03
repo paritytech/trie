@@ -706,7 +706,7 @@ where
 					},
 					Node::NibbledBranch(ref slice, ref children, ref value) => {
 						let slice = NibbleSlice::from_stored(slice);
-						if partial.is_empty() {
+						if slice == partial {
 							return Ok(value.inline_fetched_value());
 						} else if partial.starts_with(&slice) {
 							let idx = partial.at(0);

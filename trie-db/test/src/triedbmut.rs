@@ -341,6 +341,16 @@ fn test_at_three_internal<T: TrieLayout>() {
 	assert_eq!(t.get(&[0x82, 0x23]).unwrap(), None);
 }
 
+#[test]
+fn test_nibbled_branch_changed_value() {
+	let mut memdb = MemoryDB::<RefHasher, PrefixedKey<_>, DBValue>::default();
+	let mut root = Default::default();
+	let mut t = reference_trie::RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
+	t.insert(&[0x01u8, 0x23, 0x11], &[0xf1u8, 0x23]).unwrap();
+	assert_eq!(t.get(&[0x01u8, 0x23]).unwrap(), Some(vec![0x01u8, 0x23]));
+}
+
 test_layouts!(stress, stress_internal);
 fn stress_internal<T: TrieLayout>() {
 	let mut seed = Default::default();
