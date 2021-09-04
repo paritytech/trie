@@ -79,11 +79,11 @@ where
 	fn insert(
 		&mut self, key: &[u8],
 		value: &[u8],
-	) -> Result<Value, TrieHash<L>, CError<L>> {
+	) -> Result<Value<L>, TrieHash<L>, CError<L>> {
 		self.raw.insert(&L::Hash::hash(key).as_ref(), value)
 	}
 
-	 fn remove(&mut self, key: &[u8]) -> Result<Value, TrieHash<L>, CError<L>> {
+	 fn remove(&mut self, key: &[u8]) -> Result<Value<L>, TrieHash<L>, CError<L>> {
 		self.raw.remove(&L::Hash::hash(key).as_ref())
 	}
 }

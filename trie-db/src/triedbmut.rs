@@ -68,27 +68,45 @@ fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; nibble_ops::NIBBLE_LENGTH]
 type NibbleFullKey<'key> = NibbleSlice<'key>;
 
 /// Value representation for Node.
-#[derive(Clone, PartialEq, Eq)]
-pub enum Value {
+#[derive(Clone, Eq)]
+pub enum Value<L: TrieLayout> {
 	/// Node with no value attached.
 	NoValue,
 	/// Value bytes.
 	Value(DBValue),
-	/// Hash of value bytes if calculated and value bytes. // TODO use hash type.
-	HashedValue(Option<DBValue>, Option<DBValue>),
+	/// Hash of value bytes if calculated and value bytes.
+	HashedValue(Option<TrieHash<L>>, Option<DBValue>),
 }
 
-impl<'a> From<EncodedValue<'a>> for Value {
-	fn from(v: EncodedValue<'a>) -> Self {
-		match v {
-			EncodedValue::NoValue => Value::NoValue,
-			EncodedValue::Value(value) => Value::Value(value.to_vec()),
-			EncodedValue::HashedValue(hash, value) => Value::HashedValue(Some(hash.to_vec()), value),
+impl<L: TrieLayout> PartialEq<Self> for Value<L> {
+	fn eq(&self, other: &Self) -> bool {
+		match (self, other) {
+			(Value::NoValue, Value::NoValue) => true,
+			(Value::Value(v), Value::Value(ov)) => v == ov,
+			(Value::HashedValue(Some(h), _), Value::HashedValue(Some(oh), _)) => h == oh,
+			(Value::HashedValue(_, Some(v)), Value::HashedValue(_, Some(ov))) => v == ov,
+			// Note that for uncalculated hash we do not calculate it and default to true.
+			// This is rather similar to default Eq implementation.
+			_ => false,
 		}
 	}
 }
 
-impl From<(Option<DBValue>, Option<u32>)> for Value {
+impl<'a, L: TrieLayout> From<EncodedValue<'a>> for Value<L> {
+	fn from(v: EncodedValue<'a>) -> Self {
+		match v {
+			EncodedValue::NoValue => Value::NoValue,
+			EncodedValue::Value(value) => Value::Value(value.to_vec()),
+			EncodedValue::HashedValue(hash, value) => {
+				let mut h = TrieHash::<L>::default();
+				h.as_mut().copy_from_slice(hash);
+				Value::HashedValue(Some(h), value)
+			},
+		}
+	}
+}
+
+impl<L: TrieLayout> From<(Option<DBValue>, Option<u32>)> for Value<L> {
 	fn from((v, threshold): (Option<DBValue>, Option<u32>)) -> Self {
 		match v {
 			Some(value) => if threshold.map(|threshold| value.len() >= threshold as usize).unwrap_or(false) {
@@ -101,12 +119,13 @@ impl From<(Option<DBValue>, Option<u32>)> for Value {
 	}
 }
 
-impl Value {
+impl<L: TrieLayout> Value<L> {
 	fn new(value: Option<DBValue>, new_threshold: Option<u32>) -> Self {
 		(value, new_threshold).into()
 	}
 
-	fn unchanged(&self, old_value: &Value) -> bool {
+	// TODO could it be replace by new equal impl?
+	fn unchanged(&self, old_value: &Value<L>) -> bool {
 		if let Value::HashedValue(Some(hash), value) = self {
 			if let Value::HashedValue(Some(old_hash), _) = old_value {
 				if hash == old_hash {
@@ -129,9 +148,9 @@ impl Value {
 		false
 	}
 
-	fn into_encode<'a, H: Hasher, F>(&'a mut self, f: &mut F) -> EncodedValue<'a>
+	fn into_encode<'a, F>(&'a mut self, f: &mut F) -> EncodedValue<'a>
 	where
-		F: FnMut(Option<&[u8]>, NodeHandle<H::Out>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
+		F: FnMut(Option<&[u8]>, NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
 	{
 		if let Value::HashedValue(hash, value) = self {
 			if let Some(value) = value.as_ref() {
@@ -141,16 +160,16 @@ impl Value {
 					unreachable!()
 				};
 				if let Some(hash2) = hash.as_ref() {
-					debug_assert!(hash2.as_slice() == new_hash.as_ref());
+					debug_assert!(hash2 == &new_hash);
 				} else {
-					*hash = Some(new_hash.as_ref().to_vec()); // TODO use hash in type
+					*hash = Some(new_hash);
 				}
 			}
 		}
-		let value = match self {
+		let value = match &*self {
 			Value::NoValue => EncodedValue::NoValue,
 			Value::Value(value) => EncodedValue::Value(value.as_slice()),
-			Value::HashedValue(Some(hash), _value) => EncodedValue::HashedValue(hash.as_slice(), None),
+			Value::HashedValue(Some(hash), _value) => EncodedValue::HashedValue(hash.as_ref(), None),
 			Value::HashedValue(None, _value) => unreachable!(),
 		};
 		value
@@ -173,16 +192,16 @@ enum Node<L: TrieLayout> {
 	/// A leaf node contains the end of a key and a value.
 	/// This key is encoded from a `NibbleSlice`, meaning it contains
 	/// a flag indicating it is a leaf.
-	Leaf(NodeKey, Value),
+	Leaf(NodeKey, Value<L>),
 	/// An extension contains a shared portion of a key and a child node.
 	/// The shared portion is encoded from a `NibbleSlice` meaning it contains
 	/// a flag indicating it is an extension.
 	/// The child node is always a branch.
 	Extension(NodeKey, NodeHandle<TrieHash<L>>),
 	/// A branch has up to 16 children and an optional value.
-	Branch(Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>, Value),
+	Branch(Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>, Value<L>),
 	/// Branch node with support for a nibble (to avoid extension node).
-	NibbledBranch(NodeKey, Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>, Value),
+	NibbledBranch(NodeKey, Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>, Value<L>),
 }
 
 #[cfg(feature = "std")]
@@ -199,13 +218,13 @@ impl<'a> Debug for ToHex<'a> {
 }
 
 #[cfg(feature = "std")]
-impl Debug for Value {
+impl<L: TrieLayout> Debug for Value<L> {
 	fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
 		match self {
 			Self::NoValue => write!(fmt, "None"),
 			Self::Value(value) => write!(fmt, "Some({:?})", ToHex(value)),
 			Self::HashedValue(_hash, Some(value)) => write!(fmt, "Some({:?})", ToHex(value)),
-			Self::HashedValue(Some(hash), _) => write!(fmt, "Hash({:?})", ToHex(hash)),
+			Self::HashedValue(Some(hash), _) => write!(fmt, "Hash({:?})", ToHex(hash.as_ref())),
 			Self::HashedValue(_, _) => write!(fmt, "Invalid HashedValue"),
 		}
 	}
@@ -316,7 +335,7 @@ impl<L: TrieLayout> Node<L>
 			Node::Empty => L::Codec::empty_node().to_vec(),
 			Node::Leaf(partial, mut value) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
-				let value = value.into_encode::<L::Hash, F>(&mut child_cb);
+				let value = value.into_encode::<F>(&mut child_cb);
 				L::Codec::leaf_node(pr.right(), value)
 			},
 			Node::Extension(partial, child) => {
@@ -330,7 +349,7 @@ impl<L: TrieLayout> Node<L>
 				)
 			},
 			Node::Branch(mut children, mut value) => {
-				let value = value.into_encode::<L::Hash, F>(&mut child_cb);
+				let value = value.into_encode::<F>(&mut child_cb);
 				L::Codec::branch_node(
 					// map the `NodeHandle`s from the Branch to `ChildReferences`
 					children.iter_mut()
@@ -343,7 +362,7 @@ impl<L: TrieLayout> Node<L>
 				)
 			},
 			Node::NibbledBranch(partial, mut children, mut value) => {
-				let value = value.into_encode::<L::Hash, F>(&mut child_cb);
+				let value = value.into_encode::<F>(&mut child_cb);
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
 				L::Codec::branch_node_nibbled(
@@ -732,7 +751,7 @@ where
 		handle: NodeHandle<TrieHash<L>>,
 		key: &mut NibbleFullKey,
 		value: DBValue,
-		old_val: &mut Value,
+		old_val: &mut Value<L>,
 	) -> Result<(StorageHandle, bool), TrieHash<L>, CError<L>> {
 		let h = match handle {
 			NodeHandle::InMemory(h) => h,
@@ -747,13 +766,11 @@ where
 		Ok((self.storage.alloc(new_stored), changed))
 	}
 
-	fn replace_old_value(&mut self, old_value: &mut Value, new_value: Value, prefix: Prefix) {
+	fn replace_old_value(&mut self, old_value: &mut Value<L>, new_value: Value<L>, prefix: Prefix) {
 		match old_value {
-			Value::HashedValue(Some(hash_ve), _) => {
-				let mut hash = <TrieHash<L>>::default();
-				hash.as_mut()[..].copy_from_slice(&hash_ve[..]);
+			Value::HashedValue(Some(hash), _) => {
 				self.death_row.insert((
-					hash,
+					hash.clone(),
 					(prefix.0.into(), prefix.1),
 				));
 			},
@@ -768,7 +785,7 @@ where
 		node: Node<L>,
 		key: &mut NibbleFullKey,
 		value: DBValue,
-		old_val: &mut Value,
+		old_val: &mut Value<L>,
 	) -> Result<InsertAction<L>, TrieHash<L>, CError<L>> {
 		let partial = *key;
 
@@ -1120,7 +1137,7 @@ where
 		&mut self,
 		handle: NodeHandle<TrieHash<L>>,
 		key: &mut NibbleFullKey,
-		old_val: &mut Value,
+		old_val: &mut Value<L>,
 	) -> Result<Option<(StorageHandle, bool)>, TrieHash<L>, CError<L>> {
 		let stored = match handle {
 			NodeHandle::InMemory(h) => self.storage.destroy(h),
@@ -1144,7 +1161,7 @@ where
 		&mut self,
 		node: Node<L>,
 		key: &mut NibbleFullKey,
-		old_val: &mut Value,
+		old_val: &mut Value<L>,
 	) -> Result<Action<L>, TrieHash<L>, CError<L>> {
 		let partial = *key;
 		Ok(match (node, partial.is_empty()) {
@@ -1729,7 +1746,7 @@ where
 		&mut self,
 		key: &[u8],
 		value: &[u8],
-	) -> Result<Value, TrieHash<L>, CError<L>> {
+	) -> Result<Value<L>, TrieHash<L>, CError<L>> {
 		if !L::ALLOW_EMPTY && value.is_empty() { return self.remove(key) }
 
 		let mut old_val = Value::NoValue;
@@ -1752,7 +1769,7 @@ where
 		Ok(old_val)
 	}
 
-	fn remove(&mut self, key: &[u8]) -> Result<Value, TrieHash<L>, CError<L>> {
+	fn remove(&mut self, key: &[u8]) -> Result<Value<L>, TrieHash<L>, CError<L>> {
 		#[cfg(feature = "std")]
 		trace!(target: "trie", "remove: key={:#x?}", key);
 

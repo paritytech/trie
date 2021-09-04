@@ -149,7 +149,7 @@ pub enum ValuePlan {
 	/// Range for byte representation in encoded node.
 	Value(Range<usize>),
 	/// Range for hash in encoded node and original
-	/// value size. TODO range could be just slice since constant size.
+	/// value size.
 	HashedValue(Range<usize>),
 }
 

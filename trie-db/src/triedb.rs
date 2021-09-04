@@ -463,7 +463,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 								value
 							} else {
 								let mut res = TrieHash::<L>::default();
-								res.as_mut().copy_from_slice(hash); // TODO use hash directly in enum
+								res.as_mut().copy_from_slice(hash);
 								return Some(Err(Box::new(
 									TrieError::IncompleteDatabase(res)
 								)));
