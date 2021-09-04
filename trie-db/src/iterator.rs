@@ -120,7 +120,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 	/// Fetch value by hash at a current node height
 	pub fn fetch_value(&self, key: &[u8]) -> Option<DBValue> {
 		let mut res = TrieHash::<L>::default();
-		res.as_mut().copy_from_slice(key); // TODO use hash directly in value enum, then can just pass hash as parm
+		res.as_mut().copy_from_slice(key);
 		self.db.db().get(&res, self.key_nibbles.as_prefix())
 	}
 }

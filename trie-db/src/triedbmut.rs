@@ -124,28 +124,8 @@ impl<L: TrieLayout> Value<L> {
 		(value, new_threshold).into()
 	}
 
-	// TODO could it be replace by new equal impl?
 	fn unchanged(&self, old_value: &Value<L>) -> bool {
-		if let Value::HashedValue(Some(hash), value) = self {
-			if let Value::HashedValue(Some(old_hash), _) = old_value {
-				if hash == old_hash {
-					return true;
-				}
-			} else if let Value::HashedValue(None, old_value) = old_value {
-				if value == old_value {
-					return true;
-				}
-			}
-		} else if let Value::HashedValue(None, value) = self {
-			if let Value::HashedValue(_, old_value) = old_value {
-				if value == old_value {
-					return true;
-				}
-			}
-		} else if self == old_value {
-			return true;
-		}
-		false
+		self != old_value
 	}
 
 	fn into_encode<'a, F>(&'a mut self, f: &mut F) -> EncodedValue<'a>
