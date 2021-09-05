@@ -95,6 +95,14 @@ impl NibbleSlicePlan {
 		}
 	}
 
+	/// A empty nibbleslice.
+	pub fn empty() -> Self {
+		NibbleSlicePlan {
+			bytes: 0..0,
+			offset: 0,
+		}
+	}
+
 	/// Returns the nibble length of the slice.
 	pub fn len(&self) -> usize {
 		(self.bytes.end - self.bytes.start) * nibble_ops::NIBBLE_PER_BYTE - self.offset

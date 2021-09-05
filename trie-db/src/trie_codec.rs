@@ -30,24 +30,35 @@ use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout,
 	nibble_ops::NIBBLE_LENGTH, node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode},
+	nibble::LeftNibbleSlice,
 };
 use crate::rstd::{
 	boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec, vec::Vec,
+	borrow::Cow, cmp::Ordering, mem,
 };
 
 struct EncoderStackEntry<C: NodeCodec> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: NibbleVec,
+	/// Node stacked.
 	node: Rc<OwnedNode<DBValue>>,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
 	/// Flags indicating whether each child is omitted in the encoded node.
 	omit_children: Vec<bool>,
+	/// Enum indicating whether we should omit value in the encoded node.
+	omit_value: OmitValue,
 	/// The encoding of the subtrie nodes rooted at this entry, which is built up in
 	/// `encode_compact`.
 	output_index: usize,
 	_marker: PhantomData<C>,
+}
+
+enum OmitValue {
+	OmitValue,
+	EscapeValue,
+	None,
 }
 
 impl<C: NodeCodec> EncoderStackEntry<C> {
@@ -98,7 +109,26 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 	fn encode_node(&self) -> Result<Vec<u8>, C::HashOut, C::Error> {
 		let node_data = self.node.data();
 		Ok(match self.node.node_plan() {
-			NodePlan::Empty | NodePlan::Leaf { .. } => node_data.to_vec(),
+			NodePlan::Empty => node_data.to_vec(),
+			NodePlan::Leaf { partial, value } => {
+				let partial = partial.build(node_data);
+
+				match self.omit_value {
+					OmitValue::OmitValue => {
+						C::leaf_node(partial.right(), &[][..])
+					},
+					OmitValue::EscapeValue => {
+						if let Some(escaped) = encode_empty_escape(&node_data[value.clone()]) {
+							C::leaf_node(partial.right(), &escaped[..])
+						} else {
+							node_data.to_vec()
+						}
+					},
+					OmitValue::None => {
+						node_data.to_vec()
+					},
+				}
+			},
 			NodePlan::Extension { partial, child: _ } => {
 				if !self.omit_children[0] {
 					node_data.to_vec()
@@ -109,18 +139,54 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 				}
 			}
 			NodePlan::Branch { value, children } => {
+				let value = value.clone().map(|range| {
+					let node_data = &node_data[range];
+					match self.omit_value {
+						OmitValue::OmitValue => {
+							Cow::Borrowed(&[][..])
+						},
+						OmitValue::EscapeValue => {
+							if let Some(escaped) = encode_empty_escape(node_data) {
+								escaped
+							} else {
+								node_data.into()
+							}
+						},
+						OmitValue::None => {
+							node_data.into()
+						},
+					}
+				});
 				C::branch_node(
 					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
-					value.clone().map(|range| &node_data[range])
+					value.as_ref().map(|v| &v[..]),
 				)
 			}
 			NodePlan::NibbledBranch { partial, value, children } => {
+				let value = value.clone().map(|range| {
+					let node_data = &node_data[range];
+					match self.omit_value {
+						OmitValue::OmitValue => {
+							Cow::Borrowed(&[][..])
+						},
+						OmitValue::EscapeValue => {
+							if let Some(escaped) = encode_empty_escape(node_data) {
+								escaped
+							} else {
+								node_data.into()
+							}
+						},
+						OmitValue::None => {
+							node_data.into()
+						},
+					}
+				});
 				let partial = partial.build(node_data);
 				C::branch_node_nibbled(
 					partial.right_iter(),
 					partial.len(),
 					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
-					value.clone().map(|range| &node_data[range])
+					value.as_ref().map(|v| &v[..]),
 				)
 			}
 		})
@@ -167,7 +233,63 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 /// references.
 pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 	where
-		L: TrieLayout
+		L: TrieLayout,
+{
+	encode_compact_skip_values_inner::<L, _>(db, ())
+}
+
+/// Variant of 'encode_compact' where all values are removed and replace by empty value.
+pub fn encode_compact_skip_all_values<'a, L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+	where
+		L: TrieLayout,
+{
+	encode_compact_skip_values_inner::<L, _>(db, All)
+}
+
+/// Variant of 'encode_compact' where values are removed
+/// for a given condition.
+/// Condition uses values as parameters.
+pub fn encode_compact_skip_conditional<'a, L, F>(
+	db: &TrieDB<L>,
+	value_skip_condition: F,
+	escape_values: bool,
+) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+	where
+		L: TrieLayout,
+		F: FnMut(&[u8]) -> bool,
+{
+	let to_skip = NoKeyCondition(value_skip_condition);
+	if escape_values {
+		encode_compact_skip_values_inner::<L, _>(db, Escape(to_skip))
+	} else {
+		encode_compact_skip_values_inner::<L, _>(db, to_skip)
+	}
+}
+
+/// Variant of 'encode_compact' where values are removed
+/// for a given condition.
+/// Condition uses key and values as parameters.
+pub fn encode_compact_skip_conditional_with_key<'a, L, F>(
+	db: &TrieDB<L>,
+	value_skip_condition: F,
+	escape_values: bool,
+) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+	where
+		L: TrieLayout,
+		F: FnMut(&NibbleVec, &[u8]) -> bool,
+{
+	let to_skip = WithKeyCondition(value_skip_condition);
+	if escape_values {
+		encode_compact_skip_values_inner::<L, _>(db, Escape(to_skip))
+	} else {
+		encode_compact_skip_values_inner::<L, _>(db, to_skip)
+	}
+}
+
+fn encode_compact_skip_values_inner<'a, L, F>(db: &TrieDB<L>, mut to_skip: F) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+	where
+		L: TrieLayout,
+		F: ValuesRemoveCondition,
 {
 	let mut output = Vec::new();
 
@@ -221,11 +343,13 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 					NodePlan::Extension { .. } => 1,
 					NodePlan::Branch { .. } | NodePlan::NibbledBranch { .. } => NIBBLE_LENGTH,
 				};
+				let omit_value = to_skip.skip_new_node_value(&prefix, &node);
 				stack.push(EncoderStackEntry {
 					prefix,
 					node,
 					child_index: 0,
 					omit_children: vec![false; children_len],
+					omit_value,
 					output_index: output.len(),
 					_marker: PhantomData::default(),
 				});
@@ -250,6 +374,359 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 	Ok(output)
 }
 
+trait ValuesRemoveCondition {
+	const ESCAPE: OmitValue;
+	const REMOVE_NONE: bool;
+	const REMOVE_ALL: bool;
+	const NEED_KEY: bool;
+
+	fn check(&mut self, key: &NibbleVec, value: &[u8]) -> bool;
+
+	// return (omit_value, escape_value)
+	fn skip_new_node_value(&mut self, prefix: &NibbleVec, node: &Rc<OwnedNode<DBValue>>) -> OmitValue {
+
+		if Self::REMOVE_ALL {
+			return OmitValue::OmitValue;
+		}
+		if Self::REMOVE_NONE {
+			return Self::ESCAPE;
+		}
+		let (partial, value) = match node.node_plan() {
+			NodePlan::NibbledBranch{ partial, value: Some(value), ..}
+			| NodePlan::Leaf {partial, value} => {
+				(partial.clone(), value)
+			},
+			NodePlan::Branch{ value: Some(value), ..} => {
+				(crate::node::NibbleSlicePlan::empty(), value)
+			},
+			_ => return OmitValue::None,
+		};
+
+		let node_data = node.data();
+		let value = &node_data[value.clone()];
+		if Self::NEED_KEY {
+			let mut node_key = prefix.clone();
+			let partial = partial.build(node_data);
+			node_key.append_partial(partial.right());
+			return if self.check(&node_key, value) {
+				OmitValue::OmitValue
+			} else {
+				Self::ESCAPE
+			};
+		} else {
+			return if self.check(&prefix, value) {
+				OmitValue::OmitValue
+			} else {
+				Self::ESCAPE
+			};
+		}
+	}
+}
+
+impl ValuesRemoveCondition for () {
+	const REMOVE_NONE: bool = true;
+	const REMOVE_ALL: bool = false;
+	const NEED_KEY: bool = false;
+	const ESCAPE: OmitValue = OmitValue::None;
+
+	fn check(&mut self, _key: &NibbleVec, _value: &[u8]) -> bool {
+		false
+	}
+}
+
+struct All;
+
+impl ValuesRemoveCondition for All {
+	const REMOVE_NONE: bool = false;
+	const REMOVE_ALL: bool = true;
+	const NEED_KEY: bool = false;
+	const ESCAPE: OmitValue = OmitValue::None;
+
+	fn check(&mut self, _key: &NibbleVec, _value: &[u8]) -> bool {
+		true
+	}
+}
+
+struct WithKeyCondition<F>(F);
+
+impl<F> ValuesRemoveCondition for WithKeyCondition<F>
+	where F: FnMut(&NibbleVec, &[u8]) -> bool,
+{
+	const REMOVE_NONE: bool = false;
+	const REMOVE_ALL: bool = false;
+	const NEED_KEY: bool = true;
+	const ESCAPE: OmitValue = OmitValue::None;
+
+	fn check(&mut self, key: &NibbleVec, value: &[u8]) -> bool {
+		self.0(key, value)
+	}
+}
+
+struct NoKeyCondition<F>(F);
+
+impl<F> ValuesRemoveCondition for NoKeyCondition<F>
+	where F: FnMut(&[u8]) -> bool,
+{
+	const REMOVE_NONE: bool = false;
+	const REMOVE_ALL: bool = false;
+	const NEED_KEY: bool = false;
+	const ESCAPE: OmitValue = OmitValue::None;
+
+	fn check(&mut self, _key: &NibbleVec, value: &[u8]) -> bool {
+		self.0(value)
+	}
+}
+
+struct Escape<F>(F);
+
+impl<F> ValuesRemoveCondition for Escape<F>
+	where F: ValuesRemoveCondition,
+{
+	const REMOVE_NONE: bool = F::REMOVE_NONE;
+	const REMOVE_ALL: bool = F::REMOVE_ALL;
+	const NEED_KEY: bool = F::NEED_KEY;
+	const ESCAPE: OmitValue = OmitValue::EscapeValue;
+
+	fn check(&mut self, key: &NibbleVec, value: &[u8]) -> bool {
+		self.0.check(key, value)
+	}
+}
+
+impl<'a, F> ValuesRemoveCondition for &'a mut F
+	where F: ValuesRemoveCondition,
+{
+	const REMOVE_NONE: bool = F::REMOVE_NONE;
+	const REMOVE_ALL: bool = F::REMOVE_ALL;
+	const NEED_KEY: bool = F::NEED_KEY;
+	const ESCAPE: OmitValue = F::ESCAPE;
+
+	fn check(&mut self, key: &NibbleVec, value: &[u8]) -> bool {
+		(*self).check(key, value)
+	}
+}
+
+enum ValuesInsert<'a, I, F> {
+	None,
+	KnownKeys(InsertAt<'a, I, F>),
+	EscapedKnownKeys(InsertAt<'a, I, F>),
+	EscapedValues(F),
+	NonEscapedValues(F),
+}
+
+struct InsertAt<'a, I, F> {
+	key_values: I,
+	fetcher: F,
+	next_key_value: Option<&'a [u8]>,
+}
+
+impl<
+	'a,
+	F: LazyFetcher<'a>,
+	I: Iterator<Item = &'a [u8]>
+> InsertAt<'a, I, F> {
+	fn new(mut key_values: I, fetcher: F) -> Self {
+		let next_key_value = key_values.next();
+		InsertAt {
+			key_values,
+			fetcher,
+			next_key_value,
+		}
+	}
+}
+
+/// Since empty value is not a very common case, its encoding
+/// will start by a byte sequence to avoid escaping too often
+/// on valid value.
+/// 
+/// The sequence is escape character followed by 'Esc'.
+/// The repeating character for case where the sequence is part
+/// of the content, is the first bit defined here.
+const EMPTY_ESCAPE_SEQUENCE: &'static [u8] = b"Esc";
+
+#[test]
+fn escape_bytes_check() {
+	assert_eq!(EMPTY_ESCAPE_SEQUENCE, [27, 69, 115, 99]);
+}
+
+/// Escape encode value.
+/// This allows using the encoded empty value to define
+/// a skipped value.
+///
+/// So we redefine the empty value as a sequence of byte.
+/// Se we redefine this sequence with n character appended by appending another character.
+/// Such that:
+/// [] -> [27, 69, 115, 99]
+/// [27, 69, 115, 99] -> [27, 69, 115, 99, 27]
+/// [27, 69, 115, 99, 27] -> [27, 69, 115, 99, 27, 27]
+///
+/// When escaped return the escaped value.
+fn encode_empty_escape(value: &[u8]) -> Option<Cow<[u8]>> {
+	if value.len() == 0 {
+		return Some(EMPTY_ESCAPE_SEQUENCE.into());
+	}
+
+	if value.starts_with(EMPTY_ESCAPE_SEQUENCE) {
+		let mut i = EMPTY_ESCAPE_SEQUENCE.len();
+		while Some(&EMPTY_ESCAPE_SEQUENCE[0]) == value.get(i) {
+			i += 1;
+		}
+		if i == value.len() {
+			let mut value = value.to_vec();
+			value.push(EMPTY_ESCAPE_SEQUENCE[0]);
+			// escaped escape sequence
+			return Some(value.into());
+		}
+	}
+	None
+}
+
+/// Get empty escaped value (either empty or value starting with
+/// empty prefix minus end escape character).
+///
+/// If escaped return the decoded value.
+fn decode_empty_escaped(value: &[u8]) -> Option<&[u8]> {
+	if value.starts_with(EMPTY_ESCAPE_SEQUENCE) {
+		let mut i = EMPTY_ESCAPE_SEQUENCE.len();
+		if value.len() == i {
+			// escaped empty
+			return Some(&[])
+		}
+		while Some(&EMPTY_ESCAPE_SEQUENCE[0]) == value.get(i) {
+			i += 1;
+		}
+		if i == value.len() {
+			// escaped escape sequence
+			return Some(&value[..value.len() - 1]);
+		}
+	}
+	None
+}
+
+#[test]
+fn escape_empty_value() {
+	let test_set = [
+		(&[][..], Some(&[27u8, 69, 115, 99][..])),
+		(&[27u8, 69, 115], None),
+		(&[27, 69, 115, 100], None),
+		(&[27, 69, 115, 99], Some(&[27, 69, 115, 99, 27])),
+		(&[27, 69, 115, 99, 100], None),
+		(&[27, 69, 115, 99, 27], Some(&[27, 69, 115, 99, 27, 27])),
+		(&[27, 69, 115, 99, 27, 100], None),
+	];
+
+	for (input, output) in test_set.iter() {
+		let encoded = encode_empty_escape(input);
+		assert_eq!(&encoded.as_ref().map(Cow::as_ref), output);
+		if let Some(encoded) = output {
+			let decoded = decode_empty_escaped(encoded);
+			assert_eq!(decoded, Some(*input));
+		}
+	}
+}
+
+impl<
+	'a,
+	F: LazyFetcher<'a>,
+	V: Iterator<Item = &'a [u8]>
+> ValuesInsert<'a, V, F> {
+	fn escaped_value(
+		&self,
+	) -> bool {
+		match self {
+			ValuesInsert::NonEscapedValues(..)
+			| ValuesInsert::KnownKeys(..)
+			| ValuesInsert::None => false,
+			ValuesInsert::EscapedKnownKeys(..)
+			| ValuesInsert::EscapedValues(..) => true
+		}
+	}
+
+	fn skip_new_node_value<C: NodeCodec>(
+		&mut self,
+		prefix: &mut NibbleVec,
+		entry: &mut DecoderStackEntry<'a, C>,
+	) -> bool {
+
+		let original_length = prefix.len();
+		let (partial, empty_value, escaped_value) = match entry.node {
+			Node::Leaf(partial, value)
+			| Node::NibbledBranch(partial, _, Some(value)) => {
+				(partial, value.is_empty(), if self.escaped_value() {
+					decode_empty_escaped(value)
+				} else {
+					None
+				})
+			},
+			Node::Branch(_, Some(value)) => {
+				(crate::nibble::NibbleSlice::new(&[]), value.is_empty(), if self.escaped_value() {
+					decode_empty_escaped(value)
+				} else {
+					None
+				})
+			},
+			_ => return true,
+		};
+
+		match self {
+			ValuesInsert::None => (),
+			ValuesInsert::EscapedKnownKeys(skipped_keys)
+			| ValuesInsert::KnownKeys(skipped_keys) => {
+				if let Some(next) = &skipped_keys.next_key_value {
+					prefix.append_partial(partial.right());
+					// comparison is redundant with previous checks, could be optimized.
+					let node_key = LeftNibbleSlice::new(prefix.inner()).truncate(prefix.len());
+					let next = LeftNibbleSlice::new(next);
+					let (move_next, result) = match next.cmp(&node_key) {
+						Ordering::Less => (true, false),
+						Ordering::Greater => (false, false),
+						Ordering::Equal => {
+							(true, true)
+						},
+					};
+					prefix.drop_lasts(prefix.len() - original_length);
+					if result && empty_value {
+						if let Some(key) = mem::take(&mut skipped_keys.next_key_value) {
+							if let Some(value) = skipped_keys.fetcher.fetch(key) {
+								entry.inserted_value = Some(value);
+							} else {
+								return false;
+							}
+						}
+					}
+					if result && !empty_value {
+						// expected skip value was not skip, can be harmless, but consider invalid
+						return false;
+					}
+					if move_next {
+						skipped_keys.next_key_value = skipped_keys.key_values.next();
+						if !result {
+							return self.skip_new_node_value(prefix, entry);
+						}
+					}
+				}
+			},
+			ValuesInsert::NonEscapedValues(fetcher)
+			| ValuesInsert::EscapedValues(fetcher) => {
+				if empty_value {
+					prefix.append_partial(partial.right());
+					let key = LeftNibbleSlice::new(prefix.inner()).truncate(prefix.len());
+					if let Some(value) = fetcher.fetch(key.as_slice().expect("Values have keys")) {
+						entry.inserted_value = Some(value);
+						prefix.drop_lasts(prefix.len() - original_length);
+					} else {
+						prefix.drop_lasts(prefix.len() - original_length);
+						return false;
+					}
+				}
+			},
+		}
+		if let Some(new_value) = escaped_value {
+			entry.inserted_value = Some(new_value.into());
+		}
+		true
+	}
+}
+
 struct DecoderStackEntry<'a, C: NodeCodec> {
 	node: Node<'a>,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
@@ -257,6 +734,8 @@ struct DecoderStackEntry<'a, C: NodeCodec> {
 	child_index: usize,
 	/// The reconstructed child references.
 	children: Vec<Option<ChildReference<C::HashOut>>>,
+	/// Value to insert.
+	inserted_value: Option<Cow<'a, [u8]>>,
 	_marker: PhantomData<C>,
 }
 
@@ -347,12 +826,17 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	///
 	/// Preconditions:
 	/// - if node is an extension node, then `children[0]` is Some.
-	fn encode_node(self) -> Vec<u8> {
-		match self.node {
+	fn encode_node(mut self) -> Option<Vec<u8>> {
+		Some(match self.node {
 			Node::Empty =>
 				C::empty_node().to_vec(),
-			Node::Leaf(partial, value) =>
-				C::leaf_node(partial.right(), value),
+			Node::Leaf(partial, value) => {
+				if let Some(inserted_value) = self.inserted_value.take() {
+					C::leaf_node(partial.right(), inserted_value.as_ref())
+				} else {
+					C::leaf_node(partial.right(), value)
+				}
+			},
 			Node::Extension(partial, _) =>
 				C::extension_node(
 					partial.right_iter(),
@@ -360,16 +844,31 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 					self.children[0]
 						.expect("required by method precondition; qed"),
 				),
-			Node::Branch(_, value) =>
-				C::branch_node(self.children.into_iter(), value),
-			Node::NibbledBranch(partial, _, value) =>
-				C::branch_node_nibbled(
-					partial.right_iter(),
-					partial.len(),
-					self.children.iter(),
-					value,
-				),
-		}
+			Node::Branch(_, value) => {
+				if let Some(inserted_value) = self.inserted_value.take() {
+					C::branch_node(self.children.into_iter(), Some(inserted_value.as_ref()))
+				} else {
+					C::branch_node(self.children.into_iter(), value)
+				}
+			},
+			Node::NibbledBranch(partial, _, value) => {
+				if let Some(inserted_value) = self.inserted_value.take() {
+					C::branch_node_nibbled(
+						partial.right_iter(),
+						partial.len(),
+						self.children.iter(),
+						Some(inserted_value.as_ref()),
+					)
+				} else {
+					C::branch_node_nibbled(
+						partial.right_iter(),
+						partial.len(),
+						self.children.iter(),
+						value,
+					)
+				}
+			},
+		})
 	}
 }
 
@@ -402,6 +901,73 @@ pub fn decode_compact_from_iter<'a, L, DB, T, I>(db: &mut DB, encoded: I)
 		DB: HashDB<L::Hash, T>,
 		I: IntoIterator<Item = &'a [u8]>,
 {
+	let skipped = ValuesInsert::<core::iter::Empty<_>, ()>::None;
+	decode_compact_inner::<L, DB, T, _, _, _>(db, encoded.into_iter(), skipped)
+}
+
+/// Variant of 'decode_compact' that inject some known key values.
+/// Values are only added if the existing one is a zero length value,
+/// if the value exist and is not a zero length value, an error
+/// is returned.
+///
+/// Known key in input must be ordered.
+pub fn decode_compact_with_known_values<'a, L, DB, T, I, F, K>(
+	db: &mut DB,
+	encoded: I,
+	fetcher: F,
+	known_keys: K,
+	escaped_value: bool,
+) -> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
+	where
+		L: TrieLayout,
+		DB: HashDB<L::Hash, T>,
+		I: IntoIterator<Item = &'a [u8]>,
+		F: LazyFetcher<'a>,
+		K: IntoIterator<Item = &'a [u8]>,
+{
+	let known = if escaped_value {
+		ValuesInsert::EscapedKnownKeys(InsertAt::new(known_keys.into_iter(), fetcher))
+	} else {
+		ValuesInsert::KnownKeys(InsertAt::new(known_keys.into_iter(), fetcher))
+	};
+	decode_compact_inner::<L, DB, T, _, F, _>(db, encoded.into_iter(), known)
+}
+
+/// Variant of 'decode_compact' that try to fetch value when they are
+/// skipped.
+/// Skipped values are encoded into a 0 length value.
+pub fn decode_compact_for_encoded_skipped_values<'a, L, DB, T, I, F>(
+	db: &mut DB,
+	encoded: I,
+	fetcher: F,
+	escaped_value: bool,
+) -> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
+	where
+		L: TrieLayout,
+		DB: HashDB<L::Hash, T>,
+		I: IntoIterator<Item = &'a [u8]>,
+		F: LazyFetcher<'a>,
+{
+	let skipped = if escaped_value {
+		ValuesInsert::EscapedValues(fetcher)
+	} else {
+		ValuesInsert::NonEscapedValues(fetcher)
+	};
+	decode_compact_inner::<L, DB, T, _, F, core::iter::Empty<_>>(db, encoded.into_iter(), skipped)
+}
+
+fn decode_compact_inner<'a, L, DB, T, I, F, V>(
+	db: &mut DB,
+	encoded: I,
+	mut skipped: ValuesInsert<'a, V, F>,
+)	-> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
+	where
+		L: TrieLayout,
+		DB: HashDB<L::Hash, T>,
+		I: Iterator<Item = &'a [u8]>,
+		F: LazyFetcher<'a>,
+		V: Iterator<Item = &'a [u8]>,
+{
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
 	let mut stack: Vec<DecoderStackEntry<L::Codec>> = Vec::new();
@@ -422,10 +988,14 @@ pub fn decode_compact_from_iter<'a, L, DB, T, I>(db: &mut DB, encoded: I)
 			node,
 			child_index: 0,
 			children: vec![None; children_len],
+			inserted_value: None,
 			_marker: PhantomData::default(),
 		};
 
 		loop {
+			if !skipped.skip_new_node_value(&mut prefix, &mut last_entry) {
+				return Err(Box::new(TrieError::IncompleteDatabase(<TrieHash<L>>::default())));
+			}
 			if !last_entry.advance_child_index()? {
 				last_entry.push_to_prefix(&mut prefix);
 				stack.push(last_entry);
@@ -434,7 +1004,8 @@ pub fn decode_compact_from_iter<'a, L, DB, T, I>(db: &mut DB, encoded: I)
 
 			// Since `advance_child_index` returned true, the preconditions for `encode_node` are
 			// satisfied.
-			let node_data = last_entry.encode_node();
+			let node_data = last_entry.encode_node()
+				.ok_or(Box::new(TrieError::IncompleteDatabase(<TrieHash<L>>::default())))?;
 			let node_hash = db.insert(prefix.as_prefix(), node_data.as_ref());
 
 			if let Some(entry) = stack.pop() {
@@ -450,4 +1021,88 @@ pub fn decode_compact_from_iter<'a, L, DB, T, I>(db: &mut DB, encoded: I)
 	}
 
 	Err(Box::new(TrieError::IncompleteDatabase(<TrieHash<L>>::default())))
+}
+
+/// Simple lazy access to values to insert in proof.
+pub trait LazyFetcher<'a> {
+	/// Get actual value as bytes.
+	/// If value cannot be fetch return `None`, resulting
+	/// in an error in the decode method.
+	fn fetch(&self, key: &[u8]) -> Option<Cow<'a, [u8]>>;
+}
+
+impl<'a> LazyFetcher<'a> for () {
+	fn fetch(&self, _key: &[u8]) -> Option<Cow<'a, [u8]>> {
+		None
+	}
+}
+
+impl<'a> LazyFetcher<'a> for (&'a [u8], &'a [u8]) {
+	fn fetch(&self, key: &[u8]) -> Option<Cow<'a, [u8]>> {
+		if key == self.0 {
+			Some(Cow::Borrowed(self.1))
+		} else {
+			None
+		}
+	}
+}
+
+impl<'a> LazyFetcher<'a> for &'a crate::rstd::BTreeMap<&'a [u8], &'a [u8]> {
+	fn fetch(&self, key: &[u8]) -> Option<Cow<'a, [u8]>> {
+		self.get(key).map(|value| Cow::Borrowed(*value))
+	}
+}
+
+/// Implementation of condition to use for removing values.
+pub mod compact_conditions {
+	use super::*;
+
+	/// Treshold size condition for removing values from proof.
+	pub fn skip_treshold(treshold: usize) -> impl FnMut(&[u8]) -> bool {
+		move |value: &[u8]| {
+			value.len() > treshold
+		}
+	}
+
+	/// Treshold size condition for removing values from proof.
+	pub fn skip_treshold_collect_keys<'a>(
+		treshold: usize,
+		keys: &'a mut Vec<Vec<u8>>,
+	) -> impl FnMut(&NibbleVec, &[u8]) -> bool + 'a {
+		move |key: &NibbleVec, value: &[u8]| {
+			if value.len() > treshold {
+				keys.push(key.as_prefix().0.to_vec());
+				true
+			} else {
+				false
+			}
+		}
+	}
+
+	/// Skip keys from an iterator.
+	pub fn skip_given_ordered_keys<'a>(
+		iter: impl IntoIterator<Item = &'a [u8]> + 'a,
+	) -> impl FnMut(&NibbleVec, &[u8]) -> bool + 'a {
+		let mut iter = iter.into_iter();
+		let mut next_key = iter.next();
+		move |node_key: &NibbleVec, _value: &[u8]| {
+			while let Some(next) = next_key {
+				// comparison is redundant with previous checks, could be optimized.
+				let node_key = LeftNibbleSlice::new(node_key.inner()).truncate(node_key.len());
+				let next = LeftNibbleSlice::new(next);
+				match next.cmp(&node_key) {
+					Ordering::Less => {
+						next_key = iter.next();
+					},
+					Ordering::Equal => {
+						next_key = iter.next();
+						return true;
+					},
+					Ordering::Greater => break,
+				};
+			}
+
+			false
+		}
+	}
 }

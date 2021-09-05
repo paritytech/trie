@@ -22,14 +22,16 @@ extern crate alloc;
 mod rstd {
 	pub use std::{borrow, boxed, cmp, convert, fmt, hash, iter, marker, mem, ops, rc, result, vec};
 	pub use std::collections::VecDeque;
+	pub use std::collections::BTreeMap;
 	pub use std::error::Error;
 }
 
 #[cfg(not(feature = "std"))]
 mod rstd {
-	pub use core::{borrow, convert, cmp, iter, fmt, hash, marker, mem, ops, result};
-	pub use alloc::{boxed, rc, vec};
+	pub use core::{convert, cmp, iter, fmt, hash, marker, mem, ops, result};
+	pub use alloc::{borrow, boxed, rc, vec};
 	pub use alloc::collections::VecDeque;
+	pub use alloc::collections::btree_map::BTreeMap;
 	pub trait Error {}
 	impl<T> Error for T {}
 }
@@ -71,7 +73,11 @@ pub use crate::node_codec::{NodeCodec, Partial};
 pub use crate::iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed};
 pub use crate::iterator::TrieDBNodeIterator;
-pub use crate::trie_codec::{decode_compact, decode_compact_from_iter, encode_compact};
+pub use crate::trie_codec::{encode_compact,
+	decode_compact, decode_compact_from_iter, decode_compact_with_known_values,
+	decode_compact_for_encoded_skipped_values, encode_compact_skip_all_values,
+	LazyFetcher, compact_conditions, encode_compact_skip_conditional,
+	encode_compact_skip_conditional_with_key};
 
 #[cfg(feature = "std")]
 pub use crate::iter_build::TrieRootPrint;
