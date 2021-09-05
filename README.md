@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.com/paritytech/trie.svg?branch=master)](https://travis-ci.com/paritytech/trie)
+[![Build Status](https://github.com/paritytech/trie/actions/workflows/rust.yml/badge.svg)](https://github.com/paritytech/trie/actions)
 # Trie
 
 A generic implementation of the Base-16 Modified Merkle Tree ("Trie") data structure,
