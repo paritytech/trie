@@ -37,3 +37,5 @@ mod recorder;
 mod iter_build;
 #[cfg(test)]
 mod trie_codec;
+#[cfg(test)]
+mod traverse;

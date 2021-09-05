@@ -48,6 +48,7 @@ use core::{
 	mem,
 	marker::PhantomData,
 	cmp::Eq,
+	cmp,
 	borrow::Borrow,
 };
 
@@ -157,8 +158,13 @@ impl<H, KF, T, M> PartialEq<MemoryDB<H, KF, T, M>> for MemoryDB<H, KF, T, M>
 	M: MemTracker<T> + PartialEq,
 {
 	fn eq(&self, other: &MemoryDB<H, KF, T, M>) -> bool {
-		for a in self.data.iter() {
-			match other.data.get(&a.0) {
+		let (s, other) = if self.data.len() > other.data.len() {
+			(&self.data, &other.data)
+		} else {
+			(&other.data, &self.data)
+		};
+		for a in s.iter() {
+			match other.get(&a.0) {
 				Some(v) if v != a.1 => return false,
 				None => return false,
 				_ => (),
@@ -178,7 +184,7 @@ impl<H, KF, T, M> Eq for MemoryDB<H, KF, T, M>
 {}
 
 pub trait KeyFunction<H: KeyHasher> {
-	type Key: Send + Sync + Clone + hash::Hash + Eq;
+	type Key: Send + Sync + Clone + hash::Hash + Eq + AsRef<[u8]>;
 
 	fn key(hash: &H::Out, prefix: Prefix) -> Self::Key;
 }

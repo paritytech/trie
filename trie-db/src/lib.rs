@@ -51,6 +51,7 @@ pub mod recorder;
 mod fatdb;
 mod fatdbmut;
 mod iter_build;
+pub mod traverse;
 mod iterator;
 mod lookup;
 mod nibble;
@@ -66,7 +67,7 @@ pub use self::fatdb::{FatDB, FatDBIterator};
 pub use self::fatdbmut::FatDBMut;
 pub use self::recorder::{Recorder, Record};
 pub use self::lookup::Lookup;
-pub use self::nibble::{NibbleSlice, NibbleVec, nibble_ops};
+pub use self::nibble::{NibbleSlice, NibbleVec, nibble_ops, OwnedPrefix};
 pub use crate::node_codec::{NodeCodec, Partial};
 pub use crate::iter_build::{trie_visit, ProcessEncodedNode,
 	 TrieBuilder, TrieRoot, TrieRootUnhashed};
@@ -127,7 +128,6 @@ impl<T, E> Error for TrieError<T, E> where T: fmt::Debug, E: Error {}
 /// Trie result type.
 /// Boxed to avoid copying around extra space for the `Hasher`s `Out` on successful queries.
 pub type Result<T, H, E> = crate::rstd::result::Result<T, Box<TrieError<H, E>>>;
-
 
 /// Trie-Item type used for iterators over trie data.
 pub type TrieItem<'a, U, E> = Result<(Vec<u8>, DBValue), U, E>;
@@ -450,3 +450,8 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
 pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;
+
+/// This was only implemented for trie without extension, it could
+/// be implemented for trie and extension in the future but is not
+/// at this point.
+const NO_EXTENSION_ONLY: &str = "trie without extension implemented only";

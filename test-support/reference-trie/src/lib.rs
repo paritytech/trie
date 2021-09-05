@@ -29,9 +29,11 @@ use trie_db::{
 	TrieBuilder,
 	TrieRoot,
 	Partial,
+	OwnedPrefix,
 };
 use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
+pub use trie_db::traverse::{batch_update, InputAction, unprefixed_detached_trie, prefixed_detached_trie};
 
 use trie_db::{
 	nibble_ops, NodeCodec,
@@ -1198,6 +1200,31 @@ pub fn compare_no_extension_insert_remove(
 	// we are testing the RefTrie code here so we do not sort or check uniqueness
 	// before.
 	assert_eq!(*t.root(), calc_root_no_extension(data2));
+}
+
+pub fn trie_traverse_key_no_extension_build<'a, I, K, V, B>(
+	// TODO db to non mutable
+	db: &'a mut dyn hash_db::HashDBRef<keccak_hasher::KeccakHasher, B>,
+	root: &'a <KeccakHasher as Hasher>::Out,
+	elements: I,
+) -> (
+	<KeccakHasher as Hasher>::Out,
+	impl Iterator<Item = (OwnedPrefix, <KeccakHasher as Hasher>::Out, Option<Vec<u8>>)>,
+	impl Iterator<Item = (Vec<u8>, OwnedPrefix, <KeccakHasher as Hasher>::Out)>,
+)
+	where
+		I: IntoIterator<Item = (K, Option<V>)>,
+		K: AsRef<[u8]> + Ord,
+		V: AsRef<[u8]>,
+		B: Borrow<[u8]> + AsRef<[u8]> + for<'b> From<&'b [u8]>,
+{
+	let elements = elements.into_iter().map(|(k, v)| (k, if let Some(v) = v {
+		InputAction::Insert(v)
+	} else {
+		InputAction::Delete
+	}));
+	let (root, values, values_detached, detached_root) = batch_update::<NoExtensionLayout, _, _, _, _>(db, root, elements).unwrap();
+	(root, values.into_iter().chain(values_detached.into_iter()), detached_root.into_iter())
 }
 
 #[cfg(test)]

@@ -35,6 +35,20 @@ impl NibbleVec {
 		}
 	}
 
+	/// Make a new `NibbleVec`.
+	/// TODO replace by From LeftNibbleSlice??
+	pub fn from(d: &[u8], l: usize) -> Self {
+		let mut v = Self::default();
+		let ix = l / nibble_ops::NIBBLE_PER_BYTE;
+		let pad = l % nibble_ops::NIBBLE_PER_BYTE;
+		(0..ix).for_each(|i| v.inner.push(d[i]));
+		if pad == 1 {
+			v.inner.push(nibble_ops::pad_left(d[ix]));
+		}
+		v.len = l;
+		v
+	}
+
 	/// Length of the `NibbleVec`.
 	#[inline(always)]
 	pub fn len(&self) -> usize { self.len }

@@ -13,11 +13,19 @@
 // limitations under the License.
 
 use hash_db::Hasher;
+use crate::NO_EXTENSION_ONLY;
 use crate::nibble::{self, NibbleSlice};
 use crate::nibble::nibble_ops;
 use crate::node_codec::NodeCodec;
+use crate::rstd::{borrow::Borrow, ops::Range, boxed::Box, vec::Vec};
 
-use crate::rstd::{borrow::Borrow, ops::Range};
+
+/// Owned handle to a node, to use when there is no caching.
+pub type StorageHandle = Vec<u8>;
+
+type TNode<H> = crate::triedbmut::NodeMut<H, StorageHandle>;
+
+type TNodeHandle<H> = crate::triedbmut::NodeHandleMut<H, StorageHandle>;
 
 /// Partial node key type: offset and owned value of a nibbleslice.
 /// Offset is applied on first byte of array (bytes are right aligned).
@@ -73,6 +81,17 @@ impl NodeHandlePlan {
 		match self {
 			NodeHandlePlan::Hash(range) => NodeHandle::Hash(&data[range.clone()]),
 			NodeHandlePlan::Inline(range) => NodeHandle::Inline(&data[range.clone()]),
+		}
+	}
+
+	fn build_owned_handle<H: AsMut<[u8]> + Default>(&self, data: &[u8]) -> TNodeHandle<H> {
+		match self {
+			NodeHandlePlan::Hash(range) => {
+				let mut hash = H::default();
+				hash.as_mut().copy_from_slice(&data[range.clone()]);
+				TNodeHandle::Hash(hash)
+			},
+			NodeHandlePlan::Inline(range) => TNodeHandle::InMemory((&data[range.clone()]).into()),
 		}
 	}
 }
@@ -177,7 +196,7 @@ impl NodePlan {
 /// An `OwnedNode` is an owned type from which a `Node` can be constructed which borrows data from
 /// the `OwnedNode`. This is useful for trie iterators.
 #[cfg_attr(feature = "std", derive(Debug))]
-#[derive(PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct OwnedNode<D: Borrow<[u8]>> {
 	data: D,
 	plan: NodePlan,
@@ -203,5 +222,280 @@ impl<D: Borrow<[u8]>> OwnedNode<D> {
 	/// Construct a `Node` by borrowing data from this struct.
 	pub fn node(&self) -> Node {
 		self.plan.build(self.data.borrow())
+	}
+
+	/// Get extension part of the node (partial) if any.
+	pub fn partial(&self) -> Option<NibbleSlice> {
+		match &self.plan {
+			NodePlan::Branch { .. }
+			| NodePlan::Empty => None,
+			NodePlan::Leaf { partial, .. }
+			| NodePlan::NibbledBranch { partial, .. }
+			| NodePlan::Extension { partial, .. } =>
+				Some(partial.build(self.data.borrow())),
+		}
+	}
+
+	/// Tell if there is a value defined at this node position.
+	pub fn has_value(&self) -> bool {
+		match &self.plan {
+			NodePlan::Extension { .. }
+			| NodePlan::Empty => false,
+			NodePlan::Leaf { .. }	=> true,
+			NodePlan::Branch { value, .. }
+			| NodePlan::NibbledBranch { value, .. }	=> value.is_some(),
+		}
+	}
+
+
+	/// Get value part of the node (partial) if any.
+	pub fn value(&self) -> Option<super::DBValue> {
+		let data = &self.data.borrow();
+		match &self.plan {
+			NodePlan::Branch { .. }
+			| NodePlan::Extension { .. }
+			| NodePlan::Empty => None,
+			NodePlan::Leaf { value, .. }
+				=> Some(data[value.clone()].into()),
+			| NodePlan::NibbledBranch { value, .. }
+				=> value.as_ref().map(|v| data[v.clone()].into()),
+		}
+	}
+
+	/// Try to access child.
+	pub fn child(&self, ix: u8) -> Option<NodeHandle> {
+		match &self.plan {
+			NodePlan::Leaf { .. }
+			| NodePlan::Extension { .. }
+			| NodePlan::Empty => None,
+			NodePlan::NibbledBranch { children, .. }
+			| NodePlan::Branch { children, .. } =>
+				children[ix as usize].as_ref().map(|child| child.build(self.data.borrow())),
+		}
+	}
+
+	/// Tell if it is the empty node.
+	pub fn is_empty(&self) -> bool {
+		if let NodePlan::Empty = &self.plan {
+			true
+		} else {
+			false
+		}
+	}
+
+	/// Return number of children for this node.
+	pub fn number_child(&self) -> usize {
+		match &self.plan {
+			NodePlan::Leaf { .. }
+			| NodePlan::Empty => 0,
+			NodePlan::Extension { .. } => 1,
+			NodePlan::NibbledBranch { children, .. }
+			| NodePlan::Branch { children, .. } => children.len(),
+		}
+	}
+}
+
+impl<B: Borrow<[u8]>> OwnedNode<B> {
+
+
+	fn init_child_slice<H: AsMut<[u8]> + Default>(
+		data: &[u8],
+		children: &[Option<NodeHandlePlan>; nibble_ops::NIBBLE_LENGTH],
+		skip_index: Option<usize>,
+	) -> Box<[Option<TNodeHandle<H>>; 16]> {
+		let mut child_slices = Box::new([
+			None, None, None, None,
+			None, None, None, None,
+			None, None, None, None,
+			None, None, None, None,
+		]);
+		if let Some(skip) = skip_index {
+			for i in 0..nibble_ops::NIBBLE_LENGTH {
+				if i != skip {
+					child_slices[i] = children[i].as_ref().map(|child| child.build_owned_handle(data));
+				}
+			}
+		} else {
+			for i in 0..nibble_ops::NIBBLE_LENGTH {
+				child_slices[i] = children[i].as_ref().map(|child| child.build_owned_handle(data));
+			}
+		}
+		child_slices
+	}
+
+	/// Remove n first byte from the existing partial, return updated node if updated.
+	pub(crate) fn advance_partial<H: AsMut<[u8]> + Default>(&mut self, nb: usize) -> Option<TNode<H>> {
+		if nb == 0 {
+			return None;
+		}
+		let data = &self.data.borrow();
+		match &self.plan {
+			NodePlan::Leaf { partial, value } => {
+				let mut partial = partial.build(data);
+				partial.advance(nb);
+				Some(TNode::Leaf(
+					partial.into(),
+					data[value.clone()].into(),
+				))
+			},
+			NodePlan::Extension { .. } => unimplemented!("{}", NO_EXTENSION_ONLY),
+			NodePlan::Branch { .. }
+			| NodePlan::Empty => None,
+			NodePlan::NibbledBranch { partial, value, children } => {
+				let mut partial = partial.build(data);
+				partial.advance(nb);
+
+				Some(TNode::NibbledBranch(
+					partial.into(),
+					Self::init_child_slice(data, children, None),
+					value.as_ref().map(|value| data[value.clone()].into()),
+				))
+			},
+		}
+	}
+
+	/// Set a partial and return new node if changed.
+	pub(crate) fn set_partial<H: AsMut<[u8]> + Default>(&mut self, new_partial: NodeKey) -> Option<TNode<H>> {
+		let data = &self.data.borrow();
+		match &self.plan {
+			NodePlan::Leaf { value, partial } => {
+				let partial = partial.build(data);
+				if partial == NibbleSlice::from_stored(&new_partial) {
+					return None;
+				}
+				Some(TNode::Leaf(
+					new_partial,
+					data[value.clone()].into(),
+				))
+			},
+			NodePlan::Extension { .. } => unimplemented!("{}", NO_EXTENSION_ONLY),
+			NodePlan::Branch { .. }
+			| NodePlan::Empty => None,
+			NodePlan::NibbledBranch { value, children, partial } => {
+				let partial = partial.build(data);
+				if partial == NibbleSlice::from_stored(&new_partial) {
+					return None;
+				}
+				Some(TNode::NibbledBranch(
+					new_partial,
+					Self::init_child_slice(data, children, None),
+					value.as_ref().map(|value| data[value.clone()].into()),
+				))
+			},
+		}
+	}
+
+	/// Set a value and return new node if changed.
+	pub(crate) fn set_value<H: AsMut<[u8]> + Default>(&mut self, new_value: &[u8]) -> Option<TNode<H>> {
+		let data = &self.data.borrow();
+		match &self.plan {
+			NodePlan::Empty => {
+				Some(TNode::Leaf(
+					Default::default(),
+					new_value.into(),
+				))
+			},
+			NodePlan::Leaf { partial, value } => {
+				if &data[value.clone()] == new_value {
+					return None;
+				}
+				Some(TNode::Leaf(
+					partial.build(data).into(),
+					new_value.into(),
+				))
+			},
+			NodePlan::Extension { .. } => None,
+			NodePlan::Branch { .. } => unimplemented!("{}", NO_EXTENSION_ONLY),
+			NodePlan::NibbledBranch { partial, value, children } => {
+				if let Some(value) = value {
+					if &data[value.clone()] == new_value {
+						return None;
+					}
+				}
+
+				Some(TNode::NibbledBranch(
+					partial.build(data).into(),
+					Self::init_child_slice(data, children, None),
+					Some(new_value.into()),
+				))
+			},
+		}
+	}
+
+	/// Remove a value, return the change if something did change either node deleted or new value
+	/// for node.
+	/// Note that we are allowed to return a branch with no value and a single child (would need to
+	/// be fix depending on calling context (there could be some appending afterward)).
+	pub(crate) fn remove_value<H: AsMut<[u8]> + Default>(&mut self) -> Option<Option<TNode<H>>> {
+		let data = &self.data.borrow();
+		match &self.plan {
+			NodePlan::Leaf { .. } => Some(None),
+			NodePlan::Branch { .. } => unimplemented!("{}", NO_EXTENSION_ONLY),
+			NodePlan::Extension { .. }
+			| NodePlan::Empty => None,
+			NodePlan::NibbledBranch { partial, value, children } => {
+				if value.is_none() {
+					return None;
+				}
+
+				Some(Some(TNode::NibbledBranch(
+					partial.build(data).into(),
+					Self::init_child_slice(data, children, None),
+					None,
+				)))
+			},
+		}
+	}
+
+	/// Set a handle to a child node or remove it if handle is none.
+	/// Return possibly updated node.
+	pub(crate) fn set_handle<H: AsMut<[u8]> + Default>(&mut self, handle: Option<TNodeHandle<H>>, index: u8)
+		-> Option<TNode<H>> {
+
+		let index = index as usize;
+		let data = &self.data.borrow();
+		match &mut self.plan {
+			NodePlan::Empty => unreachable!("Do not add handle to empty but replace the node instead"),
+			NodePlan::Extension { .. }
+			| NodePlan::Branch { .. } => unimplemented!("{}", NO_EXTENSION_ONLY),
+			NodePlan::Leaf { partial, value } => {
+				if handle.is_some() {
+					let mut child_slices = Box::new([
+						None, None, None, None,
+						None, None, None, None,
+						None, None, None, None,
+						None, None, None, None,
+					]);
+					child_slices[index] = handle;
+
+					Some(TNode::NibbledBranch(
+						partial.build(data).into(),
+						child_slices,
+						Some(data[value.clone()].into())),
+					)
+				} else {
+					None
+				}
+			},
+			NodePlan::NibbledBranch { partial, value, children } => {
+				if handle.is_none() && children[index].is_none() {
+					None
+				} else {
+					let value = if let Some(value) = value.clone() {
+						Some(data[value.clone()].into())
+					} else {
+						None
+					};
+					let mut child_slices = Self::init_child_slice(data, children, Some(index));
+					child_slices[index] = handle;
+
+					Some(TNode::NibbledBranch(
+						partial.build(data).into(),
+						child_slices,
+						value,
+					))
+				}
+			},
+		}
 	}
 }

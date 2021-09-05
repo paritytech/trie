@@ -64,3 +64,11 @@ path = "fuzz_targets/trie_proof_valid.rs"
 [[bin]]
 name = "trie_proof_invalid"
 path = "fuzz_targets/trie_proof_invalid.rs"
+
+[[bin]]
+name = "batch_update"
+path = "fuzz_targets/batch_update.rs"
+
+[[bin]]
+name = "detach_attach"
+path = "fuzz_targets/detach_attach.rs"

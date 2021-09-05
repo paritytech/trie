@@ -211,6 +211,11 @@ impl<'a> NibbleSlice<'a> {
 		})
 	}
 
+	/// Return nibble as a tuple representation.
+	pub fn right_ref(self) -> (usize, &'a [u8]) {
+		(self.offset, self.data)
+	}
+
 	/// Return left portion of `NibbleSlice`, if the slice
 	/// originates from a full key it will be the `Prefix of
 	/// the node`.
@@ -224,6 +229,13 @@ impl<'a> NibbleSlice<'a> {
 		}
 	}
 
+	/// Return length of left portion of `NibbleSlice`, if the slice
+	/// originates from a full key it will be the length of th `Prefix of
+	/// the node`.
+	pub fn left_len(&'a self) -> usize {
+		self.offset
+	}
+
 	/// Owned version of a `Prefix` from a `left` method call.
 	pub fn left_owned(&'a self) -> (BackingByteVec, Option<u8>) {
 		let (a, b) = self.left();
@@ -233,7 +245,9 @@ impl<'a> NibbleSlice<'a> {
 
 impl<'a> Into<NodeKey> for NibbleSlice<'a> {
 	fn into(self) -> NodeKey {
-		(self.offset, self.data.into())
+		let new_offset = self.offset % nibble_ops::NIBBLE_PER_BYTE;
+		let start = self.offset / nibble_ops::NIBBLE_PER_BYTE;
+		(new_offset, self.data[start..].into())
 	}
 }
 

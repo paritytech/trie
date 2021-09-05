@@ -43,7 +43,7 @@ fn unpopulate_trie<'db>(t: &mut RefTrieDBMut<'db>, v: &[(Vec<u8>, Vec<u8>)]) {
 	}
 }
 
-fn populate_trie_no_extension<'db>(
+pub(crate) fn populate_trie_no_extension<'db>(
 	db: &'db mut dyn HashDB<KeccakHasher, DBValue>,
 	root: &'db mut <KeccakHasher as Hasher>::Out,
 	v: &[(Vec<u8>, Vec<u8>)]
