@@ -21,17 +21,18 @@ use super::CodecError as Error;
 use super::NodeCodec as NodeCodecT;
 use trie_db::node::Value;
 
-/// Contains threshold for applying alt_hashing.
+/// No extension trie with storing value above a given size
+/// as external node.
 #[derive(Clone, Debug)]
-pub struct AltHashNoExt(pub Option<u32>);
+pub struct HashedValueNoExt(pub Option<u32>);
 
-impl Default for AltHashNoExt {
+impl Default for HashedValueNoExt {
 	fn default() -> Self {
-		AltHashNoExt(Some(1))
+		HashedValueNoExt(Some(1))
 	}
 }
 
-impl TrieLayout for AltHashNoExt {
+impl TrieLayout for HashedValueNoExt {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
 
@@ -77,7 +78,7 @@ impl<H: Hasher> NodeCodec<H> {
 
 		match header {
 			NodeHeader::Null => Ok(NodePlan::Empty),
-			NodeHeader::AltHashBranch(nibble_count)
+			NodeHeader::HashedValueBranch(nibble_count)
 			| NodeHeader::Branch(_, nibble_count) => {
 				let padding = nibble_count % nibble_ops::NIBBLE_PER_BYTE != 0;
 				// check that the padding is valid (if any)
@@ -121,7 +122,7 @@ impl<H: Hasher> NodeCodec<H> {
 					children,
 				})
 			},
-			NodeHeader::AltHashLeaf(nibble_count)
+			NodeHeader::HashedValueLeaf(nibble_count)
 			| NodeHeader::Leaf(nibble_count) => {
 				let padding = nibble_count % nibble_ops::NIBBLE_PER_BYTE != 0;
 				// check that the padding is valid (if any)
@@ -175,7 +176,7 @@ impl<H> NodeCodecT for NodeCodec<H>
 	fn leaf_node(partial: Partial, value: Value) -> Vec<u8> {
 		let contains_hash = matches!(&value, Value::HashedValue(..));
 		let mut output = if contains_hash {
-			partial_encode(partial, NodeKind::AltHashLeaf)
+			partial_encode(partial, NodeKind::HashedValueLeaf)
 		} else {
 			partial_encode(partial, NodeKind::Leaf)
 		};
@@ -223,7 +224,7 @@ impl<H> NodeCodecT for NodeCodec<H>
 				partial_from_iterator_encode(partial, number_nibble, NodeKind::BranchWithValue)
 			},
 			(_, true) => {
-				partial_from_iterator_encode(partial, number_nibble, NodeKind::AltHashBranchWithValue)
+				partial_from_iterator_encode(partial, number_nibble, NodeKind::HashedValueBranch)
 			},
 		};
 
@@ -274,8 +275,8 @@ fn partial_from_iterator_encode<I: Iterator<Item = u8>>(
 		NodeKind::Leaf => NodeHeader::Leaf(nibble_count).encode_to(&mut output),
 		NodeKind::BranchWithValue => NodeHeader::Branch(true, nibble_count).encode_to(&mut output),
 		NodeKind::BranchNoValue => NodeHeader::Branch(false, nibble_count).encode_to(&mut output),
-		NodeKind::AltHashLeaf => NodeHeader::AltHashLeaf(nibble_count).encode_to(&mut output),
-		NodeKind::AltHashBranchWithValue => NodeHeader::AltHashBranch(nibble_count)
+		NodeKind::HashedValueLeaf => NodeHeader::HashedValueLeaf(nibble_count).encode_to(&mut output),
+		NodeKind::HashedValueBranch => NodeHeader::HashedValueBranch(nibble_count)
 			.encode_to(&mut output),
 	};
 	output.extend(partial);
@@ -295,8 +296,8 @@ fn partial_encode(partial: Partial, node_kind: NodeKind) -> Vec<u8> {
 		NodeKind::Leaf => NodeHeader::Leaf(nibble_count).encode_to(&mut output),
 		NodeKind::BranchWithValue => NodeHeader::Branch(true, nibble_count).encode_to(&mut output),
 		NodeKind::BranchNoValue => NodeHeader::Branch(false, nibble_count).encode_to(&mut output),
-		NodeKind::AltHashLeaf => NodeHeader::AltHashLeaf(nibble_count).encode_to(&mut output),
-		NodeKind::AltHashBranchWithValue => NodeHeader::AltHashBranch(nibble_count)
+		NodeKind::HashedValueLeaf => NodeHeader::HashedValueLeaf(nibble_count).encode_to(&mut output),
+		NodeKind::HashedValueBranch => NodeHeader::HashedValueBranch(nibble_count)
 			.encode_to(&mut output),
 	};
 	if number_nibble_encoded > 0 {
@@ -315,16 +316,16 @@ pub(crate) enum NodeHeader {
 	// contains nibble count
 	Leaf(usize),
 	// contains nibble count.
-	AltHashBranch(usize),
+	HashedValueBranch(usize),
 	// contains nibble count.
-	AltHashLeaf(usize),
+	HashedValueLeaf(usize),
 }
 
 impl NodeHeader {
 	fn contains_hash_of_value(&self) -> bool {
 		match self {
-			NodeHeader::AltHashBranch(_)
-			| NodeHeader::AltHashLeaf(_) => true,
+			NodeHeader::HashedValueBranch(_)
+			| NodeHeader::HashedValueLeaf(_) => true,
 			_ => false,
 		}
 	}
@@ -335,8 +336,8 @@ pub(crate) enum NodeKind {
 	Leaf,
 	BranchNoValue,
 	BranchWithValue,
-	AltHashLeaf,
-	AltHashBranchWithValue,
+	HashedValueLeaf,
+	HashedValueBranch,
 }
 
 impl Encode for NodeHeader {
@@ -349,9 +350,9 @@ impl Encode for NodeHeader {
 				encode_size_and_prefix(*nibble_count, trie_constants::BRANCH_WITHOUT_MASK, 2, output),
 			NodeHeader::Leaf(nibble_count) =>
 				encode_size_and_prefix(*nibble_count, trie_constants::LEAF_PREFIX_MASK, 2, output),
-			NodeHeader::AltHashBranch(nibble_count)	=>
+			NodeHeader::HashedValueBranch(nibble_count)	=>
 				encode_size_and_prefix(*nibble_count, trie_constants::ALT_HASHING_BRANCH_WITH_MASK, 4, output),
-			NodeHeader::AltHashLeaf(nibble_count)	=>
+			NodeHeader::HashedValueLeaf(nibble_count)	=>
 				encode_size_and_prefix(*nibble_count, trie_constants::ALT_HASHING_LEAF_PREFIX_MASK, 3, output),
 		}
 	}
@@ -371,9 +372,9 @@ impl Decode for NodeHeader {
 			trie_constants::BRANCH_WITHOUT_MASK => Ok(NodeHeader::Branch(false, decode_size(i, input, 2)?)),
 			trie_constants::EMPTY_TRIE => {
 				if i & (0b111 << 5) == trie_constants::ALT_HASHING_LEAF_PREFIX_MASK {
-					Ok(NodeHeader::AltHashLeaf(decode_size(i, input, 3)?))
+					Ok(NodeHeader::HashedValueLeaf(decode_size(i, input, 3)?))
 				} else if i & (0b1111 << 4) == trie_constants::ALT_HASHING_BRANCH_WITH_MASK {
-					Ok(NodeHeader::AltHashBranch(decode_size(i, input, 4)?))
+					Ok(NodeHeader::HashedValueBranch(decode_size(i, input, 4)?))
 				} else {
 					// do not allow any special encoding
 					Err("Unallowed encoding".into())
@@ -464,9 +465,9 @@ fn fuse_nibbles_node<'a>(nibbles: &'a [u8], kind: NodeKind) -> impl Iterator<Ite
 		NodeKind::Leaf => size_and_prefix_iterator(size, trie_constants::LEAF_PREFIX_MASK, 2),
 		NodeKind::BranchNoValue => size_and_prefix_iterator(size, trie_constants::BRANCH_WITHOUT_MASK, 2),
 		NodeKind::BranchWithValue => size_and_prefix_iterator(size, trie_constants::BRANCH_WITH_MASK, 2),
-		NodeKind::AltHashLeaf =>
+		NodeKind::HashedValueLeaf =>
 			size_and_prefix_iterator(size, trie_constants::ALT_HASHING_LEAF_PREFIX_MASK, 3),
-		NodeKind::AltHashBranchWithValue =>
+		NodeKind::HashedValueBranch =>
 			size_and_prefix_iterator(size, trie_constants::ALT_HASHING_BRANCH_WITH_MASK, 4),
 	};
 	iter_start
@@ -474,7 +475,7 @@ fn fuse_nibbles_node<'a>(nibbles: &'a [u8], kind: NodeKind) -> impl Iterator<Ite
 		.chain(nibbles[nibbles.len() % 2..].chunks(2).map(|ch| ch[0] << 4 | ch[1]))
 }
 
-use trie_root::Value as RValue;
+use trie_root::Value as TrieStreamValue;
 impl TrieStream for ReferenceTrieStreamNoExt {
 
 	fn new() -> Self {
@@ -487,20 +488,20 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 		self.buffer.push(trie_constants::EMPTY_TRIE);
 	}
 
-	fn append_leaf(&mut self, key: &[u8], value: RValue) {
+	fn append_leaf(&mut self, key: &[u8], value: TrieStreamValue) {
 		let kind = match &value {
-			RValue::NoValue => unreachable!(),
-			RValue::Value(..) => NodeKind::Leaf,
-			RValue::HashedValue(..) => NodeKind::AltHashLeaf,
+			TrieStreamValue::NoValue => unreachable!(),
+			TrieStreamValue::Value(..) => NodeKind::Leaf,
+			TrieStreamValue::HashedValue(..) => NodeKind::HashedValueLeaf,
 		};
 		self.buffer.extend(fuse_nibbles_node(key, kind));
 		match &value {
-			RValue::NoValue => unreachable!(),
-			RValue::Value(value) => {
+			TrieStreamValue::NoValue => unreachable!(),
+			TrieStreamValue::Value(value) => {
 				Compact(value.len() as u32).encode_to(&mut self.buffer);
 				self.buffer.extend_from_slice(value);
 			},
-			RValue::HashedValue(hash) => {
+			TrieStreamValue::HashedValue(hash) => {
 				self.buffer.extend_from_slice(hash.as_slice());
 			},
 		};
@@ -509,14 +510,14 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 	fn begin_branch(
 		&mut self,
 		maybe_partial: Option<&[u8]>,
-		maybe_value: RValue,
+		maybe_value: TrieStreamValue,
 		has_children: impl Iterator<Item = bool>,
 	) {
 		if let Some(partial) = maybe_partial {
 			let kind = match &maybe_value {
-				RValue::NoValue => NodeKind::BranchNoValue,
-				RValue::Value(..) => NodeKind::BranchWithValue,
-				RValue::HashedValue(..) => NodeKind::AltHashBranchWithValue,
+				TrieStreamValue::NoValue => NodeKind::BranchNoValue,
+				TrieStreamValue::Value(..) => NodeKind::BranchWithValue,
+				TrieStreamValue::HashedValue(..) => NodeKind::HashedValueBranch,
 			};
 	
 			self.buffer.extend(fuse_nibbles_node(partial, kind));
@@ -526,12 +527,12 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 			unreachable!("trie stream codec only for no extension trie");
 		}
 		match maybe_value {
-			RValue::NoValue => (),
-			RValue::Value(value) => {
+			TrieStreamValue::NoValue => (),
+			TrieStreamValue::Value(value) => {
 				Compact(value.len() as u32).encode_to(&mut self.buffer);
 				self.buffer.extend_from_slice(value);
 			},
-			RValue::HashedValue(hash) => {
+			TrieStreamValue::HashedValue(hash) => {
 				self.buffer.extend_from_slice(hash.as_slice());
 			},
 		}

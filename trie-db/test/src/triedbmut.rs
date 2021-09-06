@@ -20,7 +20,7 @@ use hash_db::{Hasher, HashDB};
 use trie_db::{TrieDBMut, TrieMut, NodeCodec,
 	TrieLayout, DBValue, Value, TrieError};
 use reference_trie::{ExtensionLayout, NoExtensionLayout,
-	RefHasher, test_layouts, ReferenceNodeCodec, AltHashNoExt,
+	RefHasher, test_layouts, ReferenceNodeCodec, HashedValueNoExt,
 	ReferenceNodeCodecNoExt, reference_trie_root_iter_build as reference_trie_root};
 
 type PrefixedMemoryDB<T> = MemoryDB::<
@@ -78,7 +78,7 @@ fn reference_hashed_null_node<T: TrieLayout>() -> <T::Hash as Hasher>::Out {
 #[test]
 fn playpen() {
 	env_logger::init();
-	playpen_internal::<AltHashNoExt>();
+	playpen_internal::<HashedValueNoExt>();
 	playpen_internal::<NoExtensionLayout>();
 	playpen_internal::<ExtensionLayout>();
 }
@@ -483,10 +483,10 @@ fn register_proof_without_value() {
 	use trie_db::TrieDB;
 	use std::collections::HashMap;
 	use std::cell::RefCell;
-	use reference_trie::AltHashNoExt;
+	use reference_trie::HashedValueNoExt;
 	use hash_db::{Prefix, AsHashDB};
 
-	type Layout = AltHashNoExt;
+	type Layout = HashedValueNoExt;
 	type MemoryDB = memory_db::MemoryDB<
 		RefHasher,
 		PrefixedKey<RefHasher>,
@@ -500,7 +500,7 @@ fn register_proof_without_value() {
 
 	let mut memdb = MemoryDB::default();
 	let mut root = Default::default();
-	let layout = AltHashNoExt(Some(1)); // flagged for hashed.
+	let layout = HashedValueNoExt(Some(1)); // flagged for hashed.
 	let _ = populate_trie_and_flag::<Layout>(&mut memdb, &mut root, &x, Some(layout.clone()));
 	{
 		let trie = TrieDB::<Layout>::new_with_layout(&memdb, &root,  layout.clone()).unwrap();
@@ -604,7 +604,7 @@ fn register_proof_without_value() {
 	let mut root_proof = root_unpacked.clone();
 	{
 		use trie_db::Trie;
-		let trie = TrieDB::<AltHashNoExt>::new_with_layout(&memdb_from_proof, &root_proof, layout.clone()).unwrap();
+		let trie = TrieDB::<HashedValueNoExt>::new_with_layout(&memdb_from_proof, &root_proof, layout.clone()).unwrap();
 		assert!(trie.get(b"te").unwrap().is_some());
 		assert!(matches!(trie.get(b"test1").map_err(|e| *e), Err(TrieError::IncompleteDatabase(..))));
 	}
