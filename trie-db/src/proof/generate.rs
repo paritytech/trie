@@ -30,10 +30,10 @@ use crate::{
 enum ValueMgmt {
 	/// The value should be omitted in the generated proof.
 	OmitValue,
-	/// Whether the value should be omitted and an additional node added
-	/// afterward. In this case the node is prefixed with `ESCAPE_HEADER`
-	/// to be disinguishible with `omit_value` case.
-	AttachNode,
+	/// The value should be omitted in the generated proof,
+	/// when verifying it the hash of the value should be use
+	/// (trie does use an external value node).
+	OmitHashedValue,
 	/// Regular management.
 	Standard,
 }
@@ -91,7 +91,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 		let omit_value = self.omit_value;
 		let prepend_on_hashed = |mut encoded: Vec<u8>| -> Vec<u8> {
 			if let Some(header) = C::ESCAPE_HEADER {
-				if matches!(omit_value, ValueMgmt::AttachNode) {
+				if matches!(omit_value, ValueMgmt::OmitHashedValue) {
 					for i in header.iter() {
 						encoded.insert(0, *i);
 					}
@@ -458,7 +458,7 @@ fn match_key_to_node<'a, C: NodeCodec>(
 						Step::FoundValue(Some(&node_data[value_range.clone()]))
 					},
 					ValuePlan::HashedValue(..) => {
-						*omit_value = ValueMgmt::AttachNode;
+						*omit_value = ValueMgmt::OmitHashedValue;
 						resolve_value::<C>(recorded_nodes)?
 					},
 					_ => return Err(Box::new(
@@ -533,7 +533,7 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 				Some(&node_data[range.clone()])
 			},
 			ValuePlan::HashedValue(..) => {
-				*omit_value = ValueMgmt::AttachNode;
+				*omit_value = ValueMgmt::OmitHashedValue;
 				return resolve_value::<C>(recorded_nodes);
 			},
 			ValuePlan::NoValue => None,
