@@ -87,7 +87,7 @@ impl TrieLayout for ExtensionLayout {
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
 
-	fn alt_threshold(&self) -> Option<u32> {
+	fn max_inline_value(&self) -> Option<u32> {
 		None
 	}
 }
@@ -116,7 +116,7 @@ impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	type Hash = H;
 	type Codec = ReferenceNodeCodecNoExt<H>;
 
-	fn alt_threshold(&self) -> Option<u32> {
+	fn max_inline_value(&self) -> Option<u32> {
 		None
 	}
 }
@@ -131,7 +131,7 @@ impl TrieLayout for AllowEmptyLayout {
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
 
-	fn alt_threshold(&self) -> Option<u32> {
+	fn max_inline_value(&self) -> Option<u32> {
 		None
 	}
 }

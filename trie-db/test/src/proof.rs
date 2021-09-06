@@ -216,7 +216,7 @@ fn test_verify_invalid_child_reference_internal<T: TrieLayout>() {
 		vec![b"bravo"],
 	);
 
-	if T::default().alt_threshold().map(|t| t as usize <= b"bravo".len() ).unwrap_or(false) {
+	if T::default().max_inline_value().map(|t| t as usize <= b"bravo".len() ).unwrap_or(false) {
 		// node will not be inline: ignore test
 		return;
 	}

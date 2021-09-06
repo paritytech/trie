@@ -418,8 +418,9 @@ pub trait TrieLayout: Default + Clone {
 	/// Codec to use (needs to match hasher and nibble ops).
 	type Codec: NodeCodec<HashOut=<Self::Hash as Hasher>::Out>;
 
-	/// Alternate hashing threshold to apply on node change.
-	fn alt_threshold(&self) -> Option<u32>;
+	/// Threshold above which an external node should be
+	/// use to store a node value.
+	fn max_inline_value(&self) -> Option<u32>;
 }
 
 /// Small enum indicating representation of a given children.

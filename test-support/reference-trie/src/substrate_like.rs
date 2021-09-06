@@ -39,7 +39,7 @@ impl TrieLayout for HashedValueNoExt {
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExtMeta<RefHasher>;
 
-	fn alt_threshold(&self) -> Option<u32> {
+	fn max_inline_value(&self) -> Option<u32> {
 		self.0
 	}
 }

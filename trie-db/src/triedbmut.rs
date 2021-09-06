@@ -772,7 +772,7 @@ where
 			Node::Empty => {
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "empty: COMPOSE");
-				let value = Value::new(Some(value), self.layout.alt_threshold());
+				let value = Value::new(Some(value), self.layout.max_inline_value());
 				InsertAction::Replace(Node::Leaf(partial.to_stored(), value))
 			},
 			Node::Branch(mut children, stored_value) => {
@@ -781,7 +781,7 @@ where
 				trace!(target: "trie", "branch: ROUTE,AUGMENT");
 
 				if partial.is_empty() {
-					let value = Value::new(Some(value), self.layout.alt_threshold());
+					let value = Value::new(Some(value), self.layout.max_inline_value());
 					let unchanged = stored_value == value;
 					let branch = Node::Branch(children, value);
 
@@ -805,7 +805,7 @@ where
 						}
 					} else {
 						// Original had nothing there. compose a leaf.
-						let value = Value::new(Some(value), self.layout.alt_threshold());
+						let value = Value::new(Some(value), self.layout.max_inline_value());
 						let leaf = self.storage.alloc(
 							Stored::New(Node::Leaf(key.to_stored(), value))
 
@@ -824,7 +824,7 @@ where
 
 				let common = partial.common_prefix(&existing_key);
 				if common == existing_key.len() && common == partial.len() {
-					let value = Value::new(Some(value), self.layout.alt_threshold());
+					let value = Value::new(Some(value), self.layout.max_inline_value());
 					let unchanged = stored_value == value;
 					let branch = Node::NibbledBranch(
 						existing_key.to_stored(),
@@ -856,7 +856,7 @@ where
 
 					children[ix as usize] = Some(alloc_storage.into());
 
-					let value = Value::new(Some(value), self.layout.alt_threshold());
+					let value = Value::new(Some(value), self.layout.max_inline_value());
 					if partial.len() - common == 0 {
 						InsertAction::Replace(Node::NibbledBranch(
 							existing_key.to_stored_range(common),
@@ -898,7 +898,7 @@ where
 						}
 					} else {
 						// Original had nothing there. compose a leaf.
-						let value = Value::new(Some(value), self.layout.alt_threshold());
+						let value = Value::new(Some(value), self.layout.max_inline_value());
 						let leaf = self.storage.alloc(
 							Stored::New(Node::Leaf(key.to_stored(), value)),
 						);
@@ -919,7 +919,7 @@ where
 					#[cfg(feature = "std")]
 					trace!(target: "trie", "equivalent-leaf: REPLACE");
 					// equivalent leaf.
-					let value = Value::new(Some(value), self.layout.alt_threshold());
+					let value = Value::new(Some(value), self.layout.max_inline_value());
 					let unchanged = stored_value == value;
 					self.replace_old_value(old_val, stored_value, key.left());
 					match unchanged {

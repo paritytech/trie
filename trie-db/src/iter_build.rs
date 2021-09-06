@@ -130,7 +130,7 @@ impl<T, V> CacheAccum<T, V>
 		);
 
 		let hashed;
-		let value = if let Some(value) = Value::new(Some(v2.as_ref()), self.1.alt_threshold()) {
+		let value = if let Some(value) = Value::new(Some(v2.as_ref()), self.1.max_inline_value()) {
 			value
 		} else {
 			hashed = callback.process_inner_hased_value(
@@ -203,7 +203,7 @@ impl<T, V> CacheAccum<T, V>
 		let pr = NibbleSlice::new_offset(&key_branch, branch_d);
 
 		let hashed;
-		let value = if let Some(value) = Value::new(v.as_ref().map(|v| v.as_ref()), self.1.alt_threshold()) {
+		let value = if let Some(value) = Value::new(v.as_ref().map(|v| v.as_ref()), self.1.max_inline_value()) {
 			value
 		} else {
 			hashed = callback.process_inner_hased_value(
@@ -246,7 +246,7 @@ impl<T, V> CacheAccum<T, V>
 		let nkeyix = nkey.unwrap_or((branch_d, 0));
 		let pr = NibbleSlice::new_offset(&key_branch, nkeyix.0);
 		let hashed;
-		let value = if let Some(value) = Value::new(v.as_ref().map(|v| v.as_ref()), self.1.alt_threshold()) {
+		let value = if let Some(value) = Value::new(v.as_ref().map(|v| v.as_ref()), self.1.max_inline_value()) {
 			value
 		} else {
 			hashed = callback.process_inner_hased_value(
@@ -319,7 +319,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F, layout: &T)
 			);
 
 			let hashed;
-			let value = if let Some(value) = Value::new(Some(v2.as_ref()), layout.alt_threshold()) {
+			let value = if let Some(value) = Value::new(Some(v2.as_ref()), layout.max_inline_value()) {
 				value
 			} else {
 				hashed = callback.process_inner_hased_value(

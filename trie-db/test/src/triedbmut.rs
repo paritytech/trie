@@ -434,7 +434,7 @@ fn insert_empty_internal<T: TrieLayout>() {
 
 test_layouts!(return_old_values, return_old_values_internal);
 fn return_old_values_internal<T: TrieLayout>() {
-	let threshold = T::default().alt_threshold();
+	let threshold = T::default().max_inline_value();
 	let mut seed = Default::default();
 	let x = StandardMap {
 			alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
