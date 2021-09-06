@@ -74,8 +74,12 @@ pub enum Value<L: TrieLayout> {
 	NoValue,
 	/// Value bytes.
 	Value(DBValue),
+	/// Hash of value bytes and value bytes when accessed.
+	HashedValue(TrieHash<L>, Option<DBValue>),
 	/// Hash of value bytes if calculated and value bytes.
-	HashedValue(Option<TrieHash<L>>, Option<DBValue>),
+	/// The hash may be undefined until it node is added
+	/// to the db.
+	NewHashedValue(Option<TrieHash<L>>, DBValue),
 }
 
 impl<L: TrieLayout> PartialEq<Self> for Value<L> {
@@ -83,8 +87,9 @@ impl<L: TrieLayout> PartialEq<Self> for Value<L> {
 		match (self, other) {
 			(Value::NoValue, Value::NoValue) => true,
 			(Value::Value(v), Value::Value(ov)) => v == ov,
-			(Value::HashedValue(Some(h), _), Value::HashedValue(Some(oh), _)) => h == oh,
-			(Value::HashedValue(_, Some(v)), Value::HashedValue(_, Some(ov))) => v == ov,
+			(Value::HashedValue(h, _), Value::HashedValue(oh, _)) => h == oh,
+			(Value::NewHashedValue(Some(h), _), Value::NewHashedValue(Some(oh), _)) => h == oh,
+			(Value::NewHashedValue(_, v), Value::NewHashedValue(_, ov)) => v == ov,
 			// Note that for uncalculated hash we do not calculate it and default to true.
 			// This is rather similar to default Eq implementation.
 			_ => false,
@@ -100,7 +105,7 @@ impl<'a, L: TrieLayout> From<EncodedValue<'a>> for Value<L> {
 			EncodedValue::HashedValue(hash, value) => {
 				let mut h = TrieHash::<L>::default();
 				h.as_mut().copy_from_slice(hash);
-				Value::HashedValue(Some(h), value)
+				Value::HashedValue(h, value)
 			},
 		}
 	}
@@ -110,7 +115,7 @@ impl<L: TrieLayout> From<(Option<DBValue>, Option<u32>)> for Value<L> {
 	fn from((v, threshold): (Option<DBValue>, Option<u32>)) -> Self {
 		match v {
 			Some(value) => if threshold.map(|threshold| value.len() >= threshold as usize).unwrap_or(false) {
-				Value::HashedValue(None, Some(value.to_vec()))
+				Value::NewHashedValue(None, value.to_vec())
 			} else {
 				Value::Value(value.to_vec())
 			},
@@ -128,25 +133,24 @@ impl<L: TrieLayout> Value<L> {
 	where
 		F: FnMut(Option<&[u8]>, NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
 	{
-		if let Value::HashedValue(hash, value) = self {
-			if let Some(value) = value.as_ref() {
-				let new_hash = if let ChildReference::Hash(hash) = f(Some(value.as_slice()), NodeHandle::Hash(Default::default()), None, None) {
-					hash
-				} else {
-					unreachable!("Passing a hash as parameter is only to add an attached value")
-				};
-				if let Some(hash2) = hash.as_ref() {
-					debug_assert!(hash2 == &new_hash);
-				} else {
-					*hash = Some(new_hash);
-				}
+		if let Value::NewHashedValue(hash, value) = self {
+			let new_hash = if let ChildReference::Hash(hash) = f(Some(value.as_slice()), NodeHandle::Hash(Default::default()), None, None) {
+				hash
+			} else {
+				unreachable!("Passing a hash as parameter is only to add an attached value")
+			};
+			if let Some(h) = hash.as_ref() {
+				debug_assert!(h == &new_hash);
+			} else {
+				*hash = Some(new_hash);
 			}
 		}
 		let value = match &*self {
 			Value::NoValue => EncodedValue::NoValue,
 			Value::Value(value) => EncodedValue::Value(value.as_slice()),
-			Value::HashedValue(Some(hash), _value) => EncodedValue::HashedValue(hash.as_ref(), None),
-			Value::HashedValue(None, _value) => unreachable!("New external value are always added before encoding anode"),
+			Value::HashedValue(hash, _value) => EncodedValue::HashedValue(hash.as_ref(), None),
+			Value::NewHashedValue(Some(hash), _value) => EncodedValue::HashedValue(hash.as_ref(), None),
+			Value::NewHashedValue(None, _value) => unreachable!("New external value are always added before encoding anode"),
 		};
 		value
 	}
@@ -155,8 +159,9 @@ impl<L: TrieLayout> Value<L> {
 		match self {
 			Value::NoValue => None,
 			Value::Value(value) => Some(value.clone()),
+			Value::NewHashedValue(_, value) => Some(value.clone()),
 			Value::HashedValue(_, Some(value)) => Some(value.clone()),
-			Value::HashedValue(_, None) => unreachable!("unreachable for inline nodes"),
+			Value::HashedValue(_, None) => unreachable!("Unreachable for inline nodes."),
 		}
 	}
 }
@@ -199,9 +204,9 @@ impl<L: TrieLayout> Debug for Value<L> {
 		match self {
 			Self::NoValue => write!(fmt, "None"),
 			Self::Value(value) => write!(fmt, "Some({:?})", ToHex(value)),
-			Self::HashedValue(_hash, Some(value)) => write!(fmt, "Some({:?})", ToHex(value)),
-			Self::HashedValue(Some(hash), _) => write!(fmt, "Hash({:?})", ToHex(hash.as_ref())),
-			Self::HashedValue(_, _) => write!(fmt, "Invalid HashedValue"),
+			Self::HashedValue(hash, _) => write!(fmt, "Hash({:?})", ToHex(hash.as_ref())),
+			Self::NewHashedValue(Some(hash), _) => write!(fmt, "Hash({:?})", ToHex(hash.as_ref())),
+			Self::NewHashedValue(_hash, value) => write!(fmt, "Some({:?})", ToHex(value)),
 		}
 	}
 }
@@ -745,7 +750,8 @@ where
 
 	fn replace_old_value(&mut self, old_value: &mut Value<L>, new_value: Value<L>, prefix: Prefix) {
 		match old_value {
-			Value::HashedValue(Some(hash), _) => {
+			Value::NewHashedValue(Some(hash), _) // also removing new node in case commit is called multiple times 
+			| Value::HashedValue(hash, _) => {
 				self.death_row.insert((
 					hash.clone(),
 					(prefix.0.into(), prefix.1),
