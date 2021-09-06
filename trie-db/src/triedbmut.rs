@@ -124,7 +124,7 @@ impl<L: TrieLayout> Value<L> {
 		(value, new_threshold).into()
 	}
 
-	fn into_encode<'a, F>(&'a mut self, f: &mut F) -> EncodedValue<'a>
+	fn into_encoded<'a, F>(&'a mut self, f: &mut F) -> EncodedValue<'a>
 	where
 		F: FnMut(Option<&[u8]>, NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
 	{
@@ -133,7 +133,7 @@ impl<L: TrieLayout> Value<L> {
 				let new_hash = if let ChildReference::Hash(hash) = f(Some(value.as_slice()), NodeHandle::Hash(Default::default()), None, None) {
 					hash
 				} else {
-					unreachable!()
+					unreachable!("Passing a hash as parameter is only to add an attached value")
 				};
 				if let Some(hash2) = hash.as_ref() {
 					debug_assert!(hash2 == &new_hash);
@@ -146,7 +146,7 @@ impl<L: TrieLayout> Value<L> {
 			Value::NoValue => EncodedValue::NoValue,
 			Value::Value(value) => EncodedValue::Value(value.as_slice()),
 			Value::HashedValue(Some(hash), _value) => EncodedValue::HashedValue(hash.as_ref(), None),
-			Value::HashedValue(None, _value) => unreachable!(),
+			Value::HashedValue(None, _value) => unreachable!("New external value are always added before encoding anode"),
 		};
 		value
 	}
@@ -303,6 +303,8 @@ impl<L: TrieLayout> Node<L>
 	}
 
 	// TODO: parallelize
+	/// Here `child_cb` should either process the first parameter to insert an external
+	/// node value or use the other parameter to encode and add a new branch child node.
 	fn into_encoded<F>(self, mut child_cb: F) -> Vec<u8>
 	where
 		F: FnMut(Option<&[u8]>, NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
@@ -311,7 +313,7 @@ impl<L: TrieLayout> Node<L>
 			Node::Empty => L::Codec::empty_node().to_vec(),
 			Node::Leaf(partial, mut value) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
-				let value = value.into_encode::<F>(&mut child_cb);
+				let value = value.into_encoded::<F>(&mut child_cb);
 				L::Codec::leaf_node(pr.right(), value)
 			},
 			Node::Extension(partial, child) => {
@@ -325,7 +327,7 @@ impl<L: TrieLayout> Node<L>
 				)
 			},
 			Node::Branch(mut children, mut value) => {
-				let value = value.into_encode::<F>(&mut child_cb);
+				let value = value.into_encoded::<F>(&mut child_cb);
 				L::Codec::branch_node(
 					// map the `NodeHandle`s from the Branch to `ChildReferences`
 					children.iter_mut()
@@ -338,7 +340,7 @@ impl<L: TrieLayout> Node<L>
 				)
 			},
 			Node::NibbledBranch(partial, mut children, mut value) => {
-				let value = value.into_encode::<F>(&mut child_cb);
+				let value = value.into_encoded::<F>(&mut child_cb);
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
 				L::Codec::branch_node_nibbled(
@@ -525,7 +527,6 @@ where
 	death_row: HashSet<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
 	/// The number of hash operations this trie has performed.
 	/// Note that none are performed until changes are committed.
-	/// This omit value hashing.
 	hash_count: usize,
 }
 
@@ -538,8 +539,8 @@ where
 		Self::new_with_layout(db, root, Default::default())
 	}
 
-	/// Create a new trie with backing database `db` and empty `root`.
-	/// This could use a context specific layout.
+	/// Create a new trie with backing database `db` and empty `root`,
+	/// using a context specific layout.
 	pub fn new_with_layout(
 		db: &'a mut dyn HashDB<L::Hash, DBValue>,
 		root: &'a mut TrieHash<L>,

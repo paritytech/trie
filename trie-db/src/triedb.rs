@@ -90,7 +90,7 @@ where
 
 	/// `new_with_layout`, but do not check root presence, if missing
 	/// this will fail at first node access.
-	pub fn new_with_layout_uncheck(
+	pub fn new_with_layout_unchecked(
 		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
 		layout: L,
