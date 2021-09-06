@@ -124,10 +124,6 @@ impl<L: TrieLayout> Value<L> {
 		(value, new_threshold).into()
 	}
 
-	fn unchanged(&self, old_value: &Value<L>) -> bool {
-		self != old_value
-	}
-
 	fn into_encode<'a, F>(&'a mut self, f: &mut F) -> EncodedValue<'a>
 	where
 		F: FnMut(Option<&[u8]>, NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
@@ -786,7 +782,7 @@ where
 
 				if partial.is_empty() {
 					let value = Value::new(Some(value), self.layout.alt_threshold());
-					let unchanged = stored_value.unchanged(&value);
+					let unchanged = stored_value == value;
 					let branch = Node::Branch(children, value);
 
 					self.replace_old_value(old_val, stored_value, key.left());
@@ -829,7 +825,7 @@ where
 				let common = partial.common_prefix(&existing_key);
 				if common == existing_key.len() && common == partial.len() {
 					let value = Value::new(Some(value), self.layout.alt_threshold());
-					let unchanged = stored_value.unchanged(&value);
+					let unchanged = stored_value == value;
 					let branch = Node::NibbledBranch(
 						existing_key.to_stored(),
 						children,
@@ -924,7 +920,7 @@ where
 					trace!(target: "trie", "equivalent-leaf: REPLACE");
 					// equivalent leaf.
 					let value = Value::new(Some(value), self.layout.alt_threshold());
-					let unchanged = stored_value.unchanged(&value);
+					let unchanged = stored_value == value;
 					self.replace_old_value(old_val, stored_value, key.left());
 					match unchanged {
 						// unchanged. restore
