@@ -18,7 +18,7 @@ use log::debug;
 use memory_db::{MemoryDB, PrefixedKey};
 use hash_db::{Hasher, HashDB};
 use trie_db::{TrieDBMut, TrieMut, NodeCodec,
-	TrieLayout, DBValue, Value};
+	TrieLayout, DBValue, Value, TrieError};
 use reference_trie::{ExtensionLayout, NoExtensionLayout,
 	RefHasher, test_layouts, ReferenceNodeCodec, AltHashNoExt,
 	ReferenceNodeCodecNoExt, reference_trie_root_iter_build as reference_trie_root};
@@ -606,7 +606,7 @@ fn register_proof_without_value() {
 		use trie_db::Trie;
 		let trie = TrieDB::<AltHashNoExt>::new_with_layout(&memdb_from_proof, &root_proof, layout.clone()).unwrap();
 		assert!(trie.get(b"te").unwrap().is_some());
-		assert!(trie.get(b"test1").is_err()); // TODO check incomplete db error
+		assert!(matches!(trie.get(b"test1").map_err(|e| *e), Err(TrieError::IncompleteDatabase(..))));
 	}
 
 	{
@@ -616,6 +616,6 @@ fn register_proof_without_value() {
 			layout.clone(),
 		).unwrap();
 		assert!(trie.get(b"te").unwrap().is_some());
-		assert!(trie.get(b"test1").is_err()); // TODO check incomplete db error
+		assert!(matches!(trie.get(b"test1").map_err(|e| *e), Err(TrieError::IncompleteDatabase(..))));
 	}
 }

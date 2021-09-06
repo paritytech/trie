@@ -457,7 +457,6 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 						)));
 					}
 					let value = match maybe_value {
-						// TODO is their a util fn ??
 						Value::HashedValue(hash, None) =>  {
 							if let Some(value) = self.inner.fetch_value(&hash) {
 								value

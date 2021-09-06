@@ -529,7 +529,7 @@ where
 	death_row: HashSet<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
 	/// The number of hash operations this trie has performed.
 	/// Note that none are performed until changes are committed.
-	/// This omit value hashing. TODO consider adding value hashing too.
+	/// This omit value hashing.
 	hash_count: usize,
 }
 

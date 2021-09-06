@@ -38,7 +38,6 @@ where
 	L: TrieLayout,
 	Q: Query<L::Hash>,
 {
-	// TODO is it more a Value function??
 	fn decode(mut self, v: Value, prefix: Prefix, depth: u32) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		match v {
 			Value::NoValue => Ok(None),
@@ -46,7 +45,7 @@ where
 			Value::HashedValue(_, Some(value)) =>	Ok(Some(self.query.decode(value.as_slice()))),
 			Value::HashedValue(hash, None) => {
 				let mut res = TrieHash::<L>::default();
-				res.as_mut().copy_from_slice(hash); // TODO hash in value
+				res.as_mut().copy_from_slice(hash);
 				if let Some(value) = self.db.get(&res, prefix) {
 					self.query.record(&res, &value, depth);
 					Ok(Some(self.query.decode(value.as_slice())))

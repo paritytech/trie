@@ -50,7 +50,7 @@ pub enum Value<'a> {
 	/// Value byte slice.
 	Value(&'a [u8]),
 	/// Hash byte slice.
-	HashedValue(&'a [u8], Option<DBValue>), // TODO check if value is of any use.
+	HashedValue(&'a [u8], Option<DBValue>),
 }
 
 impl<'a> Value<'a> {
