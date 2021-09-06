@@ -39,7 +39,7 @@ use trie_db::{
 	TrieLayout, TrieMut,
 };
 pub use trie_root::TrieStream;
-use trie_root::Value as RValue;
+use trie_root::Value as TrieStreamValue;
 pub mod node {
 	pub use trie_db::node::Node;
 }
@@ -326,27 +326,27 @@ impl TrieStream for ReferenceTrieStream {
 		self.buffer.push(EMPTY_TRIE);
 	}
 
-	fn append_leaf(&mut self, key: &[u8], value: RValue) {
-		if let RValue::Value(value) = value {
+	fn append_leaf(&mut self, key: &[u8], value: TrieStreamValue) {
+		if let TrieStreamValue::Value(value) = value {
 			self.buffer.extend(fuse_nibbles_node(key, true));
 			value.encode_to(&mut self.buffer);
 		} else {
-			unreachable!()
+			unreachable!("Leaf contains define value and this stream do not allow external value node")
 		}
 	}
 
 	fn begin_branch(
 		&mut self,
 		maybe_key: Option<&[u8]>,
-		maybe_value: RValue,
+		maybe_value: TrieStreamValue,
 		has_children: impl Iterator<Item = bool>,
 	) {
-		self.buffer.extend(&branch_node(!matches!(maybe_value, RValue::NoValue), has_children));
+		self.buffer.extend(&branch_node(!matches!(maybe_value, TrieStreamValue::NoValue), has_children));
 		if let Some(partial) = maybe_key {
 			// should not happen
 			self.buffer.extend(fuse_nibbles_node(partial, false));
 		}
-		if let RValue::Value(value) = maybe_value {
+		if let TrieStreamValue::Value(value) = maybe_value {
 			value.encode_to(&mut self.buffer);
 		}
 	}
@@ -777,7 +777,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
 		_maybe_value: Value,
 	) -> Vec<u8> {
-		unreachable!()
+		unreachable!("codec with extension branch")
 	}
 }
 
@@ -873,7 +873,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				output.extend_from_slice(value);
 			},
 			Value::HashedValue(..) => unimplemented!("No support for inner hashed value"),
-			Value::NoValue => unreachable!(),
+			Value::NoValue => unreachable!("Leaf node always contain a value"),
 		}
 		output
 	}
@@ -883,14 +883,14 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		_nbnibble: usize,
 		_child: ChildReference<<H as Hasher>::Out>,
 	) -> Vec<u8> {
-		unreachable!()
+		unreachable!("no extension codec")
 	}
 
 	fn branch_node(
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		_maybe_value: Value,
 	) -> Vec<u8> {
-		unreachable!()
+		unreachable!("no extension codec")
 	}
 
 	fn branch_node_nibbled(

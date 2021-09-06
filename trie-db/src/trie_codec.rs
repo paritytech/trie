@@ -186,7 +186,7 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 /// Dettached value if included does write a reserved header,
 /// followed by node encoded with 0 length value and the value
 /// as a standalone vec.
-fn dettached_value<L: TrieLayout>(
+fn detached_value<L: TrieLayout>(
 	value: &ValuePlan,
 	node_data: &[u8],
 	val_fetcher: &TrieDBNodeIterator<L>,
@@ -263,12 +263,12 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 					}
 				}
 
-				let (children_len, dettached_value) = match node.node_plan() {
+				let (children_len, detached_value) = match node.node_plan() {
 					NodePlan::Empty => (0, None),
-					NodePlan::Leaf { value, .. } => (0, dettached_value(value, node.data(), &iter)),
+					NodePlan::Leaf { value, .. } => (0, detached_value(value, node.data(), &iter)),
 					NodePlan::Extension { .. } => (1, None),
 					NodePlan::NibbledBranch { value, .. }
-					| NodePlan::Branch { value, .. } => (NIBBLE_LENGTH, dettached_value(value, node.data(), &iter)),
+					| NodePlan::Branch { value, .. } => (NIBBLE_LENGTH, detached_value(value, node.data(), &iter)),
 				};
 
 				stack.push(EncoderStackEntry {
@@ -276,14 +276,14 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 					node,
 					child_index: 0,
 					omit_children: vec![false; children_len],
-					omit_value: dettached_value.is_some(),
+					omit_value: detached_value.is_some(),
 					output_index: output.len(),
 					_marker: PhantomData::default(),
 				});
 				// Insert a placeholder into output which will be replaced when this new entry is
 				// popped from the stack.
 				output.push(Vec::new());
-				if let Some(value) = dettached_value {
+				if let Some(value) = detached_value {
 					output.push(value);
 				}
 			}

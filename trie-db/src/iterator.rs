@@ -108,8 +108,8 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 		});
 	}
 
-	/// Suspend iterator. Warning this does not hold guaranties it can be restore later.
-	/// Restoring require that trie backend did not change.
+	/// Suspend iterator. Warning this does not hold guaranties it can be restored later.
+	/// Restoring requires that trie backend does not change.
 	pub fn suspend(self) -> SuspendedTrieDBNodeIterator<L> {
 		SuspendedTrieDBNodeIterator {
 			trail: self.trail,

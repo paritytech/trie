@@ -49,7 +49,7 @@ pub enum Value<'a> {
 	NoValue,
 	/// Value byte slice.
 	Value(&'a [u8]),
-	/// Hash byte slice.
+	/// Hash byte slice and the actual value if accessed.
 	HashedValue(&'a [u8], Option<DBValue>),
 }
 

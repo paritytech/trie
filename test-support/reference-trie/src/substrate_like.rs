@@ -189,7 +189,7 @@ impl<H> NodeCodecT for NodeCodec<H>
 				debug_assert!(hash.len() == H::LENGTH);
 				output.extend_from_slice(hash);
 			},
-			Value::NoValue => unimplemented!("No support for incomplete nodes"),
+			Value::NoValue => unreachable!("Leaf node always with a value."),
 		}
 		output
 	}
@@ -199,14 +199,14 @@ impl<H> NodeCodecT for NodeCodec<H>
 		_nbnibble: usize,
 		_child: ChildReference<<H as Hasher>::Out>,
 	) -> Vec<u8> {
-		unreachable!()
+		unreachable!("Codec without extension.")
 	}
 
 	fn branch_node(
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		_maybe_value: Value,
 	) -> Vec<u8> {
-		unreachable!()
+		unreachable!("Codec without extension.")
 	}
 
 	fn branch_node_nibbled(
