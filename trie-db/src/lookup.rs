@@ -65,6 +65,10 @@ where
 		let mut partial = key;
 		let mut key_nibbles = 0;
 
+		let mut full_key = key.clone();
+		full_key.advance(key.len());
+		let full_key = full_key.left();
+
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
 			let hash = self.hash;
@@ -91,9 +95,7 @@ where
 				let next_node = match decoded {
 					Node::Leaf(slice, value) => {
 						return Ok(match slice == partial {
-							true => {
-								self.decode(value, key.mid(key_nibbles).left(), depth)?
-							},
+							true => self.decode(value, full_key, depth)?,
 							false => None,
 						})
 					}
@@ -108,7 +110,7 @@ where
 					}
 					Node::Branch(children, value) => match partial.is_empty() {
 						true => {
-							return Ok(self.decode(value, key.mid(key_nibbles).left(), depth)?)
+							return Ok(self.decode(value, full_key, depth)?)
 						},
 						false => match children[partial.at(0) as usize] {
 							Some(x) => {
@@ -125,7 +127,7 @@ where
 						}
 
 						match partial.len() == slice.len() {
-							true => return Ok(self.decode(value, key.mid(key_nibbles).left(), depth)?),
+							true => return Ok(self.decode(value, full_key, depth)?),
 							false => match children[partial.at(slice.len()) as usize] {
 								Some(x) => {
 									partial = partial.mid(slice.len() + 1);

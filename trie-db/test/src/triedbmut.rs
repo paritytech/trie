@@ -167,6 +167,35 @@ fn remove_to_empty_internal<T: TrieLayout>() {
 	assert_eq!(memdb.keys().len(), 0);
 }
 
+test_layouts!(remove_to_empty_checked, remove_to_empty_checked_internal);
+fn remove_to_empty_checked_internal<T: TrieLayout>() {
+	let big_value = b"00000000000000000000000000000000";
+
+	let mut memdb = PrefixedMemoryDB::<T>::default();
+	let mut root = Default::default();
+	{
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
+
+		t.insert(&[0x01], big_value).unwrap();
+		t.insert(&[0x01, 0x23], big_value).unwrap();
+		t.insert(&[0x01, 0x34], big_value).unwrap();
+		t.commit();
+		assert_eq!(
+			t.get(&[0x01]).unwrap(),
+			Some(big_value.to_vec()),
+		);
+		assert_eq!(
+			t.get(&[0x01, 0x34]).unwrap(),
+			Some(big_value.to_vec()),
+		);
+		t.commit();
+		t.remove(&[0x01]).unwrap();
+		t.remove(&[0x01, 0x23]).unwrap();
+		t.remove(&[0x01, 0x34]).unwrap();
+	}
+	assert_eq!(memdb.keys().len(), 0);
+}
+
 test_layouts!(remove_to_empty_no_extension, remove_to_empty_no_extension_internal);
 fn remove_to_empty_no_extension_internal<T: TrieLayout>() {
 	let big_value = b"00000000000000000000000000000000";

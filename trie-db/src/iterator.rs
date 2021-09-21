@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout};
-use hash_db::{Hasher, EMPTY_PREFIX};
+use hash_db::{Hasher, EMPTY_PREFIX, Prefix};
 use crate::triedb::TrieDB;
 use crate::node::{NodePlan, NodeHandle, OwnedNode};
 use crate::nibble::{NibbleSlice, NibbleVec, nibble_ops};
@@ -118,10 +118,10 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 	}
 
 	/// Fetch value by hash at a current node height
-	pub fn fetch_value(&self, key: &[u8]) -> Option<DBValue> {
+	pub fn fetch_value(&self, key: &[u8], prefix: Prefix) -> Option<DBValue> {
 		let mut res = TrieHash::<L>::default();
 		res.as_mut().copy_from_slice(key);
-		self.db.db().get(&res, self.key_nibbles.as_prefix())
+		self.db.db().get(&res, prefix)
 	}
 }
 

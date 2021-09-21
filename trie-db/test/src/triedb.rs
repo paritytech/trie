@@ -28,7 +28,7 @@ test_layouts!(iterator_works, iterator_works_internal);
 fn iterator_works_internal<T: TrieLayout>() {
 	let pairs = vec![
 		(hex!("0103000000000000000464").to_vec(), hex!("fffffffffe").to_vec()),
-		(hex!("0103000000000000000469").to_vec(), hex!("ffffffffff").to_vec()),
+		(hex!("0103000000000010000469").to_vec(), hex!("ffffffffff").to_vec()),
 	];
 
 	let mut memdb = PrefixedMemoryDB::<T>::default();

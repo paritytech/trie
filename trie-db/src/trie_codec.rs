@@ -25,7 +25,7 @@
 //! expected to save roughly (n - 1) hashes in size where n is the number of nodes in the partial
 //! trie.
 
-use hash_db::HashDB;
+use hash_db::{HashDB, Prefix};
 use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result,
 	TrieHash, TrieError, TrieDB, TrieDBNodeIterator, TrieLayout,
@@ -189,12 +189,13 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 fn detached_value<L: TrieLayout>(
 	value: &ValuePlan,
 	node_data: &[u8],
+	node_prefix: Prefix,
 	val_fetcher: &TrieDBNodeIterator<L>,
 ) -> Option<Vec<u8>> {
 	let fetched;
 	match value {
 		ValuePlan::HashedValue(hash_plan) => {
-			if let Some(value) = val_fetcher.fetch_value(&node_data[hash_plan.clone()]) {
+			if let Some(value) = val_fetcher.fetch_value(&node_data[hash_plan.clone()], node_prefix) {
 				fetched = value;
 			} else {
 				return None;
@@ -265,10 +266,10 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 
 				let (children_len, detached_value) = match node.node_plan() {
 					NodePlan::Empty => (0, None),
-					NodePlan::Leaf { value, .. } => (0, detached_value(value, node.data(), &iter)),
+					NodePlan::Leaf { value, .. } => (0, detached_value(value, node.data(), prefix.as_prefix(), &iter)),
 					NodePlan::Extension { .. } => (1, None),
 					NodePlan::NibbledBranch { value, .. }
-					| NodePlan::Branch { value, .. } => (NIBBLE_LENGTH, detached_value(value, node.data(), &iter)),
+					| NodePlan::Branch { value, .. } => (NIBBLE_LENGTH, detached_value(value, node.data(), prefix.as_prefix(), &iter)),
 				};
 
 				stack.push(EncoderStackEntry {

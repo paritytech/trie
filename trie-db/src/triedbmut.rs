@@ -129,12 +129,16 @@ impl<L: TrieLayout> Value<L> {
 		(value, new_threshold).into()
 	}
 
-	fn into_encoded<'a, F>(&'a mut self, f: &mut F) -> EncodedValue<'a>
+	fn into_encoded<'a, F>(
+		&'a mut self,
+		partial: Option<&NibbleSlice>,
+		f: &mut F,
+	) -> EncodedValue<'a>
 	where
 		F: FnMut(Option<&[u8]>, NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
 	{
 		if let Value::NewHashedValue(hash, value) = self {
-			let new_hash = if let ChildReference::Hash(hash) = f(Some(value.as_slice()), NodeHandle::Hash(Default::default()), None, None) {
+			let new_hash = if let ChildReference::Hash(hash) = f(Some(value.as_slice()), NodeHandle::Hash(Default::default()), partial, None) {
 				hash
 			} else {
 				unreachable!("Passing a hash as parameter is only to add an attached value")
@@ -318,7 +322,7 @@ impl<L: TrieLayout> Node<L>
 			Node::Empty => L::Codec::empty_node().to_vec(),
 			Node::Leaf(partial, mut value) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
-				let value = value.into_encoded::<F>(&mut child_cb);
+				let value = value.into_encoded::<F>(Some(&pr), &mut child_cb);
 				L::Codec::leaf_node(pr.right(), value)
 			},
 			Node::Extension(partial, child) => {
@@ -332,7 +336,7 @@ impl<L: TrieLayout> Node<L>
 				)
 			},
 			Node::Branch(mut children, mut value) => {
-				let value = value.into_encoded::<F>(&mut child_cb);
+				let value = value.into_encoded::<F>(None, &mut child_cb);
 				L::Codec::branch_node(
 					// map the `NodeHandle`s from the Branch to `ChildReferences`
 					children.iter_mut()
@@ -345,8 +349,8 @@ impl<L: TrieLayout> Node<L>
 				)
 			},
 			Node::NibbledBranch(partial, mut children, mut value) => {
-				let value = value.into_encoded::<F>(&mut child_cb);
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
+				let value = value.into_encoded::<F>(Some(&pr), &mut child_cb);
 				let it = pr.right_iter();
 				L::Codec::branch_node_nibbled(
 					it,
@@ -749,7 +753,7 @@ where
 	}
 
 	fn replace_old_value(&mut self, old_value: &mut Value<L>, new_value: Value<L>, prefix: Prefix) {
-		match old_value {
+		match &new_value {
 			Value::NewHashedValue(Some(hash), _) // also removing new node in case commit is called multiple times 
 			| Value::HashedValue(hash, _) => {
 				self.death_row.insert((
@@ -838,7 +842,10 @@ where
 						children,
 						value,
 					);
-					self.replace_old_value(old_val, stored_value, key.left());
+
+					let mut key_val = key.clone();
+					key_val.advance(existing_key.len());
+					self.replace_old_value(old_val, stored_value, key_val.left());
 
 					match unchanged {
 						true => InsertAction::Restore(branch),
@@ -928,7 +935,9 @@ where
 					// equivalent leaf.
 					let value = Value::new(Some(value), self.layout.max_inline_value());
 					let unchanged = stored_value == value;
-					self.replace_old_value(old_val, stored_value, key.left());
+					let mut key_val = key.clone();
+					key_val.advance(existing_key.len());
+					self.replace_old_value(old_val, stored_value, key_val.left());
 					match unchanged {
 						// unchanged. restore
 						true => InsertAction::Restore(Node::Leaf(encoded.clone(), value)),
@@ -1211,7 +1220,9 @@ where
 					if let Value::NoValue = value {
 						Action::Restore(Node::NibbledBranch(encoded, children, Value::NoValue))
 					} else {
-						self.replace_old_value(old_val, value, key.left());
+						let mut key_val = key.clone();
+						key_val.advance(existing_length);
+						self.replace_old_value(old_val, value, key_val.left());
 						let f = self.fix(Node::NibbledBranch(encoded, children, Value::NoValue), *key);
 						Action::Replace(f?)
 					}
@@ -1263,9 +1274,12 @@ where
 				}
 			},
 			(Node::Leaf(encoded, value), _) => {
-				if NibbleSlice::from_stored(&encoded) == partial {
+				let existing_key = NibbleSlice::from_stored(&encoded);
+				if existing_key == partial {
 					// this is the node we were looking for. Let's delete it.
-					self.replace_old_value(old_val, value, key.left());
+					let mut key_val = key.clone();
+					key_val.advance(existing_key.len());
+					self.replace_old_value(old_val, value, key_val.left());
 					Action::Delete
 				} else {
 					// leaf the node alone.
@@ -1602,10 +1616,12 @@ where
 
 				let encoded_root = node.into_encoded(
 					|value_node, child, o_slice, o_index| {
-						if let Some(value) = value_node {
-							return ChildReference::Hash(self.db.insert(k.as_prefix(), value));
-						}
 						let mov = k.append_optional_slice_and_nibble(o_slice, o_index);
+						if let Some(value) = value_node {
+							let value_hash = self.db.insert(k.as_prefix(), value);
+							k.drop_lasts(mov);
+							return ChildReference::Hash(value_hash);
+						}
 						let cr = self.commit_child(child, &mut k);
 						k.drop_lasts(mov);
 						cr
@@ -1655,10 +1671,12 @@ where
 								o_slice: Option<&NibbleSlice>,
 								o_index: Option<u8>
 							| {
-								if let Some(value) = value_node {
-									return ChildReference::Hash(self.db.insert(prefix.as_prefix(), value));
-								}
 								let mov = prefix.append_optional_slice_and_nibble(o_slice, o_index);
+								if let Some(value) = value_node {
+									let value_hash = self.db.insert(prefix.as_prefix(), value);
+									prefix.drop_lasts(mov);
+									return ChildReference::Hash(value_hash);
+								}
 								let cr = self.commit_child(node_handle, prefix);
 								prefix.drop_lasts(mov);
 								cr

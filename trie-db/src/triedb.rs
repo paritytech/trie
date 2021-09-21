@@ -458,7 +458,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 					}
 					let value = match maybe_value {
 						Value::HashedValue(hash, None) =>  {
-							if let Some(value) = self.inner.fetch_value(&hash) {
+							if let Some(value) = self.inner.fetch_value(&hash, (key_slice, None)) {
 								value
 							} else {
 								let mut res = TrieHash::<L>::default();

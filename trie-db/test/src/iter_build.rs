@@ -67,8 +67,8 @@ fn compare_implementations(data: Vec<(Vec<u8>, Vec<u8>)>) {
 	test_iter::<HashedValueNoExt>(data.clone());
 	test_iter::<ExtensionLayout>(data.clone());
 	test_iter::<NoExtensionLayout>(data.clone());
-	compare_implementations_h(data.clone());
 	compare_implementations_prefixed(data.clone());
+	compare_implementations_h(data.clone());
 }
 
 fn compare_implementations_prefixed(data: Vec<(Vec<u8>, Vec<u8>)>) {

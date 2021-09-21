@@ -133,8 +133,8 @@ impl<T, V> CacheAccum<T, V>
 		let value = if let Some(value) = Value::new(Some(v2.as_ref()), self.1.max_inline_value()) {
 			value
 		} else {
-			hashed = callback.process_inner_hased_value(
-				pr.left(),
+			hashed = callback.process_inner_hashed_value(
+				(k2.as_ref(), None),
 				v2.as_ref(),
 			);
 			Value::HashedValue(hashed.as_ref(), None)
@@ -206,8 +206,10 @@ impl<T, V> CacheAccum<T, V>
 		let value = if let Some(value) = Value::new(v.as_ref().map(|v| v.as_ref()), self.1.max_inline_value()) {
 			value
 		} else {
-			hashed = callback.process_inner_hased_value(
-				pr.left(),
+			let mut prefix = NibbleSlice::new_offset(&key_branch, 0);
+			prefix.advance(branch_d);
+			hashed = callback.process_inner_hashed_value(
+				prefix.left(),
 				v.as_ref().unwrap().as_ref(),
 			);
 			Value::HashedValue(hashed.as_ref(), None)
@@ -249,8 +251,10 @@ impl<T, V> CacheAccum<T, V>
 		let value = if let Some(value) = Value::new(v.as_ref().map(|v| v.as_ref()), self.1.max_inline_value()) {
 			value
 		} else {
-			hashed = callback.process_inner_hased_value(
-				pr.left(),
+			let mut prefix = NibbleSlice::new_offset(&key_branch, 0);
+			prefix.advance(branch_d);
+			hashed = callback.process_inner_hashed_value(
+				prefix.left(),
 				v.as_ref().unwrap().as_ref(),
 			);
 			Value::HashedValue(hashed.as_ref(), None)
@@ -322,8 +326,8 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F, layout: &T)
 			let value = if let Some(value) = Value::new(Some(v2.as_ref()), layout.max_inline_value()) {
 				value
 			} else {
-				hashed = callback.process_inner_hased_value(
-					pr.left(),
+				hashed = callback.process_inner_hashed_value(
+					(k2.as_ref(), None),
 					v2.as_ref(),
 				);
 				Value::HashedValue(hashed.as_ref(), None)
@@ -360,7 +364,7 @@ pub trait ProcessEncodedNode<HO> {
 	) -> ChildReference<HO>;
 
 	/// Callback for hashed value in encoded node.
-	fn process_inner_hased_value(
+	fn process_inner_hashed_value(
 		&mut self,
 		prefix: Prefix,
 		value: &[u8],
@@ -406,7 +410,7 @@ impl<'a, T, DB> ProcessEncodedNode<TrieHash<T>> for TrieBuilder<'a, T, DB>
 		ChildReference::Hash(hash)
 	}
 
-	fn process_inner_hased_value(
+	fn process_inner_hashed_value(
 		&mut self,
 		prefix: Prefix,
 		value: &[u8],
@@ -450,7 +454,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 		ChildReference::Hash(hash)
 	}
 
-	fn process_inner_hased_value(
+	fn process_inner_hashed_value(
 		&mut self,
 		_prefix: Prefix,
 		value: &[u8],
@@ -516,7 +520,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootPrint<T> {
 		ChildReference::Hash(hash)
 	}
 
-	fn process_inner_hased_value(
+	fn process_inner_hashed_value(
 		&mut self,
 		_prefix: Prefix,
 		value: &[u8],
@@ -548,7 +552,7 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRootUnhashed<T> {
 		ChildReference::Hash(hash)
 	}
 
-	fn process_inner_hased_value(
+	fn process_inner_hashed_value(
 		&mut self,
 		_prefix: Prefix,
 		value: &[u8],
