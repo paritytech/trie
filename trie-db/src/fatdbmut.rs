@@ -81,30 +81,27 @@ where
 		&mut self,
 		key: &[u8],
 		value: &[u8],
-	) -> Result<Value<L>, TrieHash<L>, CError<L>> {
+	) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
 		let hash = L::Hash::hash(key);
 		let out = self.raw.insert(hash.as_ref(), value)?;
 		let db = self.raw.db_mut();
 
 		// insert if it doesn't exist.
-		if let Value::NoValue = &out {
+		if out.is_none() {
 			let aux_hash = L::Hash::hash(hash.as_ref());
 			db.emplace(aux_hash, EMPTY_PREFIX, key.to_vec());
 		}
 		Ok(out)
 	}
 
-	fn remove(&mut self, key: &[u8]) -> Result<Value<L>, TrieHash<L>, CError<L>> {
+	fn remove(&mut self, key: &[u8]) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
 		let hash = L::Hash::hash(key);
 		let out = self.raw.remove(hash.as_ref())?;
 
 		// remove if it already exists.
-		match &out {
-			Value::NoValue => (),
-			_ => {
-				let aux_hash = L::Hash::hash(hash.as_ref());
-				self.raw.db_mut().remove(&aux_hash, EMPTY_PREFIX);
-			},
+		if out.is_some() {
+			let aux_hash = L::Hash::hash(hash.as_ref());
+			self.raw.db_mut().remove(&aux_hash, EMPTY_PREFIX);
 		}
 
 		Ok(out)

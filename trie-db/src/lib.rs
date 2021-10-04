@@ -242,11 +242,11 @@ pub trait TrieMut<L: TrieLayout> {
 		&mut self,
 		key: &[u8],
 		value: &[u8],
-	) -> Result<Value<L>, TrieHash<L>, CError<L>>;
+	) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>>;
 
 	/// Remove a `key` from the trie. Equivalent to making it equal to the empty
 	/// value. Returns the old value associated with this key, if it existed.
-	fn remove(&mut self, key: &[u8]) -> Result<Value<L>, TrieHash<L>, CError<L>>;
+	fn remove(&mut self, key: &[u8]) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>>;
 }
 
 /// A trie iterator that also supports random access (`seek()`).

@@ -465,20 +465,20 @@ fn return_old_values_internal<T: TrieLayout>() {
 	let mut root = Default::default();
 	let mut t = TrieDBMut::<T>::new(&mut db, &mut root);
 	for &(ref key, ref value) in &x {
-		assert!(t.insert(key, value).unwrap() == Value::NoValue);
+		assert!(t.insert(key, value).unwrap() == None);
 		if threshold.map(|t| value.len() < t as usize).unwrap_or(true) {
-			assert_eq!(t.insert(key, value).unwrap(), Value::Value(value.clone()));
+			assert_eq!(t.insert(key, value).unwrap(), Some(Value::Value(value.clone())));
 		} else {
-			assert!(matches!(t.insert(key, value).unwrap(), Value::NewHashedValue(..)));
+			assert!(matches!(t.insert(key, value).unwrap(), Some(Value::NewHashedValue(..))));
 		}
 	}
 	for (key, value) in x {
 		if threshold.map(|t| value.len() < t as usize).unwrap_or(true) {
-			assert_eq!(t.remove(&key).unwrap(), Value::Value(value));
+			assert_eq!(t.remove(&key).unwrap(), Some(Value::Value(value)));
 		} else {
-			assert!(matches!(t.remove(&key).unwrap(), Value::NewHashedValue(..)));
+			assert!(matches!(t.remove(&key).unwrap(), Some(Value::NewHashedValue(..))));
 		}
-		assert_eq!(t.remove(&key).unwrap(), Value::NoValue);
+		assert_eq!(t.remove(&key).unwrap(), None);
 	}
 }
 

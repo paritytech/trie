@@ -414,16 +414,16 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 					let maybe_value = match node.node() {
 						Node::Leaf(partial, value) => {
 							prefix.append_partial(partial.right());
-							value
+							Some(value)
 						}
 						Node::Branch(_, value) => value,
 						Node::NibbledBranch(partial, _, value) => {
 							prefix.append_partial(partial.right());
 							value
 						}
-						_ => Value::NoValue,
+						_ => None,
 					};
-					if let Value::NoValue = maybe_value {
+					if maybe_value.is_none() {
 						continue;
 					}
 					let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
@@ -433,7 +433,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 							TrieError::ValueAtIncompleteKey(key, extra_nibble)
 						)));
 					}
-					let value = match maybe_value {
+					let value = match maybe_value.expect("None checked above.") {
 						Value::HashedValue(hash, None) =>  {
 							if let Some(value) = self.inner.fetch_value(&hash, (key_slice, None)) {
 								value
@@ -447,7 +447,6 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 						},
 						Value::Value(value) => value.to_vec(),
 						Value::HashedValue(_hash, Some(value)) => value,
-						Value::NoValue => return None,
 					};
 					return Some(Ok((key, value)));
 				},
@@ -468,16 +467,16 @@ impl<'a, L: TrieLayout> Iterator for TrieDBKeyIterator<'a, L> {
 					let maybe_value = match node.node() {
 						Node::Leaf(partial, value) => {
 							prefix.append_partial(partial.right());
-							value
+							Some(value)
 						}
 						Node::Branch(_, value) => value,
 						Node::NibbledBranch(partial, _, value) => {
 							prefix.append_partial(partial.right());
 							value
 						}
-						_ => Value::NoValue,
+						_ => None,
 					};
-					if let Value::NoValue = maybe_value {
+					if maybe_value.is_none() {
 						continue;
 					} else {
 						let (key_slice, maybe_extra_nibble) = prefix.as_prefix();

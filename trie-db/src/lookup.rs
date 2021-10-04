@@ -36,17 +36,16 @@ where
 	L: TrieLayout,
 	Q: Query<L::Hash>,
 {
-	fn decode(mut self, v: Value, prefix: Prefix, depth: u32) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
+	fn decode(mut self, v: Value, prefix: Prefix, depth: u32) -> Result<Q::Item, TrieHash<L>, CError<L>> {
 		match v {
-			Value::NoValue => Ok(None),
-			Value::Value(value) => Ok(Some(self.query.decode(value))),
-			Value::HashedValue(_, Some(value)) =>	Ok(Some(self.query.decode(value.as_slice()))),
+			Value::Value(value) => Ok(self.query.decode(value)),
+			Value::HashedValue(_, Some(value)) =>	Ok(self.query.decode(value.as_slice())),
 			Value::HashedValue(hash, None) => {
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash);
 				if let Some(value) = self.db.get(&res, prefix) {
 					self.query.record(&res, &value, depth);
-					Ok(Some(self.query.decode(value.as_slice())))
+					Ok(self.query.decode(value.as_slice()))
 				} else {
 					Err(Box::new(TrieError::IncompleteDatabase(res)))
 				}
@@ -93,7 +92,7 @@ where
 				let next_node = match decoded {
 					Node::Leaf(slice, value) => {
 						return Ok(match slice == partial {
-							true => self.decode(value, full_key, depth)?,
+							true => Some(self.decode(value, full_key, depth)?),
 							false => None,
 						})
 					}
@@ -107,8 +106,10 @@ where
 						}
 					}
 					Node::Branch(children, value) => match partial.is_empty() {
-						true => {
-							return Ok(self.decode(value, full_key, depth)?)
+						true => if let Some(value) = value {
+							return Ok(Some(self.decode(value, full_key, depth)?));
+						} else {
+							return Ok(None);
 						},
 						false => match children[partial.at(0) as usize] {
 							Some(x) => {
@@ -125,7 +126,11 @@ where
 						}
 
 						match partial.len() == slice.len() {
-							true => return Ok(self.decode(value, full_key, depth)?),
+							true => if let Some(value) = value {
+								return Ok(Some(self.decode(value, full_key, depth)?));
+							} else {
+								return Ok(None);
+							},
 							false => match children[partial.at(slice.len()) as usize] {
 								Some(x) => {
 									partial = partial.mid(slice.len() + 1);

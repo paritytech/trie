@@ -130,7 +130,7 @@ impl<T, V> CacheAccum<T, V>
 		);
 
 		let hashed;
-		let value = if let Some(value) = Value::new(Some(v2.as_ref()), T::MAX_INLINE_VALUE) {
+		let value = if let Some(value) = Value::new(v2.as_ref(), T::MAX_INLINE_VALUE) {
 			value
 		} else {
 			hashed = callback.process_inner_hashed_value(
@@ -203,16 +203,20 @@ impl<T, V> CacheAccum<T, V>
 		let pr = NibbleSlice::new_offset(&key_branch, branch_d);
 
 		let hashed;
-		let value = if let Some(value) = Value::new(v.as_ref().map(|v| v.as_ref()), T::MAX_INLINE_VALUE) {
-			value
+		let value = if let Some(v) = v.as_ref() {
+			Some(if let Some(value) = Value::new(v.as_ref(), T::MAX_INLINE_VALUE) {
+				value
+			} else {
+				let mut prefix = NibbleSlice::new_offset(&key_branch, 0);
+				prefix.advance(branch_d);
+				hashed = callback.process_inner_hashed_value(
+					prefix.left(),
+					v.as_ref(),
+				);
+				Value::HashedValue(hashed.as_ref(), None)
+			})
 		} else {
-			let mut prefix = NibbleSlice::new_offset(&key_branch, 0);
-			prefix.advance(branch_d);
-			hashed = callback.process_inner_hashed_value(
-				prefix.left(),
-				v.as_ref().unwrap().as_ref(),
-			);
-			Value::HashedValue(hashed.as_ref(), None)
+			None
 		};
 
 		// encode branch
@@ -248,16 +252,20 @@ impl<T, V> CacheAccum<T, V>
 		let nkeyix = nkey.unwrap_or((branch_d, 0));
 		let pr = NibbleSlice::new_offset(&key_branch, nkeyix.0);
 		let hashed;
-		let value = if let Some(value) = Value::new(v.as_ref().map(|v| v.as_ref()), T::MAX_INLINE_VALUE) {
-			value
+		let value = if let Some(v) = v.as_ref() {
+			Some(if let Some(value) = Value::new(v.as_ref(), T::MAX_INLINE_VALUE) {
+				value
+			} else {
+				let mut prefix = NibbleSlice::new_offset(&key_branch, 0);
+				prefix.advance(branch_d);
+				hashed = callback.process_inner_hashed_value(
+					prefix.left(),
+					v.as_ref(),
+				);
+				Value::HashedValue(hashed.as_ref(), None)
+			})
 		} else {
-			let mut prefix = NibbleSlice::new_offset(&key_branch, 0);
-			prefix.advance(branch_d);
-			hashed = callback.process_inner_hashed_value(
-				prefix.left(),
-				v.as_ref().unwrap().as_ref(),
-			);
-			Value::HashedValue(hashed.as_ref(), None)
+			None
 		};
 
 		let encoded = T::Codec::branch_node_nibbled(
@@ -323,7 +331,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F)
 			);
 
 			let hashed;
-			let value = if let Some(value) = Value::new(Some(v2.as_ref()), T::MAX_INLINE_VALUE) {
+			let value = if let Some(value) = Value::new(v2.as_ref(), T::MAX_INLINE_VALUE) {
 				value
 			} else {
 				hashed = callback.process_inner_hashed_value(

@@ -125,7 +125,7 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 			NodePlan::Branch { value, children } => {
 				C::branch_node(
 					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
-					value.build(node_data),
+					value.as_ref().map(|v| v.build(node_data)),
 				)
 			}
 			NodePlan::NibbledBranch { partial, value, children } => {
@@ -134,7 +134,7 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 					partial.right_iter(),
 					partial.len(),
 					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
-					value.build(node_data),
+					value.as_ref().map(|v| v.build(node_data)),
 				)
 			}
 		};
@@ -266,8 +266,10 @@ pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CE
 					NodePlan::Empty => (0, None),
 					NodePlan::Leaf { value, .. } => (0, detached_value(value, node.data(), prefix.as_prefix(), &iter)),
 					NodePlan::Extension { .. } => (1, None),
-					NodePlan::NibbledBranch { value, .. }
-					| NodePlan::Branch { value, .. } => (NIBBLE_LENGTH, detached_value(value, node.data(), prefix.as_prefix(), &iter)),
+					NodePlan::NibbledBranch { value: Some(value), .. }
+					| NodePlan::Branch { value: Some(value), .. } => (NIBBLE_LENGTH, detached_value(value, node.data(), prefix.as_prefix(), &iter)),
+					NodePlan::NibbledBranch { value: None, .. }
+					| NodePlan::Branch { value: None, .. } => (NIBBLE_LENGTH, None),
 				};
 
 				stack.push(EncoderStackEntry {
@@ -417,13 +419,24 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 						.expect("required by method precondition; qed"),
 				),
 			Node::Branch(_, value) =>
-				C::branch_node(self.children.into_iter(), attached_hash.unwrap_or(value)),
+				C::branch_node(
+					self.children.into_iter(),
+					if attached_hash.is_some() {
+						attached_hash
+					} else {
+						value
+					},
+				),
 			Node::NibbledBranch(partial, _, value) =>
 				C::branch_node_nibbled(
 					partial.right_iter(),
 					partial.len(),
 					self.children.iter(),
-					attached_hash.unwrap_or(value),
+					if attached_hash.is_some() {
+						attached_hash
+					} else {
+						value
+					},
 				),
 		}
 	}

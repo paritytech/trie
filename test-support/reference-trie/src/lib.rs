@@ -638,9 +638,9 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 
 				let value = if has_value {
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-					ValuePlan::Value(input.take(count)?)
+					Some(ValuePlan::Value(input.take(count)?))
 				} else {
-					ValuePlan::NoValue
+					None
 				};
 				let mut children = [
 					None, None, None, None, None, None, None, None,
@@ -732,17 +732,17 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 
 	fn branch_node(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		maybe_value: Value,
+		maybe_value: Option<Value>,
 	) -> Vec<u8> {
 		let mut output = vec![0; BITMAP_LENGTH + 1];
 		let mut prefix: [u8; 3] = [0; 3];
 		let have_value = match maybe_value {
-			Value::Value(value) => {
+			Some(Value::Value(value)) => {
 				Compact(value.len() as u32).encode_to(&mut output);
 				output.extend_from_slice(value);
 				true
 			},
-			Value::NoValue => {
+			None => {
 				false
 			},
 			_ => unimplemented!("unsupported"),
@@ -767,7 +767,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		_partial:	impl Iterator<Item = u8>,
 		_number_nibble: usize,
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		_maybe_value: Value,
+		_maybe_value: Option<Value>,
 	) -> Vec<u8> {
 		unreachable!("codec with extension branch")
 	}
@@ -803,9 +803,9 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				let bitmap = Bitmap::decode(&data[bitmap_range])?;
 				let value = if has_value {
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-					ValuePlan::Value(input.take(count)?)
+					Some(ValuePlan::Value(input.take(count)?))
 				} else {
-					ValuePlan::NoValue
+					None
 				};
 				let mut children = [
 					None, None, None, None, None, None, None, None,
@@ -865,7 +865,6 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				output.extend_from_slice(value);
 			},
 			Value::HashedValue(..) => unimplemented!("No support for inner hashed value"),
-			Value::NoValue => unreachable!("Leaf node always contain a value"),
 		}
 		output
 	}
@@ -880,7 +879,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 
 	fn branch_node(
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
-		_maybe_value: Value,
+		_maybe_value: Option<Value>,
 	) -> Vec<u8> {
 		unreachable!("no extension codec")
 	}
@@ -889,9 +888,9 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		maybe_value: Value,
+		maybe_value: Option<Value>,
 	) -> Vec<u8> {
-		let mut output = if let Value::NoValue = &maybe_value {
+		let mut output = if maybe_value.is_none() {
 			partial_from_iterator_encode(
 				partial,
 				number_nibble,
@@ -908,12 +907,12 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		let mut bitmap: [u8; BITMAP_LENGTH] = [0; BITMAP_LENGTH];
 		(0..BITMAP_LENGTH).for_each(|_| output.push(0));
 		match maybe_value {
-			Value::Value(value) => {
+			Some(Value::Value(value)) => {
 				Compact(value.len() as u32).encode_to(&mut output);
 				output.extend_from_slice(value);
 			},
-			Value::HashedValue(..) => unimplemented!("No support for inner hashed value"),
-			Value::NoValue => (),
+			Some(Value::HashedValue(..)) => unimplemented!("No support for inner hashed value"),
+			None => (),
 		}
 
 		Bitmap::encode(children.map(|maybe_child| match maybe_child.borrow() {

@@ -76,7 +76,7 @@ pub trait NodeCodec: Sized {
 	/// Takes an iterator yielding `ChildReference<Self::HashOut>` and an optional value.
 	fn branch_node(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		value: Value,
+		value: Option<Value>,
 	) -> Vec<u8>;
 
 	/// Returns an encoded branch node with a possible partial path.
@@ -85,6 +85,6 @@ pub trait NodeCodec: Sized {
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		value: Value,
+		value: Option<Value>,
 	) -> Vec<u8>;
 }

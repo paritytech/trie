@@ -99,13 +99,13 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 		};
 		let node_data = self.node.data();
 		let value_with_omission = |
-			value_range: &ValuePlan,
-		| -> Value
+			value_range: ValuePlan,
+		| -> Option<Value>
 		{
 			if !matches!(omit_value, ValueMgmt::Standard) {
-				Value::NoValue
+				None
 			} else {
-				value_range.build(&node_data)
+				Some(value_range.build(&node_data))
 			}
 		};
 		let encoded = match self.node.node_plan() {
@@ -139,7 +139,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 				)?;
 				prepend_on_hashed(C::branch_node(
 					self.children.into_iter(),
-					value_with_omission(value),
+					value.clone().map(value_with_omission).flatten(),
 				))
 			},
 			NodePlan::NibbledBranch { partial: partial_plan, value, children } => {
@@ -154,7 +154,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 					partial.right_iter(),
 					partial.len(),
 					self.children.into_iter(),
-					value_with_omission(value),
+					value.clone().map(value_with_omission).flatten(),
 				))
 			},
 		};
@@ -459,9 +459,6 @@ fn match_key_to_node<'a, C: NodeCodec>(
 						*omit_value = ValueMgmt::OmitHashedValue;
 						resolve_value::<C>(recorded_nodes)?
 					},
-					_ => return Err(Box::new(
-						TrieError::IncompleteDatabase(C::HashOut::default())
-					)),
 				}
 			} else {
 				Step::FoundValue(None)
@@ -481,7 +478,7 @@ fn match_key_to_node<'a, C: NodeCodec>(
 		NodePlan::Branch { value, children: child_handles } =>
 			match_key_to_branch_node::<C>(
 				node_data,
-				value,
+				value.as_ref(),
 				&child_handles,
 				omit_value,
 				child_index,
@@ -494,7 +491,7 @@ fn match_key_to_node<'a, C: NodeCodec>(
 		NodePlan::NibbledBranch { partial: partial_plan, value, children: child_handles } =>
 			match_key_to_branch_node::<C>(
 				node_data,
-				value,
+				value.as_ref(),
 				&child_handles,
 				omit_value,
 				child_index,
@@ -509,7 +506,7 @@ fn match_key_to_node<'a, C: NodeCodec>(
 
 fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 	node_data: &'a [u8],
-	value_range: &'b ValuePlan,
+	value_range: Option<&'b ValuePlan>,
 	child_handles: &'b [Option<NodeHandlePlan>; NIBBLE_LENGTH],
 	omit_value: &mut ValueMgmt,
 	child_index: &mut usize,
@@ -526,15 +523,15 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 
 	if key.len() == prefix_len + partial.len() {
 		let value = match value_range {
-			ValuePlan::Value(range) => {
+			Some(ValuePlan::Value(range)) => {
 				*omit_value = ValueMgmt::OmitValue;
 				Some(&node_data[range.clone()])
 			},
-			ValuePlan::HashedValue(..) => {
+			Some(ValuePlan::HashedValue(..)) => {
 				*omit_value = ValueMgmt::OmitHashedValue;
 				return resolve_value::<C>(recorded_nodes);
 			},
-			ValuePlan::NoValue => None,
+			None => None,
 		};
 		return Ok(Step::FoundValue(value));
 	}

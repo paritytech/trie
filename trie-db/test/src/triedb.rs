@@ -259,13 +259,15 @@ fn debug_output_supports_pretty_print_internal<T: TrieLayout>() {
                                     ),
                                 },
                             ],
-                            value: NoValue,
+                            value: None,
                         },
                     ],
-                    value: Value(
-                        [
-                            65,
-                        ],
+                    value: Some(
+                        Value(
+                            [
+                                65,
+                            ],
+                        ),
                     ),
                 },
                 Node::Leaf {
@@ -278,7 +280,7 @@ fn debug_output_supports_pretty_print_internal<T: TrieLayout>() {
                     ),
                 },
             ],
-            value: NoValue,
+            value: None,
         },
     },
 }")
