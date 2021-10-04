@@ -21,30 +21,32 @@ use super::CodecError as Error;
 use super::NodeCodec as NodeCodecT;
 use trie_db::node::Value;
 
-/// No extension trie with storing value above a given size
-/// as external node.
-#[derive(Clone, Debug)]
-pub struct HashedValueNoExt(pub Option<u32>);
+/// No extension trie with no hashed value.
+pub struct HashedValueNoExt;
 
-impl Default for HashedValueNoExt {
-	fn default() -> Self {
-		HashedValueNoExt(Some(1))
-	}
-}
+/// No extension trie which stores value above a static size
+/// as external node.
+pub struct HashedValueNoExtThreshold;
 
 impl TrieLayout for HashedValueNoExt {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
+	const MAX_INLINE_VALUE: Option<u32> = None;
 
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExtMeta<RefHasher>;
-
-	fn max_inline_value(&self) -> Option<u32> {
-		self.0
-	}
 }
 
-/// Constants specific to encoding with alt hashing.
+impl TrieLayout for HashedValueNoExtThreshold {
+	const USE_EXTENSION: bool = false;
+	const ALLOW_EMPTY: bool = false;
+	const MAX_INLINE_VALUE: Option<u32> = Some(1);
+
+	type Hash = RefHasher;
+	type Codec = ReferenceNodeCodecNoExtMeta<RefHasher>;
+}
+
+/// Constants specific to encoding with external value node support.
 pub mod trie_constants {
 	const FIRST_PREFIX: u8 = 0b_00 << 6;
 	pub const NIBBLE_SIZE_BOUND: usize = u16::max_value() as usize;

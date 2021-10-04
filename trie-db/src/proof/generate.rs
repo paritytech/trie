@@ -243,7 +243,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 					the encoding of the proof node is always smaller than the raw node as data is \
 					only stripped"
 				);
-				&mut hash.as_mut()[..encoded_child.len()].copy_from_slice(encoded_child);
+				hash.as_mut()[..encoded_child.len()].copy_from_slice(encoded_child);
 				ChildReference::Inline(hash, encoded_child.len())
 			},
 		}

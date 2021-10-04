@@ -29,8 +29,6 @@ pub struct Lookup<'a, L: TrieLayout, Q: Query<L::Hash>> {
 	pub query: Q,
 	/// Hash to start at
 	pub hash: TrieHash<L>,
-	/// Layout for the trie.
-	pub layout: L,
 }
 
 impl<'a, L, Q> Lookup<'a, L, Q>

@@ -45,7 +45,7 @@ pub mod node {
 }
 
 pub use substrate_like::{trie_constants, ReferenceTrieStreamNoExt,
-	HashedValueNoExt,
+	HashedValueNoExt, HashedValueNoExtThreshold,
 	NodeCodec as ReferenceNodeCodecNoExtMeta};
 
 
@@ -58,6 +58,7 @@ macro_rules! test_layouts {
 	($test:ident, $test_internal:ident) => {
 		#[test]
 		fn $test() {
+			$test_internal::<reference_trie::HashedValueNoExtThreshold>();
 			$test_internal::<reference_trie::HashedValueNoExt>();
 			$test_internal::<reference_trie::NoExtensionLayout>();
 			$test_internal::<reference_trie::ExtensionLayout>();
@@ -84,12 +85,9 @@ pub struct ExtensionLayout;
 impl TrieLayout for ExtensionLayout {
 	const USE_EXTENSION: bool = true;
 	const ALLOW_EMPTY: bool = false;
+	const MAX_INLINE_VALUE: Option<u32> = None;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
-
-	fn max_inline_value(&self) -> Option<u32> {
-		None
-	}
 }
 
 impl TrieConfiguration for ExtensionLayout { }
@@ -113,12 +111,9 @@ impl<H> Clone for GenericNoExtensionLayout<H> {
 impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
+	const MAX_INLINE_VALUE: Option<u32> = None;
 	type Hash = H;
 	type Codec = ReferenceNodeCodecNoExt<H>;
-
-	fn max_inline_value(&self) -> Option<u32> {
-		None
-	}
 }
 
 /// Trie that allows empty values.
@@ -128,12 +123,9 @@ pub struct AllowEmptyLayout;
 impl TrieLayout for AllowEmptyLayout {
 	const USE_EXTENSION: bool = true;
 	const ALLOW_EMPTY: bool = true;
+	const MAX_INLINE_VALUE: Option<u32> = None;
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodec<RefHasher>;
-
-	fn max_inline_value(&self) -> Option<u32> {
-		None
-	}
 }
 
 impl<H: Hasher> TrieConfiguration for GenericNoExtensionLayout<H> { }
@@ -210,7 +202,7 @@ pub fn reference_trie_root_iter_build<T, I, A, B>(input: I) -> <T::Hash as Hashe
 	B: AsRef<[u8]> + fmt::Debug,
 {
 	let mut cb = trie_db::TrieRoot::<T>::default();
-	trie_visit(data_sorted_unique(input), &mut cb, &T::default());
+	trie_visit::<T, _, _, _, _>(data_sorted_unique(input), &mut cb);
 	cb.root.unwrap_or_default()
 }
 
@@ -1009,7 +1001,7 @@ pub fn compare_unhashed(
 ) {
 	let root_new = {
 		let mut cb = trie_db::TrieRootUnhashed::<ExtensionLayout>::default();
-		trie_visit(data.clone().into_iter(), &mut cb, &ExtensionLayout);
+		trie_visit::<ExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = reference_trie_root_unhashed(data);
@@ -1024,7 +1016,7 @@ pub fn compare_unhashed_no_extension(
 ) {
 	let root_new = {
 		let mut cb = trie_db::TrieRootUnhashed::<NoExtensionLayout>::default();
-		trie_visit(data.clone().into_iter(), &mut cb, &NoExtensionLayout::default());
+		trie_visit::<NoExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
 	let root = reference_trie_root_unhashed_no_extension(data);
@@ -1043,7 +1035,7 @@ pub fn calc_root<T, I, A, B>(
 		B: AsRef<[u8]> + fmt::Debug,
 {
 	let mut cb = TrieRoot::<T>::default();
-	trie_visit(data.into_iter(), &mut cb, &T::default());
+	trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or_default()
 }
 
@@ -1060,7 +1052,7 @@ pub fn calc_root_build<T, I, A, B, DB>(
 		DB: hash_db::HashDB<T::Hash, DBValue>,
 {
 	let mut cb = TrieBuilder::<T, DB>::new(hashdb);
-	trie_visit(data.into_iter(), &mut cb, &T::default());
+	trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
 	cb.root.unwrap_or_default()
 }
 
@@ -1087,7 +1079,7 @@ pub fn compare_implementations_unordered<T, DB> (
 	};
 	let root_new = {
 		let mut cb = TrieBuilder::<T, DB>::new(&mut hashdb);
-		trie_visit(b_map.into_iter(), &mut cb, &T::default());
+		trie_visit::<T, _, _, _, _>(b_map.into_iter(), &mut cb);
 		cb.root.unwrap_or_default()
 	};
 

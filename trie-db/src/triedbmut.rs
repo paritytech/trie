@@ -242,7 +242,6 @@ impl<L: TrieLayout> Node<L>
 		child: EncodedNodeHandle,
 		db: &dyn HashDB<L::Hash, DBValue>,
 		storage: &mut NodeStorage<L>,
-		layout: &L,
 	) -> Result<NodeHandle<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		let handle = match child {
 			EncodedNodeHandle::Hash(data) => {
@@ -251,7 +250,7 @@ impl<L: TrieLayout> Node<L>
 				NodeHandle::Hash(hash)
 			},
 			EncodedNodeHandle::Inline(data) => {
-				let child = Node::from_encoded(parent_hash, data, db, storage, layout)?;
+				let child = Node::from_encoded(parent_hash, data, db, storage)?;
 				NodeHandle::InMemory(storage.alloc(Stored::New(child)))
 			},
 		};
@@ -264,7 +263,6 @@ impl<L: TrieLayout> Node<L>
 		data: &'a[u8],
 		db: &dyn HashDB<L::Hash, DBValue>,
 		storage: &'b mut NodeStorage<L>,
-		layout: &L,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		let encoded_node = L::Codec::decode(data)
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash, e)))?;
@@ -273,11 +271,11 @@ impl<L: TrieLayout> Node<L>
 			EncodedNode::Leaf(k, v) => Node::Leaf(k.into(), v.into()),
 			EncodedNode::Extension(key, cb) => Node::Extension(
 				key.into(),
-				Self::inline_or_hash(node_hash, cb, db, storage, layout)?,
+				Self::inline_or_hash(node_hash, cb, db, storage)?,
 			),
 			EncodedNode::Branch(encoded_children, val) => {
 				let mut child = |i:usize| match encoded_children[i] {
-					Some(child) => Self::inline_or_hash(node_hash, child, db, storage, layout)
+					Some(child) => Self::inline_or_hash(node_hash, child, db, storage)
 						.map(Some),
 					None => Ok(None),
 				};
@@ -293,7 +291,7 @@ impl<L: TrieLayout> Node<L>
 			},
 			EncodedNode::NibbledBranch(k, encoded_children, val) => {
 				let mut child = |i:usize| match encoded_children[i] {
-					Some(child) => Self::inline_or_hash(node_hash, child, db, storage, layout)
+					Some(child) => Self::inline_or_hash(node_hash, child, db, storage)
 						.map(Some),
 					None => Ok(None),
 				};
@@ -443,7 +441,7 @@ impl<'a, HO> TryFrom<EncodedNodeHandle<'a>> for ChildReference<HO>
 				if data.len() > hash.as_ref().len() {
 					return Err(data.to_vec());
 				}
-				&mut hash.as_mut()[..data.len()].copy_from_slice(data);
+				hash.as_mut()[..data.len()].copy_from_slice(data);
 				Ok(ChildReference::Inline(hash, data.len()))
 			}
 		}
@@ -528,7 +526,6 @@ pub struct TrieDBMut<'a, L>
 where
 	L: TrieLayout,
 {
-	layout: L,
 	storage: NodeStorage<L>,
 	db: &'a mut dyn HashDB<L::Hash, DBValue>,
 	root: &'a mut TrieHash<L>,
@@ -545,21 +542,10 @@ where
 {
 	/// Create a new trie with backing database `db` and empty `root`.
 	pub fn new(db: &'a mut dyn HashDB<L::Hash, DBValue>, root: &'a mut TrieHash<L>) -> Self {
-		Self::new_with_layout(db, root, Default::default())
-	}
-
-	/// Create a new trie with backing database `db` and empty `root`,
-	/// using a context specific layout.
-	pub fn new_with_layout(
-		db: &'a mut dyn HashDB<L::Hash, DBValue>,
-		root: &'a mut TrieHash<L>,
-		layout: L,
-	) -> Self {
 		*root = L::Codec::hashed_null_node();
 		let root_handle = NodeHandle::Hash(L::Codec::hashed_null_node());
 
 		TrieDBMut {
-			layout,
 			storage: NodeStorage::empty(),
 			db,
 			root,
@@ -575,23 +561,12 @@ where
 		db: &'a mut dyn HashDB<L::Hash, DBValue>,
 		root: &'a mut TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
-		Self::from_existing_with_layout(db, root, Default::default())
-	}
-
-	/// Create a new trie with the backing database `db` and `root.
-	/// Returns an error if `root` does not exist.
-	pub fn from_existing_with_layout(
-		db: &'a mut dyn HashDB<L::Hash, DBValue>,
-		root: &'a mut TrieHash<L>,
-		layout: L,
-	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
 			return Err(Box::new(TrieError::InvalidStateRoot(*root)));
 		}
 
 		let root_handle = NodeHandle::Hash(*root);
 		Ok(TrieDBMut {
-			layout,
 			storage: NodeStorage::empty(),
 			db,
 			root,
@@ -623,7 +598,6 @@ where
 			&node_encoded,
 			&*self.db,
 			&mut self.storage,
-			&self.layout,
 		)?;
 		Ok(self.storage.alloc(Stored::Cached(node, hash)))
 	}
@@ -679,7 +653,6 @@ where
 					db: &self.db,
 					query: |v: &[u8]| v.to_vec(),
 					hash: *hash,
-					layout: self.layout.clone(),
 				}.look_up(partial),
 				NodeHandle::InMemory(ref handle) => match self.storage[handle] {
 					Node::Empty => return Ok(None),
@@ -783,7 +756,7 @@ where
 			Node::Empty => {
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "empty: COMPOSE");
-				let value = Value::new(Some(value), self.layout.max_inline_value());
+				let value = Value::new(Some(value), L::MAX_INLINE_VALUE);
 				InsertAction::Replace(Node::Leaf(partial.to_stored(), value))
 			},
 			Node::Branch(mut children, stored_value) => {
@@ -792,7 +765,7 @@ where
 				trace!(target: "trie", "branch: ROUTE,AUGMENT");
 
 				if partial.is_empty() {
-					let value = Value::new(Some(value), self.layout.max_inline_value());
+					let value = Value::new(Some(value), L::MAX_INLINE_VALUE);
 					let unchanged = stored_value == value;
 					let branch = Node::Branch(children, value);
 
@@ -816,7 +789,7 @@ where
 						}
 					} else {
 						// Original had nothing there. compose a leaf.
-						let value = Value::new(Some(value), self.layout.max_inline_value());
+						let value = Value::new(Some(value), L::MAX_INLINE_VALUE);
 						let leaf = self.storage.alloc(
 							Stored::New(Node::Leaf(key.to_stored(), value))
 
@@ -835,7 +808,7 @@ where
 
 				let common = partial.common_prefix(&existing_key);
 				if common == existing_key.len() && common == partial.len() {
-					let value = Value::new(Some(value), self.layout.max_inline_value());
+					let value = Value::new(Some(value), L::MAX_INLINE_VALUE);
 					let unchanged = stored_value == value;
 					let branch = Node::NibbledBranch(
 						existing_key.to_stored(),
@@ -870,7 +843,7 @@ where
 
 					children[ix as usize] = Some(alloc_storage.into());
 
-					let value = Value::new(Some(value), self.layout.max_inline_value());
+					let value = Value::new(Some(value), L::MAX_INLINE_VALUE);
 					if partial.len() - common == 0 {
 						InsertAction::Replace(Node::NibbledBranch(
 							existing_key.to_stored_range(common),
@@ -912,7 +885,7 @@ where
 						}
 					} else {
 						// Original had nothing there. compose a leaf.
-						let value = Value::new(Some(value), self.layout.max_inline_value());
+						let value = Value::new(Some(value), L::MAX_INLINE_VALUE);
 						let leaf = self.storage.alloc(
 							Stored::New(Node::Leaf(key.to_stored(), value)),
 						);
@@ -933,7 +906,7 @@ where
 					#[cfg(feature = "std")]
 					trace!(target: "trie", "equivalent-leaf: REPLACE");
 					// equivalent leaf.
-					let value = Value::new(Some(value), self.layout.max_inline_value());
+					let value = Value::new(Some(value), L::MAX_INLINE_VALUE);
 					let unchanged = stored_value == value;
 					let mut key_val = key.clone();
 					key_val.advance(existing_key.len());
@@ -1710,11 +1683,6 @@ where
 			NodeHandle::Hash(h) => NodeHandle::Hash(h),
 			NodeHandle::InMemory(StorageHandle(x)) => NodeHandle::InMemory(StorageHandle(x)),
 		}
-	}
-
-	/// Get current value of Trie layout.
-	pub fn layout(&self) -> L {
-		self.layout.clone()
 	}
 }
 

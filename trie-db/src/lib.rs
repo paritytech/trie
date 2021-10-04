@@ -178,9 +178,6 @@ pub trait Trie<L: TrieLayout> {
 	/// Return the root of the trie.
 	fn root(&self) -> &TrieHash<L>;
 
-	/// Return the current layout in use.
-	fn layout(&self) -> L;
-
 	/// Is the trie empty?
 	fn is_empty(&self) -> bool { *self.root() == L::Codec::hashed_null_node() }
 
@@ -310,10 +307,6 @@ impl<'db, L: TrieLayout> Trie<L> for TrieKinds<'db, L> {
 		wrapper!(self, root,)
 	}
 
-	fn layout(&self) -> L {
-		wrapper!(self, layout,)
-	}
-
 	fn is_empty(&self) -> bool {
 		wrapper!(self, is_empty,)
 	}
@@ -403,24 +396,21 @@ where
 /// Trait with definition of trie layout.
 /// Contains all associated trait needed for
 /// a trie definition or implementation.
-/// Structure implementing this trait can define contextual behavior
-/// for trie, but should be small (clone cost should be insignifiant).
-pub trait TrieLayout: Default + Clone {
+pub trait TrieLayout {
 	/// If true, the trie will use extension nodes and
 	/// no partial in branch, if false the trie will only
 	/// use branch and node with partials in both.
 	const USE_EXTENSION: bool;
 	/// If true, the trie will allow empty values into `TrieDBMut`
 	const ALLOW_EMPTY: bool = false;
+	/// Threshold above which an external node should be
+	/// use to store a node value.
+	const MAX_INLINE_VALUE: Option<u32>;
 
 	/// Hasher to use for this trie.
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
 	type Codec: NodeCodec<HashOut=<Self::Hash as Hasher>::Out>;
-
-	/// Threshold above which an external node should be
-	/// use to store a node value.
-	fn max_inline_value(&self) -> Option<u32>;
 }
 
 /// Small enum indicating representation of a given children.
@@ -438,34 +428,34 @@ pub enum ChildrenDecoded {
 /// used to allow switching implementation.
 pub trait TrieConfiguration: Sized + TrieLayout {
 	/// Operation to build a trie db from its ordered iterator over its key/values.
-	fn trie_build<DB, I, A, B>(&self, db: &mut DB, input: I) -> <Self::Hash as Hasher>::Out where
+	fn trie_build<DB, I, A, B>(db: &mut DB, input: I) -> <Self::Hash as Hasher>::Out where
 		DB: HashDB<Self::Hash, DBValue>,
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,
 	{
 		let mut cb = TrieBuilder::<Self, DB>::new(db);
-		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb, self);
+		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
 		cb.root.unwrap_or_default()
 	}
 	/// Determines a trie root given its ordered contents, closed form.
-	fn trie_root<I, A, B>(&self, input: I) -> <Self::Hash as Hasher>::Out where
+	fn trie_root<I, A, B>(input: I) -> <Self::Hash as Hasher>::Out where
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,
 	{
 		let mut cb = TrieRoot::<Self>::default();
-		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb, self);
+		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
 		cb.root.unwrap_or_default()
 	}
 	/// Determines a trie root node's data given its ordered contents, closed form.
-	fn trie_root_unhashed<I, A, B>(&self, input: I) -> Vec<u8> where
+	fn trie_root_unhashed<I, A, B>(input: I) -> Vec<u8> where
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord,
 		B: AsRef<[u8]>,
 	{
 		let mut cb = TrieRootUnhashed::<Self>::default();
-		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb, self);
+		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
 		cb.root.unwrap_or_default()
 	}
 	/// Encoding of index as a key (when reusing general trie for
@@ -476,12 +466,12 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 	}
 	/// A trie root formed from the items, with keys attached according to their
 	/// compact-encoded index (using `parity-codec` crate).
-	fn ordered_trie_root<I, A>(&self, input: I) -> <Self::Hash as Hasher>::Out
+	fn ordered_trie_root<I, A>(input: I) -> <Self::Hash as Hasher>::Out
 	where
 		I: IntoIterator<Item = A>,
 		A: AsRef<[u8]>,
 	{
-		self.trie_root(input
+		Self::trie_root(input
 			.into_iter()
 			.enumerate()
 			.map(|(i, v)| (Self::encode_index(i as u32), v))

@@ -62,8 +62,6 @@ where
 {
 	fn root(&self) -> &TrieHash<L> { self.raw.root() }
 
-	fn layout(&self) -> L { self.raw.layout() }
-
 	fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
 		self.raw.contains(L::Hash::hash(key).as_ref())
 	}

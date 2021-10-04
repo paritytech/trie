@@ -18,7 +18,7 @@
 //! See `trie_visit` function.
 
 use hash_db::{Hasher, HashDB, Prefix};
-use crate::rstd::{cmp::max, vec::Vec};
+use crate::rstd::{cmp::max, vec::Vec, marker::PhantomData};
 use crate::triedbmut::{ChildReference};
 use crate::nibble::NibbleSlice;
 use crate::nibble::nibble_ops;
@@ -46,7 +46,7 @@ type ArrayNode<T> = [CacheNode<TrieHash<T>>; 16];
 /// Note that it is not memory optimal (all depth are allocated even if some are empty due
 /// to node partial).
 /// Three field are used, a cache over the children, an optional associated value and the depth.
-struct CacheAccum<T: TrieLayout, V> (Vec<(ArrayNode<T>, Option<V>, usize)>, T);
+struct CacheAccum<T: TrieLayout, V> (Vec<(ArrayNode<T>, Option<V>, usize)>);
 
 /// Initially allocated cache depth.
 const INITIAL_DEPTH: usize = 10;
@@ -57,9 +57,9 @@ impl<T, V> CacheAccum<T, V>
 		V: AsRef<[u8]>,
 {
 
-	fn new(layout: T) -> Self {
+	fn new() -> Self {
 		let v = Vec::with_capacity(INITIAL_DEPTH);
-		CacheAccum(v, layout)
+		CacheAccum(v)
 	}
 
 	#[inline(always)]
@@ -130,7 +130,7 @@ impl<T, V> CacheAccum<T, V>
 		);
 
 		let hashed;
-		let value = if let Some(value) = Value::new(Some(v2.as_ref()), self.1.max_inline_value()) {
+		let value = if let Some(value) = Value::new(Some(v2.as_ref()), T::MAX_INLINE_VALUE) {
 			value
 		} else {
 			hashed = callback.process_inner_hashed_value(
@@ -203,7 +203,7 @@ impl<T, V> CacheAccum<T, V>
 		let pr = NibbleSlice::new_offset(&key_branch, branch_d);
 
 		let hashed;
-		let value = if let Some(value) = Value::new(v.as_ref().map(|v| v.as_ref()), self.1.max_inline_value()) {
+		let value = if let Some(value) = Value::new(v.as_ref().map(|v| v.as_ref()), T::MAX_INLINE_VALUE) {
 			value
 		} else {
 			let mut prefix = NibbleSlice::new_offset(&key_branch, 0);
@@ -248,7 +248,7 @@ impl<T, V> CacheAccum<T, V>
 		let nkeyix = nkey.unwrap_or((branch_d, 0));
 		let pr = NibbleSlice::new_offset(&key_branch, nkeyix.0);
 		let hashed;
-		let value = if let Some(value) = Value::new(v.as_ref().map(|v| v.as_ref()), self.1.max_inline_value()) {
+		let value = if let Some(value) = Value::new(v.as_ref().map(|v| v.as_ref()), T::MAX_INLINE_VALUE) {
 			value
 		} else {
 			let mut prefix = NibbleSlice::new_offset(&key_branch, 0);
@@ -274,7 +274,7 @@ impl<T, V> CacheAccum<T, V>
 /// This is the main entry point of this module.
 /// Calls to each node occurs ordered by byte key value but with longest keys first (from node to
 /// branch to root), this differs from standard byte array ordering a bit.
-pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F, layout: &T)
+pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F)
 	where
 		T: TrieLayout,
 		I: IntoIterator<Item = (A, B)>,
@@ -282,7 +282,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F, layout: &T)
 		B: AsRef<[u8]>,
 		F: ProcessEncodedNode<TrieHash<T>>,
 {
-	let mut depth_queue = CacheAccum::<T, B>::new(layout.clone());
+	let mut depth_queue = CacheAccum::<T, B>::new();
 	// compare iter ordering
 	let mut iter_input = input.into_iter();
 	if let Some(mut previous_value) = iter_input.next() {
@@ -323,7 +323,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F, layout: &T)
 			);
 
 			let hashed;
-			let value = if let Some(value) = Value::new(Some(v2.as_ref()), layout.max_inline_value()) {
+			let value = if let Some(value) = Value::new(Some(v2.as_ref()), T::MAX_INLINE_VALUE) {
 				value
 			} else {
 				hashed = callback.process_inner_hashed_value(
@@ -423,13 +423,11 @@ impl<'a, T, DB> ProcessEncodedNode<TrieHash<T>> for TrieBuilder<'a, T, DB>
 pub struct TrieRoot<T: TrieLayout> {
 	/// The resulting root.
 	pub root: Option<TrieHash<T>>,
-	/// Possible layout specific context.
-	pub layout: T,
 }
 
 impl<T: TrieLayout> Default for TrieRoot<T> {
 	fn default() -> Self {
-		TrieRoot { root: None, layout: Default::default() }
+		TrieRoot { root: None }
 	}
 }
 
@@ -467,13 +465,12 @@ impl<T: TrieLayout> ProcessEncodedNode<TrieHash<T>> for TrieRoot<T> {
 pub struct TrieRootUnhashed<T: TrieLayout> {
 	/// The resulting encoded root.
 	pub root: Option<Vec<u8>>,
-	/// Possible layout specific context.
-	pub layout: T,
+	_ph: PhantomData<T>,
 }
 
 impl<T: TrieLayout> Default for TrieRootUnhashed<T> {
 	fn default() -> Self {
-		TrieRootUnhashed { root: None, layout: Default::default() }
+		TrieRootUnhashed { root: None, _ph: PhantomData }
 	}
 }
 
@@ -483,14 +480,13 @@ impl<T: TrieLayout> Default for TrieRootUnhashed<T> {
 pub struct TrieRootPrint<T: TrieLayout> {
 	/// The resulting root.
 	pub root: Option<TrieHash<T>>,
-	/// Possible layout specific context.
-	pub layout: T,
+	_ph: PhantomData<T>,
 }
 
 #[cfg(feature = "std")]
 impl<T: TrieLayout> Default for TrieRootPrint<T> {
 	fn default() -> Self {
-		TrieRootPrint { root: None, layout: Default::default() }
+		TrieRootPrint { root: None, _ph: PhantomData }
 	}
 }
 

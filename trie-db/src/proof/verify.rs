@@ -491,7 +491,7 @@ pub fn verify_proof<'a, L, I, K, V>(
 						return Err(Error::InvalidChildReference(node_data));
 					}
 					let mut hash = <TrieHash<L>>::default();
-					&mut hash.as_mut()[..node_data.len()].copy_from_slice(node_data.as_ref());
+					hash.as_mut()[..node_data.len()].copy_from_slice(node_data.as_ref());
 					ChildReference::Inline(hash, node_data.len())
 				} else {
 					let hash = L::Hash::hash(&node_data);

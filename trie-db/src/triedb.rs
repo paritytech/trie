@@ -53,7 +53,6 @@ pub struct TrieDB<'db, L>
 where
 	L: TrieLayout,
 {
-	layout: L,
 	db: &'db dyn HashDBRef<L::Hash, DBValue>,
 	root: &'db TrieHash<L>,
 	/// The number of hashes performed so far in operations on this trie.
@@ -68,34 +67,22 @@ where
 	/// Returns an error if `root` does not exist
 	pub fn new(
 		db: &'db dyn HashDBRef<L::Hash, DBValue>,
-		root: &'db TrieHash<L>,
-	) -> Result<Self, TrieHash<L>, CError<L>> {
-		Self::new_with_layout(db, root, Default::default())
-	}
-
-	/// Create a new trie with backing database `db` and empty `root`.
-	/// Returns an error if `root` does not exist
-	/// This can use a context specific layout.
-	pub fn new_with_layout(
-		db: &'db dyn HashDBRef<L::Hash, DBValue>,
-		root: &'db TrieHash<L>,
-		layout: L,
+		root: &'db TrieHash<L>
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		} else {
-			Ok(TrieDB {db, root, hash_count: 0, layout})
+			Ok(TrieDB {db, root, hash_count: 0})
 		}
 	}
 
 	/// `new_with_layout`, but do not check root presence, if missing
 	/// this will fail at first node access.
-	pub fn new_with_layout_unchecked(
+	pub fn new_unchecked(
 		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
-		layout: L,
 	) -> Self {
-		TrieDB {db, root, hash_count: 0, layout}
+		TrieDB {db, root, hash_count: 0}
 	}
 	
 	/// Get the backing database.
@@ -139,11 +126,6 @@ where
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or(parent_hash), e)))?;
 		Ok((owned_node, node_hash))
 	}
-
-	/// Get current value of Trie layout.
-	pub fn layout(&self) -> L {
-		self.layout.clone()
-	}
 }
 
 impl<'db, L> Trie<L> for TrieDB<'db, L>
@@ -151,10 +133,6 @@ where
 	L: TrieLayout,
 {
 	fn root(&self) -> &TrieHash<L> { self.root }
-
-	fn layout(&self) -> L {
-		self.layout.clone()
-	}
 
 	fn get_with<'a, 'key, Q: Query<L::Hash>>(
 		&'a self,
@@ -167,7 +145,6 @@ where
 			db: self.db,
 			query,
 			hash: *self.root,
-			layout: self.layout.clone(),
 		}.look_up(NibbleSlice::new(key))
 	}
 

@@ -20,7 +20,7 @@ use hash_db::{Hasher, HashDB};
 use trie_db::{TrieDBMut, TrieMut, NodeCodec,
 	TrieLayout, DBValue, Value, TrieError};
 use reference_trie::{ExtensionLayout, NoExtensionLayout,
-	RefHasher, test_layouts, ReferenceNodeCodec, HashedValueNoExt,
+	RefHasher, test_layouts, ReferenceNodeCodec, HashedValueNoExt, HashedValueNoExtThreshold,
 	ReferenceNodeCodecNoExt, reference_trie_root_iter_build as reference_trie_root};
 
 type PrefixedMemoryDB<T> = MemoryDB::<
@@ -34,20 +34,7 @@ fn populate_trie<'db, T: TrieLayout>(
 	root: &'db mut <T::Hash as Hasher>::Out,
 	v: &[(Vec<u8>, Vec<u8>)]
 ) -> TrieDBMut<'db, T> {
-	populate_trie_and_flag(db, root, v, None)
-}
-
-fn populate_trie_and_flag<'db, T: TrieLayout>(
-	db: &'db mut dyn HashDB<T::Hash, DBValue>,
-	root: &'db mut <T::Hash as Hasher>::Out,
-	v: &[(Vec<u8>, Vec<u8>)],
-	flagged_layout: Option<T>,
-) -> TrieDBMut<'db, T> {
-	let mut t = if let Some(layout) = flagged_layout {
-		TrieDBMut::<T>::new_with_layout(db, root, layout)
-	} else {
-		TrieDBMut::<T>::new(db, root)
-	};
+	let mut t = TrieDBMut::<T>::new(db, root);
 
 	for i in 0..v.len() {
 		let key: &[u8]= &v[i].0;
@@ -78,6 +65,7 @@ fn reference_hashed_null_node<T: TrieLayout>() -> <T::Hash as Hasher>::Out {
 #[test]
 fn playpen() {
 	env_logger::init();
+	playpen_internal::<HashedValueNoExtThreshold>();
 	playpen_internal::<HashedValueNoExt>();
 	playpen_internal::<NoExtensionLayout>();
 	playpen_internal::<ExtensionLayout>();
@@ -463,7 +451,7 @@ fn insert_empty_internal<T: TrieLayout>() {
 
 test_layouts!(return_old_values, return_old_values_internal);
 fn return_old_values_internal<T: TrieLayout>() {
-	let threshold = T::default().max_inline_value();
+	let threshold = T::MAX_INLINE_VALUE;
 	let mut seed = Default::default();
 	let x = StandardMap {
 			alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
@@ -512,10 +500,10 @@ fn register_proof_without_value() {
 	use trie_db::TrieDB;
 	use std::collections::HashMap;
 	use std::cell::RefCell;
-	use reference_trie::HashedValueNoExt;
+	use reference_trie::HashedValueNoExtThreshold;
 	use hash_db::{Prefix, AsHashDB};
 
-	type Layout = HashedValueNoExt;
+	type Layout = HashedValueNoExtThreshold;
 	type MemoryDB = memory_db::MemoryDB<
 		RefHasher,
 		PrefixedKey<RefHasher>,
@@ -529,10 +517,9 @@ fn register_proof_without_value() {
 
 	let mut memdb = MemoryDB::default();
 	let mut root = Default::default();
-	let layout = HashedValueNoExt(Some(1)); // flagged for hashed.
-	let _ = populate_trie_and_flag::<Layout>(&mut memdb, &mut root, &x, Some(layout.clone()));
+	let _ = populate_trie::<Layout>(&mut memdb, &mut root, &x);
 	{
-		let trie = TrieDB::<Layout>::new_with_layout(&memdb, &root,  layout.clone()).unwrap();
+		let trie = TrieDB::<Layout>::new(&memdb, &root).unwrap();
 		println!("{:?}", trie);
 	}
 
@@ -588,7 +575,7 @@ fn register_proof_without_value() {
 
 	let root_proof = root.clone();
 	{
-		let mut trie = TrieDBMut::from_existing_with_layout(&mut memdb, &mut root, layout.clone())
+		let mut trie = TrieDBMut::<Layout>::from_existing(&mut memdb, &mut root)
 			.unwrap();
 		// touch te value (test1 remains untouch).
 		trie.get(b"te").unwrap();
@@ -619,10 +606,9 @@ fn register_proof_without_value() {
 	let mut memdb_from_proof = db_unpacked.clone();
 	let mut root_proof = root_unpacked.clone();
 	{
-		let mut trie = TrieDBMut::from_existing_with_layout(
+		let mut trie = TrieDBMut::<Layout>::from_existing(
 			&mut memdb_from_proof,
 			&mut root_proof,
-			layout.clone(),
 		).unwrap();
 		trie.get(b"te").unwrap();
 		trie.insert(b"test12", &[2u8;36][..]).unwrap();
@@ -633,16 +619,15 @@ fn register_proof_without_value() {
 	let mut root_proof = root_unpacked.clone();
 	{
 		use trie_db::Trie;
-		let trie = TrieDB::<HashedValueNoExt>::new_with_layout(&memdb_from_proof, &root_proof, layout.clone()).unwrap();
+		let trie = TrieDB::<Layout>::new(&memdb_from_proof, &root_proof).unwrap();
 		assert!(trie.get(b"te").unwrap().is_some());
 		assert!(matches!(trie.get(b"test1").map_err(|e| *e), Err(TrieError::IncompleteDatabase(..))));
 	}
 
 	{
-		let trie = TrieDBMut::from_existing_with_layout(
+		let trie = TrieDBMut::<Layout>::from_existing(
 			&mut memdb_from_proof,
 			&mut root_proof,
-			layout.clone(),
 		).unwrap();
 		assert!(trie.get(b"te").unwrap().is_some());
 		assert!(matches!(trie.get(b"test1").map_err(|e| *e), Err(TrieError::IncompleteDatabase(..))));
