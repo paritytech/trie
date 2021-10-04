@@ -121,8 +121,8 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 	{
 		let mut attached_node = 0;
 		if let Some(header) = C::ESCAPE_HEADER {
-			if node_data.starts_with(header) {
-				attached_node = header.len();
+			if node_data.starts_with(&[header]) {
+				attached_node = 1;
 			}
 		}
 		let node = C::decode(&node_data[attached_node..])

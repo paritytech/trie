@@ -155,7 +155,7 @@ impl<H> NodeCodecT for NodeCodec<H>
 	where
 		H: Hasher,
 {
-	const ESCAPE_HEADER: Option<&'static [u8]> = Some(&[trie_constants::ESCAPE_COMPACT_HEADER]);
+	const ESCAPE_HEADER: Option<u8> = Some(trie_constants::ESCAPE_COMPACT_HEADER);
 	type Error = Error;
 	type HashOut = H::Out;
 

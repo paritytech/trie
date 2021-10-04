@@ -141,9 +141,7 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 
 		if self.omit_value {
 			if let Some(header) = C::ESCAPE_HEADER {
-				for i in header.iter() {
-					encoded.insert(0, *i);
-				}
+				encoded.insert(0, header);
 			} else {
 				return Err(Box::new(TrieError::InvalidStateRoot(Default::default())));
 			}
@@ -471,8 +469,8 @@ pub fn decode_compact_from_iter<'a, L, DB, I>(db: &mut DB, encoded: I)
 	while let Some((i, encoded_node)) = iter.next() {
 		let mut attached_node = 0;
 		if let Some(header) = L::Codec::ESCAPE_HEADER {
-			if encoded_node.starts_with(header) {
-				attached_node = header.len();
+			if encoded_node.starts_with(&[header]) {
+				attached_node = 1;
 			}
 		}
 		let node = L::Codec::decode(&encoded_node[attached_node..])

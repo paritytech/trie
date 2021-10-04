@@ -33,7 +33,7 @@ pub type Partial<'a> = ((u8, u8), &'a[u8]);
 pub trait NodeCodec: Sized {
 	/// Escape header byte sequence to indicate next node is a
 	/// branch or leaf with hash of value, followed by the value node.
-	const ESCAPE_HEADER: Option<&'static[u8]> = None;
+	const ESCAPE_HEADER: Option<u8> = None;
 
 	/// Codec error type.
 	type Error: Error;

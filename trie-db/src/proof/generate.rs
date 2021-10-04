@@ -92,9 +92,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 		let prepend_on_hashed = |mut encoded: Vec<u8>| -> Vec<u8> {
 			if let Some(header) = C::ESCAPE_HEADER {
 				if matches!(omit_value, ValueMgmt::OmitHashedValue) {
-					for i in header.iter() {
-						encoded.insert(0, *i);
-					}
+					encoded.insert(0, header);
 				}
 			}
 			encoded
