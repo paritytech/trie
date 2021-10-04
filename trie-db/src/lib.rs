@@ -413,16 +413,6 @@ pub trait TrieLayout {
 	type Codec: NodeCodec<HashOut=<Self::Hash as Hasher>::Out>;
 }
 
-/// Small enum indicating representation of a given children.
-pub enum ChildrenDecoded {
-	/// Children is stored as a node.
-	Hash,
-	/// Children is stored as an inline node.
-	Inline,
-	/// No children is present.
-	None,
-}
-
 /// This trait associates a trie definition with preferred methods.
 /// It also contains own default implementations and can be
 /// used to allow switching implementation.
