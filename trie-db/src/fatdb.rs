@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use hash_db::{HashDBRef, Hasher};
-use super::{Result, DBValue, TrieDB, Trie, TrieDBIterator, TrieItem, TrieKeyItem, TrieIterator, Query,
-	TrieLayout, CError, TrieHash};
+use super::{Result, DBValue, TrieDB, Trie, TrieDBIterator, TrieDBKeyIterator, TrieItem,
+	TrieKeyItem, TrieIterator, Query, TrieLayout, CError, TrieHash};
 
 use crate::rstd::boxed::Box;
 
@@ -77,11 +77,11 @@ where
 		TrieHash<L>,
 		CError<L>,
 	> {
-		unimplemented!()
+		FatDBKeyIterator::<L>::new(&self.raw).map(|iter| Box::new(iter) as Box<_>)
 	}
 }
 
-/// Itarator over inserted pairs of key values.
+/// Iterator over inserted pairs of key values.
 pub struct FatDBIterator<'db, L>
 where
 	L: TrieLayout,
@@ -129,6 +129,56 @@ where
 							.expect("Missing fatdb hash"),
 						value,
 					)
+				})
+			})
+	}
+}
+
+/// Iterator over inserted keys.
+pub struct FatDBKeyIterator<'db, L>
+where
+	L: TrieLayout,
+{
+	trie_iterator: TrieDBKeyIterator<'db, L>,
+	trie: &'db TrieDB<'db, L>,
+}
+
+impl<'db, L> FatDBKeyIterator<'db, L>
+where
+	L: TrieLayout,
+{
+	/// Creates new iterator.
+	pub fn new(trie: &'db TrieDB<L>) -> Result<Self, TrieHash<L>, CError<L>> {
+		Ok(FatDBKeyIterator {
+			trie_iterator: TrieDBKeyIterator::new(trie)?,
+			trie,
+		})
+	}
+}
+
+impl<'db, L> TrieIterator<L> for FatDBKeyIterator<'db, L>
+where
+	L: TrieLayout,
+{
+	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+		let hashed_key = L::Hash::hash(key);
+		self.trie_iterator.seek(hashed_key.as_ref())
+	}
+}
+
+impl<'db, L> Iterator for FatDBKeyIterator<'db, L>
+where
+	L: TrieLayout,
+{
+	type Item = TrieKeyItem<'db, TrieHash<L>, CError<L>>;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		self.trie_iterator.next()
+			.map(|res| {
+				res.map(|hash| {
+					let aux_hash = L::Hash::hash(&hash);
+					self.trie.db().get(&aux_hash, Default::default())
+						.expect("Missing fatdb hash")
 				})
 			})
 	}
