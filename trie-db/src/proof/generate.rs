@@ -89,14 +89,6 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 	/// Encode this entry to an encoded trie node with data properly omitted.
 	fn encode_node(mut self) -> TrieResult<Vec<u8>, C::HashOut, C::Error> {
 		let omit_value = self.omit_value;
-		let prepend_on_hashed = |mut encoded: Vec<u8>| -> Vec<u8> {
-			if let Some(header) = C::ESCAPE_HEADER {
-				if matches!(omit_value, ValueMgmt::OmitHashedValue) {
-					encoded.insert(0, header);
-				}
-			}
-			encoded
-		};
 		let node_data = self.node.data();
 		let value_with_omission = |
 			value_range: ValuePlan,
@@ -113,7 +105,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 			NodePlan::Leaf { .. } if matches!(omit_value, ValueMgmt::Standard) => node_data.to_vec(),
 			NodePlan::Leaf { partial, value: _ } => {
 				let partial = partial.build(node_data);
-				prepend_on_hashed(C::leaf_node(partial.right(), Value::Value(&[])))
+				C::leaf_node(partial.right(), Value::Value(&[]))
 			}
 			NodePlan::Extension { .. } if self.child_index == 0 => node_data.to_vec(),
 			NodePlan::Extension { partial: partial_plan, child: _ } => {
@@ -137,10 +129,10 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 					self.child_index,
 					&mut self.children
 				)?;
-				prepend_on_hashed(C::branch_node(
+				C::branch_node(
 					self.children.into_iter(),
 					value.clone().map(value_with_omission).flatten(),
-				))
+				)
 			},
 			NodePlan::NibbledBranch { partial: partial_plan, value, children } => {
 				let partial = partial_plan.build(node_data);
@@ -150,12 +142,12 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 					self.child_index,
 					&mut self.children
 				)?;
-				prepend_on_hashed(C::branch_node_nibbled(
+				C::branch_node_nibbled(
 					partial.right_iter(),
 					partial.len(),
 					self.children.into_iter(),
 					value.clone().map(value_with_omission).flatten(),
-				))
+				)
 			},
 		};
 		Ok(encoded)
@@ -277,7 +269,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 		let key = LeftNibbleSlice::new(key_bytes);
 
 		// Unwind the stack until the new entry is a child of the last entry on the stack.
-		unwind_stack::<L>(&mut stack, &mut proof_nodes, Some(&key))?;
+		unwind_stack(&mut stack, &mut proof_nodes, Some(&key))?;
 
 		// Perform the trie lookup for the next key, recording the sequence of nodes traversed.
 		let mut recorder = Recorder::new();
@@ -404,7 +396,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 		}
 	}
 
-	unwind_stack::<L>(&mut stack, &mut proof_nodes, None)?;
+	unwind_stack::<L::Codec>(&mut stack, &mut proof_nodes, None)?;
 	Ok(proof_nodes)
 }
 
@@ -572,11 +564,12 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 /// Unwind the stack until the given key is prefixed by the entry at the top of the stack. If the
 /// key is None, unwind the stack completely. As entries are popped from the stack, they are
 /// encoded into proof nodes and added to the finalized proof.
-fn unwind_stack<L: TrieLayout>(
-	stack: &mut Vec<StackEntry<L::Codec>>,
+fn unwind_stack<C: NodeCodec>(
+	stack: &mut Vec<StackEntry<C>>,
 	proof_nodes: &mut Vec<Vec<u8>>,
 	maybe_key: Option<&LeftNibbleSlice>,
-) -> TrieResult<(), TrieHash<L>, CError<L>> {
+) -> TrieResult<(), C::HashOut, C::Error>
+{
 	while let Some(entry) = stack.pop() {
 		match maybe_key {
 			Some(key) if key.starts_with(&entry.prefix) => {
