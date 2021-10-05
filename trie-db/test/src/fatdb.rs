@@ -30,4 +30,8 @@ fn fatdb_to_trie() {
 		t.iter().unwrap().map(Result::unwrap).collect::<Vec<_>>(),
 		vec![(vec![0x01u8, 0x23], vec![0x01u8, 0x23])]
 	);
+	assert_eq!(
+		t.key_iter().unwrap().map(Result::unwrap).collect::<Vec<_>>(),
+		vec![vec![0x01u8, 0x23]]
+	);
 }
