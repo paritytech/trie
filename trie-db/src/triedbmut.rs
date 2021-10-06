@@ -119,6 +119,11 @@ impl<L: TrieLayout> From<(DBValue, Option<u32>)> for Value<L> {
 	}
 }
 
+enum NodeToEncode<'a, H> {
+	ValueNode(&'a [u8]),
+	TrieNode(NodeHandle<H>),
+}
+
 impl<L: TrieLayout> Value<L> {
 	fn new(value: DBValue, new_threshold: Option<u32>) -> Self {
 		(value, new_threshold).into()
@@ -130,10 +135,10 @@ impl<L: TrieLayout> Value<L> {
 		f: &mut F,
 	) -> EncodedValue<'a>
 	where
-		F: FnMut(Option<&[u8]>, NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
+		F: FnMut(NodeToEncode<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
 	{
 		if let Value::NewHashedValue(hash, value) = self {
-			let new_hash = if let ChildReference::Hash(hash) = f(Some(value.as_slice()), NodeHandle::Hash(Default::default()), partial, None) {
+			let new_hash = if let ChildReference::Hash(hash) = f(NodeToEncode::ValueNode(value.as_slice()), partial, None) {
 				hash
 			} else {
 				unreachable!("Passing a hash as parameter is only to add an attached value")
@@ -306,7 +311,7 @@ impl<L: TrieLayout> Node<L>
 	/// node value or use the other parameter to encode and add a new branch child node.
 	fn into_encoded<F>(self, mut child_cb: F) -> Vec<u8>
 	where
-		F: FnMut(Option<&[u8]>, NodeHandle<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
+		F: FnMut(NodeToEncode<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
 	{
 		match self {
 			Node::Empty => L::Codec::empty_node().to_vec(),
@@ -318,7 +323,7 @@ impl<L: TrieLayout> Node<L>
 			Node::Extension(partial, child) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
-				let c = child_cb(None, child, Some(&pr), None);
+				let c = child_cb(NodeToEncode::TrieNode(child), Some(&pr), None);
 				L::Codec::extension_node(
 					it,
 					pr.len(),
@@ -333,7 +338,7 @@ impl<L: TrieLayout> Node<L>
 						.map(Option::take)
 						.enumerate()
 						.map(|(i, maybe_child)| {
-							maybe_child.map(|child| child_cb(None, child, None, Some(i as u8)))
+							maybe_child.map(|child| child_cb(NodeToEncode::TrieNode(child), None, Some(i as u8)))
 						}),
 					value,
 				)
@@ -353,7 +358,7 @@ impl<L: TrieLayout> Node<L>
 							//let branch_index = [i as u8];
 							maybe_child.map(|child| {
 								let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
-								child_cb(None, child, Some(&pr), Some(i as u8))
+								child_cb(NodeToEncode::TrieNode(child), Some(&pr), Some(i as u8))
 							})
 						}),
 					value,
@@ -1580,16 +1585,20 @@ where
 				let mut k = NibbleVec::new();
 
 				let encoded_root = node.into_encoded(
-					|value_node, child, o_slice, o_index| {
+					|node, o_slice, o_index| {
 						let mov = k.append_optional_slice_and_nibble(o_slice, o_index);
-						if let Some(value) = value_node {
-							let value_hash = self.db.insert(k.as_prefix(), value);
-							k.drop_lasts(mov);
-							return ChildReference::Hash(value_hash);
+						match node {
+							NodeToEncode::ValueNode(value) => {
+								let value_hash = self.db.insert(k.as_prefix(), value);
+								k.drop_lasts(mov);
+								ChildReference::Hash(value_hash)
+							},
+							NodeToEncode::TrieNode(child) => {
+								let result = self.commit_child(child, &mut k);
+								k.drop_lasts(mov);
+								result
+							},
 						}
-						let cr = self.commit_child(child, &mut k);
-						k.drop_lasts(mov);
-						cr
 					},
 				);
 				#[cfg(feature = "std")]
@@ -1631,20 +1640,23 @@ where
 					Stored::New(node) => {
 						let encoded = {
 							let commit_child = |
-								value_node: Option<&[u8]>,
-								node_handle,
+								node: NodeToEncode<TrieHash<L>>,
 								o_slice: Option<&NibbleSlice>,
 								o_index: Option<u8>
 							| {
 								let mov = prefix.append_optional_slice_and_nibble(o_slice, o_index);
-								if let Some(value) = value_node {
-									let value_hash = self.db.insert(prefix.as_prefix(), value);
-									prefix.drop_lasts(mov);
-									return ChildReference::Hash(value_hash);
+								match node {
+									NodeToEncode::ValueNode(value) => {
+										let value_hash = self.db.insert(prefix.as_prefix(), value);
+										prefix.drop_lasts(mov);
+										ChildReference::Hash(value_hash)
+									},
+									NodeToEncode::TrieNode(node_handle) => {
+										let result = self.commit_child(node_handle, prefix);
+										prefix.drop_lasts(mov);
+										result
+									},
 								}
-								let cr = self.commit_child(node_handle, prefix);
-								prefix.drop_lasts(mov);
-								cr
 							};
 							node.into_encoded(commit_child)
 						};
