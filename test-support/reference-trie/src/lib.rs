@@ -323,22 +323,22 @@ impl TrieStream for ReferenceTrieStream {
 			self.buffer.extend(fuse_nibbles_node(key, true));
 			value.encode_to(&mut self.buffer);
 		} else {
-			unreachable!("Leaf contains define value and this stream do not allow external value node")
+			unreachable!("This stream do not allow external value node")
 		}
 	}
 
 	fn begin_branch(
 		&mut self,
 		maybe_key: Option<&[u8]>,
-		maybe_value: TrieStreamValue,
+		maybe_value: Option<TrieStreamValue>,
 		has_children: impl Iterator<Item = bool>,
 	) {
-		self.buffer.extend(&branch_node(!matches!(maybe_value, TrieStreamValue::NoValue), has_children));
+		self.buffer.extend(&branch_node(!matches!(maybe_value, None), has_children));
 		if let Some(partial) = maybe_key {
 			// should not happen
 			self.buffer.extend(fuse_nibbles_node(partial, false));
 		}
-		if let TrieStreamValue::Value(value) = maybe_value {
+		if let Some(TrieStreamValue::Value(value)) = maybe_value {
 			value.encode_to(&mut self.buffer);
 		}
 	}

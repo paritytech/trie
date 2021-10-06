@@ -47,23 +47,18 @@ pub enum Value<'a> {
 	Value(&'a [u8]),
 	/// Contains hash of a value.
 	HashedValue(Vec<u8>),
-	/// No value attached.
-	NoValue,
 }
 
 impl<'a> Value<'a> {
-	fn new<H: Hasher>(value: Option<&'a [u8]>, threshold: Option<u32>) -> Value<'a> {
-		match value {
-			Some(value) => if let Some(threshold) = threshold {
-				if value.len() >= threshold as usize {
-					Value::HashedValue(H::hash(value).as_ref().to_vec())
-				} else {
-					Value::Value(value)
-				}
+	fn new<H: Hasher>(value: &'a [u8], threshold: Option<u32>) -> Value<'a> {
+		if let Some(threshold) = threshold {
+			if value.len() >= threshold as usize {
+				Value::HashedValue(H::hash(value).as_ref().to_vec())
 			} else {
 				Value::Value(value)
-			},
-			None => Value::NoValue,
+			}
+		} else {
+			Value::Value(value)
 		}
 	}
 }
@@ -79,14 +74,14 @@ pub trait TrieStream {
 	fn begin_branch(
 		&mut self,
 		maybe_key: Option<&[u8]>,
-		maybe_value: Value,
+		maybe_value: Option<Value>,
 		has_children: impl Iterator<Item = bool>,
 	);
 	/// Append an empty child node. Optional.
 	fn append_empty_child(&mut self) {}
 	/// Wrap up a Branch node portion of a `TrieStream` and append the value
 	/// stored on the Branch (if any).
-	fn end_branch(&mut self, _value: Value) {}
+	fn end_branch(&mut self, _value: Option<Value>) {}
 	/// Append a Leaf node
 	fn append_leaf(&mut self, key: &[u8], value: Value);
 	/// Append an Extension node
@@ -277,7 +272,7 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 		0 => stream.append_empty_data(),
 		// Leaf node; append the remainder of the key and the value. Done.
 		1 => {
-			let value = Value::new::<H>(Some(input[0].1.as_ref()), threshold);
+			let value = Value::new::<H>(input[0].1.as_ref(), threshold);
 			stream.append_leaf(&input[0].0.as_ref()[cursor..], value )
 		},
 		// We have multiple items in the input. Figure out if we should add an
@@ -336,12 +331,12 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 			}
 
 			// Put out the node header:
-			let value = Value::new::<H>(value, threshold);
+			let value = value.map(|v| Value::new::<H>(v, threshold));
 			stream.begin_branch(o_branch_slice, value.clone(), shared_nibble_counts.iter().map(|&n| n > 0));
 
 			// Fill in each slot in the branch node. We don't need to bother with empty slots
 			// since they were registered in the header.
-			let mut begin = match &value { Value::NoValue => 0, _ => 1 };
+			let mut begin = match value { None => 0, _ => 1 };
 			for &count in &shared_nibble_counts {
 				if count > 0 {
 					build_trie_trampoline::<H, S, _, _>(

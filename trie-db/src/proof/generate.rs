@@ -94,10 +94,10 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 			value_range: ValuePlan,
 		| -> Option<Value>
 		{
-			if !matches!(omit_value, ValueMgmt::Standard) {
-				None
-			} else {
+			if matches!(omit_value, ValueMgmt::Standard) {
 				Some(value_range.build(&node_data))
+			} else {
+				None
 			}
 		};
 		let encoded = match self.node.node_plan() {
