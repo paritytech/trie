@@ -158,13 +158,23 @@ impl<L: TrieLayout> Value<L> {
 		value
 	}
 
-	fn inline_fetched_value(&self) -> DBValue {
-		match self {
+	fn in_memory_fetched_value(
+		&self,
+		prefix: Prefix,
+		db: &dyn HashDB<L::Hash, DBValue>,
+	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+		Ok(Some(match self {
 			Value::Value(value) => value.clone(),
 			Value::NewHashedValue(_, value) => value.clone(),
 			Value::HashedValue(_, Some(value)) => value.clone(),
-			Value::HashedValue(_, None) => unreachable!("Unreachable for inline nodes."),
-		}
+			Value::HashedValue(hash, None) => {
+				if let Some(value) = db.get(hash, prefix) {
+					value
+				} else {
+					return Err(Box::new(TrieError::IncompleteDatabase(hash.clone())));
+				}
+			},
+		}))
 	}
 }
 
@@ -639,28 +649,30 @@ where
 	fn lookup<'x, 'key>(
 		&'x self,
 		mut partial: NibbleSlice<'key>,
+		full_key: &'key [u8],
 		handle: &NodeHandle<TrieHash<L>>,
 	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
 		where 'x: 'key
 	{
 		let mut handle = handle;
+		let prefix = (full_key, None);
 		loop {
-			let (mid, child) = match *handle {
-				NodeHandle::Hash(ref hash) => return Lookup::<L, _> {
+			let (mid, child) = match handle {
+				NodeHandle::Hash(hash) => return Lookup::<L, _> {
 					db: &self.db,
 					query: |v: &[u8]| v.to_vec(),
 					hash: *hash,
 				}.look_up(partial),
-				NodeHandle::InMemory(ref handle) => match self.storage[handle] {
+				NodeHandle::InMemory(handle) => match &self.storage[handle] {
 					Node::Empty => return Ok(None),
-					Node::Leaf(ref key, ref value) => {
+					Node::Leaf(key, value) => {
 						if NibbleSlice::from_stored(key) == partial {
-							return Ok(Some(value.inline_fetched_value()));
+							return Ok(value.in_memory_fetched_value(prefix, self.db)?);
 						} else {
 							return Ok(None);
 						}
 					},
-					Node::Extension(ref slice, ref child) => {
+					Node::Extension(slice, child) => {
 						let slice = NibbleSlice::from_stored(slice);
 						if partial.starts_with(&slice) {
 							(slice.len(), child)
@@ -668,9 +680,13 @@ where
 							return Ok(None);
 						}
 					},
-					Node::Branch(ref children, ref value) => {
+					Node::Branch(children, value) => {
 						if partial.is_empty() {
-							return Ok(value.as_ref().map(|v| v.inline_fetched_value()));
+							return Ok(if let Some(v) = value.as_ref() {
+								v.in_memory_fetched_value(prefix, self.db)?
+							} else {
+								None
+							})
 						} else {
 							let idx = partial.at(0);
 							match children[idx as usize].as_ref() {
@@ -679,10 +695,14 @@ where
 							}
 						}
 					},
-					Node::NibbledBranch(ref slice, ref children, ref value) => {
+					Node::NibbledBranch(slice, children, value) => {
 						let slice = NibbleSlice::from_stored(slice);
 						if slice == partial {
-							return Ok(value.as_ref().map(|v| v.inline_fetched_value()));
+							return Ok(if let Some(v) = value.as_ref() {
+								v.in_memory_fetched_value(prefix, self.db)?
+							} else {
+								None
+							})
 						} else if partial.starts_with(&slice) {
 							let idx = partial.at(0);
 							match children[idx as usize].as_ref() {
@@ -724,7 +744,7 @@ where
 
 	fn replace_old_value(&mut self, old_value: &mut Option<Value<L>>, stored_value: Option<Value<L>>, prefix: Prefix) {
 		match &stored_value {
-			Some(Value::NewHashedValue(Some(hash), _)) // also removing new node in case commit is called multiple times 
+			Some(Value::NewHashedValue(Some(hash), _)) // also removing new node in case commit is called multiple times
 			| Some(Value::HashedValue(hash, _)) => {
 				self.death_row.insert((
 					hash.clone(),
@@ -1056,7 +1076,7 @@ where
 					// insert into the child node.
 					key.advance(common);
 					let (new_child, changed) = self.insert_at(child_branch, key, value, old_val)?;
-	
+
 					let new_ext = Node::Extension(existing_key.to_stored(), new_child.into());
 
 					// if the child branch wasn't changed, meaning this extension remains the same.
@@ -1523,7 +1543,7 @@ where
 							"fixing: extension combination. new_partial={:?}",
 							partial,
 						);
-						
+
 						self.fix_inner(Node::Extension(partial, sub_child), key.into(), true)
 					}
 					Node::Leaf(sub_partial, value) => {
@@ -1712,7 +1732,7 @@ where
 	fn get<'x, 'key>(&'x self, key: &'key [u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
 		where 'x: 'key
 	{
-		self.lookup(NibbleSlice::new(key), &self.root_handle)
+		self.lookup(NibbleSlice::new(key), key, &self.root_handle)
 	}
 
 	fn insert(

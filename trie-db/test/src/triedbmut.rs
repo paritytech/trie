@@ -328,14 +328,22 @@ fn test_at_empty_internal<T: TrieLayout>() {
 	assert_eq!(t.get(&[0x5]).unwrap(), None);
 }
 
-test_layouts!(test_at_one, test_at_one_internal);
-fn test_at_one_internal<T: TrieLayout>() {
+test_layouts!(test_at_one_and_two, test_at_one_and_two_internal);
+fn test_at_one_and_two_internal<T: TrieLayout>() {
 	let mut memdb = PrefixedMemoryDB::<T>::default();
 	let mut root = Default::default();
-	let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
-	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
-	assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), vec![0x1u8, 0x23]);
-	t.commit();
+	{
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
+		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
+		assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), vec![0x1u8, 0x23]);
+		t.commit();
+		assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), vec![0x1u8, 0x23]);
+		t.insert(&[0x01u8, 0x23, 0x00], &[0x01u8, 0x24]).unwrap();
+	}
+	let mut t = TrieDBMut::<T>::from_existing(&mut memdb, &mut root).unwrap();
+	t.insert(&[0x01u8, 0x23, 0x00], &[0x01u8, 0x25]).unwrap();
+	// This test that middle node get resolved correctly (modified
+	// triedbmut node due to change of child node).
 	assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), vec![0x1u8, 0x23]);
 }
 
