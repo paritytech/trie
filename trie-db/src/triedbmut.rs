@@ -141,7 +141,7 @@ impl<L: TrieLayout> Value<L> {
 			let new_hash = if let ChildReference::Hash(hash) = f(NodeToEncode::ValueNode(value.as_slice()), partial, None) {
 				hash
 			} else {
-				unreachable!("Passing a hash as parameter is only to add an attached value")
+				unreachable!("Value node can never be inlined; qed")
 			};
 			if let Some(h) = hash.as_ref() {
 				debug_assert!(h == &new_hash);
@@ -317,8 +317,8 @@ impl<L: TrieLayout> Node<L>
 	}
 
 	// TODO: parallelize
-	/// Here `child_cb` should either process the first parameter to insert an external
-	/// node value or use the other parameter to encode and add a new branch child node.
+	/// Here `child_cb` should process the first parameter to either insert an external
+	/// node value or to encode and add a new branch child node.
 	fn into_encoded<F>(self, mut child_cb: F) -> Vec<u8>
 	where
 		F: FnMut(NodeToEncode<TrieHash<L>>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<TrieHash<L>>,
