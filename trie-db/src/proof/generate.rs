@@ -27,17 +27,6 @@ use crate::{
 	TrieLayout, Record,
 };
 
-enum ValueMgmt {
-	/// The value should be omitted in the generated proof.
-	OmitValue,
-	/// The value should be omitted in the generated proof,
-	/// when verifying it the hash of the value should be use
-	/// (trie does use an external value node).
-	OmitHashedValue,
-	/// Regular management.
-	Standard,
-}
-
 struct StackEntry<'a, C: NodeCodec> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: LeftNibbleSlice<'a>,
@@ -45,8 +34,8 @@ struct StackEntry<'a, C: NodeCodec> {
 	node: OwnedNode<Vec<u8>>,
 	/// The hash of the node or None if it is referenced inline.
 	node_hash: Option<C::HashOut>,
-	/// Special value handling.
-	omit_value: ValueMgmt,
+	/// Whether the value should be omitted in the generated proof.
+	omit_value: bool,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
@@ -78,7 +67,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 			prefix,
 			node,
 			node_hash,
-			omit_value: ValueMgmt::Standard,
+			omit_value: false,
 			child_index: 0,
 			children: vec![None; children_len],
 			output_index,
@@ -94,7 +83,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 			value_range: ValuePlan,
 		| -> Option<Value>
 		{
-			if matches!(omit_value, ValueMgmt::Standard) {
+			if !omit_value {
 				Some(value_range.build(&node_data))
 			} else {
 				None
@@ -102,7 +91,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 		};
 		let encoded = match self.node.node_plan() {
 			NodePlan::Empty => node_data.to_vec(),
-			NodePlan::Leaf { .. } if matches!(omit_value, ValueMgmt::Standard) => node_data.to_vec(),
+			NodePlan::Leaf { .. } if !omit_value => node_data.to_vec(),
 			NodePlan::Leaf { partial, value: _ } => {
 				let partial = partial.build(node_data);
 				C::leaf_node(partial.right(), Value::Value(&[]))
@@ -427,7 +416,7 @@ fn resolve_value<C: NodeCodec>(
 fn match_key_to_node<'a, C: NodeCodec>(
 	node_data: &'a [u8],
 	node_plan: &NodePlan,
-	omit_value: &mut ValueMgmt,
+	omit_value: &mut bool,
 	child_index: &mut usize,
 	children: &mut [Option<ChildReference<C::HashOut>>],
 	key: &LeftNibbleSlice,
@@ -444,11 +433,11 @@ fn match_key_to_node<'a, C: NodeCodec>(
 			{
 				match value_range {
 					ValuePlan::Value(value_range) => {
-						*omit_value = ValueMgmt::OmitValue;
+						*omit_value = true;
 						Step::FoundValue(Some(&node_data[value_range.clone()]))
 					},
 					ValuePlan::HashedValue(..) => {
-						*omit_value = ValueMgmt::OmitHashedValue;
+						*omit_value = true;
 						resolve_value::<C>(recorded_nodes)?
 					},
 				}
@@ -500,7 +489,7 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 	node_data: &'a [u8],
 	value_range: Option<&'b ValuePlan>,
 	child_handles: &'b [Option<NodeHandlePlan>; NIBBLE_LENGTH],
-	omit_value: &mut ValueMgmt,
+	omit_value: &mut bool,
 	child_index: &mut usize,
 	children: &mut [Option<ChildReference<C::HashOut>>],
 	key: &'b LeftNibbleSlice<'b>,
@@ -516,11 +505,11 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 	if key.len() == prefix_len + partial.len() {
 		let value = match value_range {
 			Some(ValuePlan::Value(range)) => {
-				*omit_value = ValueMgmt::OmitValue;
+				*omit_value = true;
 				Some(&node_data[range.clone()])
 			},
 			Some(ValuePlan::HashedValue(..)) => {
-				*omit_value = ValueMgmt::OmitHashedValue;
+				*omit_value = true;
 				return resolve_value::<C>(recorded_nodes);
 			},
 			None => None,
