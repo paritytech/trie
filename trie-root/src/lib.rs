@@ -44,21 +44,21 @@ pub use hash_db::Hasher;
 #[derive(Clone)]
 pub enum Value<'a> {
 	/// Contains a full value.
-	Value(&'a [u8]),
+	Inline(&'a [u8]),
 	/// Contains hash of a value.
-	HashedValue(Vec<u8>),
+	ValueNode(Vec<u8>),
 }
 
 impl<'a> Value<'a> {
 	fn new<H: Hasher>(value: &'a [u8], threshold: Option<u32>) -> Value<'a> {
 		if let Some(threshold) = threshold {
 			if value.len() >= threshold as usize {
-				Value::HashedValue(H::hash(value).as_ref().to_vec())
+				Value::ValueNode(H::hash(value).as_ref().to_vec())
 			} else {
-				Value::Value(value)
+				Value::Inline(value)
 			}
 		} else {
-			Value::Value(value)
+			Value::Inline(value)
 		}
 	}
 }

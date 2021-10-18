@@ -45,22 +45,23 @@ pub fn decode_hash<H: Hasher>(data: &[u8]) -> Option<H::Out> {
 #[derive(Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub enum Value<'a> {
-	/// Value byte slice.
-	Value(&'a [u8]),
-	/// Hash byte slice and the actual value if accessed.
-	HashedValue(&'a [u8], Option<DBValue>),
+	/// Value byte slice as stored in a trie node.
+	Inline(&'a [u8]),
+	/// Hash byte slice as stored in a trie node,
+	/// and the actual value when accessed.
+	ValueNode(&'a [u8], Option<DBValue>),
 }
 
 impl<'a> Value<'a> {
-	pub(crate) fn new(value: &'a [u8], threshold: Option<u32>) -> Option<Self> {
+	pub(crate) fn new_inline(value: &'a [u8], threshold: Option<u32>) -> Option<Self> {
 		if let Some(threshold) = threshold {
 			if value.len() >= threshold as usize {
 				return None;
 			} else {
-				Some(Value::Value(value))
+				Some(Value::Inline(value))
 			}
 		} else {
-			Some(Value::Value(value))
+			Some(Value::Inline(value))
 		}
 	}
 }
@@ -138,18 +139,18 @@ impl NibbleSlicePlan {
 #[cfg_attr(feature = "std", derive(Debug))]
 pub enum ValuePlan {
 	/// Range for byte representation in encoded node.
-	Value(Range<usize>),
+	Inline(Range<usize>),
 	/// Range for hash in encoded node and original
 	/// value size.
-	HashedValue(Range<usize>),
+	ValueNode(Range<usize>),
 }
 
 impl ValuePlan {
 	/// Build a value slice by decoding a byte slice according to the plan.
 	pub fn build<'a, 'b>(&'a self, data: &'b [u8]) -> Value<'b> {
 		match self {
-			ValuePlan::Value(range) => Value::Value(&data[range.clone()]),
-			ValuePlan::HashedValue(range) => Value::HashedValue(&data[range.clone()], None),
+			ValuePlan::Inline(range) => Value::Inline(&data[range.clone()]),
+			ValuePlan::ValueNode(range) => Value::ValueNode(&data[range.clone()], None),
 		}
 	}
 }

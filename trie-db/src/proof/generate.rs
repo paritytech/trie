@@ -94,7 +94,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 			NodePlan::Leaf { .. } if !omit_value => node_data.to_vec(),
 			NodePlan::Leaf { partial, value: _ } => {
 				let partial = partial.build(node_data);
-				C::leaf_node(partial.right(), Value::Value(&[]))
+				C::leaf_node(partial.right(), Value::Inline(&[]))
 			}
 			NodePlan::Extension { .. } if self.child_index == 0 => node_data.to_vec(),
 			NodePlan::Extension { partial: partial_plan, child: _ } => {
@@ -432,11 +432,11 @@ fn match_key_to_node<'a, C: NodeCodec>(
 				key.len() == prefix_len + partial.len()
 			{
 				match value_range {
-					ValuePlan::Value(value_range) => {
+					ValuePlan::Inline(value_range) => {
 						*omit_value = true;
 						Step::FoundValue(Some(&node_data[value_range.clone()]))
 					},
-					ValuePlan::HashedValue(..) => {
+					ValuePlan::ValueNode(..) => {
 						*omit_value = true;
 						resolve_value::<C>(recorded_nodes)?
 					},
@@ -504,11 +504,11 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 
 	if key.len() == prefix_len + partial.len() {
 		let value = match value_range {
-			Some(ValuePlan::Value(range)) => {
+			Some(ValuePlan::Inline(range)) => {
 				*omit_value = true;
 				Some(&node_data[range.clone()])
 			},
-			Some(ValuePlan::HashedValue(..)) => {
+			Some(ValuePlan::ValueNode(..)) => {
 				*omit_value = true;
 				return resolve_value::<C>(recorded_nodes);
 			},

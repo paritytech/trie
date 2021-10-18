@@ -143,7 +143,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 
 	fn value(&self) -> Option<Value> {
 		if let Some(hash) = self.next_value_hash.as_ref() {
-			Some(Value::HashedValue(hash.as_ref(), None))
+			Some(Value::ValueNode(hash.as_ref(), None))
 		} else {
 			self.value.clone()
 		}
@@ -279,7 +279,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 
 	fn set_value(&mut self, value: &'a [u8]) {
 		self.value = if L::MAX_INLINE_VALUE.map(|max| value.len() < max as usize).unwrap_or(true) {
-			Some(Value::Value(value))
+			Some(Value::Inline(value))
 		} else {
 			let hash = L::Hash::hash(value);
 			self.next_value_hash = Some(hash);
@@ -351,8 +351,8 @@ fn match_key_to_node<'a>(key: &LeftNibbleSlice<'a>, prefix_len: usize, node: &No
 			if key.contains(partial, prefix_len) &&
 				key.len() == prefix_len + partial.len() {
 				match value {
-					Value::HashedValue(..) => ValueMatch::NotOmitted,
-					Value::Value(value) => if value.is_empty() {
+					Value::ValueNode(..) => ValueMatch::NotOmitted,
+					Value::Inline(value) => if value.is_empty() {
 						ValueMatch::MatchesLeaf
 					} else {
 						ValueMatch::NotOmitted

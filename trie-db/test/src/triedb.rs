@@ -241,7 +241,7 @@ fn debug_output_supports_pretty_print_internal<T: TrieLayout>() {
                                 Node::Leaf {
                                     index: 1,
                                     slice: ,
-                                    value: Value(
+                                    value: Inline(
                                         [
                                             65,
                                             65,
@@ -251,7 +251,7 @@ fn debug_output_supports_pretty_print_internal<T: TrieLayout>() {
                                 Node::Leaf {
                                     index: 2,
                                     slice: ,
-                                    value: Value(
+                                    value: Inline(
                                         [
                                             65,
                                             66,
@@ -263,7 +263,7 @@ fn debug_output_supports_pretty_print_internal<T: TrieLayout>() {
                         },
                     ],
                     value: Some(
-                        Value(
+                        Inline(
                             [
                                 65,
                             ],
@@ -273,7 +273,7 @@ fn debug_output_supports_pretty_print_internal<T: TrieLayout>() {
                 Node::Leaf {
                     index: 2,
                     slice: ,
-                    value: Value(
+                    value: Inline(
                         [
                             66,
                         ],

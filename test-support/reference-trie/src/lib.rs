@@ -319,7 +319,7 @@ impl TrieStream for ReferenceTrieStream {
 	}
 
 	fn append_leaf(&mut self, key: &[u8], value: TrieStreamValue) {
-		if let TrieStreamValue::Value(value) = value {
+		if let TrieStreamValue::Inline(value) = value {
 			self.buffer.extend(fuse_nibbles_node(key, true));
 			value.encode_to(&mut self.buffer);
 		} else {
@@ -338,7 +338,7 @@ impl TrieStream for ReferenceTrieStream {
 			// should not happen
 			self.buffer.extend(fuse_nibbles_node(partial, false));
 		}
-		if let Some(TrieStreamValue::Value(value)) = maybe_value {
+		if let Some(TrieStreamValue::Inline(value)) = maybe_value {
 			value.encode_to(&mut self.buffer);
 		}
 	}
@@ -638,7 +638,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 
 				let value = if has_value {
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-					Some(ValuePlan::Value(input.take(count)?))
+					Some(ValuePlan::Inline(input.take(count)?))
 				} else {
 					None
 				};
@@ -685,7 +685,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 				let value = input.take(count)?;
 				Ok(NodePlan::Leaf {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
-					value: ValuePlan::Value(value),
+					value: ValuePlan::Inline(value),
 				})
 			}
 		}
@@ -702,7 +702,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 	fn leaf_node(partial: Partial, value: Value) -> Vec<u8> {
 		let mut output = partial_to_key(partial, LEAF_NODE_OFFSET, LEAF_NODE_OVER);
 		match value {
-			Value::Value(value) => {
+			Value::Inline(value) => {
 				Compact(value.len() as u32).encode_to(&mut output);
 				output.extend_from_slice(value);
 			},
@@ -737,7 +737,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		let mut output = vec![0; BITMAP_LENGTH + 1];
 		let mut prefix: [u8; 3] = [0; 3];
 		let have_value = match maybe_value {
-			Some(Value::Value(value)) => {
+			Some(Value::Inline(value)) => {
 				Compact(value.len() as u32).encode_to(&mut output);
 				output.extend_from_slice(value);
 				true
@@ -803,7 +803,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				let bitmap = Bitmap::decode(&data[bitmap_range])?;
 				let value = if has_value {
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-					Some(ValuePlan::Value(input.take(count)?))
+					Some(ValuePlan::Inline(input.take(count)?))
 				} else {
 					None
 				};
@@ -839,7 +839,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				)?;
 				let partial_padding = nibble_ops::number_padding(nibble_count);
 				let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-				let value = ValuePlan::Value(input.take(count)?);
+				let value = ValuePlan::Inline(input.take(count)?);
 
 				NodePlan::Leaf {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
@@ -860,11 +860,11 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 	fn leaf_node(partial: Partial, value: Value) -> Vec<u8> {
 		let mut output = partial_encode(partial, NodeKindNoExt::Leaf);
 		match value {
-			Value::Value(value) => {
+			Value::Inline(value) => {
 				Compact(value.len() as u32).encode_to(&mut output);
 				output.extend_from_slice(value);
 			},
-			Value::HashedValue(..) => unimplemented!("No support for inner hashed value"),
+			Value::ValueNode(..) => unimplemented!("No support for inner hashed value"),
 		}
 		output
 	}
@@ -907,11 +907,11 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		let mut bitmap: [u8; BITMAP_LENGTH] = [0; BITMAP_LENGTH];
 		(0..BITMAP_LENGTH).for_each(|_| output.push(0));
 		match maybe_value {
-			Some(Value::Value(value)) => {
+			Some(Value::Inline(value)) => {
 				Compact(value.len() as u32).encode_to(&mut output);
 				output.extend_from_slice(value);
 			},
-			Some(Value::HashedValue(..)) => unimplemented!("No support for inner hashed value"),
+			Some(Value::ValueNode(..)) => unimplemented!("No support for inner hashed value"),
 			None => (),
 		}
 
@@ -1181,7 +1181,7 @@ mod tests {
 		// + 1 for 0 added byte of nibble encode
 		let input = vec![0u8; (NIBBLE_SIZE_BOUND_NO_EXT as usize + 1) / 2 + 1];
 		let enc = <ReferenceNodeCodecNoExt<RefHasher> as NodeCodec>
-			::leaf_node(((0, 0), &input), Value::Value(&[1]));
+			::leaf_node(((0, 0), &input), Value::Inline(&[1]));
 		let dec = <ReferenceNodeCodecNoExt<RefHasher> as NodeCodec>
 			::decode(&enc).unwrap();
 		let o_sl = if let Node::Leaf(sl, _) = dec {

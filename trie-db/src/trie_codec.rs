@@ -105,7 +105,7 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 			modified_node_plan = self.node.node_plan().clone();
 			if let Some(value) = modified_node_plan.value_plan_mut() {
 				// 0 length value.
-				*value = ValuePlan::Value(0 .. 0);
+				*value = ValuePlan::Inline(0 .. 0);
 			}
 			&modified_node_plan
 		} else {
@@ -192,7 +192,7 @@ fn detached_value<L: TrieLayout>(
 ) -> Option<Vec<u8>> {
 	let fetched;
 	match value {
-		ValuePlan::HashedValue(hash_plan) => {
+		ValuePlan::ValueNode(hash_plan) => {
 			if let Some(value) = val_fetcher.fetch_value(&node_data[hash_plan.clone()], node_prefix) {
 				fetched = value;
 			} else {
@@ -405,7 +405,7 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	/// Preconditions:
 	/// - if node is an extension node, then `children[0]` is Some.
 	fn encode_node(self, attached_hash: Option<&[u8]>) -> Vec<u8> {
-		let attached_hash = attached_hash.map(|h| crate::node::Value::HashedValue(h, None));
+		let attached_hash = attached_hash.map(|h| crate::node::Value::ValueNode(h, None));
 		match self.node {
 			Node::Empty =>
 				C::empty_node().to_vec(),

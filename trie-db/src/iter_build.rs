@@ -130,14 +130,14 @@ impl<T, V> CacheAccum<T, V>
 		);
 
 		let hashed;
-		let value = if let Some(value) = Value::new(v2.as_ref(), T::MAX_INLINE_VALUE) {
+		let value = if let Some(value) = Value::new_inline(v2.as_ref(), T::MAX_INLINE_VALUE) {
 			value
 		} else {
 			hashed = callback.process_inner_hashed_value(
 				(k2.as_ref(), None),
 				v2.as_ref(),
 			);
-			Value::HashedValue(hashed.as_ref(), None)
+			Value::ValueNode(hashed.as_ref(), None)
 		};
 		let encoded = T::Codec::leaf_node(nkey.right(), value);
 		let hash = callback.process(pr.left(), encoded, false);
@@ -204,7 +204,7 @@ impl<T, V> CacheAccum<T, V>
 
 		let hashed;
 		let value = if let Some(v) = v.as_ref() {
-			Some(if let Some(value) = Value::new(v.as_ref(), T::MAX_INLINE_VALUE) {
+			Some(if let Some(value) = Value::new_inline(v.as_ref(), T::MAX_INLINE_VALUE) {
 				value
 			} else {
 				let mut prefix = NibbleSlice::new_offset(&key_branch, 0);
@@ -213,7 +213,7 @@ impl<T, V> CacheAccum<T, V>
 					prefix.left(),
 					v.as_ref(),
 				);
-				Value::HashedValue(hashed.as_ref(), None)
+				Value::ValueNode(hashed.as_ref(), None)
 			})
 		} else {
 			None
@@ -253,7 +253,7 @@ impl<T, V> CacheAccum<T, V>
 		let pr = NibbleSlice::new_offset(&key_branch, nkeyix.0);
 		let hashed;
 		let value = if let Some(v) = v.as_ref() {
-			Some(if let Some(value) = Value::new(v.as_ref(), T::MAX_INLINE_VALUE) {
+			Some(if let Some(value) = Value::new_inline(v.as_ref(), T::MAX_INLINE_VALUE) {
 				value
 			} else {
 				let mut prefix = NibbleSlice::new_offset(&key_branch, 0);
@@ -262,7 +262,7 @@ impl<T, V> CacheAccum<T, V>
 					prefix.left(),
 					v.as_ref(),
 				);
-				Value::HashedValue(hashed.as_ref(), None)
+				Value::ValueNode(hashed.as_ref(), None)
 			})
 		} else {
 			None
@@ -331,14 +331,14 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F)
 			);
 
 			let hashed;
-			let value = if let Some(value) = Value::new(v2.as_ref(), T::MAX_INLINE_VALUE) {
+			let value = if let Some(value) = Value::new_inline(v2.as_ref(), T::MAX_INLINE_VALUE) {
 				value
 			} else {
 				hashed = callback.process_inner_hashed_value(
 					(k2.as_ref(), None),
 					v2.as_ref(),
 				);
-				Value::HashedValue(hashed.as_ref(), None)
+				Value::ValueNode(hashed.as_ref(), None)
 			};
 
 

@@ -475,16 +475,16 @@ fn return_old_values_internal<T: TrieLayout>() {
 	for &(ref key, ref value) in &x {
 		assert!(t.insert(key, value).unwrap() == None);
 		if threshold.map(|t| value.len() < t as usize).unwrap_or(true) {
-			assert_eq!(t.insert(key, value).unwrap(), Some(Value::Value(value.clone())));
+			assert_eq!(t.insert(key, value).unwrap(), Some(Value::Inline(value.clone())));
 		} else {
-			assert!(matches!(t.insert(key, value).unwrap(), Some(Value::NewHashedValue(..))));
+			assert!(matches!(t.insert(key, value).unwrap(), Some(Value::NewValueNode(..))));
 		}
 	}
 	for (key, value) in x {
 		if threshold.map(|t| value.len() < t as usize).unwrap_or(true) {
-			assert_eq!(t.remove(&key).unwrap(), Some(Value::Value(value)));
+			assert_eq!(t.remove(&key).unwrap(), Some(Value::Inline(value)));
 		} else {
-			assert!(matches!(t.remove(&key).unwrap(), Some(Value::NewHashedValue(..))));
+			assert!(matches!(t.remove(&key).unwrap(), Some(Value::NewValueNode(..))));
 		}
 		assert_eq!(t.remove(&key).unwrap(), None);
 	}
