@@ -5,6 +5,7 @@ The format is based on [Keep a Changelog].
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
 ## [Unreleased]
+- Change in api bound. [#142](https://github.com/paritytech/trie/pull/142)
 
 ## [0.27.0] - 2021-07-02
 - Update `parity-util-mem` to 0.10. [#137](https://github.com/paritytech/trie/pull/137)

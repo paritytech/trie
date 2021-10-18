@@ -5,6 +5,7 @@ The format is based on [Keep a Changelog].
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
 ## [Unreleased]
+- Additional test codec substrate like. [#142](https://github.com/paritytech/trie/pull/142)
 
 ## [0.23.0] - 2021-01-27
 - Update parity-scale-codec to 2.0.

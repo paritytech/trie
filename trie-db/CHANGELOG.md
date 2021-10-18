@@ -5,6 +5,7 @@ The format is based on [Keep a Changelog].
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
 ## [Unreleased]
+- Support for value nodes. [#142](https://github.com/paritytech/trie/pull/142)
 
 ## [0.22.6] - 2021-07-02
 - Updated `hashbrown` to 0.11. [#131](https://github.com/paritytech/trie/pull/131)
