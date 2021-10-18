@@ -864,7 +864,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				Compact(value.len() as u32).encode_to(&mut output);
 				output.extend_from_slice(value);
 			},
-			Value::ValueNode(..) => unimplemented!("No support for inner hashed value"),
+			Value::Node(..) => unimplemented!("No support for inner hashed value"),
 		}
 		output
 	}
@@ -911,7 +911,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				Compact(value.len() as u32).encode_to(&mut output);
 				output.extend_from_slice(value);
 			},
-			Some(Value::ValueNode(..)) => unimplemented!("No support for inner hashed value"),
+			Some(Value::Node(..)) => unimplemented!("No support for inner hashed value"),
 			None => (),
 		}
 

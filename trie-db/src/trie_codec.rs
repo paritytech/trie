@@ -192,7 +192,7 @@ fn detached_value<L: TrieLayout>(
 ) -> Option<Vec<u8>> {
 	let fetched;
 	match value {
-		ValuePlan::ValueNode(hash_plan) => {
+		ValuePlan::Node(hash_plan) => {
 			if let Some(value) = val_fetcher.fetch_value(&node_data[hash_plan.clone()], node_prefix) {
 				fetched = value;
 			} else {
@@ -405,7 +405,7 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	/// Preconditions:
 	/// - if node is an extension node, then `children[0]` is Some.
 	fn encode_node(self, attached_hash: Option<&[u8]>) -> Vec<u8> {
-		let attached_hash = attached_hash.map(|h| crate::node::Value::ValueNode(h, None));
+		let attached_hash = attached_hash.map(|h| crate::node::Value::Node(h, None));
 		match self.node {
 			Node::Empty =>
 				C::empty_node().to_vec(),

@@ -143,7 +143,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 
 	fn value(&self) -> Option<Value> {
 		if let Some(hash) = self.next_value_hash.as_ref() {
-			Some(Value::ValueNode(hash.as_ref(), None))
+			Some(Value::Node(hash.as_ref(), None))
 		} else {
 			self.value.clone()
 		}
@@ -351,7 +351,7 @@ fn match_key_to_node<'a>(key: &LeftNibbleSlice<'a>, prefix_len: usize, node: &No
 			if key.contains(partial, prefix_len) &&
 				key.len() == prefix_len + partial.len() {
 				match value {
-					Value::ValueNode(..) => ValueMatch::NotOmitted,
+					Value::Node(..) => ValueMatch::NotOmitted,
 					Value::Inline(value) => if value.is_empty() {
 						ValueMatch::MatchesLeaf
 					} else {

@@ -46,14 +46,14 @@ pub enum Value<'a> {
 	/// Contains a full value.
 	Inline(&'a [u8]),
 	/// Contains hash of a value.
-	ValueNode(Vec<u8>),
+	Node(Vec<u8>),
 }
 
 impl<'a> Value<'a> {
 	fn new<H: Hasher>(value: &'a [u8], threshold: Option<u32>) -> Value<'a> {
 		if let Some(threshold) = threshold {
 			if value.len() >= threshold as usize {
-				Value::ValueNode(H::hash(value).as_ref().to_vec())
+				Value::Node(H::hash(value).as_ref().to_vec())
 			} else {
 				Value::Inline(value)
 			}

@@ -137,7 +137,7 @@ impl<T, V> CacheAccum<T, V>
 				(k2.as_ref(), None),
 				v2.as_ref(),
 			);
-			Value::ValueNode(hashed.as_ref(), None)
+			Value::Node(hashed.as_ref(), None)
 		};
 		let encoded = T::Codec::leaf_node(nkey.right(), value);
 		let hash = callback.process(pr.left(), encoded, false);
@@ -213,7 +213,7 @@ impl<T, V> CacheAccum<T, V>
 					prefix.left(),
 					v.as_ref(),
 				);
-				Value::ValueNode(hashed.as_ref(), None)
+				Value::Node(hashed.as_ref(), None)
 			})
 		} else {
 			None
@@ -262,7 +262,7 @@ impl<T, V> CacheAccum<T, V>
 					prefix.left(),
 					v.as_ref(),
 				);
-				Value::ValueNode(hashed.as_ref(), None)
+				Value::Node(hashed.as_ref(), None)
 			})
 		} else {
 			None
@@ -338,7 +338,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F)
 					(k2.as_ref(), None),
 					v2.as_ref(),
 				);
-				Value::ValueNode(hashed.as_ref(), None)
+				Value::Node(hashed.as_ref(), None)
 			};
 
 

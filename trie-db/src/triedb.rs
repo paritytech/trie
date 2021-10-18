@@ -434,7 +434,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 						)));
 					}
 					let value = match maybe_value.expect("None checked above.") {
-						Value::ValueNode(hash, None) =>  {
+						Value::Node(hash, None) =>  {
 							if let Some(value) = self.inner.fetch_value(&hash, (key_slice, None)) {
 								value
 							} else {
@@ -446,7 +446,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 							}
 						},
 						Value::Inline(value) => value.to_vec(),
-						Value::ValueNode(_hash, Some(value)) => value,
+						Value::Node(_hash, Some(value)) => value,
 					};
 					return Some(Ok((key, value)));
 				},

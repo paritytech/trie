@@ -436,7 +436,7 @@ fn match_key_to_node<'a, C: NodeCodec>(
 						*omit_value = true;
 						Step::FoundValue(Some(&node_data[value_range.clone()]))
 					},
-					ValuePlan::ValueNode(..) => {
+					ValuePlan::Node(..) => {
 						*omit_value = true;
 						resolve_value::<C>(recorded_nodes)?
 					},
@@ -508,7 +508,7 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 				*omit_value = true;
 				Some(&node_data[range.clone()])
 			},
-			Some(ValuePlan::ValueNode(..)) => {
+			Some(ValuePlan::Node(..)) => {
 				*omit_value = true;
 				return resolve_value::<C>(recorded_nodes);
 			},

@@ -334,7 +334,7 @@ fn iterate_over_incomplete_db_internal<T: TrieLayout>() {
 		match iter.next() {
 			Some(Ok((_, _, node))) => {
 				match node.node() {
-					Node::Leaf(_, v) => if !matches!(v, Value::ValueNode(..)) {
+					Node::Leaf(_, v) => if !matches!(v, Value::Node(..)) {
 						assert_eq!(v, Value::Inline(&vec![2; 32][..]));
 					},
 					_ => panic!("unexpected node"),

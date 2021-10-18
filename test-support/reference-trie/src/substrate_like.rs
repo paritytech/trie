@@ -95,7 +95,7 @@ impl<H: Hasher> NodeCodec<H> {
 				let bitmap = Bitmap::decode(&data[bitmap_range])?;
 				let value = if branch_has_value {
 					Some(if contains_hash {
-						ValuePlan::ValueNode(input.take(H::LENGTH)?)
+						ValuePlan::Node(input.take(H::LENGTH)?)
 					} else {
 						let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
 						ValuePlan::Inline(input.take(count)?)
@@ -136,7 +136,7 @@ impl<H: Hasher> NodeCodec<H> {
 				)?;
 				let partial_padding = nibble_ops::number_padding(nibble_count);
 				let value = if contains_hash {
-					ValuePlan::ValueNode(input.take(H::LENGTH)?)
+					ValuePlan::Node(input.take(H::LENGTH)?)
 				} else {
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
 					ValuePlan::Inline(input.take(count)?)
@@ -176,7 +176,7 @@ impl<H> NodeCodecT for NodeCodec<H>
 	}
 
 	fn leaf_node(partial: Partial, value: Value) -> Vec<u8> {
-		let contains_hash = matches!(&value, Value::ValueNode(..));
+		let contains_hash = matches!(&value, Value::Node(..));
 		let mut output = if contains_hash {
 			partial_encode(partial, NodeKind::HashedValueLeaf)
 		} else {
@@ -187,7 +187,7 @@ impl<H> NodeCodecT for NodeCodec<H>
 				Compact(value.len() as u32).encode_to(&mut output);
 				output.extend_from_slice(value);
 			},
-			Value::ValueNode(hash, _) => {
+			Value::Node(hash, _) => {
 				debug_assert!(hash.len() == H::LENGTH);
 				output.extend_from_slice(hash);
 			},
@@ -216,7 +216,7 @@ impl<H> NodeCodecT for NodeCodec<H>
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
 		value: Option<Value>,
 	) -> Vec<u8> {
-		let contains_hash = matches!(&value, Some(Value::ValueNode(..)));
+		let contains_hash = matches!(&value, Some(Value::Node(..)));
 		let mut output = match (&value, contains_hash) {
 			(&None, _) => {
 				partial_from_iterator_encode(partial, number_nibble, NodeKind::BranchNoValue)
@@ -237,7 +237,7 @@ impl<H> NodeCodecT for NodeCodec<H>
 				Compact(value.len() as u32).encode_to(&mut output);
 				output.extend_from_slice(value);
 			},
-			Some(Value::ValueNode(hash, _)) => {
+			Some(Value::Node(hash, _)) => {
 				debug_assert!(hash.len() == H::LENGTH);
 				output.extend_from_slice(hash);
 			},
@@ -492,7 +492,7 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 	fn append_leaf(&mut self, key: &[u8], value: TrieStreamValue) {
 		let kind = match &value {
 			TrieStreamValue::Inline(..) => NodeKind::Leaf,
-			TrieStreamValue::ValueNode(..) => NodeKind::HashedValueLeaf,
+			TrieStreamValue::Node(..) => NodeKind::HashedValueLeaf,
 		};
 		self.buffer.extend(fuse_nibbles_node(key, kind));
 		match &value {
@@ -500,7 +500,7 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 				Compact(value.len() as u32).encode_to(&mut self.buffer);
 				self.buffer.extend_from_slice(value);
 			},
-			TrieStreamValue::ValueNode(hash) => {
+			TrieStreamValue::Node(hash) => {
 				self.buffer.extend_from_slice(hash.as_slice());
 			},
 		};
@@ -516,7 +516,7 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 			let kind = match &maybe_value {
 				None => NodeKind::BranchNoValue,
 				Some(TrieStreamValue::Inline(..)) => NodeKind::BranchWithValue,
-				Some(TrieStreamValue::ValueNode(..)) => NodeKind::HashedValueBranch,
+				Some(TrieStreamValue::Node(..)) => NodeKind::HashedValueBranch,
 			};
 	
 			self.buffer.extend(fuse_nibbles_node(partial, kind));
@@ -531,7 +531,7 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 				Compact(value.len() as u32).encode_to(&mut self.buffer);
 				self.buffer.extend_from_slice(value);
 			},
-			Some(TrieStreamValue::ValueNode(hash)) => {
+			Some(TrieStreamValue::Node(hash)) => {
 				self.buffer.extend_from_slice(hash.as_slice());
 			},
 		}
