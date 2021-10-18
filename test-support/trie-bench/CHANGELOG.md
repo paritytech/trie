@@ -5,6 +5,7 @@ The format is based on [Keep a Changelog].
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
 ## [Unreleased]
+- Updated memory-db, triedb and trie-root. [#142](https://github.com/paritytech/trie/pull/142)
 
 ## [0.28.0] - 2021-07-02
 - Updated memory-db to 0.27. [#139](https://github.com/paritytech/trie/pull/139)
