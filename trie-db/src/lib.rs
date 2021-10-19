@@ -1,4 +1,4 @@
-// Copyright 2017, 2019 Parity Technologies
+// Copyright 2017, 2021 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -58,8 +58,8 @@ mod node_codec;
 mod trie_codec;
 
 pub use hash_db::{HashDB, HashDBRef, Hasher};
-pub use self::triedb::{TrieDB, TrieDBIterator};
-pub use self::triedbmut::{TrieDBMut, ChildReference};
+pub use self::triedb::{TrieDB, TrieDBIterator, TrieDBKeyIterator};
+pub use self::triedbmut::{TrieDBMut, ChildReference, Value};
 pub use self::sectriedbmut::SecTrieDBMut;
 pub use self::sectriedb::SecTrieDB;
 pub use self::fatdb::{FatDB, FatDBIterator};
@@ -93,8 +93,9 @@ pub enum TrieError<T, E> {
 	/// The first parameter is the byte-aligned part of the prefix and the second parameter is the
 	/// remaining nibble.
 	ValueAtIncompleteKey(Vec<u8>, u8),
-	/// Corrupt Trie item
+	/// Corrupt Trie item.
 	DecoderError(T, E),
+	/// Hash is not value.
 	InvalidHash(T, Vec<u8>),
 }
 
@@ -131,6 +132,9 @@ pub type Result<T, H, E> = crate::rstd::result::Result<T, Box<TrieError<H, E>>>;
 
 /// Trie-Item type used for iterators over trie data.
 pub type TrieItem<'a, U, E> = Result<(Vec<u8>, DBValue), U, E>;
+
+/// Trie-Item type used for iterators over trie key only.
+pub type TrieKeyItem<'a, U, E> = Result<Vec<u8>, U, E>;
 
 /// Description of what kind of query will be made to the trie.
 ///
@@ -204,6 +208,13 @@ pub trait Trie<L: TrieLayout> {
 		TrieHash<L>,
 		CError<L>
 	>;
+
+	/// Returns a depth-first iterator over the keys of elemets of trie.
+	fn key_iter<'a>(&'a self) -> Result<
+		Box<dyn TrieIterator<L, Item = TrieKeyItem<TrieHash<L>, CError<L> >> + 'a>,
+		TrieHash<L>,
+		CError<L>
+	>;
 }
 
 /// A key-value datastore implemented as a database-backed modified Merkle tree.
@@ -231,11 +242,11 @@ pub trait TrieMut<L: TrieLayout> {
 		&mut self,
 		key: &[u8],
 		value: &[u8],
-	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>;
+	) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>>;
 
 	/// Remove a `key` from the trie. Equivalent to making it equal to the empty
 	/// value. Returns the old value associated with this key, if it existed.
-	fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>;
+	fn remove(&mut self, key: &[u8]) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>>;
 }
 
 /// A trie iterator that also supports random access (`seek()`).
@@ -320,6 +331,14 @@ impl<'db, L: TrieLayout> Trie<L> for TrieKinds<'db, L> {
 	> {
 		wrapper!(self, iter,)
 	}
+
+	fn key_iter<'a>(&'a self) -> Result<
+		Box<dyn TrieIterator<L, Item = TrieKeyItem<TrieHash<L>, CError<L>>> + 'a>,
+		TrieHash<L>,
+		CError<L>,
+	> {
+		wrapper!(self, key_iter,)
+	}
 }
 
 impl<'db, L> TrieFactory<L>
@@ -384,6 +403,10 @@ pub trait TrieLayout {
 	const USE_EXTENSION: bool;
 	/// If true, the trie will allow empty values into `TrieDBMut`
 	const ALLOW_EMPTY: bool = false;
+	/// Threshold above which an external node should be
+	/// use to store a node value.
+	const MAX_INLINE_VALUE: Option<u32>;
+
 	/// Hasher to use for this trie.
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
@@ -396,32 +419,32 @@ pub trait TrieLayout {
 pub trait TrieConfiguration: Sized + TrieLayout {
 	/// Operation to build a trie db from its ordered iterator over its key/values.
 	fn trie_build<DB, I, A, B>(db: &mut DB, input: I) -> <Self::Hash as Hasher>::Out where
-	DB: HashDB<Self::Hash, usize>,
-	I: IntoIterator<Item = (A, B)>,
-	A: AsRef<[u8]> + Ord,
-	B: AsRef<[u8]>,
+		DB: HashDB<Self::Hash, DBValue>,
+		I: IntoIterator<Item = (A, B)>,
+		A: AsRef<[u8]> + Ord,
+		B: AsRef<[u8]>,
 	{
-		let mut cb = TrieBuilder::new(db);
+		let mut cb = TrieBuilder::<Self, DB>::new(db);
 		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
 		cb.root.unwrap_or_default()
 	}
 	/// Determines a trie root given its ordered contents, closed form.
 	fn trie_root<I, A, B>(input: I) -> <Self::Hash as Hasher>::Out where
-	I: IntoIterator<Item = (A, B)>,
-	A: AsRef<[u8]> + Ord,
-	B: AsRef<[u8]>,
+		I: IntoIterator<Item = (A, B)>,
+		A: AsRef<[u8]> + Ord,
+		B: AsRef<[u8]>,
 	{
-		let mut cb = TrieRoot::<Self::Hash, _>::default();
+		let mut cb = TrieRoot::<Self>::default();
 		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
 		cb.root.unwrap_or_default()
 	}
 	/// Determines a trie root node's data given its ordered contents, closed form.
 	fn trie_root_unhashed<I, A, B>(input: I) -> Vec<u8> where
-	I: IntoIterator<Item = (A, B)>,
-	A: AsRef<[u8]> + Ord,
-	B: AsRef<[u8]>,
+		I: IntoIterator<Item = (A, B)>,
+		A: AsRef<[u8]> + Ord,
+		B: AsRef<[u8]>,
 	{
-		let mut cb = TrieRootUnhashed::<Self::Hash>::default();
+		let mut cb = TrieRootUnhashed::<Self>::default();
 		trie_visit::<Self, _, _, _, _>(input.into_iter(), &mut cb);
 		cb.root.unwrap_or_default()
 	}

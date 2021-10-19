@@ -18,11 +18,14 @@ use trie_db::{
 	Trie, TrieMut, TrieDB, TrieError, TrieDBMut, TrieLayout, Recorder,
 };
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
-use reference_trie::{
-	ExtensionLayout, NoExtensionLayout,
-};
+use reference_trie::test_layouts;
 
-type MemoryDB<H> = memory_db::MemoryDB<H, memory_db::HashKey<H>, DBValue>;
+
+type MemoryDB<T> = memory_db::MemoryDB<
+	<T as TrieLayout>::Hash,
+	memory_db::HashKey<<T as TrieLayout>::Hash>,
+	DBValue,
+>;
 
 fn test_encode_compact<L: TrieLayout>(
 	entries: Vec<(&'static [u8], &'static [u8])>,
@@ -31,7 +34,7 @@ fn test_encode_compact<L: TrieLayout>(
 {
 	// Populate DB with full trie from entries.
 	let (db, root) = {
-		let mut db = <MemoryDB<L::Hash>>::default();
+		let mut db = <MemoryDB<L>>::default();
 		let mut root = Default::default();
 		{
 			let mut trie = <TrieDBMut<L>>::new(&mut db, &mut root);
@@ -55,7 +58,7 @@ fn test_encode_compact<L: TrieLayout>(
 	};
 
 	// Populate a partial trie DB with recorded nodes.
-	let mut partial_db = MemoryDB::default();
+	let mut partial_db = MemoryDB::<L>::default();
 	for record in recorder.drain() {
 		partial_db.insert(EMPTY_PREFIX, &record.data);
 	}
@@ -76,8 +79,8 @@ fn test_decode_compact<L: TrieLayout>(
 	expected_used: usize,
 ) {
 	// Reconstruct the partial DB from the compact encoding.
-	let mut db = MemoryDB::default();
-	let (root, used) = decode_compact::<L, _, _>(&mut db, encoded).unwrap();
+	let mut db = MemoryDB::<L>::default();
+	let (root, used) = decode_compact::<L, _>(&mut db, encoded).unwrap();
 	assert_eq!(root, expected_root);
 	assert_eq!(used, expected_used);
 
@@ -88,9 +91,9 @@ fn test_decode_compact<L: TrieLayout>(
 	}
 }
 
-#[test]
-fn trie_compact_encoding_works_with_ext() {
-	let (root, mut encoded, items) = test_encode_compact::<ExtensionLayout>(
+test_layouts!(trie_compact_encoding_works, trie_compact_encoding_works_internal);
+fn trie_compact_encoding_works_internal<T: TrieLayout>() {
+	let (root, mut encoded, items) = test_encode_compact::<T>(
 		vec![
 			// "alfa" is at a hash-referenced leaf node.
 			(b"alfa", &[0; 32]),
@@ -118,45 +121,12 @@ fn trie_compact_encoding_works_with_ext() {
 	);
 
 	encoded.push(Vec::new()); // Add an extra item to ensure it is not read.
-	test_decode_compact::<ExtensionLayout>(&encoded, items, root, encoded.len() - 1);
+	test_decode_compact::<T>(&encoded, items, root, encoded.len() - 1);
 }
 
-#[test]
-fn trie_compact_encoding_works_without_ext() {
-	let (root, mut encoded, items) = test_encode_compact::<NoExtensionLayout>(
-		vec![
-			// "alfa" is at a hash-referenced leaf node.
-			(b"alfa", &[0; 32]),
-			// "bravo" is at an inline leaf node.
-			(b"bravo", b"bravo"),
-			// "do" is at a hash-referenced branch node.
-			(b"do", b"verb"),
-			// "dog" is at an inline leaf node.
-			(b"dog", b"puppy"),
-			// "doge" is at a hash-referenced leaf node.
-			(b"doge", &[0; 32]),
-			// extension node "o" (plus nibble) to next branch.
-			(b"horse", b"stallion"),
-			(b"house", b"building"),
-		],
-		vec![
-			b"do",
-			b"dog",
-			b"doge",
-			b"bravo",
-			b"d", // None, witness is a branch partial
-			b"do\x10", // None, witness is empty branch child
-			b"halp", // None, witness is branch partial
-		],
-	);
-
-	encoded.push(Vec::new()); // Add an extra item to ensure it is not read.
-	test_decode_compact::<NoExtensionLayout>(&encoded, items, root, encoded.len() - 1);
-}
-
-#[test]
-fn trie_decoding_fails_with_incomplete_database() {
-	let (_, encoded, _) = test_encode_compact::<ExtensionLayout>(
+test_layouts!(trie_decoding_fails_with_incomplete_database, trie_decoding_fails_with_incomplete_database_internal);
+fn trie_decoding_fails_with_incomplete_database_internal<T: TrieLayout>() {
+	let (_, encoded, _) = test_encode_compact::<T>(
 		vec![
 			(b"alfa", &[0; 32]),
 			(b"bravo", b"bravo"),
@@ -169,8 +139,8 @@ fn trie_decoding_fails_with_incomplete_database() {
 	assert!(encoded.len() > 1);
 
 	// Reconstruct the partial DB from the compact encoding.
-	let mut db = MemoryDB::default();
-	match decode_compact::<ExtensionLayout, _, _>(&mut db, &encoded[..encoded.len() - 1]) {
+	let mut db = MemoryDB::<T>::default();
+	match decode_compact::<T, _>(&mut db, &encoded[..encoded.len() - 1]) {
 		Err(err) => match *err {
 			TrieError::IncompleteDatabase(_) => {}
 			_ => panic!("got unexpected TrieError"),

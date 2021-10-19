@@ -14,12 +14,11 @@
 
 use memory_db::{MemoryDB, HashKey};
 use trie_db::{DBValue, Trie, TrieMut};
-use keccak_hasher::KeccakHasher;
-use reference_trie::{RefFatDBMut, RefFatDB};
+use reference_trie::{RefFatDBMut, RefFatDB, RefHasher};
 
 #[test]
 fn fatdb_to_trie() {
-	let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+	let mut memdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
 	let mut root = Default::default();
 	{
 		let mut t = RefFatDBMut::new(&mut memdb, &mut root);
@@ -30,5 +29,9 @@ fn fatdb_to_trie() {
 	assert_eq!(
 		t.iter().unwrap().map(Result::unwrap).collect::<Vec<_>>(),
 		vec![(vec![0x01u8, 0x23], vec![0x01u8, 0x23])]
+	);
+	assert_eq!(
+		t.key_iter().unwrap().map(Result::unwrap).collect::<Vec<_>>(),
+		vec![vec![0x01u8, 0x23]]
 	);
 }

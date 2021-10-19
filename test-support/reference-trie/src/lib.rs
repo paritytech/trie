@@ -1,4 +1,4 @@
-// Copyright 2017, 2018 Parity Technologies
+// Copyright 2017, 2021 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,15 +14,16 @@
 
 //! Reference implementation of a streamer.
 
+mod substrate_like;
+
 use std::fmt;
 use std::iter::once;
 use std::marker::PhantomData;
 use std::ops::Range;
 use parity_scale_codec::{Decode, Input, Output, Encode, Compact, Error as CodecError};
 use trie_root::Hasher;
-
 use trie_db::{
-	node::{NibbleSlicePlan, NodePlan, NodeHandlePlan},
+	node::{NibbleSlicePlan, NodePlan, Value, ValuePlan, NodeHandlePlan},
 	triedbmut::ChildReference,
 	DBValue,
 	trie_visit,
@@ -31,26 +32,62 @@ use trie_db::{
 	Partial,
 };
 use std::borrow::Borrow;
-use keccak_hasher::KeccakHasher;
 
 use trie_db::{
 	nibble_ops, NodeCodec,
-	Trie, TrieConfiguration,
+	Trie, TrieConfiguration, TrieDB, TrieDBMut,
 	TrieLayout, TrieMut,
 };
 pub use trie_root::TrieStream;
+use trie_root::Value as TrieStreamValue;
 pub mod node {
 	pub use trie_db::node::Node;
 }
 
+pub use substrate_like::{trie_constants, ReferenceTrieStreamNoExt,
+	HashedValueNoExt, HashedValueNoExtThreshold,
+	NodeCodec as ReferenceNodeCodecNoExtMeta};
+
+
+/// Reference hasher is a keccak hasher.
+pub type RefHasher = keccak_hasher::KeccakHasher;
+
+/// Apply a test method on every test layouts.
+#[macro_export]
+macro_rules! test_layouts {
+	($test:ident, $test_internal:ident) => {
+		#[test]
+		fn $test() {
+			$test_internal::<reference_trie::HashedValueNoExtThreshold>();
+			$test_internal::<reference_trie::HashedValueNoExt>();
+			$test_internal::<reference_trie::NoExtensionLayout>();
+			$test_internal::<reference_trie::ExtensionLayout>();
+		}
+	};
+}
+
+/// Apply a test method on every test layouts.
+#[macro_export]
+macro_rules! test_layouts_no_meta {
+	($test:ident, $test_internal:ident) => {
+		#[test]
+		fn $test() {
+			$test_internal::<reference_trie::NoExtensionLayout>();
+			$test_internal::<reference_trie::ExtensionLayout>();
+		}
+	};
+}
+
 /// Trie layout using extension nodes.
+#[derive(Default, Clone)]
 pub struct ExtensionLayout;
 
 impl TrieLayout for ExtensionLayout {
 	const USE_EXTENSION: bool = true;
 	const ALLOW_EMPTY: bool = false;
-	type Hash = KeccakHasher;
-	type Codec = ReferenceNodeCodec<KeccakHasher>;
+	const MAX_INLINE_VALUE: Option<u32> = None;
+	type Hash = RefHasher;
+	type Codec = ReferenceNodeCodec<RefHasher>;
 }
 
 impl TrieConfiguration for ExtensionLayout { }
@@ -59,27 +96,42 @@ impl TrieConfiguration for ExtensionLayout { }
 /// generic hasher.
 pub struct GenericNoExtensionLayout<H>(PhantomData<H>);
 
+impl<H> Default for GenericNoExtensionLayout<H> {
+	fn default() -> Self {
+		GenericNoExtensionLayout(PhantomData)
+	}
+}
+
+impl<H> Clone for GenericNoExtensionLayout<H> {
+	fn clone(&self) -> Self {
+		GenericNoExtensionLayout(PhantomData)
+	}
+}
+
 impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
+	const MAX_INLINE_VALUE: Option<u32> = None;
 	type Hash = H;
 	type Codec = ReferenceNodeCodecNoExt<H>;
 }
 
-/// Trie that allows empty values
+/// Trie that allows empty values.
+#[derive(Default, Clone)]
 pub struct AllowEmptyLayout;
 
 impl TrieLayout for AllowEmptyLayout {
 	const USE_EXTENSION: bool = true;
 	const ALLOW_EMPTY: bool = true;
-	type Hash = KeccakHasher;
-	type Codec = ReferenceNodeCodec<KeccakHasher>;
+	const MAX_INLINE_VALUE: Option<u32> = None;
+	type Hash = RefHasher;
+	type Codec = ReferenceNodeCodec<RefHasher>;
 }
 
 impl<H: Hasher> TrieConfiguration for GenericNoExtensionLayout<H> { }
 
 /// Trie layout without extension nodes.
-pub type NoExtensionLayout = GenericNoExtensionLayout<keccak_hasher::KeccakHasher>;
+pub type NoExtensionLayout = GenericNoExtensionLayout<RefHasher>;
 
 /// Children bitmap codec for radix 16 trie.
 pub struct Bitmap(u16);
@@ -110,7 +162,6 @@ impl Bitmap {
 }
 
 pub type RefTrieDB<'a> = trie_db::TrieDB<'a, ExtensionLayout>;
-pub type RefTrieDBNoExt<'a> = trie_db::TrieDB<'a, NoExtensionLayout>;
 pub type RefTrieDBMut<'a> = trie_db::TrieDBMut<'a, ExtensionLayout>;
 pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMut<'a, NoExtensionLayout>;
 pub type RefTrieDBMutAllowEmpty<'a> = trie_db::TrieDBMut<'a, AllowEmptyLayout>;
@@ -121,12 +172,38 @@ pub type RefSecTrieDBMut<'a> = trie_db::SecTrieDBMut<'a, ExtensionLayout>;
 pub type RefLookup<'a, Q> = trie_db::Lookup<'a, ExtensionLayout, Q>;
 pub type RefLookupNoExt<'a, Q> = trie_db::Lookup<'a, NoExtensionLayout, Q>;
 
-pub fn reference_trie_root<I, A, B>(input: I) -> <KeccakHasher as Hasher>::Out where
+pub fn reference_trie_root<T: TrieLayout, I, A, B>(input: I) -> <T::Hash as Hasher>::Out where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	trie_root::trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(input)
+	if T::USE_EXTENSION {
+		trie_root::trie_root::<T::Hash, ReferenceTrieStream, _, _, _>(input, Default::default())
+	} else {
+		trie_root::trie_root_no_extension::<T::Hash, ReferenceTrieStreamNoExt, _, _, _>(input, Default::default())
+	}
+}
+
+fn data_sorted_unique<I, A: Ord, B>(input: I) -> Vec<(A, B)>
+	where
+		I: IntoIterator<Item = (A, B)>,
+{
+	let mut m = std::collections::BTreeMap::new();
+	for (k,v) in input {
+		let _ = m.insert(k,v); // latest value for uniqueness
+	}
+	m.into_iter().collect()
+}
+
+pub fn reference_trie_root_iter_build<T, I, A, B>(input: I) -> <T::Hash as Hasher>::Out where
+	T: TrieLayout,
+	I: IntoIterator<Item = (A, B)>,
+	A: AsRef<[u8]> + Ord + fmt::Debug,
+	B: AsRef<[u8]> + fmt::Debug,
+{
+	let mut cb = trie_db::TrieRoot::<T>::default();
+	trie_visit::<T, _, _, _, _>(data_sorted_unique(input), &mut cb);
+	cb.root.unwrap_or_default()
 }
 
 fn reference_trie_root_unhashed<I, A, B>(input: I) -> Vec<u8> where
@@ -134,15 +211,7 @@ fn reference_trie_root_unhashed<I, A, B>(input: I) -> Vec<u8> where
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	trie_root::unhashed_trie::<KeccakHasher, ReferenceTrieStream, _, _, _>(input)
-}
-
-pub fn reference_trie_root_no_extension<I, A, B>(input: I) -> <KeccakHasher as Hasher>::Out where
-	I: IntoIterator<Item = (A, B)>,
-	A: AsRef<[u8]> + Ord + fmt::Debug,
-	B: AsRef<[u8]> + fmt::Debug,
-{
-	trie_root::trie_root_no_extension::<KeccakHasher, ReferenceTrieStreamNoExt, _, _, _>(input)
+	trie_root::unhashed_trie::<RefHasher, ReferenceTrieStream, _, _, _>(input, Default::default())
 }
 
 fn reference_trie_root_unhashed_no_extension<I, A, B>(input: I) -> Vec<u8> where
@@ -150,7 +219,7 @@ fn reference_trie_root_unhashed_no_extension<I, A, B>(input: I) -> Vec<u8> where
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
 {
-	trie_root::unhashed_trie_no_extension::<KeccakHasher, ReferenceTrieStreamNoExt, _, _, _>(input)
+	trie_root::unhashed_trie_no_extension::<RefHasher, ReferenceTrieStreamNoExt, _, _, _>(input, Default::default())
 }
 
 const EMPTY_TRIE: u8 = 0;
@@ -164,11 +233,12 @@ const LEAF_NODE_LAST: u8 = EXTENSION_NODE_OFFSET - 1;
 const EXTENSION_NODE_LAST: u8 = BRANCH_NODE_NO_VALUE - 1;
 
 // Constant use with no extensino trie codec.
-const EMPTY_TRIE_NO_EXT: u8 = 0;
 const NIBBLE_SIZE_BOUND_NO_EXT: usize = u16::max_value() as usize;
+const FIRST_PREFIX: u8 = 0b_00 << 6;
 const LEAF_PREFIX_MASK_NO_EXT: u8 = 0b_01 << 6;
 const BRANCH_WITHOUT_MASK_NO_EXT: u8 = 0b_10 << 6;
 const BRANCH_WITH_MASK_NO_EXT: u8 = 0b_11 << 6;
+const EMPTY_TRIE_NO_EXT: u8 = FIRST_PREFIX | 0b_00;
 
 /// Create a leaf/extension node, encoding a number of nibbles. Note that this
 /// cannot handle a number of nibbles that is zero or greater than 125 and if
@@ -193,23 +263,6 @@ enum NodeKindNoExt {
 	Leaf,
 	BranchNoValue,
 	BranchWithValue,
-}
-
-/// Create a leaf or branch node header followed by its encoded partial nibbles.
-fn fuse_nibbles_node_no_extension<'a>(
-	nibbles: &'a [u8],
-	kind: NodeKindNoExt,
-) -> impl Iterator<Item = u8> + 'a {
-	let size = ::std::cmp::min(NIBBLE_SIZE_BOUND_NO_EXT, nibbles.len());
-
-	let iter_start = match kind {
-		NodeKindNoExt::Leaf => size_and_prefix_iterator(size, LEAF_PREFIX_MASK_NO_EXT),
-		NodeKindNoExt::BranchNoValue => size_and_prefix_iterator(size, BRANCH_WITHOUT_MASK_NO_EXT),
-		NodeKindNoExt::BranchWithValue => size_and_prefix_iterator(size, BRANCH_WITH_MASK_NO_EXT),
-	};
-	iter_start
-		.chain(if nibbles.len() % 2 == 1 { Some(nibbles[0]) } else { None })
-		.chain(nibbles[nibbles.len() % 2..].chunks(2).map(|ch| ch[0] << 4 | ch[1]))
 }
 
 /// Encoding of branch header and children bitmap (for trie stream radix 16).
@@ -265,93 +318,33 @@ impl TrieStream for ReferenceTrieStream {
 		self.buffer.push(EMPTY_TRIE);
 	}
 
-	fn append_leaf(&mut self, key: &[u8], value: &[u8]) {
-		self.buffer.extend(fuse_nibbles_node(key, true));
-		value.encode_to(&mut self.buffer);
+	fn append_leaf(&mut self, key: &[u8], value: TrieStreamValue) {
+		if let TrieStreamValue::Inline(value) = value {
+			self.buffer.extend(fuse_nibbles_node(key, true));
+			value.encode_to(&mut self.buffer);
+		} else {
+			unreachable!("This stream do not allow external value node")
+		}
 	}
 
 	fn begin_branch(
 		&mut self,
 		maybe_key: Option<&[u8]>,
-		maybe_value: Option<&[u8]>,
+		maybe_value: Option<TrieStreamValue>,
 		has_children: impl Iterator<Item = bool>,
 	) {
-		self.buffer.extend(&branch_node(maybe_value.is_some(), has_children));
+		self.buffer.extend(&branch_node(!matches!(maybe_value, None), has_children));
 		if let Some(partial) = maybe_key {
 			// should not happen
 			self.buffer.extend(fuse_nibbles_node(partial, false));
 		}
-		if let Some(value) = maybe_value {
+		if let Some(TrieStreamValue::Inline(value)) = maybe_value {
 			value.encode_to(&mut self.buffer);
 		}
 	}
 
 	fn append_extension(&mut self, key: &[u8]) {
 		self.buffer.extend(fuse_nibbles_node(key, false));
-	}
-
-	fn append_substream<H: Hasher>(&mut self, other: Self) {
-		let data = other.out();
-		match data.len() {
-			0..=31 => data.encode_to(&mut self.buffer),
-			_ => H::hash(&data).as_ref().encode_to(&mut self.buffer),
-		}
-	}
-
-	fn out(self) -> Vec<u8> { self.buffer }
-}
-
-/// Reference implementation of a `TrieStream` without extension.
-#[derive(Default, Clone)]
-pub struct ReferenceTrieStreamNoExt {
-	buffer: Vec<u8>
-}
-
-impl TrieStream for ReferenceTrieStreamNoExt {
-	fn new() -> Self {
-		ReferenceTrieStreamNoExt {
-			buffer: Vec::new()
-		}
-	}
-
-	fn append_empty_data(&mut self) {
-		self.buffer.push(EMPTY_TRIE_NO_EXT);
-	}
-
-	fn append_leaf(&mut self, key: &[u8], value: &[u8]) {
-		self.buffer.extend(fuse_nibbles_node_no_extension(key, NodeKindNoExt::Leaf));
-		value.encode_to(&mut self.buffer);
-	}
-
-	fn begin_branch(
-		&mut self,
-		maybe_key: Option<&[u8]>,
-		maybe_value: Option<&[u8]>,
-		has_children: impl Iterator<Item = bool>
-	) {
-		if let Some(partial) = maybe_key {
-			if maybe_value.is_some() {
-				self.buffer.extend(
-					fuse_nibbles_node_no_extension(partial, NodeKindNoExt::BranchWithValue)
-				);
-			} else {
-				self.buffer.extend(
-					fuse_nibbles_node_no_extension(partial, NodeKindNoExt::BranchNoValue)
-				);
-			}
-			let bitmap = branch_node_bit_mask(has_children);
-			self.buffer.extend([bitmap.0, bitmap.1].iter());
-		} else {
-			// should not happen
-			self.buffer.extend(&branch_node(maybe_value.is_some(), has_children));
-		}
-		if let Some(value) = maybe_value {
-			value.encode_to(&mut self.buffer);
-		}
-	}
-
-	fn append_extension(&mut self, _key: &[u8]) {
-		// should not happen
 	}
 
 	fn append_substream<H: Hasher>(&mut self, other: Self) {
@@ -645,7 +638,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 
 				let value = if has_value {
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-					Some(input.take(count)?)
+					Some(ValuePlan::Inline(input.take(count)?))
 				} else {
 					None
 				};
@@ -692,7 +685,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 				let value = input.take(count)?;
 				Ok(NodePlan::Leaf {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
-					value,
+					value: ValuePlan::Inline(value),
 				})
 			}
 		}
@@ -706,9 +699,15 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		&[EMPTY_TRIE]
 	}
 
-	fn leaf_node(partial: Partial, value: &[u8]) -> Vec<u8> {
+	fn leaf_node(partial: Partial, value: Value) -> Vec<u8> {
 		let mut output = partial_to_key(partial, LEAF_NODE_OFFSET, LEAF_NODE_OVER);
-		value.encode_to(&mut output);
+		match value {
+			Value::Inline(value) => {
+				Compact(value.len() as u32).encode_to(&mut output);
+				output.extend_from_slice(value);
+			},
+			_ => unimplemented!("unsupported"),
+		}
 		output
 	}
 
@@ -733,15 +732,20 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 
 	fn branch_node(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		maybe_value: Option<&[u8]>,
+		maybe_value: Option<Value>,
 	) -> Vec<u8> {
 		let mut output = vec![0; BITMAP_LENGTH + 1];
 		let mut prefix: [u8; 3] = [0; 3];
-		let have_value = if let Some(value) = maybe_value {
-			value.encode_to(&mut output);
-			true
-		} else {
-			false
+		let have_value = match maybe_value {
+			Some(Value::Inline(value)) => {
+				Compact(value.len() as u32).encode_to(&mut output);
+				output.extend_from_slice(value);
+				true
+			},
+			None => {
+				false
+			},
+			_ => unimplemented!("unsupported"),
 		};
 		let has_children = children.map(|maybe_child| match maybe_child.borrow() {
 			Some(ChildReference::Hash(h)) => {
@@ -763,10 +767,10 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		_partial:	impl Iterator<Item = u8>,
 		_number_nibble: usize,
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		_maybe_value: Option<&[u8]>) -> Vec<u8> {
-		unreachable!()
+		_maybe_value: Option<Value>,
+	) -> Vec<u8> {
+		unreachable!("codec with extension branch")
 	}
-
 }
 
 impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
@@ -777,10 +781,14 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		H::hash(<Self as NodeCodec>::empty_node())
 	}
 
-	fn decode_plan(data: &[u8]) -> ::std::result::Result<NodePlan, Self::Error> {
+	fn decode_plan(data: &[u8]) -> Result<NodePlan, Self::Error> {
+		if data.len() < 1 {
+			return Err(CodecError::from("Empty encoded node."));
+		}
 		let mut input = ByteSliceInput::new(data);
-		match NodeHeaderNoExt::decode(&mut input)? {
-			NodeHeaderNoExt::Null => Ok(NodePlan::Empty),
+
+		Ok(match NodeHeaderNoExt::decode(&mut input)? {
+			NodeHeaderNoExt::Null => NodePlan::Empty,
 			NodeHeaderNoExt::Branch(has_value, nibble_count) => {
 				let padding = nibble_count % nibble_ops::NIBBLE_PER_BYTE != 0;
 				// check that the padding is valid (if any)
@@ -795,7 +803,7 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				let bitmap = Bitmap::decode(&data[bitmap_range])?;
 				let value = if has_value {
 					let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-					Some(input.take(count)?)
+					Some(ValuePlan::Inline(input.take(count)?))
 				} else {
 					None
 				};
@@ -814,11 +822,11 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 						});
 					}
 				}
-				Ok(NodePlan::NibbledBranch {
+				NodePlan::NibbledBranch {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
 					value,
 					children,
-				})
+				}
 			}
 			NodeHeaderNoExt::Leaf(nibble_count) => {
 				let padding = nibble_count % nibble_ops::NIBBLE_PER_BYTE != 0;
@@ -831,13 +839,14 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 				)?;
 				let partial_padding = nibble_ops::number_padding(nibble_count);
 				let count = <Compact<u32>>::decode(&mut input)?.0 as usize;
-				let value = input.take(count)?;
-				Ok(NodePlan::Leaf {
+				let value = ValuePlan::Inline(input.take(count)?);
+
+				NodePlan::Leaf {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
 					value,
-				})
+				}
 			}
-		}
+		})
 	}
 
 	fn is_empty_node(data: &[u8]) -> bool {
@@ -848,9 +857,15 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		&[EMPTY_TRIE_NO_EXT]
 	}
 
-	fn leaf_node(partial: Partial, value: &[u8]) -> Vec<u8> {
+	fn leaf_node(partial: Partial, value: Value) -> Vec<u8> {
 		let mut output = partial_encode(partial, NodeKindNoExt::Leaf);
-		value.encode_to(&mut output);
+		match value {
+			Value::Inline(value) => {
+				Compact(value.len() as u32).encode_to(&mut output);
+				output.extend_from_slice(value);
+			},
+			Value::Node(..) => unimplemented!("No support for inner hashed value"),
+		}
 		output
 	}
 
@@ -859,41 +874,47 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		_nbnibble: usize,
 		_child: ChildReference<<H as Hasher>::Out>,
 	) -> Vec<u8> {
-		unreachable!()
+		unreachable!("no extension codec")
 	}
 
 	fn branch_node(
 		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<<H as Hasher>::Out>>>>,
-		_maybe_value: Option<&[u8]>,
+		_maybe_value: Option<Value>,
 	) -> Vec<u8> {
-		unreachable!()
+		unreachable!("no extension codec")
 	}
 
 	fn branch_node_nibbled(
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		maybe_value: Option<&[u8]>,
+		maybe_value: Option<Value>,
 	) -> Vec<u8> {
-		let mut output = if maybe_value.is_some() {
-			partial_from_iterator_encode(
-				partial,
-				number_nibble,
-				NodeKindNoExt::BranchWithValue,
-			)
-		} else {
+		let mut output = if maybe_value.is_none() {
 			partial_from_iterator_encode(
 				partial,
 				number_nibble,
 				NodeKindNoExt::BranchNoValue,
 			)
+		} else {
+			partial_from_iterator_encode(
+				partial,
+				number_nibble,
+				NodeKindNoExt::BranchWithValue,
+			)
 		};
 		let bitmap_index = output.len();
 		let mut bitmap: [u8; BITMAP_LENGTH] = [0; BITMAP_LENGTH];
 		(0..BITMAP_LENGTH).for_each(|_| output.push(0));
-		if let Some(value) = maybe_value {
-			value.encode_to(&mut output);
-		};
+		match maybe_value {
+			Some(Value::Inline(value)) => {
+				Compact(value.len() as u32).encode_to(&mut output);
+				output.extend_from_slice(value);
+			},
+			Some(Value::Node(..)) => unimplemented!("No support for inner hashed value"),
+			None => (),
+		}
+
 		Bitmap::encode(children.map(|maybe_child| match maybe_child.borrow() {
 			Some(ChildReference::Hash(h)) => {
 				h.as_ref().encode_to(&mut output);
@@ -909,23 +930,22 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 			.copy_from_slice(&bitmap.as_ref()[..BITMAP_LENGTH]);
 		output
 	}
-
 }
 
 /// Compare trie builder and in memory trie.
-pub fn compare_implementations<X : hash_db::HashDB<KeccakHasher, DBValue> + Eq> (
+pub fn compare_implementations<T, DB> (
 	data: Vec<(Vec<u8>, Vec<u8>)>,
-	mut memdb: X,
-	mut hashdb: X,
-) {
-	let root_new = {
-		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit::<ExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
-	};
+	mut memdb: DB,
+	mut hashdb: DB,
+)
+	where
+		T: TrieLayout,
+		DB : hash_db::HashDB<T::Hash, DBValue> + Eq,
+{
+	let root_new = calc_root_build::<T, _, _, _, _>(data.clone(), &mut hashdb);
 	let root = {
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
@@ -935,7 +955,7 @@ pub fn compare_implementations<X : hash_db::HashDB<KeccakHasher, DBValue> + Eq> 
 	if root_new != root {
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = RefTrieDB::new(&db, &root_new).unwrap();
+			let t = TrieDB::<T>::new(&db, &root_new).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:x?}", a);
@@ -943,7 +963,7 @@ pub fn compare_implementations<X : hash_db::HashDB<KeccakHasher, DBValue> + Eq> 
 		}
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = RefTrieDB::new(&db, &root).unwrap();
+			let t = TrieDB::<T>::new(&db, &root).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:x?}", a);
@@ -957,18 +977,14 @@ pub fn compare_implementations<X : hash_db::HashDB<KeccakHasher, DBValue> + Eq> 
 }
 
 /// Compare trie builder and trie root implementations.
-pub fn compare_root(
+pub fn compare_root<T: TrieLayout, DB: hash_db::HashDB<T::Hash, DBValue>>(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
-	mut memdb: impl hash_db::HashDB<KeccakHasher, DBValue>,
+	mut memdb: DB,
 ) {
-	let root_new = {
-		let mut cb = TrieRoot::<KeccakHasher, _>::default();
-		trie_visit::<ExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
-	};
+	let root_new = reference_trie_root_iter_build::<T, _, _, _>(data.clone());
 	let root = {
 		let mut root = Default::default();
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = trie_db::TrieDBMut::<T>::new(&mut memdb, &mut root);
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
@@ -983,7 +999,7 @@ pub fn compare_unhashed(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
 ) {
 	let root_new = {
-		let mut cb = trie_db::TrieRootUnhashed::<KeccakHasher>::default();
+		let mut cb = trie_db::TrieRootUnhashed::<ExtensionLayout>::default();
 		trie_visit::<ExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
@@ -998,7 +1014,7 @@ pub fn compare_unhashed_no_extension(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
 ) {
 	let root_new = {
-		let mut cb = trie_db::TrieRootUnhashed::<KeccakHasher>::default();
+		let mut cb = trie_db::TrieRootUnhashed::<NoExtensionLayout>::default();
 		trie_visit::<NoExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
 		cb.root.unwrap_or(Default::default())
 	};
@@ -1008,121 +1024,52 @@ pub fn compare_unhashed_no_extension(
 }
 
 /// Trie builder root calculation utility.
-pub fn calc_root<I, A, B>(
+pub fn calc_root<T, I, A, B>(
 	data: I,
-) -> <KeccakHasher as Hasher>::Out
+) -> <T::Hash as Hasher>::Out
 	where
+		T: TrieLayout,
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord + fmt::Debug,
 		B: AsRef<[u8]> + fmt::Debug,
 {
-	let mut cb = TrieRoot::<KeccakHasher, _>::default();
-	trie_visit::<ExtensionLayout, _, _, _, _>(data.into_iter(), &mut cb);
-	cb.root.unwrap_or(Default::default())
-}
-
-/// Trie builder root calculation utility.
-/// This uses the variant without extension nodes.
-pub fn calc_root_no_extension<I, A, B>(
-	data: I,
-) -> <KeccakHasher as Hasher>::Out
-	where
-		I: IntoIterator<Item = (A, B)>,
-		A: AsRef<[u8]> + Ord + fmt::Debug,
-		B: AsRef<[u8]> + fmt::Debug,
-{
-	let mut cb = TrieRoot::<KeccakHasher, _>::default();
-	trie_db::trie_visit::<NoExtensionLayout, _, _, _, _>(data.into_iter(), &mut cb);
-	cb.root.unwrap_or(Default::default())
+	let mut cb = TrieRoot::<T>::default();
+	trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
+	cb.root.unwrap_or_default()
 }
 
 /// Trie builder trie building utility.
-pub fn calc_root_build<I, A, B, DB>(
+pub fn calc_root_build<T, I, A, B, DB>(
 	data: I,
 	hashdb: &mut DB
-) -> <KeccakHasher as Hasher>::Out
+) -> <T::Hash as Hasher>::Out
 	where
+		T: TrieLayout,
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord + fmt::Debug,
 		B: AsRef<[u8]> + fmt::Debug,
-		DB: hash_db::HashDB<KeccakHasher, DBValue>
+		DB: hash_db::HashDB<T::Hash, DBValue>,
 {
-	let mut cb = TrieBuilder::new(hashdb);
-	trie_visit::<ExtensionLayout, _, _, _, _>(data.into_iter(), &mut cb);
-	cb.root.unwrap_or(Default::default())
-}
-
-/// Trie builder trie building utility.
-/// This uses the variant without extension nodes.
-pub fn calc_root_build_no_extension<I, A, B, DB>(
-	data: I,
-	hashdb: &mut DB,
-) -> <KeccakHasher as Hasher>::Out
-	where
-		I: IntoIterator<Item = (A, B)>,
-		A: AsRef<[u8]> + Ord + fmt::Debug,
-		B: AsRef<[u8]> + fmt::Debug,
-		DB: hash_db::HashDB<KeccakHasher, DBValue>
-{
-	let mut cb = TrieBuilder::new(hashdb);
-	trie_db::trie_visit::<NoExtensionLayout, _, _, _, _>(data.into_iter(), &mut cb);
-	cb.root.unwrap_or(Default::default())
-}
-
-/// Compare trie builder and in memory trie.
-/// This uses the variant without extension nodes.
-pub fn compare_implementations_no_extension(
-	data: Vec<(Vec<u8>, Vec<u8>)>,
-	mut memdb: impl hash_db::HashDB<KeccakHasher, DBValue>,
-	mut hashdb: impl hash_db::HashDB<KeccakHasher, DBValue>,
-) {
-	let root_new = {
-		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit::<NoExtensionLayout, _, _, _, _>(data.clone().into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
-	};
-	let root = {
-		let mut root = Default::default();
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
-		for i in 0..data.len() {
-			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
-		}
-		*t.root()
-	};
-	
-	if root != root_new {
-		{
-			let db : &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = RefTrieDBNoExt::new(&db, &root).unwrap();
-			println!("{:?}", t);
-			for a in t.iter().unwrap() {
-				println!("a:{:?}", a);
-			}
-		}
-		{
-			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = RefTrieDBNoExt::new(&db, &root_new).unwrap();
-			println!("{:?}", t);
-			for a in t.iter().unwrap() {
-				println!("a:{:?}", a);
-			}
-		}
-	}
-
-	assert_eq!(root, root_new);
+	let mut cb = TrieBuilder::<T, DB>::new(hashdb);
+	trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
+	cb.root.unwrap_or_default()
 }
 
 /// `compare_implementations_no_extension` for unordered input (trie_root does
 /// ordering before running when trie_build expect correct ordering).
-pub fn compare_implementations_no_extension_unordered(
+pub fn compare_implementations_unordered<T, DB> (
 	data: Vec<(Vec<u8>, Vec<u8>)>,
-	mut memdb: impl hash_db::HashDB<KeccakHasher, DBValue>,
-	mut hashdb: impl hash_db::HashDB<KeccakHasher, DBValue>,
-) {
+	mut memdb: DB,
+	mut hashdb: DB,
+)
+	where
+		T: TrieLayout,
+		DB : hash_db::HashDB<T::Hash, DBValue> + Eq,
+{
 	let mut b_map = std::collections::btree_map::BTreeMap::new();
 	let root = {
 		let mut root = Default::default();
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 			b_map.insert(data[i].0.clone(), data[i].1.clone());
@@ -1130,15 +1077,15 @@ pub fn compare_implementations_no_extension_unordered(
 		*t.root()
 	};
 	let root_new = {
-		let mut cb = TrieBuilder::new(&mut hashdb);
-		trie_visit::<NoExtensionLayout, _, _, _, _>(b_map.into_iter(), &mut cb);
-		cb.root.unwrap_or(Default::default())
+		let mut cb = TrieBuilder::<T, DB>::new(&mut hashdb);
+		trie_visit::<T, _, _, _, _>(b_map.into_iter(), &mut cb);
+		cb.root.unwrap_or_default()
 	};
 
 	if root != root_new {
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = RefTrieDBNoExt::new(&db, &root).unwrap();
+			let t = TrieDB::<T>::new(&db, &root).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
@@ -1146,7 +1093,7 @@ pub fn compare_implementations_no_extension_unordered(
 		}
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = RefTrieDBNoExt::new(&db, &root_new).unwrap();
+			let t = TrieDB::<T>::new(&db, &root_new).unwrap();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
@@ -1159,21 +1106,26 @@ pub fn compare_implementations_no_extension_unordered(
 
 /// Testing utility that uses some periodic removal over
 /// its input test data.
-pub fn compare_no_extension_insert_remove(
+pub fn compare_insert_remove<T, DB: hash_db::HashDB<T::Hash, DBValue>>(
 	data: Vec<(bool, Vec<u8>, Vec<u8>)>,
-	mut memdb: impl hash_db::HashDB<KeccakHasher, DBValue>,
-) {
+	mut memdb: DB,
+)
+	where
+		T: TrieLayout,
+		DB : hash_db::HashDB<T::Hash, DBValue> + Eq,
+{
+
 	let mut data2 = std::collections::BTreeMap::new();
 	let mut root = Default::default();
 	let mut a = 0;
 	{
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
 		t.commit();
 	}
 	while a < data.len() {
 		// new triemut every 3 element
 		root = {
-			let mut t = RefTrieDBMutNoExt::from_existing(&mut memdb, &mut root).unwrap();
+			let mut t = TrieDBMut::<T>::from_existing(&mut memdb, &mut root).unwrap();
 			for _ in 0..3 {
 				if data[a].0 {
 					// remove
@@ -1194,10 +1146,10 @@ pub fn compare_no_extension_insert_remove(
 			*t.root()
 		};
 	}
-	let mut t = RefTrieDBMutNoExt::from_existing(&mut memdb, &mut root).unwrap();
+	let mut t = TrieDBMut::<T>::from_existing(&mut memdb, &mut root).unwrap();
 	// we are testing the RefTrie code here so we do not sort or check uniqueness
 	// before.
-	assert_eq!(*t.root(), calc_root_no_extension(data2));
+	assert_eq!(*t.root(), calc_root::<T, _, _, _>(data2));
 }
 
 #[cfg(test)]
@@ -1228,10 +1180,10 @@ mod tests {
 	fn too_big_nibble_length() {
 		// + 1 for 0 added byte of nibble encode
 		let input = vec![0u8; (NIBBLE_SIZE_BOUND_NO_EXT as usize + 1) / 2 + 1];
-		let enc = <ReferenceNodeCodecNoExt<KeccakHasher> as NodeCodec>
-		::leaf_node(((0, 0), &input), &[1]);
-		let dec = <ReferenceNodeCodecNoExt<KeccakHasher> as NodeCodec>
-		::decode(&enc).unwrap();
+		let enc = <ReferenceNodeCodecNoExt<RefHasher> as NodeCodec>
+			::leaf_node(((0, 0), &input), Value::Inline(&[1]));
+		let dec = <ReferenceNodeCodecNoExt<RefHasher> as NodeCodec>
+			::decode(&enc).unwrap();
 		let o_sl = if let Node::Leaf(sl, _) = dec {
 			Some(sl)
 		} else { None };

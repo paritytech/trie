@@ -39,14 +39,16 @@ impl ::std::fmt::Debug for TrieInsertionList {
 
 fn benchmark<L: TrieLayout, S: TrieStream>(b: &mut Criterion, name: &str, content: Vec<(Vec<u8>, Vec<u8>)>)
 where
-	<L::Hash as Hasher>::Out: 'static
+	<L::Hash as Hasher>::Out: 'static,
 {
 	let funs = vec![
-		Fun::new("Closed", |b, d: &TrieInsertionList| b.iter(&mut ||{
-			trie_root::<L::Hash, S, _, _, _>(d.0.clone())
+		Fun::new("Closed", |b, d: &TrieInsertionList| b.iter(&mut || {
+			trie_root::<L::Hash, S, _, _, _>(d.0.clone(), Default::default())
 		})),
-		Fun::new("Fill", |b, d: &TrieInsertionList| b.iter(&mut ||{
-			let mut memdb = MemoryDB::<_, HashKey<L::Hash>, _>::new(&L::Codec::empty_node()[..]);
+		Fun::new("Fill", |b, d: &TrieInsertionList| b.iter(&mut || {
+			let mut memdb = MemoryDB::<_, HashKey<L::Hash>, _>::new(
+				L::Codec::empty_node(),
+			);
 			let mut root = <TrieHash<L>>::default();
 			let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);
 			for i in d.0.iter() {
@@ -54,7 +56,9 @@ where
 			}
 		})),
 		Fun::new("Iter", |b, d: &TrieInsertionList| {
-			let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(&L::Codec::empty_node()[..]);
+			let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(
+				L::Codec::empty_node(),
+			);
 			let mut root = <TrieHash<L>>::default();
 			{
 				let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);
@@ -100,7 +104,11 @@ fn random_value(seed: &mut <KeccakHasher as Hasher>::Out) -> Vec<u8> {
 	}
 }
 
-pub fn standard_benchmark<L: TrieLayout + 'static, S: TrieStream>(b: &mut Criterion, name: &str) {
+pub fn standard_benchmark<L, S>(b: &mut Criterion, name: &str)
+	where
+		L: TrieLayout + 'static,
+		S: TrieStream,
+{
 
 	// Typical ethereum transaction payload passing through `verify_block_integrity()` close to block #6317032;
 	// 140 iteams, avg length 157bytes, total 22033bytes payload (expected root: 0xc1382bbef81d10a41d325e2873894b61162fb1e6167cafc663589283194acfda)

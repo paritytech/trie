@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use hash_db::{HashDB, Hasher};
-use super::{Result, DBValue, TrieMut, TrieDBMut, TrieLayout, TrieHash, CError};
+use super::{Result, DBValue, TrieMut, TrieDBMut, TrieLayout, TrieHash, CError, Value};
 
 /// A mutable `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 ///
@@ -21,14 +21,14 @@ use super::{Result, DBValue, TrieMut, TrieDBMut, TrieLayout, TrieHash, CError};
 /// object.
 pub struct SecTrieDBMut<'db, L>
 where
-	L: TrieLayout
+	L: TrieLayout,
 {
-	raw: TrieDBMut<'db, L>
+	raw: TrieDBMut<'db, L>,
 }
 
 impl<'db, L> SecTrieDBMut<'db, L>
 where
-	L: TrieLayout
+	L: TrieLayout,
 {
 	/// Create a new trie with the backing database `db` and empty `root`
 	/// Initialise to the state entailed by the genesis block.
@@ -79,11 +79,11 @@ where
 	fn insert(
 		&mut self, key: &[u8],
 		value: &[u8],
-	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+	) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
 		self.raw.insert(&L::Hash::hash(key).as_ref(), value)
 	}
 
-	 fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+	 fn remove(&mut self, key: &[u8]) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
 		self.raw.remove(&L::Hash::hash(key).as_ref())
 	}
 }

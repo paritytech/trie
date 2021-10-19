@@ -1,3 +1,5 @@
+// Copyright 2019, 2021 Parity Technologies
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -17,7 +19,7 @@ use crate::rstd::{
 };
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH,
-	node::{Node, NodeHandle}, NodeCodec, TrieHash, TrieLayout,
+	node::{Node, Value, NodeHandle}, NodeCodec, TrieHash, TrieLayout,
 };
 use hash_db::Hasher;
 
@@ -94,36 +96,38 @@ impl<HO: std::fmt::Debug, CE: std::error::Error + 'static> std::error::Error for
 	}
 }
 
-struct StackEntry<'a, C: NodeCodec> {
+struct StackEntry<'a, L: TrieLayout> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: LeftNibbleSlice<'a>,
 	node: Node<'a>,
 	is_inline: bool,
 	/// The value associated with this trie node.
-	value: Option<&'a [u8]>,
+	value: Option<Value<'a>>,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
 	/// The child references to use in reconstructing the trie nodes.
-	children: Vec<Option<ChildReference<C::HashOut>>>,
-	_marker: PhantomData<C>,
+	children: Vec<Option<ChildReference<TrieHash<L>>>>,
+	/// Technical to attach lifetime to entry.
+	next_value_hash: Option<TrieHash<L>>,
+	_marker: PhantomData<L>,
 }
 
-impl<'a, C: NodeCodec> StackEntry<'a, C> {
+impl<'a, L: TrieLayout> StackEntry<'a, L> {
 	fn new(node_data: &'a [u8], prefix: LeftNibbleSlice<'a>, is_inline: bool)
-		   -> Result<Self, Error<C::HashOut, C::Error>>
+		   -> Result<Self, Error<TrieHash<L>, CError<L>>>
 	{
-		let node = C::decode(node_data)
+		let node = L::Codec::decode(&node_data[..])
 			.map_err(Error::DecodeError)?;
-		let children_len = match node {
+		let children_len = match &node {
 			Node::Empty | Node::Leaf(..) => 0,
 			Node::Extension(..) => 1,
 			Node::Branch(..) | Node::NibbledBranch(..) => NIBBLE_LENGTH,
 		};
-		let value = match node {
+		let value = match &node {
 			Node::Empty | Node::Extension(_, _) => None,
-			Node::Leaf(_, value) => Some(value),
-			Node::Branch(_, value) | Node::NibbledBranch(_, _, value) => value,
+			Node::Leaf(_, value) => Some(value.clone()),
+			Node::Branch(_, value) | Node::NibbledBranch(_, _, value) => value.clone(),
 		};
 		Ok(StackEntry {
 			node,
@@ -132,45 +136,54 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 			value,
 			child_index: 0,
 			children: vec![None; children_len],
+			next_value_hash: None,
 			_marker: PhantomData::default(),
 		})
 	}
 
+	fn value(&self) -> Option<Value> {
+		if let Some(hash) = self.next_value_hash.as_ref() {
+			Some(Value::Node(hash.as_ref(), None))
+		} else {
+			self.value.clone()
+		}
+	}
+
 	/// Encode this entry to an encoded trie node with data properly reconstructed.
-	fn encode_node(mut self) -> Result<Vec<u8>, Error<C::HashOut, C::Error>> {
+	fn encode_node(mut self) -> Result<Vec<u8>, Error<TrieHash<L>, CError<L>>> {
 		self.complete_children()?;
 		Ok(match self.node {
 			Node::Empty =>
-				C::empty_node().to_vec(),
+				L::Codec::empty_node().to_vec(),
 			Node::Leaf(partial, _) => {
-				let value = self.value
+				let value = self.value()
 					.expect(
 						"value is assigned to Some in StackEntry::new; \
 						value is only ever reassigned in the ValueMatch::MatchesLeaf match \
 						clause, which assigns only to Some"
 					);
-				C::leaf_node(partial.right(), value)
+				L::Codec::leaf_node(partial.right(), value)
 			}
 			Node::Extension(partial, _) => {
 				let child = self.children[0]
 					.expect("the child must be completed since child_index is 1");
-				C::extension_node(
+				L::Codec::extension_node(
 					partial.right_iter(),
 					partial.len(),
-					child
+					child,
 				)
 			}
 			Node::Branch(_, _) =>
-				C::branch_node(
+				L::Codec::branch_node(
 					self.children.iter(),
-					self.value,
+					self.value(),
 				),
 			Node::NibbledBranch(partial, _, _) =>
-				C::branch_node_nibbled(
+				L::Codec::branch_node_nibbled(
 					partial.right_iter(),
 					partial.len(),
 					self.children.iter(),
-					self.value,
+					self.value(),
 				),
 		})
 	}
@@ -179,9 +192,9 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 		&mut self,
 		child_prefix: LeftNibbleSlice<'a>,
 		proof_iter: &mut I,
-	) -> Result<Self, Error<C::HashOut, C::Error>>
+	) -> Result<Self, Error<TrieHash<L>, CError<L>>>
 		where
-			I: Iterator<Item=&'a Vec<u8>>,
+			I: Iterator<Item=&'a [u8]>,
 	{
 		match self.node {
 			Node::Extension(_, child) => {
@@ -212,7 +225,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 	}
 
 	/// Populate the remaining references in `children` with references copied the node itself.
-	fn complete_children(&mut self) -> Result<(), Error<C::HashOut, C::Error>> {
+	fn complete_children(&mut self) -> Result<(), Error<TrieHash<L>, CError<L>>> {
 		match self.node {
 			Node::Extension(_, child) if self.child_index == 0 => {
 				let child_ref = child.try_into()
@@ -239,9 +252,9 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 		proof_iter: &mut I,
 		child: NodeHandle<'a>,
 		prefix: LeftNibbleSlice<'a>,
-	) -> Result<Self, Error<C::HashOut, C::Error>>
+	) -> Result<Self, Error<TrieHash<L>, CError<L>>>
 		where
-			I: Iterator<Item=&'a Vec<u8>>,
+			I: Iterator<Item = &'a [u8]>,
 	{
 		match child {
 			NodeHandle::Inline(data) => {
@@ -254,7 +267,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 				}
 			}
 			NodeHandle::Hash(data) => {
-				let mut hash = C::HashOut::default();
+				let mut hash = TrieHash::<L>::default();
 				if data.len() != hash.as_ref().len() {
 					return Err(Error::InvalidChildReference(data.to_vec()));
 				}
@@ -264,28 +277,40 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 		}
 	}
 
+	fn set_value(&mut self, value: &'a [u8]) {
+		self.value = if L::MAX_INLINE_VALUE.map(|max| value.len() < max as usize).unwrap_or(true) {
+			Some(Value::Inline(value))
+		} else {
+			let hash = L::Hash::hash(value);
+			self.next_value_hash = Some(hash);
+			// will be replace on encode
+			None	
+		};
+	}
+
 	fn advance_item<I>(&mut self, items_iter: &mut Peekable<I>)
-					   -> Result<Step<'a>, Error<C::HashOut, C::Error>>
+					   -> Result<Step<'a>, Error<TrieHash<L>, CError<L>>>
 		where
-			I: Iterator<Item=(&'a [u8], Option<&'a [u8]>)>
+			I: Iterator<Item=(&'a [u8], Option<&'a [u8]>)>,
 	{
 		let step = loop {
 			if let Some((key_bytes, value)) = items_iter.peek().cloned() {
 				let key = LeftNibbleSlice::new(key_bytes);
 				if key.starts_with(&self.prefix) {
 					match match_key_to_node(&key, self.prefix.len(), &self.node) {
-						ValueMatch::MatchesLeaf => {
-							if value.is_none() {
-								return Err(Error::ValueMismatch(key_bytes.to_vec()));
-							}
-							self.value = value;
-						}
-						ValueMatch::MatchesBranch =>
-							self.value = value,
-						ValueMatch::NotFound =>
-							if value.is_some() {
-								return Err(Error::ValueMismatch(key_bytes.to_vec()));
-							},
+						ValueMatch::MatchesLeaf => if let Some(value) = value {
+							self.set_value(value);
+						} else {
+							return Err(Error::ValueMismatch(key_bytes.to_vec()));
+						},
+						ValueMatch::MatchesBranch => if let Some(value) = value {
+							self.set_value(value);
+						} else {
+							self.value = None;
+						},
+						ValueMatch::NotFound => if value.is_some() {
+							return Err(Error::ValueMismatch(key_bytes.to_vec()));
+						},
 						ValueMatch::NotOmitted =>
 							return Err(Error::ExtraneousValue(key_bytes.to_vec())),
 						ValueMatch::IsChild(child_prefix) =>
@@ -325,10 +350,13 @@ fn match_key_to_node<'a>(key: &LeftNibbleSlice<'a>, prefix_len: usize, node: &No
 		Node::Leaf(partial, value) => {
 			if key.contains(partial, prefix_len) &&
 				key.len() == prefix_len + partial.len() {
-				if value.is_empty() {
-					ValueMatch::MatchesLeaf
-				} else {
-					ValueMatch::NotOmitted
+				match value {
+					Value::Node(..) => ValueMatch::NotOmitted,
+					Value::Inline(value) => if value.is_empty() {
+						ValueMatch::MatchesLeaf
+					} else {
+						ValueMatch::NotOmitted
+					}
 				}
 			} else {
 				ValueMatch::NotFound
@@ -342,11 +370,11 @@ fn match_key_to_node<'a>(key: &LeftNibbleSlice<'a>, prefix_len: usize, node: &No
 			}
 		}
 		Node::Branch(children, value) => {
-			match_key_to_branch_node(key, prefix_len, children, value)
+			match_key_to_branch_node(key, prefix_len, children, value.as_ref())
 		}
 		Node::NibbledBranch(partial, children, value) => {
 			if key.contains(partial, prefix_len) {
-				match_key_to_branch_node(key, prefix_len + partial.len(), children, value)
+				match_key_to_branch_node(key, prefix_len + partial.len(), children, value.as_ref())
 			} else {
 				ValueMatch::NotFound
 			}
@@ -361,7 +389,7 @@ fn match_key_to_branch_node<'a>(
 	key: &LeftNibbleSlice<'a>,
 	prefix_plus_partial_len: usize,
 	children: &[Option<NodeHandle>; NIBBLE_LENGTH],
-	value: &Option<&[u8]>,
+	value: Option<&Value>,
 ) -> ValueMatch<'a>
 {
 	if key.len() == prefix_plus_partial_len {
@@ -388,11 +416,14 @@ enum Step<'a> {
 }
 
 /// Verify a compact proof for key-value pairs in a trie given a root hash.
-pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Vec<u8>], items: I)
-									-> Result<(), Error<TrieHash<L>, CError<L>>>
+pub fn verify_proof<'a, L, I, K, V>(
+	root: &<L::Hash as Hasher>::Out,
+	proof: &[Vec<u8>],
+	items: I,
+)	-> Result<(), Error<TrieHash<L>, CError<L>>>
 	where
 		L: TrieLayout,
-		I: IntoIterator<Item=&'a (K, Option<V>)>,
+		I: IntoIterator<Item = &'a (K, Option<V>)>,
 		K: 'a + AsRef<[u8]>,
 		V: 'a + AsRef<[u8]>,
 {
@@ -418,22 +449,23 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 	}
 
 	// Iterate simultaneously in order through proof nodes and key-value pairs to verify.
-	let mut proof_iter = proof.iter();
+	let mut proof_iter = proof.iter().map(|i| i.as_slice());
 	let mut items_iter = items.into_iter().peekable();
 
 	// A stack of child references to fill in omitted branch children for later trie nodes in the
 	// proof.
-	let mut stack: Vec<StackEntry<L::Codec>> = Vec::new();
+	let mut stack: Vec<StackEntry<L>> = Vec::new();
 
 	let root_node = match proof_iter.next() {
 		Some(node) => node,
 		None => return Err(Error::IncompleteProof),
 	};
-	let mut last_entry = StackEntry::new(
+	let mut last_entry = StackEntry::<L>::new(
 		root_node,
 		LeftNibbleSlice::new(&[]),
-		false
+		false,
 	)?;
+
 	loop {
 		// Insert omitted value.
 		match last_entry.advance_item(&mut items_iter)? {
@@ -451,7 +483,7 @@ pub fn verify_proof<'a, L, I, K, V>(root: &<L::Hash as Hasher>::Out, proof: &[Ve
 						return Err(Error::InvalidChildReference(node_data));
 					}
 					let mut hash = <TrieHash<L>>::default();
-					&mut hash.as_mut()[..node_data.len()].copy_from_slice(node_data.as_ref());
+					hash.as_mut()[..node_data.len()].copy_from_slice(node_data.as_ref());
 					ChildReference::Inline(hash, node_data.len())
 				} else {
 					let hash = L::Hash::hash(&node_data);
