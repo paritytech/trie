@@ -194,4 +194,3 @@ pub struct NibbleSliceIterator<'a> {
 	p: &'a NibbleSlice<'a>,
 	i: usize,
 }
-
