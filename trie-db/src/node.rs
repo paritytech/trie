@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use hash_db::Hasher;
-use crate::nibble::{self, NibbleSlice};
+use crate::nibble::{self, NibbleSlice, NibbleVec};
 use crate::nibble::nibble_ops;
 use crate::node_codec::NodeCodec;
 
@@ -28,6 +28,12 @@ pub type NodeKey = (usize, nibble::BackingByteVec);
 pub enum NodeHandle<'a> {
 	Hash(&'a [u8]),
 	Inline(&'a [u8]),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeHandleOwned {
+	Hash(Vec<u8>),
+	Inline(Vec<u8>),
 }
 
 /// Read a hash from a slice into a Hasher output. Returns None if the slice is the wrong length.
@@ -55,6 +61,22 @@ pub enum Node<'a> {
 	Branch([Option<NodeHandle<'a>>; nibble_ops::NIBBLE_LENGTH], Option<&'a [u8]>),
 	/// Branch node with support for a nibble (when extension nodes are not used).
 	NibbledBranch(NibbleSlice<'a>, [Option<NodeHandle<'a>>; nibble_ops::NIBBLE_LENGTH], Option<&'a [u8]>),
+}
+
+#[derive(Eq, PartialEq, Clone)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub enum NodeOwned {
+	/// Null trie node; could be an empty root or an empty branch entry.
+	Empty,
+	/// Leaf node; has key slice and value. Value may not be empty.
+	Leaf(NibbleVec, Vec<u8>),
+	/// Extension node; has key slice and node data. Data may not be null.
+	Extension(NibbleVec, NodeHandleOwned),
+	/// Branch node; has slice of child nodes (each possibly null)
+	/// and an optional immediate node data.
+	Branch([Option<NodeHandleOwned>; nibble_ops::NIBBLE_LENGTH], Option<Vec<u8>>),
+	/// Branch node with support for a nibble (when extension nodes are not used).
+	NibbledBranch(NibbleVec, [Option<NodeHandleOwned>; nibble_ops::NIBBLE_LENGTH], Option<Vec<u8>>),
 }
 
 /// A `NodeHandlePlan` is a decoding plan for constructing a `NodeHandle` from an encoded trie
