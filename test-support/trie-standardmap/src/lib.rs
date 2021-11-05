@@ -56,8 +56,8 @@ pub struct StandardMap {
 }
 
 impl StandardMap {
-	/// Get a bunch of random bytes, at least `min_count` bytes, at most `min_count` + `journal_count` bytes.
-	/// `seed` is mutated pseudoramdonly and used.
+	/// Get a bunch of random bytes, at least `min_count` bytes, at most `min_count` +
+	/// `journal_count` bytes. `seed` is mutated pseudoramdonly and used.
 	fn random_bytes(min_count: usize, journal_count: usize, seed: &mut H256) -> Vec<u8> {
 		assert!(min_count + journal_count <= 32);
 		*seed = KeccakHasher::hash(&seed[..]);
@@ -65,18 +65,24 @@ impl StandardMap {
 		seed[0..r].to_vec()
 	}
 
-	/// Get a random value. Equal chance of being 1 byte as of 32. `seed` is mutated pseudoramdonly and used.
+	/// Get a random value. Equal chance of being 1 byte as of 32. `seed` is mutated pseudoramdonly
+	/// and used.
 	fn random_value(seed: &mut H256) -> Vec<u8> {
 		*seed = KeccakHasher::hash(&seed[..]);
 		match seed[0] % 2 {
-			1 => vec![seed[31];1],
+			1 => vec![seed[31]; 1],
 			_ => seed.to_vec(),
 		}
 	}
 
-	/// Get a random word of, at least `min_count` bytes, at most `min_count` + `journal_count` bytes.
-	/// Each byte is an item from `alphabet`. `seed` is mutated pseudoramdonly and used.
-	fn random_word(alphabet: &[u8], min_count: usize, journal_count: usize, seed: &mut H256) -> Vec<u8> {
+	/// Get a random word of, at least `min_count` bytes, at most `min_count` + `journal_count`
+	/// bytes. Each byte is an item from `alphabet`. `seed` is mutated pseudoramdonly and used.
+	fn random_word(
+		alphabet: &[u8],
+		min_count: usize,
+		journal_count: usize,
+		seed: &mut H256,
+	) -> Vec<u8> {
 		assert!(min_count + journal_count <= 32);
 		*seed = KeccakHasher::hash(&seed[..]);
 		let r = min_count + (seed[31] as usize % (journal_count + 1));
@@ -92,7 +98,8 @@ impl StandardMap {
 		self.make_with(&mut H256::default())
 	}
 
-	/// Create the standard map (set of keys and values) for the object's fields, using the given seed.
+	/// Create the standard map (set of keys and values) for the object's fields, using the given
+	/// seed.
 	pub fn make_with(&self, seed: &mut H256) -> Vec<(Vec<u8>, Vec<u8>)> {
 		let low = b"abcdef";
 		let mid = b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_";
@@ -103,12 +110,14 @@ impl StandardMap {
 				Alphabet::All => Self::random_bytes(self.min_key, self.journal_key, seed),
 				Alphabet::Low => Self::random_word(low, self.min_key, self.journal_key, seed),
 				Alphabet::Mid => Self::random_word(mid, self.min_key, self.journal_key, seed),
-				Alphabet::Custom(ref a) => Self::random_word(a, self.min_key, self.journal_key, seed),
+				Alphabet::Custom(ref a) =>
+					Self::random_word(a, self.min_key, self.journal_key, seed),
 			};
 			let v = match self.value_mode {
 				ValueMode::Mirror => k.clone(),
 				ValueMode::Random => Self::random_value(seed),
-				ValueMode::Index => vec![index as u8, (index >> 8) as u8, (index >> 16) as u8, (index >> 24) as u8],
+				ValueMode::Index =>
+					vec![index as u8, (index >> 8) as u8, (index >> 16) as u8, (index >> 24) as u8],
 			};
 			d.push((k, v))
 		}

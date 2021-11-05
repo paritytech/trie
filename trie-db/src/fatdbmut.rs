@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::{CError, DBValue, Result, TrieDBMut, TrieHash, TrieLayout, TrieMut, Value};
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
-use super::{Result, DBValue, TrieDBMut, TrieMut, TrieLayout, TrieHash, CError,
-	Value};
 
 /// A mutable `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 /// Additionaly it stores inserted hash-key mappings for later retrieval.
@@ -43,7 +42,7 @@ where
 	/// Returns an error if root does not exist.
 	pub fn from_existing(
 		db: &'db mut dyn HashDB<L::Hash, DBValue>,
-		root: &'db mut TrieHash<L>
+		root: &'db mut TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(FatDBMut { raw: TrieDBMut::from_existing(db, root)? })
 	}
@@ -63,16 +62,21 @@ impl<'db, L> TrieMut<L> for FatDBMut<'db, L>
 where
 	L: TrieLayout,
 {
-	fn root(&mut self) -> &TrieHash<L> { self.raw.root() }
+	fn root(&mut self) -> &TrieHash<L> {
+		self.raw.root()
+	}
 
-	fn is_empty(&self) -> bool { self.raw.is_empty() }
+	fn is_empty(&self) -> bool {
+		self.raw.is_empty()
+	}
 
 	fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
 		self.raw.contains(L::Hash::hash(key).as_ref())
 	}
 
 	fn get<'a, 'key>(&'a self, key: &'key [u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
-		where 'a: 'key
+	where
+		'a: 'key,
 	{
 		self.raw.get(L::Hash::hash(key).as_ref())
 	}

@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use memory_db::{MemoryDB, HashKey};
+use memory_db::{HashKey, MemoryDB};
+use reference_trie::{RefFatDB, RefFatDBMut, RefHasher};
 use trie_db::{DBValue, Trie, TrieMut};
-use reference_trie::{RefFatDBMut, RefFatDB, RefHasher};
 
 #[test]
 fn fatdb_to_trie() {

@@ -12,13 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
-
 //! Codec and layout configuration similar to upstream default substrate one.
 
-use super::*;
-use super::CodecError as Error;
-use super::NodeCodec as NodeCodecT;
+use super::{CodecError as Error, NodeCodec as NodeCodecT, *};
 use trie_db::node::Value;
 
 /// No extension trie with no hashed value.
@@ -63,9 +59,7 @@ pub mod trie_constants {
 pub struct NodeCodec<H>(PhantomData<H>);
 
 impl<H: Hasher> NodeCodec<H> {
-	fn decode_plan_inner_hashed(
-		data: &[u8],
-	) -> Result<NodePlan, Error> {
+	fn decode_plan_inner_hashed(data: &[u8]) -> Result<NodePlan, Error> {
 		let mut input = ByteSliceInput::new(data);
 
 		let header = NodeHeader::decode(&mut input)?;
@@ -80,15 +74,15 @@ impl<H: Hasher> NodeCodec<H> {
 
 		match header {
 			NodeHeader::Null => Ok(NodePlan::Empty),
-			NodeHeader::HashedValueBranch(nibble_count)
-			| NodeHeader::Branch(_, nibble_count) => {
+			NodeHeader::HashedValueBranch(nibble_count) | NodeHeader::Branch(_, nibble_count) => {
 				let padding = nibble_count % nibble_ops::NIBBLE_PER_BYTE != 0;
 				// check that the padding is valid (if any)
 				if padding && nibble_ops::pad_left(data[input.offset]) != 0 {
-					return Err(CodecError::from("Bad format"));
+					return Err(CodecError::from("Bad format"))
 				}
 				let partial = input.take(
-					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE,
+					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) /
+						nibble_ops::NIBBLE_PER_BYTE,
 				)?;
 				let partial_padding = nibble_ops::number_padding(nibble_count);
 				let bitmap_range = input.take(BITMAP_LENGTH)?;
@@ -104,8 +98,8 @@ impl<H: Hasher> NodeCodec<H> {
 					None
 				};
 				let mut children = [
-					None, None, None, None, None, None, None, None,
-					None, None, None, None, None, None, None, None,
+					None, None, None, None, None, None, None, None, None, None, None, None, None,
+					None, None, None,
 				];
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
 					if bitmap.value_at(i) {
@@ -124,15 +118,15 @@ impl<H: Hasher> NodeCodec<H> {
 					children,
 				})
 			},
-			NodeHeader::HashedValueLeaf(nibble_count)
-			| NodeHeader::Leaf(nibble_count) => {
+			NodeHeader::HashedValueLeaf(nibble_count) | NodeHeader::Leaf(nibble_count) => {
 				let padding = nibble_count % nibble_ops::NIBBLE_PER_BYTE != 0;
 				// check that the padding is valid (if any)
 				if padding && nibble_ops::pad_left(data[input.offset]) != 0 {
-					return Err(CodecError::from("Bad format"));
+					return Err(CodecError::from("Bad format"))
 				}
 				let partial = input.take(
-					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) / nibble_ops::NIBBLE_PER_BYTE,
+					(nibble_count + (nibble_ops::NIBBLE_PER_BYTE - 1)) /
+						nibble_ops::NIBBLE_PER_BYTE,
 				)?;
 				let partial_padding = nibble_ops::number_padding(nibble_count);
 				let value = if contains_hash {
@@ -146,14 +140,14 @@ impl<H: Hasher> NodeCodec<H> {
 					partial: NibbleSlicePlan::new(partial, partial_padding),
 					value,
 				})
-			}
+			},
 		}
 	}
 }
 
 impl<H> NodeCodecT for NodeCodec<H>
-	where
-		H: Hasher,
+where
+	H: Hasher,
 {
 	const ESCAPE_HEADER: Option<u8> = Some(trie_constants::ESCAPE_COMPACT_HEADER);
 	type Error = Error;
@@ -218,20 +212,17 @@ impl<H> NodeCodecT for NodeCodec<H>
 	) -> Vec<u8> {
 		let contains_hash = matches!(&value, Some(Value::Node(..)));
 		let mut output = match (&value, contains_hash) {
-			(&None, _) => {
-				partial_from_iterator_encode(partial, number_nibble, NodeKind::BranchNoValue)
-			},
-			(_, false) => {
-				partial_from_iterator_encode(partial, number_nibble, NodeKind::BranchWithValue)
-			},
-			(_, true) => {
-				partial_from_iterator_encode(partial, number_nibble, NodeKind::HashedValueBranch)
-			},
+			(&None, _) =>
+				partial_from_iterator_encode(partial, number_nibble, NodeKind::BranchNoValue),
+			(_, false) =>
+				partial_from_iterator_encode(partial, number_nibble, NodeKind::BranchWithValue),
+			(_, true) =>
+				partial_from_iterator_encode(partial, number_nibble, NodeKind::HashedValueBranch),
 		};
 
 		let bitmap_index = output.len();
 		let mut bitmap: [u8; BITMAP_LENGTH] = [0; BITMAP_LENGTH];
-		(0..BITMAP_LENGTH).for_each(|_|output.push(0));
+		(0..BITMAP_LENGTH).for_each(|_| output.push(0));
 		match value {
 			Some(Value::Inline(value)) => {
 				Compact(value.len() as u32).encode_to(&mut output);
@@ -243,17 +234,20 @@ impl<H> NodeCodecT for NodeCodec<H>
 			},
 			None => (),
 		}
-		Bitmap::encode(children.map(|maybe_child| match maybe_child.borrow() {
-			Some(ChildReference::Hash(h)) => {
-				h.as_ref().encode_to(&mut output);
-				true
-			}
-			&Some(ChildReference::Inline(inline_data, len)) => {
-				inline_data.as_ref()[..len].encode_to(&mut output);
-				true
-			}
-			None => false,
-		}), bitmap.as_mut());
+		Bitmap::encode(
+			children.map(|maybe_child| match maybe_child.borrow() {
+				Some(ChildReference::Hash(h)) => {
+					h.as_ref().encode_to(&mut output);
+					true
+				},
+				&Some(ChildReference::Inline(inline_data, len)) => {
+					inline_data.as_ref()[..len].encode_to(&mut output);
+					true
+				},
+				None => false,
+			}),
+			bitmap.as_mut(),
+		);
 		output[bitmap_index..bitmap_index + BITMAP_LENGTH]
 			.copy_from_slice(&bitmap[..BITMAP_LENGTH]);
 		output
@@ -276,9 +270,10 @@ fn partial_from_iterator_encode<I: Iterator<Item = u8>>(
 		NodeKind::Leaf => NodeHeader::Leaf(nibble_count).encode_to(&mut output),
 		NodeKind::BranchWithValue => NodeHeader::Branch(true, nibble_count).encode_to(&mut output),
 		NodeKind::BranchNoValue => NodeHeader::Branch(false, nibble_count).encode_to(&mut output),
-		NodeKind::HashedValueLeaf => NodeHeader::HashedValueLeaf(nibble_count).encode_to(&mut output),
-		NodeKind::HashedValueBranch => NodeHeader::HashedValueBranch(nibble_count)
-			.encode_to(&mut output),
+		NodeKind::HashedValueLeaf =>
+			NodeHeader::HashedValueLeaf(nibble_count).encode_to(&mut output),
+		NodeKind::HashedValueBranch =>
+			NodeHeader::HashedValueBranch(nibble_count).encode_to(&mut output),
 	};
 	output.extend(partial);
 	output
@@ -297,9 +292,10 @@ fn partial_encode(partial: Partial, node_kind: NodeKind) -> Vec<u8> {
 		NodeKind::Leaf => NodeHeader::Leaf(nibble_count).encode_to(&mut output),
 		NodeKind::BranchWithValue => NodeHeader::Branch(true, nibble_count).encode_to(&mut output),
 		NodeKind::BranchNoValue => NodeHeader::Branch(false, nibble_count).encode_to(&mut output),
-		NodeKind::HashedValueLeaf => NodeHeader::HashedValueLeaf(nibble_count).encode_to(&mut output),
-		NodeKind::HashedValueBranch => NodeHeader::HashedValueBranch(nibble_count)
-			.encode_to(&mut output),
+		NodeKind::HashedValueLeaf =>
+			NodeHeader::HashedValueLeaf(nibble_count).encode_to(&mut output),
+		NodeKind::HashedValueBranch =>
+			NodeHeader::HashedValueBranch(nibble_count).encode_to(&mut output),
 	};
 	if number_nibble_encoded > 0 {
 		output.push(nibble_ops::pad_right((partial.0).1));
@@ -325,8 +321,7 @@ pub(crate) enum NodeHeader {
 impl NodeHeader {
 	fn contains_hash_of_value(&self) -> bool {
 		match self {
-			NodeHeader::HashedValueBranch(_)
-			| NodeHeader::HashedValueLeaf(_) => true,
+			NodeHeader::HashedValueBranch(_) | NodeHeader::HashedValueLeaf(_) => true,
 			_ => false,
 		}
 	}
@@ -345,16 +340,28 @@ impl Encode for NodeHeader {
 	fn encode_to<T: Output + ?Sized>(&self, output: &mut T) {
 		match self {
 			NodeHeader::Null => output.push_byte(trie_constants::EMPTY_TRIE),
-			NodeHeader::Branch(true, nibble_count)	=>
+			NodeHeader::Branch(true, nibble_count) =>
 				encode_size_and_prefix(*nibble_count, trie_constants::BRANCH_WITH_MASK, 2, output),
-			NodeHeader::Branch(false, nibble_count) =>
-				encode_size_and_prefix(*nibble_count, trie_constants::BRANCH_WITHOUT_MASK, 2, output),
+			NodeHeader::Branch(false, nibble_count) => encode_size_and_prefix(
+				*nibble_count,
+				trie_constants::BRANCH_WITHOUT_MASK,
+				2,
+				output,
+			),
 			NodeHeader::Leaf(nibble_count) =>
 				encode_size_and_prefix(*nibble_count, trie_constants::LEAF_PREFIX_MASK, 2, output),
-			NodeHeader::HashedValueBranch(nibble_count)	=>
-				encode_size_and_prefix(*nibble_count, trie_constants::ALT_HASHING_BRANCH_WITH_MASK, 4, output),
-			NodeHeader::HashedValueLeaf(nibble_count)	=>
-				encode_size_and_prefix(*nibble_count, trie_constants::ALT_HASHING_LEAF_PREFIX_MASK, 3, output),
+			NodeHeader::HashedValueBranch(nibble_count) => encode_size_and_prefix(
+				*nibble_count,
+				trie_constants::ALT_HASHING_BRANCH_WITH_MASK,
+				4,
+				output,
+			),
+			NodeHeader::HashedValueLeaf(nibble_count) => encode_size_and_prefix(
+				*nibble_count,
+				trie_constants::ALT_HASHING_LEAF_PREFIX_MASK,
+				3,
+				output,
+			),
 		}
 	}
 }
@@ -365,12 +372,14 @@ impl Decode for NodeHeader {
 	fn decode<I: Input>(input: &mut I) -> Result<Self, Error> {
 		let i = input.read_byte()?;
 		if i == trie_constants::EMPTY_TRIE {
-			return Ok(NodeHeader::Null);
+			return Ok(NodeHeader::Null)
 		}
 		match i & (0b11 << 6) {
 			trie_constants::LEAF_PREFIX_MASK => Ok(NodeHeader::Leaf(decode_size(i, input, 2)?)),
-			trie_constants::BRANCH_WITH_MASK => Ok(NodeHeader::Branch(true, decode_size(i, input, 2)?)),
-			trie_constants::BRANCH_WITHOUT_MASK => Ok(NodeHeader::Branch(false, decode_size(i, input, 2)?)),
+			trie_constants::BRANCH_WITH_MASK =>
+				Ok(NodeHeader::Branch(true, decode_size(i, input, 2)?)),
+			trie_constants::BRANCH_WITHOUT_MASK =>
+				Ok(NodeHeader::Branch(false, decode_size(i, input, 2)?)),
 			trie_constants::EMPTY_TRIE => {
 				if i & (0b111 << 5) == trie_constants::ALT_HASHING_LEAF_PREFIX_MASK {
 					Ok(NodeHeader::HashedValueLeaf(decode_size(i, input, 3)?))
@@ -422,7 +431,8 @@ pub(crate) fn size_and_prefix_iterator(
 
 /// Encodes size and prefix to a stream output (prefix on 2 first bit only).
 fn encode_size_and_prefix<W>(size: usize, prefix: u8, prefix_mask: usize, out: &mut W)
-	where W: Output + ?Sized,
+where
+	W: Output + ?Sized,
 {
 	for b in size_and_prefix_iterator(size, prefix, prefix_mask) {
 		out.push_byte(b)
@@ -430,21 +440,17 @@ fn encode_size_and_prefix<W>(size: usize, prefix: u8, prefix_mask: usize, out: &
 }
 
 /// Decode size only from stream input and header byte.
-fn decode_size(
-	first: u8,
-	input: &mut impl Input,
-	prefix_mask: usize,
-) -> Result<usize, Error> {
+fn decode_size(first: u8, input: &mut impl Input, prefix_mask: usize) -> Result<usize, Error> {
 	let max_value = 255u8 >> prefix_mask;
 	let mut result = (first & max_value) as usize;
 	if result < max_value as usize {
-		return Ok(result);
+		return Ok(result)
 	}
 	result -= 1;
 	while result <= trie_constants::NIBBLE_SIZE_BOUND {
 		let n = input.read_byte()? as usize;
 		if n < 255 {
-			return Ok(result + n + 1);
+			return Ok(result + n + 1)
 		}
 		result += 255;
 	}
@@ -464,8 +470,10 @@ fn fuse_nibbles_node<'a>(nibbles: &'a [u8], kind: NodeKind) -> impl Iterator<Ite
 
 	let iter_start = match kind {
 		NodeKind::Leaf => size_and_prefix_iterator(size, trie_constants::LEAF_PREFIX_MASK, 2),
-		NodeKind::BranchNoValue => size_and_prefix_iterator(size, trie_constants::BRANCH_WITHOUT_MASK, 2),
-		NodeKind::BranchWithValue => size_and_prefix_iterator(size, trie_constants::BRANCH_WITH_MASK, 2),
+		NodeKind::BranchNoValue =>
+			size_and_prefix_iterator(size, trie_constants::BRANCH_WITHOUT_MASK, 2),
+		NodeKind::BranchWithValue =>
+			size_and_prefix_iterator(size, trie_constants::BRANCH_WITH_MASK, 2),
 		NodeKind::HashedValueLeaf =>
 			size_and_prefix_iterator(size, trie_constants::ALT_HASHING_LEAF_PREFIX_MASK, 3),
 		NodeKind::HashedValueBranch =>
@@ -478,11 +486,8 @@ fn fuse_nibbles_node<'a>(nibbles: &'a [u8], kind: NodeKind) -> impl Iterator<Ite
 
 use trie_root::Value as TrieStreamValue;
 impl TrieStream for ReferenceTrieStreamNoExt {
-
 	fn new() -> Self {
-		Self {
-			buffer: Vec::new(),
-		}
+		Self { buffer: Vec::new() }
 	}
 
 	fn append_empty_data(&mut self) {
@@ -518,10 +523,10 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 				Some(TrieStreamValue::Inline(..)) => NodeKind::BranchWithValue,
 				Some(TrieStreamValue::Node(..)) => NodeKind::HashedValueBranch,
 			};
-	
+
 			self.buffer.extend(fuse_nibbles_node(partial, kind));
 			let bm = branch_node_bit_mask(has_children);
-			self.buffer.extend([bm.0,bm.1].iter());
+			self.buffer.extend([bm.0, bm.1].iter());
 		} else {
 			unreachable!("trie stream codec only for no extension trie");
 		}
@@ -549,5 +554,7 @@ impl TrieStream for ReferenceTrieStreamNoExt {
 		}
 	}
 
-	fn out(self) -> Vec<u8> { self.buffer }
+	fn out(self) -> Vec<u8> {
+		self.buffer
+	}
 }

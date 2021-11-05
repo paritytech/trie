@@ -12,28 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 //! Tests for trie-db crate.
 
-#[cfg(test)]
-mod proof;
-#[cfg(test)]
-mod iterator;
-#[cfg(test)]
-mod triedb;
-#[cfg(test)]
-mod triedbmut;
-#[cfg(test)]
-mod sectriedb;
-#[cfg(test)]
-mod sectriedbmut;
 #[cfg(test)]
 mod fatdb;
 #[cfg(test)]
 mod fatdbmut;
 #[cfg(test)]
-mod recorder;
-#[cfg(test)]
 mod iter_build;
 #[cfg(test)]
+mod iterator;
+#[cfg(test)]
+mod proof;
+#[cfg(test)]
+mod recorder;
+#[cfg(test)]
+mod sectriedb;
+#[cfg(test)]
+mod sectriedbmut;
+#[cfg(test)]
 mod trie_codec;
+#[cfg(test)]
+mod triedb;
+#[cfg(test)]
+mod triedbmut;

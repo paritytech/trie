@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::{
+	nibble::{self, nibble_ops, NibbleSlice},
+	node_codec::NodeCodec,
+	DBValue,
+};
 use hash_db::Hasher;
-use crate::nibble::{self, NibbleSlice};
-use crate::nibble::nibble_ops;
-use crate::node_codec::NodeCodec;
-use crate::DBValue;
 
 use crate::rstd::{borrow::Borrow, ops::Range};
 
@@ -34,7 +35,7 @@ pub enum NodeHandle<'a> {
 /// Read a hash from a slice into a Hasher output. Returns None if the slice is the wrong length.
 pub fn decode_hash<H: Hasher>(data: &[u8]) -> Option<H::Out> {
 	if data.len() != H::LENGTH {
-		return None;
+		return None
 	}
 	let mut hash = H::Out::default();
 	hash.as_mut().copy_from_slice(data);
@@ -56,7 +57,7 @@ impl<'a> Value<'a> {
 	pub(crate) fn new_inline(value: &'a [u8], threshold: Option<u32>) -> Option<Self> {
 		if let Some(threshold) = threshold {
 			if value.len() >= threshold as usize {
-				return None;
+				return None
 			} else {
 				Some(Value::Inline(value))
 			}
@@ -80,7 +81,11 @@ pub enum Node<'a> {
 	/// and an optional immediate node data.
 	Branch([Option<NodeHandle<'a>>; nibble_ops::NIBBLE_LENGTH], Option<Value<'a>>),
 	/// Branch node with support for a nibble (when extension nodes are not used).
-	NibbledBranch(NibbleSlice<'a>, [Option<NodeHandle<'a>>; nibble_ops::NIBBLE_LENGTH], Option<Value<'a>>),
+	NibbledBranch(
+		NibbleSlice<'a>,
+		[Option<NodeHandle<'a>>; nibble_ops::NIBBLE_LENGTH],
+		Option<Value<'a>>,
+	),
 }
 
 /// A `NodeHandlePlan` is a decoding plan for constructing a `NodeHandle` from an encoded trie
@@ -115,10 +120,7 @@ pub struct NibbleSlicePlan {
 impl NibbleSlicePlan {
 	/// Construct a nibble slice decode plan.
 	pub fn new(bytes: Range<usize>, offset: usize) -> Self {
-		NibbleSlicePlan {
-			bytes,
-			offset
-		}
+		NibbleSlicePlan { bytes, offset }
 	}
 
 	/// Returns the nibble length of the slice.
@@ -167,15 +169,9 @@ pub enum NodePlan {
 	/// Null trie node; could be an empty root or an empty branch entry.
 	Empty,
 	/// Leaf node; has a partial key plan and value.
-	Leaf {
-		partial: NibbleSlicePlan,
-		value: ValuePlan,
-	},
+	Leaf { partial: NibbleSlicePlan, value: ValuePlan },
 	/// Extension node; has a partial key plan and child data.
-	Extension {
-		partial: NibbleSlicePlan,
-		child: NodeHandlePlan,
-	},
+	Extension { partial: NibbleSlicePlan, child: NodeHandlePlan },
 	/// Branch node; has slice of child nodes (each possibly null)
 	/// and an optional immediate node data.
 	Branch {
@@ -197,8 +193,7 @@ impl NodePlan {
 	pub fn build<'a, 'b>(&'a self, data: &'b [u8]) -> Node<'b> {
 		match self {
 			NodePlan::Empty => Node::Empty,
-			NodePlan::Leaf { partial, value } =>
-				Node::Leaf(partial.build(data), value.build(data)),
+			NodePlan::Leaf { partial, value } => Node::Leaf(partial.build(data), value.build(data)),
 			NodePlan::Extension { partial, child } =>
 				Node::Extension(partial.build(data), child.build(data)),
 			NodePlan::Branch { value, children } => {
@@ -213,7 +208,11 @@ impl NodePlan {
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
 					child_slices[i] = children[i].as_ref().map(|child| child.build(data));
 				}
-				Node::NibbledBranch(partial.build(data), child_slices, value.as_ref().map(|v| v.build(data)))
+				Node::NibbledBranch(
+					partial.build(data),
+					child_slices,
+					value.as_ref().map(|v| v.build(data)),
+				)
 			},
 		}
 	}
@@ -222,11 +221,10 @@ impl NodePlan {
 	/// node that cannot contain a `ValuePlan`.
 	pub fn value_plan(&self) -> Option<&ValuePlan> {
 		match self {
-			NodePlan::Extension { .. }
-			| NodePlan::Empty => None,
+			NodePlan::Extension { .. } | NodePlan::Empty => None,
 			NodePlan::Leaf { value, .. } => Some(value),
-			NodePlan::Branch { value, .. }
-			| NodePlan::NibbledBranch { value, .. } => value.as_ref(),
+			NodePlan::Branch { value, .. } | NodePlan::NibbledBranch { value, .. } =>
+				value.as_ref(),
 		}
 	}
 
@@ -234,11 +232,10 @@ impl NodePlan {
 	/// node that cannot contain a `ValuePlan`.
 	pub fn value_plan_mut(&mut self) -> Option<&mut ValuePlan> {
 		match self {
-			NodePlan::Extension { .. }
-			| NodePlan::Empty => None,
+			NodePlan::Extension { .. } | NodePlan::Empty => None,
 			NodePlan::Leaf { value, .. } => Some(value),
-			NodePlan::Branch { value, .. }
-			| NodePlan::NibbledBranch { value, .. } => value.as_mut(),
+			NodePlan::Branch { value, .. } | NodePlan::NibbledBranch { value, .. } =>
+				value.as_mut(),
 		}
 	}
 }

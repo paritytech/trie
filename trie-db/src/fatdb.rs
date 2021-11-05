@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::{
+	CError, DBValue, Query, Result, Trie, TrieDB, TrieDBIterator, TrieDBKeyIterator, TrieHash,
+	TrieItem, TrieIterator, TrieKeyItem, TrieLayout,
+};
 use hash_db::{HashDBRef, Hasher};
-use super::{Result, DBValue, TrieDB, Trie, TrieDBIterator, TrieDBKeyIterator, TrieItem,
-	TrieKeyItem, TrieIterator, Query, TrieLayout, CError, TrieHash};
 
 use crate::rstd::boxed::Box;
 
@@ -44,27 +46,37 @@ where
 	}
 
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDBRef<L::Hash, DBValue> { self.raw.db() }
+	pub fn db(&self) -> &dyn HashDBRef<L::Hash, DBValue> {
+		self.raw.db()
+	}
 }
 
 impl<'db, L> Trie<L> for FatDB<'db, L>
 where
 	L: TrieLayout,
 {
-	fn root(&self) -> &TrieHash<L> { self.raw.root() }
+	fn root(&self) -> &TrieHash<L> {
+		self.raw.root()
+	}
 
 	fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
 		self.raw.contains(L::Hash::hash(key).as_ref())
 	}
 
-	fn get_with<'a, 'key, Q: Query<L::Hash>>(&'a self, key: &'key [u8], query: Q)
-		-> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
-		where 'a: 'key
+	fn get_with<'a, 'key, Q: Query<L::Hash>>(
+		&'a self,
+		key: &'key [u8],
+		query: Q,
+	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
+	where
+		'a: 'key,
 	{
 		self.raw.get_with(L::Hash::hash(key).as_ref(), query)
 	}
 
-	fn iter<'a>(&'a self) -> Result<
+	fn iter<'a>(
+		&'a self,
+	) -> Result<
 		Box<dyn TrieIterator<L, Item = TrieItem<TrieHash<L>, CError<L>>> + 'a>,
 		TrieHash<L>,
 		CError<L>,
@@ -72,7 +84,9 @@ where
 		FatDBIterator::<L>::new(&self.raw).map(|iter| Box::new(iter) as Box<_>)
 	}
 
-	fn key_iter<'a>(&'a self) -> Result<
+	fn key_iter<'a>(
+		&'a self,
+	) -> Result<
 		Box<dyn TrieIterator<L, Item = TrieKeyItem<TrieHash<L>, CError<L>>> + 'a>,
 		TrieHash<L>,
 		CError<L>,
@@ -96,10 +110,7 @@ where
 {
 	/// Creates new iterator.
 	pub fn new(trie: &'db TrieDB<L>) -> Result<Self, TrieHash<L>, CError<L>> {
-		Ok(FatDBIterator {
-			trie_iterator: TrieDBIterator::new(trie)?,
-			trie,
-		})
+		Ok(FatDBIterator { trie_iterator: TrieDBIterator::new(trie)?, trie })
 	}
 }
 
@@ -120,17 +131,15 @@ where
 	type Item = TrieItem<'db, TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		self.trie_iterator.next()
-			.map(|res| {
-				res.map(|(hash, value)| {
-					let aux_hash = L::Hash::hash(&hash);
-					(
-						self.trie.db().get(&aux_hash, Default::default())
-							.expect("Missing fatdb hash"),
-						value,
-					)
-				})
+		self.trie_iterator.next().map(|res| {
+			res.map(|(hash, value)| {
+				let aux_hash = L::Hash::hash(&hash);
+				(
+					self.trie.db().get(&aux_hash, Default::default()).expect("Missing fatdb hash"),
+					value,
+				)
 			})
+		})
 	}
 }
 
@@ -149,10 +158,7 @@ where
 {
 	/// Creates new iterator.
 	pub fn new(trie: &'db TrieDB<L>) -> Result<Self, TrieHash<L>, CError<L>> {
-		Ok(FatDBKeyIterator {
-			trie_iterator: TrieDBKeyIterator::new(trie)?,
-			trie,
-		})
+		Ok(FatDBKeyIterator { trie_iterator: TrieDBKeyIterator::new(trie)?, trie })
 	}
 }
 
@@ -173,13 +179,11 @@ where
 	type Item = TrieKeyItem<'db, TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		self.trie_iterator.next()
-			.map(|res| {
-				res.map(|hash| {
-					let aux_hash = L::Hash::hash(&hash);
-					self.trie.db().get(&aux_hash, Default::default())
-						.expect("Missing fatdb hash")
-				})
+		self.trie_iterator.next().map(|res| {
+			res.map(|hash| {
+				let aux_hash = L::Hash::hash(&hash);
+				self.trie.db().get(&aux_hash, Default::default()).expect("Missing fatdb hash")
 			})
+		})
 	}
 }

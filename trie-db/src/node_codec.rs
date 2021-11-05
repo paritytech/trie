@@ -15,17 +15,18 @@
 //! Generic trait for trie node encoding/decoding. Takes a `hash_db::Hasher`
 //! to parametrize the hashes used in the codec.
 
-use crate::node::{Node, NodePlan, Value};
-use crate::{MaybeDebug, ChildReference};
+use crate::{
+	node::{Node, NodePlan, Value},
+	ChildReference, MaybeDebug,
+};
 
-use crate::rstd::{borrow::Borrow, Error, hash, vec::Vec};
-
+use crate::rstd::{borrow::Borrow, hash, vec::Vec, Error};
 
 /// Representation of a nible slice (right aligned).
 /// It contains a right aligned padded first byte (first pair element is the number of nibbles
 /// (0 to max nb nibble - 1), second pair element is the padded nibble), and a slice over
 /// the remaining bytes.
-pub type Partial<'a> = ((u8, u8), &'a[u8]);
+pub type Partial<'a> = ((u8, u8), &'a [u8]);
 
 /// Trait for trie node encoding/decoding.
 /// Uses a type parameter to allow registering
@@ -39,8 +40,17 @@ pub trait NodeCodec: Sized {
 	type Error: Error;
 
 	/// Output type of encoded node hasher.
-	type HashOut: AsRef<[u8]> + AsMut<[u8]> + Default + MaybeDebug + PartialEq + Eq
-		+ hash::Hash + Send + Sync + Clone + Copy;
+	type HashOut: AsRef<[u8]>
+		+ AsMut<[u8]>
+		+ Default
+		+ MaybeDebug
+		+ PartialEq
+		+ Eq
+		+ hash::Hash
+		+ Send
+		+ Sync
+		+ Clone
+		+ Copy;
 
 	/// Get the hashed null node.
 	fn hashed_null_node() -> Self::HashOut;

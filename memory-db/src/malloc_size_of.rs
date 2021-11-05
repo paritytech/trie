@@ -17,7 +17,6 @@
 use core::marker::PhantomData;
 use parity_util_mem::{malloc_size, MallocSizeOf};
 
-
 /// Used to implement incremental evaluation of `MallocSizeOf` for a collection.
 pub trait MemTracker<T> {
 	/// Update `malloc_size_of` when a value is removed.
@@ -27,7 +26,9 @@ pub trait MemTracker<T> {
 	/// Reset `malloc_size_of` to zero.
 	fn on_clear(&mut self) {}
 	/// Get the allocated size of the values.
-	fn get_size(&self) -> usize { 0 }
+	fn get_size(&self) -> usize {
+		0
+	}
 }
 
 /// `MemTracker` implementation for types
@@ -41,10 +42,7 @@ pub struct MemCounter<T> {
 impl<T> MemCounter<T> {
 	// Create a new instance of MemCounter<T>.
 	pub fn new() -> Self {
-		Self {
-			malloc_size_of_values: 0,
-			_phantom: PhantomData,
-		}
+		Self { malloc_size_of_values: 0, _phantom: PhantomData }
 	}
 }
 
@@ -56,10 +54,7 @@ impl<T> Default for MemCounter<T> {
 
 impl<T> Clone for MemCounter<T> {
 	fn clone(&self) -> Self {
-		Self {
-			malloc_size_of_values: self.malloc_size_of_values,
-			_phantom: PhantomData,
-		}
+		Self { malloc_size_of_values: self.malloc_size_of_values, _phantom: PhantomData }
 	}
 }
 
@@ -93,7 +88,7 @@ impl<T> Default for NoopTracker<T> {
 
 impl<T> Clone for NoopTracker<T> {
 	fn clone(&self) -> Self {
-        Self::default()
+		Self::default()
 	}
 }
 

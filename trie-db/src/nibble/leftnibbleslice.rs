@@ -14,7 +14,10 @@
 
 use crate::rstd::cmp::{self, Ordering};
 
-use crate::nibble::{nibble_ops::{self, NIBBLE_PER_BYTE}, NibbleSlice};
+use crate::nibble::{
+	nibble_ops::{self, NIBBLE_PER_BYTE},
+	NibbleSlice,
+};
 
 /// A representation of a nibble slice which is left-aligned. The regular `NibbleSlice` is
 /// right-aligned, meaning it does not support efficient truncation from the right side.
@@ -28,10 +31,7 @@ pub struct LeftNibbleSlice<'a> {
 impl<'a> LeftNibbleSlice<'a> {
 	/// Constructs a byte-aligned nibble slice from a byte slice.
 	pub fn new(bytes: &'a [u8]) -> Self {
-		LeftNibbleSlice {
-			bytes,
-			len: bytes.len() * NIBBLE_PER_BYTE,
-		}
+		LeftNibbleSlice { bytes, len: bytes.len() * NIBBLE_PER_BYTE }
 	}
 
 	/// Returns the length of the slice in nibbles.
@@ -52,10 +52,7 @@ impl<'a> LeftNibbleSlice<'a> {
 	/// Returns a new slice truncated from the right side to the given length. If the given length
 	/// is greater than that of this slice, the function just returns a copy.
 	pub fn truncate(&self, len: usize) -> Self {
-		LeftNibbleSlice {
-			bytes: self.bytes,
-			len: cmp::min(len, self.len),
-		}
+		LeftNibbleSlice { bytes: self.bytes, len: cmp::min(len, self.len) }
 	}
 
 	/// Returns whether the given slice is a prefix of this one.
@@ -75,7 +72,7 @@ impl<'a> LeftNibbleSlice<'a> {
 
 		// Quickly compare the common prefix of the byte slices.
 		match self.bytes[..common_byte_len].cmp(&other.bytes[..common_byte_len]) {
-			Ordering::Equal => {}
+			Ordering::Equal => {},
 			ordering => return ordering,
 		}
 
@@ -84,7 +81,7 @@ impl<'a> LeftNibbleSlice<'a> {
 			let a = self.at(i).expect("i < len; len == self.len() qed");
 			let b = other.at(i).expect("i < len; len == other.len(); qed");
 			match a.cmp(&b) {
-				Ordering::Equal => {}
+				Ordering::Equal => {},
 				ordering => return ordering,
 			}
 		}
@@ -98,13 +95,13 @@ impl<'a> PartialEq for LeftNibbleSlice<'a> {
 	fn eq(&self, other: &Self) -> bool {
 		let len = self.len();
 		if other.len() != len {
-			return false;
+			return false
 		}
 
 		// Quickly compare the common prefix of the byte slices.
 		let byte_len = len / NIBBLE_PER_BYTE;
 		if self.bytes[..byte_len] != other.bytes[..byte_len] {
-			return false;
+			return false
 		}
 
 		// Compare nibble-by-nibble (either 0 or 1 nibbles) any after the common byte prefix.
@@ -180,18 +177,10 @@ mod tests {
 
 	#[test]
 	fn test_contains() {
-		assert!(
-			LeftNibbleSlice::new(b"hello").contains(&NibbleSlice::new_offset(b"ello", 0), 2)
-		);
-		assert!(
-			LeftNibbleSlice::new(b"hello").contains(&NibbleSlice::new_offset(b"ello", 1), 3)
-		);
-		assert!(
-			!LeftNibbleSlice::new(b"hello").contains(&NibbleSlice::new_offset(b"allo", 1), 3)
-		);
-		assert!(
-			!LeftNibbleSlice::new(b"hello").contains(&NibbleSlice::new_offset(b"ello!", 1), 3)
-		);
+		assert!(LeftNibbleSlice::new(b"hello").contains(&NibbleSlice::new_offset(b"ello", 0), 2));
+		assert!(LeftNibbleSlice::new(b"hello").contains(&NibbleSlice::new_offset(b"ello", 1), 3));
+		assert!(!LeftNibbleSlice::new(b"hello").contains(&NibbleSlice::new_offset(b"allo", 1), 3));
+		assert!(!LeftNibbleSlice::new(b"hello").contains(&NibbleSlice::new_offset(b"ello!", 1), 3));
 	}
 
 	#[test]
@@ -204,24 +193,21 @@ mod tests {
 		);
 
 		assert!(
-			LeftNibbleSlice::new(b"hello\x10")
-				< LeftNibbleSlice::new(b"hello\x20").truncate(11)
+			LeftNibbleSlice::new(b"hello\x10") < LeftNibbleSlice::new(b"hello\x20").truncate(11)
 		);
 		assert!(
-			LeftNibbleSlice::new(b"hello\x20").truncate(11)
-				> LeftNibbleSlice::new(b"hello\x10")
+			LeftNibbleSlice::new(b"hello\x20").truncate(11) > LeftNibbleSlice::new(b"hello\x10")
 		);
 
 		assert!(
-			LeftNibbleSlice::new(b"hello\x10").truncate(11)
-				< LeftNibbleSlice::new(b"hello\x10")
+			LeftNibbleSlice::new(b"hello\x10").truncate(11) < LeftNibbleSlice::new(b"hello\x10")
 		);
 		assert!(
-			LeftNibbleSlice::new(b"hello\x10")
-				> LeftNibbleSlice::new(b"hello\x10").truncate(11)
+			LeftNibbleSlice::new(b"hello\x10") > LeftNibbleSlice::new(b"hello\x10").truncate(11)
 		);
 		assert_eq!(
-			LeftNibbleSlice::new(b"hello\x10").truncate(11)
+			LeftNibbleSlice::new(b"hello\x10")
+				.truncate(11)
 				.cmp(&LeftNibbleSlice::new(b"hello\x10").truncate(11)),
 			Ordering::Equal
 		);

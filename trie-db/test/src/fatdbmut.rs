@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use memory_db::{MemoryDB, HashKey};
 use hash_db::{Hasher, EMPTY_PREFIX};
-use reference_trie::{RefFatDBMut, RefTrieDB, RefHasher};
+use memory_db::{HashKey, MemoryDB};
+use reference_trie::{RefFatDBMut, RefHasher, RefTrieDB};
 use trie_db::{Trie, TrieMut};
 
 #[test]
@@ -26,10 +26,7 @@ fn fatdbmut_to_trie() {
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	}
 	let t = RefTrieDB::new(&memdb, &root).unwrap();
-	assert_eq!(
-		t.get(&RefHasher::hash(&[0x01u8, 0x23])),
-		Ok(Some(vec![0x01u8, 0x23])),
-	);
+	assert_eq!(t.get(&RefHasher::hash(&[0x01u8, 0x23])), Ok(Some(vec![0x01u8, 0x23])),);
 }
 
 #[test]
