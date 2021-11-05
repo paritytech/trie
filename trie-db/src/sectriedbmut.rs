@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::{CError, DBValue, Result, TrieDBMut, TrieHash, TrieLayout, TrieMut, Value};
 use hash_db::{HashDB, Hasher};
-use super::{Result, DBValue, TrieMut, TrieDBMut, TrieLayout, TrieHash, CError, Value};
 
 /// A mutable `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 ///
@@ -48,10 +48,14 @@ where
 	}
 
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue> { self.raw.db() }
+	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue> {
+		self.raw.db()
+	}
 
 	/// Get the backing database.
-	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue> { self.raw.db_mut() }
+	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue> {
+		self.raw.db_mut()
+	}
 }
 
 impl<'db, L> TrieMut<L> for SecTrieDBMut<'db, L>
@@ -71,19 +75,21 @@ where
 	}
 
 	fn get<'a, 'key>(&'a self, key: &'key [u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
-		where 'a: 'key
+	where
+		'a: 'key,
 	{
 		self.raw.get(&L::Hash::hash(key).as_ref())
 	}
 
 	fn insert(
-		&mut self, key: &[u8],
+		&mut self,
+		key: &[u8],
 		value: &[u8],
 	) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
 		self.raw.insert(&L::Hash::hash(key).as_ref(), value)
 	}
 
-	 fn remove(&mut self, key: &[u8]) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
+	fn remove(&mut self, key: &[u8]) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
 		self.raw.remove(&L::Hash::hash(key).as_ref())
 	}
 }

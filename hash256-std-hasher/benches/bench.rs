@@ -14,34 +14,37 @@
 
 #[macro_use]
 extern crate criterion;
-use criterion::{Criterion, black_box};
+use criterion::{black_box, Criterion};
 criterion_group!(benches, write_hash256_std_hasher, write_default_hasher);
 criterion_main!(benches);
 
 extern crate hash256_std_hasher;
 
-use std::hash::Hasher;
-use std::collections::hash_map::DefaultHasher;
 use hash256_std_hasher::Hash256StdHasher;
+use std::{collections::hash_map::DefaultHasher, hash::Hasher};
 
 fn write_hash256_std_hasher(b: &mut Criterion) {
-	b.bench_function("write_hash256_std_hasher", |b| b.iter(|| {
-		let n: u8 = black_box(100);
-		(0..n).fold(Hash256StdHasher::default(), |mut old, new| {
-			let bb = black_box([new; 32]);
-			old.write(&bb as &[u8]);
-			old
-		});
-	}));
+	b.bench_function("write_hash256_std_hasher", |b| {
+		b.iter(|| {
+			let n: u8 = black_box(100);
+			(0..n).fold(Hash256StdHasher::default(), |mut old, new| {
+				let bb = black_box([new; 32]);
+				old.write(&bb as &[u8]);
+				old
+			});
+		})
+	});
 }
 
 fn write_default_hasher(b: &mut Criterion) {
-	b.bench_function("write_default_hasher", |b| b.iter(|| {
-		let n: u8 = black_box(100);
-		(0..n).fold(DefaultHasher::default(), |mut old, new| {
-			let bb = black_box([new; 32]);
-			old.write(&bb as &[u8]);
-			old
-		});
-	}));
+	b.bench_function("write_default_hasher", |b| {
+		b.iter(|| {
+			let n: u8 = black_box(100);
+			(0..n).fold(DefaultHasher::default(), |mut old, new| {
+				let bb = black_box([new; 32]);
+				old.write(&bb as &[u8]);
+				old
+			});
+		})
+	});
 }

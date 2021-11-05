@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use trie_db::{
-	DBValue, TrieError, TrieMut,
-	TrieIterator, TrieDBNodeIterator, NibbleSlice, NibbleVec,
-	node::{Node, Value}, TrieDB, TrieLayout,
-};
-use hex_literal::hex;
 use hash_db::{HashDB, Hasher};
+use hex_literal::hex;
 use reference_trie::test_layouts;
+use trie_db::{
+	node::{Node, Value},
+	DBValue, NibbleSlice, NibbleVec, TrieDB, TrieDBNodeIterator, TrieError, TrieIterator,
+	TrieLayout, TrieMut,
+};
 
 type MemoryDB<T> = memory_db::MemoryDB<
 	<T as TrieLayout>::Hash,
@@ -27,9 +27,9 @@ type MemoryDB<T> = memory_db::MemoryDB<
 	DBValue,
 >;
 
-fn build_trie_db<T: TrieLayout>(pairs: &[(Vec<u8>, Vec<u8>)])
-	-> (MemoryDB<T>, <T::Hash as Hasher>::Out)
-{
+fn build_trie_db<T: TrieLayout>(
+	pairs: &[(Vec<u8>, Vec<u8>)],
+) -> (MemoryDB<T>, <T::Hash as Hasher>::Out) {
 	let mut memdb = MemoryDB::<T>::default();
 	let mut root = Default::default();
 	{
@@ -72,7 +72,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 						assert_eq!(partial, NibbleSlice::new_offset(&hex!("00")[..], 1)),
 					_ => panic!("unexpected node"),
 				}
-			}
+			},
 			_ => panic!("unexpected item"),
 		}
 
@@ -83,7 +83,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 					Node::Branch(_, _) => {},
 					_ => panic!("unexpected node"),
 				}
-			}
+			},
 			_ => panic!("unexpected item"),
 		}
 
@@ -94,7 +94,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 					Node::Branch(_, _) => {},
 					_ => panic!("unexpected node"),
 				}
-			}
+			},
 			_ => panic!("unexpected item"),
 		}
 
@@ -106,7 +106,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 						assert_eq!(partial, NibbleSlice::new_offset(&hex!("03")[..], 1)),
 					_ => panic!("unexpected node"),
 				}
-			}
+			},
 			_ => panic!("unexpected item"),
 		}
 
@@ -114,17 +114,17 @@ fn iterator_works_internal<T: TrieLayout>() {
 			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("02"), 2));
 				match node.node() {
-					Node::Leaf(partial, _) =>
-						assert_eq!(partial, NibbleSlice::new(&hex!("")[..])),
+					Node::Leaf(partial, _) => assert_eq!(partial, NibbleSlice::new(&hex!("")[..])),
 					_ => panic!("unexpected node"),
 				}
-			}
+			},
 			_ => panic!("unexpected item"),
 		}
 
 		assert!(iter.next().is_none());
 	} else {
-		let can_expand = T::MAX_INLINE_VALUE.unwrap_or(T::Hash::LENGTH as u32) < T::Hash::LENGTH as u32;
+		let can_expand =
+			T::MAX_INLINE_VALUE.unwrap_or(T::Hash::LENGTH as u32) < T::Hash::LENGTH as u32;
 		match iter.next() {
 			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!(""), 0));
@@ -133,7 +133,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 						assert_eq!(partial, NibbleSlice::new_offset(&hex!("00")[..], 1)),
 					_ => panic!("unexpected node"),
 				}
-			}
+			},
 			_ => panic!("unexpected item"),
 		}
 
@@ -148,7 +148,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 						assert_eq!(partial, NibbleSlice::new(&hex!("")[..])),
 					_ => panic!("unexpected node"),
 				}
-			}
+			},
 			_ => panic!("unexpected item"),
 		}
 
@@ -163,7 +163,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 						assert_eq!(partial, NibbleSlice::new_offset(&hex!("03")[..], 1)),
 					_ => panic!("unexpected node"),
 				}
-			}
+			},
 
 			_ => panic!("unexpected item"),
 		}
@@ -172,11 +172,10 @@ fn iterator_works_internal<T: TrieLayout>() {
 			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("02"), 2));
 				match node.node() {
-					Node::Leaf(partial, _) =>
-						assert_eq!(partial, NibbleSlice::new(&hex!("")[..])),
+					Node::Leaf(partial, _) => assert_eq!(partial, NibbleSlice::new(&hex!("")[..])),
 					_ => panic!("unexpected node"),
 				}
-			}
+			},
 			_ => panic!("unexpected item"),
 		}
 
@@ -197,7 +196,7 @@ fn iterator_over_empty_works_internal<T: TrieLayout>() {
 				Node::Empty => {},
 				_ => panic!("unexpected node"),
 			}
-		}
+		},
 		_ => panic!("unexpected item"),
 	}
 
@@ -218,29 +217,25 @@ fn seek_works_internal<T: TrieLayout>() {
 
 	TrieIterator::seek(&mut iter, &hex!("")[..]).unwrap();
 	match iter.next() {
-		Some(Ok((prefix, _, _))) =>
-			assert_eq!(prefix, nibble_vec(hex!(""), 0)),
+		Some(Ok((prefix, _, _))) => assert_eq!(prefix, nibble_vec(hex!(""), 0)),
 		_ => panic!("unexpected item"),
 	}
 
 	TrieIterator::seek(&mut iter, &hex!("00")[..]).unwrap();
 	match iter.next() {
-		Some(Ok((prefix, _, _))) =>
-			assert_eq!(prefix, nibble_vec(hex!("01"), 2)),
+		Some(Ok((prefix, _, _))) => assert_eq!(prefix, nibble_vec(hex!("01"), 2)),
 		_ => panic!("unexpected item"),
 	}
 
 	TrieIterator::seek(&mut iter, &hex!("01")[..]).unwrap();
 	match iter.next() {
-		Some(Ok((prefix, _, _))) =>
-			assert_eq!(prefix, nibble_vec(hex!("01"), 2)),
+		Some(Ok((prefix, _, _))) => assert_eq!(prefix, nibble_vec(hex!("01"), 2)),
 		_ => panic!("unexpected item"),
 	}
 
 	TrieIterator::seek(&mut iter, &hex!("02")[..]).unwrap();
 	match iter.next() {
-		Some(Ok((prefix, _, _))) =>
-			assert_eq!(prefix, nibble_vec(hex!("02"), 2)),
+		Some(Ok((prefix, _, _))) => assert_eq!(prefix, nibble_vec(hex!("02"), 2)),
 		_ => panic!("unexpected item"),
 	}
 
@@ -262,7 +257,7 @@ fn seek_over_empty_works_internal<T: TrieLayout>() {
 				Node::Empty => {},
 				_ => panic!("unexpected node"),
 			}
-		}
+		},
 		_ => panic!("unexpected item"),
 	}
 
@@ -288,12 +283,10 @@ fn iterate_over_incomplete_db_internal<T: TrieLayout>() {
 
 		TrieIterator::seek(&mut iter, &hex!("02")[..]).unwrap();
 		match iter.next() {
-			Some(Ok((_, Some(hash), node))) => {
-				match node.node() {
-					Node::Leaf(_, _) => hash,
-					_ => panic!("unexpected node"),
-				}
-			}
+			Some(Ok((_, Some(hash), node))) => match node.node() {
+				Node::Leaf(_, _) => hash,
+				_ => panic!("unexpected node"),
+			},
 			_ => panic!("unexpected item"),
 		}
 	};
@@ -308,11 +301,10 @@ fn iterate_over_incomplete_db_internal<T: TrieLayout>() {
 		let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 
 		match TrieIterator::seek(&mut iter, &hex!("02")[..]) {
-			Err(e) => {
+			Err(e) =>
 				if let TrieError::IncompleteDatabase(err_hash) = *e {
 					assert_eq!(err_hash.as_ref(), leaf_hash.as_ref());
-				}
-			},
+				},
 			_ => panic!("expected IncompleteDatabase error"),
 		}
 	}
@@ -324,22 +316,20 @@ fn iterate_over_incomplete_db_internal<T: TrieLayout>() {
 
 		TrieIterator::seek(&mut iter, &hex!("0130")[..]).unwrap();
 		match iter.next() {
-			Some(Err(e)) => {
+			Some(Err(e)) =>
 				if let TrieError::IncompleteDatabase(err_hash) = *e {
 					assert_eq!(err_hash.as_ref(), leaf_hash.as_ref());
-				}
-			},
+				},
 			_ => panic!("expected IncompleteDatabase error"),
 		}
 		match iter.next() {
-			Some(Ok((_, _, node))) => {
-				match node.node() {
-					Node::Leaf(_, v) => if !matches!(v, Value::Node(..)) {
+			Some(Ok((_, _, node))) => match node.node() {
+				Node::Leaf(_, v) =>
+					if !matches!(v, Value::Node(..)) {
 						assert_eq!(v, Value::Inline(&vec![2; 32][..]));
 					},
-					_ => panic!("unexpected node"),
-				}
-			}
+				_ => panic!("unexpected node"),
+			},
 			_ => panic!("unexpected item"),
 		}
 
@@ -370,7 +360,7 @@ fn prefix_works_internal<T: TrieLayout>() {
 					Node::Branch(_, _) => {},
 					_ => panic!("unexpected node"),
 				}
-			}
+			},
 			_ => panic!("unexpected item"),
 		}
 	} else {
@@ -385,7 +375,7 @@ fn prefix_works_internal<T: TrieLayout>() {
 						assert_eq!(partial, NibbleSlice::new_offset(&hex!("")[..], 0)),
 					_ => panic!("unexpected node"),
 				}
-			}
+			},
 			_ => panic!("unexpected item"),
 		}
 	}
@@ -401,7 +391,7 @@ fn prefix_works_internal<T: TrieLayout>() {
 					assert_eq!(partial, NibbleSlice::new_offset(&hex!("03")[..], 1)),
 				_ => panic!("unexpected node"),
 			}
-		}
+		},
 		_ => panic!("unexpected item"),
 	}
 
@@ -428,7 +418,7 @@ fn prefix_over_empty_works_internal<T: TrieLayout>() {
 				Node::Empty => {},
 				_ => panic!("unexpected node"),
 			}
-		}
+		},
 		_ => panic!("unexpected item"),
 	}
 

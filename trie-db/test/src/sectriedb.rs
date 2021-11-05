@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use memory_db::{MemoryDB, HashKey};
 use hash_db::Hasher;
-use reference_trie::{RefTrieDBMut, RefSecTrieDB, RefHasher};
+use memory_db::{HashKey, MemoryDB};
+use reference_trie::{RefHasher, RefSecTrieDB, RefTrieDBMut};
 use trie_db::{DBValue, Trie, TrieMut};
 
 #[test]

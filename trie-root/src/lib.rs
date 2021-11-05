@@ -21,19 +21,22 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-
 #[cfg(feature = "std")]
 mod rstd {
-	pub use std::vec::Vec;
-	pub use std::cmp;
-	pub use std::collections::{BTreeMap, VecDeque};
+	pub use std::{
+		cmp,
+		collections::{BTreeMap, VecDeque},
+		vec::Vec,
+	};
 }
 
 #[cfg(not(feature = "std"))]
 mod rstd {
+	pub use alloc::{
+		collections::{BTreeMap, VecDeque},
+		vec::Vec,
+	};
 	pub use core::cmp;
-	pub use alloc::collections::{BTreeMap, VecDeque};
-	pub use alloc::vec::Vec;
 }
 
 use self::rstd::*;
@@ -93,7 +96,8 @@ pub trait TrieStream {
 }
 
 fn shared_prefix_length<T: Eq>(first: &[T], second: &[T]) -> usize {
-	first.iter()
+	first
+		.iter()
 		.zip(second.iter())
 		.position(|(f, s)| f != s)
 		.unwrap_or_else(|| cmp::min(first.len(), second.len()))
@@ -116,7 +120,8 @@ fn shared_prefix_length<T: Eq>(first: &[T], second: &[T]) -> usize {
 /// let root = hex!["0807d5393ae7f349481063ebb5dbaf6bda58db282a385ca97f37dccba717cb79"];
 /// assert_eq!(trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v), root);
 /// ```
-pub fn trie_root<H, S, I, A, B>(input: I, threshold: Option<u32>) -> H::Out where
+pub fn trie_root<H, S, I, A, B>(input: I, threshold: Option<u32>) -> H::Out
+where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
@@ -126,7 +131,8 @@ pub fn trie_root<H, S, I, A, B>(input: I, threshold: Option<u32>) -> H::Out wher
 	trie_root_inner::<H, S, I, A, B>(input, false, threshold)
 }
 
-fn trie_root_inner<H, S, I, A, B>(input: I, no_extension: bool, threshold: Option<u32>) -> H::Out where
+fn trie_root_inner<H, S, I, A, B>(input: I, no_extension: bool, threshold: Option<u32>) -> H::Out
+where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
@@ -134,9 +140,7 @@ fn trie_root_inner<H, S, I, A, B>(input: I, no_extension: bool, threshold: Optio
 	S: TrieStream,
 {
 	// first put elements into btree to sort them and to remove duplicates
-	let input = input
-		.into_iter()
-		.collect::<BTreeMap<_, _>>();
+	let input = input.into_iter().collect::<BTreeMap<_, _>>();
 
 	// convert to nibbles
 	let mut nibbles = Vec::with_capacity(input.keys().map(|k| k.as_ref().len()).sum::<usize>() * 2);
@@ -151,7 +155,9 @@ fn trie_root_inner<H, S, I, A, B>(input: I, no_extension: bool, threshold: Optio
 	}
 
 	// then move them to a vector
-	let input = input.into_iter().zip(lens.windows(2))
+	let input = input
+		.into_iter()
+		.zip(lens.windows(2))
 		.map(|((_, v), w)| (&nibbles[w[0]..w[1]], v))
 		.collect::<Vec<_>>();
 
@@ -162,7 +168,8 @@ fn trie_root_inner<H, S, I, A, B>(input: I, no_extension: bool, threshold: Optio
 
 /// Variant of `trie_root` for patricia trie without extension node.
 /// See [`trie_root`].
-pub fn trie_root_no_extension<H, S, I, A, B>(input: I, threshold: Option<u32>) -> H::Out where
+pub fn trie_root_no_extension<H, S, I, A, B>(input: I, threshold: Option<u32>) -> H::Out
+where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
@@ -176,7 +183,8 @@ pub fn trie_root_no_extension<H, S, I, A, B>(input: I, threshold: Option<u32>) -
 /// Method similar to `trie_root` but returning the root encoded
 /// node instead of its hash.
 /// Mainly use for testing or debugging.
-pub fn unhashed_trie<H, S, I, A, B>(input: I, threshold: Option<u32>) -> Vec<u8> where
+pub fn unhashed_trie<H, S, I, A, B>(input: I, threshold: Option<u32>) -> Vec<u8>
+where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
@@ -186,7 +194,12 @@ pub fn unhashed_trie<H, S, I, A, B>(input: I, threshold: Option<u32>) -> Vec<u8>
 	unhashed_trie_inner::<H, S, I, A, B>(input, false, threshold)
 }
 
-fn unhashed_trie_inner<H, S, I, A, B>(input: I, no_extension: bool, threshold: Option<u32>) -> Vec<u8> where
+fn unhashed_trie_inner<H, S, I, A, B>(
+	input: I,
+	no_extension: bool,
+	threshold: Option<u32>,
+) -> Vec<u8>
+where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
@@ -194,9 +207,7 @@ fn unhashed_trie_inner<H, S, I, A, B>(input: I, no_extension: bool, threshold: O
 	S: TrieStream,
 {
 	// first put elements into btree to sort them and to remove duplicates
-	let input = input
-		.into_iter()
-		.collect::<BTreeMap<_, _>>();
+	let input = input.into_iter().collect::<BTreeMap<_, _>>();
 
 	let mut nibbles = Vec::with_capacity(input.keys().map(|k| k.as_ref().len()).sum::<usize>() * 2);
 	let mut lens = Vec::with_capacity(input.len() + 1);
@@ -210,7 +221,9 @@ fn unhashed_trie_inner<H, S, I, A, B>(input: I, no_extension: bool, threshold: O
 	}
 
 	// then move them to a vector
-	let input = input.into_iter().zip(lens.windows(2))
+	let input = input
+		.into_iter()
+		.zip(lens.windows(2))
 		.map(|((_, v), w)| (&nibbles[w[0]..w[1]], v))
 		.collect::<Vec<_>>();
 
@@ -221,7 +234,8 @@ fn unhashed_trie_inner<H, S, I, A, B>(input: I, no_extension: bool, threshold: O
 
 /// Variant of `unhashed_trie` for patricia trie without extension node.
 /// See [`unhashed_trie`].
-pub fn unhashed_trie_no_extension<H, S, I, A, B>(input: I, threshold: Option<u32>) -> Vec<u8> where
+pub fn unhashed_trie_no_extension<H, S, I, A, B>(input: I, threshold: Option<u32>) -> Vec<u8>
+where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord,
 	B: AsRef<[u8]>,
@@ -248,7 +262,8 @@ pub fn unhashed_trie_no_extension<H, S, I, A, B>(input: I, threshold: Option<u32
 /// let root = hex!["d6e02b2bd48aa04fd2ad87cfac1144a29ca7f7dc60f4526c7b7040763abe3d43"];
 /// assert_eq!(sec_trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v), root);
 /// ```
-pub fn sec_trie_root<H, S, I, A, B>(input: I, threshold: Option<u32>) -> H::Out where
+pub fn sec_trie_root<H, S, I, A, B>(input: I, threshold: Option<u32>) -> H::Out
+where
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]>,
 	B: AsRef<[u8]>,
@@ -261,7 +276,13 @@ pub fn sec_trie_root<H, S, I, A, B>(input: I, threshold: Option<u32>) -> H::Out 
 
 /// Takes a slice of key/value tuples where the key is a slice of nibbles
 /// and encodes it into the provided `Stream`.
-fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_extension: bool, threshold: Option<u32>) where
+fn build_trie<H, S, A, B>(
+	input: &[(A, B)],
+	cursor: usize,
+	stream: &mut S,
+	no_extension: bool,
+	threshold: Option<u32>,
+) where
 	A: AsRef<[u8]>,
 	B: AsRef<[u8]>,
 	H: Hasher,
@@ -273,7 +294,7 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 		// Leaf node; append the remainder of the key and the value. Done.
 		1 => {
 			let value = Value::new::<H>(input[0].1.as_ref(), threshold);
-			stream.append_leaf(&input[0].0.as_ref()[cursor..], value )
+			stream.append_leaf(&input[0].0.as_ref()[cursor..], value)
 		},
 		// We have multiple items in the input. Figure out if we should add an
 		// extension node or a branch node.
@@ -283,7 +304,7 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 			// shared with the first key.
 			// e.g. input = [ [1'7'3'10'12'13], [1'7'3'], [1'7'7'8'9'] ] => [1'7'] is common => 2
 			let shared_nibble_count = input.iter().skip(1).fold(key.len(), |acc, &(ref k, _)| {
-				cmp::min( shared_prefix_length(key, k.as_ref()), acc )
+				cmp::min(shared_prefix_length(key, k.as_ref()), acc)
 			});
 			// Add an extension node if the number of shared nibbles is greater
 			// than what we saw on the last call (`cursor`): append the new part
@@ -304,8 +325,10 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 					no_extension,
 					threshold,
 				);
-				return;
-			} else { (cursor, None) };
+				return
+			} else {
+				(cursor, None)
+			};
 
 			// We'll be adding a branch node because the path is as long as it gets.
 			// First we need to figure out what entries this branch node will have...
@@ -321,9 +344,13 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 				// is exactly the key for that value and we don't care about it
 				// when finding shared nibbles for our child nodes. (We know it's
 				// the first of the input keys, because the input is sorted)
-				let mut begin = match value { None => 0, _ => 1 };
+				let mut begin = match value {
+					None => 0,
+					_ => 1,
+				};
 				for i in 0..16 {
-					shared_nibble_counts[i] = input[begin..].iter()
+					shared_nibble_counts[i] = input[begin..]
+						.iter()
 						.take_while(|(k, _)| k.as_ref()[cursor] == i as u8)
 						.count();
 					begin += shared_nibble_counts[i];
@@ -332,11 +359,18 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 
 			// Put out the node header:
 			let value = value.map(|v| Value::new::<H>(v, threshold));
-			stream.begin_branch(o_branch_slice, value.clone(), shared_nibble_counts.iter().map(|&n| n > 0));
+			stream.begin_branch(
+				o_branch_slice,
+				value.clone(),
+				shared_nibble_counts.iter().map(|&n| n > 0),
+			);
 
 			// Fill in each slot in the branch node. We don't need to bother with empty slots
 			// since they were registered in the header.
-			let mut begin = match value { None => 0, _ => 1 };
+			let mut begin = match value {
+				None => 0,
+				_ => 1,
+			};
 			for &count in &shared_nibble_counts {
 				if count > 0 {
 					build_trie_trampoline::<H, S, _, _>(
@@ -353,7 +387,7 @@ fn build_trie<H, S, A, B>(input: &[(A, B)], cursor: usize, stream: &mut S, no_ex
 			}
 
 			stream.end_branch(value);
-		}
+		},
 	}
 }
 

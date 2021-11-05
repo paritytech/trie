@@ -12,17 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use memory_db::{MemoryDB, PrefixedKey};
-use trie_db::{TrieDB, TrieDBMut, Lookup, Trie, TrieMut, NibbleSlice, TrieLayout,
-	DBValue};
-use reference_trie::test_layouts;
 use hex_literal::hex;
+use memory_db::{MemoryDB, PrefixedKey};
+use reference_trie::test_layouts;
+use trie_db::{DBValue, Lookup, NibbleSlice, Trie, TrieDB, TrieDBMut, TrieLayout, TrieMut};
 
-type PrefixedMemoryDB<T> = MemoryDB::<
-	<T as TrieLayout>::Hash,
-	PrefixedKey<<T as TrieLayout>::Hash>,
-	DBValue,
->;
+type PrefixedMemoryDB<T> =
+	MemoryDB<<T as TrieLayout>::Hash, PrefixedKey<<T as TrieLayout>::Hash>, DBValue>;
 
 test_layouts!(iterator_works, iterator_works_internal);
 fn iterator_works_internal<T: TrieLayout>() {
@@ -73,36 +69,24 @@ fn iterator_seek_works_internal<T: TrieLayout>() {
 	let mut iter = t.iter().unwrap();
 	assert_eq!(
 		iter.next().unwrap().unwrap(),
-		(
-			hex!("0103000000000000000464").to_vec(),
-			hex!("fffffffffe").to_vec(),
-		)
+		(hex!("0103000000000000000464").to_vec(), hex!("fffffffffe").to_vec(),)
 	);
 	iter.seek(&hex!("00")[..]).unwrap();
 	assert_eq!(
 		pairs,
-		iter.map(|x| x.unwrap())
-			.map(|(k, v)| (k, v[..].to_vec()))
-			.collect::<Vec<_>>()
+		iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>()
 	);
 	let mut iter = t.iter().unwrap();
 	iter.seek(&hex!("0103000000000000000465")[..]).unwrap();
 	assert_eq!(
 		&pairs[1..],
-		&iter.map(|x| x.unwrap())
-			.map(|(k, v)| (k, v[..].to_vec()))
-			.collect::<Vec<_>>()[..]
+		&iter.map(|x| x.unwrap()).map(|(k, v)| (k, v[..].to_vec())).collect::<Vec<_>>()[..]
 	);
 }
 
 test_layouts!(iterator, iterator_internal);
 fn iterator_internal<T: TrieLayout>() {
-	let d = vec![
-		b"A".to_vec(),
-		b"AA".to_vec(),
-		b"AB".to_vec(),
-		b"B".to_vec(),
-	];
+	let d = vec![b"A".to_vec(), b"AA".to_vec(), b"AB".to_vec(), b"B".to_vec()];
 
 	let mut memdb = PrefixedMemoryDB::<T>::default();
 	let mut root = Default::default();
@@ -115,31 +99,16 @@ fn iterator_internal<T: TrieLayout>() {
 
 	let t = TrieDB::<T>::new(&memdb, &root).unwrap();
 	assert_eq!(
-		d.iter()
-			.map(|i| i.clone())
-			.collect::<Vec<_>>(),
-		t.iter()
-			.unwrap()
-			.map(|x| x.unwrap().0)
-			.collect::<Vec<_>>()
+		d.iter().map(|i| i.clone()).collect::<Vec<_>>(),
+		t.iter().unwrap().map(|x| x.unwrap().0).collect::<Vec<_>>()
 	);
 	assert_eq!(d, t.iter().unwrap().map(|x| x.unwrap().1).collect::<Vec<_>>());
 }
 
 test_layouts!(iterator_seek, iterator_seek_internal);
 fn iterator_seek_internal<T: TrieLayout>() {
-	let d = vec![
-		b"A".to_vec(),
-		b"AA".to_vec(),
-		b"AB".to_vec(),
-		b"B".to_vec(),
-	];
-	let vals = vec![
-		vec![0; 32],
-		vec![1; 32],
-		vec![2; 32],
-		vec![3; 32],
-	];
+	let d = vec![b"A".to_vec(), b"AA".to_vec(), b"AB".to_vec(), b"B".to_vec()];
+	let vals = vec![vec![0; 32], vec![1; 32], vec![2; 32], vec![3; 32]];
 
 	let mut memdb = PrefixedMemoryDB::<T>::default();
 	let mut root = Default::default();
@@ -206,12 +175,7 @@ fn get_length_with_extension_internal<T: TrieLayout>() {
 
 test_layouts!(debug_output_supports_pretty_print, debug_output_supports_pretty_print_internal);
 fn debug_output_supports_pretty_print_internal<T: TrieLayout>() {
-	let d = vec![
-		b"A".to_vec(),
-		b"AA".to_vec(),
-		b"AB".to_vec(),
-		b"B".to_vec(),
-	];
+	let d = vec![b"A".to_vec(), b"AA".to_vec(), b"AB".to_vec(), b"B".to_vec()];
 
 	let mut memdb = PrefixedMemoryDB::<T>::default();
 	let mut root = Default::default();
@@ -225,8 +189,9 @@ fn debug_output_supports_pretty_print_internal<T: TrieLayout>() {
 	let t = TrieDB::<T>::new(&memdb, &root).unwrap();
 
 	if T::USE_EXTENSION {
-		assert_eq!(format!("{:#?}", t),
-"TrieDB {
+		assert_eq!(
+			format!("{:#?}", t),
+			"TrieDB {
     hash_count: 0,
     root: Node::Extension {
         slice: 4,
@@ -283,15 +248,18 @@ fn debug_output_supports_pretty_print_internal<T: TrieLayout>() {
             value: None,
         },
     },
-}")
+}"
+		)
 	} else {
 		// untested without extension
 	};
 }
 
-test_layouts!(test_lookup_with_corrupt_data_returns_decoder_error, test_lookup_with_corrupt_data_returns_decoder_error_internal);
+test_layouts!(
+	test_lookup_with_corrupt_data_returns_decoder_error,
+	test_lookup_with_corrupt_data_returns_decoder_error_internal
+);
 fn test_lookup_with_corrupt_data_returns_decoder_error_internal<T: TrieLayout>() {
-
 	let mut memdb = PrefixedMemoryDB::<T>::default();
 	let mut root = Default::default();
 	{

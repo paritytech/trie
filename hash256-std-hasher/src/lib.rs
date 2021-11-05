@@ -41,7 +41,9 @@ impl hash::Hasher for Hash256StdHasher {
 		// we get a length written first as 8 bytes (possibly 4 on 32-bit platforms?). this
 		// keeps it safe.
 		debug_assert!(bytes.len() == 4 || bytes.len() == 8 || bytes.len() == 32);
-		if bytes.len() < 32 { return }
+		if bytes.len() < 32 {
+			return
+		}
 
 		let mut bytes_ptr = bytes.as_ptr();
 		let mut prefix_ptr = &mut self.prefix as *mut u64 as *mut u8;
@@ -60,8 +62,8 @@ impl hash::Hasher for Hash256StdHasher {
 
 #[cfg(test)]
 mod tests {
-	use std::hash::Hasher;
 	use super::Hash256StdHasher;
+	use std::hash::Hasher;
 
 	#[test]
 	fn it_works() {

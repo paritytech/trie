@@ -14,9 +14,9 @@
 
 //! Hasher implementation for the Keccak-256 hash
 
+use hash256_std_hasher::Hash256StdHasher;
 use hash_db::Hasher;
 use tiny_keccak::{Hasher as _, Keccak};
-use hash256_std_hasher::Hash256StdHasher;
 
 /// Concrete `Hasher` impl for the Keccak-256 hash
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -51,7 +51,11 @@ mod tests {
 		h.insert(hello_key, hello_bytes.to_vec());
 		h.remove(&hello_key);
 
-		let mut h: HashMap<<KeccakHasher as Hasher>::Out, Vec<u8>, std::hash::BuildHasherDefault<Hash256StdHasher>> = Default::default();
+		let mut h: HashMap<
+			<KeccakHasher as Hasher>::Out,
+			Vec<u8>,
+			std::hash::BuildHasherDefault<Hash256StdHasher>,
+		> = Default::default();
 		h.insert(hello_key, hello_bytes.to_vec());
 		h.remove(&hello_key);
 	}

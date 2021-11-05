@@ -52,20 +52,13 @@ impl<HO: Copy> Recorder<HO> {
 
 	/// Create a `Recorder` which only records nodes beyond a given depth.
 	pub fn with_depth(depth: u32) -> Self {
-		Recorder {
-			nodes: Vec::new(),
-			min_depth: depth,
-		}
+		Recorder { nodes: Vec::new(), min_depth: depth }
 	}
 
 	/// Record a visited node, given its hash, data, and depth.
 	pub fn record(&mut self, hash: &HO, data: &[u8], depth: u32) {
 		if depth >= self.min_depth {
-			self.nodes.push(Record {
-				depth,
-				data: data.into(),
-				hash: *hash,
-			})
+			self.nodes.push(Record { depth, data: data.into(), hash: *hash })
 		}
 	}
 

@@ -31,8 +31,7 @@ extern crate memory_db;
 
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 use keccak_hasher::KeccakHasher;
-use memory_db::HashKey;
-use memory_db::MemoryDB;
+use memory_db::{HashKey, MemoryDB};
 
 fn instantiation(b: &mut Criterion) {
 	b.bench_function("instantiation", move |b| {
@@ -46,9 +45,7 @@ fn compare_to_null_embedded_in_struct(b: &mut Criterion) {
 	struct X {
 		a_hash: <KeccakHasher as Hasher>::Out,
 	}
-	let x = X {
-		a_hash: KeccakHasher::hash(&[0u8][..]),
-	};
+	let x = X { a_hash: KeccakHasher::hash(&[0u8][..]) };
 	let key = KeccakHasher::hash(b"abc");
 
 	b.bench_function("compare_to_null_embedded_in_struct", move |b| {

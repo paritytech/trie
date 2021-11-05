@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::{
+	triedb::TrieDB, CError, Query, Result, Trie, TrieHash, TrieItem, TrieIterator, TrieKeyItem,
+	TrieLayout,
+};
+use crate::{rstd::boxed::Box, DBValue};
 use hash_db::{HashDBRef, Hasher};
-use crate::rstd::boxed::Box;
-use crate::DBValue;
-use super::triedb::TrieDB;
-use super::{Result, Trie, TrieItem, TrieKeyItem, TrieIterator, Query, TrieLayout,
-	CError, TrieHash};
 
 /// A `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 ///
@@ -26,7 +26,7 @@ pub struct SecTrieDB<'db, L>
 where
 	L: TrieLayout,
 {
-	raw: TrieDB<'db, L>
+	raw: TrieDB<'db, L>,
 }
 
 impl<'db, L> SecTrieDB<'db, L>
@@ -60,7 +60,9 @@ impl<'db, L> Trie<L> for SecTrieDB<'db, L>
 where
 	L: TrieLayout,
 {
-	fn root(&self) -> &TrieHash<L> { self.raw.root() }
+	fn root(&self) -> &TrieHash<L> {
+		self.raw.root()
+	}
 
 	fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
 		self.raw.contains(L::Hash::hash(key).as_ref())
@@ -71,20 +73,25 @@ where
 		key: &'key [u8],
 		query: Q,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
-		where 'a: 'key
+	where
+		'a: 'key,
 	{
 		self.raw.get_with(L::Hash::hash(key).as_ref(), query)
 	}
 
-	fn iter<'a>(&'a self) -> Result<
+	fn iter<'a>(
+		&'a self,
+	) -> Result<
 		Box<dyn TrieIterator<L, Item = TrieItem<TrieHash<L>, CError<L>>> + 'a>,
 		TrieHash<L>,
-		CError<L>
+		CError<L>,
 	> {
 		TrieDB::iter(&self.raw)
 	}
 
-	fn key_iter<'a>(&'a self) -> Result<
+	fn key_iter<'a>(
+		&'a self,
+	) -> Result<
 		Box<dyn TrieIterator<L, Item = TrieKeyItem<TrieHash<L>, CError<L>>> + 'a>,
 		TrieHash<L>,
 		CError<L>,
