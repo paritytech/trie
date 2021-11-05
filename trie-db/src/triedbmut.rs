@@ -542,7 +542,7 @@ where
 					db: &self.db,
 					query: |v: &[u8]| v.to_vec(),
 					hash: *hash,
-				}.look_up(partial),
+				}.look_up(partial, &mut Default::default()),
 				NodeHandle::InMemory(ref handle) => match self.storage[handle] {
 					Node::Empty => return Ok(None),
 					Node::Leaf(ref key, ref value) => {

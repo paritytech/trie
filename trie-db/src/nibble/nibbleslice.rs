@@ -14,6 +14,7 @@
 
 //! Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
 
+use crate::NibbleVec;
 use crate::rstd::{cmp::*, fmt};
 use super::{nibble_ops, NibbleSlice, NibbleSliceIterator, BackingByteVec};
 use crate::node::NodeKey;
@@ -247,6 +248,35 @@ impl<'a> NibbleSlice<'a> {
 	pub fn left_owned(&'a self) -> (BackingByteVec, Option<u8>) {
 		let (a, b) = self.left();
 		(a.into(), b)
+	}
+
+	pub fn starts_with_vec(&self, other: &NibbleVec) -> bool {
+		if self.len() < other.len() {
+			return false;
+		}
+
+		match other.as_nibbleslice() {
+			Some(other) => self.starts_with(&other),
+			None => {
+				for i in 0..other.len() {
+					if self.at(i) != other.at(i) {
+						return false
+					}
+				}
+				true
+			}
+		}
+	}
+
+	pub fn vec_equal(&self, other: &NibbleVec) -> bool {
+		if self.len() != other.len() {
+			return false
+		}
+
+		match other.as_nibbleslice() {
+			Some(other) => *self == other,
+			None => self.iter().zip(other.inner().iter()).all(|(l, r)| l == *r)
+		}
 	}
 }
 

@@ -55,6 +55,7 @@ where
 	root: &'db TrieHash<L>,
 	/// The number of hashes performed so far in operations on this trie.
 	hash_count: usize,
+	cache: Option<&'db mut hashbrown::HashMap<TrieHash<L>, crate::node::NodeOwned<TrieHash<L>>>>,
 }
 
 impl<'db, L> TrieDB<'db, L>
@@ -65,13 +66,21 @@ where
 	/// Returns an error if `root` does not exist
 	pub fn new(
 		db: &'db dyn HashDBRef<L::Hash, DBValue>,
-		root: &'db TrieHash<L>
+		root: &'db TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		} else {
-			Ok(TrieDB {db, root, hash_count: 0})
+			Ok(TrieDB { db, root, hash_count: 0, cache: None })
 		}
+	}
+
+	pub fn new_with_cache(
+		db: &'db dyn HashDBRef<L::Hash, DBValue>,
+		root: &'db TrieHash<L>,
+		cache: &'db mut hashbrown::HashMap<TrieHash<L>, crate::node::NodeOwned<TrieHash<L>>>,
+	) -> Self {
+		TrieDB { db, root, hash_count: 0, cache: Some(cache) }
 	}
 
 	/// Get the backing database.
@@ -113,6 +122,21 @@ where
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or(parent_hash), e)))?;
 		Ok((owned_node, node_hash))
 	}
+
+	pub fn get_test(&mut self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+		match &mut self.cache {
+			Some(cache) => Lookup::<L, _> {
+			db: self.db,
+			query: |v: &[u8]| v.to_vec(),
+			hash: *self.root,
+		}.look_up(NibbleSlice::new(key), *cache),
+			None => Lookup::<L, _> {
+			db: self.db,
+			query: |v: &[u8]| v.to_vec(),
+			hash: *self.root,
+		}.look_up(NibbleSlice::new(key), &mut Default::default()),
+		}
+			}
 }
 
 impl<'db, L> Trie<L> for TrieDB<'db, L>
@@ -132,7 +156,7 @@ where
 			db: self.db,
 			query,
 			hash: *self.root,
-		}.look_up(NibbleSlice::new(key))
+		}.look_up(NibbleSlice::new(key), &mut Default::default())
 	}
 
 	fn iter<'a>(&'a self)-> Result<
