@@ -14,7 +14,7 @@
 
 //! Standard trie benchmarking tool.
 
-use criterion::{black_box, Criterion, Fun};
+use criterion::{black_box, BenchmarkId, Criterion};
 use hash_db::Hasher;
 use keccak_hasher::KeccakHasher;
 use memory_db::{HashKey, MemoryDB};
@@ -44,11 +44,20 @@ fn benchmark<L: TrieLayout, S: TrieStream>(
 ) where
 	<L::Hash as Hasher>::Out: 'static,
 {
-	let funs = vec![
-		Fun::new("Closed", |b, d: &TrieInsertionList| {
+	let bench_size = content.len();
+	let bench_list = &TrieInsertionList(content);
+	let mut g = b.benchmark_group(name);
+	g.bench_with_input(
+		BenchmarkId::new("Closed", bench_size),
+		bench_list,
+		|b, d: &TrieInsertionList| {
 			b.iter(&mut || trie_root::<L::Hash, S, _, _, _>(d.0.clone(), Default::default()))
-		}),
-		Fun::new("Fill", |b, d: &TrieInsertionList| {
+		},
+	);
+	g.bench_with_input(
+		BenchmarkId::new("Fill", bench_size),
+		bench_list,
+		|b, d: &TrieInsertionList| {
 			b.iter(&mut || {
 				let mut memdb = MemoryDB::<_, HashKey<L::Hash>, _>::new(L::Codec::empty_node());
 				let mut root = <TrieHash<L>>::default();
@@ -57,8 +66,12 @@ fn benchmark<L: TrieLayout, S: TrieStream>(
 					t.insert(&i.0, &i.1).unwrap();
 				}
 			})
-		}),
-		Fun::new("Iter", |b, d: &TrieInsertionList| {
+		},
+	);
+	g.bench_with_input(
+		BenchmarkId::new("Iter", bench_size),
+		bench_list,
+		|b, d: &TrieInsertionList| {
 			let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(L::Codec::empty_node());
 			let mut root = <TrieHash<L>>::default();
 			{
@@ -73,10 +86,8 @@ fn benchmark<L: TrieLayout, S: TrieStream>(
 					black_box(n).unwrap();
 				}
 			})
-		}),
-	];
-
-	b.bench_functions(name, funs, TrieInsertionList(content));
+		},
+	);
 }
 
 fn random_word(
