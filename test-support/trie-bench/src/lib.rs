@@ -14,7 +14,7 @@
 
 //! Standard trie benchmarking tool.
 
-use criterion::{black_box, Criterion, Fun};
+use criterion::{black_box, Criterion, BenchmarkId};
 use hash_db::Hasher;
 use keccak_hasher::KeccakHasher;
 use memory_db::{HashKey, MemoryDB};
@@ -44,39 +44,38 @@ fn benchmark<L: TrieLayout, S: TrieStream>(
 ) where
 	<L::Hash as Hasher>::Out: 'static,
 {
-	let funs = vec![
-		Fun::new("Closed", |b, d: &TrieInsertionList| {
-			b.iter(&mut || trie_root::<L::Hash, S, _, _, _>(d.0.clone(), Default::default()))
-		}),
-		Fun::new("Fill", |b, d: &TrieInsertionList| {
-			b.iter(&mut || {
-				let mut memdb = MemoryDB::<_, HashKey<L::Hash>, _>::new(L::Codec::empty_node());
-				let mut root = <TrieHash<L>>::default();
-				let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);
-				for i in d.0.iter() {
-					t.insert(&i.0, &i.1).unwrap();
-				}
-			})
-		}),
-		Fun::new("Iter", |b, d: &TrieInsertionList| {
-			let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(L::Codec::empty_node());
+	let bench_size = content.len();
+	let bench_list = &TrieInsertionList(content);
+	let mut g = b.benchmark_group(name);
+	g.bench_with_input(BenchmarkId::new("Closed", bench_size), bench_list, |b, d: &TrieInsertionList| {
+		b.iter(&mut || trie_root::<L::Hash, S, _, _, _>(d.0.clone(), Default::default()))
+	});
+	g.bench_with_input(BenchmarkId::new("Fill", bench_size), bench_list, |b, d: &TrieInsertionList| {
+		b.iter(&mut || {
+			let mut memdb = MemoryDB::<_, HashKey<L::Hash>, _>::new(L::Codec::empty_node());
 			let mut root = <TrieHash<L>>::default();
-			{
-				let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);
-				for i in d.0.iter() {
-					t.insert(&i.0, &i.1).unwrap();
-				}
+			let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);
+			for i in d.0.iter() {
+				t.insert(&i.0, &i.1).unwrap();
 			}
-			b.iter(&mut || {
-				let t = TrieDB::<L>::new(&memdb, &root).unwrap();
-				for n in t.iter().unwrap() {
-					black_box(n).unwrap();
-				}
-			})
-		}),
-	];
-
-	b.bench_functions(name, funs, TrieInsertionList(content));
+		})
+	});
+	g.bench_with_input(BenchmarkId::new("Iter", bench_size), bench_list, |b, d: &TrieInsertionList| {
+		let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(L::Codec::empty_node());
+		let mut root = <TrieHash<L>>::default();
+		{
+			let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);
+			for i in d.0.iter() {
+				t.insert(&i.0, &i.1).unwrap();
+			}
+		}
+		b.iter(&mut || {
+			let t = TrieDB::<L>::new(&memdb, &root).unwrap();
+			for n in t.iter().unwrap() {
+				black_box(n).unwrap();
+			}
+		})
+	});
 }
 
 fn random_word(
