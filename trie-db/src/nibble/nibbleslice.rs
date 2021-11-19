@@ -250,6 +250,7 @@ impl<'a> NibbleSlice<'a> {
 		(a.into(), b)
 	}
 
+	/// Same as [`Self::starts_with`] but using [`NibbleVec`].
 	pub fn starts_with_vec(&self, other: &NibbleVec) -> bool {
 		if self.len() < other.len() {
 			return false;
@@ -267,17 +268,6 @@ impl<'a> NibbleSlice<'a> {
 			}
 		}
 	}
-
-	pub fn vec_equal(&self, other: &NibbleVec) -> bool {
-		if self.len() != other.len() {
-			return false
-		}
-
-		match other.as_nibbleslice() {
-			Some(other) => *self == other,
-			None => self.iter().zip(other.inner().iter()).all(|(l, r)| l == *r)
-		}
-	}
 }
 
 impl<'a> Into<NodeKey> for NibbleSlice<'a> {
@@ -289,6 +279,19 @@ impl<'a> Into<NodeKey> for NibbleSlice<'a> {
 impl<'a> PartialEq for NibbleSlice<'a> {
 	fn eq(&self, them: &Self) -> bool {
 		self.len() == them.len() && self.starts_with(them)
+	}
+}
+
+impl<'a> PartialEq<NibbleVec> for NibbleSlice<'a> {
+	fn eq(&self, other: &NibbleVec) -> bool {
+		if self.len() != other.len() {
+			return false
+		}
+
+		match other.as_nibbleslice() {
+			Some(other) => *self == other,
+			None => self.iter().zip(other.inner().iter()).all(|(l, r)| l == *r)
+		}
 	}
 }
 
