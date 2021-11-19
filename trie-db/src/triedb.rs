@@ -88,8 +88,21 @@ where
 		if !db.contains(root, EMPTY_PREFIX) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		} else {
-			TrieDB { db, root, hash_count: 0, cache: Some(cache) }
+			Ok(Self::new_with_cache_unchecked(db, root, cache))
 		}
+	}
+
+	/// Create a new trie with the backing database `db`, `root` and `cache`.
+	///
+	/// The cache is used to improve the lookup speed of nodes.
+	///
+	/// This doesn't check if the given `root` is in the `db`.
+	pub fn new_with_cache_unchecked(
+		db: &'db dyn HashDBRef<L::Hash, DBValue>,
+		root: &'db TrieHash<L>,
+		cache: &'db mut hashbrown::HashMap<TrieHash<L>, crate::node::NodeOwned<TrieHash<L>>>,
+	) -> Self {
+		TrieDB { db, root, hash_count: 0, cache: Some(cache) }
 	}
 
 	/// Get the backing database.
