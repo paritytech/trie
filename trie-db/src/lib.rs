@@ -178,13 +178,13 @@ pub trait Trie<L: TrieLayout> {
 	fn is_empty(&self) -> bool { *self.root() == L::Codec::hashed_null_node() }
 
 	/// Does the trie contain a given key?
-	fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
-		self.get(key).map(|x| x.is_some() )
+	fn contains(&mut self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
+		self.get(key).map(|x| x.is_some())
 	}
 
 	/// What is the value of the given key in this trie?
 	fn get<'a, 'key>(
-		&'a self,
+		&'a mut self,
 		key: &'key [u8],
 	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> where 'a: 'key {
 		self.get_with(key, |v: &[u8]| v.to_vec() )
@@ -193,7 +193,7 @@ pub trait Trie<L: TrieLayout> {
 	/// Search for the key with the given query parameter. See the docs of the `Query`
 	/// trait for more details.
 	fn get_with<'a, 'key, Q: Query<L::Hash>>(
-		&'a self,
+		&'a mut self,
 		key: &'key [u8],
 		query: Q
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> where 'a: 'key;
@@ -300,17 +300,26 @@ impl<'db, L: TrieLayout> Trie<L> for TrieKinds<'db, L> {
 		wrapper!(self, is_empty,)
 	}
 
-	fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
-		wrapper!(self, contains, key)
+	fn contains(&mut self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
+		match self {
+			TrieKinds::Generic(ref mut t) => t.contains(key),
+			TrieKinds::Secure(ref mut t) => t.contains(key),
+			TrieKinds::Fat(ref mut t) => t.contains(key),
+		}
 	}
 
 	fn get_with<'a, 'key, Q: Query<L::Hash>>(
-		&'a self, key: &'key [u8],
+		&'a mut self,
+		key: &'key [u8],
 		query: Q,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
 		where 'a: 'key
 	{
-		wrapper!(self, get_with, key, query)
+		match self {
+			TrieKinds::Generic(ref mut t) => t.get_with(key, query),
+			TrieKinds::Secure(ref mut t) => t.get_with(key, query),
+			TrieKinds::Fat(ref mut t) => t.get_with(key, query),
+		}
 	}
 
 	fn iter<'a>(&'a self) -> Result<

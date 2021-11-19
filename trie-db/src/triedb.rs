@@ -153,7 +153,7 @@ where
 	fn root(&self) -> &TrieHash<L> { self.root }
 
 	fn get_with<'a, 'key, Q: Query<L::Hash>>(
-		&'a self,
+		&'a mut self,
 		key: &'key [u8],
 		query: Q,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>

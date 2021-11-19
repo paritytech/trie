@@ -218,7 +218,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 /// Generate a compact proof for key-value pairs in a trie given a set of keys.
 ///
 /// Assumes inline nodes have only inline children.
-pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
+pub fn generate_proof<'a, T, L, I, K>(trie: &mut T, keys: I)
 									  -> TrieResult<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 	where
 		T: Trie<L>,
