@@ -20,14 +20,14 @@ use super::{Result, DBValue, Trie, TrieItem, TrieIterator, Query, TrieLayout, CE
 /// A `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 ///
 /// Use it as a `Trie` trait object. You can use `raw()` to get the backing `TrieDB` object.
-pub struct SecTrieDB<'db, L>
+pub struct SecTrieDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
-	raw: TrieDB<'db, L>
+	raw: TrieDB<'db, 'cache, L>
 }
 
-impl<'db, L> SecTrieDB<'db, L>
+impl<'db, 'cache, L> SecTrieDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
@@ -44,17 +44,17 @@ where
 	}
 
 	/// Get a reference to the underlying raw `TrieDB` struct.
-	pub fn raw(&self) -> &TrieDB<L> {
+	pub fn raw(&self) -> &TrieDB<'db, 'cache, L> {
 		&self.raw
 	}
 
 	/// Get a mutable reference to the underlying raw `TrieDB` struct.
-	pub fn raw_mut(&mut self) -> &mut TrieDB<'db, L> {
+	pub fn raw_mut(&mut self) -> &mut TrieDB<'db, 'cache, L> {
 		&mut self.raw
 	}
 }
 
-impl<'db, L> Trie<L> for SecTrieDB<'db, L>
+impl<'db, 'cache, L> Trie<L> for SecTrieDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {

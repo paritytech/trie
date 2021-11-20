@@ -38,6 +38,7 @@ mod rstd {
 use self::rstd::{fmt, Error};
 
 use hash_db::MaybeDebug;
+use node::NodeOwned;
 use self::rstd::{boxed::Box, vec::Vec};
 
 pub mod node;
@@ -271,13 +272,13 @@ pub struct TrieFactory<L: TrieLayout> {
 
 /// All different kinds of tries.
 /// This is used to prevent a heap allocation for every created trie.
-pub enum TrieKinds<'db, L: TrieLayout> {
+pub enum TrieKinds<'db, 'cache, L: TrieLayout> {
 	/// A generic trie db.
-	Generic(TrieDB<'db, L>),
+	Generic(TrieDB<'db, 'cache, L>),
 	/// A secure trie db.
-	Secure(SecTrieDB<'db, L>),
+	Secure(SecTrieDB<'db, 'cache, L>),
 	/// A fat trie db.
-	Fat(FatDB<'db, L>),
+	Fat(FatDB<'db, 'cache, L>),
 }
 
 // wrapper macro for making the match easier to deal with.
@@ -291,7 +292,7 @@ macro_rules! wrapper {
 	}
 }
 
-impl<'db, L: TrieLayout> Trie<L> for TrieKinds<'db, L> {
+impl<'db, 'cache, L: TrieLayout> Trie<L> for TrieKinds<'db, 'cache, L> {
 	fn root(&self) -> &TrieHash<L> {
 		wrapper!(self, root,)
 	}
@@ -341,11 +342,11 @@ where
 	}
 
 	/// Create new immutable instance of Trie.
-	pub fn readonly(
+	pub fn readonly<'cache>(
 		&self,
 		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>
-	) -> Result<TrieKinds<'db, L>, TrieHash<L>, CError<L>> {
+	) -> Result<TrieKinds<'db, 'cache, L>, TrieHash<L>, CError<L>> {
 		match self.spec {
 			TrieSpec::Generic => Ok(TrieKinds::Generic(TrieDB::new(db, root)?)),
 			TrieSpec::Secure => Ok(TrieKinds::Secure(SecTrieDB::new(db, root)?)),
@@ -459,3 +460,11 @@ pub trait TrieConfiguration: Sized + TrieLayout {
 pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
 pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;
+
+pub trait NodeCache<L: TrieLayout> {
+	fn get_or_insert(
+		&mut self,
+		hash: TrieHash<L>,
+		fetch_node: &dyn FnMut() -> Result<NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>>,
+	) -> Result<&NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>>;
+}

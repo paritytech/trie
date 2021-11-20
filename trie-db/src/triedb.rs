@@ -47,7 +47,7 @@ use crate::rstd::{fmt, vec::Vec};
 /// assert!(t.contains(b"foo").unwrap());
 /// assert_eq!(t.get(b"foo").unwrap().unwrap(), b"bar".to_vec());
 /// ```
-pub struct TrieDB<'db, L>
+pub struct TrieDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
@@ -55,10 +55,10 @@ where
 	root: &'db TrieHash<L>,
 	/// The number of hashes performed so far in operations on this trie.
 	hash_count: usize,
-	cache: Option<&'db mut hashbrown::HashMap<TrieHash<L>, crate::node::NodeOwned<TrieHash<L>>>>,
+	cache: Option<&'cache mut dyn crate::NodeCache<L>>,
 }
 
-impl<'db, L> TrieDB<'db, L>
+impl<'db, 'cache, L> TrieDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
@@ -83,7 +83,7 @@ where
 	pub fn new_with_cache(
 		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
-		cache: &'db mut hashbrown::HashMap<TrieHash<L>, crate::node::NodeOwned<TrieHash<L>>>,
+		cache: &'cache mut dyn crate::NodeCache<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
@@ -100,7 +100,7 @@ where
 	pub fn new_with_cache_unchecked(
 		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
-		cache: &'db mut hashbrown::HashMap<TrieHash<L>, crate::node::NodeOwned<TrieHash<L>>>,
+		cache: &'cache mut dyn crate::NodeCache<L>,
 	) -> Self {
 		TrieDB { db, root, hash_count: 0, cache: Some(cache) }
 	}
@@ -146,7 +146,7 @@ where
 	}
 }
 
-impl<'db, L> Trie<L> for TrieDB<'db, L>
+impl<'db, 'cache, L> Trie<L> for TrieDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
@@ -159,11 +159,22 @@ where
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
 		where 'a: 'key,
 	{
-		Lookup::<L, Q> {
-			db: self.db,
-			query,
-			hash: *self.root,
-		}.look_up(NibbleSlice::new(key))
+		match self.cache {
+			Some(ref mut cache) => {
+				Lookup::<L, Q> {
+					db: self.db,
+					query,
+					hash: *self.root,
+				}.look_up_with_cache(NibbleSlice::new(key), *cache)
+			},
+			None => {
+				Lookup::<L, Q> {
+					db: self.db,
+					query,
+					hash: *self.root,
+				}.look_up(NibbleSlice::new(key))
+			}
+		}
 	}
 
 	fn iter<'a>(&'a self)-> Result<
@@ -178,18 +189,18 @@ where
 
 // This is for pretty debug output only
 #[cfg(feature="std")]
-struct TrieAwareDebugNode<'db, 'a, L>
+struct TrieAwareDebugNode<'db, 'cache, 'a, L>
 where
 	L: TrieLayout,
 {
-	trie: &'db TrieDB<'db, L>,
+	trie: &'db TrieDB<'db, 'cache, L>,
 	node_key: NodeHandle<'a>,
 	partial_key: NibbleVec,
 	index: Option<u8>,
 }
 
 #[cfg(feature="std")]
-impl<'db, 'a, L> fmt::Debug for TrieAwareDebugNode<'db, 'a, L>
+impl<'db, 'cache, 'a, L> fmt::Debug for TrieAwareDebugNode<'db, 'cache, 'a, L>
 where
 	L: TrieLayout,
 {
@@ -275,7 +286,7 @@ where
 }
 
 #[cfg(feature="std")]
-impl<'db, L> fmt::Debug for TrieDB<'db, L>
+impl<'db, 'cache, L> fmt::Debug for TrieDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
@@ -293,19 +304,19 @@ where
 }
 
 /// Iterator for going through all values in the trie in pre-order traversal order.
-pub struct TrieDBIterator<'a, L: TrieLayout> {
-	inner: TrieDBNodeIterator<'a, L>,
+pub struct TrieDBIterator<'a, 'cache, L: TrieLayout> {
+	inner: TrieDBNodeIterator<'a, 'cache, L>,
 }
 
-impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
+impl<'a, 'cache, L: TrieLayout> TrieDBIterator<'a, 'cache, L> {
 	/// Create a new iterator.
-	pub fn new(db: &'a TrieDB<L>) -> Result<TrieDBIterator<'a, L>, TrieHash<L>, CError<L>> {
+	pub fn new(db: &'a TrieDB<'a, 'cache, L>) -> Result<Self, TrieHash<L>, CError<L>> {
 		let inner = TrieDBNodeIterator::new(db)?;
 		Ok(TrieDBIterator { inner })
 	}
 
 	/// Create a new iterator, but limited to a given prefix.
-	pub fn new_prefixed(db: &'a TrieDB<L>, prefix: &[u8]) -> Result<TrieDBIterator<'a, L>, TrieHash<L>, CError<L>> {
+	pub fn new_prefixed(db: &'a TrieDB<'a, 'cache, L>, prefix: &[u8]) -> Result<Self, TrieHash<L>, CError<L>> {
 		let mut inner = TrieDBNodeIterator::new(db)?;
 		inner.prefix(prefix)?;
 
@@ -318,10 +329,10 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 	/// It then do a seek operation from prefixed context (using `seek` lose
 	/// prefix context by default).
 	pub fn new_prefixed_then_seek(
-		db: &'a TrieDB<L>,
+		db: &'a TrieDB<'a, 'cache, L>,
 		prefix: &[u8],
 		start_at: &[u8],
-	) -> Result<TrieDBIterator<'a, L>, TrieHash<L>, CError<L>> {
+	) -> Result<Self, TrieHash<L>, CError<L>> {
 		let mut inner = TrieDBNodeIterator::new(db)?;
 		inner.prefix_then_seek(prefix, start_at)?;
 
@@ -331,14 +342,14 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 	}
 }
 
-impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBIterator<'a, L> {
+impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBIterator<'a, 'cache, L> {
 	/// Position the iterator on the first element with key >= `key`
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		TrieIterator::seek(&mut self.inner, key)
 	}
 }
 
-impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
+impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBIterator<'a, 'cache, L> {
 	type Item = TrieItem<'a, TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {

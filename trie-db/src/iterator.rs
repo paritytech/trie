@@ -55,15 +55,15 @@ impl<H: Hasher> Crumb<H> {
 }
 
 /// Iterator for going through all nodes in the trie in pre-order traversal order.
-pub struct TrieDBNodeIterator<'a, L: TrieLayout> {
-	db: &'a TrieDB<'a, L>,
+pub struct TrieDBNodeIterator<'a, 'cache, L: TrieLayout> {
+	db: &'a TrieDB<'a, 'cache, L>,
 	trail: Vec<Crumb<L::Hash>>,
 	key_nibbles: NibbleVec,
 }
 
-impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
+impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 	/// Create a new iterator.
-	pub fn new(db: &'a TrieDB<L>) -> Result<TrieDBNodeIterator<'a, L>, TrieHash<L>, CError<L>> {
+	pub fn new(db: &'a TrieDB<'a, 'cache, L>) -> Result<Self, TrieHash<L>, CError<L>> {
 		let mut r = TrieDBNodeIterator {
 			db,
 			trail: Vec::with_capacity(8),
@@ -88,7 +88,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 	}
 }
 
-impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
+impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 
 	/// Seek a node position at 'key' for iterator.
 	/// Returns true if the cursor is at or after the key, but still shares
@@ -281,7 +281,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 	}
 }
 
-impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
+impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, 'cache, L> {
 	fn seek(
 		&mut self,
 		key: &[u8],
@@ -291,7 +291,7 @@ impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
 	}
 }
 
-impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
+impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, 'cache, L> {
 	type Item = Result<(NibbleVec, Option<TrieHash<L>>, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {

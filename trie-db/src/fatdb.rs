@@ -22,14 +22,14 @@ use crate::rstd::boxed::Box;
 /// Additionaly it stores inserted hash-key mappings for later retrieval.
 ///
 /// Use it as a `Trie` or `TrieMut` trait object.
-pub struct FatDB<'db, L>
+pub struct FatDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
-	raw: TrieDB<'db, L>,
+	raw: TrieDB<'db, 'cache, L>,
 }
 
-impl<'db, L> FatDB<'db, L>
+impl<'db, 'cache, L> FatDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
@@ -47,7 +47,7 @@ where
 	pub fn db(&self) -> &dyn HashDBRef<L::Hash, DBValue> { self.raw.db() }
 }
 
-impl<'db, L> Trie<L> for FatDB<'db, L>
+impl<'db, 'cache, L> Trie<L> for FatDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
@@ -74,20 +74,20 @@ where
 }
 
 /// Itarator over inserted pairs of key values.
-pub struct FatDBIterator<'db, L>
+pub struct FatDBIterator<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
-	trie_iterator: TrieDBIterator<'db, L>,
-	trie: &'db TrieDB<'db, L>,
+	trie_iterator: TrieDBIterator<'db, 'cache, L>,
+	trie: &'db TrieDB<'db, 'cache, L>,
 }
 
-impl<'db, L> FatDBIterator<'db, L>
+impl<'db, 'cache, L> FatDBIterator<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
 	/// Creates new iterator.
-	pub fn new(trie: &'db TrieDB<L>) -> Result<Self, TrieHash<L>, CError<L>> {
+	pub fn new(trie: &'db TrieDB<'db, 'cache, L>) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(FatDBIterator {
 			trie_iterator: TrieDBIterator::new(trie)?,
 			trie,
@@ -95,7 +95,7 @@ where
 	}
 }
 
-impl<'db, L> TrieIterator<L> for FatDBIterator<'db, L>
+impl<'db, 'cache, L> TrieIterator<L> for FatDBIterator<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
@@ -105,7 +105,7 @@ where
 	}
 }
 
-impl<'db, L> Iterator for FatDBIterator<'db, L>
+impl<'db, 'cache, L> Iterator for FatDBIterator<'db, 'cache, L>
 where
 	L: TrieLayout,
 {

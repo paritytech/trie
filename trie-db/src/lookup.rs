@@ -20,7 +20,6 @@ use crate::node::{Node, NodeHandle, decode_hash, NodeOwned, NodeHandleOwned};
 use crate::node_codec::NodeCodec;
 use crate::rstd::boxed::Box;
 use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash};
-use hashbrown::{HashMap, hash_map::Entry};
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
@@ -46,7 +45,7 @@ where
 	pub fn look_up_with_cache(
 		mut self,
 		key: NibbleSlice,
-		cache: &mut HashMap<TrieHash<L>, NodeOwned<TrieHash<L>>>,
+		cache: &mut dyn crate::NodeCache<L>,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let mut partial = key;
 		let mut hash = self.hash;
@@ -54,29 +53,25 @@ where
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
-			let mut node: &_ = match cache.entry(hash) {
-				Entry::Occupied(e) => e.into_mut(),
-				Entry::Vacant(e) => {
-					let node_data = match self.db.get(&hash, key.mid(key_nibbles).left()) {
-						Some(value) => value,
-						None => return Err(Box::new(match depth {
-							0 => TrieError::InvalidStateRoot(hash),
-							_ => TrieError::IncompleteDatabase(hash),
-						}))
-					};
+			let mut node: &_ = cache.get_or_insert(hash, &|| {
+				let node_data = match self.db.get(&hash, key.mid(key_nibbles).left()) {
+					Some(value) => value,
+					None => return Err(Box::new(match depth {
+						0 => TrieError::InvalidStateRoot(hash),
+						_ => TrieError::IncompleteDatabase(hash),
+					}))
+				};
 
-					self.query.record(&hash, &node_data, depth);
-					let decoded = match L::Codec::decode(&node_data[..]) {
-						Ok(node) => node,
-						Err(e) => {
-							return Err(Box::new(TrieError::DecoderError(hash, e)))
-						}
-					};
+				self.query.record(&hash, &node_data, depth);
+				let decoded = match L::Codec::decode(&node_data[..]) {
+					Ok(node) => node,
+					Err(e) => {
+						return Err(Box::new(TrieError::DecoderError(hash, e)))
+					}
+				};
 
-					let node = decoded.to_owned_node::<L>()?;
-					e.insert(node)
-				}
-			};
+				decoded.to_owned_node::<L>()
+			})?;
 
 			// this loop iterates through all inline children (usually max 1)
 			// without incrementing the depth.
