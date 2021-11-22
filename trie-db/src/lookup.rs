@@ -53,7 +53,7 @@ where
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
-			let mut node: &_ = cache.get_or_insert(hash, &|| {
+			let mut node: &_ = cache.get_or_insert(hash, &mut || {
 				let node_data = match self.db.get(&hash, key.mid(key_nibbles).left()) {
 					Some(value) => value,
 					None => return Err(Box::new(match depth {

@@ -465,6 +465,6 @@ pub trait NodeCache<L: TrieLayout> {
 	fn get_or_insert(
 		&mut self,
 		hash: TrieHash<L>,
-		fetch_node: &dyn FnMut() -> Result<NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>>,
+		fetch_node: &mut dyn FnMut() -> Result<NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>>,
 	) -> Result<&NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>>;
 }
