@@ -290,7 +290,7 @@ impl<'a> PartialEq<NibbleVec> for NibbleSlice<'a> {
 
 		match other.as_nibbleslice() {
 			Some(other) => *self == other,
-			None => self.iter().zip(other.inner().iter()).all(|(l, r)| l == *r)
+			None => self.iter().enumerate().all(|(index, l)| l == other.at(index))
 		}
 	}
 }
