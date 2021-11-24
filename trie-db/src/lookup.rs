@@ -51,6 +51,14 @@ where
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;
 
+		if let Some(node) = cache.fast_cache(key.right().1) {
+			match &**node {
+				NodeOwned::Leaf(_, value) => return Ok(Some(self.query.decode(&value))),
+				NodeOwned::NibbledBranch(_, _, value) => return Ok(value.as_ref().map(|v| self.query.decode(&v))),
+				_ => unreachable!(),
+			}
+		}
+
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
 			let mut node: &_ = cache.get_or_insert(hash, &mut || {
@@ -76,9 +84,17 @@ where
 			// this loop iterates through all inline children (usually max 1)
 			// without incrementing the depth.
 			loop {
-				let next_node = match node {
+				let next_node = match &**node {
 					NodeOwned::Leaf(slice, value) => {
-						return Ok((partial == *slice).then(|| self.query.decode(&value)))
+						return if partial == *slice {
+							let node_clone = node.clone();
+							let decoded = self.query.decode(&value);
+							drop(node);
+							cache.fast_cache_insert(key.right().1, node_clone);
+							return Ok(Some(decoded))
+						} else {
+							return Ok(None)
+						}
 					}
 					NodeOwned::Extension(slice, item) => {
 						if partial.starts_with_vec(&slice) {
@@ -107,7 +123,15 @@ where
 						}
 
 						if partial.len() == slice.len() {
-							return Ok(value.as_ref().map(move |val| self.query.decode(val)))
+							if let Some(value) = value.as_ref() {
+								let node_clone = node.clone();
+								let decoded = self.query.decode(&value);
+								drop(node);
+								cache.fast_cache_insert(key.right().1, node_clone);
+								return Ok(Some(decoded))
+							} else {
+								return Ok(None)
+							}
 						} else {
 							match &children[partial.at(slice.len()) as usize] {
 								Some(x) => {
@@ -129,7 +153,7 @@ where
 						break;
 					},
 					NodeHandleOwned::Inline(inline_node) => {
-						node = &*inline_node;
+						node = &inline_node;
 					},
 				}
 			}

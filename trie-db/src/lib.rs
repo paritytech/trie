@@ -461,10 +461,15 @@ pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
 pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;
 
+use std::sync::Arc;
+
 pub trait NodeCache<L: TrieLayout> {
+	fn fast_cache(&self, key: &[u8]) -> Option<&Arc<NodeOwned<TrieHash<L>>>>;
+	fn fast_cache_insert(&mut self, key: &[u8], node: Arc<NodeOwned<TrieHash<L>>>);
+
 	fn get_or_insert(
 		&mut self,
 		hash: TrieHash<L>,
 		fetch_node: &mut dyn FnMut() -> Result<NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>>,
-	) -> Result<&NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>>;
+	) -> Result<&Arc<NodeOwned<TrieHash<L>>>, TrieHash<L>, CError<L>>;
 }

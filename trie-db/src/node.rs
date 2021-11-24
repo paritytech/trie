@@ -43,7 +43,7 @@ impl NodeHandle<'_> {
                 .ok_or_else(|| Box::new(TrieError::InvalidHash(Default::default(), h.to_vec())))
                 .map(NodeHandleOwned::Hash),
             Self::Inline(i) => match L::Codec::decode(i) {
-                Ok(node) => Ok(NodeHandleOwned::Inline(Box::new(node.to_owned_node::<L>()?))),
+                Ok(node) => Ok(NodeHandleOwned::Inline(std::sync::Arc::new(node.to_owned_node::<L>()?))),
                 Err(e) => Err(Box::new(TrieError::DecoderError(Default::default(), e))),
             },
         }
@@ -55,7 +55,7 @@ impl NodeHandle<'_> {
 #[cfg_attr(feature = "std", derive(Debug))]
 pub enum NodeHandleOwned<H> {
     Hash(H),
-    Inline(Box<NodeOwned<H>>),
+    Inline(std::sync::Arc<NodeOwned<H>>),
 }
 
 /// Read a hash from a slice into a Hasher output. Returns None if the slice is the wrong length.
