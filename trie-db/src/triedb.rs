@@ -55,7 +55,7 @@ where
 	root: &'db TrieHash<L>,
 	/// The number of hashes performed so far in operations on this trie.
 	hash_count: usize,
-	cache: Option<core::cell::RefCell<&'cache mut dyn crate::NodeCache<L>>>,
+	cache: Option<core::cell::RefCell<&'cache mut dyn crate::TrieCache<L>>>,
 }
 
 impl<'db, 'cache, L> TrieDB<'db, 'cache, L>
@@ -83,7 +83,7 @@ where
 	pub fn new_with_cache(
 		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
-		cache: &'cache mut dyn crate::NodeCache<L>,
+		cache: &'cache mut dyn crate::TrieCache<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		if !db.contains(root, EMPTY_PREFIX) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
@@ -100,7 +100,7 @@ where
 	pub fn new_with_cache_unchecked(
 		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
-		cache: &'cache mut dyn crate::NodeCache<L>,
+		cache: &'cache mut dyn crate::TrieCache<L>,
 	) -> Self {
 		TrieDB { db, root, hash_count: 0, cache: Some(core::cell::RefCell::new(cache)) }
 	}

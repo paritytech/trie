@@ -19,6 +19,7 @@ use crate::{CError, Result, TrieHash, TrieLayout, TrieError};
 use hash_db::Hasher;
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec::Vec};
+use bytes::Bytes;
 
 use crate::rstd::{borrow::Borrow, ops::Range};
 
@@ -43,7 +44,7 @@ impl NodeHandle<'_> {
                 .ok_or_else(|| Box::new(TrieError::InvalidHash(Default::default(), h.to_vec())))
                 .map(NodeHandleOwned::Hash),
             Self::Inline(i) => match L::Codec::decode(i) {
-                Ok(node) => Ok(NodeHandleOwned::Inline(std::sync::Arc::new(node.to_owned_node::<L>()?))),
+                Ok(node) => Ok(NodeHandleOwned::Inline(Box::new(node.to_owned_node::<L>()?))),
                 Err(e) => Err(Box::new(TrieError::DecoderError(Default::default(), e))),
             },
         }
@@ -55,7 +56,7 @@ impl NodeHandle<'_> {
 #[cfg_attr(feature = "std", derive(Debug))]
 pub enum NodeHandleOwned<H> {
     Hash(H),
-    Inline(std::sync::Arc<NodeOwned<H>>),
+    Inline(Box<NodeOwned<H>>),
 }
 
 /// Read a hash from a slice into a Hasher output. Returns None if the slice is the wrong length.
@@ -97,7 +98,7 @@ impl Node<'_> {
     pub fn to_owned_node<L: TrieLayout>(&self) -> Result<NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>> {
         match self {
             Self::Empty => Ok(NodeOwned::Empty),
-            Self::Leaf(n, d) => Ok(NodeOwned::Leaf((*n).into(), d.to_vec())),
+            Self::Leaf(n, d) => Ok(NodeOwned::Leaf((*n).into(), Bytes::copy_from_slice(d))),
             Self::Extension(n, h) => Ok(NodeOwned::Extension((*n).into(), h.to_owned_handle::<L>()?)),
 			Self::Branch(childs, data) => {
 				let mut childs_owned = [(); nibble_ops::NIBBLE_LENGTH].map(|_| None);
@@ -106,7 +107,7 @@ impl Node<'_> {
 					Ok(())
 				}).collect::<Result<_, _, _>>()?;
 
-				Ok(NodeOwned::Branch(childs_owned, data.as_ref().map(|d| d.to_vec())))
+				Ok(NodeOwned::Branch(childs_owned, data.as_ref().map(|d| Bytes::copy_from_slice(d))))
 			},
 			Self::NibbledBranch(n, childs, data) => {
 				let mut childs_owned = [(); nibble_ops::NIBBLE_LENGTH].map(|_| None);
@@ -115,7 +116,7 @@ impl Node<'_> {
 					Ok(())
 				}).collect::<Result<_, _, _>>()?;
 
-				Ok(NodeOwned::NibbledBranch((*n).into(), childs_owned, data.as_ref().map(|d| d.to_vec())))
+				Ok(NodeOwned::NibbledBranch((*n).into(), childs_owned, data.as_ref().map(|d| Bytes::copy_from_slice(d))))
 			},
         }
     }
@@ -128,20 +129,20 @@ pub enum NodeOwned<H> {
     /// Null trie node; could be an empty root or an empty branch entry.
     Empty,
     /// Leaf node; has key slice and value. Value may not be empty.
-    Leaf(NibbleVec, Vec<u8>),
+    Leaf(NibbleVec, Bytes),
     /// Extension node; has key slice and node data. Data may not be null.
     Extension(NibbleVec, NodeHandleOwned<H>),
     /// Branch node; has slice of child nodes (each possibly null)
     /// and an optional immediate node data.
     Branch(
         [Option<NodeHandleOwned<H>>; nibble_ops::NIBBLE_LENGTH],
-        Option<Vec<u8>>,
+        Option<Bytes>,
     ),
     /// Branch node with support for a nibble (when extension nodes are not used).
     NibbledBranch(
         NibbleVec,
         [Option<NodeHandleOwned<H>>; nibble_ops::NIBBLE_LENGTH],
-        Option<Vec<u8>>,
+        Option<Bytes>,
     ),
 }
 

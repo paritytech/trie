@@ -22,6 +22,7 @@ use crate::rstd::boxed::Box;
 use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash};
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
+use bytes::Bytes;
 
 /// Trie lookup helper object.
 pub struct Lookup<'a, L: TrieLayout, Q: Query<L::Hash>> {
@@ -45,23 +46,32 @@ where
 	pub fn look_up_with_cache(
 		mut self,
 		key: NibbleSlice,
-		cache: &mut dyn crate::NodeCache<L>,
+		cache: &mut dyn crate::TrieCache<L>,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
+		let res = self.look_up_with_cache_internal(key.clone(), cache)?;
+
+		cache.cache_data_for_key(key.right().1, res.clone());
+
+		Ok(res.map(|v| self.query.decode(&v)))
+	}
+
+	fn look_up_with_cache_internal(
+		&mut self,
+		key: NibbleSlice,
+		cache: &mut dyn crate::TrieCache<L>,
+	) -> Result<Option<Bytes>, TrieHash<L>, CError<L>> {
+
 		let mut partial = key;
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;
 
-		if let Some(node) = cache.fast_cache(key.right().1) {
-			match &**node {
-				NodeOwned::Leaf(_, value) => return Ok(Some(self.query.decode(&value))),
-				NodeOwned::NibbledBranch(_, _, value) => return Ok(value.as_ref().map(|v| self.query.decode(&v))),
-				_ => unreachable!(),
-			}
+		if let Some(value) = cache.lookup_data_for_key(key.right().1) {
+			return Ok(value.clone())
 		}
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
-			let mut node: &_ = cache.get_or_insert(hash, &mut || {
+			let mut node: &_ = cache.get_or_insert_node(hash, &mut || {
 				let node_data = match self.db.get(&hash, key.mid(key_nibbles).left()) {
 					Some(value) => value,
 					None => return Err(Box::new(match depth {
@@ -84,14 +94,10 @@ where
 			// this loop iterates through all inline children (usually max 1)
 			// without incrementing the depth.
 			loop {
-				let next_node = match &**node {
+				let next_node = match node {
 					NodeOwned::Leaf(slice, value) => {
 						if partial == *slice {
-							let node_clone = node.clone();
-							let decoded = self.query.decode(&value);
-							drop(node);
-							cache.fast_cache_insert(key.right().1, node_clone);
-							return Ok(Some(decoded))
+							return Ok(Some(value.clone()))
 						} else {
 							return Ok(None)
 						}
@@ -106,7 +112,7 @@ where
 						}
 					}
 					NodeOwned::Branch(children, value) => if partial.is_empty() {
-						return Ok(value.as_ref().map(move |val| self.query.decode(val)))
+						return Ok(value.clone())
 					} else {
 						match &children[partial.at(0) as usize] {
 							Some(x) => {
@@ -124,11 +130,7 @@ where
 
 						if partial.len() == slice.len() {
 							if let Some(value) = value.as_ref() {
-								let node_clone = node.clone();
-								let decoded = self.query.decode(&value);
-								drop(node);
-								cache.fast_cache_insert(key.right().1, node_clone);
-								return Ok(Some(decoded))
+								return Ok(Some(value.clone()))
 							} else {
 								return Ok(None)
 							}

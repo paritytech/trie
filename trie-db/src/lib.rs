@@ -452,15 +452,45 @@ pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
 pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;
 
-use std::sync::Arc;
+/// A cache that can be used to speed-up certain operations when accessing the trie.
+pub trait TrieCache<L: TrieLayout> {
+	/// Lookup data for the given key.
+	///
+	/// Returns the `None` if the `key` is unknown or otherwise `Some(_)` with the associated
+	/// data.
+	///
+	/// [`Self::cache_data_for_key`] is used to make the cache aware of data that is associated
+	/// to a `key`.
+	///
+	/// # Attention
+	///
+	/// The cache can be used for different tries, aka with different roots. This means
+	/// that the cache implementation needs to take care of always returning the correct data
+	/// for the current trie root.
+	fn lookup_data_for_key(&self, key: &[u8]) -> Option<&Option<bytes::Bytes>>;
 
-pub trait NodeCache<L: TrieLayout> {
-	fn fast_cache(&self, key: &[u8]) -> Option<&Arc<NodeOwned<TrieHash<L>>>>;
-	fn fast_cache_insert(&mut self, key: &[u8], node: Arc<NodeOwned<TrieHash<L>>>);
+	/// Cache the given data for the given key.
+	///
+	/// The given `data` is the same as found in the [`NodeOwned`] that was found
+	/// for the given `key`.
+	///
+	/// # Attention
+	///
+	/// The cache can be used for different tries, aka with different roots. This means
+	/// that the cache implementation needs to take care of caching `data` for the current
+	/// trie root.
+	fn cache_data_for_key(&mut self, key: &[u8], data: Option<bytes::Bytes>);
 
-	fn get_or_insert(
+	/// Get or insert a [`NodeOwned`].
+	///
+	/// The cache implementation should look up based on the given `hash` if the node is already
+	/// known. If the node is not yet known, the given `fetch_node` function can be used to fetch
+	/// the particular node.
+	///
+	/// Returns the [`NodeOwned`] or an error that happened on fetching the node.
+	fn get_or_insert_node(
 		&mut self,
 		hash: TrieHash<L>,
 		fetch_node: &mut dyn FnMut() -> Result<NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>>,
-	) -> Result<&Arc<NodeOwned<TrieHash<L>>>, TrieHash<L>, CError<L>>;
+	) -> Result<&NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>>;
 }
