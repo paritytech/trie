@@ -55,7 +55,7 @@ where
 	root: &'db TrieHash<L>,
 	/// The number of hashes performed so far in operations on this trie.
 	hash_count: usize,
-	cache: Option<&'cache mut dyn crate::NodeCache<L>>,
+	cache: Option<core::cell::RefCell<&'cache mut dyn crate::NodeCache<L>>>,
 }
 
 impl<'db, 'cache, L> TrieDB<'db, 'cache, L>
@@ -102,7 +102,7 @@ where
 		root: &'db TrieHash<L>,
 		cache: &'cache mut dyn crate::NodeCache<L>,
 	) -> Self {
-		TrieDB { db, root, hash_count: 0, cache: Some(cache) }
+		TrieDB { db, root, hash_count: 0, cache: Some(core::cell::RefCell::new(cache)) }
 	}
 
 	/// Get the backing database.
@@ -160,12 +160,12 @@ where
 		where 'a: 'key,
 	{
 		match self.cache {
-			Some(ref mut cache) => {
+			Some(ref cache) => {
 				Lookup::<L, Q> {
 					db: self.db,
 					query,
 					hash: *self.root,
-				}.look_up_with_cache(NibbleSlice::new(key), *cache)
+				}.look_up_with_cache(NibbleSlice::new(key), *cache.borrow_mut())
 			},
 			None => {
 				Lookup::<L, Q> {

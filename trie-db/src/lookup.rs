@@ -86,7 +86,7 @@ where
 			loop {
 				let next_node = match &**node {
 					NodeOwned::Leaf(slice, value) => {
-						return if partial == *slice {
+						if partial == *slice {
 							let node_clone = node.clone();
 							let decoded = self.query.decode(&value);
 							drop(node);
