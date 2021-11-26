@@ -1559,13 +1559,18 @@ where
 		#[cfg(feature = "std")]
 		trace!(target: "trie", "insert: key={:#x?}, value={:?}", key, ToHex(&value));
 
+		let value = Bytes::copy_from_slice(value);
 		let root_handle = self.root_handle();
 		let (new_handle, _changed) = self.insert_at(
 			root_handle,
 			&mut NibbleSlice::new(key),
-			Bytes::copy_from_slice(value),
+			value.clone(),
 			&mut old_val,
 		)?;
+
+		if let Some(ref mut cache) = self.cache {
+			cache.cache_data_for_key(key, Some(value));
+		}
 
 		#[cfg(feature = "std")]
 		trace!(target: "trie", "insert: altered trie={}", _changed);
