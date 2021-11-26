@@ -35,12 +35,19 @@ use log::trace;
 use crate::rstd::fmt::{self, Debug};
 
 
-// For lookups into the Node storage buffer.
+/// For lookups into the Node storage buffer.
 // This is deliberately non-copyable.
 #[cfg_attr(feature = "std", derive(Debug))]
 struct StorageHandle(usize);
 
-// Handles to nodes in the trie.
+impl StorageHandle {
+	/// Clone, but should only be used when you know what your doing.
+	fn clone_unsafe(&self) -> Self {
+		Self(self.0)
+	}
+}
+
+/// Handles to nodes in the trie.
 #[cfg_attr(feature = "std", derive(Debug))]
 enum NodeHandle<H> {
 	/// Loaded into memory.
@@ -203,19 +210,19 @@ where
 	}
 
 	// TODO: parallelize
-	fn into_encoded<F, C, H>(self, mut child_cb: F) -> Vec<u8>
+	fn into_encoded<F, C, H>(&self, mut child_cb: F) -> Vec<u8>
 	where
 		C: NodeCodec<HashOut=O>,
-		F: FnMut(NodeHandle<H::Out>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
+		F: FnMut(&NodeHandle<H::Out>, Option<&NibbleSlice>, Option<u8>) -> ChildReference<H::Out>,
 		H: Hasher<Out = O>,
 	{
 		match self {
 			Node::Empty => C::empty_node().to_vec(),
-			Node::Leaf(partial, value) => {
+			Node::Leaf(ref partial, ref value) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				C::leaf_node(pr.right(), &value)
 			},
-			Node::Extension(partial, child) => {
+			Node::Extension(ref partial, ref child) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
 				let c = child_cb(child, Some(&pr), None);
@@ -225,27 +232,27 @@ where
 					c,
 				)
 			},
-			Node::Branch(mut children, value) => {
+			Node::Branch(ref children, ref value) => {
 				C::branch_node(
 					// map the `NodeHandle`s from the Branch to `ChildReferences`
-					children.iter_mut()
-						.map(Option::take)
+					children.iter()
+						.map(Option::as_ref)
 						.enumerate()
 						.map(|(i, maybe_child)| {
 							maybe_child.map(|child| child_cb(child, None, Some(i as u8)))
 						}),
-					value.as_ref().map(|v| &v[..])
+					value.as_deref(),
 				)
 			},
-			Node::NibbledBranch(partial, mut children, value) => {
+			Node::NibbledBranch(ref partial, ref children, ref value) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
 				C::branch_node_nibbled(
 					it,
 					pr.len(),
 					// map the `NodeHandle`s from the Branch to `ChildReferences`
-					children.iter_mut()
-						.map(Option::take)
+					children.iter()
+						.map(Option::as_ref)
 						.enumerate()
 						.map(|(i, maybe_child)| {
 							//let branch_index = [i as u8];
@@ -254,7 +261,7 @@ where
 								child_cb(child, Some(&pr), Some(i as u8))
 							})
 						}),
-					value.as_ref().map(|v| &v[..])
+					value.as_deref(),
 				)
 			},
 		}
@@ -1454,23 +1461,23 @@ where
 	/// `into_encoded` method of `Node`.
 	fn commit_child(
 		&mut self,
-		handle: NodeHandle<TrieHash<L>>,
+		handle: &NodeHandle<TrieHash<L>>,
 		prefix: &mut NibbleVec,
 	) -> ChildReference<TrieHash<L>> {
 		match handle {
-			NodeHandle::Hash(hash) => ChildReference::Hash(hash),
+			NodeHandle::Hash(ref hash) => ChildReference::Hash(*hash),
 			NodeHandle::InMemory(storage_handle) => {
-				match self.storage.destroy(storage_handle) {
+				match self.storage.destroy(storage_handle.clone_unsafe()) {
 					Stored::Cached(_, hash) => ChildReference::Hash(hash),
 					Stored::New(node) => {
 						let encoded = {
 							let commit_child = |
-								node_handle,
+								node_handle: &NodeHandle<TrieHash<L>>,
 								o_slice: Option<&NibbleSlice>,
 								o_index: Option<u8>
 							| {
 								let mov = prefix.append_optional_slice_and_nibble(o_slice, o_index);
-								let cr = self.commit_child(node_handle, prefix);
+								let cr = self.commit_child(&node_handle, prefix);
 								prefix.drop_lasts(mov);
 								cr
 							};
