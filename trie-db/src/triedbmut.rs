@@ -449,6 +449,7 @@ where
 	}
 
 	/// Create a new trie with the backing database `db` and `root.
+	///
 	/// Returns an error if `root` does not exist.
 	pub fn from_existing(
 		db: &'a mut dyn HashDB<L::Hash, DBValue>,
@@ -469,6 +470,33 @@ where
 			cache: None,
 		})
 	}
+
+	/// Create a new trie with the backing database `db` and `root.
+	///
+	/// Will use the given `cache` to cache new nodes.
+	///
+	/// Returns an error if `root` does not exist.
+	pub fn from_existing_with_cache(
+		db: &'a mut dyn HashDB<L::Hash, DBValue>,
+		root: &'a mut TrieHash<L>,
+		cache: &'a mut dyn TrieCache<L>,
+	) -> Result<Self, TrieHash<L>, CError<L>> {
+		if !db.contains(root, EMPTY_PREFIX) {
+			return Err(Box::new(TrieError::InvalidStateRoot(*root)));
+		}
+
+		let root_handle = NodeHandle::Hash(*root);
+		Ok(TrieDBMut {
+			storage: NodeStorage::empty(),
+			db,
+			root,
+			root_handle,
+			death_row: HashSet::new(),
+			hash_count: 0,
+			cache: Some(cache),
+		})
+	}
+
 	/// Get the backing database.
 	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue> {
 		self.db
