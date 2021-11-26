@@ -21,6 +21,7 @@ use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_h
 
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use hashbrown::HashSet;
+use bytes::Bytes;
 
 use crate::TrieCache;
 use crate::node_codec::NodeCodec;
@@ -74,16 +75,16 @@ enum Node<H> {
 	/// A leaf node contains the end of a key and a value.
 	/// This key is encoded from a `NibbleSlice`, meaning it contains
 	/// a flag indicating it is a leaf.
-	Leaf(NodeKey, DBValue),
+	Leaf(NodeKey, Bytes),
 	/// An extension contains a shared portion of a key and a child node.
 	/// The shared portion is encoded from a `NibbleSlice` meaning it contains
 	/// a flag indicating it is an extension.
 	/// The child node is always a branch.
 	Extension(NodeKey, NodeHandle<H>),
 	/// A branch has up to 16 children and an optional value.
-	Branch(Box<[Option<NodeHandle<H>>; 16]>, Option<DBValue>),
+	Branch(Box<[Option<NodeHandle<H>>; 16]>, Option<Bytes>),
 	/// Branch node with support for a nibble (to avoid extension node).
-	NibbledBranch(NodeKey, Box<[Option<NodeHandle<H>>; 16]>, Option<DBValue>),
+	NibbledBranch(NodeKey, Box<[Option<NodeHandle<H>>; 16]>, Option<Bytes>),
 }
 
 #[cfg(feature = "std")]
@@ -109,9 +110,9 @@ impl<H: Debug> Debug for Node<H> {
 			Self::Extension((ref a, ref b), ref c) =>
 				write!(fmt, "Extension({:?}, {:?})", (a, ToHex(&*b)), c),
 			Self::Branch(ref a, ref b) =>
-				write!(fmt, "Branch({:?}, {:?}", a, b.as_ref().map(Vec::as_slice).map(ToHex)),
+				write!(fmt, "Branch({:?}, {:?}", a, b.as_deref().map(ToHex)),
 			Self::NibbledBranch((ref a, ref b), ref c, ref d) =>
-				write!(fmt, "NibbledBranch({:?}, {:?}, {:?})", (a, ToHex(&*b)), c, d.as_ref().map(Vec::as_slice).map(ToHex)),
+				write!(fmt, "NibbledBranch({:?}, {:?}, {:?})", (a, ToHex(&*b)), c, d.as_deref().map(ToHex)),
 		}
 	}
 }
@@ -160,7 +161,7 @@ where
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash, e)))?;
 		let node = match encoded_node {
 			EncodedNode::Empty => Node::Empty,
-			EncodedNode::Leaf(k, v) => Node::Leaf(k.into(), v.to_vec()),
+			EncodedNode::Leaf(k, v) => Node::Leaf(k.into(), Bytes::copy_from_slice(&v)),
 			EncodedNode::Extension(key, cb) => {
 				Node::Extension(
 					key.into(),
@@ -181,7 +182,7 @@ where
 					child(12)?, child(13)?, child(14)?, child(15)?,
 				]);
 
-				Node::Branch(children, val.map(|v| v.to_vec()))
+				Node::Branch(children, val.map(Bytes::copy_from_slice))
 			},
 			EncodedNode::NibbledBranch(k, encoded_children, val) => {
 				let mut child = |i:usize| match encoded_children[i] {
@@ -197,7 +198,7 @@ where
 					child(12)?, child(13)?, child(14)?, child(15)?,
 				]);
 
-				Node::NibbledBranch(k.into(), children, val.map(|v| v.to_vec()))
+				Node::NibbledBranch(k.into(), children, val.map(Bytes::copy_from_slice))
 			},
 		};
 		Ok(node)
@@ -600,8 +601,8 @@ where
 		&mut self,
 		handle: NodeHandle<TrieHash<L>>,
 		key: &mut NibbleFullKey,
-		value: DBValue,
-		old_val: &mut Option<DBValue>,
+		value: Bytes,
+		old_val: &mut Option<Bytes>,
 	) -> Result<(StorageHandle, bool), TrieHash<L>, CError<L>> {
 		let h = match handle {
 			NodeHandle::InMemory(h) => h,
@@ -621,8 +622,8 @@ where
 		&mut self,
 		node: Node<TrieHash<L>>,
 		key: &mut NibbleFullKey,
-		value: DBValue,
-		old_val: &mut Option<DBValue>,
+		value: Bytes,
+		old_val: &mut Option<Bytes>,
 	) -> Result<InsertAction<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		let partial = *key;
 
@@ -633,7 +634,7 @@ where
 			Node::Empty => {
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "empty: COMPOSE");
-				InsertAction::Replace(Node::Leaf(partial.to_stored(), value))
+				InsertAction::Replace(Node::Leaf(partial.to_stored(), value.into()))
 			},
 			Node::Branch(mut children, stored_value) => {
 				debug_assert!(L::USE_EXTENSION);
@@ -641,8 +642,8 @@ where
 				trace!(target: "trie", "branch: ROUTE,AUGMENT");
 
 				if partial.is_empty() {
-					let unchanged = stored_value.as_ref() == Some(&value);
-					let branch = Node::Branch(children, Some(value));
+					let unchanged = stored_value.as_deref() == Some(&value);
+					let branch = Node::Branch(children, Some(value.into()));
 					*old_val = stored_value;
 
 					match unchanged {
@@ -967,7 +968,7 @@ where
 		&mut self,
 		handle: NodeHandle<TrieHash<L>>,
 		key: &mut NibbleFullKey,
-		old_val: &mut Option<DBValue>,
+		old_val: &mut Option<Bytes>,
 	) -> Result<Option<(StorageHandle, bool)>, TrieHash<L>, CError<L>> {
 		let stored = match handle {
 			NodeHandle::InMemory(h) => self.storage.destroy(h),
@@ -991,7 +992,7 @@ where
 		&mut self,
 		node: Node<TrieHash<L>>,
 		key: &mut NibbleFullKey,
-		old_val: &mut Option<DBValue>,
+		old_val: &mut Option<Bytes>,
 	) -> Result<Action<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		let partial = *key;
 		Ok(match (node, partial.is_empty()) {
@@ -1562,7 +1563,7 @@ where
 		let (new_handle, _changed) = self.insert_at(
 			root_handle,
 			&mut NibbleSlice::new(key),
-			value.to_vec(),
+			Bytes::copy_from_slice(value),
 			&mut old_val,
 		)?;
 
@@ -1570,7 +1571,7 @@ where
 		trace!(target: "trie", "insert: altered trie={}", _changed);
 		self.root_handle = NodeHandle::InMemory(new_handle);
 
-		Ok(old_val)
+		Ok(old_val.map(|v| v.to_vec()))
 	}
 
 	fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
@@ -1595,7 +1596,7 @@ where
 			}
 		}
 
-		Ok(old_val)
+		Ok(old_val.map(|v| v.to_vec()))
 	}
 }
 
@@ -1646,7 +1647,7 @@ mod tests {
 	#[test]
 	fn nice_debug_for_node() {
 		use super::Node;
-		let e: Node<u32> = Node::Leaf((1, vec![1, 2, 3].into()), vec![4, 5, 6]);
+		let e: Node<u32> = Node::Leaf((1, vec![1, 2, 3].into()), bytes::Bytes::from_static(&[4, 5, 6]));
 		assert_eq!(format!("{:?}", e), "Leaf((1, 010203), 040506)");
 	}
 }
