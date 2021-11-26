@@ -22,6 +22,7 @@ use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_h
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use hashbrown::HashSet;
 
+use crate::TrieCache;
 use crate::node_codec::NodeCodec;
 use crate::nibble::{NibbleVec, NibbleSlice, nibble_ops, BackingByteVec};
 use crate::rstd::{
@@ -423,6 +424,7 @@ where
 	/// The number of hash operations this trie has performed.
 	/// Note that none are performed until changes are committed.
 	hash_count: usize,
+	cache: Option<&'a mut dyn TrieCache<L>>,
 }
 
 impl<'a, L> TrieDBMut<'a, L>
@@ -441,6 +443,7 @@ where
 			root_handle,
 			death_row: HashSet::new(),
 			hash_count: 0,
+			cache: None,
 		}
 	}
 
@@ -462,6 +465,7 @@ where
 			root_handle,
 			death_row: HashSet::new(),
 			hash_count: 0,
+			cache: None,
 		})
 	}
 	/// Get the backing database.
@@ -528,13 +532,11 @@ where
 	}
 
 	// Walk the trie, attempting to find the key's node.
-	fn lookup<'x, 'key>(
-		&'x self,
+	fn lookup<'key>(
+		&self,
 		mut partial: NibbleSlice<'key>,
 		handle: &NodeHandle<TrieHash<L>>,
-	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
-		where 'x: 'key
-	{
+	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
 		let mut handle = handle;
 		loop {
 			let (mid, child) = match *handle {
@@ -1431,9 +1433,11 @@ where
 					}
 				);
 				#[cfg(feature = "std")]
-				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
-				*self.root = self.db.insert(EMPTY_PREFIX, &encoded_root[..]);
+				trace!(target: "trie", "encoded root node: {:#x?}", encoded_root);
+				*self.root = self.db.insert(EMPTY_PREFIX, &encoded_root);
 				self.hash_count += 1;
+
+				self.cache_node(*self.root, &encoded_root);
 
 				self.root_handle = NodeHandle::Hash(*self.root);
 			}
@@ -1444,6 +1448,16 @@ where
 					self.storage.alloc(Stored::Cached(node, hash)),
 				);
 			}
+		}
+	}
+
+	/// Cache the given `encoded` node.
+	fn cache_node(&mut self, hash: TrieHash<L>, encoded: &[u8]) {
+		// If we have a cache, cache our node directly.
+		if let Some(ref mut cache) = self.cache {
+			let node = L::Codec::decode(&encoded).ok().and_then(|n| n.to_owned_node::<L>().ok())
+				.expect("Just encoded the node, so it should decode without any errors; qed");
+			cache.insert_node(hash, node);
 		}
 	}
 
@@ -1477,8 +1491,11 @@ where
 							node.into_encoded::<_, L::Codec, L::Hash>(commit_child)
 						};
 						if encoded.len() >= L::Hash::LENGTH {
-							let hash = self.db.insert(prefix.as_prefix(), &encoded[..]);
-							self.hash_count +=1;
+							let hash = self.db.insert(prefix.as_prefix(), &encoded);
+							self.hash_count += 1;
+
+							self.cache_node(hash, &encoded);
+
 							ChildReference::Hash(hash)
 						} else {
 							// it's a small value, so we cram it into a `TrieHash<L>`
