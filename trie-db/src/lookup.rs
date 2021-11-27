@@ -48,9 +48,13 @@ where
 		key: NibbleSlice,
 		cache: &mut dyn crate::TrieCache<L>,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
-		let res = self.look_up_with_cache_internal(key.clone(), cache)?;
-
-		cache.cache_data_for_key(key.right().1, res.clone());
+		let res = if let Some(value) = cache.lookup_data_for_key(key.right().1) {
+			value.clone()
+		} else {
+			let res = self.look_up_with_cache_internal(key.clone(), cache)?;
+			cache.cache_data_for_key(key.right().1, res.clone());
+			res
+		};
 
 		Ok(res.map(|v| self.query.decode(&v)))
 	}
@@ -60,14 +64,9 @@ where
 		key: NibbleSlice,
 		cache: &mut dyn crate::TrieCache<L>,
 	) -> Result<Option<Bytes>, TrieHash<L>, CError<L>> {
-
 		let mut partial = key;
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;
-
-		if let Some(value) = cache.lookup_data_for_key(key.right().1) {
-			return Ok(value.clone())
-		}
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
@@ -198,9 +197,10 @@ where
 				};
 				let next_node = match decoded {
 					Node::Leaf(slice, value) => {
-						return Ok(match slice == partial {
-							true => Some(self.query.decode(value)),
-							false => None,
+						return Ok(if slice == partial {
+							Some(self.query.decode(value))
+						} else {
+							None
 						})
 					}
 					Node::Extension(slice, item) => {
@@ -212,9 +212,10 @@ where
 							return Ok(None)
 						}
 					}
-					Node::Branch(children, value) => match partial.is_empty() {
-						true => return Ok(value.map(move |val| self.query.decode(val))),
-						false => match children[partial.at(0) as usize] {
+					Node::Branch(children, value) => if partial.is_empty() {
+						return Ok(value.map(move |val| self.query.decode(val)))
+					} else {
+						match children[partial.at(0) as usize] {
 							Some(x) => {
 								partial = partial.mid(1);
 								key_nibbles += 1;
@@ -228,9 +229,10 @@ where
 							return Ok(None)
 						}
 
-						match partial.len() == slice.len() {
-							true => return Ok(value.map(move |val| self.query.decode(val))),
-							false => match children[partial.at(slice.len()) as usize] {
+						if partial.len() == slice.len() {
+							return Ok(value.map(move |val| self.query.decode(val)))
+						} else {
+							match children[partial.at(slice.len()) as usize] {
 								Some(x) => {
 									partial = partial.mid(slice.len() + 1);
 									key_nibbles += slice.len() + 1;
