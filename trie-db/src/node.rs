@@ -59,14 +59,14 @@ pub enum NodeHandleOwned<H> {
     Inline(Box<NodeOwned<H>>),
 }
 
-impl<H> NodeHandleOwned<H> where H: Default + AsRef<[u8]> + AsMut<[u8]> {
+impl<H> NodeHandleOwned<H> where H: Default + AsRef<[u8]> + AsMut<[u8]> + Copy {
 	/// Returns `self` as a [`ChildReference`].
 	///
 	/// # Panic
 	///
 	/// This function panics if `self == Self::Inline(_)` and the inline node encoded length is greater
 	/// then the lenght of the hash.
-	fn as_child_reference(&self) -> ChildReference<H> {
+	fn as_child_reference<C: NodeCodec<HashOut = H>>(&self) -> ChildReference<H> {
 		match self {
 			NodeHandleOwned::Hash(h) => ChildReference::Hash(*h),
 			NodeHandleOwned::Inline(n) => {
@@ -168,42 +168,40 @@ pub enum NodeOwned<H> {
     ),
 }
 
-impl<H> NodeOwned<H> where H: Default + AsRef<[u8]> + AsMut<[u8]> {
-	fn to_encoded<C>(&self) -> Vec<u8>
+impl<H> NodeOwned<H> where H: Default + AsRef<[u8]> + AsMut<[u8]> + Copy {
+	/// Convert to its encoded format.
+	pub fn to_encoded<C>(&self) -> Vec<u8>
 	where
 		C: NodeCodec<HashOut = H>,
 	{
 		match self {
 			Self::Empty => C::empty_node().to_vec(),
 			Self::Leaf(partial, value) => {
-				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
-				C::leaf_node(pr.right_iter(), pr.len(), &value)
+				C::leaf_node(partial.right_iter(), partial.len(), &value)
 			},
 			Self::Extension(partial, child) => {
 				C::extension_node(
-					partial.inner().iter(),
-					partial.inner().len(),
-					child.as_child_reference(),
+					partial.right_iter(),
+					partial.len(),
+					child.as_child_reference::<C>(),
 				)
 			},
 			Self::Branch(children, value) => {
 				C::branch_node(
 					children.iter()
 						.map(|child| {
-							child.as_ref().map(|c| c.as_child_reference())
+							child.as_ref().map(|c| c.as_child_reference::<C>())
 						}),
 					value.as_deref(),
 				)
 			},
-			Self::NibbledBranch(partial, mut children, value) => {
-				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
-				let it = pr.right_iter();
+			Self::NibbledBranch(partial, children, value) => {
 				C::branch_node_nibbled(
-					it,
-					pr.len(),
+					partial.right_iter(),
+					partial.len(),
 					children.iter()
 						.map(|child| {
-							child.as_ref().map(|c| c.as_child_reference())
+							child.as_ref().map(|c| c.as_child_reference::<C>())
 						}),
 					value.as_deref(),
 				)

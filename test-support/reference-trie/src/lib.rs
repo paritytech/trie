@@ -1195,7 +1195,7 @@ pub fn compare_no_extension_insert_remove(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use trie_db::{NibbleSlice, nibble_ops::NIBBLE_PER_BYTE, node::Node};
+	use trie_db::{nibble_ops::NIBBLE_PER_BYTE, node::Node};
 
 	#[test]
 	fn test_encoding_simple_trie() {

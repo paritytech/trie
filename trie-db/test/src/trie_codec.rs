@@ -13,10 +13,7 @@
 // limitations under the License.
 
 
-use trie_db::{
-	DBValue, encode_compact, decode_compact,
-	Trie, TrieMut, TrieDB, TrieError, TrieDBMut, TrieLayout, Recorder,
-};
+use trie_db::{DBValue, NodeCodec, Recorder, Trie, TrieDB, TrieDBMut, TrieError, TrieHash, TrieLayout, TrieMut, decode_compact, encode_compact};
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 use reference_trie::{
 	ExtensionLayout, NoExtensionLayout,
@@ -176,5 +173,51 @@ fn trie_decoding_fails_with_incomplete_database() {
 			_ => panic!("got unexpected TrieError"),
 		}
 		_ => panic!("decode was unexpectedly successful"),
+	}
+}
+
+#[test]
+fn encoding_node_owned_and_decoding_node_works() {
+	let entries: Vec<(&[u8], &[u8])> = vec![
+		// "alfa" is at a hash-referenced leaf node.
+		(b"alfa", &[0; 32]),
+		// "bravo" is at an inline leaf node.
+		(b"bravo", b"bravo"),
+		// "do" is at a hash-referenced branch node.
+		(b"do", b"verb"),
+		// "dog" is at an inline leaf node.
+		(b"dog", b"puppy"),
+		// "doge" is at a hash-referenced leaf node.
+		(b"doge", &[0; 32]),
+		// extension node "o" (plus nibble) to next branch.
+		(b"horse", b"stallion"),
+		(b"house", b"building"),
+	];
+
+	// Populate DB with full trie from entries.
+	let mut recorder = {
+		let mut db = <MemoryDB<<ExtensionLayout as TrieLayout>::Hash>>::default();
+		let mut root = Default::default();
+		let mut recorder = Recorder::<TrieHash<ExtensionLayout>>::new();
+		{
+			let mut trie = <TrieDBMut<ExtensionLayout>>::new(&mut db, &mut root);
+			for (key, value) in entries.iter() {
+				trie.insert(key, value).unwrap();
+			}
+		}
+
+		let trie = TrieDB::<ExtensionLayout>::new(&db, &root).unwrap();
+		for (key, _) in entries.iter() {
+			trie.get_with(key, &mut recorder).unwrap();
+		}
+
+		recorder
+	};
+
+	for record in recorder.drain() {
+		let node = <<ExtensionLayout as TrieLayout>::Codec as NodeCodec>::decode(&record.data).unwrap();
+		let node_owned = node.to_owned_node::<ExtensionLayout>().unwrap();
+
+		assert_eq!(record.data, node_owned.to_encoded::<<ExtensionLayout as TrieLayout>::Codec>());
 	}
 }
