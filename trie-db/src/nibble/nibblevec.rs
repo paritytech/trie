@@ -226,16 +226,28 @@ impl NibbleVec {
 	}
 
 	/// Return an iterator over `Partial` bytes representation.
-	pub fn right_iter(&self) -> impl Iterator<Item = u8> {
-		let (mut first, sl) = self.right();
+	pub fn right_iter<'a>(&'a self) -> impl Iterator<Item = u8> + 'a {
+		let require_padding = self.len % nibble_ops::NIBBLE_PER_BYTE != 0;
 		let mut ix = 0;
+		let inner = &self.inner;
+
 		crate::rstd::iter::from_fn(move || {
-			if first.0 > 0 {
-				first.0 = 0;
-				Some(nibble_ops::pad_right(first.1))
-			} else if ix < sl.len() {
+			if require_padding && ix < inner.len() {
+				if ix == 0 {
+					ix += 1;
+					Some(inner[ix - 1] >> nibble_ops::BIT_PER_NIBBLE)
+				} else {
+					ix += 1;
+
+					let first_nibble = nibble_ops::pad_right(inner[ix - 2]);
+					let second_nibble = nibble_ops::at_left(0, inner[ix - 1]);
+
+					Some(nibble_ops::push_at_left(0, first_nibble, nibble_ops::push_at_left(1, second_nibble, 0)))
+				}
+			} else if ix < inner.len() {
 				ix += 1;
-				Some(sl[ix - 1])
+
+				Some(inner[ix - 1])
 			} else {
 				None
 			}
@@ -255,7 +267,8 @@ impl<'a> From<NibbleSlice<'a>> for NibbleVec {
 
 #[cfg(test)]
 mod tests {
-	use crate::nibble::NibbleVec;
+	use super::*;
+	use crate::NibbleSlice;
 	use crate::nibble::nibble_ops;
 
 	#[test]
@@ -316,4 +329,23 @@ mod tests {
 		test_trun(&[1, 2, 3], 4, (&[], 0));
 	}
 
+	#[test]
+	fn right_iter_works() {
+		let data = vec![1, 2, 3, 4, 5, 234, 78, 99];
+
+		let nibble = NibbleSlice::new(&data);
+		let vec = NibbleVec::from(nibble);
+
+		nibble.right_iter().zip(vec.right_iter()).enumerate().for_each(|(i, (l, r))| {
+			assert_eq!(l, r, "Don't match at {}", i)
+		});
+
+		// Also try with using an offset.
+		let nibble = NibbleSlice::new_offset(&data, 3);
+		let vec = NibbleVec::from(nibble);
+
+		nibble.right_iter().zip(vec.right_iter()).enumerate().for_each(|(i, (l, r))| {
+			assert_eq!(l, r, "Don't match at {}", i)
+		});
+	}
 }
