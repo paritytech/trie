@@ -706,9 +706,9 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		&[EMPTY_TRIE]
 	}
 
-	fn leaf_node(partial: Partial, value: &[u8]) -> Vec<u8> {
+	fn leaf_node(partial: impl Iterator<Item = u8>, _: usize, value: &[u8]) -> Vec<u8> {
 		let mut output = partial_to_key(partial, LEAF_NODE_OFFSET, LEAF_NODE_OVER);
-		value.encode_to(&mut output);
+		value.extend(partial);
 		output
 	}
 
@@ -848,9 +848,13 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		&[EMPTY_TRIE_NO_EXT]
 	}
 
-	fn leaf_node(partial: Partial, value: &[u8]) -> Vec<u8> {
+	fn leaf_node(
+		partial: impl Iterator<Item = u8>,
+		_: usize,
+		value: &[u8],
+	) -> Vec<u8> {
 		let mut output = partial_encode(partial, NodeKindNoExt::Leaf);
-		value.encode_to(&mut output);
+		value.extend(partial);
 		output
 	}
 
@@ -1203,7 +1207,7 @@ pub fn compare_no_extension_insert_remove(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use trie_db::node::Node;
+	use trie_db::{nibble_ops::NIBBLE_PER_BYTE, node::Node};
 
 	#[test]
 	fn test_encoding_simple_trie() {
@@ -1229,13 +1233,13 @@ mod tests {
 		// + 1 for 0 added byte of nibble encode
 		let input = vec![0u8; (NIBBLE_SIZE_BOUND_NO_EXT as usize + 1) / 2 + 1];
 		let enc = <ReferenceNodeCodecNoExt<KeccakHasher> as NodeCodec>
-		::leaf_node(((0, 0), &input), &[1]);
+		::leaf_node(input.iter(), input.len() * NIBBLE_PER_BYTE, &[1]);
 		let dec = <ReferenceNodeCodecNoExt<KeccakHasher> as NodeCodec>
 		::decode(&enc).unwrap();
 		let o_sl = if let Node::Leaf(sl, _) = dec {
 			Some(sl)
 		} else { None };
-		assert!(o_sl.is_some());
+		assert_eq!(input, o_sl.unwrap());
 	}
 
 	#[test]

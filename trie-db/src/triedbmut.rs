@@ -215,7 +215,7 @@ where
 			Node::Empty => C::empty_node().to_vec(),
 			Node::Leaf(partial, value) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
-				C::leaf_node(pr.right(), &value)
+				C::leaf_node(pr.right_iter(), pr.len(), &value)
 			},
 			Node::Extension(partial, child) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);

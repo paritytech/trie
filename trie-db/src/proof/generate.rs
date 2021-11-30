@@ -81,7 +81,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 			NodePlan::Leaf { .. } if !self.omit_value => node_data.to_vec(),
 			NodePlan::Leaf { partial, value: _ } => {
 				let partial = partial.build(node_data);
-				C::leaf_node(partial.right(), &[])
+				C::leaf_node(partial.right_iter(), partial.len(), &[])
 			}
 			NodePlan::Extension { .. } if self.child_index == 0 => node_data.to_vec(),
 			NodePlan::Extension { partial: partial_plan, child: _ } => {

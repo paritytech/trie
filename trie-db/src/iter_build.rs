@@ -129,7 +129,7 @@ impl<T, V> CacheAccum<T, V>
 		let nibble_value = nibble_ops::left_nibble_at(&k2.as_ref()[..], target_depth);
 		// is it a branch value (two candidate same ix)
 		let nkey = NibbleSlice::new_offset(&k2.as_ref()[..], target_depth + 1);
-		let encoded = T::Codec::leaf_node(nkey.right(), &v2.as_ref()[..]);
+		let encoded = T::Codec::leaf_node(nkey.right_iter(), nkey.len(), &v2.as_ref()[..]);
 		let pr = NibbleSlice::new_offset(
 			&k2.as_ref()[..],
 			k2.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE - nkey.len(),
@@ -291,7 +291,7 @@ pub fn trie_visit<T, I, A, B, F>(input: I, callback: &mut F)
 			// one single element corner case
 			let (k2, v2) = previous_value;
 			let nkey = NibbleSlice::new_offset(&k2.as_ref()[..], last_depth);
-			let encoded = T::Codec::leaf_node(nkey.right(), &v2.as_ref()[..]);
+			let encoded = T::Codec::leaf_node(nkey.right_iter(), nkey.len(), &v2.as_ref()[..]);
 			let pr = NibbleSlice::new_offset(
 				&k2.as_ref()[..],
 				k2.as_ref().len() * nibble_ops::NIBBLE_PER_BYTE - nkey.len(),

@@ -352,7 +352,7 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 			Node::Empty =>
 				C::empty_node().to_vec(),
 			Node::Leaf(partial, value) =>
-				C::leaf_node(partial.right(), value),
+				C::leaf_node(partial.right_iter(), partial.len(), value),
 			Node::Extension(partial, _) =>
 				C::extension_node(
 					partial.right_iter(),

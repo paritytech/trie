@@ -149,7 +149,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 						value is only ever reassigned in the ValueMatch::MatchesLeaf match \
 						clause, which assigns only to Some"
 					);
-				C::leaf_node(partial.right(), value)
+				C::leaf_node(partial.right_iter(), partial.len(), value)
 			}
 			Node::Extension(partial, _) => {
 				let child = self.children[0]
