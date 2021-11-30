@@ -109,7 +109,7 @@ impl<'db, 'cache, L> Iterator for FatDBIterator<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
-	type Item = TrieItem<'db, TrieHash<L>, CError<L>>;
+	type Item = TrieItem<TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.trie_iterator.next()

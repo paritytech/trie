@@ -131,7 +131,7 @@ pub type Result<T, H, E> = crate::rstd::result::Result<T, Box<TrieError<H, E>>>;
 
 
 /// Trie-Item type used for iterators over trie data.
-pub type TrieItem<'a, U, E> = Result<(Vec<u8>, DBValue), U, E>;
+pub type TrieItem<U, E> = Result<(Vec<u8>, DBValue), U, E>;
 
 /// Description of what kind of query will be made to the trie.
 ///

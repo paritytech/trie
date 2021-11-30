@@ -350,7 +350,7 @@ impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBIterator<'a, 'cache, L
 }
 
 impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBIterator<'a, 'cache, L> {
-	type Item = TrieItem<'a, TrieHash<L>, CError<L>>;
+	type Item = TrieItem<TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		while let Some(item) = self.inner.next() {
