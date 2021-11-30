@@ -126,7 +126,6 @@ where
 	fn inline_or_hash<C, H>(
 		parent_hash: H::Out,
 		child: EncodedNodeHandle,
-		db: &dyn HashDB<H, DBValue>,
 		storage: &mut NodeStorage<H::Out>
 	) -> Result<NodeHandle<H::Out>, H::Out, C::Error>
 	where
@@ -140,7 +139,7 @@ where
 				NodeHandle::Hash(hash)
 			},
 			EncodedNodeHandle::Inline(data) => {
-				let child = Node::from_encoded::<C, H>(parent_hash, data, db, storage)?;
+				let child = Node::from_encoded::<C, H>(parent_hash, data, storage)?;
 				NodeHandle::InMemory(storage.alloc(Stored::New(child)))
 			},
 		};
@@ -151,7 +150,6 @@ where
 	fn from_encoded<'a, 'b, C, H>(
 		node_hash: H::Out,
 		data: &'a[u8],
-		db: &dyn HashDB<H, DBValue>,
 		storage: &'b mut NodeStorage<H::Out>,
 	) -> Result<Self, H::Out, C::Error>
 		where
@@ -165,12 +163,12 @@ where
 			EncodedNode::Extension(key, cb) => {
 				Node::Extension(
 					key.into(),
-					Self::inline_or_hash::<C, H>(node_hash, cb, db, storage)?
+					Self::inline_or_hash::<C, H>(node_hash, cb, storage)?
 				)
 			},
 			EncodedNode::Branch(encoded_children, val) => {
 				let mut child = |i:usize| match encoded_children[i] {
-					Some(child) => Self::inline_or_hash::<C, H>(node_hash, child, db, storage)
+					Some(child) => Self::inline_or_hash::<C, H>(node_hash, child, storage)
 						.map(Some),
 					None => Ok(None),
 				};
@@ -186,7 +184,7 @@ where
 			},
 			EncodedNode::NibbledBranch(k, encoded_children, val) => {
 				let mut child = |i:usize| match encoded_children[i] {
-					Some(child) => Self::inline_or_hash::<C, H>(node_hash, child, db, storage)
+					Some(child) => Self::inline_or_hash::<C, H>(node_hash, child, storage)
 						.map(Some),
 					None => Ok(None),
 				};
@@ -518,8 +516,7 @@ where
 		let node = Node::from_encoded::<L::Codec, L::Hash>(
 			hash,
 			&node_encoded,
-			&*self.db,
-			&mut self.storage
+			&mut self.storage,
 		)?;
 		Ok(self.storage.alloc(Stored::Cached(node, hash)))
 	}
