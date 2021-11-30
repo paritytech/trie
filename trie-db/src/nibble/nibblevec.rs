@@ -110,8 +110,10 @@ impl NibbleVec {
 
 	/// Append another `NibbleVec`. Can be slow (alignement of second vec).
 	pub fn append(&mut self, v: &NibbleVec) {
+		if v.len == 0 {
+			return;
+		}
 
-		if v.len == 0 { return; }
 		let final_len = self.len + v.len;
 		let offset = self.len % nibble_ops::NIBBLE_PER_BYTE;
 		let final_offset = final_len % nibble_ops::NIBBLE_PER_BYTE;
@@ -221,6 +223,23 @@ impl NibbleVec {
 			}
 		}
 		true
+	}
+
+	/// Return an iterator over `Partial` bytes representation.
+	pub fn right_iter(&self) -> impl Iterator<Item = u8> {
+		let (mut first, sl) = self.right();
+		let mut ix = 0;
+		crate::rstd::iter::from_fn(move || {
+			if first.0 > 0 {
+				first.0 = 0;
+				Some(nibble_ops::pad_right(first.1))
+			} else if ix < sl.len() {
+				ix += 1;
+				Some(sl[ix - 1])
+			} else {
+				None
+			}
+		})
 	}
 }
 

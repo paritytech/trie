@@ -15,7 +15,7 @@
 use crate::nibble::nibble_ops;
 use crate::nibble::{self, NibbleSlice, NibbleVec};
 use crate::node_codec::NodeCodec;
-use crate::{CError, Result, TrieHash, TrieLayout, TrieError};
+use crate::{CError, Result, TrieHash, TrieLayout, TrieError, ChildReference};
 use hash_db::Hasher;
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec::Vec};
@@ -57,6 +57,28 @@ impl NodeHandle<'_> {
 pub enum NodeHandleOwned<H> {
     Hash(H),
     Inline(Box<NodeOwned<H>>),
+}
+
+impl<H> NodeHandleOwned<H> where H: Default + AsRef<[u8]> + AsMut<[u8]> {
+	/// Returns `self` as a [`ChildReference`].
+	///
+	/// # Panic
+	///
+	/// This function panics if `self == Self::Inline(_)` and the inline node encoded length is greater
+	/// then the lenght of the hash.
+	fn as_child_reference(&self) -> ChildReference<H> {
+		match self {
+			NodeHandleOwned::Hash(h) => ChildReference::Hash(*h),
+			NodeHandleOwned::Inline(n) => {
+				let encoded = n.to_encoded::<C>();
+				let mut store = H::default();
+				assert!(store.as_ref().len() >= encoded.len(), "Invalid inline node handle");
+
+				store.as_mut()[..encoded.len()].copy_from_slice(&encoded);
+				ChildReference::Inline(store, encoded.len())
+			}
+		}
+	}
 }
 
 /// Read a hash from a slice into a Hasher output. Returns None if the slice is the wrong length.
@@ -144,6 +166,50 @@ pub enum NodeOwned<H> {
         [Option<NodeHandleOwned<H>>; nibble_ops::NIBBLE_LENGTH],
         Option<Bytes>,
     ),
+}
+
+impl<H> NodeOwned<H> where H: Default + AsRef<[u8]> + AsMut<[u8]> {
+	fn to_encoded<C>(&self) -> Vec<u8>
+	where
+		C: NodeCodec<HashOut = H>,
+	{
+		match self {
+			Self::Empty => C::empty_node().to_vec(),
+			Self::Leaf(partial, value) => {
+				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
+				C::leaf_node(pr.right_iter(), pr.len(), &value)
+			},
+			Self::Extension(partial, child) => {
+				C::extension_node(
+					partial.inner().iter(),
+					partial.inner().len(),
+					child.as_child_reference(),
+				)
+			},
+			Self::Branch(children, value) => {
+				C::branch_node(
+					children.iter()
+						.map(|child| {
+							child.as_ref().map(|c| c.as_child_reference())
+						}),
+					value.as_deref(),
+				)
+			},
+			Self::NibbledBranch(partial, mut children, value) => {
+				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
+				let it = pr.right_iter();
+				C::branch_node_nibbled(
+					it,
+					pr.len(),
+					children.iter()
+						.map(|child| {
+							child.as_ref().map(|c| c.as_child_reference())
+						}),
+					value.as_deref(),
+				)
+			},
+		}
+	}
 }
 
 /// A `NodeHandlePlan` is a decoding plan for constructing a `NodeHandle` from an encoded trie
