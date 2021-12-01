@@ -71,6 +71,6 @@ impl<HO: Copy> Recorder<HO> {
 
 	/// Drain all visited records.
 	pub fn drain(&mut self) -> Vec<Record<HO>> {
-		crate::rstd::mem::replace(&mut self.nodes, Vec::new())
+		crate::rstd::mem::take(&mut self.nodes)
 	}
 }

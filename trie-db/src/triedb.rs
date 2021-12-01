@@ -19,7 +19,7 @@ use crate::rstd::boxed::Box;
 use super::node::{NodeHandle, Node, OwnedNode, decode_hash};
 use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query,
-	TrieLayout, CError, TrieHash, TrieCache};
+	TrieLayout, CError, TrieHash, TrieCache, TrieRecorder};
 use super::nibble::NibbleVec;
 
 #[cfg(feature = "std")]
@@ -30,6 +30,7 @@ pub struct TrieDBBuilder<'db, 'cache, L: TrieLayout> {
 	db: &'db dyn HashDBRef<L::Hash, DBValue>,
 	root: &'db TrieHash<L>,
 	cache: Option<&'cache mut dyn TrieCache<L>>,
+	recorder: Option<&'cache mut dyn TrieRecorder<TrieHash<L>>>,
 }
 
 impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
@@ -43,7 +44,7 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 		if !db.contains(root, EMPTY_PREFIX) {
 			Err(Box::new(TrieError::InvalidStateRoot(*root)))
 		} else {
-			Ok(Self { db, root, cache: None })
+			Ok(Self { db, root, cache: None, recorder: None })
 		}
 	}
 
@@ -54,12 +55,18 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
 	) -> Self {
-		Self { db, root, cache: None }
+		Self { db, root, cache: None, recorder: None }
 	}
 
 	/// Use the given `cache` for the db.
 	pub fn with_cache(mut self, cache: &'cache mut dyn TrieCache<L>) -> Self {
 		self.cache = Some(cache);
+		self
+	}
+
+	/// Use the given `recorder` to record trie accesses.
+	pub fn with_trie_recorder(mut self, recorder: &'cache mut dyn TrieRecorder<TrieHash<L>>) -> Self {
+		self.recorder = Some(recorder);
 		self
 	}
 
@@ -69,6 +76,7 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 			db: self.db,
 			root: self.root,
 			cache: self.cache.map(core::cell::RefCell::new),
+			recorder: self.recorder.map(core::cell::RefCell::new),
 			hash_count: 0,
 		}
 	}
@@ -104,7 +112,8 @@ where
 	root: &'db TrieHash<L>,
 	/// The number of hashes performed so far in operations on this trie.
 	hash_count: usize,
-	cache: Option<core::cell::RefCell<&'cache mut dyn crate::TrieCache<L>>>,
+	cache: Option<core::cell::RefCell<&'cache mut dyn TrieCache<L>>>,
+	recorder: Option<core::cell::RefCell<&'cache mut dyn TrieRecorder<TrieHash<L>>>>,
 }
 
 impl<'db, 'cache, L> TrieDB<'db, 'cache, L>

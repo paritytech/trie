@@ -144,30 +144,42 @@ pub trait Query<H: Hasher> {
 
 	/// Decode a byte-slice into the desired item.
 	fn decode(self, data: &[u8]) -> Self::Item;
-
-	/// Record that a node has been passed through.
-	fn record(&mut self, _hash: &H::Out, _data: &[u8], _depth: u32) {}
 }
 
-impl<'a, H: Hasher> Query<H> for &'a mut Recorder<H::Out> {
-	type Item = DBValue;
-	fn decode(self, value: &[u8]) -> DBValue { value.to_vec() }
-	fn record(&mut self, hash: &H::Out, data: &[u8], depth: u32) {
-		(&mut **self).record(hash, data, depth);
+/// Used to report the trie access to the [`TrieRecorder`].
+///
+/// As the trie can use a [`TrieCache`], there are multiple kinds of accesses.
+/// If a cache is used, [`Self::Key`] and [`Self::NodeOwned`] are possible
+/// values. Otherwise only [`Self::EncodedNode`] is a possible value.
+pub enum TrieAccess<'a, H> {
+	/// The given key was accessed and the cache answered the request.
+	///
+	/// This is no real "trie access", but it needs to be recorded. The
+	/// recorder needs to ensure that it fetches the trie nodes to access
+	/// the data under the given `key` before it returns all accessed
+	/// nodes to the user.
+	Key(&'a [u8]),
+	/// The given [`NodeOwned`] was accessed using its `hash`.
+	NodeOwned {
+		hash: H,
+		node_owned: &'a NodeOwned<H>,
+	},
+	/// The given `encoded_node` was accessed using its `hash`.
+	EncodedNode {
+		hash: H,
+		encoded_node: rstd::borrow::Cow<'a, [u8]>,
 	}
+}
+
+/// A trie recorder that can be used to record all kind of trie accesses.
+pub trait TrieRecorder<H> {
+	/// Record the given [`TrieAccess`].
+	fn record<'a>(&mut self, access: TrieAccess<'a, H>);
 }
 
 impl<F, T, H: Hasher> Query<H> for F where F: for<'a> FnOnce(&'a [u8]) -> T {
 	type Item = T;
 	fn decode(self, value: &[u8]) -> T { (self)(value) }
-}
-
-impl<'a, F, T, H: Hasher> Query<H> for (&'a mut Recorder<H::Out>, F) where F: FnOnce(&[u8]) -> T {
-	type Item = T;
-	fn decode(self, value: &[u8]) -> T { (self.1)(value) }
-	fn record(&mut self, hash: &H::Out, data: &[u8], depth: u32) {
-		self.0.record(hash, data, depth)
-	}
 }
 
 /// A key-value datastore implemented as a database-backed modified Merkle tree.
