@@ -16,7 +16,7 @@ use hash_db::{HashDBRef, Hasher};
 use super::{Result, DBValue, TrieDB, Trie, TrieDBIterator, TrieItem, TrieIterator, Query,
 	TrieLayout, CError, TrieHash};
 
-use crate::rstd::boxed::Box;
+use crate::{TrieDBBuilder, rstd::boxed::Box};
 
 /// A `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 /// Additionaly it stores inserted hash-key mappings for later retrieval.
@@ -40,7 +40,7 @@ where
 		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
-		Ok(FatDB { raw: TrieDB::new(db, root)? })
+		Ok(FatDB { raw: TrieDBBuilder::new(db, root)?.build() })
 	}
 
 	/// Get the backing database.

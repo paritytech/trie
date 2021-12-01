@@ -59,7 +59,7 @@ mod node_codec;
 mod trie_codec;
 
 pub use hash_db::{HashDB, HashDBRef, Hasher};
-pub use self::triedb::{TrieDB, TrieDBIterator};
+pub use self::triedb::{TrieDB, TrieDBIterator, TrieDBBuilder};
 pub use self::triedbmut::{TrieDBMut, ChildReference};
 pub use self::sectriedbmut::SecTrieDBMut;
 pub use self::sectriedb::SecTrieDB;
@@ -339,7 +339,7 @@ where
 		root: &'db TrieHash<L>
 	) -> Result<TrieKinds<'db, 'cache, L>, TrieHash<L>, CError<L>> {
 		match self.spec {
-			TrieSpec::Generic => Ok(TrieKinds::Generic(TrieDB::new(db, root)?)),
+			TrieSpec::Generic => Ok(TrieKinds::Generic(TrieDBBuilder::new(db, root)?.build())),
 			TrieSpec::Secure => Ok(TrieKinds::Secure(SecTrieDB::new(db, root)?)),
 			TrieSpec::Fat => Ok(TrieKinds::Fat(FatDB::new(db, root)?)),
 		}

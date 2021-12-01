@@ -17,7 +17,7 @@
 use memory_db::{MemoryDB, HashKey};
 use hash_db::Hasher;
 use keccak_hasher::KeccakHasher;
-use reference_trie::{RefTrieDB, RefTrieDBMut};
+use reference_trie::{RefTrieDBBuilder, RefTrieDBMut};
 use trie_db::{Trie, TrieMut, Recorder, Record};
 
 #[test]
@@ -87,7 +87,7 @@ fn trie_record() {
 		x.insert(b"yo ho ho", b"and a bottle of rum").unwrap();
 	}
 
-	let trie = RefTrieDB::new(&db, &root).unwrap();
+	let trie = RefTrieDBBuilder::new_unchecked(&db, &root).build();
 	let mut recorder = Recorder::new();
 
 	trie.get_with(b"pirate", &mut recorder).unwrap().unwrap();

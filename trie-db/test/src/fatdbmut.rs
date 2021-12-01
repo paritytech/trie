@@ -15,7 +15,7 @@
 use memory_db::{MemoryDB, HashKey};
 use hash_db::{Hasher, EMPTY_PREFIX};
 use keccak_hasher::KeccakHasher;
-use reference_trie::{RefFatDBMut, RefTrieDB};
+use reference_trie::{RefFatDBMut, RefTrieDBBuilder};
 use trie_db::{Trie, TrieMut};
 
 #[test]
@@ -26,7 +26,7 @@ fn fatdbmut_to_trie() {
 		let mut t = RefFatDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	}
-	let t = RefTrieDB::new(&memdb, &root).unwrap();
+	let t = RefTrieDBBuilder::new_unchecked(&memdb, &root).build();
 	assert_eq!(
 		t.get(&KeccakHasher::hash(&[0x01u8, 0x23])),
 		Ok(Some(vec![0x01u8, 0x23])),

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use hash_db::{HashDBRef, Hasher};
+use crate::TrieDBBuilder;
 use crate::rstd::boxed::Box;
 use super::triedb::TrieDB;
 use super::{Result, DBValue, Trie, TrieItem, TrieIterator, Query, TrieLayout, CError, TrieHash};
@@ -40,7 +41,7 @@ where
 		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
-		Ok(SecTrieDB { raw: TrieDB::new(db, root)? })
+		Ok(SecTrieDB { raw: TrieDBBuilder::new(db, root)?.build() })
 	}
 
 	/// Get a reference to the underlying raw `TrieDB` struct.

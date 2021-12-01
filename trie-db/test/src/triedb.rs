@@ -15,8 +15,7 @@
 use memory_db::{MemoryDB, PrefixedKey};
 use keccak_hasher::KeccakHasher;
 use trie_db::{DBValue, Trie, TrieMut, NibbleSlice};
-use reference_trie::{RefTrieDB, RefTrieDBMut, RefLookup};
-use reference_trie::{RefTrieDBNoExt, RefTrieDBMutNoExt};
+use reference_trie::{RefLookup, RefTrieDBBuilder, RefTrieDBMut, RefTrieDBNoExtBuilder, RefTrieDBMutNoExt};
 use hex_literal::hex;
 
 #[test]
@@ -35,7 +34,7 @@ fn iterator_works() {
 		}
 	}
 
-	let trie = RefTrieDB::new(&memdb, &root).unwrap();
+	let trie = RefTrieDBBuilder::new_unchecked(&memdb, &root).build();
 
 	let iter = trie.iter().unwrap();
 	let mut iter_pairs = Vec::new();
@@ -63,7 +62,7 @@ fn iterator_works_without_extension() {
 		}
 	}
 
-	let trie = RefTrieDBNoExt::new(&memdb, &root).unwrap();
+	let trie = RefTrieDBNoExtBuilder::new_unchecked(&memdb, &root).build();
 
 	let iter = trie.iter().unwrap();
 	let mut iter_pairs = Vec::new();
@@ -91,7 +90,7 @@ fn iterator_seek_works() {
 		}
 	}
 
-	let t = RefTrieDB::new(&memdb, &root).unwrap();
+	let t = RefTrieDBBuilder::new_unchecked(&memdb, &root).build();
 
 	let mut iter = t.iter().unwrap();
 	assert_eq!(
@@ -134,7 +133,7 @@ fn iterator_seek_works_without_extension() {
 		}
 	}
 
-	let t = RefTrieDBNoExt::new(&memdb, &root).unwrap();
+	let t = RefTrieDBNoExtBuilder::new_unchecked(&memdb, &root).build();
 
 	let mut iter = t.iter().unwrap();
 	assert_eq!(
@@ -172,7 +171,7 @@ fn iterator() {
 		}
 	}
 
-	let t = RefTrieDB::new(&memdb, &root).unwrap();
+	let t = RefTrieDBBuilder::new_unchecked(&memdb, &root).build();
 	assert_eq!(
 		d.iter()
 			.map(|i| i.clone())
@@ -203,7 +202,7 @@ fn iterator_without_extension() {
 		}
 	}
 
-	let t = RefTrieDBNoExt::new(&memdb, &root).unwrap();
+	let t = RefTrieDBNoExtBuilder::new_unchecked(&memdb, &root).build();
 	assert_eq!(
 		d.iter().map(|i| i.clone()).collect::<Vec<_>>(),
 		t.iter().unwrap().map(|x| x.unwrap().0).collect::<Vec<_>>(),
@@ -235,7 +234,7 @@ fn iterator_seek() {
 		}
 	}
 
-	let t = RefTrieDBNoExt::new(&memdb, &root).unwrap();
+	let t = RefTrieDBNoExtBuilder::new_unchecked(&memdb, &root).build();
 	let mut iter = t.iter().unwrap();
 	assert_eq!(iter.next().unwrap().unwrap(), (b"A".to_vec(), vals[0].clone()));
 	iter.seek(b"!").unwrap();
@@ -283,7 +282,7 @@ fn get_length_with_extension() {
 		t.insert(b"B", b"ABCBAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
 	}
 
-	let t = RefTrieDB::new(&memdb, &root).unwrap();
+	let t = RefTrieDBBuilder::new_unchecked(&memdb, &root).build();
 	assert_eq!(t.get_with(b"A", |x: &[u8]| x.len()).unwrap(), Some(3));
 	assert_eq!(t.get_with(b"B", |x: &[u8]| x.len()).unwrap(), Some(32));
 	assert_eq!(t.get_with(b"C", |x: &[u8]| x.len()).unwrap(), None);
@@ -299,7 +298,7 @@ fn get_length_without_extension() {
 		t.insert(b"B", b"ABCBA").unwrap();
 	}
 
-	let t = RefTrieDBNoExt::new(&memdb, &root).unwrap();
+	let t = RefTrieDBNoExtBuilder::new_unchecked(&memdb, &root).build();
 	assert_eq!(t.get_with(b"A", |x: &[u8]| x.len()).unwrap(), Some(3));
 	assert_eq!(t.get_with(b"B", |x: &[u8]| x.len()).unwrap(), Some(5));
 	assert_eq!(t.get_with(b"C", |x: &[u8]| x.len()).unwrap(), None);
@@ -323,7 +322,7 @@ fn debug_output_supports_pretty_print() {
 		}
 		t.root().clone()
 	};
-	let t = RefTrieDB::new(&memdb, &root).unwrap();
+	let t = RefTrieDBBuilder::new_unchecked(&memdb, &root).build();
 
 	assert_eq!(format!("{:#?}", t),
 "TrieDB {
@@ -390,7 +389,7 @@ fn test_lookup_with_corrupt_data_returns_decoder_error() {
 		t.insert(b"B", b"ABCBA").unwrap();
 	}
 
-	let t = RefTrieDB::new(&memdb, &root).unwrap();
+	let t = RefTrieDBBuilder::new_unchecked(&memdb, &root).build();
 
 	// query for an invalid data type to trigger an error
 	let q = |x: &[u8]| x.len() < 64;

@@ -19,7 +19,7 @@ use criterion::{Criterion, black_box, Fun};
 use keccak_hasher::KeccakHasher;
 use hash_db::Hasher;
 use memory_db::{MemoryDB, HashKey};
-use trie_db::{NodeCodec, TrieDB, TrieDBMut, Trie, TrieMut, TrieLayout, TrieHash};
+use trie_db::{NodeCodec, Trie, TrieDBBuilder, TrieDBMut, TrieHash, TrieLayout, TrieMut};
 use std::default::Default;
 use trie_root::{TrieStream, trie_root};
 use trie_standardmap::*;
@@ -63,7 +63,7 @@ where
 				}
 			}
 			b.iter(&mut ||{
-				let t = TrieDB::<L>::new(&memdb, &root).unwrap();
+				let t = TrieDBBuilder::<L>::new_unchecked(&memdb, &root).build();
 				for n in t.iter().unwrap() {
 					black_box(n).unwrap();
 				}

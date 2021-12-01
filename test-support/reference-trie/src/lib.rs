@@ -28,7 +28,6 @@ use trie_db::{
 	trie_visit,
 	TrieBuilder,
 	TrieRoot,
-	Partial,
 };
 use std::borrow::Borrow;
 use keccak_hasher::KeccakHasher;
@@ -109,7 +108,9 @@ impl Bitmap {
 	}
 }
 
+pub type RefTrieDBBuilder<'a, 'cache> = trie_db::TrieDBBuilder<'a, 'cache, ExtensionLayout>;
 pub type RefTrieDB<'a, 'cache> = trie_db::TrieDB<'a, 'cache, ExtensionLayout>;
+pub type RefTrieDBNoExtBuilder<'a, 'cache> = trie_db::TrieDBBuilder<'a, 'cache, NoExtensionLayout>;
 pub type RefTrieDBNoExt<'a, 'cache> = trie_db::TrieDB<'a, 'cache, NoExtensionLayout>;
 pub type RefTrieDBMut<'a> = trie_db::TrieDBMut<'a, ExtensionLayout>;
 pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMut<'a, NoExtensionLayout>;
@@ -537,28 +538,6 @@ fn partial_from_iterator_encode<I: Iterator<Item = u8>>(
 	output
 }
 
-fn partial_encode(partial: Partial, node_kind: NodeKindNoExt) -> Vec<u8> {
-	let number_nibble_encoded = (partial.0).0 as usize;
-	let nibble_count = partial.1.len() * nibble_ops::NIBBLE_PER_BYTE + number_nibble_encoded;
-
-	let nibble_count = ::std::cmp::min(NIBBLE_SIZE_BOUND_NO_EXT, nibble_count);
-
-	let mut output = Vec::with_capacity(3 + partial.1.len());
-	match node_kind {
-		NodeKindNoExt::Leaf =>
-			NodeHeaderNoExt::Leaf(nibble_count).encode_to(&mut output),
-		NodeKindNoExt::BranchWithValue =>
-			NodeHeaderNoExt::Branch(true, nibble_count).encode_to(&mut output),
-		NodeKindNoExt::BranchNoValue =>
-			NodeHeaderNoExt::Branch(false, nibble_count).encode_to(&mut output),
-	};
-	if number_nibble_encoded > 0 {
-		output.push(nibble_ops::pad_right((partial.0).1));
-	}
-	output.extend_from_slice(&partial.1[..]);
-	output
-}
-
 struct ByteSliceInput<'a> {
 	data: &'a [u8],
 	offset: usize,
@@ -927,7 +906,7 @@ pub fn compare_implementations<X : hash_db::HashDB<KeccakHasher, DBValue> + Eq> 
 	if root_new != root {
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = RefTrieDB::new(&db, &root_new).unwrap();
+			let t = RefTrieDBBuilder::new_unchecked(&db, &root_new).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:x?}", a);
@@ -935,7 +914,7 @@ pub fn compare_implementations<X : hash_db::HashDB<KeccakHasher, DBValue> + Eq> 
 		}
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = RefTrieDB::new(&db, &root).unwrap();
+			let t = RefTrieDBBuilder::new_unchecked(&db, &root).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:x?}", a);
@@ -1085,7 +1064,7 @@ pub fn compare_implementations_no_extension(
 	if root != root_new {
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = RefTrieDBNoExt::new(&db, &root).unwrap();
+			let t = RefTrieDBNoExtBuilder::new_unchecked(&db, &root).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
@@ -1093,7 +1072,7 @@ pub fn compare_implementations_no_extension(
 		}
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = RefTrieDBNoExt::new(&db, &root_new).unwrap();
+			let t = RefTrieDBNoExtBuilder::new_unchecked(&db, &root_new).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
@@ -1130,7 +1109,7 @@ pub fn compare_implementations_no_extension_unordered(
 	if root != root_new {
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = RefTrieDBNoExt::new(&db, &root).unwrap();
+			let t = RefTrieDBNoExtBuilder::new_unchecked(&db, &root).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
@@ -1138,7 +1117,7 @@ pub fn compare_implementations_no_extension_unordered(
 		}
 		{
 			let db : &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = RefTrieDBNoExt::new(&db, &root_new).unwrap();
+			let t = RefTrieDBNoExtBuilder::new_unchecked(&db, &root_new).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);

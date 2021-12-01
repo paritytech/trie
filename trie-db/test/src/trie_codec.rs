@@ -13,7 +13,7 @@
 // limitations under the License.
 
 
-use trie_db::{DBValue, NodeCodec, Recorder, Trie, TrieDB, TrieDBMut, TrieError, TrieHash, TrieLayout, TrieMut, decode_compact, encode_compact};
+use trie_db::{DBValue, NodeCodec, Recorder, Trie, TrieDBBuilder, TrieDBMut, TrieError, TrieHash, TrieLayout, TrieMut, decode_compact, encode_compact};
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 use reference_trie::{
 	ExtensionLayout, NoExtensionLayout,
@@ -43,7 +43,7 @@ fn test_encode_compact<L: TrieLayout>(
 	let mut recorder = Recorder::new();
 	let items = {
 		let mut items = Vec::with_capacity(keys.len());
-		let trie = <TrieDB<L>>::new(&db, &root).unwrap();
+		let trie = <TrieDBBuilder<L>>::new_unchecked(&db, &root).build();
 		for key in keys {
 			let value = trie.get_with(key, &mut recorder).unwrap();
 			items.push((key, value));
@@ -59,7 +59,7 @@ fn test_encode_compact<L: TrieLayout>(
 
 	// Compactly encode the partial trie DB.
 	let compact_trie = {
-		let trie = <TrieDB<L>>::new(&partial_db, &root).unwrap();
+		let trie = <TrieDBBuilder<L>>::new_unchecked(&partial_db, &root).build();
 		encode_compact::<L>(&trie).unwrap()
 	};
 
@@ -79,7 +79,7 @@ fn test_decode_compact<L: TrieLayout>(
 	assert_eq!(used, expected_used);
 
 	// Check that lookups for all items succeed.
-	let trie = <TrieDB<L>>::new(&db, &root).unwrap();
+	let trie = <TrieDBBuilder<L>>::new_unchecked(&db, &root).build();
 	for (key, expected_value) in items {
 		assert_eq!(trie.get(key).unwrap(), expected_value);
 	}
@@ -206,7 +206,7 @@ fn encoding_node_owned_and_decoding_node_works() {
 			}
 		}
 
-		let trie = TrieDB::<ExtensionLayout>::new(&db, &root).unwrap();
+		let trie = TrieDBBuilder::<ExtensionLayout>::new_unchecked(&db, &root).build();
 		for (key, _) in entries.iter() {
 			trie.get_with(key, &mut recorder).unwrap();
 		}

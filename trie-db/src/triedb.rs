@@ -19,11 +19,60 @@ use crate::rstd::boxed::Box;
 use super::node::{NodeHandle, Node, OwnedNode, decode_hash};
 use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query,
-	TrieLayout, CError, TrieHash};
+	TrieLayout, CError, TrieHash, TrieCache};
 use super::nibble::NibbleVec;
 
 #[cfg(feature = "std")]
 use crate::rstd::{fmt, vec::Vec};
+
+/// A builder for creating a [`TrieDB`].
+pub struct TrieDBBuilder<'db, 'cache, L: TrieLayout> {
+	db: &'db dyn HashDBRef<L::Hash, DBValue>,
+	root: &'db TrieHash<L>,
+	cache: Option<&'cache mut dyn TrieCache<L>>,
+}
+
+impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
+	/// Create a new trie-db builder with the backing database `db` and `root`
+	///
+	/// Returns an error if `root` does not exist
+	pub fn new(
+		db: &'db dyn HashDBRef<L::Hash, DBValue>,
+		root: &'db TrieHash<L>,
+	) -> Result<Self, TrieHash<L>, CError<L>> {
+		if !db.contains(root, EMPTY_PREFIX) {
+			Err(Box::new(TrieError::InvalidStateRoot(*root)))
+		} else {
+			Ok(Self { db, root, cache: None })
+		}
+	}
+
+	/// Create a new trie-db builder with the backing database `db` and `root`.
+	///
+	/// Similar to [`Self::new`], but doesn't check if `db` contains `root`.
+	pub fn new_unchecked(
+		db: &'db dyn HashDBRef<L::Hash, DBValue>,
+		root: &'db TrieHash<L>,
+	) -> Self {
+		Self { db, root, cache: None }
+	}
+
+	/// Use the given `cache` for the db.
+	pub fn with_cache(mut self, cache: &'cache mut dyn TrieCache<L>) -> Self {
+		self.cache = Some(cache);
+		self
+	}
+
+	/// Build the [`TrieDB`].
+	pub fn build(self) -> TrieDB<'db, 'cache, L> {
+		TrieDB {
+			db: self.db,
+			root: self.root,
+			cache: self.cache.map(core::cell::RefCell::new),
+			hash_count: 0,
+		}
+	}
+}
 
 /// A `Trie` implementation using a generic `HashDB` backing database, a `Hasher`
 /// implementation to generate keys and a `NodeCodec` implementation to encode/decode
@@ -62,49 +111,6 @@ impl<'db, 'cache, L> TrieDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
-	/// Create a new trie with the backing database `db` and `root`
-	/// Returns an error if `root` does not exist
-	pub fn new(
-		db: &'db dyn HashDBRef<L::Hash, DBValue>,
-		root: &'db TrieHash<L>,
-	) -> Result<Self, TrieHash<L>, CError<L>> {
-		if !db.contains(root, EMPTY_PREFIX) {
-			Err(Box::new(TrieError::InvalidStateRoot(*root)))
-		} else {
-			Ok(TrieDB { db, root, hash_count: 0, cache: None })
-		}
-	}
-
-	/// Create a new trie with the backing database `db`, `root` and `cache`.
-	///
-	/// The cache is used to improve the lookup speed of nodes.
-	///
-	/// Returns an error if `root` does not exist
-	pub fn new_with_cache(
-		db: &'db dyn HashDBRef<L::Hash, DBValue>,
-		root: &'db TrieHash<L>,
-		cache: &'cache mut dyn crate::TrieCache<L>,
-	) -> Result<Self, TrieHash<L>, CError<L>> {
-		if !db.contains(root, EMPTY_PREFIX) {
-			Err(Box::new(TrieError::InvalidStateRoot(*root)))
-		} else {
-			Ok(Self::new_with_cache_unchecked(db, root, cache))
-		}
-	}
-
-	/// Create a new trie with the backing database `db`, `root` and `cache`.
-	///
-	/// The cache is used to improve the lookup speed of nodes.
-	///
-	/// This doesn't check if the given `root` is in the `db`.
-	pub fn new_with_cache_unchecked(
-		db: &'db dyn HashDBRef<L::Hash, DBValue>,
-		root: &'db TrieHash<L>,
-		cache: &'cache mut dyn crate::TrieCache<L>,
-	) -> Self {
-		TrieDB { db, root, hash_count: 0, cache: Some(core::cell::RefCell::new(cache)) }
-	}
-
 	/// Get the backing database.
 	pub fn db(&'db self) -> &'db dyn HashDBRef<L::Hash, DBValue> { self.db }
 
