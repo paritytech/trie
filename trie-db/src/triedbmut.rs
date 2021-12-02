@@ -513,11 +513,13 @@ where
 	) -> Result<StorageHandle, TrieHash<L>, CError<L>> {
 		let node_encoded = self.db.get(&hash, key)
 			.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
+
 		let node = Node::from_encoded::<L::Codec, L::Hash>(
 			hash,
 			&node_encoded,
 			&mut self.storage,
 		)?;
+
 		Ok(self.storage.alloc(Stored::Cached(node, hash)))
 	}
 
@@ -560,6 +562,7 @@ where
 	// Walk the trie, attempting to find the key's node.
 	fn lookup<'key>(
 		&self,
+		full_key: &[u8],
 		mut partial: NibbleSlice<'key>,
 		handle: &NodeHandle<TrieHash<L>>,
 	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
@@ -571,7 +574,7 @@ where
 					query: |v: &[u8]| v.to_vec(),
 					hash: *hash,
 					cache: None,
-				}.look_up(partial),
+				}.look_up(full_key, partial),
 				NodeHandle::InMemory(ref handle) => match self.storage[handle] {
 					Node::Empty => return Ok(None),
 					Node::Leaf(ref key, ref value) => {
@@ -1570,7 +1573,7 @@ where
 	fn get<'x, 'key>(&'x self, key: &'key [u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
 		where 'x: 'key
 	{
-		self.lookup(NibbleSlice::new(key), &self.root_handle)
+		self.lookup(key, NibbleSlice::new(key), &self.root_handle)
 	}
 
 	fn insert(

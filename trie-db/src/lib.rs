@@ -205,11 +205,11 @@ pub trait Trie<L: TrieLayout> {
 
 	/// Search for the key with the given query parameter. See the docs of the `Query`
 	/// trait for more details.
-	fn get_with<'a, 'key, Q: Query<L::Hash>>(
-		&'a self,
-		key: &'key [u8],
-		query: Q
-	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> where 'a: 'key;
+	fn get_with<Q: Query<L::Hash>>(
+		&self,
+		key: &[u8],
+		query: Q,
+	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>;
 
 	/// Returns a depth-first iterator over the elements of trie.
 	fn iter<'a>(&'a self) -> Result<
@@ -317,12 +317,10 @@ impl<'db, 'cache, L: TrieLayout> Trie<L> for TrieKinds<'db, 'cache, L> {
 		wrapper!(self, contains, key)
 	}
 
-	fn get_with<'a, 'key, Q: Query<L::Hash>>(
-		&'a self, key: &'key [u8],
+	fn get_with<Q: Query<L::Hash>>(
+		&self, key: &[u8],
 		query: Q,
-	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
-		where 'a: 'key
-	{
+	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		wrapper!(self, get_with, key, query)
 	}
 

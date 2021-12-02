@@ -167,12 +167,11 @@ where
 {
 	fn root(&self) -> &TrieHash<L> { self.root }
 
-	fn get_with<'a, 'key, Q: Query<L::Hash>>(
-		&'a self,
-		key: &'key [u8],
+	fn get_with<Q: Query<L::Hash>>(
+		&self,
+		key: &[u8],
 		query: Q,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
-		where 'a: 'key,
 	{
 		let mut cache = self.cache.as_ref().map(|c| c.borrow_mut());
 
@@ -180,7 +179,7 @@ where
 			db: self.db,
 			query,
 			hash: *self.root,
-			cache: cache.map(|v| *v),
+			cache: cache.as_mut().map(|v| **v),
 		}.look_up(key, NibbleSlice::new(key))
 	}
 
