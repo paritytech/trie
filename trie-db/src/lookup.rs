@@ -55,7 +55,7 @@ where
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		match self.cache.take() {
 			Some(cache) => self.look_up_with_cache(full_key, nibble_key, cache),
-			None => self.look_up_without_cache(full_key, nibble_key),
+			None => self.look_up_without_cache(nibble_key),
 		}
 	}
 
@@ -185,8 +185,7 @@ where
 	///
 	/// This version doesn't works without the cache.
 	fn look_up_without_cache(
-		mut self,
-		full_key: &[u8],
+		self,
 		nibble_key: NibbleSlice,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let mut partial = nibble_key;

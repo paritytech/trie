@@ -21,6 +21,7 @@ use super::lookup::Lookup;
 use super::{Result, DBValue, Trie, TrieItem, TrieError, TrieIterator, Query,
 	TrieLayout, CError, TrieHash, TrieCache, TrieRecorder};
 use super::nibble::NibbleVec;
+use crate::rstd::ops::DerefMut;
 
 #[cfg(feature = "std")]
 use crate::rstd::{fmt, vec::Vec};
@@ -179,7 +180,7 @@ where
 			db: self.db,
 			query,
 			hash: *self.root,
-			cache: cache.as_mut().map(|v| **v),
+			cache: cache.as_mut().map(|c| *c.deref_mut() as &mut dyn TrieCache<L>),
 		}.look_up(key, NibbleSlice::new(key))
 	}
 

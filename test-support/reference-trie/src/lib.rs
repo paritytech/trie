@@ -119,8 +119,8 @@ pub type RefFatDB<'a, 'cache> = trie_db::FatDB<'a, 'cache, ExtensionLayout>;
 pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, ExtensionLayout>;
 pub type RefSecTrieDB<'a, 'cache> = trie_db::SecTrieDB<'a, 'cache, ExtensionLayout>;
 pub type RefSecTrieDBMut<'a> = trie_db::SecTrieDBMut<'a, ExtensionLayout>;
-pub type RefLookup<'a, Q> = trie_db::Lookup<'a, ExtensionLayout, Q>;
-pub type RefLookupNoExt<'a, Q> = trie_db::Lookup<'a, NoExtensionLayout, Q>;
+pub type RefLookup<'a, 'cache, Q> = trie_db::Lookup<'a, 'cache, ExtensionLayout, Q>;
+pub type RefLookupNoExt<'a, 'cache, Q> = trie_db::Lookup<'a, 'cache, NoExtensionLayout, Q>;
 
 pub fn reference_trie_root<I, A, B>(input: I) -> <KeccakHasher as Hasher>::Out where
 	I: IntoIterator<Item = (A, B)>,
