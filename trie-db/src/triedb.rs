@@ -174,22 +174,14 @@ where
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
 		where 'a: 'key,
 	{
-		match self.cache {
-			Some(ref cache) => {
-				Lookup::<L, Q> {
-					db: self.db,
-					query,
-					hash: *self.root,
-				}.look_up_with_cache(NibbleSlice::new(key), *cache.borrow_mut())
-			},
-			None => {
-				Lookup::<L, Q> {
-					db: self.db,
-					query,
-					hash: *self.root,
-				}.look_up(NibbleSlice::new(key))
-			}
-		}
+		let mut cache = self.cache.as_ref().map(|c| c.borrow_mut());
+
+		Lookup::<L, Q> {
+			db: self.db,
+			query,
+			hash: *self.root,
+			cache: cache.map(|v| *v),
+		}.look_up(key, NibbleSlice::new(key))
 	}
 
 	fn iter<'a>(&'a self)-> Result<

@@ -570,6 +570,7 @@ where
 					db: &self.db,
 					query: |v: &[u8]| v.to_vec(),
 					hash: *hash,
+					cache: None,
 				}.look_up(partial),
 				NodeHandle::InMemory(ref handle) => match self.storage[handle] {
 					Node::Empty => return Ok(None),

@@ -248,7 +248,8 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 
 		// Perform the trie lookup for the next key, recording the sequence of nodes traversed.
 		let mut recorder = Recorder::new();
-		let expected_value = trie.get_with(key_bytes, &mut recorder)?;
+		// let expected_value = trie.get_with(key_bytes, &mut recorder)?;
+		let expected_value: Option<Vec<u8>> = todo!();
 		let mut recorded_nodes = recorder.drain().into_iter().peekable();
 
 		// Skip over recorded nodes already on the stack. Their indexes into the respective vector

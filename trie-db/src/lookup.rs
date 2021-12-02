@@ -15,6 +15,7 @@
 //! Trie lookup via HashDB.
 
 use hash_db::HashDBRef;
+use crate::TrieCache;
 use crate::nibble::NibbleSlice;
 use crate::node::{Node, NodeHandle, decode_hash, NodeOwned, NodeHandleOwned};
 use crate::node_codec::NodeCodec;
@@ -25,34 +26,54 @@ use alloc::vec::Vec;
 use bytes::Bytes;
 
 /// Trie lookup helper object.
-pub struct Lookup<'a, L: TrieLayout, Q: Query<L::Hash>> {
+pub struct Lookup<'a, 'cache, L: TrieLayout, Q: Query<L::Hash>> {
 	/// database to query from.
 	pub db: &'a dyn HashDBRef<L::Hash, DBValue>,
 	/// Query object to record nodes and transform data.
 	pub query: Q,
 	/// Hash to start at
 	pub hash: TrieHash<L>,
+	/// Optional cache that should be used to speed up the lookup.
+	pub cache: Option<&'cache mut dyn TrieCache<L>>,
 }
 
-impl<'a, L, Q> Lookup<'a, L, Q>
+impl<'a, 'cache, L, Q> Lookup<'a, 'cache, L, Q>
 where
 	L: TrieLayout,
 	Q: Query<L::Hash>,
 {
+	/// Look up the given `nibble_key`.
+	///
+	/// If the value is found, it will be passed to the given function to decode or copy.
+	///
+	/// The given `full_key` should be the full key to the data that is requested. This will
+	/// be used when there is a cache to potentially speed up the lookup.
+	pub fn look_up(
+		mut self,
+		full_key: &[u8],
+		nibble_key: NibbleSlice,
+	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
+		match self.cache.take() {
+			Some(cache) => self.look_up_with_cache(full_key, nibble_key, cache),
+			None => self.look_up_without_cache(full_key, nibble_key),
+		}
+	}
+
 	/// Look up the given key. If the value is found, it will be passed to the given
 	/// function to decode or copy.
 	///
 	/// It uses the given cache to speed-up lookups.
-	pub fn look_up_with_cache(
+	fn look_up_with_cache(
 		mut self,
-		key: NibbleSlice,
+		full_key: &[u8],
+		nibble_key: NibbleSlice,
 		cache: &mut dyn crate::TrieCache<L>,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
-		let res = if let Some(value) = cache.lookup_data_for_key(key.right().1) {
+		let res = if let Some(value) = cache.lookup_data_for_key(full_key) {
 			value.clone()
 		} else {
-			let res = self.look_up_with_cache_internal(key.clone(), cache)?;
-			cache.cache_data_for_key(key.right().1, res.clone());
+			let res = self.look_up_with_cache_internal(nibble_key, cache)?;
+			cache.cache_data_for_key(full_key, res.clone());
 			res
 		};
 
@@ -61,17 +82,17 @@ where
 
 	fn look_up_with_cache_internal(
 		&mut self,
-		key: NibbleSlice,
+		nibble_key: NibbleSlice,
 		cache: &mut dyn crate::TrieCache<L>,
 	) -> Result<Option<Bytes>, TrieHash<L>, CError<L>> {
-		let mut partial = key;
+		let mut partial = nibble_key;
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
 			let mut node: &_ = cache.get_or_insert_node(hash, &mut || {
-				let node_data = match self.db.get(&hash, key.mid(key_nibbles).left()) {
+				let node_data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
 					Some(value) => value,
 					None => return Err(Box::new(match depth {
 						0 => TrieError::InvalidStateRoot(hash),
@@ -79,7 +100,7 @@ where
 					}))
 				};
 
-				self.query.record(&hash, &node_data, depth);
+				// self.query.record(&hash, &node_data, depth);
 				let decoded = match L::Codec::decode(&node_data[..]) {
 					Ok(node) => node,
 					Err(e) => {
@@ -95,11 +116,7 @@ where
 			loop {
 				let next_node = match node {
 					NodeOwned::Leaf(slice, value) => {
-						if partial == *slice {
-							return Ok(Some(value.clone()))
-						} else {
-							return Ok(None)
-						}
+						return Ok((partial == *slice).then(|| value.clone()))
 					}
 					NodeOwned::Extension(slice, item) => {
 						if partial.starts_with_vec(&slice) {
@@ -165,17 +182,20 @@ where
 
 	/// Look up the given key. If the value is found, it will be passed to the given
 	/// function to decode or copy.
-	pub fn look_up(
+	///
+	/// This version doesn't works without the cache.
+	fn look_up_without_cache(
 		mut self,
-		key: NibbleSlice,
+		full_key: &[u8],
+		nibble_key: NibbleSlice,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
-		let mut partial = key;
+		let mut partial = nibble_key;
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
-			let node_data = match self.db.get(&hash, key.mid(key_nibbles).left()) {
+			let node_data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
 				Some(value) => value,
 				None => return Err(Box::new(match depth {
 					0 => TrieError::InvalidStateRoot(hash),
@@ -183,7 +203,7 @@ where
 				})),
 			};
 
-			self.query.record(&hash, &node_data, depth);
+			// self.query.record(&hash, &node_data, depth);
 
 			// this loop iterates through all inline children (usually max 1)
 			// without incrementing the depth.
@@ -197,11 +217,7 @@ where
 				};
 				let next_node = match decoded {
 					Node::Leaf(slice, value) => {
-						return Ok(if slice == partial {
-							Some(self.query.decode(value))
-						} else {
-							None
-						})
+						return Ok((slice == partial).then(|| self.query.decode(value)))
 					}
 					Node::Extension(slice, item) => {
 						if partial.starts_with(&slice) {
