@@ -177,6 +177,14 @@ pub trait TrieRecorder<H> {
 	fn record<'a>(&mut self, access: TrieAccess<'a, H>);
 }
 
+impl<T: TrieRecorder<H> + ?Sized, H> TrieRecorder<H> for Option<&mut T> {
+	fn record<'a>(&mut self, access: TrieAccess<'a, H>) {
+		if let Some(ref mut recorder) = self {
+			recorder.record(access);
+		}
+	}
+}
+
 impl<F, T, H: Hasher> Query<H> for F where F: for<'a> FnOnce(&'a [u8]) -> T {
 	type Item = T;
 	fn decode(self, value: &[u8]) -> T { (self)(value) }

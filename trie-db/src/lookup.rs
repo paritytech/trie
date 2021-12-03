@@ -15,7 +15,7 @@
 //! Trie lookup via HashDB.
 
 use hash_db::HashDBRef;
-use crate::TrieCache;
+use crate::{TrieAccess, TrieCache, TrieRecorder};
 use crate::nibble::NibbleSlice;
 use crate::node::{Node, NodeHandle, decode_hash, NodeOwned, NodeHandleOwned};
 use crate::node_codec::NodeCodec;
@@ -35,6 +35,8 @@ pub struct Lookup<'a, 'cache, L: TrieLayout, Q: Query<L::Hash>> {
 	pub hash: TrieHash<L>,
 	/// Optional cache that should be used to speed up the lookup.
 	pub cache: Option<&'cache mut dyn TrieCache<L>>,
+	/// Optional recorder that will be called to record all trie accesses.
+	pub recorder: Option<&'cache mut dyn TrieRecorder<TrieHash<L>>>,
 }
 
 impl<'a, 'cache, L, Q> Lookup<'a, 'cache, L, Q>
@@ -70,6 +72,8 @@ where
 		cache: &mut dyn crate::TrieCache<L>,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let res = if let Some(value) = cache.lookup_data_for_key(full_key) {
+			self.recorder.record(TrieAccess::Key(full_key));
+
 			value.clone()
 		} else {
 			let res = self.look_up_with_cache_internal(nibble_key, cache)?;
@@ -100,7 +104,6 @@ where
 					}))
 				};
 
-				// self.query.record(&hash, &node_data, depth);
 				let decoded = match L::Codec::decode(&node_data[..]) {
 					Ok(node) => node,
 					Err(e) => {
@@ -110,6 +113,8 @@ where
 
 				decoded.to_owned_node::<L>()
 			})?;
+
+			self.recorder.record(TrieAccess::NodeOwned { hash, node_owned: node });
 
 			// this loop iterates through all inline children (usually max 1)
 			// without incrementing the depth.
@@ -185,7 +190,7 @@ where
 	///
 	/// This version doesn't works without the cache.
 	fn look_up_without_cache(
-		self,
+		mut self,
 		nibble_key: NibbleSlice,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let mut partial = nibble_key;
@@ -202,7 +207,7 @@ where
 				})),
 			};
 
-			// self.query.record(&hash, &node_data, depth);
+			self.recorder.record(TrieAccess::EncodedNode { hash, encoded_node: node_data.as_slice().into() });
 
 			// this loop iterates through all inline children (usually max 1)
 			// without incrementing the depth.
@@ -214,6 +219,7 @@ where
 						return Err(Box::new(TrieError::DecoderError(hash, e)))
 					}
 				};
+
 				let next_node = match decoded {
 					Node::Leaf(slice, value) => {
 						return Ok((slice == partial).then(|| self.query.decode(value)))

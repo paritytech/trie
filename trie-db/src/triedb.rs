@@ -175,12 +175,14 @@ where
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
 	{
 		let mut cache = self.cache.as_ref().map(|c| c.borrow_mut());
+		let mut recorder = self.recorder.as_ref().map(|r| r.borrow_mut());
 
 		Lookup::<L, Q> {
 			db: self.db,
 			query,
 			hash: *self.root,
 			cache: cache.as_mut().map(|c| *c.deref_mut() as &mut dyn TrieCache<L>),
+			recorder: recorder.as_mut().map(|r| *r.deref_mut() as &mut dyn TrieRecorder<TrieHash<L>>),
 		}.look_up(key, NibbleSlice::new(key))
 	}
 

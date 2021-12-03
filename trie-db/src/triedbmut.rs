@@ -574,6 +574,7 @@ where
 					query: |v: &[u8]| v.to_vec(),
 					hash: *hash,
 					cache: None,
+					recorder: None,
 				}.look_up(full_key, partial),
 				NodeHandle::InMemory(ref handle) => match self.storage[handle] {
 					Node::Empty => return Ok(None),
