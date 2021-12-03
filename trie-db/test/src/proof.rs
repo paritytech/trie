@@ -58,8 +58,8 @@ fn test_generate_proof<L: TrieLayout>(
 	};
 
 	// Generate proof for the given keys..
+	let proof = generate_proof::<_, L, _, _>(&db, &root, keys.iter()).unwrap();
 	let trie = <TrieDBBuilder<L>>::new_unchecked(&db, &root).build();
-	let proof = generate_proof::<_, L, _, _>(&trie, keys.iter()).unwrap();
 	let items = keys.into_iter()
 		.map(|key| (key, trie.get(key).unwrap()))
 		.collect();

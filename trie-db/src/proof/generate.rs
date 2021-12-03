@@ -14,11 +14,11 @@
 
 //! Generation of compact proofs for Merkle-Patricia tries.
 
-use crate::rstd::{
+use crate::{DBValue, TrieDBBuilder, rstd::{
 	boxed::Box, convert::TryInto, marker::PhantomData, ops::Range, vec, vec::Vec,
-};
+}};
 
-use hash_db::Hasher;
+use hash_db::{HashDBRef, Hasher};
 
 use crate::{
 	CError, ChildReference, nibble::LeftNibbleSlice, nibble_ops::NIBBLE_LENGTH, NibbleSlice, node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode}, NodeCodec, Recorder,
@@ -218,10 +218,10 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 /// Generate a compact proof for key-value pairs in a trie given a set of keys.
 ///
 /// Assumes inline nodes have only inline children.
-pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
+pub fn generate_proof<'a, D, L, I, K>(db: &D, root: &TrieHash<L>, keys: I)
 									  -> TrieResult<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 	where
-		T: Trie<L>,
+		D: HashDBRef<L::Hash, DBValue>,
 		L: TrieLayout,
 		I: IntoIterator<Item=&'a K>,
 		K: 'a + AsRef<[u8]>
@@ -248,8 +248,11 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 
 		// Perform the trie lookup for the next key, recording the sequence of nodes traversed.
 		let mut recorder = Recorder::new();
-		// let expected_value = trie.get_with(key_bytes, &mut recorder)?;
-		let expected_value: Option<Vec<u8>> = todo!();
+		let expected_value = {
+			let trie = TrieDBBuilder::<L>::new_unchecked(db, root).with_trie_recorder(&mut recorder).build();
+			trie.get(key_bytes)?
+		};
+
 		let mut recorded_nodes = recorder.drain().into_iter().peekable();
 
 		// Skip over recorded nodes already on the stack. Their indexes into the respective vector
@@ -282,7 +285,7 @@ pub fn generate_proof<'a, T, L, I, K>(trie: &T, keys: I)
 				// If stack is empty, descend into the root node.
 				None => Step::Descend {
 					child_prefix_len: 0,
-					child: NodeHandle::Hash(trie.root().as_ref()),
+					child: NodeHandle::Hash(root.as_ref()),
 				},
 			};
 
