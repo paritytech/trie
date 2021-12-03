@@ -14,11 +14,11 @@
 
 //! An owning, nibble-oriented byte vector.
 
-use crate::nibble::{NibbleSlice, BackingByteVec};
-use crate::nibble::nibble_ops;
+use crate::nibble::{NibbleSlice, BackingByteVec, nibble_ops};
 use hash_db::Prefix;
 use crate::node_codec::Partial;
 use super::NibbleVec;
+use crate::node::NodeKey;
 
 impl Default for NibbleVec {
 	fn default() -> Self {
@@ -262,6 +262,16 @@ impl<'a> From<NibbleSlice<'a>> for NibbleVec {
 			v.push(s.at(i));
 		}
 		v
+	}
+}
+
+impl From<&NibbleVec> for NodeKey {
+	fn from(nibble: &NibbleVec) -> NodeKey {
+		if let Some(slice) = nibble.as_nibbleslice() {
+			slice.into()
+		} else {
+			(1, nibble.right_iter().collect())
+		}
 	}
 }
 

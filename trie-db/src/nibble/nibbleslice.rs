@@ -270,9 +270,9 @@ impl<'a> NibbleSlice<'a> {
 	}
 }
 
-impl<'a> Into<NodeKey> for NibbleSlice<'a> {
-	fn into(self) -> NodeKey {
-		(self.offset, self.data.into())
+impl<'a> From<NibbleSlice<'a>> for NodeKey {
+	fn from(slice: NibbleSlice<'a>) -> NodeKey {
+		(slice.offset, slice.data.into())
 	}
 }
 

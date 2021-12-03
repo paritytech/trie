@@ -514,4 +514,7 @@ pub trait TrieCache<L: TrieLayout> {
 
 	/// Insert the given [`OwnedNode`] under the given `hash`.
 	fn insert_node(&mut self, hash: TrieHash<L>, node: NodeOwned<TrieHash<L>>);
+
+	/// Get the [`OwnedNode`] that corresponds to the given `hash`.
+	fn get_node(&mut self, hash: &TrieHash<L>) -> Option<&NodeOwned<TrieHash<L>>>;
 }

@@ -24,6 +24,7 @@ use hashbrown::HashSet;
 use bytes::Bytes;
 
 use crate::TrieCache;
+use crate::node::{NodeOwned, NodeHandleOwned};
 use crate::node_codec::NodeCodec;
 use crate::nibble::{NibbleVec, NibbleSlice, nibble_ops, BackingByteVec};
 use crate::rstd::{
@@ -146,6 +147,24 @@ where
 		Ok(handle)
 	}
 
+	// load an inline node into memory or get the hash to do the lookup later.
+	fn inline_or_hash_owned<C, H>(
+		child: &NodeHandleOwned<H::Out>,
+		storage: &mut NodeStorage<H::Out>
+	) -> NodeHandle<H::Out>
+	where
+		C: NodeCodec<HashOut=O>,
+		H: Hasher<Out=O>,
+	{
+		match child {
+			NodeHandleOwned::Hash(hash) => NodeHandle::Hash(*hash),
+			NodeHandleOwned::Inline(node) => {
+				let child = Node::from_node_owned::<C, H>(&**node, storage);
+				NodeHandle::InMemory(storage.alloc(Stored::New(child)))
+			},
+		}
+	}
+
 	// Decode a node from encoded bytes.
 	fn from_encoded<'a, 'b, C, H>(
 		node_hash: H::Out,
@@ -200,6 +219,51 @@ where
 			},
 		};
 		Ok(node)
+	}
+
+	// Decode a node from a [`NodeOwned`].
+	fn from_node_owned<'a, 'b, C, H>(
+		node_owned: &NodeOwned<H::Out>,
+		storage: &'b mut NodeStorage<H::Out>,
+	) -> Self
+		where
+			C: NodeCodec<HashOut = O>,
+			H: Hasher<Out = O>,
+	{
+		match node_owned {
+			NodeOwned::Empty => Node::Empty,
+			NodeOwned::Leaf(k, v) => Node::Leaf(k.into(), v.clone()),
+			NodeOwned::Extension(key, cb) => {
+				Node::Extension(
+					key.into(),
+					Self::inline_or_hash_owned::<C, H>(cb, storage),
+				)
+			},
+			NodeOwned::Branch(encoded_children, val) => {
+				let mut child = |i: usize| encoded_children[i].as_ref().map(|child| Self::inline_or_hash_owned::<C, H>(child, storage));
+
+				let children = Box::new([
+					child(0), child(1), child(2), child(3),
+					child(4), child(5), child(6), child(7),
+					child(8), child(9), child(10), child(11),
+					child(12), child(13), child(14), child(15),
+				]);
+
+				Node::Branch(children, val.clone())
+			},
+			NodeOwned::NibbledBranch(k, encoded_children, val) => {
+				let mut child = |i: usize| encoded_children[i].as_ref().map(|child| Self::inline_or_hash_owned::<C, H>(child, storage));
+
+				let children = Box::new([
+					child(0), child(1), child(2), child(3),
+					child(4), child(5), child(6), child(7),
+					child(8), child(9), child(10), child(11),
+					child(12), child(13), child(14), child(15),
+				]);
+
+				Node::NibbledBranch(k.into(), children, val.clone())
+			},
+		}
 	}
 
 	// TODO: parallelize
@@ -511,14 +575,19 @@ where
 		hash: TrieHash<L>,
 		key: Prefix,
 	) -> Result<StorageHandle, TrieHash<L>, CError<L>> {
-		let node_encoded = self.db.get(&hash, key)
-			.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
+		let node = match self.cache.as_mut().and_then(|c| c.get_node(&hash)) {
+			Some(node) => Node::from_node_owned::<L::Codec, L::Hash>(&node, &mut self.storage),
+			None => {
+				let node_encoded = self.db.get(&hash, key)
+					.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
 
-		let node = Node::from_encoded::<L::Codec, L::Hash>(
-			hash,
-			&node_encoded,
-			&mut self.storage,
-		)?;
+				Node::from_encoded::<L::Codec, L::Hash>(
+					hash,
+					&node_encoded,
+					&mut self.storage,
+				)?
+			}
+		};
 
 		Ok(self.storage.alloc(Stored::Cached(node, hash)))
 	}
