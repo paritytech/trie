@@ -393,7 +393,7 @@ fn test_lookup_with_corrupt_data_returns_decoder_error() {
 
 	// query for an invalid data type to trigger an error
 	let q = |x: &[u8]| x.len() < 64;
-	let lookup = RefLookup { db: t.db(), query: q, hash: root, cache: None };
+	let lookup = RefLookup { db: t.db(), query: q, hash: root, cache: None, recorder: None };
 	let query_result = lookup.look_up(&b"A"[..], NibbleSlice::new(b"A"));
 	assert_eq!(query_result.unwrap().unwrap(), true);
 }

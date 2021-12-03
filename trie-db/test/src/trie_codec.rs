@@ -43,9 +43,9 @@ fn test_encode_compact<L: TrieLayout>(
 	let mut recorder = Recorder::new();
 	let items = {
 		let mut items = Vec::with_capacity(keys.len());
-		let trie = <TrieDBBuilder<L>>::new_unchecked(&db, &root).build();
+		let trie = <TrieDBBuilder<L>>::new_unchecked(&db, &root).with_trie_recorder(&mut recorder).build();
 		for key in keys {
-			let value = trie.get_with(key, &mut recorder).unwrap();
+			let value = trie.get(key).unwrap();
 			items.push((key, value));
 		}
 		items
@@ -206,9 +206,9 @@ fn encoding_node_owned_and_decoding_node_works() {
 			}
 		}
 
-		let trie = TrieDBBuilder::<ExtensionLayout>::new_unchecked(&db, &root).build();
+		let trie = TrieDBBuilder::<ExtensionLayout>::new_unchecked(&db, &root).with_trie_recorder(&mut recorder).build();
 		for (key, _) in entries.iter() {
-			trie.get_with(key, &mut recorder).unwrap();
+			trie.get(key).unwrap();
 		}
 
 		recorder
