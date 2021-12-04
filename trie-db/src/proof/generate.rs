@@ -249,7 +249,7 @@ pub fn generate_proof<'a, D, L, I, K>(db: &D, root: &TrieHash<L>, keys: I)
 		// Perform the trie lookup for the next key, recording the sequence of nodes traversed.
 		let mut recorder = Recorder::new();
 		let expected_value = {
-			let trie = TrieDBBuilder::<L>::new_unchecked(db, root).with_trie_recorder(&mut recorder).build();
+			let trie = TrieDBBuilder::<L>::new_unchecked(db, root).with_recorder(&mut recorder).build();
 			trie.get(key_bytes)?
 		};
 

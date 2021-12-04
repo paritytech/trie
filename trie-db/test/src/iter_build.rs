@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use reference_trie::{RefTrieDBBuilder, RefTrieDBNoExtBuilder, RefTrieDBMutNoExt, RefTrieDBMut};
-use trie_db::{DBValue, TrieMut, Trie};
+use reference_trie::{RefTrieDBBuilder, RefTrieDBNoExtBuilder, RefTrieDBMutBuilder, RefTrieDBMutNoExtBuilder};
+use trie_db::{DBValue, Trie, TrieMut};
 use memory_db::{MemoryDB, HashKey, PrefixedKey};
 use keccak_hasher::KeccakHasher;
 
@@ -38,11 +38,10 @@ fn root_extension_one () {
 }
 
 fn test_iter(data: Vec<(Vec<u8>, Vec<u8>)>) {
-
 	let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
 	{
-		let mut t = RefTrieDBMut::new(&mut db, &mut root);
+		let mut t = RefTrieDBMutBuilder::new(&mut db, &mut root).build();
 		for i in 0..data.len() {
 			let key: &[u8]= &data[i].0;
 			let value: &[u8] = &data[i].1;
@@ -66,7 +65,7 @@ fn test_iter_no_extension(data: Vec<(Vec<u8>, Vec<u8>)>) {
 	let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
 	{
-		let mut t = RefTrieDBMutNoExt::new(&mut db, &mut root);
+		let mut t = RefTrieDBMutNoExtBuilder::new(&mut db, &mut root).build();
 		for i in 0..data.len() {
 			let key: &[u8]= &data[i].0;
 			let value: &[u8] = &data[i].1;

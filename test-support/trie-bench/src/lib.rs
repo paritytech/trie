@@ -19,7 +19,7 @@ use criterion::{Criterion, black_box, Fun};
 use keccak_hasher::KeccakHasher;
 use hash_db::Hasher;
 use memory_db::{MemoryDB, HashKey};
-use trie_db::{NodeCodec, Trie, TrieDBBuilder, TrieDBMut, TrieHash, TrieLayout, TrieMut};
+use trie_db::{NodeCodec, Trie, TrieDBBuilder, TrieHash, TrieLayout, TrieMut, TrieDBMutBuilder};
 use std::default::Default;
 use trie_root::{TrieStream, trie_root};
 use trie_standardmap::*;
@@ -48,7 +48,7 @@ where
 		Fun::new("Fill", |b, d: &TrieInsertionList| b.iter(&mut ||{
 			let mut memdb = MemoryDB::<_, HashKey<L::Hash>, _>::new(&L::Codec::empty_node()[..]);
 			let mut root = <TrieHash<L>>::default();
-			let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);
+			let mut t = TrieDBMutBuilder::<L>::new(&mut memdb, &mut root).build();
 			for i in d.0.iter() {
 				t.insert(&i.0, &i.1).unwrap();
 			}
@@ -57,7 +57,7 @@ where
 			let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(&L::Codec::empty_node()[..]);
 			let mut root = <TrieHash<L>>::default();
 			{
-				let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);
+				let mut t = TrieDBMutBuilder::<L>::new(&mut memdb, &mut root).build();
 				for i in d.0.iter() {
 					t.insert(&i.0, &i.1).unwrap();
 				}

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 
-use trie_db::{DBValue, NodeCodec, Recorder, Trie, TrieDBBuilder, TrieDBMut, TrieError, TrieHash, TrieLayout, TrieMut, decode_compact, encode_compact};
+use trie_db::{DBValue, NodeCodec, Recorder, Trie, TrieDBBuilder, TrieError, TrieHash, TrieLayout, TrieMut, decode_compact, encode_compact, TrieDBMutBuilder};
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 use reference_trie::{
 	ExtensionLayout, NoExtensionLayout,
@@ -31,7 +31,7 @@ fn test_encode_compact<L: TrieLayout>(
 		let mut db = <MemoryDB<L::Hash>>::default();
 		let mut root = Default::default();
 		{
-			let mut trie = <TrieDBMut<L>>::new(&mut db, &mut root);
+			let mut trie = <TrieDBMutBuilder<L>>::new(&mut db, &mut root).build();
 			for (key, value) in entries.iter() {
 				trie.insert(key, value).unwrap();
 			}
@@ -43,7 +43,7 @@ fn test_encode_compact<L: TrieLayout>(
 	let mut recorder = Recorder::new();
 	let items = {
 		let mut items = Vec::with_capacity(keys.len());
-		let trie = <TrieDBBuilder<L>>::new_unchecked(&db, &root).with_trie_recorder(&mut recorder).build();
+		let trie = <TrieDBBuilder<L>>::new_unchecked(&db, &root).with_recorder(&mut recorder).build();
 		for key in keys {
 			let value = trie.get(key).unwrap();
 			items.push((key, value));
@@ -200,13 +200,13 @@ fn encoding_node_owned_and_decoding_node_works() {
 		let mut root = Default::default();
 		let mut recorder = Recorder::<TrieHash<ExtensionLayout>>::new();
 		{
-			let mut trie = <TrieDBMut<ExtensionLayout>>::new(&mut db, &mut root);
+			let mut trie = <TrieDBMutBuilder<ExtensionLayout>>::new(&mut db, &mut root).build();
 			for (key, value) in entries.iter() {
 				trie.insert(key, value).unwrap();
 			}
 		}
 
-		let trie = TrieDBBuilder::<ExtensionLayout>::new_unchecked(&db, &root).with_trie_recorder(&mut recorder).build();
+		let trie = TrieDBBuilder::<ExtensionLayout>::new_unchecked(&db, &root).with_recorder(&mut recorder).build();
 		for (key, _) in entries.iter() {
 			trie.get(key).unwrap();
 		}

@@ -19,15 +19,15 @@ use trie_db::{DBValue, TrieMut, NodeCodec,};
 use memory_db::{MemoryDB, PrefixedKey};
 use hash_db::{Hasher, HashDB};
 use keccak_hasher::KeccakHasher;
-use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMutAllowEmpty, RefTrieDBMut,
-	ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension};
+use reference_trie::{RefTrieDBMutNoExt, RefTrieDBMut, RefTrieDBMutAllowEmptyBuilder,
+	ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension, RefTrieDBMutBuilder, RefTrieDBMutNoExtBuilder};
 
 fn populate_trie<'db>(
 	db: &'db mut dyn HashDB<KeccakHasher, DBValue>,
 	root: &'db mut <KeccakHasher as Hasher>::Out,
 	v: &[(Vec<u8>, Vec<u8>)]
 ) -> RefTrieDBMut<'db> {
-	let mut t = RefTrieDBMut::new(db, root);
+	let mut t = RefTrieDBMutBuilder::new(db, root).build();
 	for i in 0..v.len() {
 		let key: &[u8]= &v[i].0;
 		let val: &[u8] = &v[i].1;
@@ -48,7 +48,7 @@ fn populate_trie_no_extension<'db>(
 	root: &'db mut <KeccakHasher as Hasher>::Out,
 	v: &[(Vec<u8>, Vec<u8>)]
 ) -> RefTrieDBMutNoExt<'db> {
-	let mut t = RefTrieDBMutNoExt::new(db, root);
+	let mut t = RefTrieDBMutNoExtBuilder::new(db, root).build();
 	for i in 0..v.len() {
 		let key: &[u8]= &v[i].0;
 		let val: &[u8] = &v[i].1;
@@ -161,7 +161,7 @@ fn playpen() {
 fn init() {
 	let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+	let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
 	let hashed_null_node = reference_hashed_null_node();
 	assert_eq!(*t.root(), hashed_null_node);
 }
@@ -170,7 +170,7 @@ fn init() {
 fn insert_on_empty() {
 	let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+	let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
 	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	assert_eq!(
 		*t.root(),
@@ -185,7 +185,7 @@ fn remove_to_empty() {
 	let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
 	{
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
 
 		t.insert(&[0x01], big_value).unwrap();
 		t.insert(&[0x01, 0x23], big_value).unwrap();
@@ -206,7 +206,7 @@ fn remove_to_empty_no_extension() {
 	let mut memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
 	let mut root = Default::default();
 	{
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMutNoExtBuilder::new(&mut memdb, &mut root).build();
 
 		t.insert(&[0x01, 0x23], big_value3).unwrap();
 		t.insert(&[0x01], big_value2).unwrap();
@@ -224,7 +224,7 @@ fn remove_to_empty_no_extension() {
 fn insert_replace_root() {
 	let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+	let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
 	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	t.insert(&[0x01u8, 0x23], &[0x23u8, 0x45]).unwrap();
 	assert_eq!(
@@ -237,7 +237,7 @@ fn insert_replace_root() {
 fn insert_make_branch_root() {
 	let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+	let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
 	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	t.insert(&[0x11u8, 0x23], &[0x11u8, 0x23]).unwrap();
 	assert_eq!(*t.root(), reference_trie_root(vec![
@@ -250,7 +250,7 @@ fn insert_make_branch_root() {
 fn insert_into_branch_root() {
 	let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+	let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
 	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	t.insert(&[0xf1u8, 0x23], &[0xf1u8, 0x23]).unwrap();
 	t.insert(&[0x81u8, 0x23], &[0x81u8, 0x23]).unwrap();
@@ -265,7 +265,7 @@ fn insert_into_branch_root() {
 fn insert_value_into_branch_root() {
 	let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+	let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
 	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	t.insert(&[], &[0x0]).unwrap();
 	assert_eq!(*t.root(), reference_trie_root(vec![
@@ -278,7 +278,7 @@ fn insert_value_into_branch_root() {
 fn insert_split_leaf() {
 	let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+	let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
 	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	t.insert(&[0x01u8, 0x34], &[0x01u8, 0x34]).unwrap();
 	assert_eq!(*t.root(), reference_trie_root(vec![
@@ -291,7 +291,7 @@ fn insert_split_leaf() {
 fn insert_split_extenstion() {
 	let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+	let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
 	t.insert(&[0x01, 0x23, 0x45], &[0x01]).unwrap();
 	t.insert(&[0x01, 0xf3, 0x45], &[0x02]).unwrap();
 	t.insert(&[0x01, 0xf3, 0xf5], &[0x03]).unwrap();
@@ -309,7 +309,7 @@ fn insert_big_value() {
 
 	let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+	let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
 	t.insert(&[0x01u8, 0x23], big_value0).unwrap();
 	t.insert(&[0x11u8, 0x23], big_value1).unwrap();
 	assert_eq!(*t.root(), reference_trie_root(vec![
@@ -324,7 +324,7 @@ fn insert_duplicate_value() {
 
 	let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+	let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
 	t.insert(&[0x01u8, 0x23], big_value).unwrap();
 	t.insert(&[0x11u8, 0x23], big_value).unwrap();
 	assert_eq!(*t.root(), reference_trie_root(vec![
@@ -337,7 +337,7 @@ fn insert_duplicate_value() {
 fn test_at_empty() {
 	let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
-	let t = RefTrieDBMut::new(&mut memdb, &mut root);
+	let t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
 	assert_eq!(t.get(&[0x5]).unwrap(), None);
 }
 
@@ -345,7 +345,7 @@ fn test_at_empty() {
 fn test_at_one() {
 	let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+	let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
 	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), vec![0x1u8, 0x23]);
 	t.commit();
@@ -356,7 +356,7 @@ fn test_at_one() {
 fn test_at_three() {
 	let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+	let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
 	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	t.insert(&[0xf1u8, 0x23], &[0xf1u8, 0x23]).unwrap();
 	t.insert(&[0x81u8, 0x23], &[0x81u8, 0x23]).unwrap();
@@ -414,12 +414,12 @@ fn test_trie_existing() {
 	let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
 	{
-		let mut t = RefTrieDBMut::new(&mut db, &mut root);
+		let mut t = RefTrieDBMutBuilder::new(&mut db, &mut root).build();
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	}
 
 	{
-		 let _ = RefTrieDBMut::from_existing(&mut db, &mut root);
+		 RefTrieDBMutBuilder::from_existing(&mut db, &mut root).unwrap().build();
 	}
 }
 
@@ -436,7 +436,7 @@ fn insert_empty_denied() {
 
 	let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMut::new(&mut db, &mut root);
+	let mut t = RefTrieDBMutBuilder::new(&mut db, &mut root).build();
 	for &(ref key, ref value) in &x {
 		t.insert(key, value).unwrap();
 	}
@@ -456,7 +456,7 @@ fn insert_empty_denied() {
 fn insert_empty_allowed() {
 	let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMutAllowEmpty::new(&mut db, &mut root);
+	let mut t = RefTrieDBMutAllowEmptyBuilder::new(&mut db, &mut root).build();
 	t.insert(b"test", &[]).unwrap();
 	assert_eq!(*t.root(), reference_trie_root(vec![(b"test".to_vec(), Vec::new())]));
 	assert_eq!(t.get(b"test").unwrap(), Some(Vec::new()));
@@ -475,7 +475,7 @@ fn return_old_values() {
 
 	let mut db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
-	let mut t = RefTrieDBMut::new(&mut db, &mut root);
+	let mut t = RefTrieDBMutBuilder::new(&mut db, &mut root).build();
 	for &(ref key, ref value) in &x {
 		assert!(t.insert(key, value).unwrap().is_none());
 		assert_eq!(t.insert(key, value).unwrap(), Some(value.clone()));

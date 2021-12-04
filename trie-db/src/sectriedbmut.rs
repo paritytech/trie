@@ -13,6 +13,8 @@
 // limitations under the License.
 
 use hash_db::{HashDB, Hasher};
+use crate::triedbmut::TrieDBMutBuilder;
+
 use super::{Result, DBValue, TrieMut, TrieDBMut, TrieLayout, TrieHash, CError};
 
 /// A mutable `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
@@ -34,7 +36,7 @@ where
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
 	pub fn new(db: &'db mut dyn HashDB<L::Hash, DBValue>, root: &'db mut TrieHash<L>) -> Self {
-		SecTrieDBMut { raw: TrieDBMut::new(db, root) }
+		SecTrieDBMut { raw: TrieDBMutBuilder::new(db, root).build() }
 	}
 
 	/// Create a new trie with the backing database `db` and `root`.
@@ -44,7 +46,7 @@ where
 		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
-		Ok(SecTrieDBMut { raw: TrieDBMut::from_existing(db, root)? })
+		Ok(SecTrieDBMut { raw: TrieDBMutBuilder::from_existing(db, root)?.build() })
 	}
 
 	/// Get the backing database.

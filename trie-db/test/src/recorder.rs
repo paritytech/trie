@@ -17,8 +17,8 @@
 use memory_db::{MemoryDB, HashKey};
 use hash_db::Hasher;
 use keccak_hasher::KeccakHasher;
-use reference_trie::{RefTrieDBBuilder, RefTrieDBMut};
-use trie_db::{Trie, TrieMut, Recorder, Record, TrieRecorder, TrieAccess};
+use reference_trie::{RefTrieDBBuilder, RefTrieDBMutBuilder};
+use trie_db::{Recorder, Record, TrieRecorder, TrieAccess, Trie, TrieMut};
 
 #[test]
 fn basic_recorder() {
@@ -50,7 +50,7 @@ fn trie_record() {
 	let mut db = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
 	let mut root = Default::default();
 	{
-		let mut x = RefTrieDBMut::new(&mut db, &mut root);
+		let mut x = RefTrieDBMutBuilder::new(&mut db, &mut root).build();
 
 		x.insert(b"dog", b"cat").unwrap();
 		x.insert(b"lunch", b"time").unwrap();
@@ -64,7 +64,7 @@ fn trie_record() {
 
 	{
 		let mut recorder = Recorder::new();
-		let trie = RefTrieDBBuilder::new_unchecked(&db, &root).with_trie_recorder(&mut recorder).build();
+		let trie = RefTrieDBBuilder::new_unchecked(&db, &root).with_recorder(&mut recorder).build();
 
 		trie.get(b"pirate").unwrap().unwrap();
 
@@ -86,7 +86,7 @@ fn trie_record() {
 
 	{
 		let mut recorder = Recorder::new();
-		let trie = RefTrieDBBuilder::new_unchecked(&db, &root).with_trie_recorder(&mut recorder).build();
+		let trie = RefTrieDBBuilder::new_unchecked(&db, &root).with_recorder(&mut recorder).build();
 		trie.get(b"letter").unwrap().unwrap();
 
 		let nodes: Vec<_> = recorder.drain().into_iter().map(|r| r.data).collect();

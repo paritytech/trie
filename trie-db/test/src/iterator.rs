@@ -20,7 +20,7 @@ use trie_db::{
 use hex_literal::hex;
 use hash_db::{HashDB, Hasher};
 use keccak_hasher::KeccakHasher;
-use reference_trie::{RefTrieDBMut, RefTrieDBBuilder, RefTrieDBNoExtBuilder, RefTrieDBMutNoExt};
+use reference_trie::{RefTrieDBBuilder, RefTrieDBNoExtBuilder, RefTrieDBMutBuilder, RefTrieDBMutNoExtBuilder};
 
 type MemoryDB = memory_db::MemoryDB<KeccakHasher, memory_db::PrefixedKey<KeccakHasher>, DBValue>;
 
@@ -30,7 +30,7 @@ fn build_trie_db_with_extension(pairs: &[(Vec<u8>, Vec<u8>)])
 	let mut memdb = MemoryDB::default();
 	let mut root = Default::default();
 	{
-		let mut t = RefTrieDBMut::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
 		for (x, y) in pairs.iter() {
 			t.insert(x, y).unwrap();
 		}
@@ -44,7 +44,7 @@ fn build_trie_db_without_extension(pairs: &[(Vec<u8>, Vec<u8>)])
 	let mut memdb = MemoryDB::default();
 	let mut root = Default::default();
 	{
-		let mut t = RefTrieDBMutNoExt::new(&mut memdb, &mut root);
+		let mut t = RefTrieDBMutNoExtBuilder::new(&mut memdb, &mut root).build();
 		for (x, y) in pairs.iter() {
 			t.insert(x, y).unwrap();
 		}

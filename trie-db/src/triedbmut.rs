@@ -23,7 +23,7 @@ use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use hashbrown::HashSet;
 use bytes::Bytes;
 
-use crate::TrieCache;
+use crate::{TrieCache, TrieRecorder};
 use crate::node::{NodeOwned, NodeHandleOwned};
 use crate::node_codec::NodeCodec;
 use crate::nibble::{NibbleVec, NibbleSlice, nibble_ops, BackingByteVec};
@@ -448,6 +448,70 @@ impl<'a, H> Index<&'a StorageHandle> for NodeStorage<H> {
 	}
 }
 
+/// A builder for creating a [`TrieDBMut`].
+pub struct TrieDBMutBuilder<'db, L: TrieLayout> {
+	db: &'db mut dyn HashDB<L::Hash, DBValue>,
+	root: &'db mut TrieHash<L>,
+	cache: Option<&'db mut dyn TrieCache<L>>,
+	recorder: Option<&'db mut dyn TrieRecorder<TrieHash<L>>>,
+}
+
+impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
+	/// Create a builder for constructing a new trie with the backing database `db` and empty `root`.
+	pub fn new(db: &'db mut dyn HashDB<L::Hash, DBValue>, root: &'db mut TrieHash<L>) -> Self {
+		*root = L::Codec::hashed_null_node();
+
+		Self {
+			root,
+			db,
+			cache: None,
+			recorder: None,
+		}
+	}
+
+	/// Create a builder for constructing a new trie with the backing database `db` and `root`.
+	///
+	/// Returns an error if `root` does not exist.
+	pub fn from_existing(
+		db: &'db mut dyn HashDB<L::Hash, DBValue>,
+		root: &'db mut TrieHash<L>,
+	) -> Result<Self, TrieHash<L>, CError<L>> {
+		if !db.contains(root, EMPTY_PREFIX) {
+			return Err(Box::new(TrieError::InvalidStateRoot(*root)));
+		}
+
+		Ok(Self { db, root, cache: None, recorder: None })
+	}
+
+	/// Use the given `cache` for the db.
+	pub fn with_cache(mut self, cache: &'db mut dyn TrieCache<L>) -> Self {
+		self.cache = Some(cache);
+		self
+	}
+
+	/// Use the given `recorder` to record trie accesses.
+	pub fn with_recorder(mut self, recorder: &'db mut dyn TrieRecorder<TrieHash<L>>) -> Self {
+		self.recorder = Some(recorder);
+		self
+	}
+
+	/// Build the [`TrieDBMut`].
+	pub fn build(self) -> TrieDBMut<'db, L> {
+		let root_handle = NodeHandle::Hash(*self.root);
+
+		TrieDBMut {
+			db: self.db,
+			root: self.root,
+			cache: self.cache,
+			recorder: self.recorder.map(core::cell::RefCell::new),
+			hash_count: 0,
+			storage: NodeStorage::empty(),
+			death_row: Default::default(),
+			root_handle,
+		}
+	}
+}
+
 /// A `Trie` implementation using a generic `HashDB` backing database.
 ///
 /// Use it as a `TrieMut` trait object. You can use `db()` to get the backing database object.
@@ -487,78 +551,16 @@ where
 	/// The number of hash operations this trie has performed.
 	/// Note that none are performed until changes are committed.
 	hash_count: usize,
+	/// Optional cache for speeding up the lookup of nodes.
 	cache: Option<&'a mut dyn TrieCache<L>>,
+	/// Optional trie recorder for recording trie accesses.
+	recorder: Option<core::cell::RefCell<&'a mut dyn TrieRecorder<TrieHash<L>>>>,
 }
 
 impl<'a, L> TrieDBMut<'a, L>
 where
 	L: TrieLayout,
 {
-	/// Create a new trie with backing database `db` and empty `root`.
-	pub fn new(db: &'a mut dyn HashDB<L::Hash, DBValue>, root: &'a mut TrieHash<L>) -> Self {
-		*root = L::Codec::hashed_null_node();
-		let root_handle = NodeHandle::Hash(L::Codec::hashed_null_node());
-
-		TrieDBMut {
-			storage: NodeStorage::empty(),
-			db,
-			root,
-			root_handle,
-			death_row: HashSet::new(),
-			hash_count: 0,
-			cache: None,
-		}
-	}
-
-	/// Create a new trie with the backing database `db` and `root.
-	///
-	/// Returns an error if `root` does not exist.
-	pub fn from_existing(
-		db: &'a mut dyn HashDB<L::Hash, DBValue>,
-		root: &'a mut TrieHash<L>,
-	) -> Result<Self, TrieHash<L>, CError<L>> {
-		if !db.contains(root, EMPTY_PREFIX) {
-			return Err(Box::new(TrieError::InvalidStateRoot(*root)));
-		}
-
-		let root_handle = NodeHandle::Hash(*root);
-		Ok(TrieDBMut {
-			storage: NodeStorage::empty(),
-			db,
-			root,
-			root_handle,
-			death_row: HashSet::new(),
-			hash_count: 0,
-			cache: None,
-		})
-	}
-
-	/// Create a new trie with the backing database `db` and `root.
-	///
-	/// Will use the given `cache` to cache new nodes.
-	///
-	/// Returns an error if `root` does not exist.
-	pub fn from_existing_with_cache(
-		db: &'a mut dyn HashDB<L::Hash, DBValue>,
-		root: &'a mut TrieHash<L>,
-		cache: &'a mut dyn TrieCache<L>,
-	) -> Result<Self, TrieHash<L>, CError<L>> {
-		if !db.contains(root, EMPTY_PREFIX) {
-			return Err(Box::new(TrieError::InvalidStateRoot(*root)));
-		}
-
-		let root_handle = NodeHandle::Hash(*root);
-		Ok(TrieDBMut {
-			storage: NodeStorage::empty(),
-			db,
-			root,
-			root_handle,
-			death_row: HashSet::new(),
-			hash_count: 0,
-			cache: Some(cache),
-		})
-	}
-
 	/// Get the backing database.
 	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue> {
 		self.db

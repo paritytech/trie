@@ -60,7 +60,7 @@ mod trie_codec;
 
 pub use hash_db::{HashDB, HashDBRef, Hasher};
 pub use self::triedb::{TrieDB, TrieDBIterator, TrieDBBuilder};
-pub use self::triedbmut::{TrieDBMut, ChildReference};
+pub use self::triedbmut::{TrieDBMut, ChildReference, TrieDBMutBuilder};
 pub use self::sectriedbmut::SecTrieDBMut;
 pub use self::sectriedb::SecTrieDB;
 pub use self::fatdb::{FatDB, FatDBIterator};
@@ -370,7 +370,7 @@ where
 		root: &'db mut TrieHash<L>,
 	) -> Box<dyn TrieMut<L> + 'db> {
 		match self.spec {
-			TrieSpec::Generic => Box::new(TrieDBMut::<L>::new(db, root)),
+			TrieSpec::Generic => Box::new(TrieDBMutBuilder::<L>::new(db, root).build()),
 			TrieSpec::Secure => Box::new(SecTrieDBMut::<L>::new(db, root)),
 			TrieSpec::Fat => Box::new(FatDBMut::<L>::new(db, root)),
 		}
@@ -383,7 +383,7 @@ where
 		root: &'db mut TrieHash<L>,
 	) -> Result<Box<dyn TrieMut<L> + 'db>, TrieHash<L>, CError<L>> {
 		match self.spec {
-			TrieSpec::Generic => Ok(Box::new(TrieDBMut::<L>::from_existing(db, root)?)),
+			TrieSpec::Generic => Ok(Box::new(TrieDBMutBuilder::<L>::from_existing(db, root)?.build())),
 			TrieSpec::Secure => Ok(Box::new(SecTrieDBMut::<L>::from_existing(db, root)?)),
 			TrieSpec::Fat => Ok(Box::new(FatDBMut::<L>::from_existing(db, root)?)),
 		}

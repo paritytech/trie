@@ -19,7 +19,7 @@
 
 use hash_db::{Hasher, HashDB, Prefix};
 use crate::rstd::{cmp::max, marker::PhantomData, vec::Vec};
-use crate::triedbmut::{ChildReference};
+use crate::triedbmut::ChildReference;
 use crate::nibble::NibbleSlice;
 use crate::nibble::nibble_ops;
 use crate::node_codec::NodeCodec;
