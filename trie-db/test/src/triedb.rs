@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use hash_db::{EMPTY_PREFIX, HashDB};
 use memory_db::{MemoryDB, PrefixedKey};
 use keccak_hasher::KeccakHasher;
-use trie_db::{DBValue, Trie, NibbleSlice, TrieMut};
+use trie_db::{DBValue, Trie, NibbleSlice, TrieMut, Recorder};
 use reference_trie::{RefLookup, RefTrieDBBuilder, RefTrieDBNoExtBuilder, RefTrieDBMutBuilder, RefTrieDBMutNoExtBuilder};
 use hex_literal::hex;
 
@@ -395,4 +396,47 @@ fn test_lookup_with_corrupt_data_returns_decoder_error() {
 	let lookup = RefLookup { db: t.db(), query: q, hash: root, cache: None, recorder: None };
 	let query_result = lookup.look_up(&b"A"[..], NibbleSlice::new(b"A"));
 	assert_eq!(query_result.unwrap().unwrap(), true);
+}
+
+#[test]
+fn test_recorder() {
+	let d = vec![
+		b"A".to_vec(),
+		b"AA".to_vec(),
+		b"AB".to_vec(),
+		// This is too long and should not be included in the proof, as it is also not accessed
+		vec![b'B'; 32],
+	];
+
+	let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+	let mut root = Default::default();
+	{
+		let mut t = RefTrieDBMutNoExtBuilder::new(&mut memdb, &mut root).build();
+		for x in &d {
+			t.insert(x, x).unwrap();
+		}
+	}
+
+	let mut recorder = Recorder::new();
+	{
+		let trie = RefTrieDBNoExtBuilder::new_unchecked(&memdb, &root).with_recorder(&mut recorder).build();
+
+		trie.get(&b"A"[..]).unwrap().unwrap();
+		trie.get(&b"AA"[..]).unwrap().unwrap();
+		trie.get(&b"AB"[..]).unwrap().unwrap();
+	}
+
+	let mut partial_db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+	for record in recorder.drain() {
+		partial_db.insert(EMPTY_PREFIX, &record.data);
+	}
+
+	{
+		let trie = RefTrieDBNoExtBuilder::new_unchecked(&partial_db, &root).build();
+
+		trie.get(&b"A"[..]).unwrap().unwrap();
+		trie.get(&b"AA"[..]).unwrap().unwrap();
+		trie.get(&b"AB"[..]).unwrap().unwrap();
+		assert!(trie.get(&d[3]).is_err());
+	}
 }
