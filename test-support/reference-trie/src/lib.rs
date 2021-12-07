@@ -18,11 +18,12 @@ use std::fmt;
 use std::iter::once;
 use std::marker::PhantomData;
 use std::ops::Range;
-use parity_scale_codec::{Decode, Input, Output, Encode, Compact, Error as CodecError};
+use parity_scale_codec::{Decode, Input, Output, Encode, Compact, Error as CodecError, Codec};
 use trie_root::Hasher;
+use hashbrown::{HashMap, hash_map::Entry};
 
 use trie_db::{
-	node::{NibbleSlicePlan, NodePlan, NodeHandlePlan},
+	node::{NibbleSlicePlan, NodePlan, NodeHandlePlan, NodeOwned},
 	triedbmut::ChildReference,
 	DBValue,
 	trie_visit,
@@ -30,7 +31,7 @@ use trie_db::{
 	TrieRoot,
 };
 use std::borrow::Borrow;
-use keccak_hasher::KeccakHasher;
+use keccak_hasher::{KeccakHasher, KeccakHash};
 
 use trie_db::{
 	nibble_ops, NodeCodec,
@@ -1172,6 +1173,55 @@ pub fn compare_no_extension_insert_remove(
 	// we are testing the RefTrie code here so we do not sort or check uniqueness
 	// before.
 	assert_eq!(*t.root(), calc_root_no_extension(data2));
+}
+
+/// Example trie cache implementation.
+///
+/// Should not be used for anything in production.
+pub struct TrieCache {
+	data_cache: HashMap<Vec<u8>, Option<bytes::Bytes>>,
+	node_cache: HashMap<KeccakHash, NodeOwned<KeccakHash>>,
+}
+
+impl Default for TrieCache {
+	fn default() -> Self {
+		Self {
+			data_cache: Default::default(),
+			node_cache: Default::default(),
+		}
+	}
+}
+
+impl<L: TrieLayout<Hash = H>, H: Hasher<Out = KeccakHash>> trie_db::TrieCache<L> for TrieCache {
+    fn lookup_data_for_key(&self, key: &[u8]) -> Option<&Option<bytes::Bytes>> {
+        self.data_cache.get(key)
+    }
+
+    fn cache_data_for_key(&mut self, key: &[u8], data: Option<bytes::Bytes>) {
+        self.data_cache.insert(key.to_vec(), data);
+    }
+
+    fn get_or_insert_node(
+		&mut self,
+		hash: KeccakHash,
+		fetch_node: &mut dyn FnMut() -> trie_db::Result<NodeOwned<KeccakHash>, KeccakHash, trie_db::CError<L>>,
+	) -> trie_db::Result<&NodeOwned<KeccakHash>, KeccakHash, trie_db::CError<L>> {
+        match self.node_cache.entry(hash) {
+			Entry::Occupied(e) => Ok(e.into_mut()),
+			Entry::Vacant(e) => {
+				let node = (*fetch_node)()?;
+				Ok(e.insert(node))
+			}
+		}
+    }
+
+    fn insert_node(&mut self, hash: KeccakHash, node: NodeOwned<KeccakHash>) {
+        self.node_cache.insert(hash, node);
+    }
+
+    fn get_node(&mut self, hash: &KeccakHash) -> Option<&NodeOwned<KeccakHash>> {
+        self.node_cache.get(hash)
+    }
 }
 
 #[cfg(test)]

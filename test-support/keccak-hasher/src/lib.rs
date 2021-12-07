@@ -18,11 +18,14 @@ use hash_db::Hasher;
 use tiny_keccak::{Hasher as _, Keccak};
 use hash256_std_hasher::Hash256StdHasher;
 
+/// The keccack hash type.
+pub type KeccakHash = [u8; 32];
+
 /// Concrete `Hasher` impl for the Keccak-256 hash
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct KeccakHasher;
 impl Hasher for KeccakHasher {
-	type Out = [u8; 32];
+	type Out = KeccakHash;
 
 	type StdHasher = Hash256StdHasher;
 
