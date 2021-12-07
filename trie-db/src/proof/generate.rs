@@ -247,7 +247,7 @@ pub fn generate_proof<'a, D, L, I, K>(db: &D, root: &TrieHash<L>, keys: I)
 		unwind_stack(&mut stack, &mut proof_nodes, Some(&key))?;
 
 		// Perform the trie lookup for the next key, recording the sequence of nodes traversed.
-		let mut recorder = Recorder::new();
+		let mut recorder = Recorder::<L>::new();
 		let expected_value = {
 			let trie = TrieDBBuilder::<L>::new_unchecked(db, root).with_recorder(&mut recorder).build();
 			trie.get(key_bytes)?
@@ -263,7 +263,7 @@ pub fn generate_proof<'a, D, L, I, K>(db: &D, root: &TrieHash<L>, keys: I)
 			while let (Some(next_record), Some(next_entry)) =
 			(recorded_nodes.peek(), stack_iter.peek())
 				{
-					if next_entry.node_hash != Some(next_record.hash) {
+					if next_entry.node_hash != Some(next_record.0) {
 						break;
 					}
 					recorded_nodes.next();
@@ -302,7 +302,7 @@ pub fn generate_proof<'a, D, L, I, K>(db: &D, root: &TrieHash<L>, keys: I)
 									the expected hash"
 								);
 							// Proof for `assert_eq` is in the `expect` proof above.
-							assert_eq!(child_record.hash.as_ref(), hash);
+							assert_eq!(child_record.0.as_ref(), hash);
 
 							let output_index = proof_nodes.len();
 							// Insert a placeholder into output which will be replaced when this
@@ -310,8 +310,8 @@ pub fn generate_proof<'a, D, L, I, K>(db: &D, root: &TrieHash<L>, keys: I)
 							proof_nodes.push(Vec::new());
 							StackEntry::new(
 								child_prefix,
-								child_record.data,
-								Some(child_record.hash),
+								child_record.1,
+								Some(child_record.0),
 								Some(output_index),
 							)?
 						}

@@ -18,7 +18,7 @@ use std::fmt;
 use std::iter::once;
 use std::marker::PhantomData;
 use std::ops::Range;
-use parity_scale_codec::{Decode, Input, Output, Encode, Compact, Error as CodecError, Codec};
+use parity_scale_codec::{Decode, Input, Output, Encode, Compact, Error as CodecError};
 use trie_root::Hasher;
 use hashbrown::{HashMap, hash_map::Entry};
 
@@ -28,10 +28,10 @@ use trie_db::{
 	DBValue,
 	trie_visit,
 	TrieBuilder,
-	TrieRoot,
+	TrieRoot, TrieHash,
 };
 use std::borrow::Borrow;
-use keccak_hasher::{KeccakHasher, KeccakHash};
+use keccak_hasher::KeccakHasher;
 
 use trie_db::{
 	nibble_ops, NodeCodec,
@@ -119,6 +119,8 @@ pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMut<'a, NoExtensionLayout>;
 pub type RefTrieDBMutNoExtBuilder<'a> = trie_db::TrieDBMutBuilder<'a, NoExtensionLayout>;
 pub type RefTrieDBMutAllowEmpty<'a> = trie_db::TrieDBMut<'a, AllowEmptyLayout>;
 pub type RefTrieDBMutAllowEmptyBuilder<'a> = trie_db::TrieDBMutBuilder<'a, AllowEmptyLayout>;
+pub type RefTrieDBCache = TrieCache<ExtensionLayout>;
+pub type RefTrieDBCacheNoExt = TrieCache<NoExtensionLayout>;
 pub type RefFatDB<'a, 'cache> = trie_db::FatDB<'a, 'cache, ExtensionLayout>;
 pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, ExtensionLayout>;
 pub type RefSecTrieDB<'a, 'cache> = trie_db::SecTrieDB<'a, 'cache, ExtensionLayout>;
@@ -1178,12 +1180,12 @@ pub fn compare_no_extension_insert_remove(
 /// Example trie cache implementation.
 ///
 /// Should not be used for anything in production.
-pub struct TrieCache {
+pub struct TrieCache<L: TrieLayout> {
 	data_cache: HashMap<Vec<u8>, Option<bytes::Bytes>>,
-	node_cache: HashMap<KeccakHash, NodeOwned<KeccakHash>>,
+	node_cache: HashMap<TrieHash<L>, NodeOwned<TrieHash<L>>>,
 }
 
-impl Default for TrieCache {
+impl<L: TrieLayout> Default for TrieCache<L> {
 	fn default() -> Self {
 		Self {
 			data_cache: Default::default(),
@@ -1192,7 +1194,7 @@ impl Default for TrieCache {
 	}
 }
 
-impl<L: TrieLayout<Hash = H>, H: Hasher<Out = KeccakHash>> trie_db::TrieCache<L> for TrieCache {
+impl<L: TrieLayout> trie_db::TrieCache<L> for TrieCache<L> {
     fn lookup_data_for_key(&self, key: &[u8]) -> Option<&Option<bytes::Bytes>> {
         self.data_cache.get(key)
     }
@@ -1203,9 +1205,9 @@ impl<L: TrieLayout<Hash = H>, H: Hasher<Out = KeccakHash>> trie_db::TrieCache<L>
 
     fn get_or_insert_node(
 		&mut self,
-		hash: KeccakHash,
-		fetch_node: &mut dyn FnMut() -> trie_db::Result<NodeOwned<KeccakHash>, KeccakHash, trie_db::CError<L>>,
-	) -> trie_db::Result<&NodeOwned<KeccakHash>, KeccakHash, trie_db::CError<L>> {
+		hash: TrieHash<L>,
+		fetch_node: &mut dyn FnMut() -> trie_db::Result<NodeOwned<TrieHash<L>>, TrieHash<L>, trie_db::CError<L>>,
+	) -> trie_db::Result<&NodeOwned<TrieHash<L>>, TrieHash<L>, trie_db::CError<L>> {
         match self.node_cache.entry(hash) {
 			Entry::Occupied(e) => Ok(e.into_mut()),
 			Entry::Vacant(e) => {
@@ -1215,11 +1217,11 @@ impl<L: TrieLayout<Hash = H>, H: Hasher<Out = KeccakHash>> trie_db::TrieCache<L>
 		}
     }
 
-    fn insert_node(&mut self, hash: KeccakHash, node: NodeOwned<KeccakHash>) {
+    fn insert_node(&mut self, hash: TrieHash<L>, node: NodeOwned<TrieHash<L>>) {
         self.node_cache.insert(hash, node);
     }
 
-    fn get_node(&mut self, hash: &KeccakHash) -> Option<&NodeOwned<KeccakHash>> {
+    fn get_node(&mut self, hash: &TrieHash<L>) -> Option<&NodeOwned<TrieHash<L>>> {
         self.node_cache.get(hash)
     }
 }

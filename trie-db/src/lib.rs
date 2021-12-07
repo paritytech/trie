@@ -65,7 +65,7 @@ pub use self::sectriedbmut::SecTrieDBMut;
 pub use self::sectriedb::SecTrieDB;
 pub use self::fatdb::{FatDB, FatDBIterator};
 pub use self::fatdbmut::FatDBMut;
-pub use self::recorder::{Recorder, Record};
+pub use self::recorder::Recorder;
 pub use self::lookup::Lookup;
 pub use self::nibble::{NibbleSlice, NibbleVec, nibble_ops};
 pub use crate::node_codec::{NodeCodec, Partial};

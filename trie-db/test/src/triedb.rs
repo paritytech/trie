@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use hash_db::{EMPTY_PREFIX, HashDB};
-use memory_db::{MemoryDB, PrefixedKey};
+use memory_db::{MemoryDB, PrefixedKey, HashKey};
 use keccak_hasher::KeccakHasher;
-use trie_db::{DBValue, Trie, NibbleSlice, TrieMut, Recorder};
-use reference_trie::{RefLookup, RefTrieDBBuilder, RefTrieDBNoExtBuilder, RefTrieDBMutBuilder, RefTrieDBMutNoExtBuilder};
+use trie_db::{DBValue, Trie, NibbleSlice, TrieMut, Recorder, TrieCache as _};
+use reference_trie::{RefLookup, RefTrieDBBuilder, RefTrieDBNoExtBuilder, RefTrieDBMutBuilder, RefTrieDBMutNoExtBuilder, RefTrieDBCacheNoExt, NoExtensionLayout};
 use hex_literal::hex;
 
 #[test]
@@ -400,43 +400,105 @@ fn test_lookup_with_corrupt_data_returns_decoder_error() {
 
 #[test]
 fn test_recorder() {
-	let d = vec![
-		b"A".to_vec(),
-		b"AA".to_vec(),
-		b"AB".to_vec(),
-		// This is too long and should not be included in the proof, as it is also not accessed
-		vec![b'B'; 32],
+	let key_value = vec![
+		(b"A".to_vec(), vec![1; 64]),
+		(b"AA".to_vec(), vec![2; 64]),
+		(b"AB".to_vec(), vec![3; 64]),
+		(b"B".to_vec(), vec![4; 64]),
 	];
 
-	let mut memdb = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+	let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 	let mut root = Default::default();
 	{
-		let mut t = RefTrieDBMutNoExtBuilder::new(&mut memdb, &mut root).build();
-		for x in &d {
-			t.insert(x, x).unwrap();
+		let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
+		for (key, value) in &key_value {
+			t.insert(key, value).unwrap();
 		}
 	}
 
-	let mut recorder = Recorder::new();
+	let mut recorder = Recorder::<NoExtensionLayout>::new();
 	{
-		let trie = RefTrieDBNoExtBuilder::new_unchecked(&memdb, &root).with_recorder(&mut recorder).build();
+		let trie = RefTrieDBBuilder::new_unchecked(&memdb, &root).with_recorder(&mut recorder).build();
 
-		trie.get(&b"A"[..]).unwrap().unwrap();
-		trie.get(&b"AA"[..]).unwrap().unwrap();
-		trie.get(&b"AB"[..]).unwrap().unwrap();
+		for (key, value) in key_value.iter().take(3) {
+			assert_eq!(*value, trie.get(key).unwrap().unwrap());
+		}
 	}
 
-	let mut partial_db = MemoryDB::<KeccakHasher, PrefixedKey<_>, DBValue>::default();
+	let mut partial_db = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 	for record in recorder.drain() {
-		partial_db.insert(EMPTY_PREFIX, &record.data);
+		dbg!(&rustc_hex::ToHexIter::new(record.0.as_ref().iter()).collect::<String>());
+		partial_db.insert(EMPTY_PREFIX, &record.1);
+	}
+
+	{
+		let trie = RefTrieDBBuilder::new_unchecked(&partial_db, &root).build();
+
+		for (key, value) in key_value.iter().take(3) {
+			assert_eq!(*value, trie.get(key).unwrap().unwrap());
+		}
+		assert!(trie.get(&key_value[3].0).is_err());
+	}
+}
+
+#[test]
+fn test_recorder_with_cache() {
+	let key_value = vec![
+		(b"A".to_vec(), vec![1; 64]),
+		(b"AA".to_vec(), vec![2; 64]),
+		(b"AB".to_vec(), vec![3; 64]),
+		(b"B".to_vec(), vec![4; 64]),
+	];
+
+	let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+	let mut root = Default::default();
+
+	{
+		let mut t = RefTrieDBMutNoExtBuilder::new(&mut memdb, &mut root).build();
+		for (key, value) in &key_value {
+			t.insert(key, value).unwrap();
+		}
+	}
+
+	let mut cache = RefTrieDBCacheNoExt::default();
+
+	{
+		let trie = RefTrieDBNoExtBuilder::new_unchecked(&memdb, &root).with_cache(&mut cache).build();
+
+		// Only read one entry.
+		assert_eq!(key_value[1].1, trie.get(&key_value[1].0).unwrap().unwrap());
+	}
+
+	// Root should now be cached.
+	assert!(cache.get_node(&root).is_some());
+	// Also the data should be cached.
+	assert!(cache.lookup_data_for_key(&key_value[1].0).is_some());
+	// And the rest not
+	assert!(cache.lookup_data_for_key(&key_value[0].0).is_none());
+	assert!(cache.lookup_data_for_key(&key_value[2].0).is_none());
+	assert!(cache.lookup_data_for_key(&key_value[3].0).is_none());
+
+	let mut recorder = Recorder::<NoExtensionLayout>::new();
+	{
+		let trie = RefTrieDBNoExtBuilder::new_unchecked(&memdb, &root).with_cache(&mut cache).with_recorder(&mut recorder).build();
+
+		for (key, value) in key_value.iter().take(3) {
+			assert_eq!(*value, trie.get(key).unwrap().unwrap());
+		}
+	}
+
+	let mut partial_db = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+	for record in recorder.drain() {
+		partial_db.insert(EMPTY_PREFIX, &record.1);
 	}
 
 	{
 		let trie = RefTrieDBNoExtBuilder::new_unchecked(&partial_db, &root).build();
 
-		trie.get(&b"A"[..]).unwrap().unwrap();
-		trie.get(&b"AA"[..]).unwrap().unwrap();
-		trie.get(&b"AB"[..]).unwrap().unwrap();
-		assert!(trie.get(&d[3]).is_err());
+		for (key, value) in key_value.iter().take(3) {
+			assert_eq!(*value, trie.get(key).unwrap().unwrap());
+		}
+
+		assert!(trie.get(&key_value[3].0).is_err());
 	}
 }

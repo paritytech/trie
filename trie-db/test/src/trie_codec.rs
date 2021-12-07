@@ -13,7 +13,7 @@
 // limitations under the License.
 
 
-use trie_db::{DBValue, NodeCodec, Recorder, Trie, TrieDBBuilder, TrieError, TrieHash, TrieLayout, TrieMut, decode_compact, encode_compact, TrieDBMutBuilder};
+use trie_db::{DBValue, NodeCodec, Recorder, Trie, TrieDBBuilder, TrieError, TrieLayout, TrieMut, decode_compact, encode_compact, TrieDBMutBuilder};
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 use reference_trie::{
 	ExtensionLayout, NoExtensionLayout,
@@ -40,7 +40,7 @@ fn test_encode_compact<L: TrieLayout>(
 	};
 
 	// Lookup items in trie while recording traversed nodes.
-	let mut recorder = Recorder::new();
+	let mut recorder = Recorder::<L>::new();
 	let items = {
 		let mut items = Vec::with_capacity(keys.len());
 		let trie = <TrieDBBuilder<L>>::new_unchecked(&db, &root).with_recorder(&mut recorder).build();
@@ -54,7 +54,7 @@ fn test_encode_compact<L: TrieLayout>(
 	// Populate a partial trie DB with recorded nodes.
 	let mut partial_db = MemoryDB::default();
 	for record in recorder.drain() {
-		partial_db.insert(EMPTY_PREFIX, &record.data);
+		partial_db.insert(EMPTY_PREFIX, &record.1);
 	}
 
 	// Compactly encode the partial trie DB.
@@ -198,7 +198,7 @@ fn encoding_node_owned_and_decoding_node_works() {
 	let mut recorder = {
 		let mut db = <MemoryDB<<ExtensionLayout as TrieLayout>::Hash>>::default();
 		let mut root = Default::default();
-		let mut recorder = Recorder::<TrieHash<ExtensionLayout>>::new();
+		let mut recorder = Recorder::<ExtensionLayout>::new();
 		{
 			let mut trie = <TrieDBMutBuilder<ExtensionLayout>>::new(&mut db, &mut root).build();
 			for (key, value) in entries.iter() {
@@ -215,9 +215,9 @@ fn encoding_node_owned_and_decoding_node_works() {
 	};
 
 	for record in recorder.drain() {
-		let node = <<ExtensionLayout as TrieLayout>::Codec as NodeCodec>::decode(&record.data).unwrap();
+		let node = <<ExtensionLayout as TrieLayout>::Codec as NodeCodec>::decode(&record.1).unwrap();
 		let node_owned = node.to_owned_node::<ExtensionLayout>().unwrap();
 
-		assert_eq!(record.data, node_owned.to_encoded::<<ExtensionLayout as TrieLayout>::Codec>());
+		assert_eq!(record.1, node_owned.to_encoded::<<ExtensionLayout as TrieLayout>::Codec>());
 	}
 }

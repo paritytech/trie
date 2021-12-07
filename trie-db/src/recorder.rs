@@ -14,50 +14,43 @@
 
 //! Trie query recorder.
 
-use crate::{TrieAccess, TrieRecorder, rstd::vec::Vec};
-
-/// A record of a visited node.
-#[cfg_attr(feature = "std", derive(Debug))]
-#[derive(PartialEq, Eq, Clone)]
-pub struct Record<HO> {
-	/// The raw data of the node.
-	pub data: Vec<u8>,
-
-	/// The hash of the data.
-	pub hash: HO,
-}
+use crate::{TrieAccess, TrieRecorder, rstd::vec::Vec, TrieLayout, TrieHash};
+use hashbrown::{HashMap, HashSet};
 
 /// Records trie nodes as they pass it.
 #[cfg_attr(feature = "std", derive(Debug))]
-pub struct Recorder<HO> {
-	nodes: Vec<Record<HO>>,
+pub struct Recorder<L: TrieLayout> {
+	nodes: HashMap<TrieHash<L>, Vec<u8>>,
+	keys: HashSet<Vec<u8>>,
 }
 
-impl<HO: Copy> Default for Recorder<HO> {
+impl<L: TrieLayout> Default for Recorder<L> {
 	fn default() -> Self {
 		Recorder::new()
 	}
 }
 
-impl<HO: Copy> Recorder<HO> {
+impl<L: TrieLayout> Recorder<L> {
 	/// Create a new `Recorder` which records all given nodes.
 	pub fn new() -> Self {
 		Self {
-			nodes: Vec::new(),
+			nodes: Default::default(),
+			keys: Default::default(),
 		}
 	}
 
 	/// Drain all visited records.
-	pub fn drain(&mut self) -> Vec<Record<HO>> {
-		crate::rstd::mem::take(&mut self.nodes)
+	pub fn drain(&mut self) -> Vec<(TrieHash<L>, Vec<u8>)> {
+		self.nodes.drain().collect::<Vec<_>>()
 	}
 }
 
-impl<H: Copy> TrieRecorder<H> for Recorder<H> {
-	fn record<'a>(&mut self, access: TrieAccess<'a, H>) {
+impl<L: TrieLayout> TrieRecorder<TrieHash<L>> for Recorder<L> {
+	fn record<'a>(&mut self, access: TrieAccess<'a, TrieHash<L>>) {
 		match access {
-			TrieAccess::EncodedNode { hash, encoded_node } => self.nodes.push(Record { data: encoded_node.to_vec(), hash }),
-			_ => unimplemented!(),
+			TrieAccess::EncodedNode { hash, encoded_node } => { self.nodes.insert(hash, encoded_node.to_vec()); },
+			TrieAccess::NodeOwned { hash, node_owned } => { self.nodes.insert(hash, node_owned.to_encoded::<L::Codec>()); }
+			TrieAccess::Key(key) => { self.keys.insert(key.to_vec()); }
 		}
 	}
 }
