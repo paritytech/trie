@@ -23,7 +23,7 @@ use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use hashbrown::HashSet;
 use bytes::Bytes;
 
-use crate::{TrieCache, TrieRecorder};
+use crate::{TrieAccess, TrieCache, TrieRecorder};
 use crate::node::{NodeOwned, NodeHandleOwned};
 use crate::node_codec::NodeCodec;
 use crate::nibble::{NibbleVec, NibbleSlice, nibble_ops, BackingByteVec};
@@ -578,10 +578,22 @@ where
 		key: Prefix,
 	) -> Result<StorageHandle, TrieHash<L>, CError<L>> {
 		let node = match self.cache.as_mut().and_then(|c| c.get_node(&hash)) {
-			Some(node) => Node::from_node_owned::<L::Codec, L::Hash>(&node, &mut self.storage),
+			Some(node) => {
+				if let Some(ref mut recorder) = self.recorder {
+					recorder.borrow_mut().record(TrieAccess::NodeOwned { hash, node_owned: &node });
+				}
+
+				Node::from_node_owned::<L::Codec, L::Hash>(&node, &mut self.storage)
+			},
 			None => {
 				let node_encoded = self.db.get(&hash, key)
 					.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
+
+				if let Some(ref mut recorder) = self.recorder {
+					recorder
+						.borrow_mut()
+						.record(TrieAccess::EncodedNode { hash, encoded_node: node_encoded.as_slice().into() });
+				}
 
 				Node::from_encoded::<L::Codec, L::Hash>(
 					hash,
@@ -640,13 +652,17 @@ where
 		let mut handle = handle;
 		loop {
 			let (mid, child) = match *handle {
-				NodeHandle::Hash(ref hash) => return Lookup::<L, _> {
-					db: &self.db,
-					query: |v: &[u8]| v.to_vec(),
-					hash: *hash,
-					cache: None,
-					recorder: None,
-				}.look_up(full_key, partial),
+				NodeHandle::Hash(ref hash) => {
+					let mut recorder = self.recorder.as_ref().map(|r| r.borrow_mut());
+
+					return Lookup::<L, _> {
+						db: &self.db,
+						query: |v: &[u8]| v.to_vec(),
+						hash: *hash,
+						cache: None,
+						recorder: recorder.as_mut().map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>>),
+					}.look_up(full_key, partial)
+				},
 				NodeHandle::InMemory(ref handle) => match self.storage[handle] {
 					Node::Empty => return Ok(None),
 					Node::Leaf(ref key, ref value) => {

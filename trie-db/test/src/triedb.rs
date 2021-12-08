@@ -427,7 +427,6 @@ fn test_recorder() {
 
 	let mut partial_db = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 	for record in recorder.drain(&memdb, &root).unwrap() {
-		dbg!(&rustc_hex::ToHexIter::new(record.0.as_ref().iter()).collect::<String>());
 		partial_db.insert(EMPTY_PREFIX, &record.1);
 	}
 
