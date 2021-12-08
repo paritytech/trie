@@ -577,6 +577,10 @@ where
 		hash: TrieHash<L>,
 		key: Prefix,
 	) -> Result<StorageHandle, TrieHash<L>, CError<L>> {
+		// We only check the `cache` for a node with `get_node` and don't insert
+		// the node if it wasn't there, because we only access the node while computing
+		// a new trie (aka some branch). We assume that this node isn't that important
+		// to have it being cached.
 		let node = match self.cache.as_mut().and_then(|c| c.get_node(&hash)) {
 			Some(node) => {
 				if let Some(ref mut recorder) = self.recorder {

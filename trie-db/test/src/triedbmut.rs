@@ -17,12 +17,8 @@ use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 use keccak_hasher::KeccakHasher;
 use log::debug;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
-use reference_trie::{
-    reference_trie_root, reference_trie_root_no_extension, NoExtensionLayout, RefTrieDBMut,
-    RefTrieDBMutAllowEmptyBuilder, RefTrieDBMutBuilder, RefTrieDBMutNoExt,
-    RefTrieDBMutNoExtBuilder, ReferenceNodeCodec,
-};
-use trie_db::{DBValue, NodeCodec, Recorder, TrieMut};
+use reference_trie::{ExtensionLayout, NoExtensionLayout, RefTrieDBBuilder, RefTrieDBCache, RefTrieDBMut, RefTrieDBMutAllowEmptyBuilder, RefTrieDBMutBuilder, RefTrieDBMutNoExt, RefTrieDBMutNoExtBuilder, ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension};
+use trie_db::{DBValue, NodeCodec, Recorder, Trie, TrieMut, TrieCache as _};
 use trie_standardmap::*;
 
 fn populate_trie<'db>(
@@ -576,7 +572,6 @@ fn test_recorder() {
 	assert_eq!(new_root, validated_root);
 }
 
-/*
 #[test]
 fn test_recorder_with_cache() {
     let key_value = vec![
@@ -586,40 +581,42 @@ fn test_recorder_with_cache() {
         (b"B".to_vec(), vec![4; 64]),
     ];
 
+	// Add some initial data to the trie
     let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
     let mut root = Default::default();
-
     {
-        let mut t = RefTrieDBMutNoExtBuilder::new(&mut memdb, &mut root).build();
-        for (key, value) in &key_value {
+        let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
+        for (key, value) in key_value.iter().take(1) {
             t.insert(key, value).unwrap();
         }
     }
 
-    let mut cache = RefTrieDBCacheNoExt::default();
+    let mut cache = RefTrieDBCache::default();
 
     {
-        let trie = RefTrieDBNoExtBuilder::new_unchecked(&memdb, &root).with_cache(&mut cache).build();
+        let trie = RefTrieDBBuilder::new_unchecked(&memdb, &root).with_cache(&mut cache).build();
 
         // Only read one entry.
-        assert_eq!(key_value[1].1, trie.get(&key_value[1].0).unwrap().unwrap());
+        assert_eq!(key_value[0].1, trie.get(&key_value[0].0).unwrap().unwrap());
     }
 
     // Root should now be cached.
     assert!(cache.get_node(&root).is_some());
-    // Also the data should be cached.
-    assert!(cache.lookup_data_for_key(&key_value[1].0).is_some());
-    // And the rest not
-    assert!(cache.lookup_data_for_key(&key_value[0].0).is_none());
-    assert!(cache.lookup_data_for_key(&key_value[2].0).is_none());
-    assert!(cache.lookup_data_for_key(&key_value[3].0).is_none());
 
-    let mut recorder = Recorder::<NoExtensionLayout>::new();
+    // Add more data, but this time only to the overlay.
+	// While doing that we record all trie accesses to replay this operation.
+    let mut recorder = Recorder::<ExtensionLayout>::new();
+    let mut overlay = memdb.clone();
+    let mut new_root = root;
     {
-        let trie = RefTrieDBNoExtBuilder::new_unchecked(&memdb, &root).with_cache(&mut cache).with_recorder(&mut recorder).build();
+        let mut trie = RefTrieDBMutBuilder::from_existing(&mut overlay, &mut new_root)
+            .unwrap()
+            .with_recorder(&mut recorder)
+			.with_cache(&mut cache)
+            .build();
 
-        for (key, value) in key_value.iter().take(3) {
-            assert_eq!(*value, trie.get(key).unwrap().unwrap());
+        for (key, value) in key_value.iter().skip(1) {
+            trie.insert(key, value).unwrap();
         }
     }
 
@@ -628,14 +625,15 @@ fn test_recorder_with_cache() {
         partial_db.insert(EMPTY_PREFIX, &record.1);
     }
 
+	// Replay the it, but this time we use the proof.
+    let mut validated_root = root;
     {
-        let trie = RefTrieDBNoExtBuilder::new_unchecked(&partial_db, &root).build();
+        let mut trie = RefTrieDBMutBuilder::from_existing(&mut partial_db, &mut validated_root).unwrap().build();
 
-        for (key, value) in key_value.iter().take(3) {
-            assert_eq!(*value, trie.get(key).unwrap().unwrap());
+		for (key, value) in key_value.iter().skip(1) {
+            trie.insert(key, value).unwrap();
         }
-
-        assert!(trie.get(&key_value[3].0).is_err());
     }
+
+	assert_eq!(new_root, validated_root);
 }
-*/

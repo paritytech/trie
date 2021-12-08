@@ -1181,6 +1181,7 @@ pub fn compare_no_extension_insert_remove(
 ///
 /// Should not be used for anything in production.
 pub struct TrieCache<L: TrieLayout> {
+	/// In a real implementation we need to make sure that this is unique per trie root.
 	data_cache: HashMap<Vec<u8>, Option<bytes::Bytes>>,
 	node_cache: HashMap<TrieHash<L>, NodeOwned<TrieHash<L>>>,
 }
