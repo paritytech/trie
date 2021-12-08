@@ -160,6 +160,26 @@ where
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or(parent_hash), e)))?;
 		Ok((owned_node, node_hash))
 	}
+
+
+	/// Traverse the trie to access `key`.
+	///
+	/// This is mainly useful when trie access should be recorded and a cache was active.
+	/// With an active cache, there can be a short cut of just returning the data, without
+	/// traversing the trie, but when we are recording a proof we need to get all trie nodes. So,
+	/// this function can then be used to get all of the trie nodes to access `key`.
+	pub fn traverse_to(&self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+		let mut cache = self.cache.as_ref().map(|c| c.borrow_mut());
+		let mut recorder = self.recorder.as_ref().map(|r| r.borrow_mut());
+
+		Lookup::<L, _> {
+			db: self.db,
+			query: |_: &[u8]| (),
+			hash: *self.root,
+			cache: cache.as_mut().map(|c| *c.deref_mut() as &mut dyn TrieCache<L>),
+			recorder: recorder.as_mut().map(|r| *r.deref_mut() as &mut dyn TrieRecorder<TrieHash<L>>),
+		}.traverse_to(key)
+	}
 }
 
 impl<'db, 'cache, L> Trie<L> for TrieDB<'db, 'cache, L>

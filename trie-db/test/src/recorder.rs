@@ -15,24 +15,9 @@
 //! Trie query recorder.
 
 use memory_db::{MemoryDB, HashKey};
-use hash_db::Hasher;
 use keccak_hasher::KeccakHasher;
 use reference_trie::{RefTrieDBBuilder, RefTrieDBMutBuilder, NoExtensionLayout};
-use trie_db::{Recorder, TrieRecorder, TrieAccess, Trie, TrieMut};
-
-#[test]
-fn basic_recorder() {
-	let mut basic = Recorder::<NoExtensionLayout>::new();
-
-	let node1 = vec![1, 2, 3, 4];
-	let node2 = vec![4, 5, 6, 7, 8, 9, 10];
-
-	let (hash1, hash2) = (KeccakHasher::hash(&node1), KeccakHasher::hash(&node2));
-	basic.record(TrieAccess::EncodedNode { hash: hash1, encoded_node: node1.as_slice().into() });
-	basic.record(TrieAccess::EncodedNode { hash: hash2, encoded_node: node2.as_slice().into() });
-
-	assert_eq!(basic.drain(), vec![(hash1, node1), (hash2, node2)]);
-}
+use trie_db::{Recorder, Trie, TrieMut};
 
 #[test]
 fn trie_record() {
@@ -57,7 +42,7 @@ fn trie_record() {
 
 		trie.get(b"pirate").unwrap().unwrap();
 
-		let nodes: Vec<_> = recorder.drain().into_iter().map(|r| r.1).collect();
+		let nodes: Vec<_> = recorder.drain(&db, &root).unwrap().into_iter().map(|r| r.1).collect();
 		assert_eq!(nodes, vec![
 			vec![
 				254, 192, 0, 128, 32, 27, 87, 5, 125, 163, 0, 90, 117, 142, 28, 67, 189, 82, 249,
@@ -78,7 +63,7 @@ fn trie_record() {
 		let trie = RefTrieDBBuilder::new_unchecked(&db, &root).with_recorder(&mut recorder).build();
 		trie.get(b"letter").unwrap().unwrap();
 
-		let nodes: Vec<_> = recorder.drain().into_iter().map(|r| r.1).collect();
+		let nodes: Vec<_> = recorder.drain(&db, &root).unwrap().into_iter().map(|r| r.1).collect();
 		assert_eq!(nodes, vec![
 			vec![
 				254, 192, 0, 128, 32, 27, 87, 5, 125, 163, 0, 90, 117, 142, 28, 67, 189, 82, 249,

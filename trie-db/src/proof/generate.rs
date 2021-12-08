@@ -253,7 +253,7 @@ pub fn generate_proof<'a, D, L, I, K>(db: &D, root: &TrieHash<L>, keys: I)
 			trie.get(key_bytes)?
 		};
 
-		let mut recorded_nodes = recorder.drain().into_iter().peekable();
+		let mut recorded_nodes = recorder.drain(db, root)?.into_iter().peekable();
 
 		// Skip over recorded nodes already on the stack. Their indexes into the respective vector
 		// (either `stack` or `recorded_nodes`) match under the assumption that inline nodes have

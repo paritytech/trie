@@ -281,4 +281,17 @@ where
 		}
 		Ok(None)
 	}
+
+	/// Traverse the trie to access `key`.
+	///
+	/// This is mainly useful when trie access should be recorded and a cache was active.
+	/// With an active cache, there can be a short cut of just returning the data, without
+	/// traversing the trie, but when we are recording a proof we need to get all trie nodes. So,
+	/// this function can then be used to get all of the trie nodes to access `key`.
+	pub fn traverse_to(mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+		match self.cache.take() {
+			Some(cache) => self.look_up_with_cache(key, NibbleSlice::new(key), cache).map(drop),
+			None => self.look_up_without_cache(NibbleSlice::new(key)).map(drop),
+		}
+	}
 }
