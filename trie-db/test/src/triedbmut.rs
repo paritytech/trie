@@ -17,7 +17,7 @@ use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 use keccak_hasher::KeccakHasher;
 use log::debug;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
-use reference_trie::{ExtensionLayout, NoExtensionLayout, RefTrieDBBuilder, RefTrieDBCache, RefTrieDBMut, RefTrieDBMutAllowEmptyBuilder, RefTrieDBMutBuilder, RefTrieDBMutNoExt, RefTrieDBMutNoExtBuilder, ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension};
+use reference_trie::{ExtensionLayout, NoExtensionLayout, RefTrieDBBuilder, RefTestTrieDBCache, RefTrieDBMut, RefTrieDBMutAllowEmptyBuilder, RefTrieDBMutBuilder, RefTrieDBMutNoExt, RefTrieDBMutNoExtBuilder, ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension};
 use trie_db::{DBValue, NodeCodec, Recorder, Trie, TrieMut, TrieCache as _};
 use trie_standardmap::*;
 
@@ -591,7 +591,7 @@ fn test_recorder_with_cache() {
         }
     }
 
-    let mut cache = RefTrieDBCache::default();
+    let mut cache = RefTestTrieDBCache::default();
 
     {
         let trie = RefTrieDBBuilder::new_unchecked(&memdb, &root).with_cache(&mut cache).build();

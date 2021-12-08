@@ -119,8 +119,8 @@ pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMut<'a, NoExtensionLayout>;
 pub type RefTrieDBMutNoExtBuilder<'a> = trie_db::TrieDBMutBuilder<'a, NoExtensionLayout>;
 pub type RefTrieDBMutAllowEmpty<'a> = trie_db::TrieDBMut<'a, AllowEmptyLayout>;
 pub type RefTrieDBMutAllowEmptyBuilder<'a> = trie_db::TrieDBMutBuilder<'a, AllowEmptyLayout>;
-pub type RefTrieDBCache = TrieCache<ExtensionLayout>;
-pub type RefTrieDBCacheNoExt = TrieCache<NoExtensionLayout>;
+pub type RefTestTrieDBCache = TestTrieCache<ExtensionLayout>;
+pub type RefTestTrieDBCacheNoExt = TestTrieCache<NoExtensionLayout>;
 pub type RefFatDB<'a, 'cache> = trie_db::FatDB<'a, 'cache, ExtensionLayout>;
 pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, ExtensionLayout>;
 pub type RefSecTrieDB<'a, 'cache> = trie_db::SecTrieDB<'a, 'cache, ExtensionLayout>;
@@ -1180,13 +1180,13 @@ pub fn compare_no_extension_insert_remove(
 /// Example trie cache implementation.
 ///
 /// Should not be used for anything in production.
-pub struct TrieCache<L: TrieLayout> {
+pub struct TestTrieCache<L: TrieLayout> {
 	/// In a real implementation we need to make sure that this is unique per trie root.
 	data_cache: HashMap<Vec<u8>, Option<bytes::Bytes>>,
 	node_cache: HashMap<TrieHash<L>, NodeOwned<TrieHash<L>>>,
 }
 
-impl<L: TrieLayout> Default for TrieCache<L> {
+impl<L: TrieLayout> Default for TestTrieCache<L> {
 	fn default() -> Self {
 		Self {
 			data_cache: Default::default(),
@@ -1195,7 +1195,7 @@ impl<L: TrieLayout> Default for TrieCache<L> {
 	}
 }
 
-impl<L: TrieLayout> trie_db::TrieCache<L> for TrieCache<L> {
+impl<L: TrieLayout> trie_db::TrieCache<L> for TestTrieCache<L> {
     fn lookup_data_for_key(&self, key: &[u8]) -> Option<&Option<bytes::Bytes>> {
         self.data_cache.get(key)
     }

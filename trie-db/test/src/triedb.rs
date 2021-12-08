@@ -16,7 +16,7 @@ use hash_db::{EMPTY_PREFIX, HashDB};
 use memory_db::{MemoryDB, PrefixedKey, HashKey};
 use keccak_hasher::KeccakHasher;
 use trie_db::{DBValue, Trie, NibbleSlice, TrieMut, Recorder, TrieCache as _};
-use reference_trie::{RefLookup, RefTrieDBBuilder, RefTrieDBNoExtBuilder, RefTrieDBMutBuilder, RefTrieDBMutNoExtBuilder, RefTrieDBCacheNoExt, NoExtensionLayout};
+use reference_trie::{RefLookup, RefTrieDBBuilder, RefTrieDBNoExtBuilder, RefTrieDBMutBuilder, RefTrieDBMutNoExtBuilder, RefTestTrieDBCacheNoExt, NoExtensionLayout};
 use hex_literal::hex;
 
 #[test]
@@ -459,7 +459,7 @@ fn test_recorder_with_cache() {
 		}
 	}
 
-	let mut cache = RefTrieDBCacheNoExt::default();
+	let mut cache = RefTestTrieDBCacheNoExt::default();
 
 	{
 		let trie = RefTrieDBNoExtBuilder::new_unchecked(&memdb, &root).with_cache(&mut cache).build();
