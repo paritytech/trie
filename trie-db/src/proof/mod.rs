@@ -37,3 +37,4 @@ pub use self::{
 
 mod generate;
 mod verify;
+pub mod eip1186;

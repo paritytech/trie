@@ -25,6 +25,8 @@ mod iterator;
 #[cfg(test)]
 mod proof;
 #[cfg(test)]
+mod eip1186;
+#[cfg(test)]
 mod recorder;
 #[cfg(test)]
 mod sectriedb;
