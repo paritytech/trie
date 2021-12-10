@@ -17,8 +17,12 @@ use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 use keccak_hasher::KeccakHasher;
 use log::debug;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
-use reference_trie::{ExtensionLayout, NoExtensionLayout, RefTrieDBBuilder, RefTestTrieDBCache, RefTrieDBMut, RefTrieDBMutAllowEmptyBuilder, RefTrieDBMutBuilder, RefTrieDBMutNoExt, RefTrieDBMutNoExtBuilder, ReferenceNodeCodec, reference_trie_root, reference_trie_root_no_extension};
-use trie_db::{DBValue, NodeCodec, Recorder, Trie, TrieMut, TrieCache as _};
+use reference_trie::{
+    reference_trie_root, reference_trie_root_no_extension, ExtensionLayout, NoExtensionLayout,
+    RefTestTrieDBCache, RefTrieDBBuilder, RefTrieDBMut, RefTrieDBMutAllowEmptyBuilder,
+    RefTrieDBMutBuilder, RefTrieDBMutNoExt, RefTrieDBMutNoExtBuilder, ReferenceNodeCodec,
+};
+use trie_db::{DBValue, NodeCodec, Recorder, Trie, TrieCache as _, TrieMut};
 use trie_standardmap::*;
 
 fn populate_trie<'db>(
@@ -528,7 +532,7 @@ fn test_recorder() {
         (b"B".to_vec(), vec![4; 64]),
     ];
 
-	// Add some initial data to the trie
+    // Add some initial data to the trie
     let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
     let mut root = Default::default();
     {
@@ -538,8 +542,8 @@ fn test_recorder() {
         }
     }
 
-	// Add more data, but this time only to the overlay.
-	// While doing that we record all trie accesses to replay this operation.
+    // Add more data, but this time only to the overlay.
+    // While doing that we record all trie accesses to replay this operation.
     let mut recorder = Recorder::<NoExtensionLayout>::new();
     let mut overlay = memdb.clone();
     let mut new_root = root;
@@ -559,17 +563,19 @@ fn test_recorder() {
         partial_db.insert(EMPTY_PREFIX, &record.1);
     }
 
-	// Replay the it, but this time we use the proof.
+    // Replay the it, but this time we use the proof.
     let mut validated_root = root;
     {
-        let mut trie = RefTrieDBMutBuilder::from_existing(&mut partial_db, &mut validated_root).unwrap().build();
+        let mut trie = RefTrieDBMutBuilder::from_existing(&mut partial_db, &mut validated_root)
+            .unwrap()
+            .build();
 
-		for (key, value) in key_value.iter().skip(1) {
+        for (key, value) in key_value.iter().skip(1) {
             trie.insert(key, value).unwrap();
         }
     }
 
-	assert_eq!(new_root, validated_root);
+    assert_eq!(new_root, validated_root);
 }
 
 #[test]
@@ -581,7 +587,7 @@ fn test_recorder_with_cache() {
         (b"B".to_vec(), vec![4; 64]),
     ];
 
-	// Add some initial data to the trie
+    // Add some initial data to the trie
     let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
     let mut root = Default::default();
     {
@@ -604,7 +610,7 @@ fn test_recorder_with_cache() {
     assert!(cache.get_node(&root).is_some());
 
     // Add more data, but this time only to the overlay.
-	// While doing that we record all trie accesses to replay this operation.
+    // While doing that we record all trie accesses to replay this operation.
     let mut recorder = Recorder::<ExtensionLayout>::new();
     let mut overlay = memdb.clone();
     let mut new_root = root;
@@ -612,7 +618,7 @@ fn test_recorder_with_cache() {
         let mut trie = RefTrieDBMutBuilder::from_existing(&mut overlay, &mut new_root)
             .unwrap()
             .with_recorder(&mut recorder)
-			.with_cache(&mut cache)
+            .with_cache(&mut cache)
             .build();
 
         for (key, value) in key_value.iter().skip(1) {
@@ -620,20 +626,29 @@ fn test_recorder_with_cache() {
         }
     }
 
+    for (key, value) in key_value.iter().skip(1) {
+        assert_eq!(
+            Some(bytes::Bytes::from(value.clone())),
+            *cache.lookup_data_for_key(key).unwrap()
+        );
+    }
+
     let mut partial_db = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
     for record in recorder.drain(&memdb, &root).unwrap() {
         partial_db.insert(EMPTY_PREFIX, &record.1);
     }
 
-	// Replay the it, but this time we use the proof.
+    // Replay the it, but this time we use the proof.
     let mut validated_root = root;
     {
-        let mut trie = RefTrieDBMutBuilder::from_existing(&mut partial_db, &mut validated_root).unwrap().build();
+        let mut trie = RefTrieDBMutBuilder::from_existing(&mut partial_db, &mut validated_root)
+            .unwrap()
+            .build();
 
-		for (key, value) in key_value.iter().skip(1) {
+        for (key, value) in key_value.iter().skip(1) {
             trie.insert(key, value).unwrap();
         }
     }
 
-	assert_eq!(new_root, validated_root);
+    assert_eq!(new_root, validated_root);
 }
