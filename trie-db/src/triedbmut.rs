@@ -767,9 +767,10 @@ where
 					let branch = Node::Branch(children, Some(value.into()));
 					*old_val = stored_value;
 
-					match unchanged {
-						true => InsertAction::Restore(branch),
-						false => InsertAction::Replace(branch),
+					if unchanged {
+						InsertAction::Restore(branch)
+					} else {
+						InsertAction::Replace(branch)
 					}
 				} else {
 					let idx = partial.at(0) as usize;
@@ -810,9 +811,10 @@ where
 					);
 					*old_val = stored_value;
 
-					match unchanged {
-						true => InsertAction::Restore(branch),
-						false => InsertAction::Replace(branch),
+					if unchanged {
+						InsertAction::Restore(branch)
+					} else {
+						InsertAction::Replace(branch)
 					}
 				} else if common < existing_key.len() {
 					// insert a branch value in between
@@ -900,10 +902,11 @@ where
 					let unchanged = stored_value == value;
 					*old_val = Some(stored_value);
 
-					match unchanged {
+					if unchanged {
 						// unchanged. restore
-						true => InsertAction::Restore(Node::Leaf(encoded.clone(), value)),
-						false => InsertAction::Replace(Node::Leaf(encoded.clone(), value)),
+						InsertAction::Restore(Node::Leaf(encoded.clone(), value))
+					} else {
+						InsertAction::Replace(Node::Leaf(encoded.clone(), value))
 					}
 				} else if (L::USE_EXTENSION && common == 0)
 					|| (!L::USE_EXTENSION && common < existing_key.len()) {
@@ -1050,9 +1053,10 @@ where
 					let new_ext = Node::Extension(existing_key.to_stored(), new_child.into());
 
 					// if the child branch wasn't changed, meaning this extension remains the same.
-					match changed {
-						true => InsertAction::Replace(new_ext),
-						false => InsertAction::Restore(new_ext),
+					if changed {
+						InsertAction::Replace(new_ext)
+					} else {
+						InsertAction::Restore(new_ext)
 					}
 				} else {
 					#[cfg(feature = "std")]
