@@ -208,6 +208,17 @@ impl<H> NodeOwned<H> where H: Default + AsRef<[u8]> + AsMut<[u8]> + Copy {
 			},
 		}
 	}
+
+	/// Returns the data attached to this node.
+	pub fn data(&self) -> Option<&Bytes> {
+		match &self {
+			Self::Empty => None,
+			Self::Leaf(_, value) => Some(value),
+			Self::Extension(_, _) => None,
+			Self::Branch(_, value) => value.as_ref(),
+			Self::NibbledBranch(_, _, value) => value.as_ref(),
+		}
+	}
 }
 
 /// A `NodeHandlePlan` is a decoding plan for constructing a `NodeHandle` from an encoded trie

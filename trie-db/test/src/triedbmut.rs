@@ -20,7 +20,7 @@ use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
     reference_trie_root, reference_trie_root_no_extension, ExtensionLayout, NoExtensionLayout,
     RefTestTrieDBCache, RefTrieDBBuilder, RefTrieDBMut, RefTrieDBMutAllowEmptyBuilder,
-    RefTrieDBMutBuilder, RefTrieDBMutNoExt, RefTrieDBMutNoExtBuilder, ReferenceNodeCodec,
+    RefTrieDBMutBuilder, RefTrieDBMutNoExt, RefTrieDBMutNoExtBuilder, ReferenceNodeCodec, RefTestTrieDBCacheNoExt,
 };
 use trie_db::{DBValue, NodeCodec, Recorder, Trie, TrieCache as _, TrieMut};
 use trie_standardmap::*;
@@ -663,12 +663,12 @@ fn test_insert_remove_data_with_cache() {
         (b"B".to_vec(), vec![4; 64]),
     ];
 
-    let mut cache = RefTestTrieDBCache::default();
-    let mut recorder = Recorder::<ExtensionLayout>::new();
+    let mut cache = RefTestTrieDBCacheNoExt::default();
+    let mut recorder = Recorder::<NoExtensionLayout>::new();
     let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
     let mut root = Default::default();
     {
-        let mut trie = RefTrieDBMutBuilder::new(&mut memdb, &mut root)
+        let mut trie = RefTrieDBMutNoExtBuilder::new(&mut memdb, &mut root)
             .with_recorder(&mut recorder)
             .with_cache(&mut cache)
             .build();

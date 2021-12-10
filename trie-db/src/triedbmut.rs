@@ -323,6 +323,17 @@ where
 			},
 		}
 	}
+
+	/// Returns the key partial key of this node.
+	fn partial_key(&self) -> Option<&NodeKey> {
+		match &self {
+			Self::Empty => None,
+			Self::Leaf(key, _) => Some(key),
+			Self::Branch(_, _) => None,
+			Self::NibbledBranch(key, _, _) => Some(key),
+			Self::Extension(key, _) => Some(key),
+		}
+	}
 }
 
 // post-inspect action.
@@ -1549,6 +1560,11 @@ where
 
 		match self.storage.destroy(handle) {
 			Stored::New(node) => {
+				// Reconstructs the full key
+				let full_key = self.cache.as_ref().and_then(|_| node.partial_key().and_then(|k| {
+					Some(NibbleSlice::from_stored(k).into())
+				}));
+
 				let mut k = NibbleVec::new();
 				let encoded_root = node.into_encoded::<_, L::Codec, L::Hash>(
 					|child, o_slice, o_index| {
@@ -1563,7 +1579,7 @@ where
 				*self.root = self.db.insert(EMPTY_PREFIX, &encoded_root);
 				self.hash_count += 1;
 
-				self.cache_node(*self.root, &encoded_root);
+				self.cache_node(*self.root, &encoded_root, full_key);
 
 				self.root_handle = NodeHandle::Hash(*self.root);
 			}
@@ -1578,11 +1594,17 @@ where
 	}
 
 	/// Cache the given `encoded` node.
-	fn cache_node(&mut self, hash: TrieHash<L>, encoded: &[u8]) {
+	fn cache_node(&mut self, hash: TrieHash<L>, encoded: &[u8], full_key: Option<NibbleVec>) {
 		// If we have a cache, cache our node directly.
 		if let Some(ref mut cache) = self.cache {
 			let node = L::Codec::decode(&encoded).ok().and_then(|n| n.to_owned_node::<L>().ok())
 				.expect("Just encoded the node, so it should decode without any errors; qed");
+
+			// If the given node has data attached, the `full_key` is the full key to this node.
+			full_key.and_then(|k| node.data().map(|v| (k, v))).map(|(k, v)| {
+				cache.cache_data_for_key(k.inner(), Some(v.clone()));
+			});
+
 			cache.insert_node(hash, node);
 		}
 	}
@@ -1603,6 +1625,13 @@ where
 				match self.storage.destroy(storage_handle) {
 					Stored::Cached(_, hash) => ChildReference::Hash(hash),
 					Stored::New(node) => {
+						// Reconstructs the full key
+						let full_key = self.cache.as_ref().and_then(|_| node.partial_key().and_then(|k| {
+							let mut prefix = prefix.clone();
+							prefix.append_partial(NibbleSlice::from_stored(k).right());
+							Some(prefix)
+						}));
+
 						let encoded = {
 							let commit_child = |
 								node_handle,
@@ -1620,7 +1649,7 @@ where
 							let hash = self.db.insert(prefix.as_prefix(), &encoded);
 							self.hash_count += 1;
 
-							self.cache_node(hash, &encoded);
+							self.cache_node(hash, &encoded, full_key);
 
 							ChildReference::Hash(hash)
 						} else {
@@ -1692,10 +1721,6 @@ where
 			value.clone(),
 			&mut old_val,
 		)?;
-
-		if let Some(ref mut cache) = self.cache {
-			cache.cache_data_for_key(key, Some(value));
-		}
 
 		#[cfg(feature = "std")]
 		trace!(target: "trie", "insert: altered trie={}", _changed);
