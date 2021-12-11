@@ -628,7 +628,7 @@ fn test_recorder_with_cache() {
 
     for (key, value) in key_value.iter().skip(1) {
         assert_eq!(
-            Some(bytes::Bytes::from(value.clone())),
+            Some(trie_db::Bytes::from(value.clone())),
             *cache.lookup_data_for_key(key).unwrap()
         );
     }
@@ -688,7 +688,7 @@ fn test_insert_remove_data_with_cache() {
 	// two ones should not be there.
     for (key, value) in key_value.iter().take(2) {
         assert_eq!(
-            Some(bytes::Bytes::from(value.clone())),
+            Some(trie_db::Bytes::from(value.clone())),
             *cache.lookup_data_for_key(key).unwrap()
         );
     }

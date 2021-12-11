@@ -1182,7 +1182,7 @@ pub fn compare_no_extension_insert_remove(
 /// Should not be used for anything in production.
 pub struct TestTrieCache<L: TrieLayout> {
 	/// In a real implementation we need to make sure that this is unique per trie root.
-	data_cache: HashMap<Vec<u8>, Option<bytes::Bytes>>,
+	data_cache: HashMap<Vec<u8>, Option<trie_db::Bytes>>,
 	node_cache: HashMap<TrieHash<L>, NodeOwned<TrieHash<L>>>,
 }
 
@@ -1196,11 +1196,11 @@ impl<L: TrieLayout> Default for TestTrieCache<L> {
 }
 
 impl<L: TrieLayout> trie_db::TrieCache<L> for TestTrieCache<L> {
-    fn lookup_data_for_key(&self, key: &[u8]) -> Option<&Option<bytes::Bytes>> {
+    fn lookup_data_for_key(&self, key: &[u8]) -> Option<&Option<trie_db::Bytes>> {
         self.data_cache.get(key)
     }
 
-    fn cache_data_for_key(&mut self, key: &[u8], data: Option<bytes::Bytes>) {
+    fn cache_data_for_key(&mut self, key: &[u8], data: Option<trie_db::Bytes>) {
         self.data_cache.insert(key.to_vec(), data);
     }
 

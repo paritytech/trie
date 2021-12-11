@@ -20,10 +20,9 @@ use crate::nibble::NibbleSlice;
 use crate::node::{Node, NodeHandle, decode_hash, NodeOwned, NodeHandleOwned};
 use crate::node_codec::NodeCodec;
 use crate::rstd::boxed::Box;
-use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash};
+use super::{DBValue, Result, TrieError, Query, TrieLayout, CError, TrieHash, Bytes};
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use bytes::Bytes;
 
 /// Trie lookup helper object.
 pub struct Lookup<'a, 'cache, L: TrieLayout, Q: Query<L::Hash>> {

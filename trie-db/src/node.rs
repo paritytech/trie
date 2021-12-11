@@ -15,11 +15,10 @@
 use crate::nibble::nibble_ops;
 use crate::nibble::{self, NibbleSlice, NibbleVec};
 use crate::node_codec::NodeCodec;
-use crate::{CError, Result, TrieHash, TrieLayout, TrieError, ChildReference};
+use crate::{CError, Result, TrieHash, TrieLayout, TrieError, ChildReference, Bytes};
 use hash_db::Hasher;
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec::Vec};
-use bytes::Bytes;
 
 use crate::rstd::{borrow::Borrow, ops::Range};
 
@@ -120,7 +119,7 @@ impl Node<'_> {
     pub fn to_owned_node<L: TrieLayout>(&self) -> Result<NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>> {
         match self {
             Self::Empty => Ok(NodeOwned::Empty),
-            Self::Leaf(n, d) => Ok(NodeOwned::Leaf((*n).into(), Bytes::copy_from_slice(d))),
+            Self::Leaf(n, d) => Ok(NodeOwned::Leaf((*n).into(), Bytes::from(*d))),
             Self::Extension(n, h) => Ok(NodeOwned::Extension((*n).into(), h.to_owned_handle::<L>()?)),
 			Self::Branch(childs, data) => {
 				let mut childs_owned = [(); nibble_ops::NIBBLE_LENGTH].map(|_| None);
@@ -129,7 +128,7 @@ impl Node<'_> {
 					Ok(())
 				}).collect::<Result<_, _, _>>()?;
 
-				Ok(NodeOwned::Branch(childs_owned, data.as_ref().map(|d| Bytes::copy_from_slice(d))))
+				Ok(NodeOwned::Branch(childs_owned, data.as_ref().map(|d| Bytes::from(*d))))
 			},
 			Self::NibbledBranch(n, childs, data) => {
 				let mut childs_owned = [(); nibble_ops::NIBBLE_LENGTH].map(|_| None);
@@ -138,7 +137,7 @@ impl Node<'_> {
 					Ok(())
 				}).collect::<Result<_, _, _>>()?;
 
-				Ok(NodeOwned::NibbledBranch((*n).into(), childs_owned, data.as_ref().map(|d| Bytes::copy_from_slice(d))))
+				Ok(NodeOwned::NibbledBranch((*n).into(), childs_owned, data.as_ref().map(|d| Bytes::from(*d))))
 			},
         }
     }

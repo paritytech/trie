@@ -20,7 +20,7 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 mod rstd {
-	pub use std::{borrow, boxed, cmp, convert, fmt, hash, iter, marker, mem, ops, rc, result, vec};
+	pub use std::{borrow, boxed, cmp, convert, fmt, hash, iter, marker, mem, ops, rc, result, vec, sync};
 	pub use std::collections::VecDeque;
 	pub use std::error::Error;
 }
@@ -28,7 +28,7 @@ mod rstd {
 #[cfg(not(feature = "std"))]
 mod rstd {
 	pub use core::{borrow, convert, cmp, iter, fmt, hash, marker, mem, ops, result};
-	pub use alloc::{boxed, rc, vec};
+	pub use alloc::{boxed, rc, vec, sync};
 	pub use alloc::collections::VecDeque;
 	pub trait Error {}
 	impl<T> Error for T {}
@@ -485,7 +485,7 @@ pub trait TrieCache<L: TrieLayout> {
 	/// The cache can be used for different tries, aka with different roots. This means
 	/// that the cache implementation needs to take care of always returning the correct data
 	/// for the current trie root.
-	fn lookup_data_for_key(&self, key: &[u8]) -> Option<&Option<bytes::Bytes>>;
+	fn lookup_data_for_key(&self, key: &[u8]) -> Option<&Option<Bytes>>;
 
 	/// Cache the given data for the given key.
 	///
@@ -497,7 +497,7 @@ pub trait TrieCache<L: TrieLayout> {
 	/// The cache can be used for different tries, aka with different roots. This means
 	/// that the cache implementation needs to take care of caching `data` for the current
 	/// trie root.
-	fn cache_data_for_key(&mut self, key: &[u8], data: Option<bytes::Bytes>);
+	fn cache_data_for_key(&mut self, key: &[u8], data: Option<Bytes>);
 
 	/// Get or insert a [`NodeOwned`].
 	///
@@ -517,4 +517,53 @@ pub trait TrieCache<L: TrieLayout> {
 
 	/// Get the [`OwnedNode`] that corresponds to the given `hash`.
 	fn get_node(&mut self, hash: &TrieHash<L>) -> Option<&NodeOwned<TrieHash<L>>>;
+}
+
+/// A container for storing bytes.
+///
+/// This is internally uses a reference counted pointer, so it is cheap to clone this object.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Bytes(rstd::sync::Arc<[u8]>);
+
+impl rstd::ops::Deref for Bytes {
+	type Target = [u8];
+
+	fn deref(&self) -> &Self::Target {
+		self.0.deref()
+	}
+}
+
+impl From<Vec<u8>> for Bytes {
+	fn from(bytes: Vec<u8>) -> Self {
+		Self(bytes.into())
+	}
+}
+
+impl From<&[u8]> for Bytes {
+	fn from(bytes: &[u8]) -> Self {
+		Self(bytes.into())
+	}
+}
+
+/// A weak reference of [`Bytes`].
+///
+/// A weak reference means that it doesn't prevent [`Bytes`] of being dropped because
+/// it holds a non-owning reference to the associated [`Bytes`] object. With [`Self::upgrade`] it
+/// is possible to upgrade it again to [`Bytes`] if the reference is still valid.
+#[derive(Clone, Debug)]
+pub struct BytesWeak(rstd::sync::Weak<[u8]>);
+
+impl BytesWeak {
+	/// Upgrade to [`Bytes`].
+	///
+	/// Returns `None` when the inner value was already dropped.
+	pub fn upgrade(&self) -> Option<Bytes> {
+		self.0.upgrade().map(Bytes)
+	}
+}
+
+impl From<Bytes> for BytesWeak {
+	fn from(bytes: Bytes) -> Self {
+		Self(rstd::sync::Arc::downgrade(&bytes.0))
+	}
 }

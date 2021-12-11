@@ -14,14 +14,13 @@
 
 //! In-memory trie representation.
 
-use super::{DBValue, node::NodeKey};
+use super::{DBValue, node::NodeKey, Bytes};
 use super::{Result, TrieError, TrieMut, TrieLayout, TrieHash, CError};
 use super::lookup::Lookup;
 use super::node::{NodeHandle as EncodedNodeHandle, Node as EncodedNode, decode_hash};
 
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use hashbrown::HashSet;
-use bytes::Bytes;
 
 use crate::{TrieAccess, TrieCache, TrieRecorder};
 use crate::node::{NodeOwned, NodeHandleOwned};
@@ -178,7 +177,7 @@ where
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash, e)))?;
 		let node = match encoded_node {
 			EncodedNode::Empty => Node::Empty,
-			EncodedNode::Leaf(k, v) => Node::Leaf(k.into(), Bytes::copy_from_slice(&v)),
+			EncodedNode::Leaf(k, v) => Node::Leaf(k.into(), Bytes::from(v)),
 			EncodedNode::Extension(key, cb) => {
 				Node::Extension(
 					key.into(),
@@ -199,7 +198,7 @@ where
 					child(12)?, child(13)?, child(14)?, child(15)?,
 				]);
 
-				Node::Branch(children, val.map(Bytes::copy_from_slice))
+				Node::Branch(children, val.map(Bytes::from))
 			},
 			EncodedNode::NibbledBranch(k, encoded_children, val) => {
 				let mut child = |i:usize| match encoded_children[i] {
@@ -215,7 +214,7 @@ where
 					child(12)?, child(13)?, child(14)?, child(15)?,
 				]);
 
-				Node::NibbledBranch(k.into(), children, val.map(Bytes::copy_from_slice))
+				Node::NibbledBranch(k.into(), children, val.map(Bytes::from))
 			},
 		};
 		Ok(node)
@@ -1713,7 +1712,7 @@ where
 		#[cfg(feature = "std")]
 		trace!(target: "trie", "insert: key={:#x?}, value={:?}", key, ToHex(&value));
 
-		let value = Bytes::copy_from_slice(value);
+		let value = Bytes::from(value);
 		let root_handle = self.root_handle();
 		let (new_handle, _changed) = self.insert_at(
 			root_handle,
@@ -1802,7 +1801,7 @@ mod tests {
 	#[test]
 	fn nice_debug_for_node() {
 		use super::Node;
-		let e: Node<u32> = Node::Leaf((1, vec![1, 2, 3].into()), bytes::Bytes::from_static(&[4, 5, 6]));
+		let e: Node<u32> = Node::Leaf((1, vec![1, 2, 3].into()), crate::Bytes::from(&[4, 5, 6][..]));
 		assert_eq!(format!("{:?}", e), "Leaf((1, 010203), 040506)");
 	}
 }

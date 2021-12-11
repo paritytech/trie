@@ -14,7 +14,6 @@ keccak-hasher = { path = "../keccak-hasher", version = "0.15.3" }
 trie-db = { path = "../../trie-db", default-features = false, version = "0.22.0" }
 trie-root = { path = "../../trie-root", default-features = false, version = "0.16.0" }
 parity-scale-codec = { version = "2", features = ["derive"] }
-bytes = { version = "1.1.0", default-features = false }
 hashbrown = { version = "0.11", default-features = false, features = [ "ahash" ] }
 
 [dev-dependencies]
@@ -31,5 +30,4 @@ default = ["std"]
 std = [
   "trie-db/std",
   "trie-root/std",
-  "bytes/std",
 ]
