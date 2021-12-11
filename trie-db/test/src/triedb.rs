@@ -501,3 +501,50 @@ fn test_recorder_with_cache() {
 		assert!(trie.get(&key_value[3].0).is_err());
 	}
 }
+
+#[test]
+fn iterator_seek_with_recorder() {
+	let d = vec![
+		b"A".to_vec(),
+		b"AA".to_vec(),
+		b"AB".to_vec(),
+		b"B".to_vec(),
+	];
+	let vals = vec![
+		vec![0; 64],
+		vec![1; 64],
+		vec![2; 64],
+		vec![3; 64],
+	];
+
+	let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+	let mut root = Default::default();
+	{
+		let mut t = RefTrieDBMutNoExtBuilder::new(&mut memdb, &mut root).build();
+		for (k, val) in d.iter().zip(vals.iter()) {
+			t.insert(k, val.as_slice()).unwrap();
+		}
+	}
+
+	let mut recorder = Recorder::<NoExtensionLayout>::new();
+	{
+		let t = RefTrieDBNoExtBuilder::new_unchecked(&memdb, &root).with_recorder(&mut recorder).build();
+		let mut iter = t.iter().unwrap();
+		iter.seek(b"AA").unwrap();
+		assert_eq!(&vals[1..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
+	}
+
+	let mut partial_db = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+	for record in recorder.drain(&memdb, &root).unwrap() {
+		partial_db.insert(EMPTY_PREFIX, &record.1);
+	}
+
+	// Replay with from the proof.
+	{
+		let trie = RefTrieDBNoExtBuilder::new_unchecked(&partial_db, &root).build();
+
+		let mut iter = trie.iter().unwrap();
+		iter.seek(b"AA").unwrap();
+		assert_eq!(&vals[1..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
+	}
+}

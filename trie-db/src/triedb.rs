@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::borrow::BorrowMut;
+
 use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
+use crate::TrieAccess;
 use crate::nibble::NibbleSlice;
 use crate::iterator::TrieDBNodeIterator;
 use crate::rstd::boxed::Box;
@@ -131,11 +134,15 @@ where
 	/// or None if it was returned raw.
 	///
 	/// `partial_key` is encoded nibble slice that addresses the node.
+	///
+	/// `record_access` should be set to `true` when the access to the trie should be recorded. However,
+	/// this will only be done when there is a recorder set.
 	pub(crate) fn get_raw_or_lookup(
 		&self,
 		parent_hash: TrieHash<L>,
 		node_handle: NodeHandle,
 		partial_key: Prefix,
+		record_acces: bool,
 	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
 		let (node_hash, node_data) = match node_handle {
 			NodeHandle::Hash(data) => {
@@ -157,6 +164,15 @@ where
 		};
 		let owned_node = OwnedNode::new::<L::Codec>(node_data)
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or(parent_hash), e)))?;
+
+		if record_acces {
+			if let Some((hash, recorder)) = node_hash.as_ref().and_then(|h| self.recorder.as_ref().map(|r| (h, r))) {
+				recorder
+					.borrow_mut()
+					.record(TrieAccess::EncodedNode { hash: *hash, encoded_node: owned_node.data().into() });
+			}
+		}
+
 		Ok((owned_node, node_hash))
 	}
 
@@ -191,8 +207,7 @@ where
 		&self,
 		key: &[u8],
 		query: Q,
-	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
-	{
+	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let mut cache = self.cache.as_ref().map(|c| c.borrow_mut());
 		let mut recorder = self.recorder.as_ref().map(|r| r.borrow_mut());
 
@@ -236,7 +251,8 @@ where
 		match self.trie.get_raw_or_lookup(
 			<TrieHash<L>>::default(),
 			self.node_key,
-			self.partial_key.as_prefix()
+			self.partial_key.as_prefix(),
+			false,
 		) {
 			Ok((owned_node, _node_hash)) => match owned_node.node() {
 				Node::Leaf(slice, value) =>

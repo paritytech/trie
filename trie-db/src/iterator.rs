@@ -72,7 +72,8 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 		let (root_node, root_hash) = db.get_raw_or_lookup(
 			*db.root(),
 			NodeHandle::Hash(db.root().as_ref()),
-			EMPTY_PREFIX
+			EMPTY_PREFIX,
+			true,
 		)?;
 		r.descend(root_node, root_hash);
 		Ok(r)
@@ -107,7 +108,8 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 		let (mut node, mut node_hash) = self.db.get_raw_or_lookup(
 			<TrieHash<L>>::default(),
 			NodeHandle::Hash(self.db.root().as_ref()),
-			EMPTY_PREFIX
+			EMPTY_PREFIX,
+			true,
 		)?;
 		let mut partial = key;
 		let mut full_key_nibbles = 0;
@@ -150,7 +152,8 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 						self.db.get_raw_or_lookup(
 							node_hash.unwrap_or_default(),
 							child.build(node_data),
-							prefix.left()
+							prefix.left(),
+							true,
 						)?
 					},
 					NodePlan::Branch { value: _, children } => {
@@ -170,7 +173,8 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 							self.db.get_raw_or_lookup(
 								node_hash.unwrap_or_default(),
 								child.build(node_data),
-								prefix.left()
+								prefix.left(),
+								true,
 							)?
 						} else {
 							return Ok(false);
@@ -208,7 +212,8 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 							self.db.get_raw_or_lookup(
 								node_hash.unwrap_or_default(),
 								child.build(node_data),
-								prefix.left()
+								prefix.left(),
+								true,
 							)?
 						} else {
 							return Ok(false);
@@ -286,8 +291,7 @@ impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, 'cach
 		&mut self,
 		key: &[u8],
 	) -> Result<(), TrieHash<L>, CError<L>> {
-		self.seek_prefix(key)
-			.map(|_| ())
+		self.seek_prefix(key).map(|_| ())
 	}
 }
 
@@ -328,7 +332,8 @@ impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, 'cache, L> {
 							self.db.get_raw_or_lookup(
 								b.hash.unwrap_or_default(),
 								child.build(node_data),
-								self.key_nibbles.as_prefix()
+								self.key_nibbles.as_prefix(),
+								true,
 							)
 						)
 					},
@@ -351,7 +356,8 @@ impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, 'cache, L> {
 								self.db.get_raw_or_lookup(
 									b.hash.unwrap_or_default(),
 									child.build(node_data),
-									self.key_nibbles.as_prefix()
+									self.key_nibbles.as_prefix(),
+									true,
 								)
 							)
 						} else {
