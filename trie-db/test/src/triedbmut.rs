@@ -659,6 +659,8 @@ fn test_insert_remove_data_with_cache() {
     let key_value = vec![
         (b"A".to_vec(), vec![1; 64]),
         (b"AA".to_vec(), vec![2; 64]),
+		// Should be inlined
+        (b"AC".to_vec(), vec![7; 4]),
         (b"AB".to_vec(), vec![3; 64]),
         (b"B".to_vec(), vec![4; 64]),
     ];
@@ -679,21 +681,21 @@ fn test_insert_remove_data_with_cache() {
         }
 
 		// Remove only the last 2 elements
-        for (key, _) in key_value.iter().skip(2) {
+        for (key, _) in key_value.iter().skip(3) {
             let _ = trie.remove(key);
         }
     }
 
-	// Then only the first 2 elements should be in the cache and the last
+	// Then only the first 3 elements should be in the cache and the last
 	// two ones should not be there.
-    for (key, value) in key_value.iter().take(2) {
+    for (key, value) in key_value.iter().take(3) {
         assert_eq!(
             Some(trie_db::Bytes::from(value.clone())),
             *cache.lookup_data_for_key(key).unwrap()
         );
     }
 
-    for (key, _) in key_value.iter().skip(2) {
+    for (key, _) in key_value.iter().skip(3) {
         assert!(cache.lookup_data_for_key(key).is_none());
     }
 }
