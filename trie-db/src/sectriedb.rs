@@ -12,72 +12,78 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use hash_db::{HashDBRef, Hasher};
-use crate::TrieDBBuilder;
-use crate::rstd::boxed::Box;
 use super::triedb::TrieDB;
-use super::{Result, DBValue, Trie, TrieItem, TrieIterator, Query, TrieLayout, CError, TrieHash};
+use super::{CError, DBValue, Query, Result, Trie, TrieHash, TrieItem, TrieIterator, TrieLayout};
+use crate::rstd::boxed::Box;
+use crate::TrieDBBuilder;
+use hash_db::{HashDBRef, Hasher};
 
 /// A `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 ///
 /// Use it as a `Trie` trait object. You can use `raw()` to get the backing `TrieDB` object.
 pub struct SecTrieDB<'db, 'cache, L>
 where
-	L: TrieLayout,
+    L: TrieLayout,
 {
-	raw: TrieDB<'db, 'cache, L>
+    raw: TrieDB<'db, 'cache, L>,
 }
 
 impl<'db, 'cache, L> SecTrieDB<'db, 'cache, L>
 where
-	L: TrieLayout,
+    L: TrieLayout,
 {
-	/// Create a new trie with the backing database `db` and empty `root`
-	///
-	/// Initialise to the state entailed by the genesis block.
-	/// This guarantees the trie is built correctly.
-	/// Returns an error if root does not exist.
-	pub fn new(
-		db: &'db dyn HashDBRef<L::Hash, DBValue>,
-		root: &'db TrieHash<L>,
-	) -> Result<Self, TrieHash<L>, CError<L>> {
-		Ok(SecTrieDB { raw: TrieDBBuilder::new(db, root)?.build() })
-	}
+    /// Create a new trie with the backing database `db` and empty `root`
+    ///
+    /// Initialise to the state entailed by the genesis block.
+    /// This guarantees the trie is built correctly.
+    /// Returns an error if root does not exist.
+    pub fn new(
+        db: &'db dyn HashDBRef<L::Hash, DBValue>,
+        root: &'db TrieHash<L>,
+    ) -> Result<Self, TrieHash<L>, CError<L>> {
+        Ok(SecTrieDB {
+            raw: TrieDBBuilder::new(db, root)?.build(),
+        })
+    }
 
-	/// Get a reference to the underlying raw `TrieDB` struct.
-	pub fn raw(&self) -> &TrieDB<'db, 'cache, L> {
-		&self.raw
-	}
+    /// Get a reference to the underlying raw `TrieDB` struct.
+    pub fn raw(&self) -> &TrieDB<'db, 'cache, L> {
+        &self.raw
+    }
 
-	/// Get a mutable reference to the underlying raw `TrieDB` struct.
-	pub fn raw_mut(&mut self) -> &mut TrieDB<'db, 'cache, L> {
-		&mut self.raw
-	}
+    /// Get a mutable reference to the underlying raw `TrieDB` struct.
+    pub fn raw_mut(&mut self) -> &mut TrieDB<'db, 'cache, L> {
+        &mut self.raw
+    }
 }
 
 impl<'db, 'cache, L> Trie<L> for SecTrieDB<'db, 'cache, L>
 where
-	L: TrieLayout,
+    L: TrieLayout,
 {
-	fn root(&self) -> &TrieHash<L> { self.raw.root() }
+    fn root(&self) -> &TrieHash<L> {
+        self.raw.root()
+    }
 
-	fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
-		self.raw.contains(L::Hash::hash(key).as_ref())
-	}
+    fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
+        self.raw.contains(L::Hash::hash(key).as_ref())
+    }
 
-	fn get_with<Q: Query<L::Hash>>(
-		&self,
-		key: &[u8],
-		query: Q,
-	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
-		self.raw.get_with(L::Hash::hash(key).as_ref(), query)
-	}
+    fn get_with<Q: Query<L::Hash>>(
+        &self,
+        key: &[u8],
+        query: Q,
+    ) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
+        self.raw.get_with(L::Hash::hash(key).as_ref(), query)
+    }
 
-	fn iter<'a>(&'a self) -> Result<
-		Box<dyn TrieIterator<L, Item = TrieItem<TrieHash<L>, CError<L>>> + 'a>,
-		TrieHash<L>,
-		CError<L>
-	> {
-		TrieDB::iter(&self.raw)
-	}
+    fn iter<'a>(
+        &'a self,
+    ) -> Result<
+        Box<dyn TrieIterator<L, Item = TrieItem<TrieHash<L>, CError<L>>> + 'a>,
+        TrieHash<L>,
+        CError<L>,
+    > {
+        TrieDB::iter(&self.raw)
+    }
 }

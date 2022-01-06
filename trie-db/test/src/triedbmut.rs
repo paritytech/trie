@@ -19,8 +19,9 @@ use log::debug;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
     reference_trie_root, reference_trie_root_no_extension, ExtensionLayout, NoExtensionLayout,
-    RefTestTrieDBCache, RefTrieDBBuilder, RefTrieDBMut, RefTrieDBMutAllowEmptyBuilder,
-    RefTrieDBMutBuilder, RefTrieDBMutNoExt, RefTrieDBMutNoExtBuilder, ReferenceNodeCodec, RefTestTrieDBCacheNoExt,
+    RefTestTrieDBCache, RefTestTrieDBCacheNoExt, RefTrieDBBuilder, RefTrieDBMut,
+    RefTrieDBMutAllowEmptyBuilder, RefTrieDBMutBuilder, RefTrieDBMutNoExt,
+    RefTrieDBMutNoExtBuilder, ReferenceNodeCodec,
 };
 use trie_db::{DBValue, NodeCodec, Recorder, Trie, TrieCache as _, TrieMut};
 use trie_standardmap::*;
@@ -600,7 +601,9 @@ fn test_recorder_with_cache() {
     let mut cache = RefTestTrieDBCache::default();
 
     {
-        let trie = RefTrieDBBuilder::new_unchecked(&memdb, &root).with_cache(&mut cache).build();
+        let trie = RefTrieDBBuilder::new_unchecked(&memdb, &root)
+            .with_cache(&mut cache)
+            .build();
 
         // Only read one entry.
         assert_eq!(key_value[0].1, trie.get(&key_value[0].0).unwrap().unwrap());
@@ -653,13 +656,12 @@ fn test_recorder_with_cache() {
     assert_eq!(new_root, validated_root);
 }
 
-
 #[test]
 fn test_insert_remove_data_with_cache() {
     let key_value = vec![
         (b"A".to_vec(), vec![1; 64]),
         (b"AA".to_vec(), vec![2; 64]),
-		// Should be inlined
+        // Should be inlined
         (b"AC".to_vec(), vec![7; 4]),
         (b"AB".to_vec(), vec![3; 64]),
         (b"B".to_vec(), vec![4; 64]),
@@ -675,19 +677,19 @@ fn test_insert_remove_data_with_cache() {
             .with_cache(&mut cache)
             .build();
 
-		// Add all values
+        // Add all values
         for (key, value) in key_value.iter() {
             trie.insert(key, value).unwrap();
         }
 
-		// Remove only the last 2 elements
+        // Remove only the last 2 elements
         for (key, _) in key_value.iter().skip(3) {
             let _ = trie.remove(key);
         }
     }
 
-	// Then only the first 3 elements should be in the cache and the last
-	// two ones should not be there.
+    // Then only the first 3 elements should be in the cache and the last
+    // two ones should not be there.
     for (key, value) in key_value.iter().take(3) {
         assert_eq!(
             Some(trie_db::Bytes::from(value.clone())),

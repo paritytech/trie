@@ -18,8 +18,8 @@ criterion_group!(benches, benchmark);
 criterion_main!(benches);
 
 fn benchmark(c: &mut Criterion) {
-	trie_bench::standard_benchmark::<
-		reference_trie::ExtensionLayout,
-		reference_trie::ReferenceTrieStream,
-	>(c, "ref");
+    trie_bench::standard_benchmark::<
+        reference_trie::ExtensionLayout,
+        reference_trie::ReferenceTrieStream,
+    >(c, "ref");
 }

@@ -16,12 +16,12 @@
 extern crate criterion;
 use criterion::{black_box, Criterion};
 criterion_group!(
-	benches,
-	instantiation,
-	compare_to_null_embedded_in_struct,
-	compare_to_null_in_const,
-	contains_with_non_null_key,
-	contains_with_null_key
+    benches,
+    instantiation,
+    compare_to_null_embedded_in_struct,
+    compare_to_null_in_const,
+    contains_with_non_null_key,
+    contains_with_null_key
 );
 criterion_main!(benches);
 
@@ -35,57 +35,57 @@ use memory_db::HashKey;
 use memory_db::MemoryDB;
 
 fn instantiation(b: &mut Criterion) {
-	b.bench_function("instantiation", move |b| {
-		b.iter(|| {
-			MemoryDB::<KeccakHasher, HashKey<KeccakHasher>, Vec<u8>>::default();
-		})
-	});
+    b.bench_function("instantiation", move |b| {
+        b.iter(|| {
+            MemoryDB::<KeccakHasher, HashKey<KeccakHasher>, Vec<u8>>::default();
+        })
+    });
 }
 
 fn compare_to_null_embedded_in_struct(b: &mut Criterion) {
-	struct X {
-		a_hash: <KeccakHasher as Hasher>::Out,
-	};
-	let x = X {
-		a_hash: KeccakHasher::hash(&[0u8][..]),
-	};
-	let key = KeccakHasher::hash(b"abc");
+    struct X {
+        a_hash: <KeccakHasher as Hasher>::Out,
+    };
+    let x = X {
+        a_hash: KeccakHasher::hash(&[0u8][..]),
+    };
+    let key = KeccakHasher::hash(b"abc");
 
-	b.bench_function("compare_to_null_embedded_in_struct", move |b| {
-		b.iter(|| {
-			black_box(key == x.a_hash);
-		})
-	});
+    b.bench_function("compare_to_null_embedded_in_struct", move |b| {
+        b.iter(|| {
+            black_box(key == x.a_hash);
+        })
+    });
 }
 
 fn compare_to_null_in_const(b: &mut Criterion) {
-	let key = KeccakHasher::hash(b"abc");
+    let key = KeccakHasher::hash(b"abc");
 
-	b.bench_function("compare_to_null_in_const", move |b| {
-		b.iter(|| {
-			black_box(key == [0u8; 32]);
-		})
-	});
+    b.bench_function("compare_to_null_in_const", move |b| {
+        b.iter(|| {
+            black_box(key == [0u8; 32]);
+        })
+    });
 }
 
 fn contains_with_non_null_key(b: &mut Criterion) {
-	let mut m = MemoryDB::<KeccakHasher, HashKey<KeccakHasher>, Vec<u8>>::default();
-	let key = KeccakHasher::hash(b"abc");
-	m.insert(EMPTY_PREFIX, b"abcefghijklmnopqrstuvxyz");
-	b.bench_function("contains_with_non_null_key", move |b| {
-		b.iter(|| {
-			m.contains(&key, EMPTY_PREFIX);
-		})
-	});
+    let mut m = MemoryDB::<KeccakHasher, HashKey<KeccakHasher>, Vec<u8>>::default();
+    let key = KeccakHasher::hash(b"abc");
+    m.insert(EMPTY_PREFIX, b"abcefghijklmnopqrstuvxyz");
+    b.bench_function("contains_with_non_null_key", move |b| {
+        b.iter(|| {
+            m.contains(&key, EMPTY_PREFIX);
+        })
+    });
 }
 
 fn contains_with_null_key(b: &mut Criterion) {
-	let mut m = MemoryDB::<KeccakHasher, HashKey<KeccakHasher>, Vec<u8>>::default();
-	let null_key = KeccakHasher::hash(&[0u8][..]);
-	m.insert(EMPTY_PREFIX, b"abcefghijklmnopqrstuvxyz");
-	b.bench_function("contains_with_null_key", move |b| {
-		b.iter(|| {
-			m.contains(&null_key, EMPTY_PREFIX);
-		})
-	});
+    let mut m = MemoryDB::<KeccakHasher, HashKey<KeccakHasher>, Vec<u8>>::default();
+    let null_key = KeccakHasher::hash(&[0u8][..]);
+    m.insert(EMPTY_PREFIX, b"abcefghijklmnopqrstuvxyz");
+    b.bench_function("contains_with_null_key", move |b| {
+        b.iter(|| {
+            m.contains(&null_key, EMPTY_PREFIX);
+        })
+    });
 }

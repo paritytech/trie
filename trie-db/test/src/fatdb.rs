@@ -12,23 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use memory_db::{MemoryDB, HashKey};
-use trie_db::{DBValue, Trie, TrieMut};
 use keccak_hasher::KeccakHasher;
-use reference_trie::{RefFatDBMut, RefFatDB};
+use memory_db::{HashKey, MemoryDB};
+use reference_trie::{RefFatDB, RefFatDBMut};
+use trie_db::{DBValue, Trie, TrieMut};
 
 #[test]
 fn fatdb_to_trie() {
-	let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
-	let mut root = Default::default();
-	{
-		let mut t = RefFatDBMut::new(&mut memdb, &mut root);
-		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
-	}
-	let t = RefFatDB::new(&memdb, &root).unwrap();
-	assert_eq!(t.get(&[0x01u8, 0x23]).unwrap().unwrap(), vec![0x01u8, 0x23]);
-	assert_eq!(
-		t.iter().unwrap().map(Result::unwrap).collect::<Vec<_>>(),
-		vec![(vec![0x01u8, 0x23], vec![0x01u8, 0x23])]
-	);
+    let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+    let mut root = Default::default();
+    {
+        let mut t = RefFatDBMut::new(&mut memdb, &mut root);
+        t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
+    }
+    let t = RefFatDB::new(&memdb, &root).unwrap();
+    assert_eq!(t.get(&[0x01u8, 0x23]).unwrap().unwrap(), vec![0x01u8, 0x23]);
+    assert_eq!(
+        t.iter().unwrap().map(Result::unwrap).collect::<Vec<_>>(),
+        vec![(vec![0x01u8, 0x23], vec![0x01u8, 0x23])]
+    );
 }

@@ -15,10 +15,10 @@
 use crate::nibble::nibble_ops;
 use crate::nibble::{self, NibbleSlice, NibbleVec};
 use crate::node_codec::NodeCodec;
-use crate::{CError, Result, TrieHash, TrieLayout, TrieError, ChildReference, Bytes};
-use hash_db::Hasher;
+use crate::{Bytes, CError, ChildReference, Result, TrieError, TrieHash, TrieLayout};
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec::Vec};
+use hash_db::Hasher;
 
 use crate::rstd::{borrow::Borrow, ops::Range};
 
@@ -34,7 +34,7 @@ pub enum NodeHandle<'a> {
 }
 
 impl NodeHandle<'_> {
-	/// Converts this node handle into a [`NodeHandleOwned`].
+    /// Converts this node handle into a [`NodeHandleOwned`].
     pub fn to_owned_handle<L: TrieLayout>(
         &self,
     ) -> Result<NodeHandleOwned<TrieHash<L>>, TrieHash<L>, CError<L>> {
@@ -43,7 +43,9 @@ impl NodeHandle<'_> {
                 .ok_or_else(|| Box::new(TrieError::InvalidHash(Default::default(), h.to_vec())))
                 .map(NodeHandleOwned::Hash),
             Self::Inline(i) => match L::Codec::decode(i) {
-                Ok(node) => Ok(NodeHandleOwned::Inline(Box::new(node.to_owned_node::<L>()?))),
+                Ok(node) => Ok(NodeHandleOwned::Inline(Box::new(
+                    node.to_owned_node::<L>()?,
+                ))),
                 Err(e) => Err(Box::new(TrieError::DecoderError(Default::default(), e))),
             },
         }
@@ -58,26 +60,32 @@ pub enum NodeHandleOwned<H> {
     Inline(Box<NodeOwned<H>>),
 }
 
-impl<H> NodeHandleOwned<H> where H: Default + AsRef<[u8]> + AsMut<[u8]> + Copy {
-	/// Returns `self` as a [`ChildReference`].
-	///
-	/// # Panic
-	///
-	/// This function panics if `self == Self::Inline(_)` and the inline node encoded length is greater
-	/// then the lenght of the hash.
-	fn as_child_reference<C: NodeCodec<HashOut = H>>(&self) -> ChildReference<H> {
-		match self {
-			NodeHandleOwned::Hash(h) => ChildReference::Hash(*h),
-			NodeHandleOwned::Inline(n) => {
-				let encoded = n.to_encoded::<C>();
-				let mut store = H::default();
-				assert!(store.as_ref().len() >= encoded.len(), "Invalid inline node handle");
+impl<H> NodeHandleOwned<H>
+where
+    H: Default + AsRef<[u8]> + AsMut<[u8]> + Copy,
+{
+    /// Returns `self` as a [`ChildReference`].
+    ///
+    /// # Panic
+    ///
+    /// This function panics if `self == Self::Inline(_)` and the inline node encoded length is greater
+    /// then the lenght of the hash.
+    fn as_child_reference<C: NodeCodec<HashOut = H>>(&self) -> ChildReference<H> {
+        match self {
+            NodeHandleOwned::Hash(h) => ChildReference::Hash(*h),
+            NodeHandleOwned::Inline(n) => {
+                let encoded = n.to_encoded::<C>();
+                let mut store = H::default();
+                assert!(
+                    store.as_ref().len() >= encoded.len(),
+                    "Invalid inline node handle"
+                );
 
-				store.as_mut()[..encoded.len()].copy_from_slice(&encoded);
-				ChildReference::Inline(store, encoded.len())
-			}
-		}
-	}
+                store.as_mut()[..encoded.len()].copy_from_slice(&encoded);
+                ChildReference::Inline(store, encoded.len())
+            }
+        }
+    }
 }
 
 /// Read a hash from a slice into a Hasher output. Returns None if the slice is the wrong length.
@@ -115,30 +123,51 @@ pub enum Node<'a> {
 }
 
 impl Node<'_> {
-	/// Converts this node into a [`NodeOwned`].
-    pub fn to_owned_node<L: TrieLayout>(&self) -> Result<NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>> {
+    /// Converts this node into a [`NodeOwned`].
+    pub fn to_owned_node<L: TrieLayout>(
+        &self,
+    ) -> Result<NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>> {
         match self {
             Self::Empty => Ok(NodeOwned::Empty),
             Self::Leaf(n, d) => Ok(NodeOwned::Leaf((*n).into(), Bytes::from(*d))),
-            Self::Extension(n, h) => Ok(NodeOwned::Extension((*n).into(), h.to_owned_handle::<L>()?)),
-			Self::Branch(childs, data) => {
-				let mut childs_owned = [(); nibble_ops::NIBBLE_LENGTH].map(|_| None);
-				childs.iter().enumerate().map(|(i, c)| {
-					childs_owned[i] = c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?;
-					Ok(())
-				}).collect::<Result<_, _, _>>()?;
+            Self::Extension(n, h) => {
+                Ok(NodeOwned::Extension((*n).into(), h.to_owned_handle::<L>()?))
+            }
+            Self::Branch(childs, data) => {
+                let mut childs_owned = [(); nibble_ops::NIBBLE_LENGTH].map(|_| None);
+                childs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| {
+                        childs_owned[i] =
+                            c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?;
+                        Ok(())
+                    })
+                    .collect::<Result<_, _, _>>()?;
 
-				Ok(NodeOwned::Branch(childs_owned, data.as_ref().map(|d| Bytes::from(*d))))
-			},
-			Self::NibbledBranch(n, childs, data) => {
-				let mut childs_owned = [(); nibble_ops::NIBBLE_LENGTH].map(|_| None);
-				childs.iter().enumerate().map(|(i, c)| {
-					childs_owned[i] = c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?;
-					Ok(())
-				}).collect::<Result<_, _, _>>()?;
+                Ok(NodeOwned::Branch(
+                    childs_owned,
+                    data.as_ref().map(|d| Bytes::from(*d)),
+                ))
+            }
+            Self::NibbledBranch(n, childs, data) => {
+                let mut childs_owned = [(); nibble_ops::NIBBLE_LENGTH].map(|_| None);
+                childs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| {
+                        childs_owned[i] =
+                            c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?;
+                        Ok(())
+                    })
+                    .collect::<Result<_, _, _>>()?;
 
-				Ok(NodeOwned::NibbledBranch((*n).into(), childs_owned, data.as_ref().map(|d| Bytes::from(*d))))
-			},
+                Ok(NodeOwned::NibbledBranch(
+                    (*n).into(),
+                    childs_owned,
+                    data.as_ref().map(|d| Bytes::from(*d)),
+                ))
+            }
         }
     }
 }
@@ -167,57 +196,50 @@ pub enum NodeOwned<H> {
     ),
 }
 
-impl<H> NodeOwned<H> where H: Default + AsRef<[u8]> + AsMut<[u8]> + Copy {
-	/// Convert to its encoded format.
-	pub fn to_encoded<C>(&self) -> Vec<u8>
-	where
-		C: NodeCodec<HashOut = H>,
-	{
-		match self {
-			Self::Empty => C::empty_node().to_vec(),
-			Self::Leaf(partial, value) => {
-				C::leaf_node(partial.right_iter(), partial.len(), &value)
-			},
-			Self::Extension(partial, child) => {
-				C::extension_node(
-					partial.right_iter(),
-					partial.len(),
-					child.as_child_reference::<C>(),
-				)
-			},
-			Self::Branch(children, value) => {
-				C::branch_node(
-					children.iter()
-						.map(|child| {
-							child.as_ref().map(|c| c.as_child_reference::<C>())
-						}),
-					value.as_deref(),
-				)
-			},
-			Self::NibbledBranch(partial, children, value) => {
-				C::branch_node_nibbled(
-					partial.right_iter(),
-					partial.len(),
-					children.iter()
-						.map(|child| {
-							child.as_ref().map(|c| c.as_child_reference::<C>())
-						}),
-					value.as_deref(),
-				)
-			},
-		}
-	}
+impl<H> NodeOwned<H>
+where
+    H: Default + AsRef<[u8]> + AsMut<[u8]> + Copy,
+{
+    /// Convert to its encoded format.
+    pub fn to_encoded<C>(&self) -> Vec<u8>
+    where
+        C: NodeCodec<HashOut = H>,
+    {
+        match self {
+            Self::Empty => C::empty_node().to_vec(),
+            Self::Leaf(partial, value) => C::leaf_node(partial.right_iter(), partial.len(), &value),
+            Self::Extension(partial, child) => C::extension_node(
+                partial.right_iter(),
+                partial.len(),
+                child.as_child_reference::<C>(),
+            ),
+            Self::Branch(children, value) => C::branch_node(
+                children
+                    .iter()
+                    .map(|child| child.as_ref().map(|c| c.as_child_reference::<C>())),
+                value.as_deref(),
+            ),
+            Self::NibbledBranch(partial, children, value) => C::branch_node_nibbled(
+                partial.right_iter(),
+                partial.len(),
+                children
+                    .iter()
+                    .map(|child| child.as_ref().map(|c| c.as_child_reference::<C>())),
+                value.as_deref(),
+            ),
+        }
+    }
 
-	/// Returns the data attached to this node.
-	pub fn data(&self) -> Option<&Bytes> {
-		match &self {
-			Self::Empty => None,
-			Self::Leaf(_, value) => Some(value),
-			Self::Extension(_, _) => None,
-			Self::Branch(_, value) => value.as_ref(),
-			Self::NibbledBranch(_, _, value) => value.as_ref(),
-		}
-	}
+    /// Returns the data attached to this node.
+    pub fn data(&self) -> Option<&Bytes> {
+        match &self {
+            Self::Empty => None,
+            Self::Leaf(_, value) => Some(value),
+            Self::Extension(_, _) => None,
+            Self::Branch(_, value) => value.as_ref(),
+            Self::NibbledBranch(_, _, value) => value.as_ref(),
+        }
+    }
 }
 
 /// A `NodeHandlePlan` is a decoding plan for constructing a `NodeHandle` from an encoded trie
