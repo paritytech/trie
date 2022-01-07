@@ -6,5 +6,5 @@ use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
 	// fuzzed code goes here
-	fuzz_that_compare_implementations(data);
+	fuzz_that_compare_implementations::<reference_trie::NoExtensionLayout>(data);
 });

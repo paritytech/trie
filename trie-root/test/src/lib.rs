@@ -26,7 +26,10 @@ mod test {
 		let v = vec![("doe", "reindeer"), ("dog", "puppy"), ("dogglesworth", "cat")];
 
 		let root = hex!["d6e02b2bd48aa04fd2ad87cfac1144a29ca7f7dc60f4526c7b7040763abe3d43"];
-		assert_eq!(sec_trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v), root);
+		assert_eq!(
+			sec_trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v, Default::default()),
+			root
+		);
 	}
 
 	#[test]
@@ -34,6 +37,9 @@ mod test {
 		let v = vec![("doe", "reindeer"), ("dog", "puppy"), ("dogglesworth", "cat")];
 
 		let root = hex!["0807d5393ae7f349481063ebb5dbaf6bda58db282a385ca97f37dccba717cb79"];
-		assert_eq!(trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v), root);
+		assert_eq!(
+			trie_root::<KeccakHasher, ReferenceTrieStream, _, _, _>(v, Default::default()),
+			root
+		);
 	}
 }

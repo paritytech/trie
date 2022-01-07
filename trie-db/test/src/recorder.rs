@@ -14,14 +14,14 @@
 
 //! Trie query recorder.
 
-use keccak_hasher::KeccakHasher;
+use hash_db::Hasher;
 use memory_db::{HashKey, MemoryDB};
 use reference_trie::{NoExtensionLayout, RefTrieDBBuilder, RefTrieDBMutBuilder};
 use trie_db::{Recorder, Trie, TrieMut};
 
 #[test]
 fn trie_record() {
-	let mut db = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
+	let mut db = MemoryDB::<RefHasher, HashKey<_>, _>::default();
 	let mut root = Default::default();
 	{
 		let mut x = RefTrieDBMutBuilder::new(&mut db, &mut root).build();

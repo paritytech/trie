@@ -15,12 +15,9 @@
 //! Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
 
 use super::{nibble_ops, BackingByteVec, NibbleSlice, NibbleSliceIterator};
-use crate::{
-	node::NodeKey,
-	node_codec::Partial,
-	rstd::{cmp::*, fmt},
-	NibbleVec,
-};
+#[cfg(feature = "std")]
+use crate::rstd::fmt;
+use crate::{node::NodeKey, node_codec::Partial, rstd::cmp::*};
 use hash_db::Prefix;
 
 impl<'a> Iterator for NibbleSliceIterator<'a> {

@@ -16,7 +16,7 @@
 //! to parametrize the hashes used in the codec.
 
 use crate::{
-	node::{Node, NodePlan},
+	node::{Node, NodePlan, Value},
 	ChildReference, MaybeDebug,
 };
 
@@ -29,7 +29,13 @@ use crate::rstd::{borrow::Borrow, hash, vec::Vec, Error};
 pub type Partial<'a> = ((u8, u8), &'a [u8]);
 
 /// Trait for trie node encoding/decoding.
+/// Uses a type parameter to allow registering
+/// positions without colling decode plan.
 pub trait NodeCodec: Sized {
+	/// Escape header byte sequence to indicate next node is a
+	/// branch or leaf with hash of value, followed by the value node.
+	const ESCAPE_HEADER: Option<u8> = None;
+
 	/// Codec error type.
 	type Error: Error;
 
@@ -53,7 +59,7 @@ pub trait NodeCodec: Sized {
 	fn decode_plan(data: &[u8]) -> Result<NodePlan, Self::Error>;
 
 	/// Decode bytes to a `Node`. Returns `Self::E` on failure.
-	fn decode(data: &[u8]) -> Result<Node, Self::Error> {
+	fn decode<'a>(data: &'a [u8]) -> Result<Node<'a>, Self::Error> {
 		Ok(Self::decode_plan(data)?.build(data))
 	}
 
@@ -68,7 +74,7 @@ pub trait NodeCodec: Sized {
 	/// Note that number_nibble is the number of element of the iterator
 	/// it can possibly be obtain by `Iterator` `size_hint`, but
 	/// for simplicity it is used directly as a parameter.
-	fn leaf_node(partial: impl Iterator<Item = u8>, number_nibble: usize, value: &[u8]) -> Vec<u8>;
+	fn leaf_node(partial: impl Iterator<Item = u8>, number_nibble: usize, value: Value) -> Vec<u8>;
 
 	/// Returns an encoded extension node
 	///
@@ -85,7 +91,7 @@ pub trait NodeCodec: Sized {
 	/// Takes an iterator yielding `ChildReference<Self::HashOut>` and an optional value.
 	fn branch_node(
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		value: Option<&[u8]>,
+		value: Option<Value>,
 	) -> Vec<u8>;
 
 	/// Returns an encoded branch node with a possible partial path.
@@ -94,6 +100,6 @@ pub trait NodeCodec: Sized {
 		partial: impl Iterator<Item = u8>,
 		number_nibble: usize,
 		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-		value: Option<&[u8]>,
+		value: Option<Value>,
 	) -> Vec<u8>;
 }

@@ -13,9 +13,8 @@
 // limitations under the License.
 
 use crate::triedbmut::TrieDBMutBuilder;
+use crate::{CError, DBValue, Result, TrieDBMut, TrieHash, TrieLayout, TrieMut};
 use hash_db::{HashDB, Hasher};
-
-use super::{CError, DBValue, Result, TrieDBMut, TrieHash, TrieLayout, TrieMut};
 
 /// A mutable `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 ///
@@ -87,11 +86,11 @@ where
 		&mut self,
 		key: &[u8],
 		value: &[u8],
-	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+	) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
 		self.raw.insert(&L::Hash::hash(key).as_ref(), value)
 	}
 
-	fn remove(&mut self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+	fn remove(&mut self, key: &[u8]) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
 		self.raw.remove(&L::Hash::hash(key).as_ref())
 	}
 }

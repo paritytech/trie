@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use keccak_hasher::KeccakHasher;
 use memory_db::{HashKey, MemoryDB};
-use reference_trie::{RefFatDB, RefFatDBMut};
+use reference_trie::{RefFatDB, RefFatDBMut, RefHasher};
 use trie_db::{DBValue, Trie, TrieMut};
 
 #[test]
 fn fatdb_to_trie() {
-	let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
+	let mut memdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
 	let mut root = Default::default();
 	{
 		let mut t = RefFatDBMut::new(&mut memdb, &mut root);
@@ -30,5 +29,9 @@ fn fatdb_to_trie() {
 	assert_eq!(
 		t.iter().unwrap().map(Result::unwrap).collect::<Vec<_>>(),
 		vec![(vec![0x01u8, 0x23], vec![0x01u8, 0x23])]
+	);
+	assert_eq!(
+		t.key_iter().unwrap().map(Result::unwrap).collect::<Vec<_>>(),
+		vec![vec![0x01u8, 0x23]]
 	);
 }

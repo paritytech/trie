@@ -1,4 +1,4 @@
-// Copyright 2017, 2020 Parity Technologies
+// Copyright 2017, 2021 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ use crate::{
 	node::{NodeHandle, NodePlan, OwnedNode},
 	triedb::TrieDB,
 };
-use hash_db::{Hasher, EMPTY_PREFIX};
+use hash_db::{Hasher, Prefix, EMPTY_PREFIX};
 
 use crate::rstd::{rc::Rc, vec::Vec};
 
@@ -64,17 +64,27 @@ pub struct TrieDBNodeIterator<'a, 'cache, L: TrieLayout> {
 	key_nibbles: NibbleVec,
 }
 
-impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
+/// When there is guaranties the storage backend do not change,
+/// this can be use to suspend and restore the iterator.
+pub struct SuspendedTrieDBNodeIterator<L: TrieLayout> {
+	trail: Vec<Crumb<L::Hash>>,
+	key_nibbles: NibbleVec,
+}
+
+impl<L: TrieLayout> SuspendedTrieDBNodeIterator<L> {
+	/// Restore iterator.
+	pub fn unsafe_restore<'a>(self, db: &'a TrieDB<'a, L>) -> TrieDBNodeIterator<'a, L> {
+		TrieDBNodeIterator { db, trail: self.trail, key_nibbles: self.key_nibbles }
+	}
+}
+
+impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 	/// Create a new iterator.
 	pub fn new(db: &'a TrieDB<'a, 'cache, L>) -> Result<Self, TrieHash<L>, CError<L>> {
 		let mut r =
 			TrieDBNodeIterator { db, trail: Vec::with_capacity(8), key_nibbles: NibbleVec::new() };
-		let (root_node, root_hash) = db.get_raw_or_lookup(
-			*db.root(),
-			NodeHandle::Hash(db.root().as_ref()),
-			EMPTY_PREFIX,
-			true,
-		)?;
+		let (root_node, root_hash) =
+			db.get_raw_or_lookup(*db.root(), NodeHandle::Hash(db.root().as_ref()), EMPTY_PREFIX, true)?;
 		r.descend(root_node, root_hash);
 		Ok(r)
 	}
@@ -83,6 +93,19 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<TrieHash<L>>) {
 		self.trail
 			.push(Crumb { hash: node_hash, status: Status::Entering, node: Rc::new(node) });
+	}
+
+	/// Suspend iterator. Warning this does not hold guaranties it can be restored later.
+	/// Restoring requires that trie backend does not change.
+	pub fn suspend(self) -> SuspendedTrieDBNodeIterator<L> {
+		SuspendedTrieDBNodeIterator { trail: self.trail, key_nibbles: self.key_nibbles }
+	}
+
+	/// Fetch value by hash at a current node height
+	pub fn fetch_value(&self, key: &[u8], prefix: Prefix) -> Option<DBValue> {
+		let mut res = TrieHash::<L>::default();
+		res.as_mut().copy_from_slice(key);
+		self.db.db().get(&res, prefix)
 	}
 }
 
@@ -280,6 +303,11 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 		self.trail.clear();
 		Ok(())
 	}
+
+	/// Access inner hash db.
+	pub fn db(&self) -> &dyn hash_db::HashDBRef<L::Hash, DBValue> {
+		self.db.db()
+	}
 }
 
 impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, 'cache, L> {
@@ -371,7 +399,11 @@ impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, 'cache, L> {
 							qed",
 					);
 					crumb.increment();
-					return Some(Ok((self.key_nibbles.clone(), crumb.hash, crumb.node.clone())))
+					return Some(Ok((
+						self.key_nibbles.clone(),
+						crumb.hash.clone(),
+						crumb.node.clone(),
+					)))
 				},
 				IterStep::PopTrail => {
 					self.trail.pop().expect(

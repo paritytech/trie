@@ -1,4 +1,4 @@
-// Copyright 2019 Parity Technologies
+// Copyright 2019, 2021 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,24 +14,22 @@
 
 //! Generation of compact proofs for Merkle-Patricia tries.
 
-use crate::{
-	rstd::{boxed::Box, convert::TryInto, marker::PhantomData, ops::Range, vec, vec::Vec},
-	DBValue, TrieDBBuilder,
-};
+use crate::rstd::{boxed::Box, convert::TryInto, marker::PhantomData, vec, vec::Vec};
 
 use hash_db::{HashDBRef, Hasher};
 
 use crate::{
 	nibble::LeftNibbleSlice,
 	nibble_ops::NIBBLE_LENGTH,
-	node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode},
-	CError, ChildReference, NibbleSlice, NodeCodec, Recorder, Result as TrieResult, Trie,
+	node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, Value, ValuePlan},
+	CError, ChildReference, NibbleSlice, NodeCodec, Record, Recorder, Result as TrieResult, Trie,
 	TrieError, TrieHash, TrieLayout,
 };
 
 struct StackEntry<'a, C: NodeCodec> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: LeftNibbleSlice<'a>,
+	/// Stacked node.
 	node: OwnedNode<Vec<u8>>,
 	/// The hash of the node or None if it is referenced inline.
 	node_hash: Option<C::HashOut>,
@@ -75,13 +73,21 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 
 	/// Encode this entry to an encoded trie node with data properly omitted.
 	fn encode_node(mut self) -> TrieResult<Vec<u8>, C::HashOut, C::Error> {
+		let omit_value = self.omit_value;
 		let node_data = self.node.data();
-		Ok(match self.node.node_plan() {
+		let value_with_omission = |value_range: ValuePlan| -> Option<Value> {
+			if !omit_value {
+				Some(value_range.build(&node_data))
+			} else {
+				None
+			}
+		};
+		let encoded = match self.node.node_plan() {
 			NodePlan::Empty => node_data.to_vec(),
-			NodePlan::Leaf { .. } if !self.omit_value => node_data.to_vec(),
+			NodePlan::Leaf { .. } if !omit_value => node_data.to_vec(),
 			NodePlan::Leaf { partial, value: _ } => {
 				let partial = partial.build(node_data);
-				C::leaf_node(partial.right_iter(), partial.len(), &[])
+				C::leaf_node(partial.right_iter(), partial.len(), Value::Inline(&[]))
 			},
 			NodePlan::Extension { .. } if self.child_index == 0 => node_data.to_vec(),
 			NodePlan::Extension { partial: partial_plan, child: _ } => {
@@ -102,7 +108,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 				)?;
 				C::branch_node(
 					self.children.into_iter(),
-					value_with_omission(node_data, value, self.omit_value),
+					value.clone().map(value_with_omission).flatten(),
 				)
 			},
 			NodePlan::NibbledBranch { partial: partial_plan, value, children } => {
@@ -117,10 +123,11 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 					partial.right_iter(),
 					partial.len(),
 					self.children.into_iter(),
-					value_with_omission(node_data, value, self.omit_value),
+					value.clone().map(value_with_omission).flatten(),
 				)
 			},
-		})
+		};
+		Ok(encoded)
 	}
 
 	/// Populate the remaining references in `children` with references copied from
@@ -200,7 +207,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 					the encoding of the proof node is always smaller than the raw node as data is \
 					only stripped"
 				);
-				&mut hash.as_mut()[..encoded_child.len()].copy_from_slice(encoded_child);
+				hash.as_mut()[..encoded_child.len()].copy_from_slice(encoded_child);
 				ChildReference::Inline(hash, encoded_child.len())
 			},
 		}
@@ -275,6 +282,7 @@ where
 					&mut entry.children,
 					&key,
 					entry.prefix.len(),
+					&mut recorded_nodes,
 				)?,
 				// If stack is empty, descend into the root node.
 				None =>
@@ -318,6 +326,25 @@ where
 					};
 					stack.push(child_entry);
 				},
+				Step::FoundHashedValue(value) => {
+					assert_eq!(
+						Some(&value),
+						expected_value.as_ref(),
+						"expected_value is found using `trie_db::Lookup`; \
+						value is found by traversing the same nodes recorded during the lookup \
+						using the same logic; \
+						thus the values found must be equal"
+					);
+					assert!(
+						recorded_nodes.next().is_none(),
+						"the recorded nodes are only recorded on the lookup path to the current \
+						key; \
+						recorded nodes is the minimal sequence of trie nodes on the lookup path; \
+						the value was found by traversing recorded nodes, so there must be none \
+						remaining"
+					);
+					break
+				},
 				Step::FoundValue(value) => {
 					assert_eq!(
 						value,
@@ -341,13 +368,24 @@ where
 		}
 	}
 
-	unwind_stack(&mut stack, &mut proof_nodes, None)?;
+	unwind_stack::<L::Codec>(&mut stack, &mut proof_nodes, None)?;
 	Ok(proof_nodes)
 }
 
 enum Step<'a> {
 	Descend { child_prefix_len: usize, child: NodeHandle<'a> },
 	FoundValue(Option<&'a [u8]>),
+	FoundHashedValue(Vec<u8>),
+}
+
+fn resolve_value<C: NodeCodec>(
+	recorded_nodes: &mut dyn Iterator<Item = Record<C::HashOut>>,
+) -> TrieResult<Step<'static>, C::HashOut, C::Error> {
+	if let Some(resolve_value) = recorded_nodes.next() {
+		Ok(Step::FoundHashedValue(resolve_value.data))
+	} else {
+		Err(Box::new(TrieError::IncompleteDatabase(C::HashOut::default())))
+	}
 }
 
 /// Determine the next algorithmic step to take by matching the current key against the current top
@@ -360,14 +398,23 @@ fn match_key_to_node<'a, C: NodeCodec>(
 	children: &mut [Option<ChildReference<C::HashOut>>],
 	key: &LeftNibbleSlice,
 	prefix_len: usize,
+	recorded_nodes: &mut dyn Iterator<Item = Record<C::HashOut>>,
 ) -> TrieResult<Step<'a>, C::HashOut, C::Error> {
 	Ok(match node_plan {
 		NodePlan::Empty => Step::FoundValue(None),
 		NodePlan::Leaf { partial: partial_plan, value: value_range } => {
 			let partial = partial_plan.build(node_data);
 			if key.contains(&partial, prefix_len) && key.len() == prefix_len + partial.len() {
-				*omit_value = true;
-				Step::FoundValue(Some(&node_data[value_range.clone()]))
+				match value_range {
+					ValuePlan::Inline(value_range) => {
+						*omit_value = true;
+						Step::FoundValue(Some(&node_data[value_range.clone()]))
+					},
+					ValuePlan::Node(..) => {
+						*omit_value = true;
+						resolve_value::<C>(recorded_nodes)?
+					},
+				}
 			} else {
 				Step::FoundValue(None)
 			}
@@ -385,7 +432,7 @@ fn match_key_to_node<'a, C: NodeCodec>(
 		},
 		NodePlan::Branch { value, children: child_handles } => match_key_to_branch_node::<C>(
 			node_data,
-			value,
+			value.as_ref(),
 			&child_handles,
 			omit_value,
 			child_index,
@@ -393,11 +440,12 @@ fn match_key_to_node<'a, C: NodeCodec>(
 			key,
 			prefix_len,
 			NibbleSlice::new(&[]),
+			recorded_nodes,
 		)?,
 		NodePlan::NibbledBranch { partial: partial_plan, value, children: child_handles } =>
 			match_key_to_branch_node::<C>(
 				node_data,
-				value,
+				value.as_ref(),
 				&child_handles,
 				omit_value,
 				child_index,
@@ -405,13 +453,14 @@ fn match_key_to_node<'a, C: NodeCodec>(
 				key,
 				prefix_len,
 				partial_plan.build(node_data),
+				recorded_nodes,
 			)?,
 	})
 }
 
 fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 	node_data: &'a [u8],
-	value_range: &'b Option<Range<usize>>,
+	value_range: Option<&'b ValuePlan>,
 	child_handles: &'b [Option<NodeHandlePlan>; NIBBLE_LENGTH],
 	omit_value: &mut bool,
 	child_index: &mut usize,
@@ -419,14 +468,24 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 	key: &'b LeftNibbleSlice<'b>,
 	prefix_len: usize,
 	partial: NibbleSlice<'b>,
+	recorded_nodes: &mut dyn Iterator<Item = Record<C::HashOut>>,
 ) -> TrieResult<Step<'a>, C::HashOut, C::Error> {
 	if !key.contains(&partial, prefix_len) {
 		return Ok(Step::FoundValue(None))
 	}
 
 	if key.len() == prefix_len + partial.len() {
-		*omit_value = true;
-		let value = value_range.clone().map(|range| &node_data[range]);
+		let value = match value_range {
+			Some(ValuePlan::Inline(range)) => {
+				*omit_value = true;
+				Some(&node_data[range.clone()])
+			},
+			Some(ValuePlan::Node(..)) => {
+				*omit_value = true;
+				return resolve_value::<C>(recorded_nodes)
+			},
+			None => None,
+		};
 		return Ok(Step::FoundValue(value))
 	}
 
@@ -456,18 +515,6 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 		})
 	} else {
 		Ok(Step::FoundValue(None))
-	}
-}
-
-fn value_with_omission<'a>(
-	node_data: &'a [u8],
-	value_range: &Option<Range<usize>>,
-	omit: bool,
-) -> Option<&'a [u8]> {
-	if omit {
-		None
-	} else {
-		value_range.clone().map(|range| &node_data[range])
 	}
 }
 

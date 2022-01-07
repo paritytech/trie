@@ -1,4 +1,4 @@
-// Copyright 2017, 2020 Parity Technologies
+// Copyright 2017, 2021 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{
+#[cfg(feature = "std")]
+use crate::nibble::NibbleVec;
+use crate::{
 	lookup::Lookup,
 	nibble::NibbleVec,
 	node::{decode_hash, Node, NodeHandle, OwnedNode},
@@ -229,6 +231,16 @@ where
 	> {
 		TrieDBIterator::new(self).map(|iter| Box::new(iter) as Box<_>)
 	}
+
+	fn key_iter<'a>(
+		&'a self,
+	) -> Result<
+		Box<dyn TrieIterator<L, Item = TrieKeyItem<TrieHash<L>, CError<L>>> + 'a>,
+		TrieHash<L>,
+		CError<L>,
+	> {
+		TrieDBKeyIterator::new(self).map(|iter| Box::new(iter) as Box<_>)
+	}
 }
 
 // This is for pretty debug output only
@@ -256,20 +268,20 @@ where
 			false,
 		) {
 			Ok((owned_node, _node_hash)) => match owned_node.node() {
-				Node::Leaf(slice, value) => match (f.debug_struct("Node::Leaf"), self.index) {
-					(ref mut d, Some(i)) => d.field("index", &i),
-					(ref mut d, _) => d,
-				}
-				.field("slice", &slice)
-				.field("value", &value)
-				.finish(),
-				Node::Extension(slice, item) =>
-					match (f.debug_struct("Node::Extension"), self.index) {
-						(ref mut d, Some(i)) => d.field("index", &i),
-						(ref mut d, _) => d,
+				Node::Leaf(slice, value) => {
+					let mut disp = f.debug_struct("Node::Leaf");
+					if let Some(i) = self.index {
+						disp.field("index", &i);
 					}
-					.field("slice", &slice)
-					.field(
+					disp.field("slice", &slice).field("value", &value);
+					disp.finish()
+				},
+				Node::Extension(slice, item) => {
+					let mut disp = f.debug_struct("Node::Extension");
+					if let Some(i) = self.index {
+						disp.field("index", &i);
+					}
+					disp.field("slice", &slice).field(
 						"item",
 						&TrieAwareDebugNode {
 							trie: self.trie,
@@ -279,8 +291,9 @@ where
 								.clone_append_optional_slice_and_nibble(Some(&slice), None),
 							index: None,
 						},
-					)
-					.finish(),
+					);
+					disp.finish()
+				},
 				Node::Branch(ref nodes, ref value) => {
 					let nodes: Vec<TrieAwareDebugNode<L>> = nodes
 						.into_iter()
@@ -295,13 +308,12 @@ where
 								.clone_append_optional_slice_and_nibble(None, Some(i as u8)),
 						})
 						.collect();
-					match (f.debug_struct("Node::Branch"), self.index) {
-						(ref mut d, Some(ref i)) => d.field("index", i),
-						(ref mut d, _) => d,
+					let mut disp = f.debug_struct("Node::Branch");
+					if let Some(i) = self.index {
+						disp.field("index", &i);
 					}
-					.field("nodes", &nodes)
-					.field("value", &value)
-					.finish()
+					disp.field("nodes", &nodes).field("value", &value);
+					disp.finish()
 				},
 				Node::NibbledBranch(slice, nodes, value) => {
 					let nodes: Vec<TrieAwareDebugNode<L>> = nodes
@@ -318,16 +330,17 @@ where
 							),
 						})
 						.collect();
-					match (f.debug_struct("Node::NibbledBranch"), self.index) {
-						(ref mut d, Some(ref i)) => d.field("index", i),
-						(ref mut d, _) => d,
+					let mut disp = f.debug_struct("Node::NibbledBranch");
+					if let Some(i) = self.index {
+						disp.field("index", &i);
 					}
-					.field("slice", &slice)
-					.field("nodes", &nodes)
-					.field("value", &value)
-					.finish()
+					disp.field("slice", &slice).field("nodes", &nodes).field("value", &value);
+					disp.finish()
 				},
-				Node::Empty => f.debug_struct("Node::Empty").finish(),
+				Node::Empty => {
+					let mut disp = f.debug_struct("Node::Empty");
+					disp.finish()
+				},
 			},
 			Err(e) => f
 				.debug_struct("BROKEN_NODE")
@@ -365,7 +378,25 @@ pub struct TrieDBIterator<'a, 'cache, L: TrieLayout> {
 	inner: TrieDBNodeIterator<'a, 'cache, L>,
 }
 
-impl<'a, 'cache, L: TrieLayout> TrieDBIterator<'a, 'cache, L> {
+/// Iterator for going through all of key with values in the trie in pre-order traversal order.
+pub struct TrieDBKeyIterator<'a, L: TrieLayout> {
+	inner: TrieDBNodeIterator<'a, L>,
+}
+
+/// When there is guaranties the storage backend do not change,
+/// this can be use to suspend and restore the iterator.
+pub struct SuspendedTrieDBKeyIterator<L: TrieLayout> {
+	inner: crate::iterator::SuspendedTrieDBNodeIterator<L>,
+}
+
+impl<L: TrieLayout> SuspendedTrieDBKeyIterator<L> {
+	/// Restore iterator.
+	pub fn unsafe_restore<'a>(self, db: &'a TrieDB<'a, L>) -> TrieDBKeyIterator<'a, L> {
+		TrieDBKeyIterator { inner: self.inner.unsafe_restore(db) }
+	}
+}
+
+impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 	/// Create a new iterator.
 	pub fn new(db: &'a TrieDB<'a, 'cache, L>) -> Result<Self, TrieHash<L>, CError<L>> {
 		let inner = TrieDBNodeIterator::new(db)?;
@@ -376,7 +407,7 @@ impl<'a, 'cache, L: TrieLayout> TrieDBIterator<'a, 'cache, L> {
 	pub fn new_prefixed(
 		db: &'a TrieDB<'a, 'cache, L>,
 		prefix: &[u8],
-	) -> Result<Self, TrieHash<L>, CError<L>> {
+	) -> Result<TrieDBIterator<'a, L>, TrieHash<L>, CError<L>> {
 		let mut inner = TrieDBNodeIterator::new(db)?;
 		inner.prefix(prefix)?;
 
@@ -405,8 +436,54 @@ impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBIterator<'a, 'cache, L
 	}
 }
 
-impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBIterator<'a, 'cache, L> {
-	type Item = TrieItem<TrieHash<L>, CError<L>>;
+impl<'a, L: TrieLayout> TrieDBKeyIterator<'a, L> {
+	/// Create a new iterator.
+	pub fn new(db: &'a TrieDB<L>) -> Result<TrieDBKeyIterator<'a, L>, TrieHash<L>, CError<L>> {
+		let inner = TrieDBNodeIterator::new(db)?;
+		Ok(TrieDBKeyIterator { inner })
+	}
+
+	/// Suspend iterator. Warning this does not hold guaranties it can be restore later.
+	/// Restoring require that trie backend did not change.
+	pub fn suspend(self) -> SuspendedTrieDBKeyIterator<L> {
+		SuspendedTrieDBKeyIterator { inner: self.inner.suspend() }
+	}
+
+	/// Create a new iterator, but limited to a given prefix.
+	pub fn new_prefixed(
+		db: &'a TrieDB<L>,
+		prefix: &[u8],
+	) -> Result<TrieDBKeyIterator<'a, L>, TrieHash<L>, CError<L>> {
+		let mut inner = TrieDBNodeIterator::new(db)?;
+		inner.prefix(prefix)?;
+
+		Ok(TrieDBKeyIterator { inner })
+	}
+
+	/// Create a new iterator, but limited to a given prefix.
+	/// It then do a seek operation from prefixed context (using `seek` lose
+	/// prefix context by default).
+	pub fn new_prefixed_then_seek(
+		db: &'a TrieDB<L>,
+		prefix: &[u8],
+		start_at: &[u8],
+	) -> Result<TrieDBKeyIterator<'a, L>, TrieHash<L>, CError<L>> {
+		let mut inner = TrieDBNodeIterator::new(db)?;
+		inner.prefix_then_seek(prefix, start_at)?;
+
+		Ok(TrieDBKeyIterator { inner })
+	}
+}
+
+impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBKeyIterator<'a, L> {
+	/// Position the iterator on the first element with key >= `key`
+	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+		TrieIterator::seek(&mut self.inner, key)
+	}
+}
+
+impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
+	type Item = TrieItem<'a, TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		while let Some(item) = self.inner.next() {
@@ -424,7 +501,61 @@ impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBIterator<'a, 'cache, L> {
 						},
 						_ => None,
 					};
-					if let Some(value) = maybe_value {
+					if maybe_value.is_none() {
+						continue
+					}
+					let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
+					let key = key_slice.to_vec();
+					if let Some(extra_nibble) = maybe_extra_nibble {
+						return Some(Err(Box::new(TrieError::ValueAtIncompleteKey(
+							key,
+							extra_nibble,
+						))))
+					}
+					let value = match maybe_value.expect("None checked above.") {
+						Value::Node(hash, None) => {
+							if let Some(value) = self.inner.fetch_value(&hash, (key_slice, None)) {
+								value
+							} else {
+								let mut res = TrieHash::<L>::default();
+								res.as_mut().copy_from_slice(hash);
+								return Some(Err(Box::new(TrieError::IncompleteDatabase(res))))
+							}
+						},
+						Value::Inline(value) => value.to_vec(),
+						Value::Node(_hash, Some(value)) => value,
+					};
+					return Some(Ok((key, value)))
+				},
+				Err(err) => return Some(Err(err)),
+			}
+		}
+		None
+	}
+}
+
+impl<'a, L: TrieLayout> Iterator for TrieDBKeyIterator<'a, L> {
+	type Item = TrieKeyItem<'a, TrieHash<L>, CError<L>>;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		while let Some(item) = self.inner.next() {
+			match item {
+				Ok((mut prefix, _, node)) => {
+					let maybe_value = match node.node() {
+						Node::Leaf(partial, value) => {
+							prefix.append_partial(partial.right());
+							Some(value)
+						},
+						Node::Branch(_, value) => value,
+						Node::NibbledBranch(partial, _, value) => {
+							prefix.append_partial(partial.right());
+							value
+						},
+						_ => None,
+					};
+					if maybe_value.is_none() {
+						continue
+					} else {
 						let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
 						let key = key_slice.to_vec();
 						if let Some(extra_nibble) = maybe_extra_nibble {
@@ -433,7 +564,7 @@ impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBIterator<'a, 'cache, L> {
 								extra_nibble,
 							))))
 						}
-						return Some(Ok((key, value.to_vec())))
+						return Some(Ok(key))
 					}
 				},
 				Err(err) => return Some(Err(err)),

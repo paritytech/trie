@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::{
-	triedb::TrieDB, CError, DBValue, Query, Result, Trie, TrieHash, TrieItem, TrieIterator,
+	triedb::TrieDB, CError, Query, Result, Trie, TrieHash, TrieItem, TrieIterator, TrieKeyItem,
 	TrieLayout,
 };
 use crate::{rstd::boxed::Box, TrieDBBuilder};
@@ -84,5 +84,15 @@ where
 		CError<L>,
 	> {
 		TrieDB::iter(&self.raw)
+	}
+
+	fn key_iter<'a>(
+		&'a self,
+	) -> Result<
+		Box<dyn TrieIterator<L, Item = TrieKeyItem<TrieHash<L>, CError<L>>> + 'a>,
+		TrieHash<L>,
+		CError<L>,
+	> {
+		TrieDB::key_iter(&self.raw)
 	}
 }

@@ -1,4 +1,4 @@
-// Copyright 2017, 2020 Parity Technologies
+// Copyright 2017, 2021 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use super::{
-	CError, DBValue, Query, Result, Trie, TrieDB, TrieDBIterator, TrieHash, TrieItem, TrieIterator,
-	TrieLayout,
+	CError, DBValue, Query, Result, Trie, TrieDB, TrieDBIterator, TrieDBKeyIterator, TrieHash,
+	TrieItem, TrieIterator, TrieKeyItem, TrieLayout,
 };
 use hash_db::{HashDBRef, Hasher};
 
@@ -63,11 +63,14 @@ where
 		self.raw.contains(L::Hash::hash(key).as_ref())
 	}
 
-	fn get_with<Q: Query<L::Hash>>(
-		&self,
-		key: &[u8],
+	fn get_with<'a, 'key, Q: Query<L::Hash>>(
+		&'a self,
+		key: &'key [u8],
 		query: Q,
-	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
+	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
+	where
+		'a: 'key,
+	{
 		self.raw.get_with(L::Hash::hash(key).as_ref(), query)
 	}
 
@@ -79,6 +82,16 @@ where
 		CError<L>,
 	> {
 		FatDBIterator::<L>::new(&self.raw).map(|iter| Box::new(iter) as Box<_>)
+	}
+
+	fn key_iter<'a>(
+		&'a self,
+	) -> Result<
+		Box<dyn TrieIterator<L, Item = TrieKeyItem<TrieHash<L>, CError<L>>> + 'a>,
+		TrieHash<L>,
+		CError<L>,
+	> {
+		FatDBKeyIterator::<L>::new(&self.raw).map(|iter| Box::new(iter) as Box<_>)
 	}
 }
 
@@ -125,6 +138,51 @@ where
 					self.trie.db().get(&aux_hash, Default::default()).expect("Missing fatdb hash"),
 					value,
 				)
+			})
+		})
+	}
+}
+
+/// Iterator over inserted keys.
+pub struct FatDBKeyIterator<'db, L>
+where
+	L: TrieLayout,
+{
+	trie_iterator: TrieDBKeyIterator<'db, L>,
+	trie: &'db TrieDB<'db, L>,
+}
+
+impl<'db, L> FatDBKeyIterator<'db, L>
+where
+	L: TrieLayout,
+{
+	/// Creates new iterator.
+	pub fn new(trie: &'db TrieDB<L>) -> Result<Self, TrieHash<L>, CError<L>> {
+		Ok(FatDBKeyIterator { trie_iterator: TrieDBKeyIterator::new(trie)?, trie })
+	}
+}
+
+impl<'db, L> TrieIterator<L> for FatDBKeyIterator<'db, L>
+where
+	L: TrieLayout,
+{
+	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+		let hashed_key = L::Hash::hash(key);
+		self.trie_iterator.seek(hashed_key.as_ref())
+	}
+}
+
+impl<'db, L> Iterator for FatDBKeyIterator<'db, L>
+where
+	L: TrieLayout,
+{
+	type Item = TrieKeyItem<'db, TrieHash<L>, CError<L>>;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		self.trie_iterator.next().map(|res| {
+			res.map(|hash| {
+				let aux_hash = L::Hash::hash(&hash);
+				self.trie.db().get(&aux_hash, Default::default()).expect("Missing fatdb hash")
 			})
 		})
 	}

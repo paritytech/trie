@@ -270,10 +270,10 @@ pub fn legacy_prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8
 	prefixed_key
 }
 
-impl<'a, H, KF, T, M> Default for MemoryDB<H, KF, T, M>
+impl<H, KF, T, M> Default for MemoryDB<H, KF, T, M>
 where
 	H: KeyHasher,
-	T: From<&'a [u8]>,
+	T: for<'a> From<&'a [u8]>,
 	KF: KeyFunction<H>,
 	M: MemTracker<T> + Default,
 {
@@ -325,15 +325,15 @@ where
 	}
 }
 
-impl<'a, H, KF, T, M> MemoryDB<H, KF, T, M>
+impl<H, KF, T, M> MemoryDB<H, KF, T, M>
 where
 	H: KeyHasher,
-	T: From<&'a [u8]>,
+	T: for<'a> From<&'a [u8]>,
 	KF: KeyFunction<H>,
 	M: MemTracker<T> + Default,
 {
 	/// Create a new `MemoryDB` from a given null key/data
-	pub fn from_null_node(null_key: &'a [u8], null_node_data: T) -> Self {
+	pub fn from_null_node(null_key: &[u8], null_node_data: T) -> Self {
 		MemoryDB {
 			data: HashMap::default(),
 			hashed_null_node: H::hash(null_key),
@@ -344,7 +344,7 @@ where
 	}
 
 	/// Create a new instance of `Self`.
-	pub fn new(data: &'a [u8]) -> Self {
+	pub fn new(data: &[u8]) -> Self {
 		Self::from_null_node(data, data.into())
 	}
 
@@ -533,8 +533,8 @@ where
 impl<H, KF, T, M> HashDB<H, T> for MemoryDB<H, KF, T, M>
 where
 	H: KeyHasher,
-	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
-	KF: Send + Sync + KeyFunction<H>,
+	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
+	KF: KeyFunction<H> + Send + Sync,
 	M: MemTracker<T> + Send + Sync,
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
@@ -617,7 +617,7 @@ where
 impl<H, KF, T, M> HashDBRef<H, T> for MemoryDB<H, KF, T, M>
 where
 	H: KeyHasher,
-	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
+	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: KeyFunction<H> + Send + Sync,
 	M: MemTracker<T> + Send + Sync,
 {
@@ -648,7 +648,7 @@ where
 impl<H, KF, T, M> AsHashDB<H, T> for MemoryDB<H, KF, T, M>
 where
 	H: KeyHasher,
-	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
+	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: KeyFunction<H> + Send + Sync,
 	M: MemTracker<T> + Send + Sync,
 {
