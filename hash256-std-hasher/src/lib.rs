@@ -26,51 +26,51 @@ use crunchy::unroll;
 /// May only be used for keys which are 32 bytes.
 #[derive(Default)]
 pub struct Hash256StdHasher {
-    prefix: u64,
+	prefix: u64,
 }
 
 impl hash::Hasher for Hash256StdHasher {
-    #[inline]
-    fn finish(&self) -> u64 {
-        self.prefix
-    }
+	#[inline]
+	fn finish(&self) -> u64 {
+		self.prefix
+	}
 
-    #[inline]
-    #[allow(unused_assignments)]
-    fn write(&mut self, bytes: &[u8]) {
-        // we get a length written first as 8 bytes (possibly 4 on 32-bit platforms?). this
-        // keeps it safe.
-        debug_assert!(bytes.len() == 4 || bytes.len() == 8 || bytes.len() == 32);
-        if bytes.len() < 32 {
-            return;
-        }
+	#[inline]
+	#[allow(unused_assignments)]
+	fn write(&mut self, bytes: &[u8]) {
+		// we get a length written first as 8 bytes (possibly 4 on 32-bit platforms?). this
+		// keeps it safe.
+		debug_assert!(bytes.len() == 4 || bytes.len() == 8 || bytes.len() == 32);
+		if bytes.len() < 32 {
+			return
+		}
 
-        let mut bytes_ptr = bytes.as_ptr();
-        let mut prefix_ptr = &mut self.prefix as *mut u64 as *mut u8;
+		let mut bytes_ptr = bytes.as_ptr();
+		let mut prefix_ptr = &mut self.prefix as *mut u64 as *mut u8;
 
-        unroll! {
-            for _i in 0..8 {
-                unsafe {
-                    *prefix_ptr ^= (*bytes_ptr ^ *bytes_ptr.offset(8)) ^ (*bytes_ptr.offset(16) ^ *bytes_ptr.offset(24));
-                    bytes_ptr = bytes_ptr.offset(1);
-                    prefix_ptr = prefix_ptr.offset(1);
-                }
-            }
-        }
-    }
+		unroll! {
+			for _i in 0..8 {
+				unsafe {
+					*prefix_ptr ^= (*bytes_ptr ^ *bytes_ptr.offset(8)) ^ (*bytes_ptr.offset(16) ^ *bytes_ptr.offset(24));
+					bytes_ptr = bytes_ptr.offset(1);
+					prefix_ptr = prefix_ptr.offset(1);
+				}
+			}
+		}
+	}
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Hash256StdHasher;
-    use std::hash::Hasher;
+	use super::Hash256StdHasher;
+	use std::hash::Hasher;
 
-    #[test]
-    fn it_works() {
-        let mut bytes = [32u8; 32];
-        bytes[0] = 15;
-        let mut hasher = Hash256StdHasher::default();
-        hasher.write(&bytes);
-        assert_eq!(hasher.prefix, 47);
-    }
+	#[test]
+	fn it_works() {
+		let mut bytes = [32u8; 32];
+		bytes[0] = 15;
+		let mut hasher = Hash256StdHasher::default();
+		hasher.write(&bytes);
+		assert_eq!(hasher.prefix, 47);
+	}
 }

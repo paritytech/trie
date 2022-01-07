@@ -25,41 +25,41 @@ pub type KeccakHash = [u8; 32];
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct KeccakHasher;
 impl Hasher for KeccakHasher {
-    type Out = KeccakHash;
+	type Out = KeccakHash;
 
-    type StdHasher = Hash256StdHasher;
+	type StdHasher = Hash256StdHasher;
 
-    const LENGTH: usize = 32;
+	const LENGTH: usize = 32;
 
-    fn hash(x: &[u8]) -> Self::Out {
-        let mut keccak = Keccak::v256();
-        keccak.update(x);
-        let mut out = [0u8; 32];
-        keccak.finalize(&mut out);
-        out
-    }
+	fn hash(x: &[u8]) -> Self::Out {
+		let mut keccak = Keccak::v256();
+		keccak.update(x);
+		let mut out = [0u8; 32];
+		keccak.finalize(&mut out);
+		out
+	}
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::collections::HashMap;
+	use super::*;
+	use std::collections::HashMap;
 
-    #[test]
-    fn hash256_std_hasher_works() {
-        let hello_bytes = b"Hello world!";
-        let hello_key = KeccakHasher::hash(hello_bytes);
+	#[test]
+	fn hash256_std_hasher_works() {
+		let hello_bytes = b"Hello world!";
+		let hello_key = KeccakHasher::hash(hello_bytes);
 
-        let mut h: HashMap<<KeccakHasher as Hasher>::Out, Vec<u8>> = Default::default();
-        h.insert(hello_key, hello_bytes.to_vec());
-        h.remove(&hello_key);
+		let mut h: HashMap<<KeccakHasher as Hasher>::Out, Vec<u8>> = Default::default();
+		h.insert(hello_key, hello_bytes.to_vec());
+		h.remove(&hello_key);
 
-        let mut h: HashMap<
-            <KeccakHasher as Hasher>::Out,
-            Vec<u8>,
-            std::hash::BuildHasherDefault<Hash256StdHasher>,
-        > = Default::default();
-        h.insert(hello_key, hello_bytes.to_vec());
-        h.remove(&hello_key);
-    }
+		let mut h: HashMap<
+			<KeccakHasher as Hasher>::Out,
+			Vec<u8>,
+			std::hash::BuildHasherDefault<Hash256StdHasher>,
+		> = Default::default();
+		h.insert(hello_key, hello_bytes.to_vec());
+		h.remove(&hello_key);
+	}
 }
