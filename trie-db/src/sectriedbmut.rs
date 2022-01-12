@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::{
-	triedbmut::TrieDBMutBuilder, CError, DBValue, Result, TrieDBMut, TrieHash, TrieLayout, TrieMut,
-	Value,
+	node::Value, triedbmut::TrieDBMutBuilder, CError, DBValue, Result, TrieDBMut, TrieHash,
+	TrieLayout, TrieMut,
 };
 use hash_db::{HashDB, Hasher};
 
@@ -34,7 +34,7 @@ where
 	L: TrieLayout,
 {
 	/// Create a new trie with the backing database `db` and empty `root`
-	/// Initialise to the state entailed by the genesis block.
+	/// Initialize to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
 	pub fn new(db: &'db mut dyn HashDB<L::Hash, DBValue>, root: &'db mut TrieHash<L>) -> Self {
 		SecTrieDBMut { raw: TrieDBMutBuilder::new(db, root).build() }

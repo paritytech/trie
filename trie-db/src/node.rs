@@ -36,15 +36,22 @@ pub enum NodeHandle<'a> {
 
 impl NodeHandle<'_> {
 	/// Converts this node handle into a [`NodeHandleOwned`].
-	pub fn to_owned_handle<L: TrieLayout>(
+	pub fn to_owned_handle<L: TrieLayout, F>(
 		&self,
-	) -> Result<NodeHandleOwned<TrieHash<L>>, TrieHash<L>, CError<L>> {
+		partial_key: NibbleVec,
+		load_value: F,
+	) -> Result<NodeHandleOwned<TrieHash<L>>, TrieHash<L>, CError<L>>
+	where
+		F: Fn(TrieHash<L>, NibbleVec) -> Result<Bytes, TrieHash<L>, CError<L>>,
+	{
 		match self {
 			Self::Hash(h) => decode_hash::<L::Hash>(h)
 				.ok_or_else(|| Box::new(TrieError::InvalidHash(Default::default(), h.to_vec())))
 				.map(NodeHandleOwned::Hash),
 			Self::Inline(i) => match L::Codec::decode(i) {
-				Ok(node) => Ok(NodeHandleOwned::Inline(Box::new(node.to_owned_node::<L>()?))),
+				Ok(node) => Ok(NodeHandleOwned::Inline(Box::new(
+					node.to_owned_node::<L, _>(partial_key, load_value)?,
+				))),
 				Err(e) => Err(Box::new(TrieError::DecoderError(Default::default(), e))),
 			},
 		}
@@ -68,7 +75,7 @@ where
 	/// # Panic
 	///
 	/// This function panics if `self == Self::Inline(_)` and the inline node encoded length is
-	/// greater then the lenght of the hash.
+	/// greater then the length of the hash.
 	fn as_child_reference<C: NodeCodec<HashOut = H>>(&self) -> ChildReference<H> {
 		match self {
 			NodeHandleOwned::Hash(h) => ChildReference::Hash(*h),
@@ -118,15 +125,22 @@ impl<'a> Value<'a> {
 		}
 	}
 
-	pub fn load<L: TrieLayout>(&self, nibble: NibbleSlice, load_value: impl Fn(TrieHash<L>, NibbleSlice) -> Result<Bytes, TrieHash<L>, CError<L>>) -> Result<Bytes, TrieHash<L>, CError<L>> {
+	pub fn load<L: TrieLayout, F>(
+		&self,
+		partial_key: NibbleVec,
+		load_value: F,
+	) -> Result<Bytes, TrieHash<L>, CError<L>>
+	where
+		F: Fn(TrieHash<L>, NibbleVec) -> Result<Bytes, TrieHash<L>, CError<L>>,
+	{
 		match self {
 			Self::Inline(data) => Ok(Bytes::from(*data)),
 			Self::Node(_, Some(data)) => Ok(Bytes::from(*data)),
 			Self::Node(hash, None) => {
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash);
-				load_value(res, nibble)
-			}
+				load_value(res, partial_key)
+			},
 		}
 	}
 }
@@ -165,28 +179,50 @@ pub enum Node<'a> {
 
 impl Node<'_> {
 	/// Converts this node into a [`NodeOwned`].
-	pub fn to_owned_node<L: TrieLayout>(
+	pub fn to_owned_node<L: TrieLayout, F>(
 		&self,
-		load_value: impl Fn(TrieHash<L>, NibbleSlice) -> Result<Bytes, TrieHash<L>, CError<L>>,
-	) -> Result<NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>> {
+		mut partial_key: NibbleVec,
+		load_value: F,
+	) -> Result<NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>>
+	where
+		F: Fn(TrieHash<L>, NibbleVec) -> Result<Bytes, TrieHash<L>, CError<L>>,
+	{
 		match self {
 			Self::Empty => Ok(NodeOwned::Empty),
-			Self::Leaf(n, d) => Ok(NodeOwned::Leaf((*n).into(), d.load::<L>(*n, load_value)?)),
-			Self::Extension(n, h) =>
-				Ok(NodeOwned::Extension((*n).into(), h.to_owned_handle::<L>()?)),
+			Self::Leaf(n, d) => {
+				partial_key.append_partial(n.right());
+				Ok(NodeOwned::Leaf((*n).into(), d.load::<L, _>(partial_key, load_value)?))
+			},
+			Self::Extension(n, h) => {
+				partial_key.append_partial(n.right());
+				Ok(NodeOwned::Extension(
+					(*n).into(),
+					h.to_owned_handle::<L, _>(partial_key, load_value)?,
+				))
+			},
 			Self::Branch(childs, data) => {
 				let mut childs_owned = [(); nibble_ops::NIBBLE_LENGTH].map(|_| None);
 				childs
 					.iter()
 					.enumerate()
 					.map(|(i, c)| {
-						childs_owned[i] =
-							c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?;
+						childs_owned[i] = c
+							.as_ref()
+							.map(|c| {
+								let mut partial_key = partial_key.clone();
+								partial_key.push(i as u8);
+
+								c.to_owned_handle::<L, _>(partial_key, load_value)
+							})
+							.transpose()?;
 						Ok(())
 					})
 					.collect::<Result<_, _, _>>()?;
 
-				Ok(NodeOwned::Branch(childs_owned, data.as_ref().map(|d| d.load(NibbleSlice::new(&[]), load_value)).transpose()?))
+				Ok(NodeOwned::Branch(
+					childs_owned,
+					data.as_ref().map(|d| d.load(partial_key, load_value)).transpose()?,
+				))
 			},
 			Self::NibbledBranch(n, childs, data) => {
 				let mut childs_owned = [(); nibble_ops::NIBBLE_LENGTH].map(|_| None);
@@ -194,16 +230,25 @@ impl Node<'_> {
 					.iter()
 					.enumerate()
 					.map(|(i, c)| {
-						childs_owned[i] =
-							c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?;
+						childs_owned[i] = c
+							.as_ref()
+							.map(|c| {
+								let mut partial_key = partial_key.clone();
+								partial_key.push(i as u8);
+
+								c.to_owned_handle::<L, _>(partial_key, load_value)
+							})
+							.transpose()?;
 						Ok(())
 					})
 					.collect::<Result<_, _, _>>()?;
 
+				partial_key.append_partial(n.right());
+
 				Ok(NodeOwned::NibbledBranch(
 					(*n).into(),
 					childs_owned,
-					data.as_ref().map(|d| d.load(*n, load_value)).transpose()?,
+					data.as_ref().map(|d| d.load(partial_key, load_value)).transpose()?,
 				))
 			},
 		}

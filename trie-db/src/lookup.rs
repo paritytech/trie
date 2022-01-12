@@ -96,10 +96,6 @@ where
 			res
 		};
 
-		let mut full_key = nibble_key.clone();
-		full_key.advance(nibble_key.len());
-		let full_key = full_key.left();
-
 		Ok(res.map(|v| self.query.decode(&v)))
 	}
 
@@ -129,7 +125,9 @@ where
 					Err(e) => return Err(Box::new(TrieError::DecoderError(hash, e))),
 				};
 
-				decoded.to_owned_node::<L>()
+				decoded.to_owned_node::<L>(|hash, nibble| {
+
+				})
 			})?;
 
 			self.recorder.record(TrieAccess::NodeOwned { hash, node_owned: node });

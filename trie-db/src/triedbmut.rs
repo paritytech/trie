@@ -107,14 +107,14 @@ impl<'a, L: TrieLayout> From<EncodedValue<'a>> for Value<L> {
 	}
 }
 
-impl<L: TrieLayout> From<(DBValue, Option<u32>)> for Value<L> {
-	fn from((v, threshold): (DBValue, Option<u32>)) -> Self {
+impl<L: TrieLayout> From<(Bytes, Option<u32>)> for Value<L> {
+	fn from((v, threshold): (Bytes, Option<u32>)) -> Self {
 		match v {
 			value =>
 				if threshold.map(|threshold| value.len() >= threshold as usize).unwrap_or(false) {
-					Value::NewNode(None, value.into())
+					Value::NewNode(None, value)
 				} else {
-					Value::Inline(value.into())
+					Value::Inline(value)
 				},
 		}
 	}
@@ -126,7 +126,7 @@ enum NodeToEncode<'a, H> {
 }
 
 impl<L: TrieLayout> Value<L> {
-	fn new(value: DBValue, new_threshold: Option<u32>) -> Self {
+	fn new(value: Bytes, new_threshold: Option<u32>) -> Self {
 		(value, new_threshold).into()
 	}
 
@@ -143,13 +143,12 @@ impl<L: TrieLayout> Value<L> {
 		) -> ChildReference<TrieHash<L>>,
 	{
 		if let Value::NewNode(hash, value) = self {
-			let new_hash = if let ChildReference::Hash(hash) =
-				f(NodeToEncode::Node(&value), partial, None)
-			{
-				hash
-			} else {
-				unreachable!("Value node can never be inlined; qed")
-			};
+			let new_hash =
+				if let ChildReference::Hash(hash) = f(NodeToEncode::Node(&value), partial, None) {
+					hash
+				} else {
+					unreachable!("Value node can never be inlined; qed")
+				};
 			if let Some(h) = hash.as_ref() {
 				debug_assert!(h == &new_hash);
 			} else {
@@ -361,10 +360,7 @@ impl<L: TrieLayout> Node<L> {
 	}
 
 	// Decode a node from a [`NodeOwned`].
-	fn from_node_owned(
-		node_owned: &NodeOwned<TrieHash<L>>,
-		storage: &mut NodeStorage<L>,
-	) -> Self {
+	fn from_node_owned(node_owned: &NodeOwned<TrieHash<L>>, storage: &mut NodeStorage<L>) -> Self {
 		match node_owned {
 			NodeOwned::Empty => Node::Empty,
 			NodeOwned::Leaf(k, v) => Node::Leaf(k.into(), v.clone()),
@@ -1814,12 +1810,23 @@ where
 	}
 
 	/// Cache the given `encoded` node.
-	fn cache_node(&mut self, hash: TrieHash<L>, encoded: &[u8], full_key: Option<NibbleVec>) {
+	fn cache_node(
+		&mut self,
+		hash: TrieHash<L>,
+		encoded: &[u8],
+		full_key: Option<NibbleVec>,
+		prefix: NibbleVec,
+	) {
 		// If we have a cache, cache our node directly.
 		if let Some(ref mut cache) = self.cache {
 			let node = L::Codec::decode(&encoded)
 				.ok()
-				.and_then(|n| n.to_owned_node::<L>().ok())
+				.and_then(|n| {
+					n.to_owned_node::<L>(prefix, |hash, partial_key| {
+						self.db.get(hash, partial_key.as_prefix())
+					})
+					.ok()
+				})
 				.expect("Just encoded the node, so it should decode without any errors; qed");
 
 			// If the given node has data attached, the `full_key` is the full key to this node.
@@ -1880,7 +1887,7 @@ where
 							let hash = self.db.insert(prefix.as_prefix(), &encoded);
 							self.hash_count += 1;
 
-							self.cache_node(hash, &encoded, full_key);
+							self.cache_node(hash, &encoded, full_key, prefix);
 
 							ChildReference::Hash(hash)
 						} else {
