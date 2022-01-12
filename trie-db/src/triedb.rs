@@ -15,13 +15,14 @@
 #[cfg(feature = "std")]
 use crate::nibble::NibbleVec;
 use crate::{
+	iterator::TrieDBNodeIterator,
 	lookup::Lookup,
-	nibble::NibbleVec,
+	nibble::NibbleSlice,
 	node::{decode_hash, Node, NodeHandle, OwnedNode},
-	CError, DBValue, Query, Result, Trie, TrieCache, TrieError, TrieHash, TrieItem, TrieIterator,
-	TrieLayout, TrieRecorder,
+	rstd::boxed::Box,
+	CError, DBValue, Query, Result, Trie, TrieAccess, TrieCache, TrieError, TrieHash, TrieItem,
+	TrieIterator, TrieKeyItem, TrieLayout, TrieRecorder, Value,
 };
-use crate::{iterator::TrieDBNodeIterator, nibble::NibbleSlice, rstd::boxed::Box, TrieAccess};
 use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
 
 #[cfg(feature = "std")]
@@ -379,8 +380,8 @@ pub struct TrieDBIterator<'a, 'cache, L: TrieLayout> {
 }
 
 /// Iterator for going through all of key with values in the trie in pre-order traversal order.
-pub struct TrieDBKeyIterator<'a, L: TrieLayout> {
-	inner: TrieDBNodeIterator<'a, L>,
+pub struct TrieDBKeyIterator<'a, 'cache, L: TrieLayout> {
+	inner: TrieDBNodeIterator<'a, 'cache, L>,
 }
 
 /// When there is guaranties the storage backend do not change,
@@ -391,12 +392,15 @@ pub struct SuspendedTrieDBKeyIterator<L: TrieLayout> {
 
 impl<L: TrieLayout> SuspendedTrieDBKeyIterator<L> {
 	/// Restore iterator.
-	pub fn unsafe_restore<'a>(self, db: &'a TrieDB<'a, L>) -> TrieDBKeyIterator<'a, L> {
+	pub fn unsafe_restore<'a, 'cache>(
+		self,
+		db: &'a TrieDB<'a, 'cache, L>,
+	) -> TrieDBKeyIterator<'a, 'cache, L> {
 		TrieDBKeyIterator { inner: self.inner.unsafe_restore(db) }
 	}
 }
 
-impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
+impl<'a, 'cache, L: TrieLayout> TrieDBIterator<'a, 'cache, L> {
 	/// Create a new iterator.
 	pub fn new(db: &'a TrieDB<'a, 'cache, L>) -> Result<Self, TrieHash<L>, CError<L>> {
 		let inner = TrieDBNodeIterator::new(db)?;
@@ -407,7 +411,7 @@ impl<'a, L: TrieLayout> TrieDBIterator<'a, L> {
 	pub fn new_prefixed(
 		db: &'a TrieDB<'a, 'cache, L>,
 		prefix: &[u8],
-	) -> Result<TrieDBIterator<'a, L>, TrieHash<L>, CError<L>> {
+	) -> Result<Self, TrieHash<L>, CError<L>> {
 		let mut inner = TrieDBNodeIterator::new(db)?;
 		inner.prefix(prefix)?;
 
@@ -436,9 +440,9 @@ impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBIterator<'a, 'cache, L
 	}
 }
 
-impl<'a, L: TrieLayout> TrieDBKeyIterator<'a, L> {
+impl<'a, 'cache, L: TrieLayout> TrieDBKeyIterator<'a, 'cache, L> {
 	/// Create a new iterator.
-	pub fn new(db: &'a TrieDB<L>) -> Result<TrieDBKeyIterator<'a, L>, TrieHash<L>, CError<L>> {
+	pub fn new(db: &TrieDB<L>) -> Result<Self, TrieHash<L>, CError<L>> {
 		let inner = TrieDBNodeIterator::new(db)?;
 		Ok(TrieDBKeyIterator { inner })
 	}
@@ -453,7 +457,7 @@ impl<'a, L: TrieLayout> TrieDBKeyIterator<'a, L> {
 	pub fn new_prefixed(
 		db: &'a TrieDB<L>,
 		prefix: &[u8],
-	) -> Result<TrieDBKeyIterator<'a, L>, TrieHash<L>, CError<L>> {
+	) -> Result<TrieDBKeyIterator<'a, 'cache, L>, TrieHash<L>, CError<L>> {
 		let mut inner = TrieDBNodeIterator::new(db)?;
 		inner.prefix(prefix)?;
 
@@ -467,7 +471,7 @@ impl<'a, L: TrieLayout> TrieDBKeyIterator<'a, L> {
 		db: &'a TrieDB<L>,
 		prefix: &[u8],
 		start_at: &[u8],
-	) -> Result<TrieDBKeyIterator<'a, L>, TrieHash<L>, CError<L>> {
+	) -> Result<TrieDBKeyIterator<'a, 'cache, L>, TrieHash<L>, CError<L>> {
 		let mut inner = TrieDBNodeIterator::new(db)?;
 		inner.prefix_then_seek(prefix, start_at)?;
 
@@ -475,15 +479,15 @@ impl<'a, L: TrieLayout> TrieDBKeyIterator<'a, L> {
 	}
 }
 
-impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBKeyIterator<'a, L> {
+impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBKeyIterator<'a, 'cache, L> {
 	/// Position the iterator on the first element with key >= `key`
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		TrieIterator::seek(&mut self.inner, key)
 	}
 }
 
-impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
-	type Item = TrieItem<'a, TrieHash<L>, CError<L>>;
+impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBIterator<'a, 'cache, L> {
+	type Item = TrieItem<TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		while let Some(item) = self.inner.next() {
@@ -534,8 +538,8 @@ impl<'a, L: TrieLayout> Iterator for TrieDBIterator<'a, L> {
 	}
 }
 
-impl<'a, L: TrieLayout> Iterator for TrieDBKeyIterator<'a, L> {
-	type Item = TrieKeyItem<'a, TrieHash<L>, CError<L>>;
+impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBKeyIterator<'a, 'cache, L> {
+	type Item = TrieKeyItem<TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		while let Some(item) = self.inner.next() {

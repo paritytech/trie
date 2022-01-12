@@ -144,15 +144,15 @@ where
 }
 
 /// Iterator over inserted keys.
-pub struct FatDBKeyIterator<'db, L>
+pub struct FatDBKeyIterator<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
-	trie_iterator: TrieDBKeyIterator<'db, L>,
-	trie: &'db TrieDB<'db, L>,
+	trie_iterator: TrieDBKeyIterator<'db, 'cache, L>,
+	trie: &'db TrieDB<'db, 'cache, L>,
 }
 
-impl<'db, L> FatDBKeyIterator<'db, L>
+impl<'db, 'cache, L> FatDBKeyIterator<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
@@ -162,7 +162,7 @@ where
 	}
 }
 
-impl<'db, L> TrieIterator<L> for FatDBKeyIterator<'db, L>
+impl<'db, 'cache, L> TrieIterator<L> for FatDBKeyIterator<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
@@ -172,11 +172,11 @@ where
 	}
 }
 
-impl<'db, L> Iterator for FatDBKeyIterator<'db, L>
+impl<'db, 'cache, L> Iterator for FatDBKeyIterator<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
-	type Item = TrieKeyItem<'db, TrieHash<L>, CError<L>>;
+	type Item = TrieKeyItem<TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.trie_iterator.next().map(|res| {

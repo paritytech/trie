@@ -63,10 +63,11 @@ pub use self::{
 	fatdbmut::FatDBMut,
 	lookup::Lookup,
 	nibble::{nibble_ops, NibbleSlice, NibbleVec},
+	node::Value,
 	recorder::Recorder,
 	sectriedb::SecTrieDB,
 	sectriedbmut::SecTrieDBMut,
-	triedb::{TrieDB, TrieDBBuilder, TrieDBIterator},
+	triedb::{TrieDB, TrieDBBuilder, TrieDBIterator, TrieDBKeyIterator},
 	triedbmut::{ChildReference, TrieDBMut, TrieDBMutBuilder},
 };
 pub use crate::{
@@ -145,7 +146,7 @@ pub type Result<T, H, E> = crate::rstd::result::Result<T, Box<TrieError<H, E>>>;
 pub type TrieItem<U, E> = Result<(Vec<u8>, DBValue), U, E>;
 
 /// Trie-Item type used for iterators over trie key only.
-pub type TrieKeyItem<'a, U, E> = Result<Vec<u8>, U, E>;
+pub type TrieKeyItem<U, E> = Result<Vec<u8>, U, E>;
 
 /// Description of what kind of query will be made to the trie.
 ///

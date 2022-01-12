@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{
-	triedb::TrieDB, CError, Query, Result, Trie, TrieHash, TrieItem, TrieIterator, TrieKeyItem,
-	TrieLayout,
+use crate::{
+	rstd::boxed::Box, triedb::TrieDB, CError, DBValue, Query, Result, Trie, TrieDBBuilder,
+	TrieHash, TrieItem, TrieIterator, TrieKeyItem, TrieLayout,
 };
-use crate::{rstd::boxed::Box, TrieDBBuilder};
 use hash_db::{HashDBRef, Hasher};
 
 /// A `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.

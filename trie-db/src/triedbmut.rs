@@ -16,15 +16,15 @@
 
 use crate::{
 	lookup::Lookup,
-	node::{decode_hash, Node as EncodedNode, NodeHandle as EncodedNodeHandle, NodeKey},
-	Bytes, CError, DBValue, Result, TrieError, TrieHash, TrieLayout, TrieMut,
-};
-use crate::{
 	nibble::{nibble_ops, BackingByteVec, NibbleSlice, NibbleVec},
-	node::{NodeHandleOwned, NodeOwned},
+	node::{
+		decode_hash, Node as EncodedNode, NodeHandle as EncodedNodeHandle, NodeHandleOwned,
+		NodeKey, NodeOwned, Value as EncodedValue,
+	},
 	node_codec::NodeCodec,
 	rstd::{boxed::Box, convert::TryFrom, hash::Hash, mem, ops::Index, result, vec::Vec, VecDeque},
-	TrieAccess, TrieCache, TrieRecorder,
+	Bytes, CError, DBValue, Result, TrieAccess, TrieCache, TrieError, TrieHash, TrieLayout,
+	TrieMut, TrieRecorder,
 };
 
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
@@ -1115,7 +1115,7 @@ where
 					let mut key_val = key.clone();
 					key_val.advance(existing_key.len());
 					self.replace_old_value(old_val, Some(stored_value), key_val.left());
-					match unchanged {
+					if unchanged {
 						// unchanged. restore
 						InsertAction::Restore(Node::Leaf(encoded.clone(), value))
 					} else {

@@ -14,13 +14,13 @@
 
 //! Trie lookup via HashDB.
 
-use super::{Bytes, CError, DBValue, Query, Result, TrieError, TrieHash, TrieLayout};
 use crate::{
 	nibble::NibbleSlice,
-	node::{decode_hash, Node, NodeHandle, NodeHandleOwned, NodeOwned},
+	node::{decode_hash, Node, NodeHandle, NodeHandleOwned, NodeOwned, Value},
 	node_codec::NodeCodec,
 	rstd::boxed::Box,
-	TrieAccess, TrieCache, TrieRecorder,
+	Bytes, CError, DBValue, Query, Result, TrieAccess, TrieCache, TrieError, TrieHash, TrieLayout,
+	TrieRecorder,
 };
 use hash_db::{HashDBRef, Prefix};
 
@@ -43,12 +43,7 @@ where
 	L: TrieLayout,
 	Q: Query<L::Hash>,
 {
-	fn decode(
-		mut self,
-		v: Value,
-		prefix: Prefix,
-		depth: u32,
-	) -> Result<Q::Item, TrieHash<L>, CError<L>> {
+	fn decode(mut self, v: Value, prefix: Prefix) -> Result<Q::Item, TrieHash<L>, CError<L>> {
 		match v {
 			Value::Inline(value) => Ok(self.query.decode(value)),
 			Value::Node(_, Some(value)) => Ok(self.query.decode(value.as_slice())),
@@ -56,7 +51,6 @@ where
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash);
 				if let Some(value) = self.db.get(&res, prefix) {
-					self.query.record(&res, &value, depth);
 					Ok(self.query.decode(value.as_slice()))
 				} else {
 					Err(Box::new(TrieError::IncompleteDatabase(res)))
@@ -102,7 +96,11 @@ where
 			res
 		};
 
-		Ok(res.map(|v| self.query.decode(&v)))
+		let mut full_key = nibble_key.clone();
+		full_key.advance(nibble_key.len());
+		let full_key = full_key.left();
+
+		Ok(res.map(|v| self.decode(&v, full_key)))
 	}
 
 	fn look_up_with_cache_internal(
@@ -113,10 +111,6 @@ where
 		let mut partial = nibble_key;
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;
-
-		let mut full_key = key.clone();
-		full_key.advance(key.len());
-		let full_key = full_key.left();
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
@@ -220,6 +214,10 @@ where
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;
 
+		let mut full_key = nibble_key.clone();
+		full_key.advance(nibble_key.len());
+		let full_key = full_key.left();
+
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
 			let node_data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
@@ -247,7 +245,7 @@ where
 
 				let next_node = match decoded {
 					Node::Leaf(slice, value) =>
-						return Ok((slice == partial).then(|| self.query.decode(value, full_key, depth))),
+						return Ok((slice == partial).then(|| self.decode(value, full_key))),
 					Node::Extension(slice, item) =>
 						if partial.starts_with(&slice) {
 							partial = partial.mid(slice.len());
@@ -258,7 +256,7 @@ where
 						},
 					Node::Branch(children, value) =>
 						if partial.is_empty() {
-							return Ok(value.map(move |val| self.query.decode(val)))
+							return Ok(value.map(move |val| self.decode(val, full_key)))
 						} else {
 							match children[partial.at(0) as usize] {
 								Some(x) => {
@@ -269,14 +267,13 @@ where
 								None => return Ok(None),
 							}
 						},
-					},
 					Node::NibbledBranch(slice, children, value) => {
 						if !partial.starts_with(&slice) {
 							return Ok(None)
 						}
 
 						if partial.len() == slice.len() {
-							return Ok(value.map(move |val| self.query.decode(val, full_key, depth)))
+							return Ok(value.map(move |val| self.decode(val, full_key)))
 						} else {
 							match children[partial.at(slice.len()) as usize] {
 								Some(x) => {
@@ -285,7 +282,7 @@ where
 									x
 								},
 								None => return Ok(None),
-							},
+							}
 						}
 					},
 					Node::Empty => return Ok(None),

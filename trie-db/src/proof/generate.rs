@@ -22,8 +22,8 @@ use crate::{
 	nibble::LeftNibbleSlice,
 	nibble_ops::NIBBLE_LENGTH,
 	node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, Value, ValuePlan},
-	CError, ChildReference, NibbleSlice, NodeCodec, Record, Recorder, Result as TrieResult, Trie,
-	TrieError, TrieHash, TrieLayout,
+	CError, ChildReference, DBValue, NibbleSlice, NodeCodec, Recorder, Result as TrieResult, Trie,
+	TrieDBBuilder, TrieError, TrieHash, TrieLayout,
 };
 
 struct StackEntry<'a, C: NodeCodec> {
@@ -379,7 +379,7 @@ enum Step<'a> {
 }
 
 fn resolve_value<C: NodeCodec>(
-	recorded_nodes: &mut dyn Iterator<Item = Record<C::HashOut>>,
+	recorded_nodes: &mut dyn Iterator<Item = (C::HashOut, Vec<u8>)>,
 ) -> TrieResult<Step<'static>, C::HashOut, C::Error> {
 	if let Some(resolve_value) = recorded_nodes.next() {
 		Ok(Step::FoundHashedValue(resolve_value.data))
@@ -398,7 +398,7 @@ fn match_key_to_node<'a, C: NodeCodec>(
 	children: &mut [Option<ChildReference<C::HashOut>>],
 	key: &LeftNibbleSlice,
 	prefix_len: usize,
-	recorded_nodes: &mut dyn Iterator<Item = Record<C::HashOut>>,
+	recorded_nodes: &mut dyn Iterator<Item = (C::HashOut, Vec<u8>)>,
 ) -> TrieResult<Step<'a>, C::HashOut, C::Error> {
 	Ok(match node_plan {
 		NodePlan::Empty => Step::FoundValue(None),
@@ -468,7 +468,7 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 	key: &'b LeftNibbleSlice<'b>,
 	prefix_len: usize,
 	partial: NibbleSlice<'b>,
-	recorded_nodes: &mut dyn Iterator<Item = Record<C::HashOut>>,
+	recorded_nodes: &mut dyn Iterator<Item = (C::HashOut, Vec<u8>)>,
 ) -> TrieResult<Step<'a>, C::HashOut, C::Error> {
 	if !key.contains(&partial, prefix_len) {
 		return Ok(Step::FoundValue(None))
