@@ -125,9 +125,7 @@ where
 					Err(e) => return Err(Box::new(TrieError::DecoderError(hash, e))),
 				};
 
-				decoded.to_owned_node::<L>(|hash, nibble| {
-
-				})
+				decoded.to_owned_node::<L>()
 			})?;
 
 			self.recorder.record(TrieAccess::NodeOwned { hash, node_owned: node });

@@ -136,7 +136,7 @@ where
 			hashed = callback.process_inner_hashed_value((k2.as_ref(), None), v2.as_ref());
 			Value::Node(hashed.as_ref(), None)
 		};
-		let encoded = T::Codec::leaf_node(nkey.right(), value);
+		let encoded = T::Codec::leaf_node(nkey.right_iter(), nkey.len(), value);
 		let hash = callback.process(pr.left(), encoded, false);
 
 		// insert hash in branch (first level branch only at this point)
@@ -321,7 +321,7 @@ where
 				Value::Node(hashed.as_ref(), None)
 			};
 
-			let encoded = T::Codec::leaf_node(nkey.right(), value);
+			let encoded = T::Codec::leaf_node(nkey.right_iter(), nkey.len(), value);
 			callback.process(pr.left(), encoded, true);
 		} else {
 			depth_queue.flush_value(callback, last_depth, &previous_value);

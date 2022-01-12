@@ -15,7 +15,7 @@
 use crate::{
 	nibble::{self, nibble_ops, NibbleSlice, NibbleVec},
 	node_codec::NodeCodec,
-	Bytes, CError, ChildReference, DBValue, Result, TrieError, TrieHash, TrieLayout,
+	Bytes, CError, ChildReference, Result, TrieError, TrieHash, TrieLayout,
 };
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec::Vec};
@@ -36,22 +36,15 @@ pub enum NodeHandle<'a> {
 
 impl NodeHandle<'_> {
 	/// Converts this node handle into a [`NodeHandleOwned`].
-	pub fn to_owned_handle<L: TrieLayout, F>(
+	pub fn to_owned_handle<L: TrieLayout>(
 		&self,
-		partial_key: NibbleVec,
-		load_value: F,
-	) -> Result<NodeHandleOwned<TrieHash<L>>, TrieHash<L>, CError<L>>
-	where
-		F: Fn(TrieHash<L>, NibbleVec) -> Result<Bytes, TrieHash<L>, CError<L>>,
-	{
+	) -> Result<NodeHandleOwned<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		match self {
 			Self::Hash(h) => decode_hash::<L::Hash>(h)
 				.ok_or_else(|| Box::new(TrieError::InvalidHash(Default::default(), h.to_vec())))
 				.map(NodeHandleOwned::Hash),
 			Self::Inline(i) => match L::Codec::decode(i) {
-				Ok(node) => Ok(NodeHandleOwned::Inline(Box::new(
-					node.to_owned_node::<L, _>(partial_key, load_value)?,
-				))),
+				Ok(node) => Ok(NodeHandleOwned::Inline(Box::new(node.to_owned_node::<L>()?))),
 				Err(e) => Err(Box::new(TrieError::DecoderError(Default::default(), e))),
 			},
 		}
@@ -125,21 +118,14 @@ impl<'a> Value<'a> {
 		}
 	}
 
-	pub fn load<L: TrieLayout, F>(
-		&self,
-		partial_key: NibbleVec,
-		load_value: F,
-	) -> Result<Bytes, TrieHash<L>, CError<L>>
-	where
-		F: Fn(TrieHash<L>, NibbleVec) -> Result<Bytes, TrieHash<L>, CError<L>>,
-	{
+	pub fn to_owned_value<L: TrieLayout>(&self) -> ValueOwned<TrieHash<L>> {
 		match self {
-			Self::Inline(data) => Ok(Bytes::from(*data)),
-			Self::Node(_, Some(data)) => Ok(Bytes::from(*data)),
-			Self::Node(hash, None) => {
+			Self::Inline(data) => ValueOwned::Inline(Bytes::from(*data)),
+			Self::Node(hash, data) => {
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash);
-				load_value(res, partial_key)
+
+				ValueOwned::Node(res, data.clone())
 			},
 		}
 	}
@@ -148,12 +134,21 @@ impl<'a> Value<'a> {
 /// Value representation in `Node`.
 #[derive(Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "std", derive(Debug))]
-pub enum ValueOwned {
+pub enum ValueOwned<H> {
 	/// Value byte slice as stored in a trie node.
 	Inline(Bytes),
 	/// Hash byte slice as stored in a trie node,
 	/// and the actual value when accessed.
-	Node(Bytes),
+	Node(H, Option<Bytes>),
+}
+
+impl<H: AsRef<[u8]>> ValueOwned<H> {
+	fn as_value(&self) -> Value {
+		match self {
+			Self::Inline(data) => Value::Inline(&data),
+			Self::Node(hash, data) => Value::Node(hash.as_ref(), data.clone()),
+		}
+	}
 }
 
 /// Type of node in the trie and essential information thereof.
@@ -179,49 +174,29 @@ pub enum Node<'a> {
 
 impl Node<'_> {
 	/// Converts this node into a [`NodeOwned`].
-	pub fn to_owned_node<L: TrieLayout, F>(
+	pub fn to_owned_node<L: TrieLayout>(
 		&self,
-		mut partial_key: NibbleVec,
-		load_value: F,
-	) -> Result<NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>>
-	where
-		F: Fn(TrieHash<L>, NibbleVec) -> Result<Bytes, TrieHash<L>, CError<L>>,
-	{
+	) -> Result<NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		match self {
 			Self::Empty => Ok(NodeOwned::Empty),
-			Self::Leaf(n, d) => {
-				partial_key.append_partial(n.right());
-				Ok(NodeOwned::Leaf((*n).into(), d.load::<L, _>(partial_key, load_value)?))
-			},
-			Self::Extension(n, h) => {
-				partial_key.append_partial(n.right());
-				Ok(NodeOwned::Extension(
-					(*n).into(),
-					h.to_owned_handle::<L, _>(partial_key, load_value)?,
-				))
-			},
+			Self::Leaf(n, d) => Ok(NodeOwned::Leaf((*n).into(), d.to_owned_value::<L>())),
+			Self::Extension(n, h) =>
+				Ok(NodeOwned::Extension((*n).into(), h.to_owned_handle::<L>()?)),
 			Self::Branch(childs, data) => {
 				let mut childs_owned = [(); nibble_ops::NIBBLE_LENGTH].map(|_| None);
 				childs
 					.iter()
 					.enumerate()
 					.map(|(i, c)| {
-						childs_owned[i] = c
-							.as_ref()
-							.map(|c| {
-								let mut partial_key = partial_key.clone();
-								partial_key.push(i as u8);
-
-								c.to_owned_handle::<L, _>(partial_key, load_value)
-							})
-							.transpose()?;
+						childs_owned[i] =
+							c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?;
 						Ok(())
 					})
 					.collect::<Result<_, _, _>>()?;
 
 				Ok(NodeOwned::Branch(
 					childs_owned,
-					data.as_ref().map(|d| d.load(partial_key, load_value)).transpose()?,
+					data.as_ref().map(|d| d.to_owned_value::<L>()),
 				))
 			},
 			Self::NibbledBranch(n, childs, data) => {
@@ -230,25 +205,16 @@ impl Node<'_> {
 					.iter()
 					.enumerate()
 					.map(|(i, c)| {
-						childs_owned[i] = c
-							.as_ref()
-							.map(|c| {
-								let mut partial_key = partial_key.clone();
-								partial_key.push(i as u8);
-
-								c.to_owned_handle::<L, _>(partial_key, load_value)
-							})
-							.transpose()?;
+						childs_owned[i] =
+							c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?;
 						Ok(())
 					})
 					.collect::<Result<_, _, _>>()?;
 
-				partial_key.append_partial(n.right());
-
 				Ok(NodeOwned::NibbledBranch(
 					(*n).into(),
 					childs_owned,
-					data.as_ref().map(|d| d.load(partial_key, load_value)).transpose()?,
+					data.as_ref().map(|d| d.to_owned_value::<L>()),
 				))
 			},
 		}
@@ -262,17 +228,17 @@ pub enum NodeOwned<H> {
 	/// Null trie node; could be an empty root or an empty branch entry.
 	Empty,
 	/// Leaf node; has key slice and value. Value may not be empty.
-	Leaf(NibbleVec, Bytes),
+	Leaf(NibbleVec, ValueOwned<H>),
 	/// Extension node; has key slice and node data. Data may not be null.
 	Extension(NibbleVec, NodeHandleOwned<H>),
 	/// Branch node; has slice of child nodes (each possibly null)
 	/// and an optional immediate node data.
-	Branch([Option<NodeHandleOwned<H>>; nibble_ops::NIBBLE_LENGTH], Option<Bytes>),
+	Branch([Option<NodeHandleOwned<H>>; nibble_ops::NIBBLE_LENGTH], Option<ValueOwned<H>>),
 	/// Branch node with support for a nibble (when extension nodes are not used).
 	NibbledBranch(
 		NibbleVec,
 		[Option<NodeHandleOwned<H>>; nibble_ops::NIBBLE_LENGTH],
-		Option<Bytes>,
+		Option<ValueOwned<H>>,
 	),
 }
 
@@ -287,7 +253,7 @@ where
 	{
 		match self {
 			Self::Empty => C::empty_node().to_vec(),
-			Self::Leaf(partial, value) => C::leaf_node(partial.right_iter(), partial.len(), &value),
+			Self::Leaf(partial, value) => C::leaf_node(partial.right_iter(), partial.len(), value.as_value()),
 			Self::Extension(partial, child) => C::extension_node(
 				partial.right_iter(),
 				partial.len(),
@@ -295,13 +261,13 @@ where
 			),
 			Self::Branch(children, value) => C::branch_node(
 				children.iter().map(|child| child.as_ref().map(|c| c.as_child_reference::<C>())),
-				value.as_deref(),
+				value.as_ref().map(|v| v.as_value()),
 			),
 			Self::NibbledBranch(partial, children, value) => C::branch_node_nibbled(
 				partial.right_iter(),
 				partial.len(),
 				children.iter().map(|child| child.as_ref().map(|c| c.as_child_reference::<C>())),
-				value.as_deref(),
+				value.as_ref().map(|v| v.as_value()),
 			),
 		}
 	}

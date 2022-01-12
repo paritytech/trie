@@ -75,15 +75,15 @@ impl<L: TrieLayout> SuspendedTrieDBNodeIterator<L> {
 	/// Restore iterator.
 	pub fn unsafe_restore<'a, 'cache>(
 		self,
-		db: &TrieDB<'a, 'cache, L>,
+		db: &'a TrieDB<'a, 'cache, L>,
 	) -> TrieDBNodeIterator<'a, 'cache, L> {
 		TrieDBNodeIterator { db, trail: self.trail, key_nibbles: self.key_nibbles }
 	}
 }
 
-impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, '_, L> {
+impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 	/// Create a new iterator.
-	pub fn new(db: &'a TrieDB<'a, '_, L>) -> Result<Self, TrieHash<L>, CError<L>> {
+	pub fn new(db: &'a TrieDB<'a, 'cache, L>) -> Result<Self, TrieHash<L>, CError<L>> {
 		let mut r =
 			TrieDBNodeIterator { db, trail: Vec::with_capacity(8), key_nibbles: NibbleVec::new() };
 		let (root_node, root_hash) = db.get_raw_or_lookup(

@@ -382,7 +382,7 @@ fn resolve_value<C: NodeCodec>(
 	recorded_nodes: &mut dyn Iterator<Item = (C::HashOut, Vec<u8>)>,
 ) -> TrieResult<Step<'static>, C::HashOut, C::Error> {
 	if let Some(resolve_value) = recorded_nodes.next() {
-		Ok(Step::FoundHashedValue(resolve_value.data))
+		Ok(Step::FoundHashedValue(resolve_value.1))
 	} else {
 		Err(Box::new(TrieError::IncompleteDatabase(C::HashOut::default())))
 	}

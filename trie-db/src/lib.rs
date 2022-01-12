@@ -67,7 +67,7 @@ pub use self::{
 	sectriedb::SecTrieDB,
 	sectriedbmut::SecTrieDBMut,
 	triedb::{TrieDB, TrieDBBuilder, TrieDBIterator, TrieDBKeyIterator},
-	triedbmut::{ChildReference, TrieDBMut, TrieDBMutBuilder},
+	triedbmut::{ChildReference, TrieDBMut, TrieDBMutBuilder, Value},
 };
 pub use crate::{
 	iter_build::{trie_visit, ProcessEncodedNode, TrieBuilder, TrieRoot, TrieRootUnhashed},

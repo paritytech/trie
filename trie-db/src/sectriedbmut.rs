@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::{
-	node::Value, triedbmut::TrieDBMutBuilder, CError, DBValue, Result, TrieDBMut, TrieHash,
-	TrieLayout, TrieMut,
+	triedbmut::TrieDBMutBuilder, CError, DBValue, Result, TrieDBMut, TrieHash, TrieLayout, TrieMut,
+	Value,
 };
 use hash_db::{HashDB, Hasher};
 
