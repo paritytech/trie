@@ -102,7 +102,7 @@ pub enum Value<'a> {
 	Inline(&'a [u8]),
 	/// Hash byte slice as stored in a trie node,
 	/// and the actual value when accessed.
-	Node(&'a [u8], Option<DBValue>),
+	Node(&'a [u8], Option<Bytes>),
 }
 
 impl<'a> Value<'a> {
@@ -117,6 +117,29 @@ impl<'a> Value<'a> {
 			Some(Value::Inline(value))
 		}
 	}
+
+	pub fn load<L: TrieLayout>(&self, nibble: NibbleSlice, load_value: impl Fn(TrieHash<L>, NibbleSlice) -> Result<Bytes, TrieHash<L>, CError<L>>) -> Result<Bytes, TrieHash<L>, CError<L>> {
+		match self {
+			Self::Inline(data) => Ok(Bytes::from(*data)),
+			Self::Node(_, Some(data)) => Ok(Bytes::from(*data)),
+			Self::Node(hash, None) => {
+				let mut res = TrieHash::<L>::default();
+				res.as_mut().copy_from_slice(hash);
+				load_value(res, nibble)
+			}
+		}
+	}
+}
+
+/// Value representation in `Node`.
+#[derive(Eq, PartialEq, Clone)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub enum ValueOwned {
+	/// Value byte slice as stored in a trie node.
+	Inline(Bytes),
+	/// Hash byte slice as stored in a trie node,
+	/// and the actual value when accessed.
+	Node(Bytes),
 }
 
 /// Type of node in the trie and essential information thereof.
@@ -144,10 +167,11 @@ impl Node<'_> {
 	/// Converts this node into a [`NodeOwned`].
 	pub fn to_owned_node<L: TrieLayout>(
 		&self,
+		load_value: impl Fn(TrieHash<L>, NibbleSlice) -> Result<Bytes, TrieHash<L>, CError<L>>,
 	) -> Result<NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		match self {
 			Self::Empty => Ok(NodeOwned::Empty),
-			Self::Leaf(n, d) => Ok(NodeOwned::Leaf((*n).into(), Bytes::from(*d))),
+			Self::Leaf(n, d) => Ok(NodeOwned::Leaf((*n).into(), d.load::<L>(*n, load_value)?)),
 			Self::Extension(n, h) =>
 				Ok(NodeOwned::Extension((*n).into(), h.to_owned_handle::<L>()?)),
 			Self::Branch(childs, data) => {
@@ -162,7 +186,7 @@ impl Node<'_> {
 					})
 					.collect::<Result<_, _, _>>()?;
 
-				Ok(NodeOwned::Branch(childs_owned, data.as_ref().map(|d| Bytes::from(*d))))
+				Ok(NodeOwned::Branch(childs_owned, data.as_ref().map(|d| d.load(NibbleSlice::new(&[]), load_value)).transpose()?))
 			},
 			Self::NibbledBranch(n, childs, data) => {
 				let mut childs_owned = [(); nibble_ops::NIBBLE_LENGTH].map(|_| None);
@@ -179,7 +203,7 @@ impl Node<'_> {
 				Ok(NodeOwned::NibbledBranch(
 					(*n).into(),
 					childs_owned,
-					data.as_ref().map(|d| Bytes::from(*d)),
+					data.as_ref().map(|d| d.load(*n, load_value)).transpose()?,
 				))
 			},
 		}

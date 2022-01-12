@@ -63,7 +63,6 @@ pub use self::{
 	fatdbmut::FatDBMut,
 	lookup::Lookup,
 	nibble::{nibble_ops, NibbleSlice, NibbleVec},
-	node::Value,
 	recorder::Recorder,
 	sectriedb::SecTrieDB,
 	sectriedbmut::SecTrieDBMut,

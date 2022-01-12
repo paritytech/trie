@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::triedbmut::TrieDBMutBuilder;
-use crate::{CError, DBValue, Result, TrieDBMut, TrieHash, TrieLayout, TrieMut, Value};
+use crate::{
+	triedbmut::TrieDBMutBuilder, CError, DBValue, Result, TrieDBMut, TrieHash, TrieLayout, TrieMut,
+	triedbmut::Value,
+};
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 
 /// A mutable `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.

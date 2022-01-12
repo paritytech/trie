@@ -46,12 +46,12 @@ where
 	fn decode(mut self, v: Value, prefix: Prefix) -> Result<Q::Item, TrieHash<L>, CError<L>> {
 		match v {
 			Value::Inline(value) => Ok(self.query.decode(value)),
-			Value::Node(_, Some(value)) => Ok(self.query.decode(value.as_slice())),
+			Value::Node(_, Some(value)) => Ok(self.query.decode(&value)),
 			Value::Node(hash, None) => {
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash);
 				if let Some(value) = self.db.get(&res, prefix) {
-					Ok(self.query.decode(value.as_slice()))
+					Ok(self.query.decode(&value))
 				} else {
 					Err(Box::new(TrieError::IncompleteDatabase(res)))
 				}
@@ -100,7 +100,7 @@ where
 		full_key.advance(nibble_key.len());
 		let full_key = full_key.left();
 
-		Ok(res.map(|v| self.decode(&v, full_key)))
+		Ok(res.map(|v| self.query.decode(&v)))
 	}
 
 	fn look_up_with_cache_internal(
@@ -245,7 +245,7 @@ where
 
 				let next_node = match decoded {
 					Node::Leaf(slice, value) =>
-						return Ok((slice == partial).then(|| self.decode(value, full_key))),
+						return (slice == partial).then(|| self.decode(value, full_key)).transpose(),
 					Node::Extension(slice, item) =>
 						if partial.starts_with(&slice) {
 							partial = partial.mid(slice.len());
@@ -256,7 +256,7 @@ where
 						},
 					Node::Branch(children, value) =>
 						if partial.is_empty() {
-							return Ok(value.map(move |val| self.decode(val, full_key)))
+							return value.map(|val| self.decode(val, full_key)).transpose()
 						} else {
 							match children[partial.at(0) as usize] {
 								Some(x) => {
@@ -273,7 +273,7 @@ where
 						}
 
 						if partial.len() == slice.len() {
-							return Ok(value.map(move |val| self.decode(val, full_key)))
+							return value.map(|val| self.decode(val, full_key)).transpose()
 						} else {
 							match children[partial.at(slice.len()) as usize] {
 								Some(x) => {

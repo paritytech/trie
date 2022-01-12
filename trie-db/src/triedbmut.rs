@@ -71,13 +71,13 @@ type NibbleFullKey<'key> = NibbleSlice<'key>;
 #[derive(Clone, Eq)]
 pub enum Value<L: TrieLayout> {
 	/// Value bytes inlined in a trie node.
-	Inline(DBValue),
+	Inline(Bytes),
 	/// Hash of value bytes and value bytes when accessed.
-	Node(TrieHash<L>, Option<DBValue>),
+	Node(TrieHash<L>, Option<Bytes>),
 	/// Hash of value bytes if calculated and value bytes.
 	/// The hash may be undefined until it node is added
 	/// to the db.
-	NewNode(Option<TrieHash<L>>, DBValue),
+	NewNode(Option<TrieHash<L>>, Bytes),
 }
 
 impl<L: TrieLayout> PartialEq<Self> for Value<L> {
@@ -97,7 +97,7 @@ impl<L: TrieLayout> PartialEq<Self> for Value<L> {
 impl<'a, L: TrieLayout> From<EncodedValue<'a>> for Value<L> {
 	fn from(v: EncodedValue<'a>) -> Self {
 		match v {
-			EncodedValue::Inline(value) => Value::Inline(value.to_vec()),
+			EncodedValue::Inline(value) => Value::Inline(value.into()),
 			EncodedValue::Node(hash, value) => {
 				let mut h = TrieHash::<L>::default();
 				h.as_mut().copy_from_slice(hash);
@@ -112,9 +112,9 @@ impl<L: TrieLayout> From<(DBValue, Option<u32>)> for Value<L> {
 		match v {
 			value =>
 				if threshold.map(|threshold| value.len() >= threshold as usize).unwrap_or(false) {
-					Value::NewNode(None, value.to_vec())
+					Value::NewNode(None, value.into())
 				} else {
-					Value::Inline(value.to_vec())
+					Value::Inline(value.into())
 				},
 		}
 	}
@@ -144,7 +144,7 @@ impl<L: TrieLayout> Value<L> {
 	{
 		if let Value::NewNode(hash, value) = self {
 			let new_hash = if let ChildReference::Hash(hash) =
-				f(NodeToEncode::Node(value.as_slice()), partial, None)
+				f(NodeToEncode::Node(&value), partial, None)
 			{
 				hash
 			} else {
@@ -157,7 +157,7 @@ impl<L: TrieLayout> Value<L> {
 			}
 		}
 		let value = match &*self {
-			Value::Inline(value) => EncodedValue::Inline(value.as_slice()),
+			Value::Inline(value) => EncodedValue::Inline(&value),
 			Value::Node(hash, _value) => EncodedValue::Node(hash.as_ref(), None),
 			Value::NewNode(Some(hash), _value) => EncodedValue::Node(hash.as_ref(), None),
 			Value::NewNode(None, _value) =>
@@ -172,9 +172,9 @@ impl<L: TrieLayout> Value<L> {
 		db: &dyn HashDB<L::Hash, DBValue>,
 	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
 		Ok(Some(match self {
-			Value::Inline(value) => value.clone(),
-			Value::NewNode(_, value) => value.clone(),
-			Value::Node(_, Some(value)) => value.clone(),
+			Value::Inline(value) => value.to_vec(),
+			Value::NewNode(_, value) => value.to_vec(),
+			Value::Node(_, Some(value)) => value.to_vec(),
 			Value::Node(hash, None) =>
 				if let Some(value) = db.get(hash, prefix) {
 					value
@@ -275,18 +275,14 @@ impl<L: TrieLayout> Node<L> {
 	}
 
 	// load an inline node into memory or get the hash to do the lookup later.
-	fn inline_or_hash_owned<C, H>(
-		child: &NodeHandleOwned<H::Out>,
-		storage: &mut NodeStorage<H::Out>,
-	) -> NodeHandle<H::Out>
-	where
-		C: NodeCodec<HashOut = O>,
-		H: Hasher<Out = O>,
-	{
+	fn inline_or_hash_owned(
+		child: &NodeHandleOwned<TrieHash<L>>,
+		storage: &mut NodeStorage<L>,
+	) -> NodeHandle<TrieHash<L>> {
 		match child {
 			NodeHandleOwned::Hash(hash) => NodeHandle::Hash(*hash),
 			NodeHandleOwned::Inline(node) => {
-				let child = Node::from_node_owned::<C, H>(&**node, storage);
+				let child = Node::from_node_owned(&**node, storage);
 				NodeHandle::InMemory(storage.alloc(Stored::New(child)))
 			},
 		}
@@ -365,24 +361,20 @@ impl<L: TrieLayout> Node<L> {
 	}
 
 	// Decode a node from a [`NodeOwned`].
-	fn from_node_owned<'a, 'b, C, H>(
-		node_owned: &NodeOwned<H::Out>,
-		storage: &'b mut NodeStorage<H::Out>,
-	) -> Self
-	where
-		C: NodeCodec<HashOut = O>,
-		H: Hasher<Out = O>,
-	{
+	fn from_node_owned(
+		node_owned: &NodeOwned<TrieHash<L>>,
+		storage: &mut NodeStorage<L>,
+	) -> Self {
 		match node_owned {
 			NodeOwned::Empty => Node::Empty,
 			NodeOwned::Leaf(k, v) => Node::Leaf(k.into(), v.clone()),
 			NodeOwned::Extension(key, cb) =>
-				Node::Extension(key.into(), Self::inline_or_hash_owned::<C, H>(cb, storage)),
+				Node::Extension(key.into(), Self::inline_or_hash_owned(cb, storage)),
 			NodeOwned::Branch(encoded_children, val) => {
 				let mut child = |i: usize| {
 					encoded_children[i]
 						.as_ref()
-						.map(|child| Self::inline_or_hash_owned::<C, H>(child, storage))
+						.map(|child| Self::inline_or_hash_owned(child, storage))
 				};
 
 				let children = Box::new([
@@ -453,7 +445,7 @@ impl<L: TrieLayout> Node<L> {
 			Node::Leaf(partial, mut value) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let value = value.into_encoded::<F>(Some(&pr), &mut child_cb);
-				L::Codec::leaf_node(pr.right(), value)
+				L::Codec::leaf_node(pr.right_iter(), pr.len(), value)
 			},
 			Node::Extension(partial, child) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
@@ -763,7 +755,7 @@ where
 					recorder.borrow_mut().record(TrieAccess::NodeOwned { hash, node_owned: &node });
 				}
 
-				Node::from_node_owned::<L::Codec, L::Hash>(&node, &mut self.storage)
+				Node::from_node_owned(&node, &mut self.storage)
 			},
 			None => {
 				let node_encoded = self
@@ -778,7 +770,7 @@ where
 					});
 				}
 
-				Node::from_encoded::<L::Codec, L::Hash>(hash, &node_encoded, &mut self.storage)?
+				Node::from_encoded(hash, &node_encoded, &mut self.storage)?
 			},
 		};
 
@@ -822,16 +814,12 @@ where
 	}
 
 	// Walk the trie, attempting to find the key's node.
-	fn lookup<'key>(
+	fn lookup(
 		&self,
 		full_key: &[u8],
-		mut partial: NibbleSlice<'key>,
-		full_key: &'key [u8],
+		mut partial: NibbleSlice,
 		handle: &NodeHandle<TrieHash<L>>,
-	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
-	where
-		'x: 'key,
-	{
+	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
 		let mut handle = handle;
 		let prefix = (full_key, None);
 		loop {

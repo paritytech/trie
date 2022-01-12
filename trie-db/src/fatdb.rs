@@ -63,14 +63,11 @@ where
 		self.raw.contains(L::Hash::hash(key).as_ref())
 	}
 
-	fn get_with<'a, 'key, Q: Query<L::Hash>>(
-		&'a self,
-		key: &'key [u8],
+	fn get_with<Q: Query<L::Hash>>(
+		&self,
+		key: &[u8],
 		query: Q,
-	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
-	where
-		'a: 'key,
-	{
+	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		self.raw.get_with(L::Hash::hash(key).as_ref(), query)
 	}
 
@@ -157,7 +154,7 @@ where
 	L: TrieLayout,
 {
 	/// Creates new iterator.
-	pub fn new(trie: &'db TrieDB<L>) -> Result<Self, TrieHash<L>, CError<L>> {
+	pub fn new(trie: &'db TrieDB<'db, 'cache, L>) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(FatDBKeyIterator { trie_iterator: TrieDBKeyIterator::new(trie)?, trie })
 	}
 }

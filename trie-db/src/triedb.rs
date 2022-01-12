@@ -18,10 +18,10 @@ use crate::{
 	iterator::TrieDBNodeIterator,
 	lookup::Lookup,
 	nibble::NibbleSlice,
-	node::{decode_hash, Node, NodeHandle, OwnedNode},
+	node::{decode_hash, Node, NodeHandle, OwnedNode, Value},
 	rstd::boxed::Box,
 	CError, DBValue, Query, Result, Trie, TrieAccess, TrieCache, TrieError, TrieHash, TrieItem,
-	TrieIterator, TrieKeyItem, TrieLayout, TrieRecorder, Value,
+	TrieIterator, TrieKeyItem, TrieLayout, TrieRecorder,
 };
 use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
 
