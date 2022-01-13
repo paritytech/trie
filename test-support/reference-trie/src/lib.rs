@@ -62,8 +62,8 @@ macro_rules! test_layouts_no_meta {
 	($test:ident, $test_internal:ident) => {
 		#[test]
 		fn $test() {
-			$test_internal::<reference_trie::NoExtensionLayout>();
-			$test_internal::<reference_trie::ExtensionLayout>();
+			$test_internal::<$crate::NoExtensionLayout>();
+			$test_internal::<$crate::ExtensionLayout>();
 		}
 	};
 }
@@ -175,11 +175,11 @@ where
 	B: AsRef<[u8]> + fmt::Debug,
 {
 	if T::USE_EXTENSION {
-		trie_root::trie_root::<T::Hash, ReferenceTrieStream, _, _, _>(input, Default::default())
+		trie_root::trie_root::<T::Hash, ReferenceTrieStream, _, _, _>(input, T::MAX_INLINE_VALUE)
 	} else {
 		trie_root::trie_root_no_extension::<T::Hash, ReferenceTrieStreamNoExt, _, _, _>(
 			input,
-			Default::default(),
+			T::MAX_INLINE_VALUE,
 		)
 	}
 }
