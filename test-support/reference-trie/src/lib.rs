@@ -15,29 +15,21 @@
 //! Reference implementation of a streamer.
 
 use hashbrown::{hash_map::Entry, HashMap};
-use parity_scale_codec::{Compact, Decode, Encode, Error as CodecError, Input, Output};
-use std::{fmt, iter::once, marker::PhantomData, ops::Range};
-use trie_root::Hasher;
-mod substrate_like;
-
 use keccak_hasher::KeccakHasher;
 use parity_scale_codec::{Compact, Decode, Encode, Error as CodecError, Input, Output};
 use std::{borrow::Borrow, fmt, iter::once, marker::PhantomData, ops::Range};
 use trie_db::{
-	node::{NibbleSlicePlan, NodeHandlePlan, NodeOwned, NodePlan},
+	nibble_ops,
+	node::{NibbleSlicePlan, NodeHandlePlan, NodeOwned, NodePlan, Value, ValuePlan},
 	trie_visit,
 	triedbmut::ChildReference,
-	DBValue, Partial, TrieBuilder, TrieRoot,
+	DBValue, NodeCodec, Partial, Trie, TrieBuilder, TrieConfiguration, TrieDB, TrieDBBuilder,
+	TrieDBMut, TrieDBMutBuilder, TrieHash, TrieLayout, TrieMut, TrieRoot,
 };
-use trie_root::Hasher;
-
-use trie_db::{
-	nibble_ops, NodeCodec, Trie, TrieConfiguration, TrieDB, TrieDBMut, TrieLayout, TrieMut,
-};
-
-use trie_db::{nibble_ops, NodeCodec, Trie, TrieConfiguration, TrieLayout, TrieMut};
 pub use trie_root::TrieStream;
-use trie_root::Value as TrieStreamValue;
+use trie_root::{Hasher, Value as TrieStreamValue};
+
+mod substrate_like;
 pub mod node {
 	pub use trie_db::node::Node;
 }
@@ -367,73 +359,6 @@ impl TrieStream for ReferenceTrieStream {
 	}
 }
 
-<<<<<<< variant A
-/// Reference implementation of a `TrieStream` without extension.
-#[derive(Default, Clone)]
-pub struct ReferenceTrieStreamNoExt {
-	buffer: Vec<u8>,
-}
-
-impl TrieStream for ReferenceTrieStreamNoExt {
-	fn new() -> Self {
-		ReferenceTrieStreamNoExt { buffer: Vec::new() }
-	}
-
-	fn append_empty_data(&mut self) {
-		self.buffer.push(EMPTY_TRIE_NO_EXT);
-	}
-
-	fn append_leaf(&mut self, key: &[u8], value: &[u8]) {
-		self.buffer.extend(fuse_nibbles_node_no_extension(key, NodeKindNoExt::Leaf));
-		value.encode_to(&mut self.buffer);
-	}
-
-	fn begin_branch(
-		&mut self,
-		maybe_key: Option<&[u8]>,
-		maybe_value: Option<&[u8]>,
-		has_children: impl Iterator<Item = bool>,
-	) {
-		if let Some(partial) = maybe_key {
-			if maybe_value.is_some() {
-				self.buffer.extend(fuse_nibbles_node_no_extension(
-					partial,
-					NodeKindNoExt::BranchWithValue,
-				));
-			} else {
-				self.buffer
-					.extend(fuse_nibbles_node_no_extension(partial, NodeKindNoExt::BranchNoValue));
-			}
-			let bitmap = branch_node_bit_mask(has_children);
-			self.buffer.extend([bitmap.0, bitmap.1].iter());
-		} else {
-			// should not happen
-			self.buffer.extend(&branch_node(maybe_value.is_some(), has_children));
-		}
-		if let Some(value) = maybe_value {
-			value.encode_to(&mut self.buffer);
-		}
-	}
-
-	fn append_extension(&mut self, _key: &[u8]) {
-		// should not happen
-	}
-
-	fn append_substream<H: Hasher>(&mut self, other: Self) {
-		let data = other.out();
-		match data.len() {
-			0..=31 => data.encode_to(&mut self.buffer),
-			_ => H::hash(&data).as_ref().encode_to(&mut self.buffer),
-		}
-	}
-
-	fn out(self) -> Vec<u8> {
-		self.buffer
-	}
-}
-
->>>>>>> variant B
-======= end
 /// A node header.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 enum NodeHeader {
@@ -600,30 +525,6 @@ fn partial_from_iterator_encode<I: Iterator<Item = u8>>(
 	output
 }
 
-<<<<<<< variant A
->>>>>>> variant B
-fn partial_encode(partial: Partial, node_kind: NodeKindNoExt) -> Vec<u8> {
-	let number_nibble_encoded = (partial.0).0 as usize;
-	let nibble_count = partial.1.len() * nibble_ops::NIBBLE_PER_BYTE + number_nibble_encoded;
-
-	let nibble_count = ::std::cmp::min(NIBBLE_SIZE_BOUND_NO_EXT, nibble_count);
-
-	let mut output = Vec::with_capacity(3 + partial.1.len());
-	match node_kind {
-		NodeKindNoExt::Leaf => NodeHeaderNoExt::Leaf(nibble_count).encode_to(&mut output),
-		NodeKindNoExt::BranchWithValue =>
-			NodeHeaderNoExt::Branch(true, nibble_count).encode_to(&mut output),
-		NodeKindNoExt::BranchNoValue =>
-			NodeHeaderNoExt::Branch(false, nibble_count).encode_to(&mut output),
-	};
-	if number_nibble_encoded > 0 {
-		output.push(nibble_ops::pad_right((partial.0).1));
-	}
-	output.extend_from_slice(&partial.1[..]);
-	output
-}
-
-======= end
 struct ByteSliceInput<'a> {
 	data: &'a [u8],
 	offset: usize,
@@ -755,14 +656,9 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		&[EMPTY_TRIE]
 	}
 
-<<<<<<< variant A
-	fn leaf_node(partial: impl Iterator<Item = u8>, number_nibble: usize, value: &[u8]) -> Vec<u8> {
+	fn leaf_node(partial: impl Iterator<Item = u8>, number_nibble: usize, value: Value) -> Vec<u8> {
 		let mut output =
 			partial_from_iterator_to_key(partial, number_nibble, LEAF_NODE_OFFSET, LEAF_NODE_OVER);
-		value.encode_to(&mut output);
->>>>>>> variant B
-	fn leaf_node(partial: Partial, value: Value) -> Vec<u8> {
-		let mut output = partial_to_key(partial, LEAF_NODE_OFFSET, LEAF_NODE_OVER);
 		match value {
 			Value::Inline(value) => {
 				Compact(value.len() as u32).encode_to(&mut output);
@@ -770,7 +666,6 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 			},
 			_ => unimplemented!("unsupported"),
 		}
-======= end
 		output
 	}
 
@@ -917,13 +812,8 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		&[EMPTY_TRIE_NO_EXT]
 	}
 
-<<<<<<< variant A
-	fn leaf_node(partial: impl Iterator<Item = u8>, number_nibble: usize, value: &[u8]) -> Vec<u8> {
+	fn leaf_node(partial: impl Iterator<Item = u8>, number_nibble: usize, value: Value) -> Vec<u8> {
 		let mut output = partial_from_iterator_encode(partial, number_nibble, NodeKindNoExt::Leaf);
-		value.encode_to(&mut output);
->>>>>>> variant B
-	fn leaf_node(partial: Partial, value: Value) -> Vec<u8> {
-		let mut output = partial_encode(partial, NodeKindNoExt::Leaf);
 		match value {
 			Value::Inline(value) => {
 				Compact(value.len() as u32).encode_to(&mut output);
@@ -931,7 +821,6 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 			},
 			Value::Node(..) => unimplemented!("No support for inner hashed value"),
 		}
-======= end
 		output
 	}
 
@@ -1002,7 +891,7 @@ where
 	let root_new = calc_root_build::<T, _, _, _, _>(data.clone(), &mut hashdb);
 	let root = {
 		let mut root = Default::default();
-		let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
+		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
@@ -1012,7 +901,7 @@ where
 	if root_new != root {
 		{
 			let db: &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = RefTrieDBBuilder::new_unchecked(&db, &root_new).build();
+			let t = TrieDBBuilder::<T>::new_unchecked(&db, &root_new).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:x?}", a);
@@ -1020,7 +909,7 @@ where
 		}
 		{
 			let db: &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = RefTrieDBBuilder::new_unchecked(&db, &root).build();
+			let t = TrieDBBuilder::<T>::new_unchecked(&db, &root).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:x?}", a);
@@ -1041,7 +930,7 @@ pub fn compare_root<T: TrieLayout, DB: hash_db::HashDB<T::Hash, DBValue>>(
 	let root_new = reference_trie_root_iter_build::<T, _, _, _>(data.clone());
 	let root = {
 		let mut root = Default::default();
-		let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
+		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
@@ -1116,7 +1005,7 @@ pub fn compare_implementations_unordered<T, DB>(
 	let mut b_map = std::collections::btree_map::BTreeMap::new();
 	let root = {
 		let mut root = Default::default();
-		let mut t = TrieDBMut::<T>::new(&mut memdb, &mut root);
+		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 			b_map.insert(data[i].0.clone(), data[i].1.clone());
@@ -1140,7 +1029,7 @@ pub fn compare_implementations_unordered<T, DB>(
 		}
 		{
 			let db: &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = TrieDB::<T>::new_unchecked(&db, &root_new).build();
+			let t = TrieDBBuilder::<T>::new_unchecked(&db, &root_new).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
@@ -1170,7 +1059,8 @@ pub fn compare_insert_remove<T, DB: hash_db::HashDB<T::Hash, DBValue>>(
 	while a < data.len() {
 		// new triemut every 3 element
 		root = {
-			let mut t = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root).unwrap().build();
+			let mut t =
+				TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root).unwrap().build();
 			for _ in 0..3 {
 				if data[a].0 {
 					// remove

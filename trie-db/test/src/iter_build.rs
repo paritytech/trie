@@ -15,9 +15,9 @@
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
 	test_layouts, ExtensionLayout, HashedValueNoExt, HashedValueNoExtThreshold, NoExtensionLayout,
-	RefHasher,
+	RefHasher, RefTrieDBMutBuilder, RefTrieDBBuilder,
 };
-use trie_db::{DBValue, TrieLayout};
+use trie_db::{DBValue, TrieLayout, TrieMut, Trie, TrieDBMutBuilder, TrieDBBuilder};
 
 #[test]
 fn trie_root_empty() {
@@ -41,14 +41,14 @@ fn test_iter<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) {
 	let mut db = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
 	{
-		let mut t = RefTrieDBMutBuilder::<T>::new(&mut db, &mut root).build();
+		let mut t = TrieDBMutBuilder::<T>::new(&mut db, &mut root).build();
 		for i in 0..data.len() {
 			let key: &[u8] = &data[i].0;
 			let value: &[u8] = &data[i].1;
 			t.insert(key, value).unwrap();
 		}
 	}
-	let t = RefTrieDBBuilder::<T>::new_unchecked(&db, &root).build();
+	let t = TrieDBBuilder::<T>::new_unchecked(&db, &root).build();
 	for (i, kv) in t.iter().unwrap().enumerate() {
 		let (k, v) = kv.unwrap();
 		let key: &[u8] = &data[i].0;

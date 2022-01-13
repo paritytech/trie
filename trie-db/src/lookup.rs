@@ -16,7 +16,7 @@
 
 use crate::{
 	nibble::NibbleSlice,
-	node::{decode_hash, Node, NodeHandle, NodeHandleOwned, NodeOwned, Value},
+	node::{decode_hash, Node, NodeHandle, NodeHandleOwned, NodeOwned, Value, ValueOwned},
 	node_codec::NodeCodec,
 	rstd::boxed::Box,
 	Bytes, CError, DBValue, Query, Result, TrieAccess, TrieCache, TrieError, TrieHash, TrieLayout,
@@ -59,6 +59,28 @@ where
 		}
 	}
 
+	fn load_value(
+		&mut self,
+		v: ValueOwned<TrieHash<L>>,
+		prefix: Prefix,
+	) -> Result<Bytes, TrieHash<L>, CError<L>> {
+		match v {
+			ValueOwned::Inline(value) => Ok(value.clone()),
+			ValueOwned::Node(_, Some(value)) => Ok(value.clone()),
+			ValueOwned::Node(hash, None) =>
+				if let Some(value) = self.db.get(&hash, prefix) {
+					self.recorder.record(TrieAccess::EncodedNode {
+						hash,
+						encoded_node: value.as_slice().into(),
+					});
+
+					Ok(value.into())
+				} else {
+					Err(Box::new(TrieError::IncompleteDatabase(hash)))
+				},
+		}
+	}
+
 	/// Look up the given `nibble_key`.
 	///
 	/// If the value is found, it will be passed to the given function to decode or copy.
@@ -91,7 +113,14 @@ where
 
 			value.clone()
 		} else {
-			let res = self.look_up_with_cache_internal(nibble_key, cache)?;
+			let res = self.look_up_with_cache_internal(nibble_key, cache)?.map(|value| {
+				let mut prefix = nibble_key.clone();
+				prefix.advance(nibble_key.len());
+				let prefix = prefix.left();
+
+				self.load_value(value, prefix)
+			}).transpose()?;
+
 			cache.cache_data_for_key(full_key, res.clone());
 			res
 		};
@@ -103,7 +132,7 @@ where
 		&mut self,
 		nibble_key: NibbleSlice,
 		cache: &mut dyn crate::TrieCache<L>,
-	) -> Result<Option<Bytes>, TrieHash<L>, CError<L>> {
+	) -> Result<Option<ValueOwned<TrieHash<L>>>, TrieHash<L>, CError<L>> {
 		let mut partial = nibble_key;
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;

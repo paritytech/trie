@@ -17,7 +17,7 @@ use reference_trie::{test_layouts, NoExtensionLayout};
 
 use trie_db::{
 	proof::{generate_proof, verify_proof, VerifyError},
-	DBValue, Trie, TrieDB, TrieDBMut, TrieLayout, TrieMut,
+	DBValue, Trie, TrieDB, TrieDBMut, TrieLayout, TrieMut, TrieDBMutBuilder, TrieDBBuilder,
 };
 
 type MemoryDB<T> = memory_db::MemoryDB<
@@ -62,8 +62,8 @@ fn test_generate_proof<L: TrieLayout>(
 	};
 
 	// Generate proof for the given keys..
+	let proof = generate_proof::<_, L, _, _>(&db, &root, keys.iter()).unwrap();
 	let trie = <TrieDBBuilder<L>>::new(&db, &root).unwrap().build();
-	let proof = generate_proof::<_, L, _, _>(&trie, keys.iter()).unwrap();
 	let items = keys.into_iter().map(|key| (key, trie.get(key).unwrap())).collect();
 
 	(root, proof, items)

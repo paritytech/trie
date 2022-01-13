@@ -20,7 +20,7 @@ use keccak_hasher::KeccakHasher;
 use memory_db::{HashKey, MemoryDB};
 use parity_scale_codec::{Compact, Encode};
 use std::default::Default;
-use trie_db::{NodeCodec, Trie, TrieDB, TrieDBMut, TrieHash, TrieLayout, TrieMut};
+use trie_db::{NodeCodec, TrieDBMutBuilder, TrieDBBuilder, TrieHash, TrieLayout, TrieMut, Trie};
 use trie_root::{trie_root, TrieStream};
 use trie_standardmap::*;
 

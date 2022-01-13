@@ -14,7 +14,7 @@
 
 use hash_db::{Hasher, EMPTY_PREFIX};
 use memory_db::{HashKey, MemoryDB};
-use reference_trie::{RefFatDBMut, RefHasher, RefTrieDB};
+use reference_trie::{RefFatDBMut, RefHasher, RefTrieDBBuilder};
 use trie_db::{Trie, TrieMut};
 
 #[test]
