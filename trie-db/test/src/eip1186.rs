@@ -75,7 +75,8 @@ fn trie_proof_works_internal2<T: TrieLayout>() {
 		// "dog" is at a hash-referenced branch node.
 		(b"dog", b"puppy"),
 		],
-		b"do");
+		b"do",
+		);
 	assert_eq!(Some(b"verb".as_ref()), item.as_deref(), "verb is the item");
 	assert!(verify_proof::<T>(&root, &proof, b"do", Some(b"verb")).is_ok(), "verifying do");
 
@@ -86,7 +87,8 @@ fn trie_proof_works_internal2<T: TrieLayout>() {
 		// "dog" is at a hash-referenced branch node.
 		(b"dog", b"puppy"),
 		],
-		b"dog");
+		b"dog",
+		);
 	assert_eq!(Some(b"puppy".as_ref()), item.as_deref(), "puppy is the item");
 	assert!(verify_proof::<T>(&root, &proof, b"dog", Some(b"puppy")).is_ok(), "verifying dog");
 }
@@ -103,7 +105,7 @@ fn trie_proof_works_internal<T: TrieLayout>() {
 
 	let (root, proof, item) = test_generate_proof::<T>(test_entries(), b"doge");
 	assert_eq!(Some([0; 32].as_ref()), item.as_deref(), "[0;32] is the item");
-	assert!(verify_proof::<T>(&root, &proof, b"doge", Some(&[0;32])).is_ok(), "verifying doge");
+	assert!(verify_proof::<T>(&root, &proof, b"doge", Some(&[0; 32])).is_ok(), "verifying doge");
 
 	let (root, proof, item) = test_generate_proof::<T>(test_entries(), b"bravo");
 	assert_eq!(Some(b"bravo".as_ref()), item.as_deref(), "bravo is the item");
@@ -161,7 +163,6 @@ fn test_verify_value_mismatch_some_to_none_internal<T: TrieLayout>() {
 	};
 	assert!(is_ok);
 }
-
 
 test_layouts!(test_verify_incomplete_proof, test_verify_incomplete_proof_internal);
 fn test_verify_incomplete_proof_internal<T: TrieLayout>() {

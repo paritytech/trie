@@ -92,7 +92,7 @@ L: TrieLayout,
 }
 
 fn process_node<'a, L>(
-	root: &<L::Hash as Hasher>::Out,
+	expected_node_hash: &<L::Hash as Hasher>::Out,
 	encoded_node: &'a[u8],
 	key: NibbleSlice<'a>,
 	expected_value: Option<&[u8]>,
@@ -106,9 +106,9 @@ L: TrieLayout,
 			return Ok(());
 		}
 	}
-	let calculated_root = <L::Hash as Hasher>::hash(encoded_node);
-	if calculated_root != *root {
-		return Err(VerifyError::HashMismatch(calculated_root))
+	let calculated_node_hash = <L::Hash as Hasher>::hash(encoded_node);
+	if calculated_node_hash != *expected_node_hash {
+		return Err(VerifyError::HashMismatch(calculated_node_hash))
 	}
 	let node = <L::Codec as NodeCodec>::decode(encoded_node).map_err(VerifyError::DecodeError)?;
 	match node {
