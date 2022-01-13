@@ -20,6 +20,8 @@ use trie_db::{DBValue, Lookup, NibbleSlice, Recorder, Trie, TrieCache, TrieDB, T
 
 type PrefixedMemoryDB<T> =
 	MemoryDB<<T as TrieLayout>::Hash, PrefixedKey<<T as TrieLayout>::Hash>, DBValue>;
+type MemoryDBProof<T> =
+	MemoryDB<<T as TrieLayout>::Hash, HashKey<<T as TrieLayout>::Hash>, DBValue>;
 
 test_layouts!(iterator_works, iterator_works_internal);
 fn iterator_works_internal<T: TrieLayout>() {
@@ -422,7 +424,7 @@ fn iterator_seek_with_recorder_internal<T: TrieLayout>() {
 		assert_eq!(&vals[1..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
 	}
 
-	let mut partial_db = PrefixedMemoryDB::<T>::default();
+	let mut partial_db = MemoryDBProof::<T>::default();
 	for record in recorder.drain(&memdb, &root).unwrap() {
 		partial_db.insert(EMPTY_PREFIX, &record.1);
 	}

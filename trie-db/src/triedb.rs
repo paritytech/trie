@@ -176,6 +176,26 @@ where
 		Ok((owned_node, node_hash))
 	}
 
+	/// Fetch a value under the given `hash`.
+	pub(crate) fn fetch_value(
+		&self,
+		hash: TrieHash<L>,
+		prefix: Prefix,
+	) -> Result<DBValue, TrieHash<L>, CError<L>> {
+		let value = self
+			.db
+			.get(&hash, prefix)
+			.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
+
+		if let Some(recorder) = self.recorder.as_ref() {
+			recorder
+				.borrow_mut()
+				.record(TrieAccess::EncodedNode { hash, encoded_node: value.as_slice().into() });
+		}
+
+		Ok(value)
+	}
+
 	/// Traverse the trie to access `key`.
 	///
 	/// This is mainly useful when trie access should be recorded and a cache was active.
@@ -518,12 +538,9 @@ impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBIterator<'a, 'cache, L> {
 					}
 					let value = match maybe_value.expect("None checked above.") {
 						Value::Node(hash, None) => {
-							if let Some(value) = self.inner.fetch_value(&hash, (key_slice, None)) {
-								value
-							} else {
-								let mut res = TrieHash::<L>::default();
-								res.as_mut().copy_from_slice(hash);
-								return Some(Err(Box::new(TrieError::IncompleteDatabase(res))))
+							match self.inner.fetch_value(&hash, (key_slice, None)) {
+								Ok(value) => value,
+								Err(err) => return Some(Err(err)),
 							}
 						},
 						Value::Inline(value) => value.to_vec(),

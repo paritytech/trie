@@ -173,7 +173,7 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 	}
 }
 
-/// Dettached value if included does write a reserved header,
+/// Detached value if included does write a reserved header,
 /// followed by node encoded with 0 length value and the value
 /// as a standalone vec.
 fn detached_value<L: TrieLayout>(
@@ -185,8 +185,7 @@ fn detached_value<L: TrieLayout>(
 	let fetched;
 	match value {
 		ValuePlan::Node(hash_plan) => {
-			if let Some(value) = val_fetcher.fetch_value(&node_data[hash_plan.clone()], node_prefix)
-			{
+			if let Ok(value) = val_fetcher.fetch_value(&node_data[hash_plan.clone()], node_prefix) {
 				fetched = value;
 			} else {
 				return None

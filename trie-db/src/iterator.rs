@@ -109,10 +109,10 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 	}
 
 	/// Fetch value by hash at a current node height
-	pub fn fetch_value(&self, key: &[u8], prefix: Prefix) -> Option<DBValue> {
+	pub fn fetch_value(&self, key: &[u8], prefix: Prefix) -> Result<DBValue, TrieHash<L>, CError<L>> {
 		let mut res = TrieHash::<L>::default();
 		res.as_mut().copy_from_slice(key);
-		self.db.db().get(&res, prefix)
+		self.db.fetch_value(res, prefix)
 	}
 }
 
