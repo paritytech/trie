@@ -402,7 +402,7 @@ fn iterator_seek_with_recorder() {
 	let mut memdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
 	let mut root = Default::default();
 	{
-		let mut t = RefTrieDBMutNoExtBuilder::new(&mut memdb, &mut root).build();
+		let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
 		for (k, val) in d.iter().zip(vals.iter()) {
 			t.insert(k, val.as_slice()).unwrap();
 		}

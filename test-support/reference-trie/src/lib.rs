@@ -48,10 +48,10 @@ macro_rules! test_layouts {
 	($test:ident, $test_internal:ident) => {
 		#[test]
 		fn $test() {
-			$test_internal::<reference_trie::HashedValueNoExtThreshold>();
-			$test_internal::<reference_trie::HashedValueNoExt>();
-			$test_internal::<reference_trie::NoExtensionLayout>();
-			$test_internal::<reference_trie::ExtensionLayout>();
+			$test_internal::<$crate::HashedValueNoExtThreshold>();
+			$test_internal::<$crate::HashedValueNoExt>();
+			$test_internal::<$crate::NoExtensionLayout>();
+			$test_internal::<$crate::ExtensionLayout>();
 		}
 	};
 }

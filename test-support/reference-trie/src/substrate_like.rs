@@ -279,31 +279,6 @@ fn partial_from_iterator_encode<I: Iterator<Item = u8>>(
 	output
 }
 
-/// Encode and allocate node type header (type and size), and partial value.
-/// Same as `partial_from_iterator_encode` but uses non encoded `Partial` as input.
-fn partial_encode(partial: Partial, node_kind: NodeKind) -> Vec<u8> {
-	let number_nibble_encoded = (partial.0).0 as usize;
-	let nibble_count = partial.1.len() * nibble_ops::NIBBLE_PER_BYTE + number_nibble_encoded;
-
-	let nibble_count = std::cmp::min(trie_constants::NIBBLE_SIZE_BOUND, nibble_count);
-
-	let mut output = Vec::with_capacity(3 + partial.1.len());
-	match node_kind {
-		NodeKind::Leaf => NodeHeader::Leaf(nibble_count).encode_to(&mut output),
-		NodeKind::BranchWithValue => NodeHeader::Branch(true, nibble_count).encode_to(&mut output),
-		NodeKind::BranchNoValue => NodeHeader::Branch(false, nibble_count).encode_to(&mut output),
-		NodeKind::HashedValueLeaf =>
-			NodeHeader::HashedValueLeaf(nibble_count).encode_to(&mut output),
-		NodeKind::HashedValueBranch =>
-			NodeHeader::HashedValueBranch(nibble_count).encode_to(&mut output),
-	};
-	if number_nibble_encoded > 0 {
-		output.push(nibble_ops::pad_right((partial.0).1));
-	}
-	output.extend_from_slice(&partial.1[..]);
-	output
-}
-
 /// A node header.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub(crate) enum NodeHeader {

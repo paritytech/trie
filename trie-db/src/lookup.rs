@@ -51,6 +51,11 @@ where
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash);
 				if let Some(value) = self.db.get(&res, prefix) {
+					self.recorder.record(TrieAccess::EncodedNode {
+						hash: res,
+						encoded_node: value.as_slice().into(),
+					});
+
 					Ok(self.query.decode(&value))
 				} else {
 					Err(Box::new(TrieError::IncompleteDatabase(res)))
@@ -316,7 +321,7 @@ where
 				// check if new node data is inline or hash.
 				match next_node {
 					NodeHandle::Hash(data) => {
-						self.hash = decode_hash::<L::Hash>(data)
+						hash = decode_hash::<L::Hash>(data)
 							.ok_or_else(|| Box::new(TrieError::InvalidHash(hash, data.to_vec())))?;
 						break
 					},
