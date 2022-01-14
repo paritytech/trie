@@ -1787,6 +1787,7 @@ where
 					match node {
 						NodeToEncode::Node(value) => {
 							let value_hash = self.db.insert(k.as_prefix(), value);
+							self.cache_value(k.inner(), value);
 							k.drop_lasts(mov);
 							ChildReference::Hash(value_hash)
 						},
@@ -1834,6 +1835,13 @@ where
 		}
 	}
 
+	/// Cache the given `value`.
+	fn cache_value(&mut self, full_key: &[u8], value: impl Into<Bytes>) {
+		if let Some(ref mut cache) = self.cache {
+			cache.cache_data_for_key(full_key, Some(value.into()))
+		}
+	}
+
 	/// Commit a node by hashing it and writing it to the db. Returns a
 	/// `ChildReference` which in most cases carries a normal hash but for the
 	/// case where we can fit the actual data in the `Hasher`s output type, we
@@ -1852,11 +1860,11 @@ where
 					Stored::New(node) => {
 						// Reconstructs the full key
 						let full_key = self.cache.as_ref().and_then(|_| {
-							node.partial_key().and_then(|k| {
-								let mut prefix = prefix.clone();
-								prefix.append_partial(NibbleSlice::from_stored(k).right());
-								Some(prefix)
-							})
+							let mut prefix = prefix.clone();
+							if let Some(partial) = node.partial_key() {
+								prefix.append_partial(NibbleSlice::from_stored(partial).right());
+							}
+							Some(prefix)
 						});
 
 						let encoded = {
@@ -1867,6 +1875,9 @@ where
 								match node {
 									NodeToEncode::Node(value) => {
 										let value_hash = self.db.insert(prefix.as_prefix(), value);
+
+										self.cache_value(prefix.inner(), value);
+
 										prefix.drop_lasts(mov);
 										ChildReference::Hash(value_hash)
 									},
@@ -1892,6 +1903,9 @@ where
 							let mut h = <TrieHash<L>>::default();
 							let len = encoded.len();
 							h.as_mut()[..len].copy_from_slice(&encoded[..len]);
+
+							self.cache_node(h, &encoded, full_key);
+
 							ChildReference::Inline(h, len)
 						}
 					},

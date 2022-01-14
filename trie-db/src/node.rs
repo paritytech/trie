@@ -149,6 +149,13 @@ impl<H: AsRef<[u8]>> ValueOwned<H> {
 			Self::Node(hash, data) => Value::Node(hash.as_ref(), data.clone()),
 		}
 	}
+
+	fn data(&self) -> Option<&Bytes> {
+		match self {
+			Self::Inline(data) => Some(data),
+			Self::Node(_, data) => data.as_ref(),
+		}
+	}
 }
 
 /// Type of node in the trie and essential information thereof.
@@ -274,14 +281,13 @@ where
 
 	/// Returns the data attached to this node.
 	pub fn data(&self) -> Option<&Bytes> {
-		// match &self {
-		// 	Self::Empty => None,
-		// 	Self::Leaf(_, value) => Some(value),
-		// 	Self::Extension(_, _) => None,
-		// 	Self::Branch(_, value) => value.as_ref(),
-		// 	Self::NibbledBranch(_, _, value) => value.as_ref(),
-		// }
-		unimplemented!()
+		match &self {
+			Self::Empty => None,
+			Self::Leaf(_, value) => value.data(),
+			Self::Extension(_, _) => None,
+			Self::Branch(_, value) => value.as_ref().and_then(|v| v.data()),
+			Self::NibbledBranch(_, _, value) => value.as_ref().and_then(|v| v.data()),
+		}
 	}
 }
 

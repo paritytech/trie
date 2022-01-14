@@ -21,7 +21,7 @@ use reference_trie::{
 	HashedValueNoExtThreshold, NoExtensionLayout, RefHasher, RefTestTrieDBCache,
 	RefTestTrieDBCacheNoExt, RefTrieDBBuilder, RefTrieDBMut, RefTrieDBMutAllowEmptyBuilder,
 	RefTrieDBMutBuilder, RefTrieDBMutNoExt, RefTrieDBMutNoExtBuilder, ReferenceNodeCodec,
-	ReferenceNodeCodecNoExt,
+	ReferenceNodeCodecNoExt, TestTrieCache,
 };
 use trie_db::{
 	DBValue, NodeCodec, Recorder, Trie, TrieCache, TrieDBBuilder, TrieDBMut, TrieDBMutBuilder,
@@ -31,6 +31,8 @@ use trie_standardmap::*;
 
 type PrefixedMemoryDB<T> =
 	MemoryDB<<T as TrieLayout>::Hash, PrefixedKey<<T as TrieLayout>::Hash>, DBValue>;
+type MemoryDBProof<T> =
+	MemoryDB<<T as TrieLayout>::Hash, HashKey<<T as TrieLayout>::Hash>, DBValue>;
 
 fn populate_trie<'db, T: TrieLayout>(
 	db: &'db mut dyn HashDB<T::Hash, DBValue>,
@@ -664,8 +666,8 @@ fn register_proof_without_value() {
 	}
 }
 
-#[test]
-fn test_recorder() {
+test_layouts!(test_recorder, test_recorder_internal);
+fn test_recorder_internal<T: TrieLayout>() {
 	let key_value = vec![
 		(b"A".to_vec(), vec![1; 64]),
 		(b"AA".to_vec(), vec![2; 64]),
@@ -674,10 +676,10 @@ fn test_recorder() {
 	];
 
 	// Add some initial data to the trie
-	let mut memdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
+	let mut memdb = PrefixedMemoryDB::<T>::default();
 	let mut root = Default::default();
 	{
-		let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
+		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
 		for (key, value) in key_value.iter().take(1) {
 			t.insert(key, value).unwrap();
 		}
@@ -685,11 +687,11 @@ fn test_recorder() {
 
 	// Add more data, but this time only to the overlay.
 	// While doing that we record all trie accesses to replay this operation.
-	let mut recorder = Recorder::<NoExtensionLayout>::new();
+	let mut recorder = Recorder::<T>::new();
 	let mut overlay = memdb.clone();
 	let mut new_root = root;
 	{
-		let mut trie = RefTrieDBMutBuilder::from_existing(&mut overlay, &mut new_root)
+		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut overlay, &mut new_root)
 			.unwrap()
 			.with_recorder(&mut recorder)
 			.build();
@@ -699,7 +701,7 @@ fn test_recorder() {
 		}
 	}
 
-	let mut partial_db = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
+	let mut partial_db = MemoryDBProof::<T>::default();
 	for record in recorder.drain(&memdb, &root).unwrap() {
 		partial_db.insert(EMPTY_PREFIX, &record.1);
 	}
@@ -707,7 +709,7 @@ fn test_recorder() {
 	// Replay the it, but this time we use the proof.
 	let mut validated_root = root;
 	{
-		let mut trie = RefTrieDBMutBuilder::from_existing(&mut partial_db, &mut validated_root)
+		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut partial_db, &mut validated_root)
 			.unwrap()
 			.build();
 
@@ -719,8 +721,8 @@ fn test_recorder() {
 	assert_eq!(new_root, validated_root);
 }
 
-#[test]
-fn test_recorder_with_cache() {
+test_layouts!(test_recorder_witch_cache, test_recorder_with_cache_internal);
+fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	let key_value = vec![
 		(b"A".to_vec(), vec![1; 64]),
 		(b"AA".to_vec(), vec![2; 64]),
@@ -729,19 +731,19 @@ fn test_recorder_with_cache() {
 	];
 
 	// Add some initial data to the trie
-	let mut memdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
+	let mut memdb = PrefixedMemoryDB::<T>::default();
 	let mut root = Default::default();
 	{
-		let mut t = RefTrieDBMutBuilder::new(&mut memdb, &mut root).build();
+		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
 		for (key, value) in key_value.iter().take(1) {
 			t.insert(key, value).unwrap();
 		}
 	}
 
-	let mut cache = RefTestTrieDBCache::default();
+	let mut cache = TestTrieCache::<T>::default();
 
 	{
-		let trie = RefTrieDBBuilder::new_unchecked(&memdb, &root).with_cache(&mut cache).build();
+		let trie = TrieDBBuilder::<T>::new_unchecked(&memdb, &root).with_cache(&mut cache).build();
 
 		// Only read one entry.
 		assert_eq!(key_value[0].1, trie.get(&key_value[0].0).unwrap().unwrap());
@@ -752,11 +754,11 @@ fn test_recorder_with_cache() {
 
 	// Add more data, but this time only to the overlay.
 	// While doing that we record all trie accesses to replay this operation.
-	let mut recorder = Recorder::<ExtensionLayout>::new();
+	let mut recorder = Recorder::<T>::new();
 	let mut overlay = memdb.clone();
 	let mut new_root = root;
 	{
-		let mut trie = RefTrieDBMutBuilder::from_existing(&mut overlay, &mut new_root)
+		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut overlay, &mut new_root)
 			.unwrap()
 			.with_recorder(&mut recorder)
 			.with_cache(&mut cache)
@@ -774,7 +776,7 @@ fn test_recorder_with_cache() {
 		);
 	}
 
-	let mut partial_db = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
+	let mut partial_db = MemoryDBProof::<T>::default();
 	for record in recorder.drain(&memdb, &root).unwrap() {
 		partial_db.insert(EMPTY_PREFIX, &record.1);
 	}
@@ -782,7 +784,7 @@ fn test_recorder_with_cache() {
 	// Replay the it, but this time we use the proof.
 	let mut validated_root = root;
 	{
-		let mut trie = RefTrieDBMutBuilder::from_existing(&mut partial_db, &mut validated_root)
+		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut partial_db, &mut validated_root)
 			.unwrap()
 			.build();
 
@@ -794,8 +796,8 @@ fn test_recorder_with_cache() {
 	assert_eq!(new_root, validated_root);
 }
 
-#[test]
-fn test_insert_remove_data_with_cache() {
+test_layouts!(test_insert_remove_data_with_cache, test_insert_remove_data_with_cache_internal);
+fn test_insert_remove_data_with_cache_internal<T: TrieLayout>() {
 	let key_value = vec![
 		(b"A".to_vec(), vec![1; 64]),
 		(b"AA".to_vec(), vec![2; 64]),
@@ -805,12 +807,12 @@ fn test_insert_remove_data_with_cache() {
 		(b"B".to_vec(), vec![4; 64]),
 	];
 
-	let mut cache = RefTestTrieDBCacheNoExt::default();
-	let mut recorder = Recorder::<NoExtensionLayout>::new();
-	let mut memdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
+	let mut cache = TestTrieCache::<T>::default();
+	let mut recorder = Recorder::<T>::new();
+	let mut memdb = PrefixedMemoryDB::<T>::default();
 	let mut root = Default::default();
 	{
-		let mut trie = RefTrieDBMutNoExtBuilder::new(&mut memdb, &mut root)
+		let mut trie = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root)
 			.with_recorder(&mut recorder)
 			.with_cache(&mut cache)
 			.build();
@@ -829,9 +831,13 @@ fn test_insert_remove_data_with_cache() {
 	// Then only the first 3 elements should be in the cache and the last
 	// two ones should not be there.
 	for (key, value) in key_value.iter().take(3) {
+		let key_str = String::from_utf8_lossy(key);
+
 		assert_eq!(
 			Some(trie_db::Bytes::from(value.clone())),
-			*cache.lookup_data_for_key(key).unwrap()
+			*cache.lookup_data_for_key(key).unwrap_or_else(|| panic!("Failed to lookup `{}`", key_str)),
+			"{:?}",
+			key_str,
 		);
 	}
 
