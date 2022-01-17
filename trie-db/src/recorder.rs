@@ -71,6 +71,9 @@ impl<L: TrieLayout> TrieRecorder<TrieHash<L>> for Recorder<L> {
 			TrieAccess::Key(key) => {
 				self.keys.insert(key.to_vec());
 			},
+			TrieAccess::Value { hash, value } => {
+				self.nodes.push((hash, value.to_vec()));
+			}
 		}
 	}
 }

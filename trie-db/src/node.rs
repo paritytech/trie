@@ -131,7 +131,7 @@ impl<'a> Value<'a> {
 	}
 }
 
-/// Value representation in `Node`.
+/// Owned value representation in `Node`.
 #[derive(Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub enum ValueOwned<H> {
@@ -201,10 +201,7 @@ impl Node<'_> {
 					})
 					.collect::<Result<_, _, _>>()?;
 
-				Ok(NodeOwned::Branch(
-					childs_owned,
-					data.as_ref().map(|d| d.to_owned_value::<L>()),
-				))
+				Ok(NodeOwned::Branch(childs_owned, data.as_ref().map(|d| d.to_owned_value::<L>())))
 			},
 			Self::NibbledBranch(n, childs, data) => {
 				let mut childs_owned = [(); nibble_ops::NIBBLE_LENGTH].map(|_| None);
@@ -260,7 +257,8 @@ where
 	{
 		match self {
 			Self::Empty => C::empty_node().to_vec(),
-			Self::Leaf(partial, value) => C::leaf_node(partial.right_iter(), partial.len(), value.as_value()),
+			Self::Leaf(partial, value) =>
+				C::leaf_node(partial.right_iter(), partial.len(), value.as_value()),
 			Self::Extension(partial, child) => C::extension_node(
 				partial.right_iter(),
 				partial.len(),

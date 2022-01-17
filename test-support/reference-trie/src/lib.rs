@@ -1123,7 +1123,7 @@ impl<L: TrieLayout> trie_db::TrieCache<L> for TestTrieCache<L> {
 			TrieHash<L>,
 			trie_db::CError<L>,
 		>,
-	) -> trie_db::Result<&NodeOwned<TrieHash<L>>, TrieHash<L>, trie_db::CError<L>> {
+	) -> trie_db::Result<&mut NodeOwned<TrieHash<L>>, TrieHash<L>, trie_db::CError<L>> {
 		match self.node_cache.entry(hash) {
 			Entry::Occupied(e) => Ok(e.into_mut()),
 			Entry::Vacant(e) => {

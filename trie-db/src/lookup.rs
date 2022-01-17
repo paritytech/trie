@@ -64,24 +64,32 @@ where
 		}
 	}
 
+	/// Load the given value.
+	///
+	/// This will access the `db` if the value is not already in memory, but then it will put it
+	/// into `v` to have it cached for the next time.
+	///
+	/// Returns the bytes representing the value.
 	fn load_value(
 		&mut self,
-		v: ValueOwned<TrieHash<L>>,
+		v: &mut ValueOwned<TrieHash<L>>,
 		prefix: Prefix,
 	) -> Result<Bytes, TrieHash<L>, CError<L>> {
 		match v {
 			ValueOwned::Inline(value) => Ok(value.clone()),
 			ValueOwned::Node(_, Some(value)) => Ok(value.clone()),
-			ValueOwned::Node(hash, None) =>
+			ValueOwned::Node(hash, ref mut val @ None) =>
 				if let Some(value) = self.db.get(&hash, prefix) {
-					self.recorder.record(TrieAccess::EncodedNode {
-						hash,
-						encoded_node: value.as_slice().into(),
-					});
+					self.recorder
+						.record(TrieAccess::Value { hash: *hash, value: value.as_slice().into() });
 
-					Ok(value.into())
+					let value = Bytes::from(value);
+					// Next time we access the value, we already have it in memory.
+					*val = Some(value.clone());
+
+					Ok(value)
 				} else {
-					Err(Box::new(TrieError::IncompleteDatabase(hash)))
+					Err(Box::new(TrieError::IncompleteDatabase(*hash)))
 				},
 		}
 	}
@@ -118,16 +126,10 @@ where
 
 			value.clone()
 		} else {
-			let res = self.look_up_with_cache_internal(nibble_key, cache)?.map(|value| {
-				let mut prefix = nibble_key.clone();
-				prefix.advance(nibble_key.len());
-				let prefix = prefix.left();
+			let data = self.look_up_with_cache_internal(nibble_key, cache)?;
 
-				self.load_value(value, prefix)
-			}).transpose()?;
-
-			cache.cache_data_for_key(full_key, res.clone());
-			res
+			cache.cache_data_for_key(full_key, data.clone());
+			data
 		};
 
 		Ok(res.map(|v| self.query.decode(&v)))
@@ -137,14 +139,18 @@ where
 		&mut self,
 		nibble_key: NibbleSlice,
 		cache: &mut dyn crate::TrieCache<L>,
-	) -> Result<Option<ValueOwned<TrieHash<L>>>, TrieHash<L>, CError<L>> {
+	) -> Result<Option<Bytes>, TrieHash<L>, CError<L>> {
 		let mut partial = nibble_key;
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;
 
+		let mut prefix = nibble_key.clone();
+		prefix.advance(nibble_key.len());
+		let prefix = prefix.left();
+
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
-			let mut node: &_ = cache.get_or_insert_node(hash, &mut || {
+			let mut node: &mut _ = cache.get_or_insert_node(hash, &mut || {
 				let node_data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
 					Some(value) => value,
 					None =>
@@ -167,9 +173,11 @@ where
 			// this loop iterates through all inline children (usually max 1)
 			// without incrementing the depth.
 			loop {
-				let next_node = match node {
-					NodeOwned::Leaf(slice, value) =>
-						return Ok((partial == *slice).then(|| value.clone())),
+				let next_node: &mut _ = match node {
+					NodeOwned::Leaf(slice, ref mut value) =>
+						return (partial == *slice)
+							.then(|| self.load_value(value, prefix))
+							.transpose(),
 					NodeOwned::Extension(slice, item) =>
 						if partial.starts_with_vec(&slice) {
 							partial = partial.mid(slice.len());
@@ -180,9 +188,12 @@ where
 						},
 					NodeOwned::Branch(children, value) =>
 						if partial.is_empty() {
-							return Ok(value.clone())
+							return value
+								.as_mut()
+								.map(|val| self.load_value(val, prefix))
+								.transpose()
 						} else {
-							match &children[partial.at(0) as usize] {
+							match &mut children[partial.at(0) as usize] {
 								Some(x) => {
 									partial = partial.mid(1);
 									key_nibbles += 1;
@@ -197,13 +208,12 @@ where
 						}
 
 						if partial.len() == slice.len() {
-							if let Some(value) = value.as_ref() {
-								return Ok(Some(value.clone()))
-							} else {
-								return Ok(None)
-							}
+							return value
+								.as_mut()
+								.map(|val| self.load_value(val, prefix))
+								.transpose()
 						} else {
-							match &children[partial.at(slice.len()) as usize] {
+							match &mut children[partial.at(slice.len()) as usize] {
 								Some(x) => {
 									partial = partial.mid(slice.len() + 1);
 									key_nibbles += slice.len() + 1;
@@ -222,8 +232,8 @@ where
 						hash = *new_hash;
 						break
 					},
-					NodeHandleOwned::Inline(inline_node) => {
-						node = &inline_node;
+					NodeHandleOwned::Inline(ref mut inline_node) => {
+						node = inline_node.as_mut();
 					},
 				}
 			}
