@@ -15,9 +15,9 @@
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
 	test_layouts, ExtensionLayout, HashedValueNoExt, HashedValueNoExtThreshold, NoExtensionLayout,
-	RefHasher, RefTrieDBMutBuilder, RefTrieDBBuilder,
+	RefHasher,
 };
-use trie_db::{DBValue, TrieLayout, TrieMut, Trie, TrieDBMutBuilder, TrieDBBuilder};
+use trie_db::{DBValue, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieLayout, TrieMut};
 
 #[test]
 fn trie_root_empty() {

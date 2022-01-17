@@ -15,7 +15,6 @@
 //! Reference implementation of a streamer.
 
 use hashbrown::{hash_map::Entry, HashMap};
-use keccak_hasher::KeccakHasher;
 use parity_scale_codec::{Compact, Decode, Encode, Error as CodecError, Input, Output};
 use std::{borrow::Borrow, fmt, iter::once, marker::PhantomData, ops::Range};
 use trie_db::{
@@ -23,8 +22,8 @@ use trie_db::{
 	node::{NibbleSlicePlan, NodeHandlePlan, NodeOwned, NodePlan, Value, ValuePlan},
 	trie_visit,
 	triedbmut::ChildReference,
-	DBValue, NodeCodec, Partial, Trie, TrieBuilder, TrieConfiguration, TrieDB, TrieDBBuilder,
-	TrieDBMut, TrieDBMutBuilder, TrieHash, TrieLayout, TrieMut, TrieRoot,
+	DBValue, NodeCodec, Trie, TrieBuilder, TrieConfiguration, TrieDBBuilder,
+	TrieDBMutBuilder, TrieHash, TrieLayout, TrieMut, TrieRoot,
 };
 pub use trie_root::TrieStream;
 use trie_root::{Hasher, Value as TrieStreamValue};
@@ -1130,7 +1129,7 @@ impl<L: TrieLayout> trie_db::TrieCache<L> for TestTrieCache<L> {
 			TrieHash<L>,
 			trie_db::CError<L>,
 		>,
-	) -> trie_db::Result<&mut NodeOwned<TrieHash<L>>, TrieHash<L>, trie_db::CError<L>> {
+	) -> trie_db::Result<&NodeOwned<TrieHash<L>>, TrieHash<L>, trie_db::CError<L>> {
 		match self.node_cache.entry(hash) {
 			Entry::Occupied(e) => Ok(e.into_mut()),
 			Entry::Vacant(e) => {
@@ -1175,7 +1174,7 @@ mod tests {
 	fn too_big_nibble_length() {
 		// + 1 for 0 added byte of nibble encode
 		let input = vec![0u8; (NIBBLE_SIZE_BOUND_NO_EXT as usize + 1) / 2 + 1];
-		let enc = <ReferenceNodeCodecNoExt<KeccakHasher> as NodeCodec>::leaf_node(
+		let enc = <ReferenceNodeCodecNoExt<RefHasher> as NodeCodec>::leaf_node(
 			input.iter().cloned(),
 			input.len() * NIBBLE_PER_BYTE,
 			Value::Inline(&[1]),

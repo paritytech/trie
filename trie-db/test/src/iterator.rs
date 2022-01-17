@@ -14,11 +14,11 @@
 
 use hash_db::{HashDB, Hasher};
 use hex_literal::hex;
-use reference_trie::{ test_layouts, RefTrieDBBuilder };
+use reference_trie::test_layouts;
 use trie_db::{
 	node::{Node, Value},
-	DBValue, NibbleSlice, NibbleVec, TrieDB, TrieDBBuilder, TrieDBNodeIterator, TrieError,
-	TrieIterator, TrieLayout, TrieMut,
+	DBValue, NibbleSlice, NibbleVec, TrieDBBuilder, TrieDBNodeIterator, TrieError, TrieIterator,
+	TrieLayout, TrieMut,
 };
 
 type MemoryDB<T> = memory_db::MemoryDB<

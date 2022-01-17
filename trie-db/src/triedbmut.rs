@@ -22,7 +22,7 @@ use crate::{
 		NodeKey, NodeOwned, Value as EncodedValue, ValueOwned,
 	},
 	node_codec::NodeCodec,
-	rstd::{boxed::Box, convert::TryFrom, hash::Hash, mem, ops::Index, result, vec::Vec, VecDeque},
+	rstd::{boxed::Box, convert::TryFrom, mem, ops::Index, result, vec::Vec, VecDeque},
 	Bytes, CError, DBValue, Result, TrieAccess, TrieCache, TrieError, TrieHash, TrieLayout,
 	TrieMut, TrieRecorder,
 };
@@ -366,7 +366,7 @@ impl<L: TrieLayout> Node<L> {
 		Ok(node)
 	}
 
-	// Decode a node from a [`NodeOwned`].
+	/// Decode a node from a [`NodeOwned`].
 	fn from_node_owned(node_owned: &NodeOwned<TrieHash<L>>, storage: &mut NodeStorage<L>) -> Self {
 		match node_owned {
 			NodeOwned::Empty => Node::Empty,
@@ -429,6 +429,8 @@ impl<L: TrieLayout> Node<L> {
 
 				Node::NibbledBranch(k.into(), children, val.as_ref().map(Into::into))
 			},
+			NodeOwned::Value(_) =>
+				unreachable!("`NodeOwned::Value` can only be returned for the hash of a value."),
 		}
 	}
 
@@ -1820,7 +1822,12 @@ where
 	/// Cache the given `encoded` node.
 	///
 	/// If the given `hash` is `None`, the node is an inline node.
-	fn cache_node(&mut self, hash: Option<TrieHash<L>>, encoded: &[u8], full_key: Option<NibbleVec>) {
+	fn cache_node(
+		&mut self,
+		hash: Option<TrieHash<L>>,
+		encoded: &[u8],
+		full_key: Option<NibbleVec>,
+	) {
 		// If we have a cache, cache our node directly.
 		if let Some(ref mut cache) = self.cache {
 			let node = L::Codec::decode(&encoded)

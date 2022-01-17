@@ -15,8 +15,11 @@
 use hash_db::{HashDB, EMPTY_PREFIX};
 use hex_literal::hex;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
-use reference_trie::{ExtensionLayout, NoExtensionLayout, RefHasher, RefTestTrieDBCache, RefTrieDBBuilder, RefTrieDBMutBuilder, RefTrieDBMutNoExtBuilder, TestTrieCache, test_layouts};
-use trie_db::{DBValue, Lookup, NibbleSlice, Recorder, Trie, TrieCache, TrieDB, TrieDBBuilder, TrieDBMut, TrieDBMutBuilder, TrieHash, TrieLayout, TrieMut};
+use reference_trie::{test_layouts, TestTrieCache};
+use trie_db::{
+	DBValue, Lookup, NibbleSlice, Recorder, Trie, TrieCache, TrieDBBuilder, TrieDBMutBuilder,
+	TrieLayout, TrieMut,
+};
 
 type PrefixedMemoryDB<T> =
 	MemoryDB<<T as TrieLayout>::Hash, PrefixedKey<<T as TrieLayout>::Hash>, DBValue>;
@@ -280,10 +283,7 @@ fn test_lookup_with_corrupt_data_returns_decoder_error_internal<T: TrieLayout>()
 	assert_eq!(query_result.unwrap().unwrap(), true);
 }
 
-test_layouts!(
-	test_recorder,
-	test_recorder_internal
-);
+test_layouts!(test_recorder, test_recorder_internal);
 fn test_recorder_internal<T: TrieLayout>() {
 	let key_value = vec![
 		(b"A".to_vec(), vec![1; 64]),
@@ -327,10 +327,7 @@ fn test_recorder_internal<T: TrieLayout>() {
 	}
 }
 
-test_layouts!(
-	test_recorder_with_cache,
-	test_recorder_with_cache_internal
-);
+test_layouts!(test_recorder_with_cache, test_recorder_with_cache_internal);
 fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	let key_value = vec![
 		(b"A".to_vec(), vec![1; 64]),
@@ -352,9 +349,7 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	let mut cache = TestTrieCache::<T>::default();
 
 	{
-		let trie = TrieDBBuilder::<T>::new_unchecked(&memdb, &root)
-			.with_cache(&mut cache)
-			.build();
+		let trie = TrieDBBuilder::<T>::new_unchecked(&memdb, &root).with_cache(&mut cache).build();
 
 		// Only read one entry.
 		assert_eq!(key_value[1].1, trie.get(&key_value[1].0).unwrap().unwrap());
@@ -369,7 +364,7 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	assert!(cache.lookup_data_for_key(&key_value[2].0).is_none());
 	assert!(cache.lookup_data_for_key(&key_value[3].0).is_none());
 
-	// Run this twice to ensure that the cache is not interferring the recording.
+	// Run this twice to ensure that the cache is not interfering the recording.
 	for _ in 0..2 {
 		cache.clear_data_cache();
 
@@ -402,10 +397,7 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	}
 }
 
-test_layouts!(
-	iterator_seek_with_recorder,
-	iterator_seek_with_recorder_internal
-);
+test_layouts!(iterator_seek_with_recorder, iterator_seek_with_recorder_internal);
 fn iterator_seek_with_recorder_internal<T: TrieLayout>() {
 	let d = vec![b"A".to_vec(), b"AA".to_vec(), b"AB".to_vec(), b"B".to_vec()];
 	let vals = vec![vec![0; 64], vec![1; 64], vec![2; 64], vec![3; 64]];

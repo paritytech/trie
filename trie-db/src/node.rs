@@ -143,14 +143,16 @@ pub enum ValueOwned<H> {
 }
 
 impl<H: AsRef<[u8]>> ValueOwned<H> {
-	fn as_value(&self) -> Value {
+	/// Returns self as [`Value`].
+	pub fn as_value(&self) -> Value {
 		match self {
 			Self::Inline(data) => Value::Inline(&data),
 			Self::Node(hash, data) => Value::Node(hash.as_ref(), data.clone()),
 		}
 	}
 
-	fn data(&self) -> Option<&Bytes> {
+	/// Returns the data stored in self.
+	pub fn data(&self) -> Option<&Bytes> {
 		match self {
 			Self::Inline(data) => Some(data),
 			Self::Node(_, data) => data.as_ref(),
@@ -244,6 +246,10 @@ pub enum NodeOwned<H> {
 		[Option<NodeHandleOwned<H>>; nibble_ops::NIBBLE_LENGTH],
 		Option<ValueOwned<H>>,
 	),
+	/// Node that represents a value.
+	///
+	/// This variant is only constructed when working with a [`crate::TrieCache`].
+	Value(Bytes),
 }
 
 impl<H> NodeOwned<H>
@@ -274,6 +280,7 @@ where
 				children.iter().map(|child| child.as_ref().map(|c| c.as_child_reference::<C>())),
 				value.as_ref().map(|v| v.as_value()),
 			),
+			Self::Value(data) => data.to_vec(),
 		}
 	}
 
@@ -285,6 +292,7 @@ where
 			Self::Extension(_, _) => None,
 			Self::Branch(_, value) => value.as_ref().and_then(|v| v.data()),
 			Self::NibbledBranch(_, _, value) => value.as_ref().and_then(|v| v.data()),
+			Self::Value(data) => Some(data),
 		}
 	}
 }

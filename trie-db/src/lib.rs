@@ -558,7 +558,7 @@ pub trait TrieCache<L: TrieLayout> {
 		&mut self,
 		hash: TrieHash<L>,
 		fetch_node: &mut dyn FnMut() -> Result<NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>>,
-	) -> Result<&mut NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>>;
+	) -> Result<&NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>>;
 
 	/// Insert the given [`OwnedNode`] under the given `hash`.
 	fn insert_node(&mut self, hash: TrieHash<L>, node: NodeOwned<TrieHash<L>>);

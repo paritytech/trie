@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
-use reference_trie::{test_layouts, NoExtensionLayout, ExtensionLayout};
+use reference_trie::{test_layouts, ExtensionLayout};
 use trie_db::{
-	decode_compact, encode_compact, DBValue, Recorder, Trie, TrieDB, TrieDBBuilder, TrieDBMut,
-	TrieDBMutBuilder, TrieError, TrieLayout, TrieMut, NodeCodec, TrieHash
+	decode_compact, encode_compact, DBValue, NodeCodec, Recorder, Trie, TrieDBBuilder,
+	TrieDBMutBuilder, TrieError, TrieLayout, TrieMut,
 };
 
 type MemoryDB<T> = memory_db::MemoryDB<

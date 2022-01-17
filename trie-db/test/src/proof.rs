@@ -17,7 +17,7 @@ use reference_trie::{test_layouts, NoExtensionLayout};
 
 use trie_db::{
 	proof::{generate_proof, verify_proof, VerifyError},
-	DBValue, Trie, TrieDB, TrieDBMut, TrieLayout, TrieMut, TrieDBMutBuilder, TrieDBBuilder,
+	DBValue, Trie, TrieLayout, TrieMut, TrieDBMutBuilder, TrieDBBuilder,
 };
 
 type MemoryDB<T> = memory_db::MemoryDB<

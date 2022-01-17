@@ -18,9 +18,7 @@ use log::debug;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
 	reference_trie_root, test_layouts, ExtensionLayout, HashedValueNoExt,
-	HashedValueNoExtThreshold, NoExtensionLayout, RefHasher, RefTestTrieDBCache,
-	RefTestTrieDBCacheNoExt, RefTrieDBBuilder, RefTrieDBMut, RefTrieDBMutAllowEmptyBuilder,
-	RefTrieDBMutBuilder, RefTrieDBMutNoExt, RefTrieDBMutNoExtBuilder, ReferenceNodeCodec,
+	HashedValueNoExtThreshold, NoExtensionLayout, RefHasher, ReferenceNodeCodec,
 	ReferenceNodeCodecNoExt, TestTrieCache,
 };
 use trie_db::{
@@ -542,7 +540,6 @@ fn register_proof_without_value() {
 	use hash_db::{AsHashDB, Prefix};
 	use reference_trie::HashedValueNoExtThreshold;
 	use std::{cell::RefCell, collections::HashMap};
-	use trie_db::TrieDB;
 
 	type Layout = HashedValueNoExtThreshold;
 	type MemoryDB = memory_db::MemoryDB<RefHasher, PrefixedKey<RefHasher>, DBValue>;
@@ -835,7 +832,9 @@ fn test_insert_remove_data_with_cache_internal<T: TrieLayout>() {
 
 		assert_eq!(
 			Some(trie_db::Bytes::from(value.clone())),
-			*cache.lookup_data_for_key(key).unwrap_or_else(|| panic!("Failed to lookup `{}`", key_str)),
+			*cache
+				.lookup_data_for_key(key)
+				.unwrap_or_else(|| panic!("Failed to lookup `{}`", key_str)),
 			"{:?}",
 			key_str,
 		);
