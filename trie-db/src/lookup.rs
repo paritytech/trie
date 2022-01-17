@@ -77,7 +77,12 @@ where
 	) -> Result<Bytes, TrieHash<L>, CError<L>> {
 		match v {
 			ValueOwned::Inline(value) => Ok(value.clone()),
-			ValueOwned::Node(_, Some(value)) => Ok(value.clone()),
+			ValueOwned::Node(hash, Some(value)) => {
+				self.recorder
+					.record(TrieAccess::Value { hash: *hash, value: (&value[..]).into() });
+
+				Ok(value.clone())
+			},
 			ValueOwned::Node(hash, ref mut val @ None) =>
 				if let Some(value) = self.db.get(&hash, prefix) {
 					self.recorder

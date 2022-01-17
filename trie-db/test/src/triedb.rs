@@ -369,31 +369,36 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	assert!(cache.lookup_data_for_key(&key_value[2].0).is_none());
 	assert!(cache.lookup_data_for_key(&key_value[3].0).is_none());
 
-	let mut recorder = Recorder::<T>::new();
-	{
-		let trie = TrieDBBuilder::<T>::new_unchecked(&memdb, &root)
-			.with_cache(&mut cache)
-			.with_recorder(&mut recorder)
-			.build();
+	// Run this twice to ensure that the cache is not interferring the recording.
+	for _ in 0..2 {
+		cache.clear_data_cache();
 
-		for (key, value) in key_value.iter().take(3) {
-			assert_eq!(*value, trie.get(key).unwrap().unwrap());
-		}
-	}
+		let mut recorder = Recorder::<T>::new();
+		{
+			let trie = TrieDBBuilder::<T>::new_unchecked(&memdb, &root)
+				.with_cache(&mut cache)
+				.with_recorder(&mut recorder)
+				.build();
 
-	let mut partial_db = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
-	for record in recorder.drain(&memdb, &root).unwrap() {
-		partial_db.insert(EMPTY_PREFIX, &record.1);
-	}
-
-	{
-		let trie = TrieDBBuilder::<T>::new_unchecked(&partial_db, &root).build();
-
-		for (key, value) in key_value.iter().take(3) {
-			assert_eq!(*value, trie.get(key).unwrap().unwrap());
+			for (key, value) in key_value.iter().take(3) {
+				assert_eq!(*value, trie.get(key).unwrap().unwrap());
+			}
 		}
 
-		assert!(trie.get(&key_value[3].0).is_err());
+		let mut partial_db = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
+		for record in recorder.drain(&memdb, &root).unwrap() {
+			partial_db.insert(EMPTY_PREFIX, &record.1);
+		}
+
+		{
+			let trie = TrieDBBuilder::<T>::new_unchecked(&partial_db, &root).build();
+
+			for (key, value) in key_value.iter().take(3) {
+				assert_eq!(*value, trie.get(key).unwrap().unwrap());
+			}
+
+			assert!(trie.get(&key_value[3].0).is_err());
+		}
 	}
 }
 

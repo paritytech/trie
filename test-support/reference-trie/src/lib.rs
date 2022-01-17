@@ -1100,6 +1100,13 @@ pub struct TestTrieCache<L: TrieLayout> {
 	node_cache: HashMap<TrieHash<L>, NodeOwned<TrieHash<L>>>,
 }
 
+impl<L: TrieLayout> TestTrieCache<L> {
+	/// Clear the data cache.
+	pub fn clear_data_cache(&mut self) {
+		self.data_cache.clear();
+	}
+}
+
 impl<L: TrieLayout> Default for TestTrieCache<L> {
 	fn default() -> Self {
 		Self { data_cache: Default::default(), node_cache: Default::default() }
