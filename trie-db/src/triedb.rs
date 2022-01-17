@@ -190,7 +190,7 @@ where
 		if let Some(recorder) = self.recorder.as_ref() {
 			recorder
 				.borrow_mut()
-				.record(TrieAccess::EncodedNode { hash, encoded_node: value.as_slice().into() });
+				.record(TrieAccess::Value { hash, value: value.as_slice().into() });
 		}
 
 		Ok(value)
