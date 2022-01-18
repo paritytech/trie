@@ -35,6 +35,6 @@ pub use self::{
 	verify::{verify_proof, Error as VerifyError},
 };
 
+pub mod eip1186;
 mod generate;
 mod verify;
-pub mod eip1186;
