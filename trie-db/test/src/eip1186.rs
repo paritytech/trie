@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use hash_db::Hasher;
-use reference_trie::{test_layouts, NoExtensionLayout};
+use reference_trie::test_layouts;
 
 use trie_db::{
 	proof::eip1186::{generate_proof, verify_proof, VerifyError},
-	DBValue, Trie, TrieDB, TrieDBMut, TrieLayout, TrieMut,
+	DBValue, TrieDB, TrieDBMut, TrieLayout, TrieMut,
 };
 
 type MemoryDB<T> = memory_db::MemoryDB<

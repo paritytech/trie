@@ -96,11 +96,11 @@ where
 		return Err(VerifyError::IncompleteProof)
 	}
 	let key = NibbleSlice::new(raw_key);
-	process_node::<L>(root, &proof[0], key, expected_value, &proof[1..])
+	process_node::<L>(Some(root), &proof[0], key, expected_value, &proof[1..])
 }
 
 fn process_node<'a, L>(
-	expected_node_hash: &<L::Hash as Hasher>::Out,
+	expected_node_hash: Option<&<L::Hash as Hasher>::Out>,
 	encoded_node: &'a [u8],
 	key: NibbleSlice<'a>,
 	expected_value: Option<&[u8]>,
@@ -114,9 +114,11 @@ where
 			return Ok(())
 		}
 	}
-	let calculated_node_hash = <L::Hash as Hasher>::hash(encoded_node);
-	if calculated_node_hash != *expected_node_hash {
-		return Err(VerifyError::HashMismatch(calculated_node_hash))
+	if let Some(expected) = expected_node_hash {
+		let calculated_node_hash = <L::Hash as Hasher>::hash(encoded_node);
+		if calculated_node_hash != *expected {
+			return Err(VerifyError::HashMismatch(calculated_node_hash))
+		}
 	}
 	let node = <L::Codec as NodeCodec>::decode(encoded_node).map_err(VerifyError::DecodeError)?;
 	match node {
@@ -181,14 +183,12 @@ where
 	key.advance(nib.len());
 
 	match handle {
-		NodeHandle::Inline(encoded_node) => {
-			let root = L::Hash::hash(encoded_node);
-			process_node::<L>(&root, encoded_node, key, expected_value, proof)
-		},
+		NodeHandle::Inline(encoded_node) =>
+			process_node::<L>(None, encoded_node, key, expected_value, proof),
 		NodeHandle::Hash(plain_hash) => {
 			let new_root = decode_hash::<L::Hash>(plain_hash)
 				.ok_or(VerifyError::HashDecodeError(plain_hash))?;
-			process_node::<L>(&new_root, &proof[0], key, expected_value, &proof[1..])
+			process_node::<L>(Some(&new_root), &proof[0], key, expected_value, &proof[1..])
 		},
 	}
 }
@@ -251,12 +251,11 @@ where
 				key.advance(1);
 				let new_root =
 					decode_hash::<L::Hash>(hash).ok_or(VerifyError::HashDecodeError(hash))?;
-				process_node::<L>(&new_root, &proof[0], key, expected_value, &proof[1..])
+				process_node::<L>(Some(&new_root), &proof[0], key, expected_value, &proof[1..])
 			},
 		Some(Some(NodeHandle::Inline(encoded_node))) => {
 			key.advance(1);
-			let root = L::Hash::hash(encoded_node);
-			process_node::<L>(&root, encoded_node, key, expected_value, proof)
+			process_node::<L>(None, encoded_node, key, expected_value, proof)
 		},
 		Some(None) =>
 			if expected_value.is_none() {
