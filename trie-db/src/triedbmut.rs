@@ -629,7 +629,7 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for NodeStorage<L> {
 pub struct TrieDBMutBuilder<'db, L: TrieLayout> {
 	db: &'db mut dyn HashDB<L::Hash, DBValue>,
 	root: &'db mut TrieHash<L>,
-	cache: Option<&'db mut dyn TrieCache<L>>,
+	cache: Option<&'db mut dyn TrieCache<L::Codec>>,
 	recorder: Option<&'db mut dyn TrieRecorder<TrieHash<L>>>,
 }
 
@@ -657,7 +657,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 	}
 
 	/// Use the given `cache` for the db.
-	pub fn with_cache(mut self, cache: &'db mut dyn TrieCache<L>) -> Self {
+	pub fn with_cache(mut self, cache: &'db mut dyn TrieCache<L::Codec>) -> Self {
 		self.cache = Some(cache);
 		self
 	}
@@ -725,7 +725,7 @@ where
 	/// Note that none are performed until changes are committed.
 	hash_count: usize,
 	/// Optional cache for speeding up the lookup of nodes.
-	cache: Option<&'a mut dyn TrieCache<L>>,
+	cache: Option<&'a mut dyn TrieCache<L::Codec>>,
 	/// Optional trie recorder for recording trie accesses.
 	recorder: Option<core::cell::RefCell<&'a mut dyn TrieRecorder<TrieHash<L>>>>,
 }

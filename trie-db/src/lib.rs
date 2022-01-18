@@ -519,7 +519,7 @@ pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;
 
 /// A cache that can be used to speed-up certain operations when accessing the trie.
-pub trait TrieCache<L: TrieLayout> {
+pub trait TrieCache<NC: NodeCodec> {
 	/// Lookup data for the given key.
 	///
 	/// Returns the `None` if the `key` is unknown or otherwise `Some(_)` with the associated
@@ -556,15 +556,15 @@ pub trait TrieCache<L: TrieLayout> {
 	/// Returns the [`NodeOwned`] or an error that happened on fetching the node.
 	fn get_or_insert_node(
 		&mut self,
-		hash: TrieHash<L>,
-		fetch_node: &mut dyn FnMut() -> Result<NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>>,
-	) -> Result<&NodeOwned<TrieHash<L>>, TrieHash<L>, CError<L>>;
+		hash: NC::HashOut,
+		fetch_node: &mut dyn FnMut() -> Result<NodeOwned<NC::HashOut>, NC::HashOut, NC::Error>,
+	) -> Result<&NodeOwned<NC::HashOut>, NC::HashOut, NC::Error>;
 
 	/// Insert the given [`OwnedNode`] under the given `hash`.
-	fn insert_node(&mut self, hash: TrieHash<L>, node: NodeOwned<TrieHash<L>>);
+	fn insert_node(&mut self, hash: NC::HashOut, node: NodeOwned<NC::HashOut>);
 
 	/// Get the [`OwnedNode`] that corresponds to the given `hash`.
-	fn get_node(&mut self, hash: &TrieHash<L>) -> Option<&NodeOwned<TrieHash<L>>>;
+	fn get_node(&mut self, hash: &NC::HashOut) -> Option<&NodeOwned<NC::HashOut>>;
 }
 
 /// A container for storing bytes.

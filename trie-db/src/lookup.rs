@@ -33,7 +33,7 @@ pub struct Lookup<'a, 'cache, L: TrieLayout, Q: Query<L::Hash>> {
 	/// Hash to start at
 	pub hash: TrieHash<L>,
 	/// Optional cache that should be used to speed up the lookup.
-	pub cache: Option<&'cache mut dyn TrieCache<L>>,
+	pub cache: Option<&'cache mut dyn TrieCache<L::Codec>>,
 	/// Optional recorder that will be called to record all trie accesses.
 	pub recorder: Option<&'cache mut dyn TrieRecorder<TrieHash<L>>>,
 }
@@ -74,7 +74,7 @@ where
 		&mut self,
 		v: ValueOwned<TrieHash<L>>,
 		prefix: Prefix,
-		cache: &mut dyn crate::TrieCache<L>,
+		cache: &mut dyn crate::TrieCache<L::Codec>,
 	) -> Result<Option<Bytes>, TrieHash<L>, CError<L>> {
 		match v {
 			ValueOwned::Inline(value) => Ok(Some(value.clone())),
@@ -130,7 +130,7 @@ where
 		mut self,
 		full_key: &[u8],
 		nibble_key: NibbleSlice,
-		cache: &mut dyn crate::TrieCache<L>,
+		cache: &mut dyn crate::TrieCache<L::Codec>,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let res = if let Some(value) = cache.lookup_data_for_key(full_key) {
 			self.recorder.record(TrieAccess::Key(full_key));
@@ -149,7 +149,7 @@ where
 	fn look_up_with_cache_internal(
 		&mut self,
 		nibble_key: NibbleSlice,
-		cache: &mut dyn crate::TrieCache<L>,
+		cache: &mut dyn crate::TrieCache<L::Codec>,
 	) -> Result<Option<Bytes>, TrieHash<L>, CError<L>> {
 		let mut partial = nibble_key;
 		let mut hash = self.hash;

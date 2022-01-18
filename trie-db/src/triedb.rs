@@ -32,7 +32,7 @@ use crate::rstd::{fmt, vec::Vec};
 pub struct TrieDBBuilder<'db, 'cache, L: TrieLayout> {
 	db: &'db dyn HashDBRef<L::Hash, DBValue>,
 	root: &'db TrieHash<L>,
-	cache: Option<&'cache mut dyn TrieCache<L>>,
+	cache: Option<&'cache mut dyn TrieCache<L::Codec>>,
 	recorder: Option<&'cache mut dyn TrieRecorder<TrieHash<L>>>,
 }
 
@@ -59,7 +59,7 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 	}
 
 	/// Use the given `cache` for the db.
-	pub fn with_cache(mut self, cache: &'cache mut dyn TrieCache<L>) -> Self {
+	pub fn with_cache(mut self, cache: &'cache mut dyn TrieCache<L::Codec>) -> Self {
 		self.cache = Some(cache);
 		self
 	}
@@ -112,7 +112,7 @@ where
 	root: &'db TrieHash<L>,
 	/// The number of hashes performed so far in operations on this trie.
 	hash_count: usize,
-	cache: Option<core::cell::RefCell<&'cache mut dyn TrieCache<L>>>,
+	cache: Option<core::cell::RefCell<&'cache mut dyn TrieCache<L::Codec>>>,
 	recorder: Option<core::cell::RefCell<&'cache mut dyn TrieRecorder<TrieHash<L>>>>,
 }
 
@@ -210,7 +210,7 @@ where
 			db: self.db,
 			query: |_: &[u8]| (),
 			hash: *self.root,
-			cache: cache.as_mut().map(|c| &mut ***c as &mut dyn TrieCache<L>),
+			cache: cache.as_mut().map(|c| &mut ***c as &mut dyn TrieCache<L::Codec>),
 			recorder: recorder.as_mut().map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>>),
 		}
 		.traverse_to(key)
@@ -237,7 +237,7 @@ where
 			db: self.db,
 			query,
 			hash: *self.root,
-			cache: cache.as_mut().map(|c| &mut ***c as &mut dyn TrieCache<L>),
+			cache: cache.as_mut().map(|c| &mut ***c as &mut dyn TrieCache<L::Codec>),
 			recorder: recorder.as_mut().map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>>),
 		}
 		.look_up(key, NibbleSlice::new(key))
