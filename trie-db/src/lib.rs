@@ -28,8 +28,8 @@ mod rstd {
 
 #[cfg(not(feature = "std"))]
 mod rstd {
-	pub use alloc::{boxed, collections::VecDeque, rc, sync, vec};
-	pub use core::{borrow, cmp, convert, fmt, hash, iter, marker, mem, ops, result};
+	pub use alloc::{borrow, boxed, collections::VecDeque, rc, sync, vec};
+	pub use core::{cmp, convert, fmt, hash, iter, marker, mem, ops, result};
 	pub trait Error {}
 	impl<T> Error for T {}
 }
