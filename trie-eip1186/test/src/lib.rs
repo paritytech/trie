@@ -1,4 +1,4 @@
-// Copyright 2020 Parity Technologies
+// Copyright 2021 Parity Technologies
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,27 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Tests for trie-db crate.
+//! Tests for trie-eip1186 crate.
 
 #[cfg(test)]
-mod fatdb;
-#[cfg(test)]
-mod fatdbmut;
-#[cfg(test)]
-mod iter_build;
-#[cfg(test)]
-mod iterator;
-#[cfg(test)]
-mod proof;
-#[cfg(test)]
-mod recorder;
-#[cfg(test)]
-mod sectriedb;
-#[cfg(test)]
-mod sectriedbmut;
-#[cfg(test)]
-mod trie_codec;
-#[cfg(test)]
-mod triedb;
-#[cfg(test)]
-mod triedbmut;
+mod eip1186;

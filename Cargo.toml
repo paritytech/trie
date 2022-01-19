@@ -9,6 +9,8 @@ members = [
 	"test-support/trie-bench",
 	"trie-db",
 	"trie-db/test",
+	"trie-eip1186",
+	"trie-eip1186/test",
 	"trie-root",
 	"trie-root/test"
 ]

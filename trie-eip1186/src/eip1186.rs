@@ -1,10 +1,10 @@
-use crate::{
-	nibble::NibbleSlice,
+use trie_db::{
+	NibbleSlice,
 	node::{decode_hash, Node, NodeHandle, Value},
 	recorder::Recorder,
-	rstd::{result::Result, vec::Vec},
 	CError, NodeCodec, Result as TrieResult, Trie, TrieHash, TrieLayout,
 };
+use crate::rstd::{result::Result, vec::Vec};
 use hash_db::Hasher;
 
 /// Generate an eip-1186 compatible proof for key-value pairs in a trie given a key.

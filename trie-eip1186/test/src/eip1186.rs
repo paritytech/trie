@@ -14,16 +14,15 @@
 
 use hash_db::Hasher;
 use reference_trie::test_layouts;
-
+use trie_eip1186::{verify_proof, generate_proof, VerifyError};
 use trie_db::{
-	proof::eip1186::{generate_proof, verify_proof, VerifyError},
 	DBValue, TrieDB, TrieDBMut, TrieLayout, TrieMut,
 };
 
 type MemoryDB<T> = memory_db::MemoryDB<
-	<T as TrieLayout>::Hash,
-	memory_db::HashKey<<T as TrieLayout>::Hash>,
-	DBValue,
+<T as TrieLayout>::Hash,
+memory_db::HashKey<<T as TrieLayout>::Hash>,
+DBValue,
 >;
 
 fn test_entries() -> Vec<(&'static [u8], &'static [u8])> {
@@ -47,7 +46,7 @@ fn test_entries() -> Vec<(&'static [u8], &'static [u8])> {
 fn test_generate_proof<L: TrieLayout>(
 	entries: Vec<(&'static [u8], &'static [u8])>,
 	key: &[u8],
-) -> (<L::Hash as Hasher>::Out, Vec<Vec<u8>>, Option<Vec<u8>>) {
+	) -> (<L::Hash as Hasher>::Out, Vec<Vec<u8>>, Option<Vec<u8>>) {
 	// Populate DB with full trie from entries.
 	let (db, root) = {
 		let mut db = <MemoryDB<L>>::default();
@@ -70,25 +69,25 @@ test_layouts!(trie_proof_works2, trie_proof_works_internal2);
 fn trie_proof_works_internal2<T: TrieLayout>() {
 	let (root, proof, item) = test_generate_proof::<T>(
 		vec![
-			// "do" is at a hash-referenced branch node.
-			(b"do", b"verb"),
-			// "dog" is at a hash-referenced branch node.
-			(b"dog", b"puppy"),
+		// "do" is at a hash-referenced branch node.
+		(b"do", b"verb"),
+		// "dog" is at a hash-referenced branch node.
+		(b"dog", b"puppy"),
 		],
 		b"do",
-	);
+		);
 	assert_eq!(Some(b"verb".as_ref()), item.as_deref(), "verb is the item");
 	assert!(verify_proof::<T>(&root, &proof, b"do", Some(b"verb")).is_ok(), "verifying do");
 
 	let (root, proof, item) = test_generate_proof::<T>(
 		vec![
-			// "do" is at a hash-referenced branch node.
-			(b"do", b"verb"),
-			// "dog" is at a hash-referenced branch node.
-			(b"dog", b"puppy"),
+		// "do" is at a hash-referenced branch node.
+		(b"do", b"verb"),
+		// "dog" is at a hash-referenced branch node.
+		(b"dog", b"puppy"),
 		],
 		b"dog",
-	);
+		);
 	assert_eq!(Some(b"puppy".as_ref()), item.as_deref(), "puppy is the item");
 	assert!(verify_proof::<T>(&root, &proof, b"dog", Some(b"puppy")).is_ok(), "verifying dog");
 }
@@ -144,7 +143,7 @@ fn trie_proof_works_for_empty_trie_internal<T: TrieLayout>() {
 test_layouts!(
 	test_verify_value_mismatch_some_to_none,
 	test_verify_value_mismatch_some_to_none_internal
-);
+	);
 fn test_verify_value_mismatch_some_to_none_internal<T: TrieLayout>() {
 	let (root, proof, _) = test_generate_proof::<T>(test_entries(), b"horse");
 	let res = verify_proof::<T>(&root, &proof, b"horse", Some(b"stallion"));
