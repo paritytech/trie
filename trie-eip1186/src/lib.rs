@@ -15,9 +15,7 @@
 
 #[cfg(feature = "std")]
 mod rstd {
-	pub use std::{
-		result, vec,
-	};
+	pub use std::{result, vec};
 }
 
 #[cfg(not(feature = "std"))]
