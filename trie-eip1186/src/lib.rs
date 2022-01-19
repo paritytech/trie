@@ -26,5 +26,5 @@ mod rstd {
 	impl<T> Error for T {}
 }
 
-pub mod eip1186;
+mod eip1186;
 pub use eip1186::{generate_proof, verify_proof, VerifyError};
