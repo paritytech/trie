@@ -165,6 +165,7 @@ pub trait Query<H: Hasher> {
 /// As the trie can use a [`TrieCache`], there are multiple kinds of accesses.
 /// If a cache is used, [`Self::Key`] and [`Self::NodeOwned`] are possible
 /// values. Otherwise only [`Self::EncodedNode`] is a possible value.
+#[derive(Debug)]
 pub enum TrieAccess<'a, H> {
 	/// The given key was accessed and the cache answered the request.
 	///
