@@ -372,7 +372,7 @@ where
 	/// this function can then be used to get all of the trie nodes to access `key`.
 	pub fn traverse_to(mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		match self.cache.take() {
-			Some(cache) => self.look_up_with_cache(key, NibbleSlice::new(key), cache).map(drop),
+			Some(cache) => self.look_up_with_cache_internal(NibbleSlice::new(key), cache).map(drop),
 			None => self.look_up_without_cache(NibbleSlice::new(key)).map(drop),
 		}
 	}

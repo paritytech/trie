@@ -15,7 +15,7 @@
 //! Trie query recorder.
 
 use crate::{
-	rstd::vec::Vec, CError, DBValue, TrieAccess, TrieDBBuilder, TrieHash, TrieLayout, TrieRecorder,
+	rstd::vec::Vec, CError, DBValue, TrieAccess, TrieDBBuilder, TrieHash, TrieLayout, TrieRecorder, TrieCache,
 };
 use hash_db::HashDBRef;
 use hashbrown::HashSet;
@@ -44,11 +44,18 @@ impl<L: TrieLayout> Recorder<L> {
 		&mut self,
 		db: &dyn HashDBRef<L::Hash, DBValue>,
 		root: &TrieHash<L>,
+		cache: Option<&mut dyn TrieCache<L::Codec>>,
 	) -> crate::Result<Vec<(TrieHash<L>, Vec<u8>)>, TrieHash<L>, CError<L>> {
 		let keys = crate::rstd::mem::take(&mut self.keys);
 
 		{
-			let trie = TrieDBBuilder::<L>::new(db, root)?.with_recorder(self).build();
+			let builder = TrieDBBuilder::<L>::new(db, root)?.with_recorder(self);
+
+			let trie = if let Some(cache) = cache {
+				builder.with_cache(cache).build()
+			} else {
+				builder.build()
+			};
 
 			for key in keys {
 				trie.traverse_to(&key)?;
