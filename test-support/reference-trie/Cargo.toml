@@ -1,6 +1,6 @@
 [package]
 name = "reference-trie"
-version = "0.24.0"
+version = "0.25.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Simple reference trie format"
 repository = "https://github.com/paritytech/trie/"
@@ -13,7 +13,7 @@ hash256-std-hasher = { path = "../../hash256-std-hasher", version = "0.15.2" }
 keccak-hasher = { path = "../keccak-hasher", version = "0.15.3" }
 trie-db = { path = "../../trie-db", default-features = false, version = "0.23.0" }
 trie-root = { path = "../../trie-root", default-features = false, version = "0.17.0" }
-parity-scale-codec = { version = "2", features = ["derive"] }
+parity-scale-codec = { version = "3.0.0", features = ["derive"] }
 
 [dev-dependencies]
 trie-bench = { path = "../trie-bench" }

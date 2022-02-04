@@ -1,6 +1,6 @@
 [package]
 name = "trie-root-test"
-version = "0.17.0"
+version = "0.18.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Tests fo trie-root crate"
 repository = "https://github.com/paritytech/trie"
@@ -14,4 +14,4 @@ hash-db = { path = "../../hash-db", version = "0.15.2" }
 hex-literal = "0.3"
 keccak-hasher = { path = "../../test-support/keccak-hasher", version = "0.15.2" }
 trie-standardmap = { path = "../../test-support/trie-standardmap", version = "0.15.2" }
-reference-trie = { path = "../../test-support/reference-trie", version = "0.24.0" }
+reference-trie = { path = "../../test-support/reference-trie", version = "0.25.0" }
