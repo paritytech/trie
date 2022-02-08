@@ -313,7 +313,7 @@ fn test_recorder_internal<T: TrieLayout>() {
 	}
 
 	let mut partial_db = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
-	for record in recorder.drain(&memdb, &root).unwrap() {
+	for record in recorder.drain(&memdb, &root, None).unwrap() {
 		partial_db.insert(EMPTY_PREFIX, &record.1);
 	}
 
@@ -365,8 +365,11 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	assert!(cache.lookup_data_for_key(&key_value[3].0).is_none());
 
 	// Run this twice to ensure that the cache is not interfering the recording.
-	for _ in 0..2 {
-		cache.clear_data_cache();
+	for i in 0..3 {
+		// Ensure that it works with a filled data cache and with it.
+		if i < 2 {
+			cache.clear_data_cache();
+		}
 
 		let mut recorder = Recorder::<T>::new();
 		{
@@ -381,7 +384,7 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 		}
 
 		let mut partial_db = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
-		for record in recorder.drain(&memdb, &root).unwrap() {
+		for record in recorder.drain(&memdb, &root, Some(&mut cache)).unwrap() {
 			partial_db.insert(EMPTY_PREFIX, &record.1);
 		}
 
@@ -422,7 +425,7 @@ fn iterator_seek_with_recorder_internal<T: TrieLayout>() {
 	}
 
 	let mut partial_db = MemoryDBProof::<T>::default();
-	for record in recorder.drain(&memdb, &root).unwrap() {
+	for record in recorder.drain(&memdb, &root, None).unwrap() {
 		partial_db.insert(EMPTY_PREFIX, &record.1);
 	}
 
