@@ -64,9 +64,26 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 		self
 	}
 
+	/// Use the given optional `cache` for the db.
+	pub fn with_optional_cache<'ocache: 'cache>(mut self, cache: Option<&'ocache mut dyn TrieCache<L::Codec>>) -> Self {
+		// Make the compiler happy by "converting" the lifetime
+		self.cache = cache.map(|c| c as _);
+		self
+	}
+
 	/// Use the given `recorder` to record trie accesses.
 	pub fn with_recorder(mut self, recorder: &'cache mut dyn TrieRecorder<TrieHash<L>>) -> Self {
 		self.recorder = Some(recorder);
+		self
+	}
+
+	/// Use the given optional `recorder` to record trie accesses.
+	pub fn with_optional_recorder<'recorder: 'cache>(
+		mut self,
+		recorder: Option<&'recorder mut dyn TrieRecorder<TrieHash<L>>>,
+	) -> Self {
+		// Make the compiler happy by "converting" the lifetime
+		self.recorder = recorder.map(|r| r as _);
 		self
 	}
 
