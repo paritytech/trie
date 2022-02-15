@@ -167,19 +167,25 @@ pub trait Query<H: Hasher> {
 /// values. Otherwise only [`Self::EncodedNode`] is a possible value.
 #[cfg_attr(feature = "std", derive(Debug))]
 pub enum TrieAccess<'a, H> {
-	/// The given key was accessed and the cache answered the request.
+	/// The given `key` was accessed and the cache answered the request with the given `value`.
 	///
 	/// This is no real "trie access", but it needs to be recorded. The
 	/// recorder needs to ensure that it fetches the trie nodes to access
 	/// the data under the given `key` before it returns all accessed
 	/// nodes to the user.
-	Key(&'a [u8]),
+	Key { key: &'a [u8], value: &'a [u8] },
 	/// The given [`NodeOwned`] was accessed using its `hash`.
-	NodeOwned { hash: H, node_owned: &'a NodeOwned<H> },
+	///
+	/// `full_key` is `Some(_)` if this node is reached by searching for `full_key` in trie.
+	NodeOwned { hash: H, node_owned: &'a NodeOwned<H>, full_key: Option<&'a [u8]> },
 	/// The given `encoded_node` was accessed using its `hash`.
-	EncodedNode { hash: H, encoded_node: rstd::borrow::Cow<'a, [u8]> },
+	///
+	/// `full_key` is `Some(_)` if this node is reached by searching for `full_key` in trie.
+	EncodedNode { hash: H, encoded_node: rstd::borrow::Cow<'a, [u8]>, full_key: Option<&'a [u8]> },
 	/// The given `value` was accessed using its `hash`.
-	Value { hash: H, value: rstd::borrow::Cow<'a, [u8]> },
+	///
+	/// The given `full_key` is the key to access this value in the trie, or `None` if the key is not known.
+	Value { hash: H, value: rstd::borrow::Cow<'a, [u8]>, full_key: Option<&'a [u8]> },
 }
 
 /// A trie recorder that can be used to record all kind of trie accesses.

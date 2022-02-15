@@ -7,7 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
+// distributed under the License is distributed on an "AS IS"uhh BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
@@ -43,7 +43,12 @@ where
 	L: TrieLayout,
 	Q: Query<L::Hash>,
 {
-	fn decode(mut self, v: Value, prefix: Prefix) -> Result<Q::Item, TrieHash<L>, CError<L>> {
+	fn decode(
+		mut self,
+		v: Value,
+		prefix: Prefix,
+		full_key: &[u8],
+	) -> Result<Q::Item, TrieHash<L>, CError<L>> {
 		match v {
 			Value::Inline(value) => Ok(self.query.decode(value)),
 			Value::Node(_, Some(value)) => Ok(self.query.decode(&value)),
@@ -51,9 +56,10 @@ where
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash);
 				if let Some(value) = self.db.get(&res, prefix) {
-					self.recorder.record(TrieAccess::EncodedNode {
+					self.recorder.record(TrieAccess::Value {
 						hash: res,
-						encoded_node: value.as_slice().into(),
+						value: value.as_slice().into(),
+						full_key: Some(full_key),
 					});
 
 					Ok(self.query.decode(&value))
@@ -74,12 +80,17 @@ where
 		&mut self,
 		v: ValueOwned<TrieHash<L>>,
 		prefix: Prefix,
+		full_key: &[u8],
 		cache: &mut dyn crate::TrieCache<L::Codec>,
 	) -> Result<Option<Bytes>, TrieHash<L>, CError<L>> {
 		match v {
 			ValueOwned::Inline(value) => Ok(Some(value.clone())),
 			ValueOwned::Node(hash, Some(value)) => {
-				self.recorder.record(TrieAccess::Value { hash, value: (&value[..]).into() });
+				self.recorder.record(TrieAccess::Value {
+					hash,
+					value: (&value[..]).into(),
+					full_key: Some(full_key),
+				});
 
 				Ok(Some(value.clone()))
 			},
@@ -97,7 +108,11 @@ where
 
 				// `value` should always be `Some(_)`, but better be defensive.
 				if let Some(ref value) = value {
-					self.recorder.record(TrieAccess::Value { hash, value: value[..].into() });
+					self.recorder.record(TrieAccess::Value {
+						hash,
+						value: value[..].into(),
+						full_key: Some(full_key),
+					});
 				}
 
 				Ok(value)
@@ -118,7 +133,7 @@ where
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		match self.cache.take() {
 			Some(cache) => self.look_up_with_cache(full_key, nibble_key, cache),
-			None => self.look_up_without_cache(nibble_key),
+			None => self.look_up_without_cache(nibble_key, full_key),
 		}
 	}
 
@@ -149,6 +164,7 @@ where
 	fn look_up_with_cache_internal(
 		&mut self,
 		nibble_key: NibbleSlice,
+		full_key: &[u8],
 		cache: &mut dyn crate::TrieCache<L::Codec>,
 	) -> Result<Option<Bytes>, TrieHash<L>, CError<L>> {
 		let mut partial = nibble_key;
@@ -179,7 +195,9 @@ where
 				decoded.to_owned_node::<L>()
 			})?;
 
-			self.recorder.record(TrieAccess::NodeOwned { hash, node_owned: node });
+			let record = |full_key| {
+				self.recorder.record(TrieAccess::NodeOwned { hash, node_owned: node, full_key })
+			};
 
 			// this loop iterates through all inline children (usually max 1)
 			// without incrementing the depth.
@@ -187,22 +205,31 @@ where
 				let next_node = match node {
 					NodeOwned::Leaf(slice, value) =>
 						return if partial == *slice {
+							record(Some(full_key));
+
 							let value = (*value).clone();
 							drop(node);
 							self.load_value(value, prefix, cache)
 						} else {
+							record(None);
+
 							Ok(None)
 						},
-					NodeOwned::Extension(slice, item) =>
+					NodeOwned::Extension(slice, item) => {
+						record(None);
+
 						if partial.starts_with_vec(&slice) {
 							partial = partial.mid(slice.len());
 							key_nibbles += slice.len();
 							item
 						} else {
 							return Ok(None)
-						},
+						}
+					},
 					NodeOwned::Branch(children, value) =>
 						if partial.is_empty() {
+							record(Some(full_key));
+
 							return if let Some(value) = value.clone() {
 								drop(node);
 								self.load_value(value, prefix, cache)
@@ -210,6 +237,8 @@ where
 								Ok(None)
 							}
 						} else {
+							record(None);
+
 							match &children[partial.at(0) as usize] {
 								Some(x) => {
 									partial = partial.mid(1);
@@ -221,10 +250,13 @@ where
 						},
 					NodeOwned::NibbledBranch(slice, children, value) => {
 						if !partial.starts_with_vec(&slice) {
+							record(None);
 							return Ok(None)
 						}
 
 						if partial.len() == slice.len() {
+							record(Some(full_key));
+
 							return if let Some(value) = value.clone() {
 								drop(node);
 								self.load_value(value, prefix, cache)
@@ -232,6 +264,8 @@ where
 								Ok(None)
 							}
 						} else {
+							record(None);
+
 							match &children[partial.at(slice.len()) as usize] {
 								Some(x) => {
 									partial = partial.mid(slice.len() + 1);
@@ -242,8 +276,17 @@ where
 							}
 						}
 					},
-					NodeOwned::Empty => return Ok(None),
-					NodeOwned::Value(data) => return Ok(Some(data.clone())),
+					NodeOwned::Empty => {
+						record(Some(full_key));
+						return Ok(None)
+					},
+					NodeOwned::Value(_) => {
+						unreachable!(
+							"`NodeOwned::Value` can not be reached by using the hash of a node. \
+							 `NodeOwned::Value` is only constructed when loading a value into memory, \
+							 which needs to have a different hash than any node; qed",
+						)
+					},
 				};
 
 				// check if new node data is inline or hash.
@@ -269,14 +312,15 @@ where
 	fn look_up_without_cache(
 		mut self,
 		nibble_key: NibbleSlice,
+		full_key: &[u8],
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let mut partial = nibble_key;
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;
 
-		let mut full_key = nibble_key.clone();
-		full_key.advance(nibble_key.len());
-		let full_key = full_key.left();
+		let mut full_nibble_key = nibble_key.clone();
+		full_nibble_key.advance(nibble_key.len());
+		let full_nibble_key = full_nibble_key.left();
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
@@ -292,6 +336,7 @@ where
 			self.recorder.record(TrieAccess::EncodedNode {
 				hash,
 				encoded_node: node_data.as_slice().into(),
+				full_key: Some(full_key),
 			});
 
 			// this loop iterates through all inline children (usually max 1)
@@ -305,7 +350,9 @@ where
 
 				let next_node = match decoded {
 					Node::Leaf(slice, value) =>
-						return (slice == partial).then(|| self.decode(value, full_key)).transpose(),
+						return (slice == partial)
+							.then(|| self.decode(value, full_nibble_key, full_key))
+							.transpose(),
 					Node::Extension(slice, item) =>
 						if partial.starts_with(&slice) {
 							partial = partial.mid(slice.len());
@@ -316,7 +363,9 @@ where
 						},
 					Node::Branch(children, value) =>
 						if partial.is_empty() {
-							return value.map(|val| self.decode(val, full_key)).transpose()
+							return value
+								.map(|val| self.decode(val, full_nibble_key, full_key))
+								.transpose()
 						} else {
 							match children[partial.at(0) as usize] {
 								Some(x) => {
@@ -333,7 +382,9 @@ where
 						}
 
 						if partial.len() == slice.len() {
-							return value.map(|val| self.decode(val, full_key)).transpose()
+							return value
+								.map(|val| self.decode(val, full_nibble_key, full_key))
+								.transpose()
 						} else {
 							match children[partial.at(slice.len()) as usize] {
 								Some(x) => {
@@ -372,8 +423,9 @@ where
 	/// this function can then be used to get all of the trie nodes to access `key`.
 	pub fn traverse_to(mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		match self.cache.take() {
-			Some(cache) => self.look_up_with_cache_internal(NibbleSlice::new(key), cache).map(drop),
-			None => self.look_up_without_cache(NibbleSlice::new(key)).map(drop),
+			Some(cache) =>
+				self.look_up_with_cache_internal(NibbleSlice::new(key), key, cache).map(drop),
+			None => self.look_up_without_cache(NibbleSlice::new(key), key).map(drop),
 		}
 	}
 }

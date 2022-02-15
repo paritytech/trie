@@ -15,7 +15,8 @@
 //! Trie query recorder.
 
 use crate::{
-	rstd::vec::Vec, CError, DBValue, TrieAccess, TrieDBBuilder, TrieHash, TrieLayout, TrieRecorder, TrieCache,
+	rstd::vec::Vec, CError, DBValue, TrieAccess, TrieCache, TrieDBBuilder, TrieHash, TrieLayout,
+	TrieRecorder,
 };
 use hash_db::HashDBRef;
 use hashbrown::HashSet;
@@ -69,18 +70,18 @@ impl<L: TrieLayout> Recorder<L> {
 impl<L: TrieLayout> TrieRecorder<TrieHash<L>> for Recorder<L> {
 	fn record<'a>(&mut self, access: TrieAccess<'a, TrieHash<L>>) {
 		match access {
-			TrieAccess::EncodedNode { hash, encoded_node } => {
+			TrieAccess::EncodedNode { hash, encoded_node, .. } => {
 				self.nodes.push((hash, encoded_node.to_vec()));
 			},
-			TrieAccess::NodeOwned { hash, node_owned } => {
+			TrieAccess::NodeOwned { hash, node_owned, .. } => {
 				self.nodes.push((hash, node_owned.to_encoded::<L::Codec>()));
 			},
-			TrieAccess::Key(key) => {
+			TrieAccess::Key { key, .. } => {
 				self.keys.insert(key.to_vec());
 			},
-			TrieAccess::Value { hash, value } => {
+			TrieAccess::Value { hash, value, .. } => {
 				self.nodes.push((hash, value.to_vec()));
-			}
+			},
 		}
 	}
 }

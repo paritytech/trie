@@ -65,7 +65,10 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 	}
 
 	/// Use the given optional `cache` for the db.
-	pub fn with_optional_cache<'ocache: 'cache>(mut self, cache: Option<&'ocache mut dyn TrieCache<L::Codec>>) -> Self {
+	pub fn with_optional_cache<'ocache: 'cache>(
+		mut self,
+		cache: Option<&'ocache mut dyn TrieCache<L::Codec>>,
+	) -> Self {
 		// Make the compiler happy by "converting" the lifetime
 		self.cache = cache.map(|c| c as _);
 		self
@@ -186,6 +189,7 @@ where
 				recorder.borrow_mut().record(TrieAccess::EncodedNode {
 					hash: *hash,
 					encoded_node: owned_node.data().into(),
+					full_key: None,
 				});
 			}
 		}
@@ -205,9 +209,11 @@ where
 			.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
 
 		if let Some(recorder) = self.recorder.as_ref() {
-			recorder
-				.borrow_mut()
-				.record(TrieAccess::Value { hash, value: value.as_slice().into() });
+			recorder.borrow_mut().record(TrieAccess::Value {
+				hash,
+				value: value.as_slice().into(),
+				full_key: None,
+			});
 		}
 
 		Ok(value)

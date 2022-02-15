@@ -774,7 +774,7 @@ where
 		let node = match self.cache.as_mut().and_then(|c| c.get_node(&hash)) {
 			Some(node) => {
 				if let Some(ref mut recorder) = self.recorder {
-					recorder.borrow_mut().record(TrieAccess::NodeOwned { hash, node_owned: &node });
+					recorder.borrow_mut().record(TrieAccess::NodeOwned { hash, node_owned: &node, full_key: None });
 				}
 
 				Node::from_node_owned(&node, &mut self.storage)
@@ -789,6 +789,7 @@ where
 					recorder.borrow_mut().record(TrieAccess::EncodedNode {
 						hash,
 						encoded_node: node_encoded.as_slice().into(),
+						full_key: None,
 					});
 				}
 
