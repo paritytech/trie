@@ -173,7 +173,7 @@ pub enum TrieAccess<'a, H> {
 	/// recorder needs to ensure that it fetches the trie nodes to access
 	/// the data under the given `key` before it returns all accessed
 	/// nodes to the user.
-	Key { key: &'a [u8], value: &'a [u8] },
+	Key { key: &'a [u8], value: Option<rstd::borrow::Cow<'a, [u8]>> },
 	/// The given [`NodeOwned`] was accessed using its `hash`.
 	///
 	/// `full_key` is `Some(_)` if this node is reached by searching for `full_key` in trie.
@@ -184,8 +184,8 @@ pub enum TrieAccess<'a, H> {
 	EncodedNode { hash: H, encoded_node: rstd::borrow::Cow<'a, [u8]>, full_key: Option<&'a [u8]> },
 	/// The given `value` was accessed using its `hash`.
 	///
-	/// The given `full_key` is the key to access this value in the trie, or `None` if the key is not known.
-	Value { hash: H, value: rstd::borrow::Cow<'a, [u8]>, full_key: Option<&'a [u8]> },
+	/// The given `full_key` is the key to access this value in the trie.
+	Value { hash: H, value: rstd::borrow::Cow<'a, [u8]>, full_key: &'a [u8] },
 }
 
 /// A trie recorder that can be used to record all kind of trie accesses.

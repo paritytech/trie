@@ -59,7 +59,7 @@ where
 					self.recorder.record(TrieAccess::Value {
 						hash: res,
 						value: value.as_slice().into(),
-						full_key: Some(full_key),
+						full_key,
 					});
 
 					Ok(self.query.decode(&value))
@@ -89,7 +89,7 @@ where
 				self.recorder.record(TrieAccess::Value {
 					hash,
 					value: (&value[..]).into(),
-					full_key: Some(full_key),
+					full_key,
 				});
 
 				Ok(Some(value.clone()))
@@ -111,7 +111,7 @@ where
 					self.recorder.record(TrieAccess::Value {
 						hash,
 						value: value[..].into(),
-						full_key: Some(full_key),
+						full_key,
 					});
 				}
 
@@ -148,11 +148,12 @@ where
 		cache: &mut dyn crate::TrieCache<L::Codec>,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let res = if let Some(value) = cache.lookup_data_for_key(full_key) {
-			self.recorder.record(TrieAccess::Key(full_key));
+			self.recorder
+				.record(TrieAccess::Key { key: full_key, value: value.as_deref().map(Into::into) });
 
 			value.clone()
 		} else {
-			let data = self.look_up_with_cache_internal(nibble_key, cache)?;
+			let data = self.look_up_with_cache_internal(nibble_key, full_key, cache)?;
 
 			cache.cache_data_for_key(full_key, data.clone());
 			data
@@ -195,8 +196,8 @@ where
 				decoded.to_owned_node::<L>()
 			})?;
 
-			let record = |full_key| {
-				self.recorder.record(TrieAccess::NodeOwned { hash, node_owned: node, full_key })
+			let mut record = |full_key, node_owned| {
+				self.recorder.record(TrieAccess::NodeOwned { hash, node_owned, full_key })
 			};
 
 			// this loop iterates through all inline children (usually max 1)
@@ -205,18 +206,18 @@ where
 				let next_node = match node {
 					NodeOwned::Leaf(slice, value) =>
 						return if partial == *slice {
-							record(Some(full_key));
+							record(Some(full_key), node);
 
 							let value = (*value).clone();
 							drop(node);
-							self.load_value(value, prefix, cache)
+							self.load_value(value, prefix, full_key, cache)
 						} else {
-							record(None);
+							record(None, node);
 
 							Ok(None)
 						},
 					NodeOwned::Extension(slice, item) => {
-						record(None);
+						record(None, node);
 
 						if partial.starts_with_vec(&slice) {
 							partial = partial.mid(slice.len());
@@ -228,16 +229,16 @@ where
 					},
 					NodeOwned::Branch(children, value) =>
 						if partial.is_empty() {
-							record(Some(full_key));
+							record(Some(full_key), node);
 
 							return if let Some(value) = value.clone() {
 								drop(node);
-								self.load_value(value, prefix, cache)
+								self.load_value(value, prefix, full_key, cache)
 							} else {
 								Ok(None)
 							}
 						} else {
-							record(None);
+							record(None, node);
 
 							match &children[partial.at(0) as usize] {
 								Some(x) => {
@@ -250,21 +251,21 @@ where
 						},
 					NodeOwned::NibbledBranch(slice, children, value) => {
 						if !partial.starts_with_vec(&slice) {
-							record(None);
+							record(None, node);
 							return Ok(None)
 						}
 
 						if partial.len() == slice.len() {
-							record(Some(full_key));
+							record(Some(full_key), node);
 
 							return if let Some(value) = value.clone() {
 								drop(node);
-								self.load_value(value, prefix, cache)
+								self.load_value(value, prefix, full_key, cache)
 							} else {
 								Ok(None)
 							}
 						} else {
-							record(None);
+							record(None, node);
 
 							match &children[partial.at(slice.len()) as usize] {
 								Some(x) => {
@@ -277,7 +278,8 @@ where
 						}
 					},
 					NodeOwned::Empty => {
-						record(Some(full_key));
+						record(Some(full_key), node);
+
 						return Ok(None)
 					},
 					NodeOwned::Value(_) => {
