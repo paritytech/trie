@@ -196,9 +196,7 @@ where
 				decoded.to_owned_node::<L>()
 			})?;
 
-			let mut record = |full_key, node_owned| {
-				self.recorder.record(TrieAccess::NodeOwned { hash, node_owned, full_key })
-			};
+			self.recorder.record(TrieAccess::NodeOwned { hash, node_owned: node });
 
 			// this loop iterates through all inline children (usually max 1)
 			// without incrementing the depth.
@@ -206,31 +204,22 @@ where
 				let next_node = match node {
 					NodeOwned::Leaf(slice, value) =>
 						return if partial == *slice {
-							record(Some(full_key), node);
-
 							let value = (*value).clone();
 							drop(node);
 							self.load_value(value, prefix, full_key, cache)
 						} else {
-							record(None, node);
-
 							Ok(None)
 						},
-					NodeOwned::Extension(slice, item) => {
-						record(None, node);
-
+					NodeOwned::Extension(slice, item) =>
 						if partial.starts_with_vec(&slice) {
 							partial = partial.mid(slice.len());
 							key_nibbles += slice.len();
 							item
 						} else {
 							return Ok(None)
-						}
-					},
+						},
 					NodeOwned::Branch(children, value) =>
 						if partial.is_empty() {
-							record(Some(full_key), node);
-
 							return if let Some(value) = value.clone() {
 								drop(node);
 								self.load_value(value, prefix, full_key, cache)
@@ -238,8 +227,6 @@ where
 								Ok(None)
 							}
 						} else {
-							record(None, node);
-
 							match &children[partial.at(0) as usize] {
 								Some(x) => {
 									partial = partial.mid(1);
@@ -251,13 +238,10 @@ where
 						},
 					NodeOwned::NibbledBranch(slice, children, value) => {
 						if !partial.starts_with_vec(&slice) {
-							record(None, node);
 							return Ok(None)
 						}
 
 						if partial.len() == slice.len() {
-							record(Some(full_key), node);
-
 							return if let Some(value) = value.clone() {
 								drop(node);
 								self.load_value(value, prefix, full_key, cache)
@@ -265,8 +249,6 @@ where
 								Ok(None)
 							}
 						} else {
-							record(None, node);
-
 							match &children[partial.at(slice.len()) as usize] {
 								Some(x) => {
 									partial = partial.mid(slice.len() + 1);
@@ -277,11 +259,7 @@ where
 							}
 						}
 					},
-					NodeOwned::Empty => {
-						record(Some(full_key), node);
-
-						return Ok(None)
-					},
+					NodeOwned::Empty => return Ok(None),
 					NodeOwned::Value(_) => {
 						unreachable!(
 							"`NodeOwned::Value` can not be reached by using the hash of a node. \
@@ -338,7 +316,6 @@ where
 			self.recorder.record(TrieAccess::EncodedNode {
 				hash,
 				encoded_node: node_data.as_slice().into(),
-				full_key: Some(full_key),
 			});
 
 			// this loop iterates through all inline children (usually max 1)

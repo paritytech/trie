@@ -663,7 +663,10 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 	}
 
 	/// Use the given optional `cache` for the db.
-	pub fn with_optional_cache<'cache: 'db>(mut self, cache: Option<&'cache mut dyn TrieCache<L::Codec>>) -> Self {
+	pub fn with_optional_cache<'cache: 'db>(
+		mut self,
+		cache: Option<&'cache mut dyn TrieCache<L::Codec>>,
+	) -> Self {
 		// Make the compiler happy by "converting" the lifetime
 		self.cache = cache.map(|c| c as _);
 		self
@@ -681,7 +684,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 		recorder: Option<&'recorder mut dyn TrieRecorder<TrieHash<L>>>,
 	) -> Self {
 		// Make the compiler happy by "converting" the lifetime
-		self.recorder = recorder.map(|r| r as _ );
+		self.recorder = recorder.map(|r| r as _);
 		self
 	}
 
@@ -774,7 +777,7 @@ where
 		let node = match self.cache.as_mut().and_then(|c| c.get_node(&hash)) {
 			Some(node) => {
 				if let Some(ref mut recorder) = self.recorder {
-					recorder.borrow_mut().record(TrieAccess::NodeOwned { hash, node_owned: &node, full_key: None });
+					recorder.borrow_mut().record(TrieAccess::NodeOwned { hash, node_owned: &node });
 				}
 
 				Node::from_node_owned(&node, &mut self.storage)
@@ -789,7 +792,6 @@ where
 					recorder.borrow_mut().record(TrieAccess::EncodedNode {
 						hash,
 						encoded_node: node_encoded.as_slice().into(),
-						full_key: None,
 					});
 				}
 

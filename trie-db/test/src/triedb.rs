@@ -288,7 +288,7 @@ fn test_recorder_internal<T: TrieLayout>() {
 	let key_value = vec![
 		(b"A".to_vec(), vec![1; 64]),
 		(b"AA".to_vec(), vec![2; 64]),
-		(b"AB".to_vec(), vec![3; 64]),
+		(b"AB".to_vec(), vec![3; 4]),
 		(b"B".to_vec(), vec![4; 64]),
 	];
 
@@ -332,7 +332,7 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	let key_value = vec![
 		(b"A".to_vec(), vec![1; 64]),
 		(b"AA".to_vec(), vec![2; 64]),
-		(b"AB".to_vec(), vec![3; 64]),
+		(b"AB".to_vec(), vec![3; 4]),
 		(b"B".to_vec(), vec![4; 64]),
 	];
 

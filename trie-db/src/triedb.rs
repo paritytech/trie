@@ -189,7 +189,6 @@ where
 				recorder.borrow_mut().record(TrieAccess::EncodedNode {
 					hash: *hash,
 					encoded_node: owned_node.data().into(),
-					full_key: None,
 				});
 			}
 		}

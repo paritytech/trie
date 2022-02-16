@@ -175,13 +175,9 @@ pub enum TrieAccess<'a, H> {
 	/// nodes to the user.
 	Key { key: &'a [u8], value: Option<rstd::borrow::Cow<'a, [u8]>> },
 	/// The given [`NodeOwned`] was accessed using its `hash`.
-	///
-	/// `full_key` is `Some(_)` if this node is reached by searching for `full_key` in trie.
-	NodeOwned { hash: H, node_owned: &'a NodeOwned<H>, full_key: Option<&'a [u8]> },
+	NodeOwned { hash: H, node_owned: &'a NodeOwned<H> },
 	/// The given `encoded_node` was accessed using its `hash`.
-	///
-	/// `full_key` is `Some(_)` if this node is reached by searching for `full_key` in trie.
-	EncodedNode { hash: H, encoded_node: rstd::borrow::Cow<'a, [u8]>, full_key: Option<&'a [u8]> },
+	EncodedNode { hash: H, encoded_node: rstd::borrow::Cow<'a, [u8]> },
 	/// The given `value` was accessed using its `hash`.
 	///
 	/// The given `full_key` is the key to access this value in the trie.
