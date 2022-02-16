@@ -100,8 +100,7 @@ pub fn decode_hash<H: Hasher>(data: &[u8]) -> Option<H::Out> {
 pub enum Value<'a> {
 	/// Value byte slice as stored in a trie node.
 	Inline(&'a [u8]),
-	/// Hash byte slice as stored in a trie node,
-	/// and the actual value when accessed.
+	/// Hash byte slice as stored in a trie node.
 	Node(&'a [u8]),
 }
 
@@ -137,8 +136,7 @@ impl<'a> Value<'a> {
 pub enum ValueOwned<H> {
 	/// Value byte slice as stored in a trie node.
 	Inline(Bytes),
-	/// Hash byte slice as stored in a trie node,
-	/// and the actual value when accessed.
+	/// Hash byte slice as stored in a trie node.
 	Node(H),
 }
 
@@ -248,7 +246,8 @@ pub enum NodeOwned<H> {
 	),
 	/// Node that represents a value.
 	///
-	/// This variant is only constructed when working with a [`crate::TrieCache`].
+	/// This variant is only constructed when working with a [`crate::TrieCache`]. It is only
+	/// used to cache a raw value.
 	Value(Bytes),
 }
 
