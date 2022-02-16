@@ -43,7 +43,13 @@ where
 	L: TrieLayout,
 	Q: Query<L::Hash>,
 {
-	fn decode(
+	/// Load the given value.
+	///
+	/// This will access the `db` if the value is not already in memory, but then it will put it
+	/// into the given `cache` as `NodeOwned::Value`.
+	///
+	/// Returns the bytes representing the value.
+	fn load_value(
 		mut self,
 		v: Value,
 		prefix: Prefix,
@@ -75,7 +81,7 @@ where
 	/// into the given `cache` as `NodeOwned::Value`.
 	///
 	/// Returns the bytes representing the value.
-	fn load_value(
+	fn load_owned_value(
 		&mut self,
 		v: ValueOwned<TrieHash<L>>,
 		prefix: Prefix,
@@ -196,7 +202,7 @@ where
 						return if partial == *slice {
 							let value = (*value).clone();
 							drop(node);
-							self.load_value(value, prefix, full_key, cache)
+							self.load_owned_value(value, prefix, full_key, cache)
 						} else {
 							Ok(None)
 						},
@@ -212,7 +218,7 @@ where
 						if partial.is_empty() {
 							return if let Some(value) = value.clone() {
 								drop(node);
-								self.load_value(value, prefix, full_key, cache)
+								self.load_owned_value(value, prefix, full_key, cache)
 							} else {
 								Ok(None)
 							}
@@ -234,7 +240,7 @@ where
 						if partial.len() == slice.len() {
 							return if let Some(value) = value.clone() {
 								drop(node);
-								self.load_value(value, prefix, full_key, cache)
+								self.load_owned_value(value, prefix, full_key, cache)
 							} else {
 								Ok(None)
 							}
@@ -320,7 +326,7 @@ where
 				let next_node = match decoded {
 					Node::Leaf(slice, value) =>
 						return (slice == partial)
-							.then(|| self.decode(value, full_nibble_key, full_key))
+							.then(|| self.load_value(value, full_nibble_key, full_key))
 							.transpose(),
 					Node::Extension(slice, item) =>
 						if partial.starts_with(&slice) {
@@ -333,7 +339,7 @@ where
 					Node::Branch(children, value) =>
 						if partial.is_empty() {
 							return value
-								.map(|val| self.decode(val, full_nibble_key, full_key))
+								.map(|val| self.load_value(val, full_nibble_key, full_key))
 								.transpose()
 						} else {
 							match children[partial.at(0) as usize] {
@@ -352,7 +358,7 @@ where
 
 						if partial.len() == slice.len() {
 							return value
-								.map(|val| self.decode(val, full_nibble_key, full_key))
+								.map(|val| self.load_value(val, full_nibble_key, full_key))
 								.transpose()
 						} else {
 							match children[partial.at(slice.len()) as usize] {
