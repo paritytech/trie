@@ -98,10 +98,10 @@ impl<'a, L: TrieLayout> From<EncodedValue<'a>> for Value<L> {
 	fn from(v: EncodedValue<'a>) -> Self {
 		match v {
 			EncodedValue::Inline(value) => Value::Inline(value.into()),
-			EncodedValue::Node(hash, value) => {
+			EncodedValue::Node(hash) => {
 				let mut h = TrieHash::<L>::default();
 				h.as_mut().copy_from_slice(hash);
-				Value::Node(h, value)
+				Value::Node(h, None)
 			},
 		}
 	}
@@ -111,7 +111,7 @@ impl<L: TrieLayout> From<&ValueOwned<TrieHash<L>>> for Value<L> {
 	fn from(val: &ValueOwned<TrieHash<L>>) -> Self {
 		match val {
 			ValueOwned::Inline(data) => Self::Inline(data.clone()),
-			ValueOwned::Node(hash, data) => Self::Node(*hash, data.clone()),
+			ValueOwned::Node(hash) => Self::Node(*hash, None),
 		}
 	}
 }
@@ -166,8 +166,8 @@ impl<L: TrieLayout> Value<L> {
 		}
 		let value = match &*self {
 			Value::Inline(value) => EncodedValue::Inline(&value),
-			Value::Node(hash, _value) => EncodedValue::Node(hash.as_ref(), None),
-			Value::NewNode(Some(hash), _value) => EncodedValue::Node(hash.as_ref(), None),
+			Value::Node(hash, _) => EncodedValue::Node(hash.as_ref()),
+			Value::NewNode(Some(hash), _value) => EncodedValue::Node(hash.as_ref()),
 			Value::NewNode(None, _value) =>
 				unreachable!("New external value are always added before encoding anode"),
 		};

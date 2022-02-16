@@ -51,8 +51,7 @@ where
 	) -> Result<Q::Item, TrieHash<L>, CError<L>> {
 		match v {
 			Value::Inline(value) => Ok(self.query.decode(value)),
-			Value::Node(_, Some(value)) => Ok(self.query.decode(&value)),
-			Value::Node(hash, None) => {
+			Value::Node(hash) => {
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash);
 				if let Some(value) = self.db.get(&res, prefix) {
@@ -85,16 +84,7 @@ where
 	) -> Result<Option<Bytes>, TrieHash<L>, CError<L>> {
 		match v {
 			ValueOwned::Inline(value) => Ok(Some(value.clone())),
-			ValueOwned::Node(hash, Some(value)) => {
-				self.recorder.record(TrieAccess::Value {
-					hash,
-					value: (&value[..]).into(),
-					full_key,
-				});
-
-				Ok(Some(value.clone()))
-			},
-			ValueOwned::Node(hash, None) => {
+			ValueOwned::Node(hash) => {
 				let value = cache
 					.get_or_insert_node(hash, &mut || {
 						let value = self

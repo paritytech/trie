@@ -134,7 +134,7 @@ where
 			value
 		} else {
 			hashed = callback.process_inner_hashed_value((k2.as_ref(), None), v2.as_ref());
-			Value::Node(hashed.as_ref(), None)
+			Value::Node(hashed.as_ref())
 		};
 		let encoded = T::Codec::leaf_node(nkey.right_iter(), nkey.len(), value);
 		let hash = callback.process(pr.left(), encoded, false);
@@ -201,7 +201,7 @@ where
 				let mut prefix = NibbleSlice::new_offset(&key_branch, 0);
 				prefix.advance(branch_d);
 				hashed = callback.process_inner_hashed_value(prefix.left(), v.as_ref());
-				Value::Node(hashed.as_ref(), None)
+				Value::Node(hashed.as_ref())
 			})
 		} else {
 			None
@@ -244,7 +244,7 @@ where
 				let mut prefix = NibbleSlice::new_offset(&key_branch, 0);
 				prefix.advance(branch_d);
 				hashed = callback.process_inner_hashed_value(prefix.left(), v.as_ref());
-				Value::Node(hashed.as_ref(), None)
+				Value::Node(hashed.as_ref())
 			})
 		} else {
 			None
@@ -318,7 +318,7 @@ where
 				value
 			} else {
 				hashed = callback.process_inner_hashed_value((k2.as_ref(), None), v2.as_ref());
-				Value::Node(hashed.as_ref(), None)
+				Value::Node(hashed.as_ref())
 			};
 
 			let encoded = T::Codec::leaf_node(nkey.right_iter(), nkey.len(), value);
