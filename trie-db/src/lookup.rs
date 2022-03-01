@@ -396,11 +396,14 @@ where
 	/// With an active cache, there can be a short cut of just returning the data, without
 	/// traversing the trie, but when we are recording a proof we need to get all trie nodes. So,
 	/// this function can then be used to get all of the trie nodes to access `key`.
-	pub fn traverse_to(mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+	///
+	/// Returns `true` when the key was found inside the trie.
+	pub fn traverse_to(mut self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
 		match self.cache.take() {
-			Some(cache) =>
-				self.look_up_with_cache_internal(NibbleSlice::new(key), key, cache).map(drop),
-			None => self.look_up_without_cache(NibbleSlice::new(key), key).map(drop),
+			Some(cache) => self
+				.look_up_with_cache_internal(NibbleSlice::new(key), key, cache)
+				.map(|b| b.is_some()),
+			None => self.look_up_without_cache(NibbleSlice::new(key), key).map(|b| b.is_some()),
 		}
 	}
 }
