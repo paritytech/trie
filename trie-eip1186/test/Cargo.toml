@@ -1,0 +1,15 @@
+[package]
+name = "trie-eip1186-test"
+version = "0.1.0"
+authors = ["Parity Technologies <admin@parity.io>"]
+description = "Tests for trie-eip1186 crate"
+repository = "https://github.com/paritytech/trie"
+license = "Apache-2.0"
+edition = "2018"
+
+[dependencies]
+trie-eip1186 = { path = "..", version = "0.1.0"}
+trie-db = { path = "../../trie-db", version = "0.23.1"}
+hash-db = { path = "../../hash-db", version = "0.15.2"}
+reference-trie = { path = "../../test-support/reference-trie", version = "0.25.0" }
+memory-db = { path = "../../memory-db", version = "0.29.0" }

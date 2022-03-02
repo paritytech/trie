@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.29.0] - 2022-02-04
+- Update `parity-util-mem` to 0.11. [#150](https://github.com/paritytech/trie/pull/150)
+
 ## [0.28.0] - 2021-10-19
 - Change in api bound. [#142](https://github.com/paritytech/trie/pull/142)
 

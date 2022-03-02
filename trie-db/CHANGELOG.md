@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.23.1] - 2022-02-04
+- Updated `hashbrown` to 0.12. [#150](https://github.com/paritytech/trie/pull/150)
+
 ## [0.23.0] - 2021-10-19
 - Support for value nodes. [#142](https://github.com/paritytech/trie/pull/142)
 

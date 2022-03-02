@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.25.0] - 2022-02-04
+- Updated `parity-scale-codec` to 3.0. [#150](https://github.com/paritytech/trie/pull/150)
+
 ## [0.24.0] - 2021-10-19
 - Additional test codec substrate like. [#142](https://github.com/paritytech/trie/pull/142)
 

@@ -1820,7 +1820,7 @@ where
 					}
 				});
 				#[cfg(feature = "std")]
-				trace!(target: "trie", "encoded root node: {:#x?}", &encoded_root[..]);
+				trace!(target: "trie", "encoded root node: {:?}", ToHex(&encoded_root[..]));
 
 				*self.root = self.db.insert(EMPTY_PREFIX, &encoded_root);
 				self.hash_count += 1;
@@ -1991,7 +1991,7 @@ where
 		let mut old_val = None;
 
 		#[cfg(feature = "std")]
-		trace!(target: "trie", "insert: key={:#x?}, value={:?}", key, ToHex(&value));
+		trace!(target: "trie", "insert: key={:?}, value={:?}", ToHex(key), ToHex(&value));
 
 		let value = Bytes::from(value);
 		let root_handle = self.root_handle();
@@ -2007,7 +2007,7 @@ where
 
 	fn remove(&mut self, key: &[u8]) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
 		#[cfg(feature = "std")]
-		trace!(target: "trie", "remove: key={:#x?}", key);
+		trace!(target: "trie", "remove: key={:?}", ToHex(key));
 
 		let root_handle = self.root_handle();
 		let mut key_slice = NibbleSlice::new(key);
