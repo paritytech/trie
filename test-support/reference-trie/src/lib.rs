@@ -1100,8 +1100,8 @@ pub struct TestTrieCache<L: TrieLayout> {
 }
 
 impl<L: TrieLayout> TestTrieCache<L> {
-	/// Clear the data cache.
-	pub fn clear_data_cache(&mut self) {
+	/// Clear the value cache.
+	pub fn clear_value_cache(&mut self) {
 		self.value_cache.clear();
 	}
 }

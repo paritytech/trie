@@ -82,6 +82,14 @@ where
 			},
 		}
 	}
+
+	/// Returns `self` as inline node.
+	fn as_inline(&self) -> Option<&NodeOwned<H>> {
+		match self {
+			Self::Hash(_) => None,
+			Self::Inline(node) => Some(&*node),
+		}
+	}
 }
 
 /// Read a hash from a slice into a Hasher output. Returns None if the slice is the wrong length.
@@ -312,6 +320,50 @@ where
 			Self::Branch(_, value) => value.as_ref().and_then(|v| v.data_hash()),
 			Self::NibbledBranch(_, _, value) => value.as_ref().and_then(|v| v.data_hash()),
 			Self::Value(_, hash) => Some(*hash),
+		}
+	}
+
+	pub fn child_iter(&self) -> impl Iterator<Item = &Option<NodeHandleOwned<H>>> {
+		enum ChildIter<'a, H> {
+			Empty,
+			Single(&'a NodeHandleOwned<H>, bool),
+			Array(&'a [Option<NodeHandleOwned<H>>; nibble_ops::NIBBLE_LENGTH], usize),
+		}
+
+		impl<'a, H> Iterator for ChildIter<'a, H> {
+			type Item = &'a NodeHandleOwned<H>;
+
+			fn next(&mut self) -> Option<Self::Item> {
+				loop {
+					match self {
+						Self::Empty => break None,
+						Self::Single(child, returned) =>
+							if *returned {
+								break None
+							} else {
+								*returned = true;
+								break Some(child)
+							},
+						Self::Array(childs, index) =>
+							if *index >= childs.len() {
+								break None
+							} else {
+								*index += 1;
+
+								if let Some(ref child) = childs[*index] {
+									break Some(child)
+								}
+							},
+					}
+				}
+			}
+		}
+
+		match self {
+			Self::Leaf(_, _) | Self::Empty | Self::Value(_, _) => ChildIter::Empty,
+			Self::Extension(_, child) => ChildIter::Single(child, false),
+			Self::Branch(children, _) | Self::NibbledBranch(_, children, _) =>
+				ChildIter::Array(children, 0),
 		}
 	}
 }

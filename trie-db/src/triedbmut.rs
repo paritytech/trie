@@ -1850,7 +1850,7 @@ where
 				*self.root = self.db.insert(EMPTY_PREFIX, &encoded_root);
 				self.hash_count += 1;
 
-				self.cache_node(Some(*self.root), &encoded_root, full_key);
+				self.cache_node(*self.root, &encoded_root, full_key);
 
 				self.root_handle = NodeHandle::Hash(*self.root);
 			},
@@ -1864,11 +1864,9 @@ where
 	}
 
 	/// Cache the given `encoded` node.
-	///
-	/// If the given `hash` is `None`, the node is an inline node.
 	fn cache_node(
 		&mut self,
-		hash: Option<TrieHash<L>>,
+		hash: TrieHash<L>,
 		encoded: &[u8],
 		full_key: Option<NibbleVec>,
 	) {
@@ -1886,9 +1884,7 @@ where
 					cache.cache_value_for_key(k.inner(), Some((v.clone(), h).into()));
 				});
 
-			if let Some(hash) = hash {
-				cache.insert_node(hash, node);
-			}
+			cache.insert_node(hash, node);
 		}
 	}
 
@@ -1957,7 +1953,7 @@ where
 							let hash = self.db.insert(prefix.as_prefix(), &encoded);
 							self.hash_count += 1;
 
-							self.cache_node(Some(hash), &encoded, full_key);
+							self.cache_node(hash, &encoded, full_key);
 
 							ChildReference::Hash(hash)
 						} else {
@@ -1966,8 +1962,6 @@ where
 							let mut h = <TrieHash<L>>::default();
 							let len = encoded.len();
 							h.as_mut()[..len].copy_from_slice(&encoded[..len]);
-
-							self.cache_node(None, &encoded, full_key);
 
 							ChildReference::Inline(h, len)
 						}

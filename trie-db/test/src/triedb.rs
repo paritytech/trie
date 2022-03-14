@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use hash_db::{HashDB, EMPTY_PREFIX};
+use std::ops::Deref;
+
+use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 use hex_literal::hex;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{test_layouts, TestTrieCache};
@@ -358,7 +360,16 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	// Root should now be cached.
 	assert!(cache.get_node(&root).is_some());
 	// Also the data should be cached.
-	assert!(cache.lookup_value_for_key(&key_value[1].0).is_some());
+	let (data, hash) = cache
+		.lookup_value_for_key(&key_value[1].0)
+		.unwrap()
+		.as_ref()
+		.unwrap()
+		.upgrade()
+		.unwrap();
+	assert_eq!(key_value[1].1, data.deref());
+	assert_eq!(T::Hash::hash(&key_value[1].1), hash);
+
 	// And the rest not
 	assert!(cache.lookup_value_for_key(&key_value[0].0).is_none());
 	assert!(cache.lookup_value_for_key(&key_value[2].0).is_none());
@@ -368,7 +379,7 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	for i in 0..3 {
 		// Ensure that it works with a filled data cache and with it.
 		if i < 2 {
-			cache.clear_data_cache();
+			cache.clear_value_cache();
 		}
 
 		let mut recorder = Recorder::<T>::new();
