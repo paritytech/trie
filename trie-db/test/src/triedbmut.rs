@@ -834,16 +834,16 @@ fn test_insert_remove_data_with_cache_internal<T: TrieLayout>() {
 	for (key, value) in key_value.iter().take(3) {
 		let key_str = String::from_utf8_lossy(key);
 
-		assert_eq!(
-			Some(trie_db::Bytes::from(value.clone())),
-			cache
-				.lookup_value_for_key(key)
-				.unwrap_or_else(|| panic!("Failed to lookup `{}`", key_str))
-				.as_ref()
-				.map(|v| v.upgrade().unwrap().0),
-			"{:?}",
-			key_str,
-		);
+		let (data, hash) = cache
+			.lookup_value_for_key(key)
+			.unwrap_or_else(|| panic!("Failed to lookup `{}`", key_str))
+			.as_ref()
+			.unwrap()
+			.upgrade()
+			.unwrap();
+
+		assert_eq!(trie_db::Bytes::from(value.clone()), data, "{:?}", key_str,);
+		assert_eq!(T::Hash::hash(&value), hash);
 	}
 
 	for (key, _) in key_value.iter().skip(3) {
