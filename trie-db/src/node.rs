@@ -84,7 +84,7 @@ where
 	}
 
 	/// Returns `self` as inline node.
-	fn as_inline(&self) -> Option<&NodeOwned<H>> {
+	pub fn as_inline(&self) -> Option<&NodeOwned<H>> {
 		match self {
 			Self::Hash(_) => None,
 			Self::Inline(node) => Some(&*node),
@@ -323,7 +323,8 @@ where
 		}
 	}
 
-	pub fn child_iter(&self) -> impl Iterator<Item = &Option<NodeHandleOwned<H>>> {
+	/// Returns an iterator over all existing children with their optional nibble.
+	pub fn child_iter(&self) -> impl Iterator<Item = (Option<u8>, &NodeHandleOwned<H>)> {
 		enum ChildIter<'a, H> {
 			Empty,
 			Single(&'a NodeHandleOwned<H>, bool),
@@ -331,18 +332,18 @@ where
 		}
 
 		impl<'a, H> Iterator for ChildIter<'a, H> {
-			type Item = &'a NodeHandleOwned<H>;
+			type Item = (Option<u8>, &'a NodeHandleOwned<H>);
 
 			fn next(&mut self) -> Option<Self::Item> {
 				loop {
 					match self {
 						Self::Empty => break None,
 						Self::Single(child, returned) =>
-							if *returned {
-								break None
+							break if *returned {
+								None
 							} else {
 								*returned = true;
-								break Some(child)
+								Some((None, child))
 							},
 						Self::Array(childs, index) =>
 							if *index >= childs.len() {
@@ -350,8 +351,9 @@ where
 							} else {
 								*index += 1;
 
-								if let Some(ref child) = childs[*index] {
-									break Some(child)
+								// Ignore non-existing childs.
+								if let Some(ref child) = childs[*index - 1] {
+									break Some((Some(*index as u8 - 1), child))
 								}
 							},
 					}
@@ -364,6 +366,16 @@ where
 			Self::Extension(_, child) => ChildIter::Single(child, false),
 			Self::Branch(children, _) | Self::NibbledBranch(_, children, _) =>
 				ChildIter::Array(children, 0),
+		}
+	}
+
+	/// Returns the partial key of this node.
+	pub fn partial_key(&self) -> Option<&NibbleVec> {
+		match self {
+			Self::Branch(_, _) | Self::Value(_, _) | Self::Empty => None,
+			Self::Extension(partial, _) |
+			Self::Leaf(partial, _) |
+			Self::NibbledBranch(partial, _, _) => Some(partial),
 		}
 	}
 }

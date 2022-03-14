@@ -1864,12 +1864,7 @@ where
 	}
 
 	/// Cache the given `encoded` node.
-	fn cache_node(
-		&mut self,
-		hash: TrieHash<L>,
-		encoded: &[u8],
-		full_key: Option<NibbleVec>,
-	) {
+	fn cache_node(&mut self, hash: TrieHash<L>, encoded: &[u8], full_key: Option<NibbleVec>) {
 		// If we have a cache, cache our node directly.
 		if let Some(ref mut cache) = self.cache {
 			let node = L::Codec::decode(&encoded)
@@ -1878,11 +1873,33 @@ where
 				.expect("Just encoded the node, so it should decode without any errors; qed");
 
 			// If the given node has data attached, the `full_key` is the full key to this node.
-			full_key
-				.and_then(|k| node.data().and_then(|v| node.data_hash().map(|h| (k, v, h))))
-				.map(|(k, v, h)| {
-					cache.cache_value_for_key(k.inner(), Some((v.clone(), h).into()));
-				});
+			if let Some(full_key) = full_key {
+				node.data().and_then(|v| node.data_hash().map(|h| (&full_key, v, h))).map(
+					|(k, v, h)| {
+						cache.cache_value_for_key(k.inner(), Some((v.clone(), h).into()));
+					},
+				);
+
+				// Also cache values of inline nodes.
+				node.child_iter().flat_map(|(n, c)| c.as_inline().map(|c| (n, c))).for_each(
+					|(n, c)| {
+						if let Some((hash, data)) =
+							c.data().and_then(|d| c.data_hash().map(|h| (h, d)))
+						{
+							let mut key = full_key.clone();
+
+							n.map(|n| key.push(n));
+
+							c.partial_key().map(|p| key.append(p));
+
+							cache.cache_value_for_key(
+								key.inner(),
+								Some((data.clone(), hash).into()),
+							);
+						}
+					},
+				);
+			}
 
 			cache.insert_node(hash, node);
 		}
