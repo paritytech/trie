@@ -178,12 +178,22 @@ impl<L: TrieLayout> Value<L> {
 		&self,
 		prefix: Prefix,
 		db: &dyn HashDB<L::Hash, DBValue>,
+		recorder: &Option<core::cell::RefCell<&mut dyn TrieRecorder<TrieHash<L>>>>,
+		full_key: &[u8],
 	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
 		Ok(Some(match self {
 			Value::Inline(value) => value.to_vec(),
 			Value::NewNode(_, value) => value.to_vec(),
 			Value::Node(hash) =>
 				if let Some(value) = db.get(hash, prefix) {
+					recorder.map(|r| {
+						r.borrow_mut().record(TrieAccess::Value {
+							hash: *hash,
+							value: value.as_ref().into(),
+							full_key,
+						})
+					});
+
 					value
 				} else {
 					return Err(Box::new(TrieError::IncompleteDatabase(hash.clone())))
@@ -866,7 +876,12 @@ where
 					Node::Empty => return Ok(None),
 					Node::Leaf(ref key, ref value) =>
 						if NibbleSlice::from_stored(key) == partial {
-							return Ok(value.in_memory_fetched_value(prefix, self.db)?)
+							return Ok(value.in_memory_fetched_value(
+								prefix,
+								self.db,
+								&self.recorder,
+								full_key,
+							)?)
 						} else {
 							return Ok(None)
 						},
@@ -881,7 +896,12 @@ where
 					Node::Branch(ref children, ref value) =>
 						if partial.is_empty() {
 							return Ok(if let Some(v) = value.as_ref() {
-								v.in_memory_fetched_value(prefix, self.db)?
+								v.in_memory_fetched_value(
+									prefix,
+									self.db,
+									&self.recorder,
+									full_key,
+								)?
 							} else {
 								None
 							})
@@ -896,7 +916,12 @@ where
 						let slice = NibbleSlice::from_stored(slice);
 						if slice == partial {
 							return Ok(if let Some(v) = value.as_ref() {
-								v.in_memory_fetched_value(prefix, self.db)?
+								v.in_memory_fetched_value(
+									prefix,
+									self.db,
+									&self.recorder,
+									full_key,
+								)?
 							} else {
 								None
 							})
