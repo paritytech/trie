@@ -119,7 +119,7 @@ impl<'a> Value<'a> {
 
 	pub fn to_owned_value<L: TrieLayout>(&self) -> ValueOwned<TrieHash<L>> {
 		match self {
-			Self::Inline(data) => ValueOwned::Inline(Bytes::from(*data)),
+			Self::Inline(data) => ValueOwned::Inline(Bytes::from(*data), L::Hash::hash(data)),
 			Self::Node(hash) => {
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash);
@@ -134,17 +134,17 @@ impl<'a> Value<'a> {
 #[derive(Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub enum ValueOwned<H> {
-	/// Value byte slice as stored in a trie node.
-	Inline(Bytes),
+	/// Value bytes as stored in a trie node and its hash.
+	Inline(Bytes, H),
 	/// Hash byte slice as stored in a trie node.
 	Node(H),
 }
 
-impl<H: AsRef<[u8]>> ValueOwned<H> {
+impl<H: AsRef<[u8]> + Copy> ValueOwned<H> {
 	/// Returns self as [`Value`].
 	pub fn as_value(&self) -> Value {
 		match self {
-			Self::Inline(data) => Value::Inline(&data),
+			Self::Inline(data, _) => Value::Inline(&data),
 			Self::Node(hash) => Value::Node(hash.as_ref()),
 		}
 	}
@@ -152,8 +152,16 @@ impl<H: AsRef<[u8]>> ValueOwned<H> {
 	/// Returns the data stored in self.
 	pub fn data(&self) -> Option<&Bytes> {
 		match self {
-			Self::Inline(data) => Some(data),
+			Self::Inline(data, _) => Some(data),
 			Self::Node(_) => None,
+		}
+	}
+
+	/// Returns the hash of the data stored in self.
+	pub fn data_hash(&self) -> Option<H> {
+		match self {
+			Self::Inline(_, hash) => Some(*hash),
+			Self::Node(hash) => Some(*hash),
 		}
 	}
 }
@@ -248,7 +256,7 @@ pub enum NodeOwned<H> {
 	///
 	/// This variant is only constructed when working with a [`crate::TrieCache`]. It is only
 	/// used to cache a raw value.
-	Value(Bytes),
+	Value(Bytes, H),
 }
 
 impl<H> NodeOwned<H>
@@ -279,7 +287,7 @@ where
 				children.iter().map(|child| child.as_ref().map(|c| c.as_child_reference::<C>())),
 				value.as_ref().map(|v| v.as_value()),
 			),
-			Self::Value(data) => data.to_vec(),
+			Self::Value(data, _) => data.to_vec(),
 		}
 	}
 
@@ -291,7 +299,19 @@ where
 			Self::Extension(_, _) => None,
 			Self::Branch(_, value) => value.as_ref().and_then(|v| v.data()),
 			Self::NibbledBranch(_, _, value) => value.as_ref().and_then(|v| v.data()),
-			Self::Value(data) => Some(data),
+			Self::Value(data, _) => Some(data),
+		}
+	}
+
+	/// Returns the hash of the data attached to this node.
+	pub fn data_hash(&self) -> Option<H> {
+		match &self {
+			Self::Empty => None,
+			Self::Leaf(_, value) => value.data_hash(),
+			Self::Extension(_, _) => None,
+			Self::Branch(_, value) => value.as_ref().and_then(|v| v.data_hash()),
+			Self::NibbledBranch(_, _, value) => value.as_ref().and_then(|v| v.data_hash()),
+			Self::Value(_, hash) => Some(*hash),
 		}
 	}
 }

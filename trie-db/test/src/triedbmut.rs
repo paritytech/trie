@@ -769,7 +769,11 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	for (key, value) in key_value.iter().skip(1) {
 		assert_eq!(
 			Some(trie_db::Bytes::from(value.clone())),
-			*cache.lookup_data_for_key(key).unwrap()
+			cache
+				.lookup_value_for_key(key)
+				.unwrap()
+				.as_ref()
+				.map(|v| v.upgrade().unwrap().0),
 		);
 	}
 
@@ -832,15 +836,17 @@ fn test_insert_remove_data_with_cache_internal<T: TrieLayout>() {
 
 		assert_eq!(
 			Some(trie_db::Bytes::from(value.clone())),
-			*cache
-				.lookup_data_for_key(key)
-				.unwrap_or_else(|| panic!("Failed to lookup `{}`", key_str)),
+			cache
+				.lookup_value_for_key(key)
+				.unwrap_or_else(|| panic!("Failed to lookup `{}`", key_str))
+				.as_ref()
+				.map(|v| v.upgrade().unwrap().0),
 			"{:?}",
 			key_str,
 		);
 	}
 
 	for (key, _) in key_value.iter().skip(3) {
-		assert!(cache.lookup_data_for_key(key).is_none());
+		assert!(cache.lookup_value_for_key(key).is_none());
 	}
 }

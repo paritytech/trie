@@ -22,8 +22,8 @@ use trie_db::{
 	node::{NibbleSlicePlan, NodeHandlePlan, NodeOwned, NodePlan, Value, ValuePlan},
 	trie_visit,
 	triedbmut::ChildReference,
-	DBValue, NodeCodec, Trie, TrieBuilder, TrieConfiguration, TrieDBBuilder,
-	TrieDBMutBuilder, TrieHash, TrieLayout, TrieMut, TrieRoot,
+	DBValue, NodeCodec, Trie, TrieBuilder, TrieConfiguration, TrieDBBuilder, TrieDBMutBuilder,
+	TrieHash, TrieLayout, TrieMut, TrieRoot,
 };
 pub use trie_root::TrieStream;
 use trie_root::{Hasher, Value as TrieStreamValue};
@@ -1095,30 +1095,37 @@ pub fn compare_insert_remove<T, DB: hash_db::HashDB<T::Hash, DBValue>>(
 /// Should not be used for anything in production.
 pub struct TestTrieCache<L: TrieLayout> {
 	/// In a real implementation we need to make sure that this is unique per trie root.
-	data_cache: HashMap<Vec<u8>, Option<trie_db::Bytes>>,
+	value_cache: HashMap<Vec<u8>, Option<trie_db::CachedValue<TrieHash<L>>>>,
 	node_cache: HashMap<TrieHash<L>, NodeOwned<TrieHash<L>>>,
 }
 
 impl<L: TrieLayout> TestTrieCache<L> {
 	/// Clear the data cache.
 	pub fn clear_data_cache(&mut self) {
-		self.data_cache.clear();
+		self.value_cache.clear();
 	}
 }
 
 impl<L: TrieLayout> Default for TestTrieCache<L> {
 	fn default() -> Self {
-		Self { data_cache: Default::default(), node_cache: Default::default() }
+		Self { value_cache: Default::default(), node_cache: Default::default() }
 	}
 }
 
 impl<L: TrieLayout> trie_db::TrieCache<L::Codec> for TestTrieCache<L> {
-	fn lookup_data_for_key(&self, key: &[u8]) -> Option<&Option<trie_db::Bytes>> {
-		self.data_cache.get(key)
+	fn lookup_value_for_key(
+		&self,
+		key: &[u8],
+	) -> Option<&Option<trie_db::CachedValue<TrieHash<L>>>> {
+		self.value_cache.get(key)
 	}
 
-	fn cache_data_for_key(&mut self, key: &[u8], data: Option<trie_db::Bytes>) {
-		self.data_cache.insert(key.to_vec(), data);
+	fn cache_value_for_key(
+		&mut self,
+		key: &[u8],
+		value: Option<trie_db::CachedValue<TrieHash<L>>>,
+	) {
+		self.value_cache.insert(key.to_vec(), value);
 	}
 
 	fn get_or_insert_node(

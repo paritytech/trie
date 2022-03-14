@@ -110,7 +110,7 @@ impl<'a, L: TrieLayout> From<EncodedValue<'a>> for Value<L> {
 impl<L: TrieLayout> From<&ValueOwned<TrieHash<L>>> for Value<L> {
 	fn from(val: &ValueOwned<TrieHash<L>>) -> Self {
 		match val {
-			ValueOwned::Inline(data) => Self::Inline(data.clone()),
+			ValueOwned::Inline(data, _) => Self::Inline(data.clone()),
 			ValueOwned::Node(hash) => Self::Node(*hash),
 		}
 	}
@@ -186,10 +186,10 @@ impl<L: TrieLayout> Value<L> {
 			Value::NewNode(_, value) => value.to_vec(),
 			Value::Node(hash) =>
 				if let Some(value) = db.get(hash, prefix) {
-					recorder.map(|r| {
+					recorder.as_ref().map(|r| {
 						r.borrow_mut().record(TrieAccess::Value {
 							hash: *hash,
-							value: value.as_ref().into(),
+							value: value.as_slice().into(),
 							full_key,
 						})
 					});
@@ -438,7 +438,7 @@ impl<L: TrieLayout> Node<L> {
 
 				Node::NibbledBranch(k.into(), children, val.as_ref().map(Into::into))
 			},
-			NodeOwned::Value(_) =>
+			NodeOwned::Value(_, _) =>
 				unreachable!("`NodeOwned::Value` can only be returned for the hash of a value."),
 		}
 	}
@@ -1833,7 +1833,7 @@ where
 					match node {
 						NodeToEncode::Node(value) => {
 							let value_hash = self.db.insert(k.as_prefix(), value);
-							self.cache_value(k.inner(), value);
+							self.cache_value(k.inner(), value, value_hash);
 							k.drop_lasts(mov);
 							ChildReference::Hash(value_hash)
 						},
@@ -1880,9 +1880,11 @@ where
 				.expect("Just encoded the node, so it should decode without any errors; qed");
 
 			// If the given node has data attached, the `full_key` is the full key to this node.
-			full_key.and_then(|k| node.data().map(|v| (k, v))).map(|(k, v)| {
-				cache.cache_data_for_key(k.inner(), Some(v.clone()));
-			});
+			full_key
+				.and_then(|k| node.data().and_then(|v| node.data_hash().map(|h| (k, v, h))))
+				.map(|(k, v, h)| {
+					cache.cache_value_for_key(k.inner(), Some((v.clone(), h).into()));
+				});
 
 			if let Some(hash) = hash {
 				cache.insert_node(hash, node);
@@ -1891,9 +1893,15 @@ where
 	}
 
 	/// Cache the given `value`.
-	fn cache_value(&mut self, full_key: &[u8], value: impl Into<Bytes>) {
+	///
+	/// `hash` is the hash of `value`.
+	fn cache_value(&mut self, full_key: &[u8], value: impl Into<Bytes>, hash: TrieHash<L>) {
 		if let Some(ref mut cache) = self.cache {
-			cache.cache_data_for_key(full_key, Some(value.into()))
+			let value = value.into();
+
+			cache.insert_node(hash, NodeOwned::Value(value.clone(), hash));
+
+			cache.cache_value_for_key(full_key, Some((value, hash).into()))
 		}
 	}
 
@@ -1931,7 +1939,7 @@ where
 									NodeToEncode::Node(value) => {
 										let value_hash = self.db.insert(prefix.as_prefix(), value);
 
-										self.cache_value(prefix.inner(), value);
+										self.cache_value(prefix.inner(), value, value_hash);
 
 										prefix.drop_lasts(mov);
 										ChildReference::Hash(value_hash)

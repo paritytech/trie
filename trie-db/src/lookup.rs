@@ -80,16 +80,16 @@ where
 	/// This will access the `db` if the value is not already in memory, but then it will put it
 	/// into the given `cache` as `NodeOwned::Value`.
 	///
-	/// Returns the bytes representing the value.
+	/// Returns the bytes representing the value and its hash.
 	fn load_owned_value(
 		&mut self,
 		v: ValueOwned<TrieHash<L>>,
 		prefix: Prefix,
 		full_key: &[u8],
 		cache: &mut dyn crate::TrieCache<L::Codec>,
-	) -> Result<Option<Bytes>, TrieHash<L>, CError<L>> {
+	) -> Result<Option<(Bytes, TrieHash<L>)>, TrieHash<L>, CError<L>> {
 		match v {
-			ValueOwned::Inline(value) => Ok(Some(value.clone())),
+			ValueOwned::Inline(value, hash) => Ok(Some((value.clone(), hash))),
 			ValueOwned::Node(hash) => {
 				let value = cache
 					.get_or_insert_node(hash, &mut || {
@@ -98,9 +98,9 @@ where
 							.get(&hash, prefix)
 							.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
 
-						Ok(NodeOwned::Value(value.into()))
+						Ok(NodeOwned::Value(value.into(), hash))
 					})
-					.map(|n| n.data().map(|b| (*b).clone()))?;
+					.map(|n| n.data().cloned())?;
 
 				// `value` should always be `Some(_)`, but better be defensive.
 				if let Some(ref value) = value {
@@ -111,7 +111,7 @@ where
 					});
 				}
 
-				Ok(value)
+				Ok(value.map(|v| (v, hash)))
 			},
 		}
 	}
@@ -143,19 +143,24 @@ where
 		nibble_key: NibbleSlice,
 		cache: &mut dyn crate::TrieCache<L::Codec>,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
-		let res = if let Some(value) = cache.lookup_data_for_key(full_key) {
-			self.recorder
-				.record(TrieAccess::Key { key: full_key, value: value.as_deref().map(Into::into) });
+		let res = if let Some(value) = cache
+			.lookup_value_for_key(full_key)
+			.and_then(|v| v.as_ref().map(|v| v.upgrade()))
+		{
+			self.recorder.record(TrieAccess::Key {
+				key: full_key,
+				value: value.as_ref().map(|v| v.0.as_ref().into()),
+			});
 
-			value.clone()
+			value
 		} else {
 			let data = self.look_up_with_cache_internal(nibble_key, full_key, cache)?;
 
-			cache.cache_data_for_key(full_key, data.clone());
+			cache.cache_value_for_key(full_key, data.clone().map(Into::into));
 			data
 		};
 
-		Ok(res.map(|v| self.query.decode(&v)))
+		Ok(res.map(|v| self.query.decode(&v.0)))
 	}
 
 	fn look_up_with_cache_internal(
@@ -163,7 +168,7 @@ where
 		nibble_key: NibbleSlice,
 		full_key: &[u8],
 		cache: &mut dyn crate::TrieCache<L::Codec>,
-	) -> Result<Option<Bytes>, TrieHash<L>, CError<L>> {
+	) -> Result<Option<(Bytes, TrieHash<L>)>, TrieHash<L>, CError<L>> {
 		let mut partial = nibble_key;
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;
@@ -256,7 +261,7 @@ where
 						}
 					},
 					NodeOwned::Empty => return Ok(None),
-					NodeOwned::Value(_) => {
+					NodeOwned::Value(_, _) => {
 						unreachable!(
 							"`NodeOwned::Value` can not be reached by using the hash of a node. \
 							 `NodeOwned::Value` is only constructed when loading a value into memory, \

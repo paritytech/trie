@@ -358,11 +358,11 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	// Root should now be cached.
 	assert!(cache.get_node(&root).is_some());
 	// Also the data should be cached.
-	assert!(cache.lookup_data_for_key(&key_value[1].0).is_some());
+	assert!(cache.lookup_value_for_key(&key_value[1].0).is_some());
 	// And the rest not
-	assert!(cache.lookup_data_for_key(&key_value[0].0).is_none());
-	assert!(cache.lookup_data_for_key(&key_value[2].0).is_none());
-	assert!(cache.lookup_data_for_key(&key_value[3].0).is_none());
+	assert!(cache.lookup_value_for_key(&key_value[0].0).is_none());
+	assert!(cache.lookup_value_for_key(&key_value[2].0).is_none());
+	assert!(cache.lookup_value_for_key(&key_value[3].0).is_none());
 
 	// Run this twice to ensure that the cache is not interfering the recording.
 	for i in 0..3 {

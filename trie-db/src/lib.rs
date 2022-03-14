@@ -521,12 +521,45 @@ pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 /// Alias accessor to `NodeCodec` associated `Error` type from a `TrieLayout`.
 pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;
 
+/// A value as cached by the [`TrieCache`].
+#[derive(Clone)]
+pub struct CachedValue<H> {
+	/// The hash of the value.
+	pub hash: H,
+	/// The actual data of the value stored as [`BytesWeak`].
+	///
+	/// The original data [`Bytes`] is stored in the trie node
+	/// that is also cached by the [`TrieCache`]. If this node is dropped,
+	/// this data will also not be "upgradeable" anymore.
+	pub data: BytesWeak,
+}
+
+impl<H: Copy> CachedValue<H> {
+	/// Upgrade this cached value to the actual data and hash.
+	///
+	/// As `data` is stored as [`BytesWeak`] we first need to upgrade
+	/// it to the actual [`Bytes`] and as this can fails this function
+	/// returns an [`Option`].
+	pub fn upgrade(&self) -> Option<(Bytes, H)> {
+		self.data.upgrade().map(|b| (b, self.hash))
+	}
+}
+
+impl<H> From<(Bytes, H)> for CachedValue<H> {
+	fn from(value: (Bytes, H)) -> Self {
+		Self {
+			hash: value.1,
+			data: value.0.into(),
+		}
+	}
+}
+
 /// A cache that can be used to speed-up certain operations when accessing the trie.
 pub trait TrieCache<NC: NodeCodec> {
-	/// Lookup data for the given key.
+	/// Lookup value for the given `key`.
 	///
 	/// Returns the `None` if the `key` is unknown or otherwise `Some(_)` with the associated
-	/// data.
+	/// value.
 	///
 	/// [`Self::cache_data_for_key`] is used to make the cache aware of data that is associated
 	/// to a `key`.
@@ -534,21 +567,20 @@ pub trait TrieCache<NC: NodeCodec> {
 	/// # Attention
 	///
 	/// The cache can be used for different tries, aka with different roots. This means
-	/// that the cache implementation needs to take care of always returning the correct data
+	/// that the cache implementation needs to take care of always returning the correct value
 	/// for the current trie root.
-	fn lookup_data_for_key(&self, key: &[u8]) -> Option<&Option<Bytes>>;
+	fn lookup_value_for_key(&self, key: &[u8]) -> Option<&Option<CachedValue<NC::HashOut>>>;
 
-	/// Cache the given data for the given key.
+	/// Cache the given `value` for the given `key`.
 	///
-	/// The given `data` is the same as found in the [`NodeOwned`] that was found
-	/// for the given `key`.
+	/// If the given `key` could not be found in the trie, `None` will be passed for `value`.
 	///
 	/// # Attention
 	///
 	/// The cache can be used for different tries, aka with different roots. This means
-	/// that the cache implementation needs to take care of caching `data` for the current
+	/// that the cache implementation needs to take care of caching `value` for the current
 	/// trie root.
-	fn cache_data_for_key(&mut self, key: &[u8], data: Option<Bytes>);
+	fn cache_value_for_key(&mut self, key: &[u8], value: Option<CachedValue<NC::HashOut>>);
 
 	/// Get or insert a [`NodeOwned`].
 	///
