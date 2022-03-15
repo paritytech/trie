@@ -160,6 +160,19 @@ pub trait Query<H: Hasher> {
 	fn decode(self, data: &[u8]) -> Self::Item;
 }
 
+/// The `value` as recorded for [`TrieAccess::Key`].
+#[cfg_attr(feature = "std", derive(Debug))]
+pub enum KeyTrieAccessValue<'a> {
+	/// The value wasn't found in the trie.
+	NotFound,
+	/// We only accessed the hash of the value.
+	///
+	/// This means that the value exists in the trie.
+	HashOnly,
+	/// The value was found in the trie.
+	Found(rstd::borrow::Cow<'a, [u8]>),
+}
+
 /// Used to report the trie access to the [`TrieRecorder`].
 ///
 /// As the trie can use a [`TrieCache`], there are multiple kinds of accesses.
@@ -173,7 +186,7 @@ pub enum TrieAccess<'a, H> {
 	/// recorder needs to ensure that it fetches the trie nodes to access
 	/// the data under the given `key` before it returns all accessed
 	/// nodes to the user.
-	Key { key: &'a [u8], value: Option<rstd::borrow::Cow<'a, [u8]>> },
+	Key { key: &'a [u8], value: KeyTrieAccessValue<'a> },
 	/// The given [`NodeOwned`] was accessed using its `hash`.
 	NodeOwned { hash: H, node_owned: &'a NodeOwned<H> },
 	/// The given `encoded_node` was accessed using its `hash`.

@@ -19,8 +19,8 @@ use crate::{
 	node::{decode_hash, Node, NodeHandle, NodeHandleOwned, NodeOwned, Value, ValueOwned},
 	node_codec::NodeCodec,
 	rstd::boxed::Box,
-	Bytes, CError, DBValue, Query, Result, TrieAccess, TrieCache, TrieError, TrieHash, TrieLayout,
-	TrieRecorder,
+	Bytes, CError, DBValue, KeyTrieAccessValue, Query, Result, TrieAccess, TrieCache, TrieError,
+	TrieHash, TrieLayout, TrieRecorder,
 };
 use hash_db::{HashDBRef, Prefix};
 
@@ -143,7 +143,7 @@ where
 		nibble_key: NibbleSlice,
 	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		match self.cache.take() {
-			Some(cache) => self.look_up_with_cache(full_key, nibble_key, cache),
+			Some(cache) => self.look_up_hash_with_cache(full_key, nibble_key, cache),
 			None => self.look_up_without_cache(nibble_key, full_key),
 		}
 	}
@@ -157,13 +157,14 @@ where
 		nibble_key: NibbleSlice,
 		cache: &mut dyn crate::TrieCache<L::Codec>,
 	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
-		let res = if let Some(value) = cache
-			.lookup_value_for_key(full_key)
-			.and_then(|v| v.as_ref().map(|v| v.hash))
+		let res = if let Some(value) =
+			cache.lookup_value_for_key(full_key).map(|v| v.as_ref().map(|v| v.hash))
 		{
 			self.recorder.record(TrieAccess::Key {
 				key: full_key,
-				value: value.as_ref().map(|v| v.0.as_ref().into()),
+				value: value
+					.as_ref()
+					.map_or_else(|| KeyTrieAccessValue::NotFound, |_| KeyTrieAccessValue::HashOnly),
 			});
 
 			value
@@ -175,7 +176,7 @@ where
 			data.map(|d| d.1)
 		};
 
-		Ok(res.map(|v| self.query.decode(&v.0)))
+		Ok(res)
 	}
 
 	/// Look up the given key. If the value is found, it will be passed to the given
@@ -194,7 +195,10 @@ where
 		{
 			self.recorder.record(TrieAccess::Key {
 				key: full_key,
-				value: value.as_ref().map(|v| v.0.as_ref().into()),
+				value: value.as_ref().map_or_else(
+					|| KeyTrieAccessValue::NotFound,
+					|v| KeyTrieAccessValue::Found(v.0.as_ref().into()),
+				),
 			});
 
 			value
