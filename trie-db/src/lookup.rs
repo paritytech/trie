@@ -133,6 +133,51 @@ where
 		}
 	}
 
+	/// Look up the value hash for the given `nibble_key`.
+	///
+	/// The given `full_key` should be the full key to the data that is requested. This will
+	/// be used when there is a cache to potentially speed up the lookup.
+	pub fn look_up_hash(
+		mut self,
+		full_key: &[u8],
+		nibble_key: NibbleSlice,
+	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
+		match self.cache.take() {
+			Some(cache) => self.look_up_with_cache(full_key, nibble_key, cache),
+			None => self.look_up_without_cache(nibble_key, full_key),
+		}
+	}
+
+	/// Look up the value hash for the given key.
+	///
+	/// It uses the given cache to speed-up lookups.
+	fn look_up_hash_with_cache(
+		mut self,
+		full_key: &[u8],
+		nibble_key: NibbleSlice,
+		cache: &mut dyn crate::TrieCache<L::Codec>,
+	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
+		let res = if let Some(value) = cache
+			.lookup_value_for_key(full_key)
+			.and_then(|v| v.as_ref().map(|v| v.hash))
+		{
+			self.recorder.record(TrieAccess::Key {
+				key: full_key,
+				value: value.as_ref().map(|v| v.0.as_ref().into()),
+			});
+
+			value
+		} else {
+			let data = self.look_up_with_cache_internal(nibble_key, full_key, cache)?;
+
+			cache.cache_value_for_key(full_key, data.clone().map(Into::into));
+
+			data.map(|d| d.1)
+		};
+
+		Ok(res.map(|v| self.query.decode(&v.0)))
+	}
+
 	/// Look up the given key. If the value is found, it will be passed to the given
 	/// function to decode or copy.
 	///

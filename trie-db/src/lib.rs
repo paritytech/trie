@@ -223,11 +223,11 @@ pub trait Trie<L: TrieLayout> {
 		self.get(key).map(|x| x.is_some())
 	}
 
+	/// Returns the hash of the value for `key`.
+	fn get_hash(&self, key: &[u8]) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>>;
+
 	/// What is the value of the given key in this trie?
-	fn get<'a, 'key>(&'a self, key: &'key [u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
-	where
-		'a: 'key,
-	{
+	fn get(&self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
 		self.get_with(key, |v: &[u8]| v.to_vec())
 	}
 
@@ -547,10 +547,7 @@ impl<H: Copy> CachedValue<H> {
 
 impl<H> From<(Bytes, H)> for CachedValue<H> {
 	fn from(value: (Bytes, H)) -> Self {
-		Self {
-			hash: value.1,
-			data: value.0.into(),
-		}
+		Self { hash: value.1, data: value.0.into() }
 	}
 }
 

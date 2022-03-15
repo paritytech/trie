@@ -251,6 +251,20 @@ where
 		self.root
 	}
 
+	fn get_hash(&self, key: &[u8]) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
+		let mut cache = self.cache.as_ref().map(|c| c.borrow_mut());
+		let mut recorder = self.recorder.as_ref().map(|r| r.borrow_mut());
+
+		Lookup::<L, Q> {
+			db: self.db,
+			query,
+			hash: *self.root,
+			cache: cache.as_mut().map(|c| &mut ***c as &mut dyn TrieCache<L::Codec>),
+			recorder: recorder.as_mut().map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>>),
+		}
+		.look_up(key, NibbleSlice::new(key))
+	}
+
 	fn get_with<Q: Query<L::Hash>>(
 		&self,
 		key: &[u8],
