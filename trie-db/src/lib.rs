@@ -148,10 +148,6 @@ pub type TrieItem<U, E> = Result<(Vec<u8>, DBValue), U, E>;
 pub type TrieKeyItem<U, E> = Result<Vec<u8>, U, E>;
 
 /// Description of what kind of query will be made to the trie.
-///
-/// This is implemented for any &mut recorder (where the query will return
-/// a DBValue), any function taking raw bytes (where no recording will be made),
-/// or any tuple of (&mut Recorder, FnOnce(&[u8]))
 pub trait Query<H: Hasher> {
 	/// Output item.
 	type Item;
@@ -163,14 +159,14 @@ pub trait Query<H: Hasher> {
 /// The `value` as recorded for [`TrieAccess::Key`].
 #[cfg_attr(feature = "std", derive(Debug))]
 pub enum KeyTrieAccessValue<'a> {
-	/// The value wasn't found in the trie.
-	NotFound,
+	/// The value doesn't exist in the trie.
+	NonExisting,
 	/// We only accessed the hash of the value.
 	///
 	/// This means that the value exists in the trie.
 	HashOnly,
-	/// The value was found in the trie.
-	Found(rstd::borrow::Cow<'a, [u8]>),
+	/// Accessed an existing value with the given data.
+	Existing(rstd::borrow::Cow<'a, [u8]>),
 }
 
 /// Used to report the trie access to the [`TrieRecorder`].
@@ -368,6 +364,10 @@ impl<'db, 'cache, L: TrieLayout> Trie<L> for TrieKinds<'db, 'cache, L> {
 		wrapper!(self, contains, key)
 	}
 
+	fn get_hash(&self, key: &[u8]) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
+		wrapper!(self, get_hash, key)
+	}
+
 	fn get_with<Q: Query<L::Hash>>(
 		&self,
 		key: &[u8],
@@ -536,31 +536,68 @@ pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;
 
 /// A value as cached by the [`TrieCache`].
 #[derive(Clone)]
-pub struct CachedValue<H> {
-	/// The hash of the value.
-	pub hash: H,
-	/// The actual data of the value stored as [`BytesWeak`].
-	///
-	/// The original data [`Bytes`] is stored in the trie node
-	/// that is also cached by the [`TrieCache`]. If this node is dropped,
-	/// this data will also not be "upgradeable" anymore.
-	pub data: BytesWeak,
+pub enum CachedValue<H> {
+	/// The value doesn't exist in the trie.
+	NonExisting,
+	/// We cached the hash, because we did not yet accessed the data.
+	ExistingHash(H),
+	/// The value exists in the trie.
+	Existing {
+		/// The hash of the value.
+		hash: H,
+		/// The actual data of the value stored as [`BytesWeak`].
+		///
+		/// The original data [`Bytes`] is stored in the trie node
+		/// that is also cached by the [`TrieCache`]. If this node is dropped,
+		/// this data will also not be "upgradeable" anymore.
+		data: BytesWeak,
+	},
 }
 
 impl<H: Copy> CachedValue<H> {
-	/// Upgrade this cached value to the actual data and hash.
+	/// Returns the data of the value.
 	///
-	/// As `data` is stored as [`BytesWeak`] we first need to upgrade
-	/// it to the actual [`Bytes`] and as this can fails this function
-	/// returns an [`Option`].
-	pub fn upgrade(&self) -> Option<(Bytes, H)> {
-		self.data.upgrade().map(|b| (b, self.hash))
+	/// If a value doesn't exist in the trie, only the value hash is cached or
+	/// the data reference was already released, this function returns `None`.
+	pub fn data(&self) -> Option<Bytes> {
+		match self {
+			Self::Existing { data, .. } => data.upgrade(),
+			_ => None,
+		}
+	}
+
+	/// Returns the hash of the value.
+	///
+	/// Returns only `None` when the value doesn't exist.
+	pub fn hash(&self) -> Option<H> {
+		match self {
+			Self::ExistingHash(hash) | Self::Existing { hash, .. } => Some(*hash),
+			Self::NonExisting => None,
+		}
 	}
 }
 
 impl<H> From<(Bytes, H)> for CachedValue<H> {
 	fn from(value: (Bytes, H)) -> Self {
-		Self { hash: value.1, data: value.0.into() }
+		Self::Existing { hash: value.1, data: value.0.into() }
+	}
+}
+
+impl<H> From<H> for CachedValue<H> {
+	fn from(value: H) -> Self {
+		Self::ExistingHash(value)
+	}
+}
+
+impl<H> From<Option<(Bytes, H)>> for CachedValue<H> {
+	fn from(value: Option<(Bytes, H)>) -> Self {
+		value.map_or(Self::NonExisting, |v| Self::Existing { hash: v.1, data: v.0.into() })
+	}
+}
+
+impl<H> From<Option<H>> for CachedValue<H> {
+	fn from(value: Option<H>) -> Self {
+		value.map_or(Self::NonExisting, |v| Self::ExistingHash(v))
 	}
 }
 
@@ -579,18 +616,16 @@ pub trait TrieCache<NC: NodeCodec> {
 	/// The cache can be used for different tries, aka with different roots. This means
 	/// that the cache implementation needs to take care of always returning the correct value
 	/// for the current trie root.
-	fn lookup_value_for_key(&self, key: &[u8]) -> Option<&Option<CachedValue<NC::HashOut>>>;
+	fn lookup_value_for_key(&self, key: &[u8]) -> Option<&CachedValue<NC::HashOut>>;
 
 	/// Cache the given `value` for the given `key`.
-	///
-	/// If the given `key` could not be found in the trie, `None` will be passed for `value`.
 	///
 	/// # Attention
 	///
 	/// The cache can be used for different tries, aka with different roots. This means
 	/// that the cache implementation needs to take care of caching `value` for the current
 	/// trie root.
-	fn cache_value_for_key(&mut self, key: &[u8], value: Option<CachedValue<NC::HashOut>>);
+	fn cache_value_for_key(&mut self, key: &[u8], value: CachedValue<NC::HashOut>);
 
 	/// Get or insert a [`NodeOwned`].
 	///

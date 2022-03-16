@@ -82,19 +82,19 @@ where
 	///
 	/// Returns the bytes representing the value and its hash.
 	fn load_owned_value(
-		&mut self,
 		v: ValueOwned<TrieHash<L>>,
 		prefix: Prefix,
 		full_key: &[u8],
 		cache: &mut dyn crate::TrieCache<L::Codec>,
+		db: &dyn HashDBRef<L::Hash, DBValue>,
+		recorder: &mut Option<&mut dyn TrieRecorder<TrieHash<L>>>,
 	) -> Result<Option<(Bytes, TrieHash<L>)>, TrieHash<L>, CError<L>> {
 		match v {
 			ValueOwned::Inline(value, hash) => Ok(Some((value.clone(), hash))),
 			ValueOwned::Node(hash) => {
 				let value = cache
 					.get_or_insert_node(hash, &mut || {
-						let value = self
-							.db
+						let value = db
 							.get(&hash, prefix)
 							.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
 
@@ -104,11 +104,7 @@ where
 
 				// `value` should always be `Some(_)`, but better be defensive.
 				if let Some(ref value) = value {
-					self.recorder.record(TrieAccess::Value {
-						hash,
-						value: value[..].into(),
-						full_key,
-					});
+					recorder.record(TrieAccess::Value { hash, value: value[..].into(), full_key });
 				}
 
 				Ok(value.map(|v| (v, hash)))
@@ -157,23 +153,29 @@ where
 		nibble_key: NibbleSlice,
 		cache: &mut dyn crate::TrieCache<L::Codec>,
 	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
-		let res = if let Some(value) =
-			cache.lookup_value_for_key(full_key).map(|v| v.as_ref().map(|v| v.hash))
-		{
+		let res = if let Some(hash) = cache.lookup_value_for_key(full_key).map(|v| v.hash()) {
 			self.recorder.record(TrieAccess::Key {
 				key: full_key,
-				value: value
-					.as_ref()
-					.map_or_else(|| KeyTrieAccessValue::NotFound, |_| KeyTrieAccessValue::HashOnly),
+				value: hash.as_ref().map_or_else(
+					|| KeyTrieAccessValue::NonExisting,
+					|_| KeyTrieAccessValue::HashOnly,
+				),
 			});
 
-			value
+			hash
 		} else {
-			let data = self.look_up_with_cache_internal(nibble_key, full_key, cache)?;
+			let hash = self.look_up_with_cache_internal(
+				nibble_key,
+				full_key,
+				cache,
+				|value, _, _, _, _, _| match value {
+					ValueOwned::Inline(_, hash) | ValueOwned::Node(hash) => Ok(Some(hash)),
+				},
+			)?;
 
-			cache.cache_value_for_key(full_key, data.clone().map(Into::into));
+			cache.cache_value_for_key(full_key, hash.into());
 
-			data.map(|d| d.1)
+			hash
 		};
 
 		Ok(res)
@@ -191,33 +193,47 @@ where
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let res = if let Some(value) = cache
 			.lookup_value_for_key(full_key)
-			.and_then(|v| v.as_ref().map(|v| v.upgrade()))
+			.map(|v| v.data())
 		{
 			self.recorder.record(TrieAccess::Key {
 				key: full_key,
 				value: value.as_ref().map_or_else(
-					|| KeyTrieAccessValue::NotFound,
-					|v| KeyTrieAccessValue::Found(v.0.as_ref().into()),
+					|| KeyTrieAccessValue::NonExisting,
+					|v| KeyTrieAccessValue::Existing(v.0.as_ref().into()),
 				),
 			});
 
 			value
 		} else {
-			let data = self.look_up_with_cache_internal(nibble_key, full_key, cache)?;
+			let data = self.look_up_with_cache_internal(
+				nibble_key,
+				full_key,
+				cache,
+				Self::load_owned_value,
+			)?;
 
-			cache.cache_value_for_key(full_key, data.clone().map(Into::into));
-			data
+			cache.cache_value_for_key(full_key, data.clone().into());
+
+			data.map(|d| d.0)
 		};
 
-		Ok(res.map(|v| self.query.decode(&v.0)))
+		Ok(res.map(|v| self.query.decode(&v)))
 	}
 
-	fn look_up_with_cache_internal(
+	fn look_up_with_cache_internal<R>(
 		&mut self,
 		nibble_key: NibbleSlice,
 		full_key: &[u8],
 		cache: &mut dyn crate::TrieCache<L::Codec>,
-	) -> Result<Option<(Bytes, TrieHash<L>)>, TrieHash<L>, CError<L>> {
+		load_value: impl Fn(
+			ValueOwned<TrieHash<L>>,
+			Prefix,
+			&[u8],
+			&mut dyn crate::TrieCache<L::Codec>,
+			&dyn HashDBRef<L::Hash, DBValue>,
+			&mut Option<&mut dyn TrieRecorder<TrieHash<L>>>,
+		) -> Result<Option<R>, TrieHash<L>, CError<L>>,
+	) -> Result<Option<R>, TrieHash<L>, CError<L>> {
 		let mut partial = nibble_key;
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;
@@ -256,7 +272,7 @@ where
 						return if partial == *slice {
 							let value = (*value).clone();
 							drop(node);
-							self.load_owned_value(value, prefix, full_key, cache)
+							load_value(value, prefix, full_key, cache, self.db, &mut self.recorder)
 						} else {
 							Ok(None)
 						},
@@ -272,7 +288,14 @@ where
 						if partial.is_empty() {
 							return if let Some(value) = value.clone() {
 								drop(node);
-								self.load_owned_value(value, prefix, full_key, cache)
+								load_value(
+									value,
+									prefix,
+									full_key,
+									cache,
+									self.db,
+									&mut self.recorder,
+								)
 							} else {
 								Ok(None)
 							}
@@ -294,7 +317,14 @@ where
 						if partial.len() == slice.len() {
 							return if let Some(value) = value.clone() {
 								drop(node);
-								self.load_owned_value(value, prefix, full_key, cache)
+								load_value(
+									value,
+									prefix,
+									full_key,
+									cache,
+									self.db,
+									&mut self.recorder,
+								)
 							} else {
 								Ok(None)
 							}
@@ -455,7 +485,12 @@ where
 	pub fn traverse_to(mut self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
 		match self.cache.take() {
 			Some(cache) => self
-				.look_up_with_cache_internal(NibbleSlice::new(key), key, cache)
+				.look_up_with_cache_internal(
+					NibbleSlice::new(key),
+					key,
+					cache,
+					Self::load_owned_value,
+				)
 				.map(|b| b.is_some()),
 			None => self.look_up_without_cache(NibbleSlice::new(key), key).map(|b| b.is_some()),
 		}
