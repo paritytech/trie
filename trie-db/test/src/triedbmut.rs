@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::ops::Deref;
+
 use env_logger;
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 use log::debug;
@@ -767,14 +769,10 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	}
 
 	for (key, value) in key_value.iter().skip(1) {
-		assert_eq!(
-			Some(trie_db::Bytes::from(value.clone())),
-			cache
-				.lookup_value_for_key(key)
-				.unwrap()
-				.as_ref()
-				.map(|v| v.upgrade().unwrap().0),
-		);
+		let cached_value = cache.lookup_value_for_key(key).unwrap();
+
+		assert_eq!(value, cached_value.data().unwrap().deref());
+		assert_eq!(T::Hash::hash(&value), cached_value.hash().unwrap());
 	}
 
 	let mut partial_db = MemoryDBProof::<T>::default();
@@ -834,16 +832,12 @@ fn test_insert_remove_data_with_cache_internal<T: TrieLayout>() {
 	for (key, value) in key_value.iter().take(3) {
 		let key_str = String::from_utf8_lossy(key);
 
-		let (data, hash) = cache
+		let cached_value = cache
 			.lookup_value_for_key(key)
-			.unwrap_or_else(|| panic!("Failed to lookup `{}`", key_str))
-			.as_ref()
-			.unwrap()
-			.upgrade()
-			.unwrap();
+			.unwrap_or_else(|| panic!("Failed to lookup `{}`", key_str));
 
-		assert_eq!(trie_db::Bytes::from(value.clone()), data, "{:?}", key_str,);
-		assert_eq!(T::Hash::hash(&value), hash);
+		assert_eq!(value, cached_value.data().unwrap().deref(), "{:?}", key_str);
+		assert_eq!(T::Hash::hash(&value), cached_value.hash().unwrap());
 	}
 
 	for (key, _) in key_value.iter().skip(3) {

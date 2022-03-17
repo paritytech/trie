@@ -63,6 +63,10 @@ where
 		self.raw.contains(L::Hash::hash(key).as_ref())
 	}
 
+	fn get_hash(&self, key: &[u8]) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
+		self.raw.get_hash(key)
+	}
+
 	fn get_with<Q: Query<L::Hash>>(
 		&self,
 		key: &[u8],
@@ -92,7 +96,7 @@ where
 	}
 }
 
-/// Itarator over inserted pairs of key values.
+/// Iterator over inserted pairs of key values.
 pub struct FatDBIterator<'db, 'cache, L>
 where
 	L: TrieLayout,

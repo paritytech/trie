@@ -360,15 +360,10 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	// Root should now be cached.
 	assert!(cache.get_node(&root).is_some());
 	// Also the data should be cached.
-	let (data, hash) = cache
-		.lookup_value_for_key(&key_value[1].0)
-		.unwrap()
-		.as_ref()
-		.unwrap()
-		.upgrade()
-		.unwrap();
-	assert_eq!(key_value[1].1, data.deref());
-	assert_eq!(T::Hash::hash(&key_value[1].1), hash);
+	let value = cache.lookup_value_for_key(&key_value[1].0).unwrap();
+
+	assert_eq!(key_value[1].1, value.data().unwrap().deref());
+	assert_eq!(T::Hash::hash(&key_value[1].1), value.hash().unwrap());
 
 	// And the rest not
 	assert!(cache.lookup_value_for_key(&key_value[0].0).is_none());

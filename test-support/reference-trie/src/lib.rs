@@ -1095,7 +1095,7 @@ pub fn compare_insert_remove<T, DB: hash_db::HashDB<T::Hash, DBValue>>(
 /// Should not be used for anything in production.
 pub struct TestTrieCache<L: TrieLayout> {
 	/// In a real implementation we need to make sure that this is unique per trie root.
-	value_cache: HashMap<Vec<u8>, Option<trie_db::CachedValue<TrieHash<L>>>>,
+	value_cache: HashMap<Vec<u8>, trie_db::CachedValue<TrieHash<L>>>,
 	node_cache: HashMap<TrieHash<L>, NodeOwned<TrieHash<L>>>,
 }
 
@@ -1113,18 +1113,11 @@ impl<L: TrieLayout> Default for TestTrieCache<L> {
 }
 
 impl<L: TrieLayout> trie_db::TrieCache<L::Codec> for TestTrieCache<L> {
-	fn lookup_value_for_key(
-		&self,
-		key: &[u8],
-	) -> Option<&Option<trie_db::CachedValue<TrieHash<L>>>> {
+	fn lookup_value_for_key(&self, key: &[u8]) -> Option<&trie_db::CachedValue<TrieHash<L>>> {
 		self.value_cache.get(key)
 	}
 
-	fn cache_value_for_key(
-		&mut self,
-		key: &[u8],
-		value: Option<trie_db::CachedValue<TrieHash<L>>>,
-	) {
+	fn cache_value_for_key(&mut self, key: &[u8], value: trie_db::CachedValue<TrieHash<L>>) {
 		self.value_cache.insert(key.to_vec(), value);
 	}
 

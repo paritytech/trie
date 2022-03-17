@@ -1876,7 +1876,7 @@ where
 			if let Some(full_key) = full_key {
 				node.data().and_then(|v| node.data_hash().map(|h| (&full_key, v, h))).map(
 					|(k, v, h)| {
-						cache.cache_value_for_key(k.inner(), Some((v.clone(), h).into()));
+						cache.cache_value_for_key(k.inner(), (v.clone(), h).into());
 					},
 				);
 
@@ -1892,10 +1892,7 @@ where
 
 							c.partial_key().map(|p| key.append(p));
 
-							cache.cache_value_for_key(
-								key.inner(),
-								Some((data.clone(), hash).into()),
-							);
+							cache.cache_value_for_key(key.inner(), (data.clone(), hash).into());
 						}
 					},
 				);
@@ -1914,7 +1911,7 @@ where
 
 			cache.insert_node(hash, NodeOwned::Value(value.clone(), hash));
 
-			cache.cache_value_for_key(full_key, Some((value, hash).into()))
+			cache.cache_value_for_key(full_key, (value, hash).into())
 		}
 	}
 
