@@ -169,6 +169,13 @@ pub enum KeyTrieAccessValue<'a> {
 	Existing(rstd::borrow::Cow<'a, [u8]>),
 }
 
+impl KeyTrieAccessValue<'_> {
+	/// Does the value exists in the trie?
+	pub fn exists(&self) -> bool {
+		!matches!(self, Self::NonExisting)
+	}
+}
+
 /// Used to report the trie access to the [`TrieRecorder`].
 ///
 /// As the trie can use a [`TrieCache`], there are multiple kinds of accesses.
