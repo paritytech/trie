@@ -928,7 +928,7 @@ where
 	if root_new != root {
 		{
 			let db: &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = TrieDB::<T>::new(&db, &root_new).unwrap();
+			let t = TrieDB::<T>::new(&db, &root_new);
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:x?}", a);
@@ -936,7 +936,7 @@ where
 		}
 		{
 			let db: &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = TrieDB::<T>::new(&db, &root).unwrap();
+			let t = TrieDB::<T>::new(&db, &root);
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:x?}", a);
@@ -1048,7 +1048,7 @@ pub fn compare_implementations_unordered<T, DB>(
 	if root != root_new {
 		{
 			let db: &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = TrieDB::<T>::new(&db, &root).unwrap();
+			let t = TrieDB::<T>::new(&db, &root);
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
@@ -1056,7 +1056,7 @@ pub fn compare_implementations_unordered<T, DB>(
 		}
 		{
 			let db: &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = TrieDB::<T>::new(&db, &root_new).unwrap();
+			let t = TrieDB::<T>::new(&db, &root_new);
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
@@ -1086,7 +1086,7 @@ pub fn compare_insert_remove<T, DB: hash_db::HashDB<T::Hash, DBValue>>(
 	while a < data.len() {
 		// new triemut every 3 element
 		root = {
-			let mut t = TrieDBMut::<T>::from_existing(&mut memdb, &mut root).unwrap();
+			let mut t = TrieDBMut::<T>::from_existing(&mut memdb, &mut root);
 			for _ in 0..3 {
 				if data[a].0 {
 					// remove
@@ -1107,7 +1107,7 @@ pub fn compare_insert_remove<T, DB: hash_db::HashDB<T::Hash, DBValue>>(
 			*t.root()
 		};
 	}
-	let mut t = TrieDBMut::<T>::from_existing(&mut memdb, &mut root).unwrap();
+	let mut t = TrieDBMut::<T>::from_existing(&mut memdb, &mut root);
 	// we are testing the RefTrie code here so we do not sort or check uniqueness
 	// before.
 	assert_eq!(*t.root(), calc_root::<T, _, _, _>(data2));

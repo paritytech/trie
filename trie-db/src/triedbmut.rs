@@ -588,26 +588,25 @@ where
 		}
 	}
 
-	/// Create a new trie with the backing database `db` and `root.
-	/// Returns an error if `root` does not exist.
+	/// Create a new trie with the backing database `db` and `root`.
+	///
+	/// This doesn't check if `root` exists in the given `db`. If `root` doesn't exist it will fail
+	/// when trying to lookup any key.
 	pub fn from_existing(
 		db: &'a mut dyn HashDB<L::Hash, DBValue>,
 		root: &'a mut TrieHash<L>,
-	) -> Result<Self, TrieHash<L>, CError<L>> {
-		if !db.contains(root, EMPTY_PREFIX) {
-			return Err(Box::new(TrieError::InvalidStateRoot(*root)))
-		}
-
+	) -> Self {
 		let root_handle = NodeHandle::Hash(*root);
-		Ok(TrieDBMut {
+		TrieDBMut {
 			storage: NodeStorage::empty(),
 			db,
 			root,
 			root_handle,
 			death_row: HashSet::new(),
 			hash_count: 0,
-		})
+		}
 	}
+
 	/// Get the backing database.
 	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue> {
 		self.db

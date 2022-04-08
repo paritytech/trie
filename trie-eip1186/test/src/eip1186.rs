@@ -58,7 +58,7 @@ fn test_generate_proof<L: TrieLayout>(
 		(db, root)
 	};
 	// Generate proof for the given keys..
-	let trie = <TrieDB<L>>::new(&db, &root).unwrap();
+	let trie = <TrieDB<L>>::new(&db, &root);
 	let proof = generate_proof::<_, L>(&trie, key).unwrap();
 	(root, proof.0, proof.1)
 }

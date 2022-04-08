@@ -36,7 +36,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 		}
 	}
 
-	let trie = TrieDB::<T>::new(&memdb, &root).unwrap();
+	let trie = TrieDB::<T>::new(&memdb, &root);
 
 	let iter = trie.iter().unwrap();
 	let mut iter_pairs = Vec::new();
@@ -64,7 +64,7 @@ fn iterator_seek_works_internal<T: TrieLayout>() {
 		}
 	}
 
-	let t = TrieDB::<T>::new(&memdb, &root).unwrap();
+	let t = TrieDB::<T>::new(&memdb, &root);
 
 	let mut iter = t.iter().unwrap();
 	assert_eq!(
@@ -97,7 +97,7 @@ fn iterator_internal<T: TrieLayout>() {
 		}
 	}
 
-	let t = TrieDB::<T>::new(&memdb, &root).unwrap();
+	let t = TrieDB::<T>::new(&memdb, &root);
 	assert_eq!(
 		d.iter().map(|i| i.clone()).collect::<Vec<_>>(),
 		t.iter().unwrap().map(|x| x.unwrap().0).collect::<Vec<_>>()
@@ -119,7 +119,7 @@ fn iterator_seek_internal<T: TrieLayout>() {
 		}
 	}
 
-	let t = TrieDB::<T>::new(&memdb, &root).unwrap();
+	let t = TrieDB::<T>::new(&memdb, &root);
 	let mut iter = t.iter().unwrap();
 	assert_eq!(iter.next().unwrap().unwrap(), (b"A".to_vec(), vals[0].clone()));
 	iter.seek(b"!").unwrap();
@@ -167,7 +167,7 @@ fn get_length_with_extension_internal<T: TrieLayout>() {
 		t.insert(b"B", b"ABCBAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
 	}
 
-	let t = TrieDB::<T>::new(&memdb, &root).unwrap();
+	let t = TrieDB::<T>::new(&memdb, &root);
 	assert_eq!(t.get_with(b"A", |x: &[u8]| x.len()).unwrap(), Some(3));
 	assert_eq!(t.get_with(b"B", |x: &[u8]| x.len()).unwrap(), Some(32));
 	assert_eq!(t.get_with(b"C", |x: &[u8]| x.len()).unwrap(), None);
@@ -186,7 +186,7 @@ fn debug_output_supports_pretty_print_internal<T: TrieLayout>() {
 		}
 		t.root().clone()
 	};
-	let t = TrieDB::<T>::new(&memdb, &root).unwrap();
+	let t = TrieDB::<T>::new(&memdb, &root);
 
 	if T::USE_EXTENSION {
 		assert_eq!(
@@ -268,7 +268,7 @@ fn test_lookup_with_corrupt_data_returns_decoder_error_internal<T: TrieLayout>()
 		t.insert(b"B", b"ABCBA").unwrap();
 	}
 
-	let t = TrieDB::<T>::new(&memdb, &root).unwrap();
+	let t = TrieDB::<T>::new(&memdb, &root);
 
 	// query for an invalid data type to trigger an error
 	let q = |x: &[u8]| x.len() < 64;

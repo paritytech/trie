@@ -62,7 +62,7 @@ fn test_generate_proof<L: TrieLayout>(
 	};
 
 	// Generate proof for the given keys..
-	let trie = <TrieDB<L>>::new(&db, &root).unwrap();
+	let trie = <TrieDB<L>>::new(&db, &root);
 	let proof = generate_proof::<_, L, _, _>(&trie, keys.iter()).unwrap();
 	let items = keys.into_iter().map(|key| (key, trie.get(key).unwrap())).collect();
 

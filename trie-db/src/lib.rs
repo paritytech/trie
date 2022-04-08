@@ -304,9 +304,8 @@ impl Default for TrieSpec {
 
 /// Trie factory.
 #[derive(Default, Clone)]
-pub struct TrieFactory<L: TrieLayout> {
+pub struct TrieFactory {
 	spec: TrieSpec,
-	layout: L,
 }
 
 /// All different kinds of tries.
@@ -376,30 +375,27 @@ impl<'db, L: TrieLayout> Trie<L> for TrieKinds<'db, L> {
 	}
 }
 
-impl<'db, L> TrieFactory<L>
-where
-	L: TrieLayout + 'db,
-{
+impl TrieFactory {
 	/// Creates new factory.
-	pub fn new(spec: TrieSpec, layout: L) -> Self {
-		TrieFactory { spec, layout }
+	pub fn new(spec: TrieSpec) -> Self {
+		TrieFactory { spec }
 	}
 
 	/// Create new immutable instance of Trie.
-	pub fn readonly(
+	pub fn readonly<'db, L: TrieLayout>(
 		&self,
 		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
-	) -> Result<TrieKinds<'db, L>, TrieHash<L>, CError<L>> {
+	) -> TrieKinds<'db, L> {
 		match self.spec {
-			TrieSpec::Generic => Ok(TrieKinds::Generic(TrieDB::new(db, root)?)),
-			TrieSpec::Secure => Ok(TrieKinds::Secure(SecTrieDB::new(db, root)?)),
-			TrieSpec::Fat => Ok(TrieKinds::Fat(FatDB::new(db, root)?)),
+			TrieSpec::Generic => TrieKinds::Generic(TrieDB::new(db, root)),
+			TrieSpec::Secure => TrieKinds::Secure(SecTrieDB::new(db, root)),
+			TrieSpec::Fat => TrieKinds::Fat(FatDB::new(db, root)),
 		}
 	}
 
 	/// Create new mutable instance of Trie.
-	pub fn create(
+	pub fn create<'db, L: TrieLayout + 'db>(
 		&self,
 		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
@@ -412,15 +408,15 @@ where
 	}
 
 	/// Create new mutable instance of trie and check for errors.
-	pub fn from_existing(
+	pub fn from_existing<'db, L: TrieLayout + 'db>(
 		&self,
 		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
-	) -> Result<Box<dyn TrieMut<L> + 'db>, TrieHash<L>, CError<L>> {
+	) -> Box<dyn TrieMut<L> + 'db> {
 		match self.spec {
-			TrieSpec::Generic => Ok(Box::new(TrieDBMut::<L>::from_existing(db, root)?)),
-			TrieSpec::Secure => Ok(Box::new(SecTrieDBMut::<L>::from_existing(db, root)?)),
-			TrieSpec::Fat => Ok(Box::new(FatDBMut::<L>::from_existing(db, root)?)),
+			TrieSpec::Generic => Box::new(TrieDBMut::<L>::from_existing(db, root)),
+			TrieSpec::Secure => Box::new(SecTrieDBMut::<L>::from_existing(db, root)),
+			TrieSpec::Fat => Box::new(FatDBMut::<L>::from_existing(db, root)),
 		}
 	}
 

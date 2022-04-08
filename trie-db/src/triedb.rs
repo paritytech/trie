@@ -44,7 +44,7 @@ use crate::rstd::{fmt, vec::Vec};
 /// let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
 /// let mut root = Default::default();
 /// RefTrieDBMut::new(&mut memdb, &mut root).insert(b"foo", b"bar").unwrap();
-/// let t = RefTrieDB::new(&memdb, &root).unwrap();
+/// let t = RefTrieDB::new(&memdb, &root);
 /// assert!(t.contains(b"foo").unwrap());
 /// assert_eq!(t.get(b"foo").unwrap().unwrap(), b"bar".to_vec());
 /// ```
@@ -62,22 +62,11 @@ impl<'db, L> TrieDB<'db, L>
 where
 	L: TrieLayout,
 {
-	/// Create a new trie with the backing database `db` and `root`
-	/// Returns an error if `root` does not exist
-	pub fn new(
-		db: &'db dyn HashDBRef<L::Hash, DBValue>,
-		root: &'db TrieHash<L>,
-	) -> Result<Self, TrieHash<L>, CError<L>> {
-		if !db.contains(root, EMPTY_PREFIX) {
-			Err(Box::new(TrieError::InvalidStateRoot(*root)))
-		} else {
-			Ok(TrieDB { db, root, hash_count: 0 })
-		}
-	}
-
-	/// `new_with_layout`, but do not check root presence, if missing
-	/// this will fail at first node access.
-	pub fn new_unchecked(db: &'db dyn HashDBRef<L::Hash, DBValue>, root: &'db TrieHash<L>) -> Self {
+	/// Create a new trie with the backing database `db` and `root`.
+	///
+	/// This doesn't check if `root` exists in the given `db`. If `root` doesn't exist it will fail
+	/// when trying to lookup any key.
+	pub fn new(db: &'db dyn HashDBRef<L::Hash, DBValue>, root: &'db TrieHash<L>) -> Self {
 		TrieDB { db, root, hash_count: 0 }
 	}
 

@@ -360,7 +360,7 @@ fn test_at_one_and_two_internal<T: TrieLayout>() {
 		assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), vec![0x1u8, 0x23]);
 		t.insert(&[0x01u8, 0x23, 0x00], &[0x01u8, 0x24]).unwrap();
 	}
-	let mut t = TrieDBMut::<T>::from_existing(&mut memdb, &mut root).unwrap();
+	let mut t = TrieDBMut::<T>::from_existing(&mut memdb, &mut root);
 	t.insert(&[0x01u8, 0x23, 0x00], &[0x01u8, 0x25]).unwrap();
 	// This test that middle node get resolved correctly (modified
 	// triedbmut node due to change of child node).
@@ -549,7 +549,7 @@ fn register_proof_without_value() {
 	let mut root = Default::default();
 	let _ = populate_trie::<Layout>(&mut memdb, &mut root, &x);
 	{
-		let trie = TrieDB::<Layout>::new(&memdb, &root).unwrap();
+		let trie = TrieDB::<Layout>::new(&memdb, &root);
 		println!("{:?}", trie);
 	}
 
@@ -600,7 +600,7 @@ fn register_proof_without_value() {
 
 	let root_proof = root.clone();
 	{
-		let mut trie = TrieDBMut::<Layout>::from_existing(&mut memdb, &mut root).unwrap();
+		let mut trie = TrieDBMut::<Layout>::from_existing(&mut memdb, &mut root);
 		// touch te value (test1 remains untouch).
 		trie.get(b"te").unwrap();
 		// cut test_1234 prefix
@@ -623,8 +623,7 @@ fn register_proof_without_value() {
 	let mut memdb_from_proof = db_unpacked.clone();
 	let mut root_proof = root_unpacked.clone();
 	{
-		let mut trie =
-			TrieDBMut::<Layout>::from_existing(&mut memdb_from_proof, &mut root_proof).unwrap();
+		let mut trie = TrieDBMut::<Layout>::from_existing(&mut memdb_from_proof, &mut root_proof);
 		trie.get(b"te").unwrap();
 		trie.insert(b"test12", &[2u8; 36][..]).unwrap();
 		trie.remove(b"test1234").unwrap();
@@ -634,7 +633,7 @@ fn register_proof_without_value() {
 	let mut root_proof = root_unpacked.clone();
 	{
 		use trie_db::Trie;
-		let trie = TrieDB::<Layout>::new(&memdb_from_proof, &root_proof).unwrap();
+		let trie = TrieDB::<Layout>::new(&memdb_from_proof, &root_proof);
 		assert!(trie.get(b"te").unwrap().is_some());
 		assert!(matches!(
 			trie.get(b"test1").map_err(|e| *e),
@@ -643,8 +642,7 @@ fn register_proof_without_value() {
 	}
 
 	{
-		let trie =
-			TrieDBMut::<Layout>::from_existing(&mut memdb_from_proof, &mut root_proof).unwrap();
+		let trie = TrieDBMut::<Layout>::from_existing(&mut memdb_from_proof, &mut root_proof);
 		assert!(trie.get(b"te").unwrap().is_some());
 		assert!(matches!(
 			trie.get(b"test1").map_err(|e| *e),

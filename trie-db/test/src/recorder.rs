@@ -73,7 +73,7 @@ fn trie_record() {
 		x.insert(b"yo ho ho", b"and a bottle of rum").unwrap();
 	}
 
-	let trie = RefTrieDB::new(&db, &root).unwrap();
+	let trie = RefTrieDB::new(&db, &root);
 	let mut recorder = Recorder::new();
 
 	trie.get_with(b"pirate", &mut recorder).unwrap().unwrap();

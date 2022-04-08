@@ -24,7 +24,7 @@ fn fatdb_to_trie() {
 		let mut t = RefFatDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	}
-	let t = RefFatDB::new(&memdb, &root).unwrap();
+	let t = RefFatDB::new(&memdb, &root);
 	assert_eq!(t.get(&[0x01u8, 0x23]).unwrap().unwrap(), vec![0x01u8, 0x23]);
 	assert_eq!(
 		t.iter().unwrap().map(Result::unwrap).collect::<Vec<_>>(),

@@ -41,8 +41,8 @@ where
 	pub fn new(
 		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
-	) -> Result<Self, TrieHash<L>, CError<L>> {
-		Ok(FatDB { raw: TrieDB::new(db, root)? })
+	) -> Self {
+		FatDB { raw: TrieDB::new(db, root) }
 	}
 
 	/// Get the backing database.
