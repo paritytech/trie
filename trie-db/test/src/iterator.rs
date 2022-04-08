@@ -60,7 +60,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 	];
 
 	let (memdb, root) = build_trie_db::<T>(&pairs);
-	let trie = TrieDB::<T>::new(&memdb, &root).unwrap();
+	let trie = TrieDB::<T>::new(&memdb, &root);
 	let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 
 	if T::USE_EXTENSION {
@@ -186,7 +186,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 test_layouts!(iterator_over_empty_works, iterator_over_empty_works_internal);
 fn iterator_over_empty_works_internal<T: TrieLayout>() {
 	let (memdb, root) = build_trie_db::<T>(&[]);
-	let trie = TrieDB::<T>::new(&memdb, &root).unwrap();
+	let trie = TrieDB::<T>::new(&memdb, &root);
 	let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 
 	match iter.next() {
@@ -212,7 +212,7 @@ fn seek_works_internal<T: TrieLayout>() {
 	];
 
 	let (memdb, root) = build_trie_db::<T>(&pairs);
-	let trie = TrieDB::<T>::new(&memdb, &root).unwrap();
+	let trie = TrieDB::<T>::new(&memdb, &root);
 	let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 
 	TrieIterator::seek(&mut iter, &hex!("")[..]).unwrap();
@@ -246,7 +246,7 @@ fn seek_works_internal<T: TrieLayout>() {
 test_layouts!(seek_over_empty_works, seek_over_empty_works_internal);
 fn seek_over_empty_works_internal<T: TrieLayout>() {
 	let (memdb, root) = build_trie_db::<T>(&[]);
-	let trie = TrieDB::<T>::new(&memdb, &root).unwrap();
+	let trie = TrieDB::<T>::new(&memdb, &root);
 	let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 
 	TrieIterator::seek(&mut iter, &hex!("")[..]).unwrap();
@@ -278,7 +278,7 @@ fn iterate_over_incomplete_db_internal<T: TrieLayout>() {
 
 	// Look up the leaf node with prefix "02".
 	let leaf_hash = {
-		let trie = TrieDB::<T>::new(&memdb, &root).unwrap();
+		let trie = TrieDB::<T>::new(&memdb, &root);
 		let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 
 		TrieIterator::seek(&mut iter, &hex!("02")[..]).unwrap();
@@ -297,7 +297,7 @@ fn iterate_over_incomplete_db_internal<T: TrieLayout>() {
 
 	// Seek to missing node returns error.
 	{
-		let trie = TrieDB::<T>::new(&memdb, &root).unwrap();
+		let trie = TrieDB::<T>::new(&memdb, &root);
 		let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 
 		match TrieIterator::seek(&mut iter, &hex!("02")[..]) {
@@ -311,7 +311,7 @@ fn iterate_over_incomplete_db_internal<T: TrieLayout>() {
 
 	// Iterate over missing node works.
 	{
-		let trie = TrieDB::<T>::new(&memdb, &root).unwrap();
+		let trie = TrieDB::<T>::new(&memdb, &root);
 		let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 
 		TrieIterator::seek(&mut iter, &hex!("0130")[..]).unwrap();
@@ -347,7 +347,7 @@ fn prefix_works_internal<T: TrieLayout>() {
 	];
 
 	let (memdb, root) = build_trie_db::<T>(&pairs);
-	let trie = TrieDB::<T>::new(&memdb, &root).unwrap();
+	let trie = TrieDB::<T>::new(&memdb, &root);
 	let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 
 	iter.prefix(&hex!("01").to_vec()[..]).unwrap();
@@ -408,7 +408,7 @@ fn prefix_works_internal<T: TrieLayout>() {
 test_layouts!(prefix_over_empty_works, prefix_over_empty_works_internal);
 fn prefix_over_empty_works_internal<T: TrieLayout>() {
 	let (memdb, root) = build_trie_db::<T>(&[]);
-	let trie = TrieDB::<T>::new(&memdb, &root).unwrap();
+	let trie = TrieDB::<T>::new(&memdb, &root);
 	let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 	iter.prefix(&hex!("")[..]).unwrap();
 	match iter.next() {

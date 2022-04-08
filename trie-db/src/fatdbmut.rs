@@ -43,8 +43,8 @@ where
 	pub fn from_existing(
 		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
-	) -> Result<Self, TrieHash<L>, CError<L>> {
-		Ok(FatDBMut { raw: TrieDBMut::from_existing(db, root)? })
+	) -> Self {
+		FatDBMut { raw: TrieDBMut::from_existing(db, root) }
 	}
 
 	/// Get the backing database.

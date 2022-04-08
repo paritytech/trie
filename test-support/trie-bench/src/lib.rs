@@ -81,7 +81,7 @@ fn benchmark<L: TrieLayout, S: TrieStream>(
 				}
 			}
 			b.iter(&mut || {
-				let t = TrieDB::<L>::new(&memdb, &root).unwrap();
+				let t = TrieDB::<L>::new(&memdb, &root);
 				for n in t.iter().unwrap() {
 					black_box(n).unwrap();
 				}

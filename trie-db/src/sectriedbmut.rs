@@ -38,13 +38,11 @@ where
 	}
 
 	/// Create a new trie with the backing database `db` and `root`.
-	///
-	/// Returns an error if root does not exist.
 	pub fn from_existing(
 		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
-	) -> Result<Self, TrieHash<L>, CError<L>> {
-		Ok(SecTrieDBMut { raw: TrieDBMut::from_existing(db, root)? })
+	) -> Self {
+		SecTrieDBMut { raw: TrieDBMut::from_existing(db, root) }
 	}
 
 	/// Get the backing database.
