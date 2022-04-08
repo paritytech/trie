@@ -37,7 +37,7 @@ where
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
 	pub fn new(db: &'db dyn HashDBRef<L::Hash, DBValue>, root: &'db TrieHash<L>) -> Self {
-		SecTrieDB { raw: TrieDBBuilder::new(db, root)?.build() }
+		SecTrieDB { raw: TrieDBBuilder::new(db, root).build() }
 	}
 
 	/// Get a reference to the underlying raw `TrieDB` struct.

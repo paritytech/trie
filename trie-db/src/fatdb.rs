@@ -38,11 +38,8 @@ where
 	/// Create a new trie with the backing database `db` and empty `root`
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
-	pub fn new(
-		db: &'db dyn HashDBRef<L::Hash, DBValue>,
-		root: &'db TrieHash<L>,
-	) -> Self {
-		Ok(FatDB { raw: TrieDBBuilder::new(db, root)?.build() })
+	pub fn new(db: &'db dyn HashDBRef<L::Hash, DBValue>, root: &'db TrieHash<L>) -> Self {
+		FatDB { raw: TrieDBBuilder::new(db, root).build() }
 	}
 
 	/// Get the backing database.

@@ -25,6 +25,6 @@ fn sectrie_to_trie() {
 		let mut t = RefSecTrieDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	}
-	let t = RefTrieDBBuilder::new(&memdb, &root).unwrap().build();
+	let t = RefTrieDBBuilder::new(&memdb, &root).build();
 	assert_eq!(t.get(&RefHasher::hash(&[0x01u8, 0x23])).unwrap().unwrap(), vec![0x01u8, 0x23],);
 }

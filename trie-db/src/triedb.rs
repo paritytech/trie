@@ -37,24 +37,11 @@ pub struct TrieDBBuilder<'db, 'cache, L: TrieLayout> {
 }
 
 impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
-	/// Create a new trie-db builder with the backing database `db` and `root`
-	///
-	/// Returns an error if `root` does not exist
-	pub fn new(
-		db: &'db dyn HashDBRef<L::Hash, DBValue>,
-		root: &'db TrieHash<L>,
-	) -> Result<Self, TrieHash<L>, CError<L>> {
-		if !db.contains(root, EMPTY_PREFIX) {
-			Err(Box::new(TrieError::InvalidStateRoot(*root)))
-		} else {
-			Ok(Self { db, root, cache: None, recorder: None })
-		}
-	}
-
 	/// Create a new trie-db builder with the backing database `db` and `root`.
 	///
-	/// Similar to [`Self::new`], but doesn't check if `db` contains `root`.
-	pub fn new_unchecked(db: &'db dyn HashDBRef<L::Hash, DBValue>, root: &'db TrieHash<L>) -> Self {
+	/// This doesn't check if `root` exists in the given `db`. If `root` doesn't exist it will fail
+	/// when trying to lookup any key.
+	pub fn new(db: &'db dyn HashDBRef<L::Hash, DBValue>, root: &'db TrieHash<L>) -> Self {
 		Self { db, root, cache: None, recorder: None }
 	}
 

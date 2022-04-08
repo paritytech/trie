@@ -50,7 +50,7 @@ impl<L: TrieLayout> Recorder<L> {
 		let keys = crate::rstd::mem::take(&mut self.keys);
 
 		{
-			let builder = TrieDBBuilder::<L>::new(db, root)?.with_recorder(self);
+			let builder = TrieDBBuilder::<L>::new(db, root).with_recorder(self);
 
 			let trie = if let Some(cache) = cache {
 				builder.with_cache(cache).build()

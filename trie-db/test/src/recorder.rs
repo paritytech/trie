@@ -15,7 +15,7 @@
 //! Trie query recorder.
 
 use memory_db::{HashKey, MemoryDB};
-use reference_trie::{NoExtensionLayout, RefTrieDBBuilder, RefTrieDBMutBuilder, RefHasher};
+use reference_trie::{NoExtensionLayout, RefHasher, RefTrieDBBuilder, RefTrieDBMutBuilder};
 use trie_db::{Recorder, Trie, TrieMut};
 
 #[test]
@@ -37,11 +37,12 @@ fn trie_record() {
 
 	{
 		let mut recorder = Recorder::<NoExtensionLayout>::new();
-		let trie = RefTrieDBBuilder::new_unchecked(&db, &root).with_recorder(&mut recorder).build();
+		let trie = RefTrieDBBuilder::new(&db, &root).with_recorder(&mut recorder).build();
 
 		trie.get(b"pirate").unwrap().unwrap();
 
-		let nodes: Vec<_> = recorder.drain(&db, &root, None).unwrap().into_iter().map(|r| r.1).collect();
+		let nodes: Vec<_> =
+			recorder.drain(&db, &root, None).unwrap().into_iter().map(|r| r.1).collect();
 		assert_eq!(
 			nodes,
 			vec![
@@ -62,10 +63,11 @@ fn trie_record() {
 
 	{
 		let mut recorder = Recorder::<NoExtensionLayout>::new();
-		let trie = RefTrieDBBuilder::new_unchecked(&db, &root).with_recorder(&mut recorder).build();
+		let trie = RefTrieDBBuilder::new(&db, &root).with_recorder(&mut recorder).build();
 		trie.get(b"letter").unwrap().unwrap();
 
-		let nodes: Vec<_> = recorder.drain(&db, &root, None).unwrap().into_iter().map(|r| r.1).collect();
+		let nodes: Vec<_> =
+			recorder.drain(&db, &root, None).unwrap().into_iter().map(|r| r.1).collect();
 		assert_eq!(
 			nodes,
 			vec![

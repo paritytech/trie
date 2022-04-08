@@ -410,13 +410,13 @@ impl TrieFactory {
 	}
 
 	/// Create new immutable instance of Trie.
-	pub fn readonly<'db, L: TrieLayout>(
+	pub fn readonly<'db, 'cache, L: TrieLayout>(
 		&self,
 		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
-	) -> TrieKinds<'db, L> {
+	) -> TrieKinds<'db, 'cache, L> {
 		match self.spec {
-			TrieSpec::Generic => TrieKinds::Generic(TrieDB::new(db, root)),
+			TrieSpec::Generic => TrieKinds::Generic(TrieDBBuilder::new(db, root).build()),
 			TrieSpec::Secure => TrieKinds::Secure(SecTrieDB::new(db, root)),
 			TrieSpec::Fat => TrieKinds::Fat(FatDB::new(db, root)),
 		}
@@ -442,7 +442,7 @@ impl TrieFactory {
 		root: &'db mut TrieHash<L>,
 	) -> Box<dyn TrieMut<L> + 'db> {
 		match self.spec {
-			TrieSpec::Generic => Box::new(TrieDBMut::<L>::from_existing(db, root)),
+			TrieSpec::Generic => Box::new(TrieDBMutBuilder::<L>::from_existing(db, root).build()),
 			TrieSpec::Secure => Box::new(SecTrieDBMut::<L>::from_existing(db, root)),
 			TrieSpec::Fat => Box::new(FatDBMut::<L>::from_existing(db, root)),
 		}

@@ -48,7 +48,7 @@ fn test_iter<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) {
 			t.insert(key, value).unwrap();
 		}
 	}
-	let t = TrieDBBuilder::<T>::new_unchecked(&db, &root).build();
+	let t = TrieDBBuilder::<T>::new(&db, &root).build();
 	for (i, kv) in t.iter().unwrap().enumerate() {
 		let (k, v) = kv.unwrap();
 		let key: &[u8] = &data[i].0;

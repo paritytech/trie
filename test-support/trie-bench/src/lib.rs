@@ -20,7 +20,7 @@ use keccak_hasher::KeccakHasher;
 use memory_db::{HashKey, MemoryDB};
 use parity_scale_codec::{Compact, Encode};
 use std::default::Default;
-use trie_db::{NodeCodec, TrieDBMutBuilder, TrieDBBuilder, TrieHash, TrieLayout, TrieMut, Trie};
+use trie_db::{NodeCodec, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieHash, TrieLayout, TrieMut};
 use trie_root::{trie_root, TrieStream};
 use trie_standardmap::*;
 
@@ -81,7 +81,7 @@ fn benchmark<L: TrieLayout, S: TrieStream>(
 				}
 			}
 			b.iter(&mut || {
-				let t = TrieDBBuilder::<L>::new_unchecked(&memdb, &root).build();
+				let t = TrieDBBuilder::<L>::new(&memdb, &root).build();
 				for n in t.iter().unwrap() {
 					black_box(n).unwrap();
 				}

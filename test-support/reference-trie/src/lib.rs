@@ -904,7 +904,7 @@ where
 	if root_new != root {
 		{
 			let db: &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = TrieDBBuilder::<T>::new_unchecked(&db, &root_new).build();
+			let t = TrieDBBuilder::<T>::new(&db, &root_new).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:x?}", a);
@@ -912,7 +912,7 @@ where
 		}
 		{
 			let db: &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = TrieDBBuilder::<T>::new_unchecked(&db, &root).build();
+			let t = TrieDBBuilder::<T>::new(&db, &root).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:x?}", a);
@@ -1024,7 +1024,7 @@ pub fn compare_implementations_unordered<T, DB>(
 	if root != root_new {
 		{
 			let db: &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = TrieDBBuilder::<T>::new_unchecked(&db, &root).build();
+			let t = TrieDBBuilder::<T>::new(&db, &root).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
@@ -1032,7 +1032,7 @@ pub fn compare_implementations_unordered<T, DB>(
 		}
 		{
 			let db: &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = TrieDBBuilder::<T>::new_unchecked(&db, &root_new).build();
+			let t = TrieDBBuilder::<T>::new(&db, &root_new).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
@@ -1062,8 +1062,7 @@ pub fn compare_insert_remove<T, DB: hash_db::HashDB<T::Hash, DBValue>>(
 	while a < data.len() {
 		// new triemut every 3 element
 		root = {
-			let mut t =
-				TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root).unwrap().build();
+			let mut t = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root).build();
 			for _ in 0..3 {
 				if data[a].0 {
 					// remove
@@ -1084,7 +1083,7 @@ pub fn compare_insert_remove<T, DB: hash_db::HashDB<T::Hash, DBValue>>(
 			*t.root()
 		};
 	}
-	let mut t = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root).unwrap().build();
+	let mut t = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root).build();
 	// we are testing the RefTrie code here so we do not sort or check uniqueness
 	// before.
 	assert_eq!(*t.root(), calc_root::<T, _, _, _>(data2));

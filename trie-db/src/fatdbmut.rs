@@ -47,7 +47,7 @@ where
 		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
 	) -> Self {
-		Ok(FatDBMut { raw: TrieDBMutBuilder::from_existing(db, root)?.build() })
+		FatDBMut { raw: TrieDBMutBuilder::from_existing(db, root).build() }
 	}
 
 	/// Get the backing database.

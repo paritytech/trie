@@ -44,7 +44,7 @@ fn iterator_works_internal<T: TrieLayout>() {
 		}
 	}
 
-	let trie = TrieDBBuilder::<T>::new_unchecked(&memdb, &root).build();
+	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
 
 	let iter = trie.iter().unwrap();
 	let mut iter_pairs = Vec::new();
@@ -72,7 +72,7 @@ fn iterator_seek_works_internal<T: TrieLayout>() {
 		}
 	}
 
-	let t = TrieDBBuilder::<T>::new(&memdb, &root).unwrap().build();
+	let t = TrieDBBuilder::<T>::new(&memdb, &root).build();
 
 	let mut iter = t.iter().unwrap();
 	assert_eq!(
@@ -105,7 +105,7 @@ fn iterator_internal<T: TrieLayout>() {
 		}
 	}
 
-	let t = TrieDBBuilder::<T>::new(&memdb, &root).unwrap().build();
+	let t = TrieDBBuilder::<T>::new(&memdb, &root).build();
 	assert_eq!(
 		d.iter().map(|i| i.clone()).collect::<Vec<_>>(),
 		t.iter().unwrap().map(|x| x.unwrap().0).collect::<Vec<_>>()
@@ -127,7 +127,7 @@ fn iterator_seek_internal<T: TrieLayout>() {
 		}
 	}
 
-	let t = TrieDBBuilder::<T>::new(&memdb, &root).unwrap().build();
+	let t = TrieDBBuilder::<T>::new(&memdb, &root).build();
 	let mut iter = t.iter().unwrap();
 	assert_eq!(iter.next().unwrap().unwrap(), (b"A".to_vec(), vals[0].clone()));
 	iter.seek(b"!").unwrap();
@@ -175,7 +175,7 @@ fn get_length_with_extension_internal<T: TrieLayout>() {
 		t.insert(b"B", b"ABCBAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
 	}
 
-	let t = TrieDBBuilder::<T>::new(&memdb, &root).unwrap().build();
+	let t = TrieDBBuilder::<T>::new(&memdb, &root).build();
 	assert_eq!(t.get_with(b"A", |x: &[u8]| x.len()).unwrap(), Some(3));
 	assert_eq!(t.get_with(b"B", |x: &[u8]| x.len()).unwrap(), Some(32));
 	assert_eq!(t.get_with(b"C", |x: &[u8]| x.len()).unwrap(), None);
@@ -194,7 +194,7 @@ fn debug_output_supports_pretty_print_internal<T: TrieLayout>() {
 		}
 		t.root().clone()
 	};
-	let t = TrieDBBuilder::<T>::new(&memdb, &root).unwrap().build();
+	let t = TrieDBBuilder::<T>::new(&memdb, &root).build();
 
 	if T::USE_EXTENSION {
 		assert_eq!(
@@ -276,7 +276,7 @@ fn test_lookup_with_corrupt_data_returns_decoder_error_internal<T: TrieLayout>()
 		t.insert(b"B", b"ABCBA").unwrap();
 	}
 
-	let t = TrieDBBuilder::<T>::new(&memdb, &root).unwrap().build();
+	let t = TrieDBBuilder::<T>::new(&memdb, &root).build();
 
 	// query for an invalid data type to trigger an error
 	let q = |x: &[u8]| x.len() < 64;
@@ -305,7 +305,7 @@ fn test_recorder_internal<T: TrieLayout>() {
 
 	let mut recorder = Recorder::<T>::new();
 	{
-		let trie = TrieDBBuilder::<T>::new_unchecked(&memdb, &root)
+		let trie = TrieDBBuilder::<T>::new(&memdb, &root)
 			.with_recorder(&mut recorder)
 			.build();
 
@@ -320,7 +320,7 @@ fn test_recorder_internal<T: TrieLayout>() {
 	}
 
 	{
-		let trie = TrieDBBuilder::<T>::new_unchecked(&partial_db, &root).build();
+		let trie = TrieDBBuilder::<T>::new(&partial_db, &root).build();
 
 		for (key, value) in key_value.iter().take(3) {
 			assert_eq!(*value, trie.get(key).unwrap().unwrap());
@@ -351,7 +351,7 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	let mut cache = TestTrieCache::<T>::default();
 
 	{
-		let trie = TrieDBBuilder::<T>::new_unchecked(&memdb, &root).with_cache(&mut cache).build();
+		let trie = TrieDBBuilder::<T>::new(&memdb, &root).with_cache(&mut cache).build();
 
 		// Only read one entry.
 		assert_eq!(key_value[1].1, trie.get(&key_value[1].0).unwrap().unwrap());
@@ -379,7 +379,7 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 
 		let mut recorder = Recorder::<T>::new();
 		{
-			let trie = TrieDBBuilder::<T>::new_unchecked(&memdb, &root)
+			let trie = TrieDBBuilder::<T>::new(&memdb, &root)
 				.with_cache(&mut cache)
 				.with_recorder(&mut recorder)
 				.build();
@@ -395,7 +395,7 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 		}
 
 		{
-			let trie = TrieDBBuilder::<T>::new_unchecked(&partial_db, &root).build();
+			let trie = TrieDBBuilder::<T>::new(&partial_db, &root).build();
 
 			for (key, value) in key_value.iter().take(3) {
 				assert_eq!(*value, trie.get(key).unwrap().unwrap());
@@ -422,7 +422,7 @@ fn iterator_seek_with_recorder_internal<T: TrieLayout>() {
 
 	let mut recorder = Recorder::<T>::new();
 	{
-		let t = TrieDBBuilder::<T>::new_unchecked(&memdb, &root)
+		let t = TrieDBBuilder::<T>::new(&memdb, &root)
 			.with_recorder(&mut recorder)
 			.build();
 		let mut iter = t.iter().unwrap();
@@ -437,7 +437,7 @@ fn iterator_seek_with_recorder_internal<T: TrieLayout>() {
 
 	// Replay with from the proof.
 	{
-		let trie = TrieDBBuilder::<T>::new_unchecked(&partial_db, &root).build();
+		let trie = TrieDBBuilder::<T>::new(&partial_db, &root).build();
 
 		let mut iter = trie.iter().unwrap();
 		iter.seek(b"AA").unwrap();

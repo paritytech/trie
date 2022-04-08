@@ -653,16 +653,13 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 
 	/// Create a builder for constructing a new trie with the backing database `db` and `root`.
 	///
-	/// Returns an error if `root` does not exist.
+	/// This doesn't check if `root` exists in the given `db`. If `root` doesn't exist it will fail
+	/// when trying to lookup any key.
 	pub fn from_existing(
 		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
-	) -> Result<Self, TrieHash<L>, CError<L>> {
-		if !db.contains(root, EMPTY_PREFIX) {
-			return Err(Box::new(TrieError::InvalidStateRoot(*root)))
-		}
-
-		Ok(Self { db, root, cache: None, recorder: None })
+	) -> Self {
+		Self { db, root, cache: None, recorder: None }
 	}
 
 	/// Use the given `cache` for the db.

@@ -26,7 +26,7 @@ fn fatdbmut_to_trie() {
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	}
 
-	let t = RefTrieDBBuilder::new_unchecked(&memdb, &root).build();
+	let t = RefTrieDBBuilder::new(&memdb, &root).build();
 	assert_eq!(t.get(&RefHasher::hash(&[0x01u8, 0x23])), Ok(Some(vec![0x01u8, 0x23])),);
 }
 

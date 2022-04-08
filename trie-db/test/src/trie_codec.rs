@@ -46,7 +46,7 @@ fn test_encode_compact<L: TrieLayout>(
 	let mut recorder = Recorder::<L>::new();
 	let items = {
 		let mut items = Vec::with_capacity(keys.len());
-		let trie = <TrieDBBuilder<L>>::new_unchecked(&db, &root)
+		let trie = <TrieDBBuilder<L>>::new(&db, &root)
 			.with_recorder(&mut recorder)
 			.build();
 		for key in keys {
@@ -64,7 +64,7 @@ fn test_encode_compact<L: TrieLayout>(
 
 	// Compactly encode the partial trie DB.
 	let compact_trie = {
-		let trie = <TrieDBBuilder<L>>::new_unchecked(&partial_db, &root).build();
+		let trie = <TrieDBBuilder<L>>::new(&partial_db, &root).build();
 		encode_compact::<L>(&trie).unwrap()
 	};
 
@@ -84,7 +84,7 @@ fn test_decode_compact<L: TrieLayout>(
 	assert_eq!(used, expected_used);
 
 	// Check that lookups for all items succeed.
-	let trie = <TrieDBBuilder<L>>::new_unchecked(&db, &root).build();
+	let trie = <TrieDBBuilder<L>>::new(&db, &root).build();
 	for (key, expected_value) in items {
 		assert_eq!(trie.get(key).unwrap(), expected_value);
 	}
@@ -171,7 +171,7 @@ fn encoding_node_owned_and_decoding_node_works() {
 			}
 		}
 
-		let trie = TrieDBBuilder::<ExtensionLayout>::new_unchecked(&db, &root)
+		let trie = TrieDBBuilder::<ExtensionLayout>::new(&db, &root)
 			.with_recorder(&mut recorder)
 			.build();
 		for (key, _) in entries.iter() {

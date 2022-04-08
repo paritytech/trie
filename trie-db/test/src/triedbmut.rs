@@ -367,7 +367,7 @@ fn test_at_one_and_two_internal<T: TrieLayout>() {
 		assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), vec![0x1u8, 0x23]);
 		t.insert(&[0x01u8, 0x23, 0x00], &[0x01u8, 0x24]).unwrap();
 	}
-	let mut t = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root).unwrap().build();
+	let mut t = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root).build();
 	t.insert(&[0x01u8, 0x23, 0x00], &[0x01u8, 0x25]).unwrap();
 	// This test that middle node get resolved correctly (modified
 	// triedbmut node due to change of child node).
@@ -555,7 +555,7 @@ fn register_proof_without_value() {
 	let mut root = Default::default();
 	let _ = populate_trie::<Layout>(&mut memdb, &mut root, &x);
 	{
-		let trie = TrieDBBuilder::<Layout>::new(&memdb, &root).unwrap().build();
+		let trie = TrieDBBuilder::<Layout>::new(&memdb, &root).build();
 		println!("{:?}", trie);
 	}
 
@@ -606,9 +606,7 @@ fn register_proof_without_value() {
 
 	let root_proof = root.clone();
 	{
-		let mut trie = TrieDBMutBuilder::<Layout>::from_existing(&mut memdb, &mut root)
-			.unwrap()
-			.build();
+		let mut trie = TrieDBMutBuilder::<Layout>::from_existing(&mut memdb, &mut root).build();
 		// touch te value (test1 remains untouch).
 		trie.get(b"te").unwrap();
 		// cut test_1234 prefix
@@ -633,7 +631,6 @@ fn register_proof_without_value() {
 	{
 		let mut trie =
 			TrieDBMutBuilder::<Layout>::from_existing(&mut memdb_from_proof, &mut root_proof)
-				.unwrap()
 				.build();
 		trie.get(b"te").unwrap();
 		trie.insert(b"test12", &[2u8; 36][..]).unwrap();
@@ -644,7 +641,7 @@ fn register_proof_without_value() {
 	let mut root_proof = root_unpacked.clone();
 	{
 		use trie_db::Trie;
-		let trie = TrieDBBuilder::<Layout>::new(&memdb_from_proof, &root_proof).unwrap().build();
+		let trie = TrieDBBuilder::<Layout>::new(&memdb_from_proof, &root_proof).build();
 		assert!(trie.get(b"te").unwrap().is_some());
 		assert!(matches!(
 			trie.get(b"test1").map_err(|e| *e),
@@ -655,7 +652,6 @@ fn register_proof_without_value() {
 	{
 		let trie =
 			TrieDBMutBuilder::<Layout>::from_existing(&mut memdb_from_proof, &mut root_proof)
-				.unwrap()
 				.build();
 		assert!(trie.get(b"te").unwrap().is_some());
 		assert!(matches!(
@@ -691,7 +687,6 @@ fn test_recorder_internal<T: TrieLayout>() {
 	let mut new_root = root;
 	{
 		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut overlay, &mut new_root)
-			.unwrap()
 			.with_recorder(&mut recorder)
 			.build();
 
@@ -708,9 +703,8 @@ fn test_recorder_internal<T: TrieLayout>() {
 	// Replay the it, but this time we use the proof.
 	let mut validated_root = root;
 	{
-		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut partial_db, &mut validated_root)
-			.unwrap()
-			.build();
+		let mut trie =
+			TrieDBMutBuilder::<T>::from_existing(&mut partial_db, &mut validated_root).build();
 
 		for (key, value) in key_value.iter().skip(1) {
 			trie.insert(key, value).unwrap();
@@ -742,7 +736,7 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	let mut cache = TestTrieCache::<T>::default();
 
 	{
-		let trie = TrieDBBuilder::<T>::new_unchecked(&memdb, &root).with_cache(&mut cache).build();
+		let trie = TrieDBBuilder::<T>::new(&memdb, &root).with_cache(&mut cache).build();
 
 		// Only read one entry.
 		assert_eq!(key_value[0].1, trie.get(&key_value[0].0).unwrap().unwrap());
@@ -758,7 +752,6 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	let mut new_root = root;
 	{
 		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut overlay, &mut new_root)
-			.unwrap()
 			.with_recorder(&mut recorder)
 			.with_cache(&mut cache)
 			.build();
@@ -783,9 +776,8 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	// Replay the it, but this time we use the proof.
 	let mut validated_root = root;
 	{
-		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut partial_db, &mut validated_root)
-			.unwrap()
-			.build();
+		let mut trie =
+			TrieDBMutBuilder::<T>::from_existing(&mut partial_db, &mut validated_root).build();
 
 		for (key, value) in key_value.iter().skip(1) {
 			trie.insert(key, value).unwrap();

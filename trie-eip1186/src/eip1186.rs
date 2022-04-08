@@ -19,7 +19,7 @@ where
 	let mut recorder = Recorder::<L>::new();
 
 	let item = {
-		let trie = TrieDBBuilder::<L>::new(db, root)?.with_recorder(&mut recorder).build();
+		let trie = TrieDBBuilder::<L>::new(db, root).with_recorder(&mut recorder).build();
 		trie.get(key)?
 	};
 
