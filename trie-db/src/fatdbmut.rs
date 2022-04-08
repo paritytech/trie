@@ -46,7 +46,7 @@ where
 	pub fn from_existing(
 		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
-	) -> Result<Self, TrieHash<L>, CError<L>> {
+	) -> Self {
 		Ok(FatDBMut { raw: TrieDBMutBuilder::from_existing(db, root)?.build() })
 	}
 

@@ -41,7 +41,7 @@ where
 	pub fn new(
 		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: &'db TrieHash<L>,
-	) -> Result<Self, TrieHash<L>, CError<L>> {
+	) -> Self {
 		Ok(FatDB { raw: TrieDBBuilder::new(db, root)?.build() })
 	}
 

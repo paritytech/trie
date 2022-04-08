@@ -120,7 +120,7 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 /// let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, _>::default();
 /// let mut root = Default::default();
 /// RefTrieDBMut::new(&mut memdb, &mut root).insert(b"foo", b"bar").unwrap();
-/// let t = RefTrieDB::new(&memdb, &root).unwrap();
+/// let t = RefTrieDB::new(&memdb, &root);
 /// assert!(t.contains(b"foo").unwrap());
 /// assert_eq!(t.get(b"foo").unwrap().unwrap(), b"bar".to_vec());
 /// ```

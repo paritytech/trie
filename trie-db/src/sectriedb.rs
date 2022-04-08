@@ -32,16 +32,12 @@ impl<'db, 'cache, L> SecTrieDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
-	/// Create a new trie with the backing database `db` and empty `root`
+	/// Create a new trie with the backing database `db` and `root`.
 	///
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
-	/// Returns an error if root does not exist.
-	pub fn new(
-		db: &'db dyn HashDBRef<L::Hash, DBValue>,
-		root: &'db TrieHash<L>,
-	) -> Result<Self, TrieHash<L>, CError<L>> {
-		Ok(SecTrieDB { raw: TrieDBBuilder::new(db, root)?.build() })
+	pub fn new(db: &'db dyn HashDBRef<L::Hash, DBValue>, root: &'db TrieHash<L>) -> Self {
+		SecTrieDB { raw: TrieDBBuilder::new(db, root)?.build() }
 	}
 
 	/// Get a reference to the underlying raw `TrieDB` struct.

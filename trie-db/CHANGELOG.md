@@ -5,6 +5,14 @@ The format is based on [Keep a Changelog].
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
 ## [Unreleased]
+- Do not check for root in `TrieDB` and `TrieDBMut` constructors: [#155](https://github.com/paritytech/trie/pull/155)
+
+  To get back the old behavior you have to add the following code:
+  ```
+  if !db.contains(root, EMPTY_PREFIX) {
+    return Err(InvalidStateRoot(root))
+  }
+  ```
 
 ## [0.23.1] - 2022-02-04
 - Updated `hashbrown` to 0.12. [#150](https://github.com/paritytech/trie/pull/150)

@@ -464,7 +464,7 @@ fn trie_iteration(c: &mut Criterion) {
 
 	c.bench_function("trie_iteration", move |b: &mut Bencher| {
 		b.iter(|| {
-			let trie = trie_db::TrieDB::<Layout>::new(&mdb, &root).unwrap();
+			let trie = trie_db::TrieDB::<Layout>::new(&mdb, &root);
 			let mut iter = trie_db::TrieDBNodeIterator::new(&trie).unwrap();
 			assert!(iter.all(|result| result.is_ok()));
 		})
@@ -485,7 +485,7 @@ fn trie_proof_verification(c: &mut Criterion) {
 	let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
 	let root = reference_trie::calc_root_build::<Layout, _, _, _, _>(data, &mut mdb);
 
-	let trie = trie_db::TrieDB::<Layout>::new(&mdb, &root).unwrap();
+	let trie = trie_db::TrieDB::<Layout>::new(&mdb, &root);
 	let proof = generate_proof(&trie, keys.iter()).unwrap();
 	let items = keys
 		.into_iter()
