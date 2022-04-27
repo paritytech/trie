@@ -618,7 +618,7 @@ pub trait TrieCache<NC: NodeCodec> {
 	/// The cache can be used for different tries, aka with different roots. This means
 	/// that the cache implementation needs to take care of always returning the correct value
 	/// for the current trie root.
-	fn lookup_value_for_key(&self, key: &[u8]) -> Option<&CachedValue<NC::HashOut>>;
+	fn lookup_value_for_key(&mut self, key: &[u8]) -> Option<&CachedValue<NC::HashOut>>;
 
 	/// Cache the given `value` for the given `key`.
 	///
