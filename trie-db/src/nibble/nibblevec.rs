@@ -40,7 +40,7 @@ impl NibbleVec {
 		self.len
 	}
 
-	/// Retrurns true if `NibbleVec` has zero length.
+	/// Returns true if `NibbleVec` has zero length.
 	pub fn is_empty(&self) -> bool {
 		self.len == 0
 	}
