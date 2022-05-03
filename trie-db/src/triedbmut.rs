@@ -1877,22 +1877,30 @@ where
 					},
 				);
 
-				// Also cache values of inline nodes.
-				node.child_iter().flat_map(|(n, c)| c.as_inline().map(|c| (n, c))).for_each(
-					|(n, c)| {
-						if let Some((hash, data)) =
-							c.data().and_then(|d| c.data_hash().map(|h| (h, d)))
-						{
+				fn cache_child_values<L: TrieLayout>(
+					node: &NodeOwned<TrieHash<L>>,
+					cache: &mut dyn TrieCache<L::Codec>,
+					full_key: NibbleVec,
+				) {
+					node.child_iter()
+						.flat_map(|(n, c)| c.as_inline().map(|c| (n, c)))
+						.for_each(|(n, c)| {
 							let mut key = full_key.clone();
-
 							n.map(|n| key.push(n));
-
 							c.partial_key().map(|p| key.append(p));
 
-							cache.cache_value_for_key(key.inner(), (data.clone(), hash).into());
-						}
-					},
-				);
+							if let Some((hash, data)) =
+								c.data().and_then(|d| c.data_hash().map(|h| (h, d)))
+							{
+								cache.cache_value_for_key(key.inner(), (data.clone(), hash).into());
+							}
+
+							cache_child_values::<L>(c, cache, key);
+						});
+				}
+
+				// Also cache values of inline nodes.
+				cache_child_values::<L>(&node, *cache, full_key.clone());
 			}
 
 			cache.insert_node(hash, node);
