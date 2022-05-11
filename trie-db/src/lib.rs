@@ -675,6 +675,12 @@ impl From<&[u8]> for Bytes {
 	}
 }
 
+impl<T: AsRef<[u8]>> PartialEq<T> for Bytes {
+	fn eq(&self, other: &T) -> bool {
+		self.as_ref() == other.as_ref()
+	}
+}
+
 /// A weak reference of [`Bytes`].
 ///
 /// A weak reference means that it doesn't prevent [`Bytes`] of being dropped because

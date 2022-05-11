@@ -1112,7 +1112,7 @@ impl<L: TrieLayout> Default for TestTrieCache<L> {
 }
 
 impl<L: TrieLayout> trie_db::TrieCache<L::Codec> for TestTrieCache<L> {
-	fn lookup_value_for_key(&self, key: &[u8]) -> Option<&trie_db::CachedValue<TrieHash<L>>> {
+	fn lookup_value_for_key(&mut self, key: &[u8]) -> Option<&trie_db::CachedValue<TrieHash<L>>> {
 		self.value_cache.get(key)
 	}
 

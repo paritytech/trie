@@ -23,8 +23,8 @@ use crate::{
 	},
 	node_codec::NodeCodec,
 	rstd::{boxed::Box, convert::TryFrom, mem, ops::Index, result, vec::Vec, VecDeque},
-	Bytes, CError, DBValue, Result, TrieAccess, TrieCache, TrieError, TrieHash, TrieLayout,
-	TrieMut, TrieRecorder,
+	Bytes, CError, CachedValue, DBValue, Result, TrieAccess, TrieCache, TrieError, TrieHash,
+	TrieLayout, TrieMut, TrieRecorder,
 };
 
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
@@ -1864,27 +1864,33 @@ where
 	fn cache_node(&mut self, hash: TrieHash<L>, encoded: &[u8], full_key: Option<NibbleVec>) {
 		// If we have a cache, cache our node directly.
 		if let Some(ref mut cache) = self.cache {
-			let node = L::Codec::decode(&encoded)
-				.ok()
-				.and_then(|n| n.to_owned_node::<L>().ok())
-				.expect("Just encoded the node, so it should decode without any errors; qed");
+			let node = cache.get_or_insert_node(hash, &mut || {
+				Ok(L::Codec::decode(&encoded)
+					.ok()
+					.and_then(|n| n.to_owned_node::<L>().ok())
+					.expect("Just encoded the node, so it should decode without any errors; qed"))
+			});
+
+			// `node` should always be `OK`, but let's play it safe.
+			let node = if let Ok(node) = node { node } else { return };
+
+			let mut values_to_cache = Vec::new();
 
 			// If the given node has data attached, the `full_key` is the full key to this node.
 			if let Some(full_key) = full_key {
 				node.data().and_then(|v| node.data_hash().map(|h| (&full_key, v, h))).map(
 					|(k, v, h)| {
-						cache.cache_value_for_key(k.inner(), (v.clone(), h).into());
+						values_to_cache.push((k.inner().to_vec(), (v.clone(), h).into()));
 					},
 				);
 
 				fn cache_child_values<L: TrieLayout>(
 					node: &NodeOwned<TrieHash<L>>,
-					cache: &mut dyn TrieCache<L::Codec>,
+					values_to_cache: &mut Vec<(Vec<u8>, CachedValue<TrieHash<L>>)>,
 					full_key: NibbleVec,
 				) {
-					node.child_iter()
-						.flat_map(|(n, c)| c.as_inline().map(|c| (n, c)))
-						.for_each(|(n, c)| {
+					node.child_iter().flat_map(|(n, c)| c.as_inline().map(|c| (n, c))).for_each(
+						|(n, c)| {
 							let mut key = full_key.clone();
 							n.map(|n| key.push(n));
 							c.partial_key().map(|p| key.append(p));
@@ -1892,18 +1898,21 @@ where
 							if let Some((hash, data)) =
 								c.data().and_then(|d| c.data_hash().map(|h| (h, d)))
 							{
-								cache.cache_value_for_key(key.inner(), (data.clone(), hash).into());
+								values_to_cache
+									.push((key.inner().to_vec(), (data.clone(), hash).into()));
 							}
 
-							cache_child_values::<L>(c, cache, key);
-						});
+							cache_child_values::<L>(c, values_to_cache, key);
+						},
+					);
 				}
 
 				// Also cache values of inline nodes.
-				cache_child_values::<L>(&node, *cache, full_key.clone());
+				cache_child_values::<L>(&node, &mut values_to_cache, full_key.clone());
 			}
 
-			cache.insert_node(hash, node);
+			drop(node);
+			values_to_cache.into_iter().for_each(|(k, v)| cache.cache_value_for_key(&k, v));
 		}
 	}
 
@@ -1914,9 +1923,19 @@ where
 		if let Some(ref mut cache) = self.cache {
 			let value = value.into();
 
-			cache.insert_node(hash, NodeOwned::Value(value.clone(), hash));
+			// `get_or_insert` should always return `Ok`, but be safe.
+			let value = if let Ok(value) = cache
+				.get_or_insert_node(hash, &mut || Ok(NodeOwned::Value(value.clone(), hash)))
+				.map(|n| n.data().cloned())
+			{
+				value
+			} else {
+				None
+			};
 
-			cache.cache_value_for_key(full_key, (value, hash).into())
+			if let Some(value) = value {
+				cache.cache_value_for_key(full_key, (value, hash).into())
+			}
 		}
 	}
 

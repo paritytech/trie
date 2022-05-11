@@ -305,9 +305,7 @@ fn test_recorder_internal<T: TrieLayout>() {
 
 	let mut recorder = Recorder::<T>::new();
 	{
-		let trie = TrieDBBuilder::<T>::new(&memdb, &root)
-			.with_recorder(&mut recorder)
-			.build();
+		let trie = TrieDBBuilder::<T>::new(&memdb, &root).with_recorder(&mut recorder).build();
 
 		for (key, value) in key_value.iter().take(3) {
 			assert_eq!(*value, trie.get(key).unwrap().unwrap());
@@ -422,9 +420,7 @@ fn iterator_seek_with_recorder_internal<T: TrieLayout>() {
 
 	let mut recorder = Recorder::<T>::new();
 	{
-		let t = TrieDBBuilder::<T>::new(&memdb, &root)
-			.with_recorder(&mut recorder)
-			.build();
+		let t = TrieDBBuilder::<T>::new(&memdb, &root).with_recorder(&mut recorder).build();
 		let mut iter = t.iter().unwrap();
 		iter.seek(b"AA").unwrap();
 		assert_eq!(&vals[1..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
@@ -443,4 +439,48 @@ fn iterator_seek_with_recorder_internal<T: TrieLayout>() {
 		iter.seek(b"AA").unwrap();
 		assert_eq!(&vals[1..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
 	}
+}
+
+test_layouts!(test_cache, test_cache_internal);
+fn test_cache_internal<T: TrieLayout>() {
+	let key_value = vec![
+		(b"A".to_vec(), vec![1; 64]),
+		(b"AA".to_vec(), vec![2; 64]),
+		(b"AB".to_vec(), vec![3; 4]),
+		(b"B".to_vec(), vec![4; 64]),
+		(b"BC".to_vec(), vec![4; 64]),
+	];
+
+	let mut memdb = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
+	let mut root = Default::default();
+	let mut cache = TestTrieCache::<T>::default();
+
+	{
+		let mut t =
+			TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).with_cache(&mut cache).build();
+		for (key, value) in &key_value {
+			t.insert(key, value).unwrap();
+		}
+	}
+
+	// Ensure that when we cache the same value multiple times under different keys,
+	// the first cached key is still working.
+	assert_eq!(cache.lookup_value_for_key(&b"B"[..]).unwrap().data().unwrap(), vec![4u8; 64]);
+	assert_eq!(cache.lookup_value_for_key(&b"BC"[..]).unwrap().data().unwrap(), vec![4u8; 64]);
+
+	// Ensure that we don't insert the same node multiple times, which would result in invalidating
+	// cached values.
+	let cached_value = cache.lookup_value_for_key(&b"AB"[..]).unwrap().clone();
+	assert_eq!(cached_value.data().unwrap(), vec![3u8; 4]);
+
+	{
+		let mut t =
+			TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).with_cache(&mut cache).build();
+		for (key, value) in &key_value {
+			t.insert(key, value).unwrap();
+		}
+	}
+
+	assert_eq!(cache.lookup_value_for_key(&b"AB"[..]).unwrap().data().unwrap(), vec![3u8; 4]);
+	assert_eq!(cached_value.data().unwrap(), vec![3u8; 4]);
 }
