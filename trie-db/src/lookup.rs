@@ -19,8 +19,8 @@ use crate::{
 	node::{decode_hash, Node, NodeHandle, NodeHandleOwned, NodeOwned, Value, ValueOwned},
 	node_codec::NodeCodec,
 	rstd::boxed::Box,
-	Bytes, CError, DBValue, KeyTrieAccessValue, Query, Result, TrieAccess, TrieCache, TrieError,
-	TrieHash, TrieLayout, TrieRecorder,
+	Bytes, CError, CachedValue, DBValue, KeyTrieAccessValue, Query, Result, TrieAccess, TrieCache,
+	TrieError, TrieHash, TrieLayout, TrieRecorder,
 };
 use hash_db::{HashDBRef, Hasher, Prefix};
 
@@ -205,27 +205,47 @@ where
 		nibble_key: NibbleSlice,
 		cache: &mut dyn crate::TrieCache<L::Codec>,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
-		let res = if let Some(value) = cache.lookup_value_for_key(full_key).map(|v| v.data()) {
-			self.recorder.record(TrieAccess::Key {
-				key: full_key,
-				value: value.as_ref().map_or_else(
-					|| KeyTrieAccessValue::NonExisting,
-					|v| KeyTrieAccessValue::Existing(v.0.as_ref().into()),
-				),
-			});
+		let res = match cache.lookup_value_for_key(full_key) {
+			Some(CachedValue::NonExisting) => {
+				self.recorder.record(TrieAccess::Key {
+					key: full_key,
+					value: KeyTrieAccessValue::NonExisting,
+				});
 
-			value
-		} else {
-			let data = self.look_up_with_cache_internal(
-				nibble_key,
-				full_key,
-				cache,
-				Self::load_owned_value,
-			)?;
+				None
+			},
+			None | Some(CachedValue::ExistingHash(_)) => {
+				let data = self.look_up_with_cache_internal(
+					nibble_key,
+					full_key,
+					cache,
+					Self::load_owned_value,
+				)?;
 
-			cache.cache_value_for_key(full_key, data.clone().into());
+				cache.cache_value_for_key(full_key, data.clone().into());
 
-			data.map(|d| d.0)
+				data.map(|d| d.0)
+			},
+			Some(CachedValue::Existing { data, .. }) =>
+				if let Some(data) = data.upgrade() {
+					self.recorder.record(TrieAccess::Key {
+						key: full_key,
+						value: KeyTrieAccessValue::Existing(data.as_ref().into()),
+					});
+
+					Some(data)
+				} else {
+					let data = self.look_up_with_cache_internal(
+						nibble_key,
+						full_key,
+						cache,
+						Self::load_owned_value,
+					)?;
+
+					cache.cache_value_for_key(full_key, data.clone().into());
+
+					data.map(|d| d.0)
+				},
 		};
 
 		Ok(res.map(|v| self.query.decode(&v)))
@@ -330,8 +350,15 @@ where
 						if partial.len() == slice.len() {
 							return if let Some(value) = value.clone() {
 								drop(node);
-								load_value(value, prefix, full_key, cache, self.db, &mut self.recorder)
-									.map(Some)
+								load_value(
+									value,
+									prefix,
+									full_key,
+									cache,
+									self.db,
+									&mut self.recorder,
+								)
+								.map(Some)
 							} else {
 								Ok(None)
 							}

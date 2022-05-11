@@ -360,7 +360,7 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	// Also the data should be cached.
 	let value = cache.lookup_value_for_key(&key_value[1].0).unwrap();
 
-	assert_eq!(key_value[1].1, value.data().unwrap().deref());
+	assert_eq!(key_value[1].1, value.data().unwrap().unwrap().deref());
 	assert_eq!(T::Hash::hash(&key_value[1].1), value.hash().unwrap());
 
 	// And the rest not
@@ -368,11 +368,13 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	assert!(cache.lookup_value_for_key(&key_value[2].0).is_none());
 	assert!(cache.lookup_value_for_key(&key_value[3].0).is_none());
 
-	// Run this twice to ensure that the cache is not interfering the recording.
-	for i in 0..3 {
-		// Ensure that it works with a filled data cache and with it.
+	// Run this multiple times to ensure that the cache is not interfering the recording.
+	for i in 0..6 {
+		// Ensure that it works with a filled value/node cache and without it.
 		if i < 2 {
 			cache.clear_value_cache();
+		} else if i < 4 {
+			cache.clear_node_cache();
 		}
 
 		let mut recorder = Recorder::<T>::new();
@@ -465,13 +467,13 @@ fn test_cache_internal<T: TrieLayout>() {
 
 	// Ensure that when we cache the same value multiple times under different keys,
 	// the first cached key is still working.
-	assert_eq!(cache.lookup_value_for_key(&b"B"[..]).unwrap().data().unwrap(), vec![4u8; 64]);
-	assert_eq!(cache.lookup_value_for_key(&b"BC"[..]).unwrap().data().unwrap(), vec![4u8; 64]);
+	assert_eq!(cache.lookup_value_for_key(&b"B"[..]).unwrap().data().flatten().unwrap(), vec![4u8; 64]);
+	assert_eq!(cache.lookup_value_for_key(&b"BC"[..]).unwrap().data().flatten().unwrap(), vec![4u8; 64]);
 
 	// Ensure that we don't insert the same node multiple times, which would result in invalidating
 	// cached values.
 	let cached_value = cache.lookup_value_for_key(&b"AB"[..]).unwrap().clone();
-	assert_eq!(cached_value.data().unwrap(), vec![3u8; 4]);
+	assert_eq!(cached_value.data().flatten().unwrap(), vec![3u8; 4]);
 
 	{
 		let mut t =
@@ -481,6 +483,26 @@ fn test_cache_internal<T: TrieLayout>() {
 		}
 	}
 
-	assert_eq!(cache.lookup_value_for_key(&b"AB"[..]).unwrap().data().unwrap(), vec![3u8; 4]);
-	assert_eq!(cached_value.data().unwrap(), vec![3u8; 4]);
+	assert_eq!(cache.lookup_value_for_key(&b"AB"[..]).unwrap().data().flatten().unwrap(), vec![3u8; 4]);
+	assert_eq!(cached_value.data().flatten().unwrap(), vec![3u8; 4]);
+
+	// Clear all nodes and ensure that the value cache works flawlessly.
+	cache.clear_node_cache();
+
+	{
+		let t = TrieDBBuilder::<T>::new(&mut memdb, &mut root).with_cache(&mut cache).build();
+		for (key, value) in &key_value {
+			assert_eq!(*value, t.get(key).unwrap().unwrap());
+		}
+	}
+
+	// Ensure `get_hash` is also working properly
+	cache.clear_node_cache();
+
+	{
+		let t = TrieDBBuilder::<T>::new(&mut memdb, &mut root).with_cache(&mut cache).build();
+		for (key, value) in &key_value {
+			assert_eq!(T::Hash::hash(value), t.get_hash(key).unwrap().unwrap());
+		}
+	}
 }

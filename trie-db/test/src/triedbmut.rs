@@ -764,7 +764,7 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	for (key, value) in key_value.iter().skip(1) {
 		let cached_value = cache.lookup_value_for_key(key).unwrap();
 
-		assert_eq!(value, cached_value.data().unwrap().deref());
+		assert_eq!(value, cached_value.data().flatten().unwrap().deref());
 		assert_eq!(T::Hash::hash(&value), cached_value.hash().unwrap());
 	}
 
@@ -828,7 +828,7 @@ fn test_insert_remove_data_with_cache_internal<T: TrieLayout>() {
 			.lookup_value_for_key(key)
 			.unwrap_or_else(|| panic!("Failed to lookup `{}`", key_str));
 
-		assert_eq!(value, cached_value.data().unwrap().deref(), "{:?}", key_str);
+		assert_eq!(value, cached_value.data().flatten().unwrap().deref(), "{:?}", key_str);
 		assert_eq!(T::Hash::hash(&value), cached_value.hash().unwrap());
 	}
 

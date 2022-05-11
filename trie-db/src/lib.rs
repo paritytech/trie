@@ -537,7 +537,7 @@ pub type TrieHash<L> = <<L as TrieLayout>::Hash as Hasher>::Out;
 pub type CError<L> = <<L as TrieLayout>::Codec as NodeCodec>::Error;
 
 /// A value as cached by the [`TrieCache`].
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum CachedValue<H> {
 	/// The value doesn't exist in the trie.
 	NonExisting,
@@ -559,11 +559,12 @@ pub enum CachedValue<H> {
 impl<H: Copy> CachedValue<H> {
 	/// Returns the data of the value.
 	///
-	/// If a value doesn't exist in the trie, only the value hash is cached or
-	/// the data reference was already released, this function returns `None`.
-	pub fn data(&self) -> Option<Bytes> {
+	/// If a value doesn't exist in the trie or only the value hash is cached, this function returns
+	/// `None`. If the reference to the data couldn't be upgraded (see [`Bytes::upgrade`]), this
+	/// function returns `Some(None)`, aka the data needs to be fetched again from the trie.
+	pub fn data(&self) -> Option<Option<Bytes>> {
 		match self {
-			Self::Existing { data, .. } => data.upgrade(),
+			Self::Existing { data, .. } => Some(data.upgrade()),
 			_ => None,
 		}
 	}

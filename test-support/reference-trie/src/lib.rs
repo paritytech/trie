@@ -1103,6 +1103,11 @@ impl<L: TrieLayout> TestTrieCache<L> {
 	pub fn clear_value_cache(&mut self) {
 		self.value_cache.clear();
 	}
+
+	/// Clear the node cache.
+	pub fn clear_node_cache(&mut self) {
+		self.node_cache.clear();
+	}
 }
 
 impl<L: TrieLayout> Default for TestTrieCache<L> {
