@@ -643,10 +643,7 @@ pub trait TrieCache<NC: NodeCodec> {
 		fetch_node: &mut dyn FnMut() -> Result<NodeOwned<NC::HashOut>, NC::HashOut, NC::Error>,
 	) -> Result<&NodeOwned<NC::HashOut>, NC::HashOut, NC::Error>;
 
-	/// Insert the given [`OwnedNode`] under the given `hash`.
-	fn insert_node(&mut self, hash: NC::HashOut, node: NodeOwned<NC::HashOut>);
-
-	/// Get the [`OwnedNode`] that corresponds to the given `hash`.
+	/// Get the [`NodeOwned`] that corresponds to the given `hash`.
 	fn get_node(&mut self, hash: &NC::HashOut) -> Option<&NodeOwned<NC::HashOut>>;
 }
 

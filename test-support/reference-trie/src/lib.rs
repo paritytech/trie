@@ -1143,10 +1143,6 @@ impl<L: TrieLayout> trie_db::TrieCache<L::Codec> for TestTrieCache<L> {
 		}
 	}
 
-	fn insert_node(&mut self, hash: TrieHash<L>, node: NodeOwned<TrieHash<L>>) {
-		self.node_cache.insert(hash, node);
-	}
-
 	fn get_node(&mut self, hash: &TrieHash<L>) -> Option<&NodeOwned<TrieHash<L>>> {
 		self.node_cache.get(hash)
 	}
