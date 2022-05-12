@@ -467,8 +467,14 @@ fn test_cache_internal<T: TrieLayout>() {
 
 	// Ensure that when we cache the same value multiple times under different keys,
 	// the first cached key is still working.
-	assert_eq!(cache.lookup_value_for_key(&b"B"[..]).unwrap().data().flatten().unwrap(), vec![4u8; 64]);
-	assert_eq!(cache.lookup_value_for_key(&b"BC"[..]).unwrap().data().flatten().unwrap(), vec![4u8; 64]);
+	assert_eq!(
+		cache.lookup_value_for_key(&b"B"[..]).unwrap().data().flatten().unwrap(),
+		vec![4u8; 64]
+	);
+	assert_eq!(
+		cache.lookup_value_for_key(&b"BC"[..]).unwrap().data().flatten().unwrap(),
+		vec![4u8; 64]
+	);
 
 	// Ensure that we don't insert the same node multiple times, which would result in invalidating
 	// cached values.
@@ -483,7 +489,10 @@ fn test_cache_internal<T: TrieLayout>() {
 		}
 	}
 
-	assert_eq!(cache.lookup_value_for_key(&b"AB"[..]).unwrap().data().flatten().unwrap(), vec![3u8; 4]);
+	assert_eq!(
+		cache.lookup_value_for_key(&b"AB"[..]).unwrap().data().flatten().unwrap(),
+		vec![3u8; 4]
+	);
 	assert_eq!(cached_value.data().flatten().unwrap(), vec![3u8; 4]);
 
 	// Clear all nodes and ensure that the value cache works flawlessly.

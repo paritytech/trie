@@ -14,7 +14,7 @@
 
 use hash_db::Hasher;
 use memory_db::{HashKey, MemoryDB};
-use reference_trie::{RefSecTrieDBMut, RefTrieDBBuilder, RefHasher};
+use reference_trie::{RefHasher, RefSecTrieDBMut, RefTrieDBBuilder};
 use trie_db::{DBValue, Trie, TrieMut};
 
 #[test]

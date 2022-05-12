@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::{
-	triedbmut::TrieDBMutBuilder, CError, DBValue, Result, TrieDBMut, TrieHash, TrieLayout, TrieMut,
-	triedbmut::Value,
+	triedbmut::{TrieDBMutBuilder, Value},
+	CError, DBValue, Result, TrieDBMut, TrieHash, TrieLayout, TrieMut,
 };
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 

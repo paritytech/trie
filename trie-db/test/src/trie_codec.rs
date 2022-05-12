@@ -46,9 +46,7 @@ fn test_encode_compact<L: TrieLayout>(
 	let mut recorder = Recorder::<L>::new();
 	let items = {
 		let mut items = Vec::with_capacity(keys.len());
-		let trie = <TrieDBBuilder<L>>::new(&db, &root)
-			.with_recorder(&mut recorder)
-			.build();
+		let trie = <TrieDBBuilder<L>>::new(&db, &root).with_recorder(&mut recorder).build();
 		for key in keys {
 			let value = trie.get(key).unwrap();
 			items.push((key, value));
