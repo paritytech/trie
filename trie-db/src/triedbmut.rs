@@ -854,8 +854,8 @@ where
 		let mut handle = handle;
 		let prefix = (full_key, None);
 		loop {
-			let (mid, child) = match *handle {
-				NodeHandle::Hash(ref hash) => {
+			let (mid, child) = match handle {
+				NodeHandle::Hash(hash) => {
 					let mut recorder = self.recorder.as_ref().map(|r| r.borrow_mut());
 
 					return Lookup::<L, _> {
@@ -869,7 +869,7 @@ where
 					}
 					.look_up(full_key, partial)
 				},
-				NodeHandle::InMemory(ref handle) => match self.storage[handle] {
+				NodeHandle::InMemory(handle) => match &self.storage[handle] {
 					Node::Empty => return Ok(None),
 					Node::Leaf(ref key, ref value) =>
 						if NibbleSlice::from_stored(key) == partial {
@@ -1863,7 +1863,7 @@ where
 	/// Cache the given `encoded` node.
 	fn cache_node(&mut self, hash: TrieHash<L>, encoded: &[u8], full_key: Option<NibbleVec>) {
 		// If we have a cache, cache our node directly.
-		if let Some(ref mut cache) = self.cache {
+		if let Some(cache) = self.cache.as_mut() {
 			let node = cache.get_or_insert_node(hash, &mut || {
 				Ok(L::Codec::decode(&encoded)
 					.ok()
@@ -1920,7 +1920,7 @@ where
 	///
 	/// `hash` is the hash of `value`.
 	fn cache_value(&mut self, full_key: &[u8], value: impl Into<Bytes>, hash: TrieHash<L>) {
-		if let Some(ref mut cache) = self.cache {
+		if let Some(cache) = self.cache.as_mut() {
 			let value = value.into();
 
 			// `get_or_insert` should always return `Ok`, but be safe.
