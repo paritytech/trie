@@ -169,7 +169,7 @@ where
 		let owned_node = OwnedNode::new::<L::Codec>(node_data)
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or(parent_hash), e)))?;
 
-		if record_acces {
+		if record_access {
 			if let Some((hash, recorder)) =
 				node_hash.as_ref().and_then(|h| self.recorder.as_ref().map(|r| (h, r)))
 			{
