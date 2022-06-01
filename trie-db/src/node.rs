@@ -75,7 +75,7 @@ where
 			NodeHandleOwned::Inline(n) => {
 				let encoded = n.to_encoded::<C>();
 				let mut store = H::default();
-				assert!(store.as_ref().len() >= encoded.len(), "Invalid inline node handle");
+				assert!(store.as_ref().len() > encoded.len(), "Invalid inline node handle");
 
 				store.as_mut()[..encoded.len()].copy_from_slice(&encoded);
 				ChildReference::Inline(store, encoded.len())
