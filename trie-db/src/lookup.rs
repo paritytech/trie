@@ -251,12 +251,14 @@ where
 		Ok(res.map(|v| self.query.decode(&v)))
 	}
 
+	/// When modifying any logic inside this function, you also need to do the same in
+	/// [`Self::lookup_without_cache`].
 	fn look_up_with_cache_internal<R>(
 		&mut self,
 		nibble_key: NibbleSlice,
 		full_key: &[u8],
 		cache: &mut dyn crate::TrieCache<L::Codec>,
-		load_value: impl Fn(
+		load_value_owned: impl Fn(
 			ValueOwned<TrieHash<L>>,
 			Prefix,
 			&[u8],
@@ -303,8 +305,15 @@ where
 						return if partial == *slice {
 							let value = (*value).clone();
 							drop(node);
-							load_value(value, prefix, full_key, cache, self.db, &mut self.recorder)
-								.map(Some)
+							load_value_owned(
+								value,
+								prefix,
+								full_key,
+								cache,
+								self.db,
+								&mut self.recorder,
+							)
+							.map(Some)
 						} else {
 							Ok(None)
 						},
@@ -320,7 +329,7 @@ where
 						if partial.is_empty() {
 							return if let Some(value) = value.clone() {
 								drop(node);
-								load_value(
+								load_value_owned(
 									value,
 									prefix,
 									full_key,
@@ -350,7 +359,7 @@ where
 						if partial.len() == slice.len() {
 							return if let Some(value) = value.clone() {
 								drop(node);
-								load_value(
+								load_value_owned(
 									value,
 									prefix,
 									full_key,
@@ -402,7 +411,8 @@ where
 	/// Look up the given key. If the value is found, it will be passed to the given
 	/// function to decode or copy.
 	///
-	/// This version doesn't works without the cache.
+	/// When modifying any logic inside this function, you also need to do the same in
+	/// [`Self::lookup_with_cache_internal`].
 	fn look_up_without_cache<R>(
 		mut self,
 		nibble_key: NibbleSlice,
@@ -550,8 +560,10 @@ where
 	/// traversing the trie, but when we are recording a proof we need to get all trie nodes. So,
 	/// this function can then be used to get all of the trie nodes to access `key`.
 	///
+	/// When `lookup_hash_only` is set to `true`, only the hash is looked up and not the full value is loaded.
+	///
 	/// Returns `true` when the key was found inside the trie.
-	pub fn traverse_to(mut self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
+	pub fn traverse_to(mut self, key: &[u8], lookup_hash_only: bool) -> Result<bool, TrieHash<L>, CError<L>> {
 		match self.cache.take() {
 			Some(cache) => self
 				.look_up_with_cache_internal(
