@@ -240,6 +240,8 @@ impl NibbleVec {
 		let mut ix = 0;
 		let inner = &self.inner;
 
+		let (left_s, right_s) = nibble_ops::SPLIT_SHIFTS;
+
 		crate::rstd::iter::from_fn(move || {
 			if require_padding && ix < inner.len() {
 				if ix == 0 {
@@ -248,14 +250,7 @@ impl NibbleVec {
 				} else {
 					ix += 1;
 
-					let first_nibble = nibble_ops::pad_right(inner[ix - 2]);
-					let second_nibble = nibble_ops::at_left(0, inner[ix - 1]);
-
-					Some(nibble_ops::push_at_left(
-						0,
-						first_nibble,
-						nibble_ops::push_at_left(1, second_nibble, 0),
-					))
+					Some(inner[ix - 2] << left_s | inner[ix - 1] >> right_s)
 				}
 			} else if ix < inner.len() {
 				ix += 1;
