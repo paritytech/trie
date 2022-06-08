@@ -156,26 +156,6 @@ pub trait Query<H: Hasher> {
 	fn decode(self, data: &[u8]) -> Self::Item;
 }
 
-/// The `value` as recorded for [`TrieAccess::Key`].
-#[cfg_attr(feature = "std", derive(Debug))]
-pub enum KeyTrieAccessValue<'a> {
-	/// The value doesn't exist in the trie.
-	NonExisting,
-	/// We only accessed the hash of the value.
-	///
-	/// This means that the value exists in the trie.
-	HashOnly,
-	/// Accessed an existing value with the given data.
-	Existing(rstd::borrow::Cow<'a, [u8]>),
-}
-
-impl KeyTrieAccessValue<'_> {
-	/// Does the value exists in the trie?
-	pub fn exists(&self) -> bool {
-		!matches!(self, Self::NonExisting)
-	}
-}
-
 /// Used to report the trie access to the [`TrieRecorder`].
 ///
 /// As the trie can use a [`TrieCache`], there are multiple kinds of accesses.
@@ -183,35 +163,56 @@ impl KeyTrieAccessValue<'_> {
 /// values. Otherwise only [`Self::EncodedNode`] is a possible value.
 #[cfg_attr(feature = "std", derive(Debug))]
 pub enum TrieAccess<'a, H> {
-	/// The given `key` was accessed and the cache answered the request with the given `value`.
-	///
-	/// This is no real "trie access", but it needs to be recorded. The
-	/// recorder needs to ensure that it fetches the trie nodes to access
-	/// the data under the given `key` before it returns all accessed
-	/// nodes to the user.
-	Key { key: &'a [u8], value: KeyTrieAccessValue<'a> },
 	/// The given [`NodeOwned`] was accessed using its `hash`.
-	NodeOwned { hash: H, node_owned: &'a NodeOwned<H> },
+	NodeOwned {
+		hash: H,
+		node_owned: &'a NodeOwned<H>,
+	},
 	/// The given `encoded_node` was accessed using its `hash`.
-	EncodedNode { hash: H, encoded_node: rstd::borrow::Cow<'a, [u8]> },
+	EncodedNode {
+		hash: H,
+		encoded_node: rstd::borrow::Cow<'a, [u8]>,
+	},
 	/// The given `value` was accessed using its `hash`.
 	///
 	/// The given `full_key` is the key to access this value in the trie.
-	Value { hash: H, value: rstd::borrow::Cow<'a, [u8]>, full_key: &'a [u8] },
+	Value {
+		hash: H,
+		value: rstd::borrow::Cow<'a, [u8]>,
+		full_key: &'a [u8],
+	},
+	Hash {
+		full_key: &'a [u8],
+	},
+}
+
+/// Result of [`TrieRecorder::trie_nodes_recorded_for_key`].
+#[derive(Debug, Clone, Copy)]
+pub enum RecordedForKey {
+	/// We recorded all trie nodes up to the value for a storage key.
+	Value,
+	/// We recorded all trie nodes up to the value hash for a storage key.
+	Hash,
+	/// We didn't yet recorded any trie nodes for a storage key.
+	Nothing,
+}
+
+impl RecordedForKey {
+	/// Is `self` equal to [`Self::Nothing`]?
+	pub fn is_nothing(&self) -> bool {
+		matches!(self, Self::Nothing)
+	}
 }
 
 /// A trie recorder that can be used to record all kind of trie accesses.
 pub trait TrieRecorder<H> {
 	/// Record the given [`TrieAccess`].
 	fn record<'a>(&mut self, access: TrieAccess<'a, H>);
-}
 
-impl<T: TrieRecorder<H> + ?Sized, H> TrieRecorder<H> for Option<&mut T> {
-	fn record<'a>(&mut self, access: TrieAccess<'a, H>) {
-		if let Some(ref mut recorder) = self {
-			recorder.record(access);
-		}
-	}
+	/// Check if we have recorded any trie nodes for the given `key`.
+	///
+	/// Returns [`RecordedForKey`] to express the state of the recorded trie nodes.
+	fn trie_nodes_recorded_for_key(&self, key: &[u8]) -> RecordedForKey;
 }
 
 impl<F, T, H: Hasher> Query<H> for F

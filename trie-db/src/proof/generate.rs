@@ -228,7 +228,7 @@ where
 	I: IntoIterator<Item = &'a K>,
 	K: 'a + AsRef<[u8]>,
 {
-	// Sort and deduplicate keys.
+	// Sort and de-duplicate keys.
 	let mut keys = keys.into_iter().map(|key| key.as_ref()).collect::<Vec<_>>();
 	keys.sort();
 	keys.dedup();
@@ -253,7 +253,7 @@ where
 			trie.get(key_bytes)?
 		};
 
-		let mut recorded_nodes = recorder.drain(db, root, None)?.into_iter().peekable();
+		let mut recorded_nodes = recorder.drain().into_iter().peekable();
 
 		// Skip over recorded nodes already on the stack. Their indexes into the respective vector
 		// (either `stack` or `recorded_nodes`) match under the assumption that inline nodes have

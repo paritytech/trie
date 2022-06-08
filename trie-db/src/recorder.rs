@@ -14,18 +14,14 @@
 
 //! Trie query recorder.
 
-use crate::{
-	rstd::vec::Vec, CError, DBValue, TrieAccess, TrieCache, TrieDBBuilder, TrieHash, TrieLayout,
-	TrieRecorder,
-};
-use hash_db::HashDBRef;
-use hashbrown::HashSet;
+use crate::{rstd::vec::Vec, RecordedForKey, TrieAccess, TrieHash, TrieLayout, TrieRecorder};
+use hashbrown::HashMap;
 
 /// Records trie nodes as they pass it.
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct Recorder<L: TrieLayout> {
 	nodes: Vec<(TrieHash<L>, Vec<u8>)>,
-	keys: HashSet<Vec<u8>>,
+	recorded_keys: HashMap<Vec<u8>, RecordedForKey>,
 }
 
 impl<L: TrieLayout> Default for Recorder<L> {
@@ -37,33 +33,13 @@ impl<L: TrieLayout> Default for Recorder<L> {
 impl<L: TrieLayout> Recorder<L> {
 	/// Create a new `Recorder` which records all given nodes.
 	pub fn new() -> Self {
-		Self { nodes: Default::default(), keys: Default::default() }
+		Self { nodes: Default::default(), recorded_keys: Default::default() }
 	}
 
 	/// Drain all visited records.
-	pub fn drain(
-		&mut self,
-		db: &dyn HashDBRef<L::Hash, DBValue>,
-		root: &TrieHash<L>,
-		cache: Option<&mut dyn TrieCache<L::Codec>>,
-	) -> crate::Result<Vec<(TrieHash<L>, Vec<u8>)>, TrieHash<L>, CError<L>> {
-		let keys = crate::rstd::mem::take(&mut self.keys);
-
-		{
-			let builder = TrieDBBuilder::<L>::new(db, root).with_recorder(self);
-
-			let trie = if let Some(cache) = cache {
-				builder.with_cache(cache).build()
-			} else {
-				builder.build()
-			};
-
-			for key in keys {
-				trie.traverse_to(&key)?;
-			}
-		}
-
-		Ok(crate::rstd::mem::take(&mut self.nodes))
+	pub fn drain(&mut self) -> Vec<(TrieHash<L>, Vec<u8>)> {
+		self.recorded_keys.clear();
+		crate::rstd::mem::take(&mut self.nodes)
 	}
 }
 
@@ -76,12 +52,17 @@ impl<L: TrieLayout> TrieRecorder<TrieHash<L>> for Recorder<L> {
 			TrieAccess::NodeOwned { hash, node_owned, .. } => {
 				self.nodes.push((hash, node_owned.to_encoded::<L::Codec>()));
 			},
-			TrieAccess::Key { key, .. } => {
-				self.keys.insert(key.to_vec());
-			},
-			TrieAccess::Value { hash, value, .. } => {
+			TrieAccess::Value { hash, value, full_key } => {
 				self.nodes.push((hash, value.to_vec()));
+				self.recorded_keys.entry(full_key.to_vec()).insert(RecordedForKey::Value);
+			},
+			TrieAccess::Hash { full_key } => {
+				self.recorded_keys.entry(full_key.to_vec()).or_insert(RecordedForKey::Hash);
 			},
 		}
+	}
+
+	fn trie_nodes_recorded_for_key(&self, key: &[u8]) -> RecordedForKey {
+		self.recorded_keys.get(key).copied().unwrap_or(RecordedForKey::Nothing)
 	}
 }

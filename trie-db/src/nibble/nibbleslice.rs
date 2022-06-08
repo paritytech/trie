@@ -247,6 +247,11 @@ impl<'a> NibbleSlice<'a> {
 		}
 	}
 
+	/// Get [`Prefix`] representation of this slice.
+	pub fn as_prefix(&self) -> Prefix {
+		(&self.data, None)
+	}
+
 	/// Owned version of a `Prefix` from a `left` method call.
 	pub fn left_owned(&'a self) -> (BackingByteVec, Option<u8>) {
 		let (a, b) = self.left();

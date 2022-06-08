@@ -19,7 +19,7 @@ use crate::{
 	node::{decode_hash, Node, NodeHandle, NodeHandleOwned, NodeOwned, Value, ValueOwned},
 	node_codec::NodeCodec,
 	rstd::boxed::Box,
-	Bytes, CError, CachedValue, DBValue, KeyTrieAccessValue, Query, Result, TrieAccess, TrieCache,
+	Bytes, CError, CachedValue, DBValue, Query, RecordedForKey, Result, TrieAccess, TrieCache,
 	TrieError, TrieHash, TrieLayout, TrieRecorder,
 };
 use hash_db::{HashDBRef, Hasher, Prefix};
@@ -63,11 +63,13 @@ where
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash);
 				if let Some(value) = db.get(&res, prefix) {
-					recorder.record(TrieAccess::Value {
-						hash: res,
-						value: value.as_slice().into(),
-						full_key,
-					});
+					if let Some(recorder) = recorder {
+						recorder.record(TrieAccess::Value {
+							hash: res,
+							value: value.as_slice().into(),
+							full_key,
+						});
+					}
 
 					Ok(query.decode(&value))
 				} else {
@@ -110,10 +112,25 @@ where
 					)
 					.clone();
 
-				recorder.record(TrieAccess::Value { hash, value: value[..].into(), full_key });
+				if let Some(recorder) = recorder {
+					recorder.record(TrieAccess::Value {
+						hash,
+						value: value.as_ref().into(),
+						full_key,
+					});
+				}
 
 				Ok((value, hash))
 			},
+		}
+	}
+
+	fn record<'b>(&mut self, get_access: impl FnOnce() -> TrieAccess<'b, TrieHash<L>>)
+	where
+		TrieHash<L>: 'b,
+	{
+		if let Some(recorder) = self.recorder.as_mut() {
+			recorder.record(get_access());
 		}
 	}
 
@@ -145,16 +162,36 @@ where
 	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		match self.cache.take() {
 			Some(cache) => self.look_up_hash_with_cache(full_key, nibble_key, cache),
-			None => self.look_up_without_cache(nibble_key, full_key, |v, _, _, _, _, _| {
-				Ok(match v {
-					Value::Inline(v) => L::Hash::hash(&v),
-					Value::Node(hash_bytes) => {
-						let mut hash = TrieHash::<L>::default();
-						hash.as_mut().copy_from_slice(hash_bytes);
-						hash
-					},
-				})
-			}),
+			None => self.look_up_without_cache(
+				nibble_key,
+				full_key,
+				|v, _, full_key, _, recorder, _| {
+					Ok(match v {
+						Value::Inline(v) => {
+							let hash = L::Hash::hash(&v);
+
+							if let Some(recoder) = recorder.as_mut() {
+								recoder.record(TrieAccess::Value {
+									hash,
+									value: v.into(),
+									full_key,
+								});
+							}
+
+							hash
+						},
+						Value::Node(hash_bytes) => {
+							if let Some(recoder) = recorder.as_mut() {
+								recoder.record(TrieAccess::Hash { full_key });
+							}
+
+							let mut hash = TrieHash::<L>::default();
+							hash.as_mut().copy_from_slice(hash_bytes);
+							hash
+						},
+					})
+				},
+			),
 		}
 	}
 
@@ -167,23 +204,43 @@ where
 		nibble_key: NibbleSlice,
 		cache: &mut dyn crate::TrieCache<L::Codec>,
 	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
-		let res = if let Some(hash) = cache.lookup_value_for_key(full_key).map(|v| v.hash()) {
-			self.recorder.record(TrieAccess::Key {
-				key: full_key,
-				value: hash.as_ref().map_or_else(
-					|| KeyTrieAccessValue::NonExisting,
-					|_| KeyTrieAccessValue::HashOnly,
-				),
-			});
+		let value_cache_allowed = self
+			.recorder
+			.as_ref()
+			// Check if the recorder has the trie nodes already recorded for this key.
+			.map(|r| !r.trie_nodes_recorded_for_key(full_key).is_nothing())
+			// If there is no recorder, we can always use the value cache.
+			.unwrap_or(true);
 
+		let res = if let Some(hash) = value_cache_allowed
+			.then(|| cache.lookup_value_for_key(full_key).map(|v| v.hash()))
+			.flatten()
+		{
 			hash
 		} else {
 			let hash = self.look_up_with_cache_internal(
 				nibble_key,
 				full_key,
 				cache,
-				|value, _, _, _, _, _| match value {
-					ValueOwned::Inline(_, hash) | ValueOwned::Node(hash) => Ok(hash),
+				|value, _, full_key, _, _, recorder| match value {
+					ValueOwned::Inline(value, hash) => {
+						if let Some(recorder) = recorder.as_mut() {
+							recorder.record(TrieAccess::Value {
+								hash,
+								value: value.as_ref().into(),
+								full_key,
+							});
+						}
+
+						Ok(hash)
+					},
+					ValueOwned::Node(hash) => {
+						if let Some(recoder) = recorder.as_mut() {
+							recoder.record(TrieAccess::Hash { full_key });
+						}
+
+						Ok(hash)
+					},
 				},
 			)?;
 
@@ -205,33 +262,49 @@ where
 		nibble_key: NibbleSlice,
 		cache: &mut dyn crate::TrieCache<L::Codec>,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
-		let res = match cache.lookup_value_for_key(full_key) {
-			Some(CachedValue::NonExisting) => {
-				self.recorder.record(TrieAccess::Key {
-					key: full_key,
-					value: KeyTrieAccessValue::NonExisting,
-				});
+		let trie_nodes_recorded =
+			self.recorder.as_ref().map(|r| r.trie_nodes_recorded_for_key(full_key));
 
-				None
-			},
-			None | Some(CachedValue::ExistingHash(_)) => {
-				let data = self.look_up_with_cache_internal(
-					nibble_key,
+		let (value_cache_allowed, value_recording_required) = match trie_nodes_recorded {
+			// If we already have the trie nodes recorded up to the value, we are allowed
+			// to use the value cache.
+			Some(RecordedForKey::Value) | None => (true, false),
+			// If we only have recorded the hash, we are allowed to use the value cache, but
+			// we may need to have the value recorded.
+			Some(RecordedForKey::Hash) => (true, true),
+			// As we don't allow the value cache, the second value can be actually anything.
+			Some(RecordedForKey::Nothing) => (false, true),
+		};
+
+		let res = match value_cache_allowed.then(|| cache.lookup_value_for_key(full_key)).flatten()
+		{
+			Some(CachedValue::NonExisting) => None,
+			Some(CachedValue::ExistingHash(hash)) => {
+				let data = Self::load_owned_value(
+					// If we only have the hash cached, this can only be a value node.
+					// For inline nodes we cache them directly as `CachedValue::Existing`.
+					ValueOwned::Node(*hash),
+					nibble_key.as_prefix(),
 					full_key,
 					cache,
-					Self::load_owned_value,
+					self.db,
+					&mut self.recorder,
 				)?;
 
 				cache.cache_value_for_key(full_key, data.clone().into());
 
-				data.map(|d| d.0)
+				Some(data.0)
 			},
-			Some(CachedValue::Existing { data, .. }) =>
+			Some(CachedValue::Existing { data, hash, .. }) =>
 				if let Some(data) = data.upgrade() {
-					self.recorder.record(TrieAccess::Key {
-						key: full_key,
-						value: KeyTrieAccessValue::Existing(data.as_ref().into()),
-					});
+					if value_recording_required {
+						// As a value is only raw data, we can directly record it.
+						self.record(|| TrieAccess::Value {
+							hash: *hash,
+							value: data.as_ref().into(),
+							full_key,
+						});
+					}
 
 					Some(data)
 				} else {
@@ -246,6 +319,18 @@ where
 
 					data.map(|d| d.0)
 				},
+			None => {
+				let data = self.look_up_with_cache_internal(
+					nibble_key,
+					full_key,
+					cache,
+					Self::load_owned_value,
+				)?;
+
+				cache.cache_value_for_key(full_key, data.clone().into());
+
+				data.map(|d| d.0)
+			},
 		};
 
 		Ok(res.map(|v| self.query.decode(&v)))
@@ -271,10 +356,6 @@ where
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;
 
-		let mut prefix = nibble_key.clone();
-		prefix.advance(nibble_key.len());
-		let prefix = prefix.left();
-
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
 			let mut node = cache.get_or_insert_node(hash, &mut || {
@@ -295,7 +376,7 @@ where
 				decoded.to_owned_node::<L>()
 			})?;
 
-			self.recorder.record(TrieAccess::NodeOwned { hash, node_owned: node });
+			self.record(|| TrieAccess::NodeOwned { hash, node_owned: node });
 
 			// this loop iterates through all inline children (usually max 1)
 			// without incrementing the depth.
@@ -307,7 +388,7 @@ where
 							drop(node);
 							load_value_owned(
 								value,
-								prefix,
+								nibble_key.as_prefix(),
 								full_key,
 								cache,
 								self.db,
@@ -331,7 +412,7 @@ where
 								drop(node);
 								load_value_owned(
 									value,
-									prefix,
+									nibble_key.as_prefix(),
 									full_key,
 									cache,
 									self.db,
@@ -361,7 +442,7 @@ where
 								drop(node);
 								load_value_owned(
 									value,
-									prefix,
+									nibble_key.as_prefix(),
 									full_key,
 									cache,
 									self.db,
@@ -430,10 +511,6 @@ where
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;
 
-		let mut full_nibble_key = nibble_key.clone();
-		full_nibble_key.advance(nibble_key.len());
-		let full_nibble_key = full_nibble_key.left();
-
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
 			let node_data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
@@ -445,7 +522,7 @@ where
 					})),
 			};
 
-			self.recorder.record(TrieAccess::EncodedNode {
+			self.record(|| TrieAccess::EncodedNode {
 				hash,
 				encoded_node: node_data.as_slice().into(),
 			});
@@ -465,7 +542,7 @@ where
 							.then(|| {
 								load_value(
 									value,
-									full_nibble_key,
+									nibble_key.as_prefix(),
 									full_key,
 									self.db,
 									&mut self.recorder,
@@ -487,7 +564,7 @@ where
 								.map(|val| {
 									load_value(
 										val,
-										full_nibble_key,
+										nibble_key.as_prefix(),
 										full_key,
 										self.db,
 										&mut self.recorder,
@@ -515,7 +592,7 @@ where
 								.map(|val| {
 									load_value(
 										val,
-										full_nibble_key,
+										nibble_key.as_prefix(),
 										full_key,
 										self.db,
 										&mut self.recorder,
@@ -551,31 +628,5 @@ where
 			}
 		}
 		Ok(None)
-	}
-
-	/// Traverse the trie to access `key`.
-	///
-	/// This is mainly useful when trie access should be recorded and a cache was active.
-	/// With an active cache, there can be a short cut of just returning the data, without
-	/// traversing the trie, but when we are recording a proof we need to get all trie nodes. So,
-	/// this function can then be used to get all of the trie nodes to access `key`.
-	///
-	/// When `lookup_hash_only` is set to `true`, only the hash is looked up and not the full value is loaded.
-	///
-	/// Returns `true` when the key was found inside the trie.
-	pub fn traverse_to(mut self, key: &[u8], lookup_hash_only: bool) -> Result<bool, TrieHash<L>, CError<L>> {
-		match self.cache.take() {
-			Some(cache) => self
-				.look_up_with_cache_internal(
-					NibbleSlice::new(key),
-					key,
-					cache,
-					Self::load_owned_value,
-				)
-				.map(|b| b.is_some()),
-			None => self
-				.look_up_without_cache(NibbleSlice::new(key), key, Self::load_value)
-				.map(|b| b.is_some()),
-		}
 	}
 }
