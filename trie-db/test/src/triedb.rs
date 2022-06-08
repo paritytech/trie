@@ -19,8 +19,8 @@ use hex_literal::hex;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{test_layouts, TestTrieCache};
 use trie_db::{
-	DBValue, Lookup, NibbleSlice, Recorder, Trie, TrieCache, TrieDBBuilder, TrieDBMutBuilder,
-	TrieLayout, TrieMut,
+	CachedValue, DBValue, Lookup, NibbleSlice, Recorder, Trie, TrieCache, TrieDBBuilder,
+	TrieDBMutBuilder, TrieLayout, TrieMut,
 };
 
 type PrefixedMemoryDB<T> =
@@ -402,6 +402,104 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 			}
 
 			assert!(trie.get(&key_value[3].0).is_err());
+		}
+	}
+}
+
+test_layouts!(test_recorder_with_cache_get_hash, test_recorder_with_cache_get_hash_internal);
+fn test_recorder_with_cache_get_hash_internal<T: TrieLayout>() {
+	let key_value = vec![
+		(b"A".to_vec(), vec![1; 64]),
+		(b"AA".to_vec(), vec![2; 64]),
+		(b"AB".to_vec(), vec![3; 4]),
+		(b"B".to_vec(), vec![4; 64]),
+	];
+
+	let mut memdb = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
+	let mut root = Default::default();
+
+	{
+		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+		for (key, value) in &key_value {
+			t.insert(key, value).unwrap();
+		}
+	}
+
+	let mut cache = TestTrieCache::<T>::default();
+
+	{
+		let trie = TrieDBBuilder::<T>::new(&memdb, &root).with_cache(&mut cache).build();
+
+		// Only read one entry.
+		assert_eq!(
+			T::Hash::hash(&key_value[1].1),
+			trie.get_hash(&key_value[1].0).unwrap().unwrap()
+		);
+	}
+
+	// Root should now be cached.
+	assert!(cache.get_node(&root).is_some());
+	// Also the data should be cached.
+	assert!(matches!(
+		cache.lookup_value_for_key(&key_value[1].0).unwrap(),
+		CachedValue::ExistingHash(hash) if *hash == T::Hash::hash(&key_value[1].1)
+	));
+
+	// Run this multiple times to ensure that the cache is not interfering the recording.
+	for i in 0..6 {
+		// Ensure that it works with a filled value/node cache and without it.
+		if i < 2 {
+			cache.clear_value_cache();
+		} else if i < 4 {
+			cache.clear_node_cache();
+		}
+
+		let mut recorder = Recorder::<T>::new();
+		{
+			let trie = TrieDBBuilder::<T>::new(&memdb, &root)
+				.with_cache(&mut cache)
+				.with_recorder(&mut recorder)
+				.build();
+
+			assert_eq!(
+				T::Hash::hash(&key_value[2].1),
+				trie.get_hash(&key_value[2].0).unwrap().unwrap()
+			);
+			assert_eq!(
+				T::Hash::hash(&key_value[1].1),
+				trie.get_hash(&key_value[1].0).unwrap().unwrap()
+			);
+		}
+
+		let mut partial_db = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
+		for record in recorder.drain() {
+			partial_db.insert(EMPTY_PREFIX, &record.1);
+		}
+
+		{
+			let trie = TrieDBBuilder::<T>::new(&partial_db, &root).build();
+
+			assert_eq!(
+				T::Hash::hash(&key_value[2].1),
+				trie.get_hash(&key_value[2].0).unwrap().unwrap()
+			);
+			assert_eq!(
+				T::Hash::hash(&key_value[1].1),
+				trie.get_hash(&key_value[1].0).unwrap().unwrap()
+			);
+
+			// Check if the values are part of the proof or not, based on the layout.
+			if T::MAX_INLINE_VALUE.map_or(true, |l| l as usize >= key_value[2].1.len()) {
+				assert_eq!(key_value[2].1, trie.get(&key_value[2].0).unwrap().unwrap());
+			} else {
+				assert!(trie.get(&key_value[2].0).is_err());
+			}
+
+			if T::MAX_INLINE_VALUE.map_or(true, |l| l as usize >= key_value[1].1.len()) {
+				assert_eq!(key_value[1].1, trie.get(&key_value[1].0).unwrap().unwrap());
+			} else {
+				assert!(trie.get(&key_value[1].0).is_err());
+			}
 		}
 	}
 }
