@@ -218,7 +218,7 @@ where
 		{
 			hash
 		} else {
-			let hash = self.look_up_with_cache_internal(
+			let hash_and_value = self.look_up_with_cache_internal(
 				nibble_key,
 				full_key,
 				cache,
@@ -232,21 +232,26 @@ where
 							});
 						}
 
-						Ok(hash)
+						Ok((hash, Some(value.clone())))
 					},
 					ValueOwned::Node(hash) => {
 						if let Some(recoder) = recorder.as_mut() {
 							recoder.record(TrieAccess::Hash { full_key });
 						}
 
-						Ok(hash)
+						Ok((hash, None))
 					},
 				},
 			)?;
 
-			cache.cache_value_for_key(full_key, hash.into());
+			match &hash_and_value {
+				Some((hash, Some(value))) =>
+					cache.cache_value_for_key(full_key, (value.clone(), *hash).into()),
+				Some((hash, None)) => cache.cache_value_for_key(full_key, (*hash).into()),
+				None => cache.cache_value_for_key(full_key, CachedValue::NonExisting),
+			}
 
-			hash
+			hash_and_value.map(|v| v.0)
 		};
 
 		Ok(res)

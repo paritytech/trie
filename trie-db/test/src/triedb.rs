@@ -370,6 +370,8 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 
 	// Run this multiple times to ensure that the cache is not interfering the recording.
 	for i in 0..6 {
+		eprintln!("Round: {}", i);
+
 		// Ensure that it works with a filled value/node cache and without it.
 		if i < 2 {
 			cache.clear_value_cache();
@@ -384,9 +386,15 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 				.with_recorder(&mut recorder)
 				.build();
 
-			for (key, value) in key_value.iter().take(3) {
+			for (key, value) in key_value.iter().take(2) {
 				assert_eq!(*value, trie.get(key).unwrap().unwrap());
 			}
+
+			assert_eq!(
+				T::Hash::hash(&key_value[2].1),
+				trie.get_hash(&key_value[2].0).unwrap().unwrap()
+			);
+			assert_eq!(key_value[2].1, trie.get(&key_value[2].0).unwrap().unwrap());
 		}
 
 		let mut partial_db = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
@@ -440,10 +448,18 @@ fn test_recorder_with_cache_get_hash_internal<T: TrieLayout>() {
 	// Root should now be cached.
 	assert!(cache.get_node(&root).is_some());
 	// Also the data should be cached.
-	assert!(matches!(
-		cache.lookup_value_for_key(&key_value[1].0).unwrap(),
-		CachedValue::ExistingHash(hash) if *hash == T::Hash::hash(&key_value[1].1)
-	));
+
+	if T::MAX_INLINE_VALUE.map_or(true, |l| l as usize >= key_value[1].1.len()) {
+		assert!(matches!(
+			cache.lookup_value_for_key(&key_value[1].0).unwrap(),
+			CachedValue::Existing { hash, .. } if *hash == T::Hash::hash(&key_value[1].1)
+		));
+	} else {
+		assert!(matches!(
+			cache.lookup_value_for_key(&key_value[1].0).unwrap(),
+			CachedValue::ExistingHash(hash) if *hash == T::Hash::hash(&key_value[1].1)
+		));
+	}
 
 	// Run this multiple times to ensure that the cache is not interfering the recording.
 	for i in 0..6 {
