@@ -164,26 +164,23 @@ pub trait Query<H: Hasher> {
 #[cfg_attr(feature = "std", derive(Debug))]
 pub enum TrieAccess<'a, H> {
 	/// The given [`NodeOwned`] was accessed using its `hash`.
-	NodeOwned {
-		hash: H,
-		node_owned: &'a NodeOwned<H>,
-	},
+	NodeOwned { hash: H, node_owned: &'a NodeOwned<H> },
 	/// The given `encoded_node` was accessed using its `hash`.
-	EncodedNode {
-		hash: H,
-		encoded_node: rstd::borrow::Cow<'a, [u8]>,
-	},
+	EncodedNode { hash: H, encoded_node: rstd::borrow::Cow<'a, [u8]> },
 	/// The given `value` was accessed using its `hash`.
 	///
 	/// The given `full_key` is the key to access this value in the trie.
-	Value {
-		hash: H,
-		value: rstd::borrow::Cow<'a, [u8]>,
-		full_key: &'a [u8],
-	},
-	Hash {
-		full_key: &'a [u8],
-	},
+	///
+	/// Should map to [`RecordedForKey::Value`] when checking the recorder.
+	Value { hash: H, value: rstd::borrow::Cow<'a, [u8]>, full_key: &'a [u8] },
+	/// The hash of the value for the given `full_key` was accessed.
+	///
+	/// Should map to [`RecordedForKey::Hash`] when checking the recorder.
+	Hash { full_key: &'a [u8] },
+	/// The value/hash for `full_key` was accessed, but it couldn't be found in the trie.
+	///
+	/// Should map to [`RecordedForKey::Value`] when checking the recorder.
+	NonExisting { full_key: &'a [u8] },
 }
 
 /// Result of [`TrieRecorder::trie_nodes_recorded_for_key`].

@@ -401,6 +401,8 @@ where
 							)
 							.map(Some)
 						} else {
+							self.record(|| TrieAccess::NonExisting { full_key });
+
 							Ok(None)
 						},
 					NodeOwned::Extension(slice, item) =>
@@ -409,6 +411,8 @@ where
 							key_nibbles += slice.len();
 							item
 						} else {
+							self.record(|| TrieAccess::NonExisting { full_key });
+
 							return Ok(None)
 						},
 					NodeOwned::Branch(children, value) =>
@@ -425,6 +429,8 @@ where
 								)
 								.map(Some)
 							} else {
+								self.record(|| TrieAccess::NonExisting { full_key });
+
 								Ok(None)
 							}
 						} else {
@@ -434,11 +440,17 @@ where
 									key_nibbles += 1;
 									x
 								},
-								None => return Ok(None),
+								None => {
+									self.record(|| TrieAccess::NonExisting { full_key });
+
+									return Ok(None)
+								},
 							}
 						},
 					NodeOwned::NibbledBranch(slice, children, value) => {
 						if !partial.starts_with_vec(&slice) {
+							self.record(|| TrieAccess::NonExisting { full_key });
+
 							return Ok(None)
 						}
 
@@ -455,6 +467,8 @@ where
 								)
 								.map(Some)
 							} else {
+								self.record(|| TrieAccess::NonExisting { full_key });
+
 								Ok(None)
 							}
 						} else {
@@ -464,11 +478,19 @@ where
 									key_nibbles += slice.len() + 1;
 									x
 								},
-								None => return Ok(None),
+								None => {
+									self.record(|| TrieAccess::NonExisting { full_key });
+
+									return Ok(None)
+								},
 							}
 						}
 					},
-					NodeOwned::Empty => return Ok(None),
+					NodeOwned::Empty => {
+						self.record(|| TrieAccess::NonExisting { full_key });
+
+						return Ok(None)
+					},
 					NodeOwned::Value(_, _) => {
 						unreachable!(
 							"`NodeOwned::Value` can not be reached by using the hash of a node. \
@@ -543,40 +565,48 @@ where
 
 				let next_node = match decoded {
 					Node::Leaf(slice, value) =>
-						return (slice == partial)
-							.then(|| {
-								load_value(
-									value,
-									nibble_key.as_prefix(),
-									full_key,
-									self.db,
-									&mut self.recorder,
-									self.query,
-								)
-							})
-							.transpose(),
+						return if slice == partial {
+							load_value(
+								value,
+								nibble_key.as_prefix(),
+								full_key,
+								self.db,
+								&mut self.recorder,
+								self.query,
+							)
+							.map(Some)
+						} else {
+							self.record(|| TrieAccess::NonExisting { full_key });
+
+							Ok(None)
+						},
 					Node::Extension(slice, item) =>
 						if partial.starts_with(&slice) {
 							partial = partial.mid(slice.len());
 							key_nibbles += slice.len();
 							item
 						} else {
+							self.record(|| TrieAccess::NonExisting { full_key });
+
 							return Ok(None)
 						},
 					Node::Branch(children, value) =>
 						if partial.is_empty() {
-							return value
-								.map(|val| {
-									load_value(
-										val,
-										nibble_key.as_prefix(),
-										full_key,
-										self.db,
-										&mut self.recorder,
-										self.query,
-									)
-								})
-								.transpose()
+							return if let Some(val) = value {
+								load_value(
+									val,
+									nibble_key.as_prefix(),
+									full_key,
+									self.db,
+									&mut self.recorder,
+									self.query,
+								)
+								.map(Some)
+							} else {
+								self.record(|| TrieAccess::NonExisting { full_key });
+
+								Ok(None)
+							}
 						} else {
 							match children[partial.at(0) as usize] {
 								Some(x) => {
@@ -584,27 +614,36 @@ where
 									key_nibbles += 1;
 									x
 								},
-								None => return Ok(None),
+								None => {
+									self.record(|| TrieAccess::NonExisting { full_key });
+
+									return Ok(None)
+								},
 							}
 						},
 					Node::NibbledBranch(slice, children, value) => {
 						if !partial.starts_with(&slice) {
+							self.record(|| TrieAccess::NonExisting { full_key });
+
 							return Ok(None)
 						}
 
 						if partial.len() == slice.len() {
-							return value
-								.map(|val| {
-									load_value(
-										val,
-										nibble_key.as_prefix(),
-										full_key,
-										self.db,
-										&mut self.recorder,
-										self.query,
-									)
-								})
-								.transpose()
+							return if let Some(val) = value {
+								load_value(
+									val,
+									nibble_key.as_prefix(),
+									full_key,
+									self.db,
+									&mut self.recorder,
+									self.query,
+								)
+								.map(Some)
+							} else {
+								self.record(|| TrieAccess::NonExisting { full_key });
+
+								Ok(None)
+							}
 						} else {
 							match children[partial.at(slice.len()) as usize] {
 								Some(x) => {
@@ -612,11 +651,19 @@ where
 									key_nibbles += slice.len() + 1;
 									x
 								},
-								None => return Ok(None),
+								None => {
+									self.record(|| TrieAccess::NonExisting { full_key });
+
+									return Ok(None)
+								},
 							}
 						}
 					},
-					Node::Empty => return Ok(None),
+					Node::Empty => {
+						self.record(|| TrieAccess::NonExisting { full_key });
+
+						return Ok(None)
+					},
 				};
 
 				// check if new node data is inline or hash.

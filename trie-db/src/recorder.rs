@@ -59,6 +59,10 @@ impl<L: TrieLayout> TrieRecorder<TrieHash<L>> for Recorder<L> {
 			TrieAccess::Hash { full_key } => {
 				self.recorded_keys.entry(full_key.to_vec()).or_insert(RecordedForKey::Hash);
 			},
+			TrieAccess::NonExisting { full_key } => {
+				// We handle the non existing value/hash like having recorded the value.
+				self.recorded_keys.entry(full_key.to_vec()).insert(RecordedForKey::Value);
+			},
 		}
 	}
 
