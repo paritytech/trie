@@ -14,48 +14,21 @@
 
 //! Reference-counted memory-based `HashDB` implementation.
 
-#![cfg_attr(not(feature = "std"), no_std)]
-
-#[cfg(not(feature = "std"))]
-extern crate alloc;
-
 mod malloc_size_of;
 pub use malloc_size_of::*;
 
 use hash_db::{
 	AsHashDB, AsPlainDB, HashDB, HashDBRef, Hasher as KeyHasher, PlainDB, PlainDBRef, Prefix,
 };
-use parity_util_mem::{MallocShallowSizeOf, MallocSizeOf, MallocSizeOfOps};
-#[cfg(feature = "std")]
-use std::{
-	borrow::Borrow, cmp::Eq, collections::hash_map::Entry, collections::HashMap, hash,
-	marker::PhantomData, mem,
-};
+use im::{hashmap::Entry, HashMap};
+use parity_util_mem::{MallocSizeOf, MallocSizeOfOps};
+use std::{borrow::Borrow, cmp::Eq, hash, marker::PhantomData, mem};
 
-#[cfg(not(feature = "std"))]
-use hashbrown::{hash_map::Entry, HashMap};
-
-#[cfg(not(feature = "std"))]
-use core::{borrow::Borrow, cmp::Eq, hash, marker::PhantomData, mem};
-
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
-
-#[cfg(feature = "std")]
 pub trait MaybeDebug: std::fmt::Debug {}
-#[cfg(feature = "std")]
 impl<T: std::fmt::Debug> MaybeDebug for T {}
-#[cfg(not(feature = "std"))]
-pub trait MaybeDebug {}
-#[cfg(not(feature = "std"))]
-impl<T> MaybeDebug for T {}
 
 /// The default memory tracker used by [`MemoryDB`].
-#[cfg(feature = "std")]
 pub type DefaultMemTracker<T> = MemCounter<T>;
-/// The default memory tracker used by [`MemoryDB`].
-#[cfg(not(feature = "std"))]
-pub type DefaultMemTracker<T> = NoopTracker<T>;
 
 /// Reference-counted memory-based `HashDB` implementation.
 ///
@@ -273,7 +246,7 @@ pub fn legacy_prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8
 impl<H, KF, T, M> Default for MemoryDB<H, KF, T, M>
 where
 	H: KeyHasher,
-	T: for<'a> From<&'a [u8]>,
+	T: for<'a> From<&'a [u8]> + Clone,
 	KF: KeyFunction<H>,
 	M: MemTracker<T> + Default,
 {
@@ -286,7 +259,7 @@ where
 impl<H, KF, T, M> MemoryDB<H, KF, T, M>
 where
 	H: KeyHasher,
-	T: Default,
+	T: Default + Clone,
 	KF: KeyFunction<H>,
 	M: MemTracker<T>,
 {
@@ -294,11 +267,11 @@ where
 	/// If the value was purged, return the old value.
 	pub fn remove_and_purge(&mut self, key: &<H as KeyHasher>::Out, prefix: Prefix) -> Option<T> {
 		if key == &self.hashed_null_node {
-			return None
+			return None;
 		}
 		let key = KF::key(key, prefix);
 		match self.data.entry(key) {
-			Entry::Occupied(mut entry) =>
+			Entry::Occupied(mut entry) => {
 				if entry.get().1 == 1 {
 					let (value, _) = entry.remove();
 					self.malloc_tracker.on_remove(&value);
@@ -306,7 +279,8 @@ where
 				} else {
 					entry.get_mut().1 -= 1;
 					None
-				},
+				}
+			},
 			Entry::Vacant(entry) => {
 				let value = T::default();
 				self.malloc_tracker.on_insert(&value);
@@ -320,15 +294,13 @@ where
 	/// down as much as possible while maintaining the internal rules
 	/// and possibly leaving some space in accordance with the resize policy.
 	#[inline]
-	pub fn shrink_to_fit(&mut self) {
-		self.data.shrink_to_fit();
-	}
+	pub fn shrink_to_fit(&mut self) {}
 }
 
 impl<H, KF, T, M> MemoryDB<H, KF, T, M>
 where
 	H: KeyHasher,
-	T: for<'a> From<&'a [u8]>,
+	T: for<'a> From<&'a [u8]> + Clone,
 	KF: KeyFunction<H>,
 	M: MemTracker<T> + Default,
 {
@@ -407,7 +379,7 @@ where
 	/// when the refs > 0.
 	pub fn raw(&self, key: &<H as KeyHasher>::Out, prefix: Prefix) -> Option<(&T, i32)> {
 		if key == &self.hashed_null_node {
-			return Some((&self.null_node_data, 1))
+			return Some((&self.null_node_data, 1));
 		}
 		self.data.get(&KF::key(key, prefix)).map(|(value, count)| (value, *count))
 	}
@@ -452,10 +424,10 @@ where
 	M: MemTracker<T>,
 {
 	fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
-		self.data.shallow_size_of(ops) +
-			self.malloc_tracker.get_size() +
-			self.null_node_data.size_of(ops) +
-			self.hashed_null_node.size_of(ops)
+		shallow_size_of_hashmap(&self.data, ops)
+			+ self.malloc_tracker.get_size()
+			+ self.null_node_data.size_of(ops)
+			+ self.hashed_null_node.size_of(ops)
 	}
 }
 
@@ -539,7 +511,7 @@ where
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
 		if key == &self.hashed_null_node {
-			return Some(self.null_node_data.clone())
+			return Some(self.null_node_data.clone());
 		}
 
 		let key = KF::key(key, prefix);
@@ -551,7 +523,7 @@ where
 
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
 		if key == &self.hashed_null_node {
-			return true
+			return true;
 		}
 
 		let key = KF::key(key, prefix);
@@ -563,7 +535,7 @@ where
 
 	fn emplace(&mut self, key: H::Out, prefix: Prefix, value: T) {
 		if value == self.null_node_data {
-			return
+			return;
 		}
 
 		let key = KF::key(&key, prefix);
@@ -586,7 +558,7 @@ where
 
 	fn insert(&mut self, prefix: Prefix, value: &[u8]) -> H::Out {
 		if T::from(value) == self.null_node_data {
-			return self.hashed_null_node
+			return self.hashed_null_node;
 		}
 
 		let key = H::hash(value);
@@ -596,7 +568,7 @@ where
 
 	fn remove(&mut self, key: &H::Out, prefix: Prefix) {
 		if key == &self.hashed_null_node {
-			return
+			return;
 		}
 
 		let key = KF::key(key, prefix);
@@ -658,6 +630,31 @@ where
 	fn as_hash_db_mut(&mut self) -> &mut dyn HashDB<H, T> {
 		self
 	}
+}
+
+fn shallow_size_of_hashmap<K, V, S>(map: &HashMap<K, V, S>, ops: &mut MallocSizeOfOps) -> usize {
+	// See the implementation for std::collections::HashSet for details.
+	if ops.has_malloc_enclosing_size_of() {
+		map.values().next().map_or(0, |v| unsafe { ops.malloc_enclosing_size_of(v) })
+	} else {
+		map.len() * (mem::size_of::<V>() + mem::size_of::<K>() + mem::size_of::<usize>())
+	}
+}
+
+#[cfg(test)]
+fn size_of_hash_map<K, V, S>(map: &HashMap<K, V, S>) -> usize
+where
+	K: MallocSizeOf,
+	V: MallocSizeOf,
+{
+	let ops = &mut parity_util_mem::allocators::new_malloc_size_ops();
+	let mut n = shallow_size_of_hashmap(map, ops);
+	if let (Some(k), Some(v)) = (K::constant_size(), V::constant_size()) {
+		n += map.len() * (k + v)
+	} else {
+		n = map.iter().fold(n, |acc, (k, v)| acc + k.size_of(ops) + v.size_of(ops))
+	}
+	n
 }
 
 #[cfg(test)]
@@ -739,9 +736,9 @@ mod tests {
 		}
 		assert_eq!(
 			malloc_size(&db),
-			malloc_size(&db.data) +
-				malloc_size(&db.null_node_data) +
-				malloc_size(&db.hashed_null_node)
+			crate::size_of_hash_map(&db.data)
+				+ malloc_size(&db.null_node_data)
+				+ malloc_size(&db.hashed_null_node)
 		);
 	}
 }
