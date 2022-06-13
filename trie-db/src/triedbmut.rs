@@ -782,7 +782,7 @@ where
 		// to have it being cached.
 		let node = match self.cache.as_mut().and_then(|c| c.get_node(&hash)) {
 			Some(node) => {
-				if let Some(ref mut recorder) = self.recorder {
+				if let Some(recorder) = self.recorder.as_mut() {
 					recorder.borrow_mut().record(TrieAccess::NodeOwned { hash, node_owned: &node });
 				}
 
