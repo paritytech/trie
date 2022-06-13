@@ -289,7 +289,7 @@ where
 					// If we only have the hash cached, this can only be a value node.
 					// For inline nodes we cache them directly as `CachedValue::Existing`.
 					ValueOwned::Node(*hash),
-					nibble_key.as_prefix(),
+					nibble_key.original_data_as_prefix(),
 					full_key,
 					cache,
 					self.db,
@@ -393,7 +393,7 @@ where
 							drop(node);
 							load_value_owned(
 								value,
-								nibble_key.as_prefix(),
+								nibble_key.original_data_as_prefix(),
 								full_key,
 								cache,
 								self.db,
@@ -421,7 +421,7 @@ where
 								drop(node);
 								load_value_owned(
 									value,
-									nibble_key.as_prefix(),
+									nibble_key.original_data_as_prefix(),
 									full_key,
 									cache,
 									self.db,
@@ -459,7 +459,7 @@ where
 								drop(node);
 								load_value_owned(
 									value,
-									nibble_key.as_prefix(),
+									nibble_key.original_data_as_prefix(),
 									full_key,
 									cache,
 									self.db,
@@ -568,7 +568,7 @@ where
 						return if slice == partial {
 							load_value(
 								value,
-								nibble_key.as_prefix(),
+								nibble_key.original_data_as_prefix(),
 								full_key,
 								self.db,
 								&mut self.recorder,
@@ -595,7 +595,7 @@ where
 							return if let Some(val) = value {
 								load_value(
 									val,
-									nibble_key.as_prefix(),
+									nibble_key.original_data_as_prefix(),
 									full_key,
 									self.db,
 									&mut self.recorder,
@@ -632,7 +632,7 @@ where
 							return if let Some(val) = value {
 								load_value(
 									val,
-									nibble_key.as_prefix(),
+									nibble_key.original_data_as_prefix(),
 									full_key,
 									self.db,
 									&mut self.recorder,

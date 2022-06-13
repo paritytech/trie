@@ -247,8 +247,10 @@ impl<'a> NibbleSlice<'a> {
 		}
 	}
 
-	/// Get [`Prefix`] representation of this slice.
-	pub fn as_prefix(&self) -> Prefix {
+	/// Get [`Prefix`] representation of the inner data.
+	///
+	/// This means the entire inner data will be returned as [`Prefix`], ignoring any `offset`.
+	pub fn original_data_as_prefix(&self) -> Prefix {
 		(&self.data, None)
 	}
 
