@@ -794,7 +794,7 @@ where
 					.get(&hash, key)
 					.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
 
-				if let Some(ref mut recorder) = self.recorder {
+				if let Some(recorder) = self.recorder.as_mut() {
 					recorder.borrow_mut().record(TrieAccess::EncodedNode {
 						hash,
 						encoded_node: node_encoded.as_slice().into(),
