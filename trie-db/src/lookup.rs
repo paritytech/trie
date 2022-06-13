@@ -208,7 +208,7 @@ where
 			.recorder
 			.as_ref()
 			// Check if the recorder has the trie nodes already recorded for this key.
-			.map(|r| !r.trie_nodes_recorded_for_key(full_key).is_nothing())
+			.map(|r| !r.trie_nodes_recorded_for_key(full_key).is_none())
 			// If there is no recorder, we can always use the value cache.
 			.unwrap_or(true);
 
@@ -278,7 +278,7 @@ where
 			// we may need to have the value recorded.
 			Some(RecordedForKey::Hash) => (true, true),
 			// As we don't allow the value cache, the second value can be actually anything.
-			Some(RecordedForKey::Nothing) => (false, true),
+			Some(RecordedForKey::None) => (false, true),
 		};
 
 		let res = match value_cache_allowed.then(|| cache.lookup_value_for_key(full_key)).flatten()

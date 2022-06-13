@@ -187,17 +187,35 @@ pub enum TrieAccess<'a, H> {
 #[derive(Debug, Clone, Copy)]
 pub enum RecordedForKey {
 	/// We recorded all trie nodes up to the value for a storage key.
+	///
+	/// This should be returned when the recorder has seen the following [`TrieAccess`]:
+	///
+	/// - [`TrieAccess::Value`]: If we see this [`TrieAccess`], it means we have recorded all the
+	///   trie nodes up to the value.
+	/// - [`TrieAccess::NonExisting`]: If we see this [`TrieAccess`], it means we have recorded all
+	///   the trie nodes to proof that the value doesn't exist in the trie.
 	Value,
 	/// We recorded all trie nodes up to the value hash for a storage key.
+	///
+	/// If we have a [`RecordedForKey::Value`], it means that we also have the hash of this value.
+	/// This also means that if we first have recorded the hash of a value and then also record the
+	/// value, the access should be upgraded to [`RecordedForKey::Value`].
+	///
+	/// This should be returned when the recorder has seen the following [`TrieAccess`]:
+	///
+	/// - [`TrieAccess::Hash`]: If we see this [`TrieAccess`], it means we have recorded all trie
+	///   nodes to have the hash of the value.
 	Hash,
 	/// We didn't yet recorded any trie nodes for a storage key.
-	Nothing,
+	///
+	/// This means we don't have seen any [`TrieAccess`] referencing the searched key.
+	None,
 }
 
 impl RecordedForKey {
-	/// Is `self` equal to [`Self::Nothing`]?
-	pub fn is_nothing(&self) -> bool {
-		matches!(self, Self::Nothing)
+	/// Is `self` equal to [`Self::None`]?
+	pub fn is_none(&self) -> bool {
+		matches!(self, Self::None)
 	}
 }
 

@@ -67,6 +67,6 @@ impl<L: TrieLayout> TrieRecorder<TrieHash<L>> for Recorder<L> {
 	}
 
 	fn trie_nodes_recorded_for_key(&self, key: &[u8]) -> RecordedForKey {
-		self.recorded_keys.get(key).copied().unwrap_or(RecordedForKey::Nothing)
+		self.recorded_keys.get(key).copied().unwrap_or(RecordedForKey::None)
 	}
 }
