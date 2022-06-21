@@ -219,9 +219,15 @@ impl RecordedForKey {
 	}
 }
 
-/// A trie recorder that can be used to record all kind of trie accesses.
+/// A trie recorder that can be used to record all kind of [`TrieAccess`]'s.
+///
+/// To build a trie proof a recorder is required that records all trie accesses. These recorded trie
+/// accesses can then be used to create the proof.
 pub trait TrieRecorder<H> {
 	/// Record the given [`TrieAccess`].
+	///
+	/// Depending on the [`TrieAccess`] a call of [`Self::trie_nodes_recorded_for_key`] afterwards
+	/// must return the correct recorded state.
 	fn record<'a>(&mut self, access: TrieAccess<'a, H>);
 
 	/// Check if we have recorded any trie nodes for the given `key`.
@@ -621,6 +627,21 @@ impl<H> From<Option<H>> for CachedValue<H> {
 }
 
 /// A cache that can be used to speed-up certain operations when accessing the trie.
+///
+/// The [`TrieDB`]/[`TrieDBMut`] by default are working with the internal hash-db in a non-owning
+/// mode. This means that for every lookup in the trie, every node is always fetched and decoded on
+/// the fly. Fetching and decoding a node always takes some time and can kill the performance of any
+/// application that is doing quite a lot of trie lookups. To circumvent this performance
+/// degradation, a cache can be used when looking up something in the trie. Any cache that should be
+/// used with the [`TrieDB`]/[`TrieDBMut`] needs to implement this trait.
+///
+/// The trait is laying out a two level cache, first the trie nodes cache and then the value cache.
+/// The trie nodes cache, as the name indicates, is for caching trie nodes as [`NodeOwned`]. These
+/// trie nodes are referenced by their hash. The value cache is caching [`CachedValue`]'s and these
+/// are referenced by the key to look them up in the trie. As multiple different tries can have
+/// different values under the same key, it up to the cache implementation to ensure that the
+/// correct value is returned. As each trie has a different root, this root can be used to
+/// differentiate values under the same key.
 pub trait TrieCache<NC: NodeCodec> {
 	/// Lookup value for the given `key`.
 	///
