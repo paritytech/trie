@@ -281,6 +281,21 @@ where
 			Some(RecordedForKey::None) => (false, true),
 		};
 
+		let lookup_data = |lookup: &mut Self,
+		                   cache: &mut dyn crate::TrieCache<L::Codec>|
+		 -> Result<Option<Bytes>, TrieHash<L>, CError<L>> {
+			let data = lookup.look_up_with_cache_internal(
+				nibble_key,
+				full_key,
+				cache,
+				Self::load_owned_value,
+			)?;
+
+			cache.cache_value_for_key(full_key, data.clone().into());
+
+			Ok(data.map(|d| d.0))
+		};
+
 		let res = match value_cache_allowed.then(|| cache.lookup_value_for_key(full_key)).flatten()
 		{
 			Some(CachedValue::NonExisting) => None,
@@ -313,29 +328,9 @@ where
 
 					Some(data)
 				} else {
-					let data = self.look_up_with_cache_internal(
-						nibble_key,
-						full_key,
-						cache,
-						Self::load_owned_value,
-					)?;
-
-					cache.cache_value_for_key(full_key, data.clone().into());
-
-					data.map(|d| d.0)
+					lookup_data(&mut self, cache)?
 				},
-			None => {
-				let data = self.look_up_with_cache_internal(
-					nibble_key,
-					full_key,
-					cache,
-					Self::load_owned_value,
-				)?;
-
-				cache.cache_value_for_key(full_key, data.clone().into());
-
-				data.map(|d| d.0)
-			},
+			None => lookup_data(&mut self, cache)?,
 		};
 
 		Ok(res.map(|v| self.query.decode(&v)))
