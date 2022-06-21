@@ -208,7 +208,7 @@ pub enum RecordedForKey {
 	Hash,
 	/// We didn't yet recorded any trie nodes for a storage key.
 	///
-	/// This means we don't have seen any [`TrieAccess`] referencing the searched key.
+	/// This means we have not seen any [`TrieAccess`] referencing the searched key.
 	None,
 }
 
