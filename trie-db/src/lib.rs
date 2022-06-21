@@ -665,7 +665,7 @@ pub trait TrieCache<NC: NodeCodec> {
 
 /// A container for storing bytes.
 ///
-/// This is internally uses a reference counted pointer, so it is cheap to clone this object.
+/// This uses a reference counted pointer internally, so it is cheap to clone this object.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Bytes(rstd::sync::Arc<[u8]>);
 
