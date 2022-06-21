@@ -697,7 +697,7 @@ impl<T: AsRef<[u8]>> PartialEq<T> for Bytes {
 
 /// A weak reference of [`Bytes`].
 ///
-/// A weak reference means that it doesn't prevent [`Bytes`] of being dropped because
+/// A weak reference means that it doesn't prevent [`Bytes`] from being dropped because
 /// it holds a non-owning reference to the associated [`Bytes`] object. With [`Self::upgrade`] it
 /// is possible to upgrade it again to [`Bytes`] if the reference is still valid.
 #[derive(Clone, Debug)]
