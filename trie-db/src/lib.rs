@@ -193,7 +193,7 @@ pub enum RecordedForKey {
 	/// - [`TrieAccess::Value`]: If we see this [`TrieAccess`], it means we have recorded all the
 	///   trie nodes up to the value.
 	/// - [`TrieAccess::NonExisting`]: If we see this [`TrieAccess`], it means we have recorded all
-	///   the trie nodes to proof that the value doesn't exist in the trie.
+	///   the necessary  trie nodes to prove that the value doesn't exist in the trie.
 	Value,
 	/// We recorded all trie nodes up to the value hash for a storage key.
 	///
