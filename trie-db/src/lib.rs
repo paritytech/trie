@@ -206,7 +206,7 @@ pub enum RecordedForKey {
 	/// - [`TrieAccess::Hash`]: If we see this [`TrieAccess`], it means we have recorded all trie
 	///   nodes to have the hash of the value.
 	Hash,
-	/// We didn't yet recorded any trie nodes for a storage key.
+	/// We haven't recorded any trie nodes yet for a storage key.
 	///
 	/// This means we have not seen any [`TrieAccess`] referencing the searched key.
 	None,
