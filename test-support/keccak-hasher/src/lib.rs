@@ -18,7 +18,7 @@ use hash256_std_hasher::Hash256StdHasher;
 use hash_db::Hasher;
 use tiny_keccak::{Hasher as _, Keccak};
 
-/// The keccack hash type.
+/// The `Keccak` hash output type.
 pub type KeccakHash = [u8; 32];
 
 /// Concrete `Hasher` impl for the Keccak-256 hash
