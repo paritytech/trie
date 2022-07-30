@@ -193,7 +193,7 @@ pub fn fuzz_seek_iter<T: TrieLayout>(input: &[u8]) {
 	let mut iter_res = Vec::new();
 	let mut error = 0;
 	{
-			let trie = TrieDB::<T>::new(&memdb, &root).unwrap();
+			let trie = TrieDB::<T>::new(&memdb, &root);
 			let mut iter =  trie.iter().unwrap();
 			if let Ok(_) = iter.seek(prefix) {
 			} else {
@@ -242,7 +242,7 @@ pub fn fuzz_prefix_iter<T: TrieLayout>(input: &[u8]) {
 	let mut iter_res = Vec::new();
 	let mut error = 0;
 	{
-			let trie = TrieDB::<T>::new(&memdb, &root).unwrap();
+			let trie = TrieDB::<T>::new(&memdb, &root);
 			let iter = TrieDBIterator::new_prefixed(&trie, prefix).unwrap();
 
 			for x in iter {
@@ -280,7 +280,7 @@ pub fn fuzz_that_verify_accepts_valid_proofs<T: TrieLayout>(input: &[u8]) {
 	keys.dedup();
 
 	let (root, proof, items) = test_generate_proof::<T>(data, keys);
-	assert!(verify_proof::<T, _, _, _>(&root, &proof, items.iter(), Default::default()).is_ok());
+	assert!(verify_proof::<T, _, _, _>(&root, &proof, items.iter()).is_ok());
 }
 
 pub fn fuzz_that_trie_codec_proofs<T: TrieLayout>(input: &[u8]) {
@@ -339,7 +339,7 @@ pub fn fuzz_that_verify_rejects_invalid_proofs<T: TrieLayout>(input: &[u8]) {
 		(_, value) if value.is_some() => *value = None,
 		(_, value) => *value = Some(DBValue::new()),
 	}
-	assert!(verify_proof::<T, _, _, _>(&root, &proof, items.iter(), Default::default()).is_err());
+	assert!(verify_proof::<T, _, _, _>(&root, &proof, items.iter()).is_err());
 }
 
 fn test_generate_proof<L: TrieLayout>(
@@ -361,7 +361,7 @@ fn test_generate_proof<L: TrieLayout>(
 	};
 
 	// Generate proof for the given keys..
-	let trie = <TrieDB<L>>::new(&db, &root).unwrap();
+	let trie = <TrieDB<L>>::new(&db, &root);
 	let proof = generate_proof::<_, L, _, _>(&trie, keys.iter()).unwrap();
 	let items = keys.into_iter()
 		.map(|key| {
@@ -401,7 +401,7 @@ fn test_trie_codec_proof<L: TrieLayout>(
 	let mut recorder = Recorder::new();
 	let items = {
 		let mut items = Vec::with_capacity(keys.len());
-		let trie = <TrieDB<L>>::new(&db, &root).unwrap();
+		let trie = <TrieDB<L>>::new(&db, &root);
 		for key in keys {
 			let value = trie.get_with(key.as_slice(), &mut recorder).unwrap();
 			items.push((key, value));
@@ -412,20 +412,12 @@ fn test_trie_codec_proof<L: TrieLayout>(
 	// Populate a partial trie DB with recorded nodes.
 	let mut partial_db = <MemoryDB<L::Hash, HashKey<_>, _>>::default();
 	for record in recorder.drain() {
-		if L::USE_META {
-			partial_db.alt_insert(
-				EMPTY_PREFIX,
-				&record.data,
-				record.meta.resolve_alt_hashing::<L::Codec>(),
-			);
-		} else {
-			partial_db.emplace(record.hash, EMPTY_PREFIX, record.data);
-		}
+		partial_db.emplace(record.hash, EMPTY_PREFIX, record.data);
 	}
 
 	// Compactly encode the partial trie DB.
 	let compact_trie = {
-		let trie = <TrieDB<L>>::new(&partial_db, &root).unwrap();
+		let trie = <TrieDB<L>>::new(&partial_db, &root);
 		encode_compact::<L>(&trie).unwrap()
 	};
 
@@ -437,7 +429,7 @@ fn test_trie_codec_proof<L: TrieLayout>(
 	assert_eq!(used, expected_used);
 
 	// Check that lookups for all items succeed.
-	let trie = <TrieDB<L>>::new(&db, &root).unwrap();
+	let trie = <TrieDB<L>>::new(&db, &root);
 	for (key, expected_value) in items {
 		assert_eq!(trie.get(key.as_slice()).unwrap(), expected_value);
 	}
