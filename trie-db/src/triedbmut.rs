@@ -777,7 +777,7 @@ where
 		key: Prefix,
 	) -> Result<StorageHandle, TrieHash<L>, CError<L>> {
 		// We only check the `cache` for a node with `get_node` and don't insert
-		// the node if it wasn't there, because we only access the node while computing
+		// the node if it wasn't there, because in substrate we only access the node while computing
 		// a new trie (aka some branch). We assume that this node isn't that important
 		// to have it being cached.
 		let node = match self.cache.as_mut().and_then(|c| c.get_node(&hash)) {
@@ -871,7 +871,7 @@ where
 				},
 				NodeHandle::InMemory(handle) => match &self.storage[handle] {
 					Node::Empty => return Ok(None),
-					Node::Leaf(ref key, ref value) =>
+					Node::Leaf(key, value) =>
 						if NibbleSlice::from_stored(key) == partial {
 							return Ok(value.in_memory_fetched_value(
 								prefix,
@@ -882,7 +882,7 @@ where
 						} else {
 							return Ok(None)
 						},
-					Node::Extension(ref slice, ref child) => {
+					Node::Extension(slice, child) => {
 						let slice = NibbleSlice::from_stored(slice);
 						if partial.starts_with(&slice) {
 							(slice.len(), child)
@@ -890,7 +890,7 @@ where
 							return Ok(None)
 						}
 					},
-					Node::Branch(ref children, ref value) =>
+					Node::Branch(children, value) =>
 						if partial.is_empty() {
 							return Ok(if let Some(v) = value.as_ref() {
 								v.in_memory_fetched_value(
@@ -909,7 +909,7 @@ where
 								None => return Ok(None),
 							}
 						},
-					Node::NibbledBranch(ref slice, ref children, ref value) => {
+					Node::NibbledBranch(slice, children, value) => {
 						let slice = NibbleSlice::from_stored(slice);
 						if slice == partial {
 							return Ok(if let Some(v) = value.as_ref() {
@@ -1818,7 +1818,7 @@ where
 
 		match self.storage.destroy(handle) {
 			Stored::New(node) => {
-				// Reconstructs the full key
+				// Reconstructs the full key for root node.
 				let full_key = self.cache.as_ref().and_then(|_| {
 					node.partial_key().and_then(|k| Some(NibbleSlice::from_stored(k).into()))
 				});
