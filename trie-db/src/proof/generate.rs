@@ -22,6 +22,7 @@ use crate::{
 	nibble::LeftNibbleSlice,
 	nibble_ops::NIBBLE_LENGTH,
 	node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, Value, ValuePlan},
+	recorder::Record,
 	CError, ChildReference, DBValue, NibbleSlice, NodeCodec, Recorder, Result as TrieResult, Trie,
 	TrieDBBuilder, TrieError, TrieHash, TrieLayout,
 };
@@ -263,7 +264,7 @@ where
 			while let (Some(next_record), Some(next_entry)) =
 				(recorded_nodes.peek(), stack_iter.peek())
 			{
-				if next_entry.node_hash != Some(next_record.0) {
+				if next_entry.node_hash != Some(next_record.hash) {
 					break
 				}
 				recorded_nodes.next();
@@ -300,7 +301,7 @@ where
 									the expected hash",
 							);
 							// Proof for `assert_eq` is in the `expect` proof above.
-							assert_eq!(child_record.0.as_ref(), hash);
+							assert_eq!(child_record.hash.as_ref(), hash);
 
 							let output_index = proof_nodes.len();
 							// Insert a placeholder into output which will be replaced when this
@@ -308,8 +309,8 @@ where
 							proof_nodes.push(Vec::new());
 							StackEntry::new(
 								child_prefix,
-								child_record.1,
-								Some(child_record.0),
+								child_record.data,
+								Some(child_record.hash),
 								Some(output_index),
 							)?
 						},
@@ -378,10 +379,10 @@ enum Step<'a> {
 }
 
 fn resolve_value<C: NodeCodec>(
-	recorded_nodes: &mut dyn Iterator<Item = (C::HashOut, Vec<u8>)>,
+	recorded_nodes: &mut dyn Iterator<Item = Record<C::HashOut>>,
 ) -> TrieResult<Step<'static>, C::HashOut, C::Error> {
 	if let Some(resolve_value) = recorded_nodes.next() {
-		Ok(Step::FoundHashedValue(resolve_value.1))
+		Ok(Step::FoundHashedValue(resolve_value.data))
 	} else {
 		Err(Box::new(TrieError::IncompleteDatabase(C::HashOut::default())))
 	}
@@ -397,7 +398,7 @@ fn match_key_to_node<'a, C: NodeCodec>(
 	children: &mut [Option<ChildReference<C::HashOut>>],
 	key: &LeftNibbleSlice,
 	prefix_len: usize,
-	recorded_nodes: &mut dyn Iterator<Item = (C::HashOut, Vec<u8>)>,
+	recorded_nodes: &mut dyn Iterator<Item = Record<C::HashOut>>,
 ) -> TrieResult<Step<'a>, C::HashOut, C::Error> {
 	Ok(match node_plan {
 		NodePlan::Empty => Step::FoundValue(None),
@@ -467,7 +468,7 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec>(
 	key: &'b LeftNibbleSlice<'b>,
 	prefix_len: usize,
 	partial: NibbleSlice<'b>,
-	recorded_nodes: &mut dyn Iterator<Item = (C::HashOut, Vec<u8>)>,
+	recorded_nodes: &mut dyn Iterator<Item = Record<C::HashOut>>,
 ) -> TrieResult<Step<'a>, C::HashOut, C::Error> {
 	if !key.contains(&partial, prefix_len) {
 		return Ok(Step::FoundValue(None))

@@ -23,7 +23,7 @@ where
 		trie.get(key)?
 	};
 
-	let proof: Vec<Vec<u8>> = recorder.drain().into_iter().map(|r| r.1).collect();
+	let proof: Vec<Vec<u8>> = recorder.drain().into_iter().map(|r| r.data).collect();
 	Ok((proof, item))
 }
 

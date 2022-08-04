@@ -57,7 +57,7 @@ fn test_encode_compact<L: TrieLayout>(
 	// Populate a partial trie DB with recorded nodes.
 	let mut partial_db = MemoryDB::<L>::default();
 	for record in recorder.drain() {
-		partial_db.insert(EMPTY_PREFIX, &record.1);
+		partial_db.insert(EMPTY_PREFIX, &record.data);
 	}
 
 	// Compactly encode the partial trie DB.
@@ -181,9 +181,9 @@ fn encoding_node_owned_and_decoding_node_works() {
 
 	for record in recorder.drain() {
 		let node =
-			<<ExtensionLayout as TrieLayout>::Codec as NodeCodec>::decode(&record.1).unwrap();
+			<<ExtensionLayout as TrieLayout>::Codec as NodeCodec>::decode(&record.data).unwrap();
 		let node_owned = node.to_owned_node::<ExtensionLayout>().unwrap();
 
-		assert_eq!(record.1, node_owned.to_encoded::<<ExtensionLayout as TrieLayout>::Codec>());
+		assert_eq!(record.data, node_owned.to_encoded::<<ExtensionLayout as TrieLayout>::Codec>());
 	}
 }

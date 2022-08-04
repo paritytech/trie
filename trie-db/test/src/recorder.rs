@@ -41,7 +41,7 @@ fn trie_record() {
 
 		trie.get(b"pirate").unwrap().unwrap();
 
-		let nodes: Vec<_> = recorder.drain().into_iter().map(|r| r.1).collect();
+		let nodes: Vec<_> = recorder.drain().into_iter().map(|r| r.data).collect();
 		assert_eq!(
 			nodes,
 			vec![
@@ -65,7 +65,7 @@ fn trie_record() {
 		let trie = RefTrieDBBuilder::new(&db, &root).with_recorder(&mut recorder).build();
 		trie.get(b"letter").unwrap().unwrap();
 
-		let nodes: Vec<_> = recorder.drain().into_iter().map(|r| r.1).collect();
+		let nodes: Vec<_> = recorder.drain().into_iter().map(|r| r.data).collect();
 		assert_eq!(
 			nodes,
 			vec![

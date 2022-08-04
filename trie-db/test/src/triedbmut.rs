@@ -697,7 +697,7 @@ fn test_recorder_internal<T: TrieLayout>() {
 
 	let mut partial_db = MemoryDBProof::<T>::default();
 	for record in recorder.drain() {
-		partial_db.insert(EMPTY_PREFIX, &record.1);
+		partial_db.insert(EMPTY_PREFIX, &record.data);
 	}
 
 	// Replay the it, but this time we use the proof.
@@ -770,7 +770,7 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 
 	let mut partial_db = MemoryDBProof::<T>::default();
 	for record in recorder.drain() {
-		partial_db.insert(EMPTY_PREFIX, &record.1);
+		partial_db.insert(EMPTY_PREFIX, &record.data);
 	}
 
 	// Replay the it, but this time we use the proof.

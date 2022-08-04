@@ -385,7 +385,9 @@ impl<H> NodeOwned<H> {
 		}
 	}
 
-	/// Returns the size in bytes of this node.
+	/// Returns the size in bytes of this node in memory.
+	///
+	/// This also includes the size of any inline child nodes.
 	pub fn size_in_bytes(&self) -> usize {
 		let self_size = mem::size_of::<Self>();
 

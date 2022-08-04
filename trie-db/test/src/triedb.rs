@@ -314,7 +314,7 @@ fn test_recorder_internal<T: TrieLayout>() {
 
 	let mut partial_db = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
 	for record in recorder.drain() {
-		partial_db.insert(EMPTY_PREFIX, &record.1);
+		partial_db.insert(EMPTY_PREFIX, &record.data);
 	}
 
 	{
@@ -399,7 +399,7 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 
 		let mut partial_db = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
 		for record in recorder.drain() {
-			partial_db.insert(EMPTY_PREFIX, &record.1);
+			partial_db.insert(EMPTY_PREFIX, &record.data);
 		}
 
 		{
@@ -489,7 +489,7 @@ fn test_recorder_with_cache_get_hash_internal<T: TrieLayout>() {
 
 		let mut partial_db = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
 		for record in recorder.drain() {
-			partial_db.insert(EMPTY_PREFIX, &record.1);
+			partial_db.insert(EMPTY_PREFIX, &record.data);
 		}
 
 		{
@@ -544,7 +544,7 @@ fn iterator_seek_with_recorder_internal<T: TrieLayout>() {
 
 	let mut partial_db = MemoryDBProof::<T>::default();
 	for record in recorder.drain() {
-		partial_db.insert(EMPTY_PREFIX, &record.1);
+		partial_db.insert(EMPTY_PREFIX, &record.data);
 	}
 
 	// Replay with from the proof.
