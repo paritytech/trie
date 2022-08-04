@@ -20,7 +20,7 @@ rand = { version = "0.8", default-features = false, features = ["small_rng"] }
 trie-root = { path = "../../trie-root", version = "0.17.0"}
 trie-standardmap = { path = "../../test-support/trie-standardmap", version = "0.15.2" }
 keccak-hasher = { path = "../../test-support/keccak-hasher", version = "0.15.2" }
-reference-trie = { path = "../../test-support/reference-trie", version = "0.25.0" }
+reference-trie = { path = "../../test-support/reference-trie", version = "0.26.0" }
 hex-literal = "0.3"
 criterion = "0.3"
 env_logger = "0.9"

@@ -1,6 +1,6 @@
 [package]
 name = "trie-eip1186"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "EIP-1186 compliant proof generation and verification"
 repository = "https://github.com/paritytech/trie"
