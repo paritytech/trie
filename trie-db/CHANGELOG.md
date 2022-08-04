@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog].
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
 ## [Unreleased]
+
+## [0.24.0] - 2022-08-04
 - Do not check for root in `TrieDB` and `TrieDBMut` constructors: [#155](https://github.com/paritytech/trie/pull/155)
 
   To get back the old behavior you have to add the following code:
@@ -13,6 +15,13 @@ The format is based on [Keep a Changelog].
     return Err(InvalidStateRoot(root))
   }
   ```
+- Introduce trie level cache & recorder: [#157](https://github.com/paritytech/trie/pull/157)
+
+  This pull requests introduced a cache that is directly baked into the trie-db. This
+  cache can be used to speed up accessing data in the trie. Alongside the cache, the recorder
+  was also made a first class citizen of the trie. The pull requests introduces quite a lot of changes
+  to the trie api. `TrieDB` and `TrieDBMut` are now for example now using a builder pattern. For more information
+  see the pr.
 
 ## [0.23.1] - 2022-02-04
 - Updated `hashbrown` to 0.12. [#150](https://github.com/paritytech/trie/pull/150)

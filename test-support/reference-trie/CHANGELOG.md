@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.26.0] - 2022-08-04
+- Update trie-db to 0.24.0. [#163](https://github.com/paritytech/trie/pull/163)
+
 ## [0.25.0] - 2022-02-04
 - Updated `parity-scale-codec` to 3.0. [#150](https://github.com/paritytech/trie/pull/150)
 
