@@ -1,6 +1,6 @@
 [package]
 name = "trie-eip1186"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "EIP-1186 compliant proof generation and verification"
 repository = "https://github.com/paritytech/trie"
@@ -10,7 +10,7 @@ edition = "2018"
 [dependencies]
 log = "0.4"
 smallvec = "1.0.0"
-trie-db = { path = "../trie-db", default-features = false, version = "0.23"}
+trie-db = { path = "../trie-db", default-features = false, version = "0.24"}
 hash-db = { path = "../hash-db", default-features = false, version = "0.15.2"}
 
 [features]

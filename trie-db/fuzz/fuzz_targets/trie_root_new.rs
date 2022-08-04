@@ -1,8 +1,7 @@
-
 #![no_main]
 
-use trie_db_fuzz::fuzz_that_compare_implementations;
 use libfuzzer_sys::fuzz_target;
+use trie_db_fuzz::fuzz_that_compare_implementations;
 
 fuzz_target!(|data: &[u8]| {
 	// fuzzed code goes here
