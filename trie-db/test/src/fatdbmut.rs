@@ -14,7 +14,7 @@
 
 use hash_db::{Hasher, EMPTY_PREFIX};
 use memory_db::{HashKey, MemoryDB};
-use reference_trie::{RefFatDBMut, RefHasher, RefTrieDB};
+use reference_trie::{RefFatDBMut, RefHasher, RefTrieDBBuilder};
 use trie_db::{Trie, TrieMut};
 
 #[test]
@@ -25,7 +25,8 @@ fn fatdbmut_to_trie() {
 		let mut t = RefFatDBMut::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	}
-	let t = RefTrieDB::new(&memdb, &root);
+
+	let t = RefTrieDBBuilder::new(&memdb, &root).build();
 	assert_eq!(t.get(&RefHasher::hash(&[0x01u8, 0x23])), Ok(Some(vec![0x01u8, 0x23])),);
 }
 

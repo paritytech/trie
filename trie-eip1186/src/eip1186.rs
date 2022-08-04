@@ -1,22 +1,28 @@
 use crate::rstd::{result::Result, vec::Vec};
-use hash_db::Hasher;
+use hash_db::{HashDBRef, Hasher};
 use trie_db::{
 	node::{decode_hash, Node, NodeHandle, Value},
 	recorder::Recorder,
-	CError, NibbleSlice, NodeCodec, Result as TrieResult, Trie, TrieHash, TrieLayout,
+	CError, DBValue, NibbleSlice, NodeCodec, Result as TrieResult, Trie, TrieDBBuilder, TrieHash,
+	TrieLayout,
 };
 
 /// Generate an eip-1186 compatible proof for key-value pairs in a trie given a key.
-pub fn generate_proof<T, L>(
-	trie: &T,
+pub fn generate_proof<L>(
+	db: &dyn HashDBRef<L::Hash, DBValue>,
+	root: &TrieHash<L>,
 	key: &[u8],
 ) -> TrieResult<(Vec<Vec<u8>>, Option<Vec<u8>>), TrieHash<L>, CError<L>>
 where
-	T: Trie<L>,
 	L: TrieLayout,
 {
-	let mut recorder = Recorder::new();
-	let item = trie.get_with(key, &mut recorder)?;
+	let mut recorder = Recorder::<L>::new();
+
+	let item = {
+		let trie = TrieDBBuilder::<L>::new(db, root).with_recorder(&mut recorder).build();
+		trie.get(key)?
+	};
+
 	let proof: Vec<Vec<u8>> = recorder.drain().into_iter().map(|r| r.data).collect();
 	Ok((proof, item))
 }
@@ -286,7 +292,7 @@ where
 			},
 		(Some(Value::Inline(inline_data)), _, None) =>
 			Err(VerifyError::ExistingValue(inline_data.to_vec())),
-		(Some(Value::Node(plain_hash, _)), Some(next_proof_item), Some(value)) => {
+		(Some(Value::Node(plain_hash)), Some(next_proof_item), Some(value)) => {
 			let value_hash = L::Hash::hash(value);
 			let node_hash = decode_hash::<L::Hash>(plain_hash)
 				.ok_or(VerifyError::HashDecodeError(plain_hash))?;
@@ -298,8 +304,8 @@ where
 				Ok(())
 			}
 		},
-		(Some(Value::Node(_, _)), None, _) => Err(VerifyError::IncompleteProof),
-		(Some(Value::Node(_, _)), Some(proof_item), None) =>
+		(Some(Value::Node(_)), None, _) => Err(VerifyError::IncompleteProof),
+		(Some(Value::Node(_)), Some(proof_item), None) =>
 			Err(VerifyError::ExistingValue(proof_item.to_vec())),
 	}
 }

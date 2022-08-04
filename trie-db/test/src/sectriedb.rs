@@ -14,7 +14,7 @@
 
 use hash_db::Hasher;
 use memory_db::{HashKey, MemoryDB};
-use reference_trie::{RefHasher, RefSecTrieDB, RefTrieDBMut};
+use reference_trie::{RefHasher, RefSecTrieDB, RefTrieDBMutBuilder};
 use trie_db::{DBValue, Trie, TrieMut};
 
 #[test]
@@ -22,7 +22,7 @@ fn trie_to_sectrie() {
 	let mut db = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
 	let mut root = Default::default();
 	{
-		let mut t = RefTrieDBMut::new(&mut db, &mut root);
+		let mut t = RefTrieDBMutBuilder::new(&mut db, &mut root).build();
 		t.insert(&RefHasher::hash(&[0x01u8, 0x23]), &[0x01u8, 0x23]).unwrap();
 	}
 	let t = RefSecTrieDB::new(&db, &root);

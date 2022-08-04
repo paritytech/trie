@@ -20,7 +20,7 @@ use keccak_hasher::KeccakHasher;
 use memory_db::{HashKey, MemoryDB};
 use parity_scale_codec::{Compact, Encode};
 use std::default::Default;
-use trie_db::{NodeCodec, Trie, TrieDB, TrieDBMut, TrieHash, TrieLayout, TrieMut};
+use trie_db::{NodeCodec, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieHash, TrieLayout, TrieMut};
 use trie_root::{trie_root, TrieStream};
 use trie_standardmap::*;
 
@@ -61,7 +61,7 @@ fn benchmark<L: TrieLayout, S: TrieStream>(
 			b.iter(&mut || {
 				let mut memdb = MemoryDB::<_, HashKey<L::Hash>, _>::new(L::Codec::empty_node());
 				let mut root = <TrieHash<L>>::default();
-				let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);
+				let mut t = TrieDBMutBuilder::<L>::new(&mut memdb, &mut root).build();
 				for i in d.0.iter() {
 					t.insert(&i.0, &i.1).unwrap();
 				}
@@ -75,13 +75,13 @@ fn benchmark<L: TrieLayout, S: TrieStream>(
 			let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(L::Codec::empty_node());
 			let mut root = <TrieHash<L>>::default();
 			{
-				let mut t = TrieDBMut::<L>::new(&mut memdb, &mut root);
+				let mut t = TrieDBMutBuilder::<L>::new(&mut memdb, &mut root).build();
 				for i in d.0.iter() {
 					t.insert(&i.0, &i.1).unwrap();
 				}
 			}
 			b.iter(&mut || {
-				let t = TrieDB::<L>::new(&memdb, &root);
+				let t = TrieDBBuilder::<L>::new(&memdb, &root).build();
 				for n in t.iter().unwrap() {
 					black_box(n).unwrap();
 				}

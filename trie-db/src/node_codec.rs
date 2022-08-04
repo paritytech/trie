@@ -70,9 +70,14 @@ pub trait NodeCodec: Sized {
 	fn empty_node() -> &'static [u8];
 
 	/// Returns an encoded leaf node
-	fn leaf_node(partial: Partial, value: Value) -> Vec<u8>;
+	///
+	/// Note that number_nibble is the number of element of the iterator
+	/// it can possibly be obtain by `Iterator` `size_hint`, but
+	/// for simplicity it is used directly as a parameter.
+	fn leaf_node(partial: impl Iterator<Item = u8>, number_nibble: usize, value: Value) -> Vec<u8>;
 
 	/// Returns an encoded extension node
+	///
 	/// Note that number_nibble is the number of element of the iterator
 	/// it can possibly be obtain by `Iterator` `size_hint`, but
 	/// for simplicity it is used directly as a parameter.

@@ -18,20 +18,20 @@ use super::{
 };
 use hash_db::{HashDBRef, Hasher};
 
-use crate::rstd::boxed::Box;
+use crate::{rstd::boxed::Box, TrieDBBuilder};
 
 /// A `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 /// Additionaly it stores inserted hash-key mappings for later retrieval.
 ///
 /// Use it as a `Trie` or `TrieMut` trait object.
-pub struct FatDB<'db, L>
+pub struct FatDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
-	raw: TrieDB<'db, L>,
+	raw: TrieDB<'db, 'cache, L>,
 }
 
-impl<'db, L> FatDB<'db, L>
+impl<'db, 'cache, L> FatDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
@@ -39,7 +39,7 @@ where
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
 	pub fn new(db: &'db dyn HashDBRef<L::Hash, DBValue>, root: &'db TrieHash<L>) -> Self {
-		FatDB { raw: TrieDB::new(db, root) }
+		FatDB { raw: TrieDBBuilder::new(db, root).build() }
 	}
 
 	/// Get the backing database.
@@ -48,7 +48,7 @@ where
 	}
 }
 
-impl<'db, L> Trie<L> for FatDB<'db, L>
+impl<'db, 'cache, L> Trie<L> for FatDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
@@ -60,14 +60,15 @@ where
 		self.raw.contains(L::Hash::hash(key).as_ref())
 	}
 
-	fn get_with<'a, 'key, Q: Query<L::Hash>>(
-		&'a self,
-		key: &'key [u8],
+	fn get_hash(&self, key: &[u8]) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
+		self.raw.get_hash(key)
+	}
+
+	fn get_with<Q: Query<L::Hash>>(
+		&self,
+		key: &[u8],
 		query: Q,
-	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
-	where
-		'a: 'key,
-	{
+	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		self.raw.get_with(L::Hash::hash(key).as_ref(), query)
 	}
 
@@ -93,25 +94,25 @@ where
 }
 
 /// Iterator over inserted pairs of key values.
-pub struct FatDBIterator<'db, L>
+pub struct FatDBIterator<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
-	trie_iterator: TrieDBIterator<'db, L>,
-	trie: &'db TrieDB<'db, L>,
+	trie_iterator: TrieDBIterator<'db, 'cache, L>,
+	trie: &'db TrieDB<'db, 'cache, L>,
 }
 
-impl<'db, L> FatDBIterator<'db, L>
+impl<'db, 'cache, L> FatDBIterator<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
 	/// Creates new iterator.
-	pub fn new(trie: &'db TrieDB<L>) -> Result<Self, TrieHash<L>, CError<L>> {
+	pub fn new(trie: &'db TrieDB<'db, 'cache, L>) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(FatDBIterator { trie_iterator: TrieDBIterator::new(trie)?, trie })
 	}
 }
 
-impl<'db, L> TrieIterator<L> for FatDBIterator<'db, L>
+impl<'db, 'cache, L> TrieIterator<L> for FatDBIterator<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
@@ -121,11 +122,11 @@ where
 	}
 }
 
-impl<'db, L> Iterator for FatDBIterator<'db, L>
+impl<'db, 'cache, L> Iterator for FatDBIterator<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
-	type Item = TrieItem<'db, TrieHash<L>, CError<L>>;
+	type Item = TrieItem<TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.trie_iterator.next().map(|res| {
@@ -141,25 +142,25 @@ where
 }
 
 /// Iterator over inserted keys.
-pub struct FatDBKeyIterator<'db, L>
+pub struct FatDBKeyIterator<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
-	trie_iterator: TrieDBKeyIterator<'db, L>,
-	trie: &'db TrieDB<'db, L>,
+	trie_iterator: TrieDBKeyIterator<'db, 'cache, L>,
+	trie: &'db TrieDB<'db, 'cache, L>,
 }
 
-impl<'db, L> FatDBKeyIterator<'db, L>
+impl<'db, 'cache, L> FatDBKeyIterator<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
 	/// Creates new iterator.
-	pub fn new(trie: &'db TrieDB<L>) -> Result<Self, TrieHash<L>, CError<L>> {
+	pub fn new(trie: &'db TrieDB<'db, 'cache, L>) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(FatDBKeyIterator { trie_iterator: TrieDBKeyIterator::new(trie)?, trie })
 	}
 }
 
-impl<'db, L> TrieIterator<L> for FatDBKeyIterator<'db, L>
+impl<'db, 'cache, L> TrieIterator<L> for FatDBKeyIterator<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
@@ -169,11 +170,11 @@ where
 	}
 }
 
-impl<'db, L> Iterator for FatDBKeyIterator<'db, L>
+impl<'db, 'cache, L> Iterator for FatDBKeyIterator<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
-	type Item = TrieKeyItem<'db, TrieHash<L>, CError<L>>;
+	type Item = TrieKeyItem<TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.trie_iterator.next().map(|res| {

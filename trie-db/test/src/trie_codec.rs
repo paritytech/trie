@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
-use reference_trie::test_layouts;
+use reference_trie::{test_layouts, ExtensionLayout};
 use trie_db::{
-	decode_compact, encode_compact, DBValue, Recorder, Trie, TrieDB, TrieDBMut, TrieError,
-	TrieLayout, TrieMut,
+	decode_compact, encode_compact, DBValue, NodeCodec, Recorder, Trie, TrieDBBuilder,
+	TrieDBMutBuilder, TrieError, TrieLayout, TrieMut,
 };
 
 type MemoryDB<T> = memory_db::MemoryDB<
@@ -34,7 +34,7 @@ fn test_encode_compact<L: TrieLayout>(
 		let mut db = <MemoryDB<L>>::default();
 		let mut root = Default::default();
 		{
-			let mut trie = <TrieDBMut<L>>::new(&mut db, &mut root);
+			let mut trie = <TrieDBMutBuilder<L>>::new(&mut db, &mut root).build();
 			for (key, value) in entries.iter() {
 				trie.insert(key, value).unwrap();
 			}
@@ -43,12 +43,12 @@ fn test_encode_compact<L: TrieLayout>(
 	};
 
 	// Lookup items in trie while recording traversed nodes.
-	let mut recorder = Recorder::new();
+	let mut recorder = Recorder::<L>::new();
 	let items = {
 		let mut items = Vec::with_capacity(keys.len());
-		let trie = <TrieDB<L>>::new(&db, &root);
+		let trie = <TrieDBBuilder<L>>::new(&db, &root).with_recorder(&mut recorder).build();
 		for key in keys {
-			let value = trie.get_with(key, &mut recorder).unwrap();
+			let value = trie.get(key).unwrap();
 			items.push((key, value));
 		}
 		items
@@ -62,7 +62,7 @@ fn test_encode_compact<L: TrieLayout>(
 
 	// Compactly encode the partial trie DB.
 	let compact_trie = {
-		let trie = <TrieDB<L>>::new(&partial_db, &root);
+		let trie = <TrieDBBuilder<L>>::new(&partial_db, &root).build();
 		encode_compact::<L>(&trie).unwrap()
 	};
 
@@ -82,7 +82,7 @@ fn test_decode_compact<L: TrieLayout>(
 	assert_eq!(used, expected_used);
 
 	// Check that lookups for all items succeed.
-	let trie = <TrieDB<L>>::new(&db, &root);
+	let trie = <TrieDBBuilder<L>>::new(&db, &root).build();
 	for (key, expected_value) in items {
 		assert_eq!(trie.get(key).unwrap(), expected_value);
 	}
@@ -136,5 +136,54 @@ fn trie_decoding_fails_with_incomplete_database_internal<T: TrieLayout>() {
 			_ => panic!("got unexpected TrieError"),
 		},
 		_ => panic!("decode was unexpectedly successful"),
+	}
+}
+
+#[test]
+fn encoding_node_owned_and_decoding_node_works() {
+	let entries: Vec<(&[u8], &[u8])> = vec![
+		// "alfa" is at a hash-referenced leaf node.
+		(b"alfa", &[0; 32]),
+		// "bravo" is at an inline leaf node.
+		(b"bravo", b"bravo"),
+		// "do" is at a hash-referenced branch node.
+		(b"do", b"verb"),
+		// "dog" is at an inline leaf node.
+		(b"dog", b"puppy"),
+		// "doge" is at a hash-referenced leaf node.
+		(b"doge", &[0; 32]),
+		// extension node "o" (plus nibble) to next branch.
+		(b"horse", b"stallion"),
+		(b"house", b"building"),
+	];
+
+	// Populate DB with full trie from entries.
+	let mut recorder = {
+		let mut db = <MemoryDB<ExtensionLayout>>::default();
+		let mut root = Default::default();
+		let mut recorder = Recorder::<ExtensionLayout>::new();
+		{
+			let mut trie = <TrieDBMutBuilder<ExtensionLayout>>::new(&mut db, &mut root).build();
+			for (key, value) in entries.iter() {
+				trie.insert(key, value).unwrap();
+			}
+		}
+
+		let trie = TrieDBBuilder::<ExtensionLayout>::new(&db, &root)
+			.with_recorder(&mut recorder)
+			.build();
+		for (key, _) in entries.iter() {
+			trie.get(key).unwrap();
+		}
+
+		recorder
+	};
+
+	for record in recorder.drain() {
+		let node =
+			<<ExtensionLayout as TrieLayout>::Codec as NodeCodec>::decode(&record.data).unwrap();
+		let node_owned = node.to_owned_node::<ExtensionLayout>().unwrap();
+
+		assert_eq!(record.data, node_owned.to_encoded::<<ExtensionLayout as TrieLayout>::Codec>());
 	}
 }

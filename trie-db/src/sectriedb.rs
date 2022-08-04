@@ -12,24 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{
-	triedb::TrieDB, CError, Query, Result, Trie, TrieHash, TrieItem, TrieIterator, TrieKeyItem,
-	TrieLayout,
+use crate::{
+	rstd::boxed::Box, triedb::TrieDB, CError, DBValue, Query, Result, Trie, TrieDBBuilder,
+	TrieHash, TrieItem, TrieIterator, TrieKeyItem, TrieLayout,
 };
-use crate::{rstd::boxed::Box, DBValue};
 use hash_db::{HashDBRef, Hasher};
 
 /// A `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 ///
 /// Use it as a `Trie` trait object. You can use `raw()` to get the backing `TrieDB` object.
-pub struct SecTrieDB<'db, L>
+pub struct SecTrieDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
-	raw: TrieDB<'db, L>,
+	raw: TrieDB<'db, 'cache, L>,
 }
 
-impl<'db, L> SecTrieDB<'db, L>
+impl<'db, 'cache, L> SecTrieDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
@@ -38,21 +37,21 @@ where
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
 	pub fn new(db: &'db dyn HashDBRef<L::Hash, DBValue>, root: &'db TrieHash<L>) -> Self {
-		SecTrieDB { raw: TrieDB::new(db, root) }
+		SecTrieDB { raw: TrieDBBuilder::new(db, root).build() }
 	}
 
 	/// Get a reference to the underlying raw `TrieDB` struct.
-	pub fn raw(&self) -> &TrieDB<L> {
+	pub fn raw(&self) -> &TrieDB<'db, 'cache, L> {
 		&self.raw
 	}
 
 	/// Get a mutable reference to the underlying raw `TrieDB` struct.
-	pub fn raw_mut(&mut self) -> &mut TrieDB<'db, L> {
+	pub fn raw_mut(&mut self) -> &mut TrieDB<'db, 'cache, L> {
 		&mut self.raw
 	}
 }
 
-impl<'db, L> Trie<L> for SecTrieDB<'db, L>
+impl<'db, 'cache, L> Trie<L> for SecTrieDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
@@ -64,14 +63,15 @@ where
 		self.raw.contains(L::Hash::hash(key).as_ref())
 	}
 
-	fn get_with<'a, 'key, Q: Query<L::Hash>>(
-		&'a self,
-		key: &'key [u8],
+	fn get_hash(&self, key: &[u8]) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
+		self.raw.get_hash(key)
+	}
+
+	fn get_with<Q: Query<L::Hash>>(
+		&self,
+		key: &[u8],
 		query: Q,
-	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>
-	where
-		'a: 'key,
-	{
+	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		self.raw.get_with(L::Hash::hash(key).as_ref(), query)
 	}
 

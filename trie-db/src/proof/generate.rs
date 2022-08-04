@@ -16,14 +16,15 @@
 
 use crate::rstd::{boxed::Box, convert::TryInto, marker::PhantomData, vec, vec::Vec};
 
-use hash_db::Hasher;
+use hash_db::{HashDBRef, Hasher};
 
 use crate::{
 	nibble::LeftNibbleSlice,
 	nibble_ops::NIBBLE_LENGTH,
 	node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, Value, ValuePlan},
-	CError, ChildReference, NibbleSlice, NodeCodec, Record, Recorder, Result as TrieResult, Trie,
-	TrieError, TrieHash, TrieLayout,
+	recorder::Record,
+	CError, ChildReference, DBValue, NibbleSlice, NodeCodec, Recorder, Result as TrieResult, Trie,
+	TrieDBBuilder, TrieError, TrieHash, TrieLayout,
 };
 
 struct StackEntry<'a, C: NodeCodec> {
@@ -87,7 +88,7 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 			NodePlan::Leaf { .. } if !omit_value => node_data.to_vec(),
 			NodePlan::Leaf { partial, value: _ } => {
 				let partial = partial.build(node_data);
-				C::leaf_node(partial.right(), Value::Inline(&[]))
+				C::leaf_node(partial.right_iter(), partial.len(), Value::Inline(&[]))
 			},
 			NodePlan::Extension { .. } if self.child_index == 0 => node_data.to_vec(),
 			NodePlan::Extension { partial: partial_plan, child: _ } => {
@@ -217,17 +218,18 @@ impl<'a, C: NodeCodec> StackEntry<'a, C> {
 /// Generate a compact proof for key-value pairs in a trie given a set of keys.
 ///
 /// Assumes inline nodes have only inline children.
-pub fn generate_proof<'a, T, L, I, K>(
-	trie: &T,
+pub fn generate_proof<'a, D, L, I, K>(
+	db: &D,
+	root: &TrieHash<L>,
 	keys: I,
 ) -> TrieResult<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 where
-	T: Trie<L>,
+	D: HashDBRef<L::Hash, DBValue>,
 	L: TrieLayout,
 	I: IntoIterator<Item = &'a K>,
 	K: 'a + AsRef<[u8]>,
 {
-	// Sort and deduplicate keys.
+	// Sort and de-duplicate keys.
 	let mut keys = keys.into_iter().map(|key| key.as_ref()).collect::<Vec<_>>();
 	keys.sort();
 	keys.dedup();
@@ -246,9 +248,12 @@ where
 		unwind_stack(&mut stack, &mut proof_nodes, Some(&key))?;
 
 		// Perform the trie lookup for the next key, recording the sequence of nodes traversed.
-		let mut recorder = Recorder::new();
-		let expected_value = trie.get_with(key_bytes, &mut recorder)?;
-		// Remember recorded entry is node query order and hashed value after its node.
+		let mut recorder = Recorder::<L>::new();
+		let expected_value = {
+			let trie = TrieDBBuilder::<L>::new(db, root).with_recorder(&mut recorder).build();
+			trie.get(key_bytes)?
+		};
+
 		let mut recorded_nodes = recorder.drain().into_iter().peekable();
 
 		// Skip over recorded nodes already on the stack. Their indexes into the respective vector
@@ -280,10 +285,8 @@ where
 					&mut recorded_nodes,
 				)?,
 				// If stack is empty, descend into the root node.
-				None => Step::Descend {
-					child_prefix_len: 0,
-					child: NodeHandle::Hash(trie.root().as_ref()),
-				},
+				None =>
+					Step::Descend { child_prefix_len: 0, child: NodeHandle::Hash(root.as_ref()) },
 			};
 
 			match step {

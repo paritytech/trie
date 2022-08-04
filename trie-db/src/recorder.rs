@@ -14,56 +14,69 @@
 
 //! Trie query recorder.
 
-use crate::rstd::vec::Vec;
+use crate::{rstd::vec::Vec, RecordedForKey, TrieAccess, TrieHash, TrieLayout, TrieRecorder};
+use hashbrown::HashMap;
 
-/// A record of a visited node.
+/// The record of a visited node.
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(PartialEq, Eq, Clone)]
 pub struct Record<HO> {
-	/// The depth of this node.
-	pub depth: u32,
-
-	/// The raw data of the node.
-	pub data: Vec<u8>,
-
-	/// The hash of the data.
+	/// The hash of the node.
 	pub hash: HO,
+	/// The data representing the node.
+	pub data: Vec<u8>,
 }
 
 /// Records trie nodes as they pass it.
 #[cfg_attr(feature = "std", derive(Debug))]
-pub struct Recorder<HO> {
-	nodes: Vec<Record<HO>>,
-	min_depth: u32,
+pub struct Recorder<L: TrieLayout> {
+	nodes: Vec<Record<TrieHash<L>>>,
+	recorded_keys: HashMap<Vec<u8>, RecordedForKey>,
 }
 
-impl<HO: Copy> Default for Recorder<HO> {
+impl<L: TrieLayout> Default for Recorder<L> {
 	fn default() -> Self {
 		Recorder::new()
 	}
 }
 
-impl<HO: Copy> Recorder<HO> {
+impl<L: TrieLayout> Recorder<L> {
 	/// Create a new `Recorder` which records all given nodes.
-	#[inline]
 	pub fn new() -> Self {
-		Recorder::with_depth(0)
-	}
-
-	/// Create a `Recorder` which only records nodes beyond a given depth.
-	pub fn with_depth(depth: u32) -> Self {
-		Recorder { nodes: Vec::new(), min_depth: depth }
-	}
-
-	/// Record a visited node, given its hash, data, and depth.
-	pub fn record(&mut self, hash: &HO, data: &[u8], depth: u32) {
-		if depth >= self.min_depth {
-			self.nodes.push(Record { depth, data: data.into(), hash: *hash })
-		}
+		Self { nodes: Default::default(), recorded_keys: Default::default() }
 	}
 
 	/// Drain all visited records.
-	pub fn drain(&mut self) -> Vec<Record<HO>> {
-		crate::rstd::mem::replace(&mut self.nodes, Vec::new())
+	pub fn drain(&mut self) -> Vec<Record<TrieHash<L>>> {
+		self.recorded_keys.clear();
+		crate::rstd::mem::take(&mut self.nodes)
+	}
+}
+
+impl<L: TrieLayout> TrieRecorder<TrieHash<L>> for Recorder<L> {
+	fn record<'a>(&mut self, access: TrieAccess<'a, TrieHash<L>>) {
+		match access {
+			TrieAccess::EncodedNode { hash, encoded_node, .. } => {
+				self.nodes.push(Record { hash, data: encoded_node.to_vec() });
+			},
+			TrieAccess::NodeOwned { hash, node_owned, .. } => {
+				self.nodes.push(Record { hash, data: node_owned.to_encoded::<L::Codec>() });
+			},
+			TrieAccess::Value { hash, value, full_key } => {
+				self.nodes.push(Record { hash, data: value.to_vec() });
+				self.recorded_keys.entry(full_key.to_vec()).insert(RecordedForKey::Value);
+			},
+			TrieAccess::Hash { full_key } => {
+				self.recorded_keys.entry(full_key.to_vec()).or_insert(RecordedForKey::Hash);
+			},
+			TrieAccess::NonExisting { full_key } => {
+				// We handle the non existing value/hash like having recorded the value.
+				self.recorded_keys.entry(full_key.to_vec()).insert(RecordedForKey::Value);
+			},
+		}
+	}
+
+	fn trie_nodes_recorded_for_key(&self, key: &[u8]) -> RecordedForKey {
+		self.recorded_keys.get(key).copied().unwrap_or(RecordedForKey::None)
 	}
 }

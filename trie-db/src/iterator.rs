@@ -58,8 +58,8 @@ impl<H: Hasher> Crumb<H> {
 }
 
 /// Iterator for going through all nodes in the trie in pre-order traversal order.
-pub struct TrieDBNodeIterator<'a, L: TrieLayout> {
-	db: &'a TrieDB<'a, L>,
+pub struct TrieDBNodeIterator<'a, 'cache, L: TrieLayout> {
+	db: &'a TrieDB<'a, 'cache, L>,
 	trail: Vec<Crumb<L::Hash>>,
 	key_nibbles: NibbleVec,
 }
@@ -73,18 +73,25 @@ pub struct SuspendedTrieDBNodeIterator<L: TrieLayout> {
 
 impl<L: TrieLayout> SuspendedTrieDBNodeIterator<L> {
 	/// Restore iterator.
-	pub fn unsafe_restore<'a>(self, db: &'a TrieDB<'a, L>) -> TrieDBNodeIterator<'a, L> {
+	pub fn unsafe_restore<'a, 'cache>(
+		self,
+		db: &'a TrieDB<'a, 'cache, L>,
+	) -> TrieDBNodeIterator<'a, 'cache, L> {
 		TrieDBNodeIterator { db, trail: self.trail, key_nibbles: self.key_nibbles }
 	}
 }
 
-impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
+impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 	/// Create a new iterator.
-	pub fn new(db: &'a TrieDB<L>) -> Result<TrieDBNodeIterator<'a, L>, TrieHash<L>, CError<L>> {
+	pub fn new(db: &'a TrieDB<'a, 'cache, L>) -> Result<Self, TrieHash<L>, CError<L>> {
 		let mut r =
 			TrieDBNodeIterator { db, trail: Vec::with_capacity(8), key_nibbles: NibbleVec::new() };
-		let (root_node, root_hash) =
-			db.get_raw_or_lookup(*db.root(), NodeHandle::Hash(db.root().as_ref()), EMPTY_PREFIX)?;
+		let (root_node, root_hash) = db.get_raw_or_lookup(
+			*db.root(),
+			NodeHandle::Hash(db.root().as_ref()),
+			EMPTY_PREFIX,
+			true,
+		)?;
 		r.descend(root_node, root_hash);
 		Ok(r)
 	}
@@ -102,14 +109,18 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 	}
 
 	/// Fetch value by hash at a current node height
-	pub fn fetch_value(&self, key: &[u8], prefix: Prefix) -> Option<DBValue> {
+	pub fn fetch_value(
+		&self,
+		key: &[u8],
+		prefix: Prefix,
+	) -> Result<DBValue, TrieHash<L>, CError<L>> {
 		let mut res = TrieHash::<L>::default();
 		res.as_mut().copy_from_slice(key);
-		self.db.db().get(&res, prefix)
+		self.db.fetch_value(res, prefix)
 	}
 }
 
-impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
+impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 	/// Seek a node position at 'key' for iterator.
 	/// Returns true if the cursor is at or after the key, but still shares
 	/// a common prefix with the key, return false if the key do not
@@ -125,6 +136,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 			<TrieHash<L>>::default(),
 			NodeHandle::Hash(self.db.root().as_ref()),
 			EMPTY_PREFIX,
+			true,
 		)?;
 		let mut partial = key;
 		let mut full_key_nibbles = 0;
@@ -167,6 +179,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 							node_hash.unwrap_or_default(),
 							child.build(node_data),
 							prefix.left(),
+							true,
 						)?
 					},
 					NodePlan::Branch { value: _, children } => {
@@ -187,6 +200,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 								node_hash.unwrap_or_default(),
 								child.build(node_data),
 								prefix.left(),
+								true,
 							)?
 						} else {
 							return Ok(false)
@@ -225,6 +239,7 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 								node_hash.unwrap_or_default(),
 								child.build(node_data),
 								prefix.left(),
+								true,
 							)?
 						} else {
 							return Ok(false)
@@ -306,13 +321,13 @@ impl<'a, L: TrieLayout> TrieDBNodeIterator<'a, L> {
 	}
 }
 
-impl<'a, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, L> {
+impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, 'cache, L> {
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		self.seek_prefix(key).map(|_| ())
 	}
 }
 
-impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
+impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, 'cache, L> {
 	type Item =
 		Result<(NibbleVec, Option<TrieHash<L>>, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
 
@@ -352,6 +367,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 							b.hash.unwrap_or_default(),
 							child.build(node_data),
 							self.key_nibbles.as_prefix(),
+							true,
 						))
 					},
 					(Status::At, NodePlan::Branch { .. }) => {
@@ -373,6 +389,7 @@ impl<'a, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, L> {
 								b.hash.unwrap_or_default(),
 								child.build(node_data),
 								self.key_nibbles.as_prefix(),
+								true,
 							))
 						} else {
 							IterStep::Continue

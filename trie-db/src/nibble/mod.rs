@@ -79,8 +79,8 @@ pub mod nibble_ops {
 		into | if ix == 1 { v } else { v << BIT_PER_NIBBLE }
 	}
 
-	#[inline]
 	/// Calculate the number of needed padding a array of nibble length `i`.
+	#[inline]
 	pub fn number_padding(i: usize) -> usize {
 		i % NIBBLE_PER_BYTE
 	}

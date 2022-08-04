@@ -14,7 +14,7 @@
 
 use hash_db::Hasher;
 use reference_trie::test_layouts;
-use trie_db::{DBValue, TrieDB, TrieDBMut, TrieLayout, TrieMut};
+use trie_db::{DBValue, TrieDBMutBuilder, TrieLayout, TrieMut};
 use trie_eip1186::{generate_proof, verify_proof, VerifyError};
 
 type MemoryDB<T> = memory_db::MemoryDB<
@@ -50,7 +50,7 @@ fn test_generate_proof<L: TrieLayout>(
 		let mut db = <MemoryDB<L>>::default();
 		let mut root = Default::default();
 		{
-			let mut trie = <TrieDBMut<L>>::new(&mut db, &mut root);
+			let mut trie = <TrieDBMutBuilder<L>>::new(&mut db, &mut root).build();
 			for (key, value) in entries.iter() {
 				trie.insert(key, value).unwrap();
 			}
@@ -58,8 +58,7 @@ fn test_generate_proof<L: TrieLayout>(
 		(db, root)
 	};
 	// Generate proof for the given keys..
-	let trie = <TrieDB<L>>::new(&db, &root);
-	let proof = generate_proof::<_, L>(&trie, key).unwrap();
+	let proof = generate_proof::<L>(&db, &root, key).unwrap();
 	(root, proof.0, proof.1)
 }
 

@@ -14,7 +14,7 @@
 
 //! Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
 
-use super::{nibble_ops, BackingByteVec, NibbleSlice, NibbleSliceIterator};
+use super::{nibble_ops, BackingByteVec, NibbleSlice, NibbleSliceIterator, NibbleVec};
 #[cfg(feature = "std")]
 use crate::rstd::fmt;
 use crate::{node::NodeKey, node_codec::Partial, rstd::cmp::*};
@@ -133,15 +133,35 @@ impl<'a> NibbleSlice<'a> {
 
 	/// How many of the same nibbles at the beginning do we match with `them`?
 	pub fn common_prefix(&self, them: &Self) -> usize {
-		let s = min(self.len(), them.len());
-		let mut i = 0usize;
-		while i < s {
-			if self.at(i) != them.at(i) {
-				break
+		let self_align = self.offset % nibble_ops::NIBBLE_PER_BYTE;
+		let them_align = them.offset % nibble_ops::NIBBLE_PER_BYTE;
+		if self_align == them_align {
+			let mut self_start = self.offset / nibble_ops::NIBBLE_PER_BYTE;
+			let mut them_start = them.offset / nibble_ops::NIBBLE_PER_BYTE;
+			let mut first = 0;
+			if self_align != 0 {
+				if nibble_ops::pad_right(self.data[self_start]) !=
+					nibble_ops::pad_right(them.data[them_start])
+				{
+					// warning only for radix 16
+					return 0
+				}
+				self_start += 1;
+				them_start += 1;
+				first += 1;
 			}
-			i += 1;
+			nibble_ops::biggest_depth(&self.data[self_start..], &them.data[them_start..]) + first
+		} else {
+			let s = min(self.len(), them.len());
+			let mut i = 0usize;
+			while i < s {
+				if self.at(i) != them.at(i) {
+					break
+				}
+				i += 1;
+			}
+			i
 		}
-		i
 	}
 
 	/// Return `Partial` representation of this slice:
@@ -227,22 +247,61 @@ impl<'a> NibbleSlice<'a> {
 		}
 	}
 
+	/// Get [`Prefix`] representation of the inner data.
+	///
+	/// This means the entire inner data will be returned as [`Prefix`], ignoring any `offset`.
+	pub fn original_data_as_prefix(&self) -> Prefix {
+		(&self.data, None)
+	}
+
 	/// Owned version of a `Prefix` from a `left` method call.
 	pub fn left_owned(&'a self) -> (BackingByteVec, Option<u8>) {
 		let (a, b) = self.left();
 		(a.into(), b)
 	}
+
+	/// Same as [`Self::starts_with`] but using [`NibbleVec`].
+	pub fn starts_with_vec(&self, other: &NibbleVec) -> bool {
+		if self.len() < other.len() {
+			return false
+		}
+
+		match other.as_nibbleslice() {
+			Some(other) => self.starts_with(&other),
+			None => {
+				for i in 0..other.len() {
+					if self.at(i) != other.at(i) {
+						return false
+					}
+				}
+				true
+			},
+		}
+	}
 }
 
-impl<'a> Into<NodeKey> for NibbleSlice<'a> {
-	fn into(self) -> NodeKey {
-		(self.offset, self.data.into())
+impl<'a> From<NibbleSlice<'a>> for NodeKey {
+	fn from(slice: NibbleSlice<'a>) -> NodeKey {
+		(slice.offset, slice.data.into())
 	}
 }
 
 impl<'a> PartialEq for NibbleSlice<'a> {
 	fn eq(&self, them: &Self) -> bool {
 		self.len() == them.len() && self.starts_with(them)
+	}
+}
+
+impl<'a> PartialEq<NibbleVec> for NibbleSlice<'a> {
+	fn eq(&self, other: &NibbleVec) -> bool {
+		if self.len() != other.len() {
+			return false
+		}
+
+		match other.as_nibbleslice() {
+			Some(other) => *self == other,
+			None => self.iter().enumerate().all(|(index, l)| l == other.at(index)),
+		}
 	}
 }
 

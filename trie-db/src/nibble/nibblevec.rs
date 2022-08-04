@@ -17,6 +17,7 @@
 use super::NibbleVec;
 use crate::{
 	nibble::{nibble_ops, BackingByteVec, NibbleSlice},
+	node::NodeKey,
 	node_codec::Partial,
 };
 use hash_db::Prefix;
@@ -39,7 +40,7 @@ impl NibbleVec {
 		self.len
 	}
 
-	/// Retrurns true if `NibbleVec` has zero length.
+	/// Returns true if `NibbleVec` has zero length.
 	pub fn is_empty(&self) -> bool {
 		self.len == 0
 	}
@@ -121,6 +122,7 @@ impl NibbleVec {
 		if v.len == 0 {
 			return
 		}
+
 		let final_len = self.len + v.len;
 		let offset = self.len % nibble_ops::NIBBLE_PER_BYTE;
 		let final_offset = final_len % nibble_ops::NIBBLE_PER_BYTE;
@@ -231,6 +233,34 @@ impl NibbleVec {
 		}
 		true
 	}
+
+	/// Return an iterator over `Partial` bytes representation.
+	pub fn right_iter<'a>(&'a self) -> impl Iterator<Item = u8> + 'a {
+		let require_padding = self.len % nibble_ops::NIBBLE_PER_BYTE != 0;
+		let mut ix = 0;
+		let inner = &self.inner;
+
+		let (left_s, right_s) = nibble_ops::SPLIT_SHIFTS;
+
+		crate::rstd::iter::from_fn(move || {
+			if require_padding && ix < inner.len() {
+				if ix == 0 {
+					ix += 1;
+					Some(inner[ix - 1] >> nibble_ops::BIT_PER_NIBBLE)
+				} else {
+					ix += 1;
+
+					Some(inner[ix - 2] << left_s | inner[ix - 1] >> right_s)
+				}
+			} else if ix < inner.len() {
+				ix += 1;
+
+				Some(inner[ix - 1])
+			} else {
+				None
+			}
+		})
+	}
 }
 
 impl<'a> From<NibbleSlice<'a>> for NibbleVec {
@@ -243,9 +273,20 @@ impl<'a> From<NibbleSlice<'a>> for NibbleVec {
 	}
 }
 
+impl From<&NibbleVec> for NodeKey {
+	fn from(nibble: &NibbleVec) -> NodeKey {
+		if let Some(slice) = nibble.as_nibbleslice() {
+			slice.into()
+		} else {
+			(1, nibble.right_iter().collect())
+		}
+	}
+}
+
 #[cfg(test)]
 mod tests {
-	use crate::nibble::{nibble_ops, NibbleVec};
+	use super::*;
+	use crate::{nibble::nibble_ops, NibbleSlice};
 
 	#[test]
 	fn push_pop() {
@@ -303,5 +344,29 @@ mod tests {
 		test_trun(&[1, 2, 3], 2, (&[0x10], 1));
 		test_trun(&[1, 2, 3], 3, (&[], 0));
 		test_trun(&[1, 2, 3], 4, (&[], 0));
+	}
+
+	#[test]
+	fn right_iter_works() {
+		let data = vec![1, 2, 3, 4, 5, 234, 78, 99];
+
+		let nibble = NibbleSlice::new(&data);
+		let vec = NibbleVec::from(nibble);
+
+		nibble
+			.right_iter()
+			.zip(vec.right_iter())
+			.enumerate()
+			.for_each(|(i, (l, r))| assert_eq!(l, r, "Don't match at {}", i));
+
+		// Also try with using an offset.
+		let nibble = NibbleSlice::new_offset(&data, 3);
+		let vec = NibbleVec::from(nibble);
+
+		nibble
+			.right_iter()
+			.zip(vec.right_iter())
+			.enumerate()
+			.for_each(|(i, (l, r))| assert_eq!(l, r, "Don't match at {}", i));
 	}
 }

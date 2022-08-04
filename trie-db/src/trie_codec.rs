@@ -173,7 +173,7 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 	}
 }
 
-/// Dettached value if included does write a reserved header,
+/// Detached value if included does write a reserved header,
 /// followed by node encoded with 0 length value and the value
 /// as a standalone vec.
 fn detached_value<L: TrieLayout>(
@@ -185,8 +185,7 @@ fn detached_value<L: TrieLayout>(
 	let fetched;
 	match value {
 		ValuePlan::Node(hash_plan) => {
-			if let Some(value) = val_fetcher.fetch_value(&node_data[hash_plan.clone()], node_prefix)
-			{
+			if let Ok(value) = val_fetcher.fetch_value(&node_data[hash_plan.clone()], node_prefix) {
 				fetched = value;
 			} else {
 				return None
@@ -397,11 +396,11 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	/// Preconditions:
 	/// - if node is an extension node, then `children[0]` is Some.
 	fn encode_node(self, attached_hash: Option<&[u8]>) -> Vec<u8> {
-		let attached_hash = attached_hash.map(|h| crate::node::Value::Node(h, None));
+		let attached_hash = attached_hash.map(|h| crate::node::Value::Node(h));
 		match self.node {
 			Node::Empty => C::empty_node().to_vec(),
 			Node::Leaf(partial, value) =>
-				C::leaf_node(partial.right(), attached_hash.unwrap_or(value)),
+				C::leaf_node(partial.right_iter(), partial.len(), attached_hash.unwrap_or(value)),
 			Node::Extension(partial, _) => C::extension_node(
 				partial.right_iter(),
 				partial.len(),
