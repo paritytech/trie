@@ -14,6 +14,3 @@ members = [
 	"trie-root",
 	"trie-root/test"
 ]
-
-[patch.crates-io]
-parity-util-mem = { git = "https://github.com/paritytech/parity-common", branch = "ao-release-is-coming" }
