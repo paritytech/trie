@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.32.0] - 2022-09-20
+- Updated `memory-db` to 0.30. [#166](https://github.com/paritytech/trie/pull/166)
+
 ## [0.31.0] - 2022-08-04
 - Update trie-db to 0.24.0. [#163](https://github.com/paritytech/trie/pull/163)
 
