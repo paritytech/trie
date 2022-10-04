@@ -133,7 +133,11 @@ const BITMAP_LENGTH: usize = 2;
 
 impl Bitmap {
 	fn decode(data: &[u8]) -> Result<Self, CodecError> {
-		Ok(u16::decode(&mut &data[..]).map(|v| Bitmap(v))?)
+		let value = u16::decode(&mut &data[..])?;
+		if value == 0 {
+			return Err(CodecError::from("Bad format"))
+		}
+		Ok(Bitmap(value))
 	}
 
 	fn value_at(&self, i: usize) -> bool {
