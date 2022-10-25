@@ -226,6 +226,25 @@ fn insert_replace_root_internal<T: TrieLayout>() {
 	);
 }
 
+#[test]
+fn oversized_key() {
+	use reference_trie::HashedValueNoExtThreshold as Layout;
+	let check = |keysize: usize, oversized: Option<usize>| {
+		let mut memdb = PrefixedMemoryDB::<Layout>::default();
+		let mut root = Default::default();
+		let mut t = TrieDBMutBuilder::<Layout>::new(&mut memdb, &mut root).build();
+		t.insert(&vec![0x01u8; keysize][..], &[0x01u8, 0x23]).unwrap();
+		std::mem::drop(t);
+		let t = TrieDBBuilder::<Layout>::new(&memdb, &root).build();
+		let mut truncated_key = vec![0x01u8; keysize - oversized.unwrap_or(0)];
+		assert_eq!(t.get(&truncated_key[..]).unwrap(), Some(vec![0x01u8, 0x23]));
+	};
+	check(4 as usize / 2, None); // ok
+	check(4 as usize / 2 + 1, Some(1)); // Oversized, rem last two nibble 
+	//check(u16::MAX as usize / 2, None); // ok
+	//check(u16::MAX as usize / 2 + 1, Some(1)); // Oversized, rem last two nibble 
+}
+
 test_layouts!(insert_make_branch_root, insert_make_branch_root_internal);
 fn insert_make_branch_root_internal<T: TrieLayout>() {
 	let mut memdb = PrefixedMemoryDB::<T>::default();

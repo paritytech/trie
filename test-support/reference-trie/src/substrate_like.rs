@@ -16,6 +16,7 @@
 
 use super::{CodecError as Error, NodeCodec as NodeCodecT, *};
 use trie_db::node::Value;
+use trie_db::nibble_ops;
 
 /// No extension trie with no hashed value.
 pub struct HashedValueNoExt;
@@ -45,7 +46,8 @@ impl TrieLayout for HashedValueNoExtThreshold {
 /// Constants specific to encoding with external value node support.
 pub mod trie_constants {
 	const FIRST_PREFIX: u8 = 0b_00 << 6;
-	pub const NIBBLE_SIZE_BOUND: usize = u16::max_value() as usize;
+	//pub const NIBBLE_SIZE_BOUND: usize = u16::max_value() as usize - 1;
+	pub const NIBBLE_SIZE_BOUND: usize = 4;
 	pub const LEAF_PREFIX_MASK: u8 = 0b_01 << 6;
 	pub const BRANCH_WITHOUT_MASK: u8 = 0b_10 << 6;
 	pub const BRANCH_WITH_MASK: u8 = 0b_11 << 6;
@@ -259,11 +261,11 @@ where
 /// Encode and allocate node type header (type and size), and partial value.
 /// It uses an iterator over encoded partial bytes as input.
 fn partial_from_iterator_encode<I: Iterator<Item = u8>>(
-	partial: I,
-	nibble_count: usize,
+	mut partial: I,
+	total_nibble_count: usize,
 	node_kind: NodeKind,
 ) -> Vec<u8> {
-	let nibble_count = std::cmp::min(trie_constants::NIBBLE_SIZE_BOUND, nibble_count);
+	let nibble_count = std::cmp::min(trie_constants::NIBBLE_SIZE_BOUND, total_nibble_count);
 
 	let mut output = Vec::with_capacity(4 + (nibble_count / nibble_ops::NIBBLE_PER_BYTE));
 	match node_kind {
@@ -275,7 +277,18 @@ fn partial_from_iterator_encode<I: Iterator<Item = u8>>(
 		NodeKind::HashedValueBranch =>
 			NodeHeader::HashedValueBranch(nibble_count).encode_to(&mut output),
 	};
-	output.extend(partial);
+	if total_nibble_count != nibble_count {
+		// truncate key content.
+		let was_aligned = total_nibble_count % nibble_ops::NIBBLE_PER_BYTE == 0;
+		debug_assert!(nibble_count % nibble_ops::NIBBLE_PER_BYTE == 0);
+		let mut nb_bytes = trie_constants::NIBBLE_SIZE_BOUND / nibble_ops::NIBBLE_PER_BYTE;
+		if trie_constants::NIBBLE_SIZE_BOUND % nibble_ops::NIBBLE_PER_BYTE > 0 {
+			nb_bytes += 1;
+		}
+		output.extend(partial.take(nb_bytes));
+	} else {
+		output.extend(partial);
+	}
 	output
 }
 
