@@ -19,13 +19,9 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-mod malloc_size_of;
-pub use malloc_size_of::*;
-
 use hash_db::{
 	AsHashDB, AsPlainDB, HashDB, HashDBRef, Hasher as KeyHasher, PlainDB, PlainDBRef, Prefix,
 };
-use parity_util_mem::{MallocShallowSizeOf, MallocSizeOf, MallocSizeOfOps};
 #[cfg(feature = "std")]
 use std::{
 	borrow::Borrow, cmp::Eq, collections::hash_map::Entry, collections::HashMap, hash,
@@ -50,22 +46,12 @@ pub trait MaybeDebug {}
 #[cfg(not(feature = "std"))]
 impl<T> MaybeDebug for T {}
 
-/// The default memory tracker used by [`MemoryDB`].
-#[cfg(feature = "std")]
-pub type DefaultMemTracker<T> = MemCounter<T>;
-/// The default memory tracker used by [`MemoryDB`].
-#[cfg(not(feature = "std"))]
-pub type DefaultMemTracker<T> = NoopTracker<T>;
-
 /// Reference-counted memory-based `HashDB` implementation.
 ///
 /// Use `new()` to create a new database. Insert items with `insert()`, remove items
 /// with `remove()`, check for existence with `contains()` and lookup a hash to derive
 /// the data with `get()`. Clear with `clear()` and purge the portions of the data
 /// that have no references with `purge()`.
-///
-/// If you're not using the `MallocSizeOf` implementation to track memory usage,
-/// set the `M` type parameter to `NoopTracker`.
 ///
 /// # Example
 /// ```rust
@@ -102,48 +88,41 @@ pub type DefaultMemTracker<T> = NoopTracker<T>;
 ///   m.remove(&k, EMPTY_PREFIX);
 ///   assert!(!m.contains(&k, EMPTY_PREFIX));
 /// ```
-pub struct MemoryDB<H, KF, T, M = DefaultMemTracker<T>>
+pub struct MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
 	KF: KeyFunction<H>,
-	M: MemTracker<T>,
 {
 	data: HashMap<KF::Key, (T, i32)>,
-	// We cache `size_of(data) - shallow_size_of(data)` to compute
-	// `size_of(data)` incrementally and avoid iterating over the `data`.
-	malloc_tracker: M,
 	hashed_null_node: H::Out,
 	null_node_data: T,
 	_kf: PhantomData<KF>,
 }
 
-impl<H, KF, T, M> Clone for MemoryDB<H, KF, T, M>
+impl<H, KF, T> Clone for MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
 	KF: KeyFunction<H>,
 	T: Clone,
-	M: MemTracker<T> + Copy,
 {
 	fn clone(&self) -> Self {
 		Self {
 			data: self.data.clone(),
 			hashed_null_node: self.hashed_null_node,
 			null_node_data: self.null_node_data.clone(),
-			malloc_tracker: self.malloc_tracker,
 			_kf: Default::default(),
 		}
 	}
 }
 
-impl<H, KF, T, M> PartialEq<MemoryDB<H, KF, T, M>> for MemoryDB<H, KF, T, M>
+impl<H, KF, T> PartialEq<MemoryDB<H, KF, T>> for MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
 	KF: KeyFunction<H>,
 	<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
 	T: Eq + MaybeDebug,
-	M: MemTracker<T> + PartialEq,
 {
-	fn eq(&self, other: &MemoryDB<H, KF, T, M>) -> bool {
+	fn eq(&self, other: &MemoryDB<H, KF, T>) -> bool {
 		for a in self.data.iter() {
 			match other.data.get(&a.0) {
 				Some(v) if v != a.1 => return false,
@@ -155,13 +134,12 @@ where
 	}
 }
 
-impl<H, KF, T, M> Eq for MemoryDB<H, KF, T, M>
+impl<H, KF, T> Eq for MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
 	KF: KeyFunction<H>,
 	<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
 	T: Eq + MaybeDebug,
-	M: MemTracker<T> + Eq,
 {
 }
 
@@ -270,12 +248,11 @@ pub fn legacy_prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8
 	prefixed_key
 }
 
-impl<H, KF, T, M> Default for MemoryDB<H, KF, T, M>
+impl<H, KF, T> Default for MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
 	T: for<'a> From<&'a [u8]>,
 	KF: KeyFunction<H>,
-	M: MemTracker<T> + Default,
 {
 	fn default() -> Self {
 		Self::from_null_node(&[0u8][..], [0u8][..].into())
@@ -283,12 +260,11 @@ where
 }
 
 /// Create a new `MemoryDB` from a given null key/data
-impl<H, KF, T, M> MemoryDB<H, KF, T, M>
+impl<H, KF, T> MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
 	T: Default,
 	KF: KeyFunction<H>,
-	M: MemTracker<T>,
 {
 	/// Remove an element and delete it from storage if reference count reaches zero.
 	/// If the value was purged, return the old value.
@@ -301,7 +277,6 @@ where
 			Entry::Occupied(mut entry) =>
 				if entry.get().1 == 1 {
 					let (value, _) = entry.remove();
-					self.malloc_tracker.on_remove(&value);
 					Some(value)
 				} else {
 					entry.get_mut().1 -= 1;
@@ -309,7 +284,6 @@ where
 				},
 			Entry::Vacant(entry) => {
 				let value = T::default();
-				self.malloc_tracker.on_insert(&value);
 				entry.insert((value, -1));
 				None
 			},
@@ -325,12 +299,11 @@ where
 	}
 }
 
-impl<H, KF, T, M> MemoryDB<H, KF, T, M>
+impl<H, KF, T> MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
 	T: for<'a> From<&'a [u8]>,
 	KF: KeyFunction<H>,
-	M: MemTracker<T> + Default,
 {
 	/// Create a new `MemoryDB` from a given null key/data
 	pub fn from_null_node(null_key: &[u8], null_node_data: T) -> Self {
@@ -338,7 +311,6 @@ where
 			data: HashMap::default(),
 			hashed_null_node: H::hash(null_key),
 			null_node_data,
-			malloc_tracker: M::default(),
 			_kf: Default::default(),
 		}
 	}
@@ -378,25 +350,19 @@ where
 	/// }
 	/// ```
 	pub fn clear(&mut self) {
-		self.malloc_tracker.on_clear();
 		self.data.clear();
 	}
 
 	/// Purge all zero-referenced data from the database.
 	pub fn purge(&mut self) {
-		let malloc_tracker = &mut self.malloc_tracker;
-		self.data.retain(|_, (v, rc)| {
+		self.data.retain(|_, (_, rc)| {
 			let keep = *rc != 0;
-			if !keep {
-				malloc_tracker.on_remove(v);
-			}
 			keep
 		});
 	}
 
 	/// Return the internal key-value HashMap, clearing the current state.
 	pub fn drain(&mut self) -> HashMap<KF::Key, (T, i32)> {
-		self.malloc_tracker.on_clear();
 		mem::take(&mut self.data)
 	}
 
@@ -418,15 +384,12 @@ where
 			match self.data.entry(key) {
 				Entry::Occupied(mut entry) => {
 					if entry.get().1 < 0 {
-						self.malloc_tracker.on_insert(&value);
-						self.malloc_tracker.on_remove(&entry.get().0);
 						entry.get_mut().0 = value;
 					}
 
 					entry.get_mut().1 += rc;
 				},
 				Entry::Vacant(entry) => {
-					self.malloc_tracker.on_insert(&value);
 					entry.insert((value, rc));
 				},
 			}
@@ -442,30 +405,12 @@ where
 	}
 }
 
-impl<H, KF, T, M> MallocSizeOf for MemoryDB<H, KF, T, M>
-where
-	H: KeyHasher,
-	H::Out: MallocSizeOf,
-	T: MallocSizeOf,
-	KF: KeyFunction<H>,
-	KF::Key: MallocSizeOf,
-	M: MemTracker<T>,
-{
-	fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
-		self.data.shallow_size_of(ops) +
-			self.malloc_tracker.get_size() +
-			self.null_node_data.size_of(ops) +
-			self.hashed_null_node.size_of(ops)
-	}
-}
-
-impl<H, KF, T, M> PlainDB<H::Out, T> for MemoryDB<H, KF, T, M>
+impl<H, KF, T> PlainDB<H::Out, T> for MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: Send + Sync + KeyFunction<H>,
 	KF::Key: Borrow<[u8]> + for<'a> From<&'a [u8]>,
-	M: MemTracker<T> + Send + Sync,
 {
 	fn get(&self, key: &H::Out) -> Option<T> {
 		match self.data.get(key.as_ref()) {
@@ -486,14 +431,11 @@ where
 			Entry::Occupied(mut entry) => {
 				let &mut (ref mut old_value, ref mut rc) = entry.get_mut();
 				if *rc <= 0 {
-					self.malloc_tracker.on_insert(&value);
-					self.malloc_tracker.on_remove(old_value);
 					*old_value = value;
 				}
 				*rc += 1;
 			},
 			Entry::Vacant(entry) => {
-				self.malloc_tracker.on_insert(&value);
 				entry.insert((value, 1));
 			},
 		}
@@ -507,20 +449,18 @@ where
 			},
 			Entry::Vacant(entry) => {
 				let value = T::default();
-				self.malloc_tracker.on_insert(&value);
 				entry.insert((value, -1));
 			},
 		}
 	}
 }
 
-impl<H, KF, T, M> PlainDBRef<H::Out, T> for MemoryDB<H, KF, T, M>
+impl<H, KF, T> PlainDBRef<H::Out, T> for MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: Send + Sync + KeyFunction<H>,
 	KF::Key: Borrow<[u8]> + for<'a> From<&'a [u8]>,
-	M: MemTracker<T> + Send + Sync,
 {
 	fn get(&self, key: &H::Out) -> Option<T> {
 		PlainDB::get(self, key)
@@ -530,12 +470,11 @@ where
 	}
 }
 
-impl<H, KF, T, M> HashDB<H, T> for MemoryDB<H, KF, T, M>
+impl<H, KF, T> HashDB<H, T> for MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: KeyFunction<H> + Send + Sync,
-	M: MemTracker<T> + Send + Sync,
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
 		if key == &self.hashed_null_node {
@@ -571,14 +510,11 @@ where
 			Entry::Occupied(mut entry) => {
 				let &mut (ref mut old_value, ref mut rc) = entry.get_mut();
 				if *rc <= 0 {
-					self.malloc_tracker.on_insert(&value);
-					self.malloc_tracker.on_remove(old_value);
 					*old_value = value;
 				}
 				*rc += 1;
 			},
 			Entry::Vacant(entry) => {
-				self.malloc_tracker.on_insert(&value);
 				entry.insert((value, 1));
 			},
 		}
@@ -607,19 +543,17 @@ where
 			},
 			Entry::Vacant(entry) => {
 				let value = T::default();
-				self.malloc_tracker.on_insert(&value);
 				entry.insert((value, -1));
 			},
 		}
 	}
 }
 
-impl<H, KF, T, M> HashDBRef<H, T> for MemoryDB<H, KF, T, M>
+impl<H, KF, T> HashDBRef<H, T> for MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: KeyFunction<H> + Send + Sync,
-	M: MemTracker<T> + Send + Sync,
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
 		HashDB::get(self, key, prefix)
@@ -629,13 +563,12 @@ where
 	}
 }
 
-impl<H, KF, T, M> AsPlainDB<H::Out, T> for MemoryDB<H, KF, T, M>
+impl<H, KF, T> AsPlainDB<H::Out, T> for MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: KeyFunction<H> + Send + Sync,
 	KF::Key: Borrow<[u8]> + for<'a> From<&'a [u8]>,
-	M: MemTracker<T> + Send + Sync,
 {
 	fn as_plain_db(&self) -> &dyn PlainDB<H::Out, T> {
 		self
@@ -645,12 +578,11 @@ where
 	}
 }
 
-impl<H, KF, T, M> AsHashDB<H, T> for MemoryDB<H, KF, T, M>
+impl<H, KF, T> AsHashDB<H, T> for MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: KeyFunction<H> + Send + Sync,
-	M: MemTracker<T> + Send + Sync,
 {
 	fn as_hash_db(&self) -> &dyn HashDB<H, T> {
 		self
@@ -665,7 +597,6 @@ mod tests {
 	use super::{HashDB, HashKey, KeyHasher, MemoryDB};
 	use hash_db::EMPTY_PREFIX;
 	use keccak_hasher::KeccakHasher;
-	use parity_util_mem::malloc_size;
 
 	#[test]
 	fn memorydb_remove_and_purge() {
@@ -727,21 +658,5 @@ mod tests {
 		let (db2, root) = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default_with_root();
 		assert!(db2.contains(&root, EMPTY_PREFIX));
 		assert!(db.contains(&root, EMPTY_PREFIX));
-	}
-
-	#[test]
-	fn malloc_size_of() {
-		let mut db = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default();
-		for i in 0u32..1024 {
-			let bytes = i.to_be_bytes();
-			let prefix = (bytes.as_ref(), None);
-			db.insert(prefix, &bytes);
-		}
-		assert_eq!(
-			malloc_size(&db),
-			malloc_size(&db.data) +
-				malloc_size(&db.null_node_data) +
-				malloc_size(&db.hashed_null_node)
-		);
 	}
 }
