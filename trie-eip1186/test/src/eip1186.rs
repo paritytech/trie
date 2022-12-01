@@ -74,7 +74,7 @@ fn trie_proof_works_internal2<T: TrieLayout>() {
 		b"do",
 	);
 	assert_eq!(Some(b"verb".as_ref()), item.as_deref(), "verb is the item");
-	assert!(verify_proof::<T>(&root, &proof, b"do", Some(b"verb")).is_ok(), "verifying do");
+	assert!(verify_proof::<T>(&root, &proof, b"do").unwrap() == b"verb", "verifying do");
 
 	let (root, proof, item) = test_generate_proof::<T>(
 		vec![
@@ -86,55 +86,55 @@ fn trie_proof_works_internal2<T: TrieLayout>() {
 		b"dog",
 	);
 	assert_eq!(Some(b"puppy".as_ref()), item.as_deref(), "puppy is the item");
-	assert!(verify_proof::<T>(&root, &proof, b"dog", Some(b"puppy")).is_ok(), "verifying dog");
+	assert!(verify_proof::<T>(&root, &proof, b"dog").unwrap() == b"puppy", "verifying dog");
 }
 
 test_layouts!(trie_proof_works, trie_proof_works_internal);
 fn trie_proof_works_internal<T: TrieLayout>() {
 	let (root, proof, item) = test_generate_proof::<T>(test_entries(), b"do");
 	assert_eq!(Some(b"verb".as_ref()), item.as_deref(), "verb is the item");
-	assert!(verify_proof::<T>(&root, &proof, b"do", Some(b"verb")).is_ok(), "verifying do");
+	assert!(verify_proof::<T>(&root, &proof, b"do").unwrap() == b"verb", "verifying do");
 
 	let (root, proof, item) = test_generate_proof::<T>(test_entries(), b"dog");
 	assert_eq!(Some(b"puppy".as_ref()), item.as_deref(), "puppy is the item");
-	assert!(verify_proof::<T>(&root, &proof, b"dog", Some(b"puppy")).is_ok(), "verifying dog");
+	assert!(verify_proof::<T>(&root, &proof, b"dog").unwrap() == b"puppy", "verifying dog");
 
 	let (root, proof, item) = test_generate_proof::<T>(test_entries(), b"doge");
 	assert_eq!(Some([0; 32].as_ref()), item.as_deref(), "[0;32] is the item");
-	assert!(verify_proof::<T>(&root, &proof, b"doge", Some(&[0; 32])).is_ok(), "verifying doge");
+	assert!(verify_proof::<T>(&root, &proof, b"doge").unwrap() == &[0; 32], "verifying doge");
 
 	let (root, proof, item) = test_generate_proof::<T>(test_entries(), b"bravo");
 	assert_eq!(Some(b"bravo".as_ref()), item.as_deref(), "bravo is the item");
-	assert!(verify_proof::<T>(&root, &proof, b"bravo", Some(b"bravo")).is_ok(), "verifying bravo");
+	assert!(verify_proof::<T>(&root, &proof, b"bravo").unwrap() == b"bravo", "verifying bravo");
 
 	let (root, proof, item) = test_generate_proof::<T>(test_entries(), b"alfabet");
 	assert!(item.is_none(), "item not found");
-	assert!(verify_proof::<T>(&root, &proof, b"alfabet", None).is_ok(), "verifying alfabet");
+	assert!(verify_proof::<T>(&root, &proof, b"alfabet").is_ok(), "verifying alfabet");
 
 	let (root, proof, item) = test_generate_proof::<T>(test_entries(), b"d");
 	assert!(item.is_none(), "item not found");
-	assert!(verify_proof::<T>(&root, &proof, b"d", None).is_ok(), "verifying d");
+	assert!(verify_proof::<T>(&root, &proof, b"d").is_ok(), "verifying d");
 
 	let (root, proof, item) = test_generate_proof::<T>(test_entries(), b"do\x10");
 	assert!(item.is_none(), "item not found");
-	assert!(verify_proof::<T>(&root, &proof, b"do\x10", None).is_ok(), "verifying do\x10");
+	assert!(verify_proof::<T>(&root, &proof, b"do\x10").is_ok(), "verifying do\x10");
 
 	let (root, proof, item) = test_generate_proof::<T>(test_entries(), b"halp");
 	assert!(item.is_none(), "item not found");
-	assert!(verify_proof::<T>(&root, &proof, b"halp", None).is_ok(), "verifying halp");
+	assert!(verify_proof::<T>(&root, &proof, b"halp").is_ok(), "verifying halp");
 }
 
 test_layouts!(trie_proof_works_for_empty_trie, trie_proof_works_for_empty_trie_internal);
 fn trie_proof_works_for_empty_trie_internal<T: TrieLayout>() {
 	let (root, proof, item) = test_generate_proof::<T>(vec![], b"alpha");
 	assert!(item.is_none(), "item not found");
-	assert!(verify_proof::<T>(&root, &proof, b"alpha", None).is_ok(), "verifying alpha");
+	assert!(verify_proof::<T>(&root, &proof, b"alpha").is_ok(), "verifying alpha");
 	let (root, proof, item) = test_generate_proof::<T>(vec![], b"bravo");
 	assert!(item.is_none(), "item not found");
-	assert!(verify_proof::<T>(&root, &proof, b"bravo", None).is_ok(), "verifying bravo");
+	assert!(verify_proof::<T>(&root, &proof, b"bravo").is_ok(), "verifying bravo");
 	let (root, proof, item) = test_generate_proof::<T>(vec![], b"\x42\x42");
 	assert!(item.is_none(), "item not found");
-	assert!(verify_proof::<T>(&root, &proof, b"\x42\x42", None).is_ok(), "verifying \x42\x42");
+	assert!(verify_proof::<T>(&root, &proof, b"\x42\x42").is_ok(), "verifying \x42\x42");
 }
 
 test_layouts!(
@@ -143,15 +143,15 @@ test_layouts!(
 );
 fn test_verify_value_mismatch_some_to_none_internal<T: TrieLayout>() {
 	let (root, proof, _) = test_generate_proof::<T>(test_entries(), b"horse");
-	let res = verify_proof::<T>(&root, &proof, b"horse", Some(b"stallion"));
-	assert!(res.is_ok(), "verifying horse");
+	let res = verify_proof::<T>(&root, &proof, b"horse");
+	assert!(res.unwrap() == b"stallion", "verifying horse");
 
-	let res = verify_proof::<T>(&root, &proof, b"halp", Some(b"plz"));
-	assert!(res.is_err(), "verifying halp");
+	let res = verify_proof::<T>(&root, &proof, b"halp");
+	assert!(res.unwrap() == b"plz", "verifying halp");
 	assert!(matches!(res.err().unwrap(), VerifyError::NonExistingValue(_)));
 
-	let res = verify_proof::<T>(&root, &proof, b"horse", Some(b"rocinante"));
-	assert!(res.is_err(), "verifying horse");
+	let res = verify_proof::<T>(&root, &proof, b"horse");
+	assert!(res.unwrap() == b"rocinante", "verifying horse");
 	//checking for two variants as it depends on the TrieLayout which one occurs
 	let is_ok = match res {
 		Err(VerifyError::HashMismatch(_)) | Err(VerifyError::ValueMismatch(_)) => true,
@@ -165,7 +165,7 @@ fn test_verify_incomplete_proof_internal<T: TrieLayout>() {
 	let (root, mut proof, item) = test_generate_proof::<T>(test_entries(), b"alfa");
 
 	proof.pop();
-	let res = verify_proof::<T>(&root, &proof, b"alfa", item.as_deref());
+	let res = verify_proof::<T>(&root, &proof, b"alfa");
 	assert!(matches!(res, Err(VerifyError::IncompleteProof)));
 }
 
@@ -176,6 +176,6 @@ fn test_verify_decode_error_internal<T: TrieLayout>() {
 	let fake_node = b"this is not a trie node";
 	proof.insert(0, fake_node.to_vec());
 	let fake_root = T::Hash::hash(fake_node);
-	let res = verify_proof::<T>(&fake_root, &proof, b"bravo", item.as_deref());
+	let res = verify_proof::<T>(&fake_root, &proof, b"bravo");
 	assert!(matches!(res, Err(VerifyError::DecodeError(_))));
 }
