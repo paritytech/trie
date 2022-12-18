@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[macro_use]
-extern crate criterion;
-use criterion::{black_box, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
+use keccak_hasher::KeccakHasher;
+use memory_db::{HashKey, MemoryDB};
+
 criterion_group!(
 	benches,
 	instantiation,
@@ -24,14 +26,6 @@ criterion_group!(
 	contains_with_null_key
 );
 criterion_main!(benches);
-
-extern crate hash_db;
-extern crate keccak_hasher;
-extern crate memory_db;
-
-use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
-use keccak_hasher::KeccakHasher;
-use memory_db::{HashKey, MemoryDB};
 
 fn instantiation(b: &mut Criterion) {
 	b.bench_function("instantiation", move |b| {

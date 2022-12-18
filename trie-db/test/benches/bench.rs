@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use criterion::{black_box, criterion_group, criterion_main, Bencher, Criterion};
+use std::collections::BTreeMap;
 
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use reference_trie::ExtensionLayout as Layout;
 use trie_db::{
 	proof::{generate_proof, verify_proof},
@@ -25,18 +26,12 @@ criterion_group!(
 	benches,
 	root_old,
 	root_new,
-	root_a_big_v,
-	root_b_big_v,
-	root_a_small_v,
-	root_b_small_v,
-	trie_mut_ref_root_a,
-	trie_mut_ref_root_b,
-	trie_mut_root_a,
-	trie_mut_root_b,
-	trie_mut_a,
-	trie_mut_b,
-	trie_mut_build_a,
-	trie_mut_build_b,
+	root_big_v,
+	root_small_v,
+	trie_mut_ref_root,
+	trie_mut_root,
+	trie_mut,
+	trie_mut_build,
 	trie_iteration,
 	nibble_common_prefix,
 	trie_proof_verification,
@@ -67,128 +62,82 @@ fn nibble_common_prefix(b: &mut Criterion) {
 	});
 }
 
-fn root_a_big_v(c: &mut Criterion) {
-	let data: Vec<Vec<(Vec<u8>, Vec<u8>)>> = vec![input2(29, 204800 / 2, 512 * 2)];
+fn root_big_v(c: &mut Criterion) {
+	let params = vec![(29, 204800 / 2, 512 * 2), (29, 204800, 512)];
 
-	c.bench_function_over_inputs(
-		"root_a_big_v",
-		|b: &mut Bencher, data: &Vec<(Vec<u8>, Vec<u8>)>| {
+	let mut group = c.benchmark_group("root_big_v");
+
+	for (seed, len, value_length) in params {
+		let input = input2(seed, len, value_length);
+		let param = format!("seed({}), len({}), value_length({})", seed, len, value_length);
+		group.bench_with_input(BenchmarkId::new("root_big_v", param), &input, |b, i| {
 			b.iter(|| {
-				let datac: Vec<(Vec<u8>, Vec<u8>)> = data.clone();
 				// this is in `reference_trie_root` added here to make things comparable
-				let inputc = datac
-					.iter()
-					.map(|v| (&v.0, &v.1))
-					.collect::<std::collections::BTreeMap<_, _>>();
-
+				let inputc = i.iter().map(|v| (&v.0, &v.1)).collect::<BTreeMap<_, _>>();
 				reference_trie::calc_root::<Layout, _, _, _>(inputc);
 			})
-		},
-		data,
-	);
+		});
+	}
+
+	group.finish();
 }
 
-fn root_b_big_v(c: &mut Criterion) {
-	let data: Vec<Vec<(Vec<u8>, Vec<u8>)>> = vec![input2(29, 204800, 512)];
+fn root_small_v(c: &mut Criterion) {
+	let params = vec![(29, 204800, 32), (29, 204800 / 2, 32 * 2)];
 
-	c.bench_function_over_inputs(
-		"root_b_big_v",
-		|b: &mut Bencher, data: &Vec<(Vec<u8>, Vec<u8>)>| {
+	let mut group = c.benchmark_group("root_small_v");
+
+	for (seed, len, value_length) in params {
+		let input = input2(seed, len, value_length);
+		let param = format!("seed({}), len({}), value_length({})", seed, len, value_length);
+		group.bench_with_input(BenchmarkId::new("root_small_v", param), &input, |b, i| {
 			b.iter(|| {
-				let datac: Vec<(Vec<u8>, Vec<u8>)> = data.clone();
 				// this is in `reference_trie_root` added here to make things comparable
-				let inputc = datac
-					.iter()
-					.map(|v| (&v.0, &v.1))
-					.collect::<std::collections::BTreeMap<_, _>>();
-
+				let inputc = i.iter().map(|v| (&v.0, &v.1)).collect::<BTreeMap<_, _>>();
 				reference_trie::calc_root::<Layout, _, _, _>(inputc);
 			})
-		},
-		data,
-	);
-}
+		});
+	}
 
-fn root_a_small_v(c: &mut Criterion) {
-	let data: Vec<Vec<(Vec<u8>, Vec<u8>)>> = vec![input2(29, 204800, 32)];
-
-	c.bench_function_over_inputs(
-		"root_a_small_v",
-		|b: &mut Bencher, data: &Vec<(Vec<u8>, Vec<u8>)>| {
-			b.iter(|| {
-				let datac: Vec<(Vec<u8>, Vec<u8>)> = data.clone();
-				// this is in `reference_trie_root` added here to make things comparable
-				let inputc = datac
-					.iter()
-					.map(|v| (&v.0, &v.1))
-					.collect::<std::collections::BTreeMap<_, _>>();
-
-				reference_trie::calc_root::<Layout, _, _, _>(inputc);
-			})
-		},
-		data,
-	);
-}
-
-fn root_b_small_v(c: &mut Criterion) {
-	let data: Vec<Vec<(Vec<u8>, Vec<u8>)>> = vec![input2(29, 204800 / 2, 32 * 2)];
-
-	c.bench_function_over_inputs(
-		"root_b_small_v",
-		|b: &mut Bencher, data: &Vec<(Vec<u8>, Vec<u8>)>| {
-			b.iter(|| {
-				let datac: Vec<(Vec<u8>, Vec<u8>)> = data.clone();
-				// this is in `reference_trie_root` added here to make things comparable
-				let inputc = datac
-					.iter()
-					.map(|v| (&v.0, &v.1))
-					.collect::<std::collections::BTreeMap<_, _>>();
-
-				reference_trie::calc_root::<Layout, _, _, _>(inputc);
-			})
-		},
-		data,
-	);
+	group.finish();
 }
 
 fn root_old(c: &mut Criterion) {
-	let data: Vec<Vec<(Vec<u8>, Vec<u8>)>> =
-		vec![input(1, 5120), input(41, 10240), input(18, 102400), input(29, 204800)];
+	let params = vec![(1, 5120), (41, 10240), (18, 102400), (29, 204800)];
 
-	c.bench_function_over_inputs(
-		"root_old",
-		|b: &mut Bencher, data: &Vec<(Vec<u8>, Vec<u8>)>| {
+	let mut group = c.benchmark_group("root_old");
+
+	for (seed, len) in params {
+		let input = input(seed, len);
+		let param = format!("seed({}), len({})", seed, len);
+		group.bench_with_input(BenchmarkId::new("root_old", param), &input, |b, i| {
 			b.iter(|| {
-				let datac: Vec<(Vec<u8>, Vec<u8>)> = data.clone();
-				let inputc = datac.iter().map(|v| (&v.0, &v.1));
-
+				let inputc = i.iter().map(|v| (&v.0, &v.1));
 				reference_trie::reference_trie_root::<Layout, _, _, _>(inputc);
 			})
-		},
-		data,
-	);
+		});
+	}
+
+	group.finish();
 }
 
 fn root_new(c: &mut Criterion) {
-	let data: Vec<Vec<(Vec<u8>, Vec<u8>)>> =
-		vec![input(1, 5120), input(41, 10240), input(18, 102400), input(29, 204800)];
+	let params = vec![(1, 5120), (41, 10240), (18, 102400), (29, 204800)];
 
-	c.bench_function_over_inputs(
-		"root_new",
-		|b: &mut Bencher, data: &Vec<(Vec<u8>, Vec<u8>)>| {
+	let mut group = c.benchmark_group("root_new");
+
+	for (seed, len) in params {
+		let input = input(seed, len);
+		let param = format!("seed({}), len({})", seed, len);
+		group.bench_with_input(BenchmarkId::new("root_new", param), &input, |b, i| {
 			b.iter(|| {
-				let datac: Vec<(Vec<u8>, Vec<u8>)> = data.clone();
-				// this is in `reference_trie_root` added here to make things comparable
-				let inputc = datac
-					.iter()
-					.map(|v| (&v.0, &v.1))
-					.collect::<std::collections::BTreeMap<_, _>>();
-
-				reference_trie::calc_root::<Layout, _, _, _>(inputc);
+				let inputc = i.iter().map(|v| (&v.0, &v.1));
+				reference_trie::reference_trie_root::<Layout, _, _, _>(inputc);
 			})
-		},
-		data,
-	);
+		});
+	}
+
+	group.finish();
 }
 
 fn fuzz_to_data(input: Vec<u8>) -> Vec<(Vec<u8>, Vec<u8>)> {
@@ -264,196 +213,97 @@ fn input_unsorted(seed: u64, len: usize, value_length: usize) -> Vec<(Vec<u8>, V
 	fuzz_to_data2(data, value_length)
 }
 
-fn trie_mut_root_a(c: &mut Criterion) {
-	let data: Vec<Vec<(Vec<u8>, Vec<u8>)>> = vec![input_unsorted(29, 204800 / 2, 512 * 2)];
+fn trie_mut_root(c: &mut Criterion) {
+	let params = vec![(29, 204800 / 2, 512 * 2), (29, 204800, 32)];
 
-	c.bench_function_over_inputs(
-		"trie_mut_root_a",
-		|b: &mut Bencher, data: &Vec<(Vec<u8>, Vec<u8>)>| {
+	let mut group = c.benchmark_group("trie_mut_root");
+
+	for (seed, len, value_length) in params {
+		let input = input_unsorted(seed, len, value_length);
+		let param = format!("seed({}), len({}), value_length({})", seed, len, value_length);
+		group.bench_with_input(BenchmarkId::new("trie_mut_root", param), &input, |b, i| {
 			b.iter(|| {
-				let datac: Vec<(Vec<u8>, Vec<u8>)> = data_sorted_unique(data.clone());
-				// this is in `reference_trie_root` added here to make things comparable
-				let inputc = datac
-					.iter()
-					.map(|v| (&v.0, &v.1))
-					.collect::<std::collections::BTreeMap<_, _>>();
-
-				reference_trie::calc_root::<Layout, _, _, _>(inputc);
+				let i = data_sorted_unique(i.clone());
+				let inputc = i.iter().map(|v| (&v.0, &v.1)).collect::<BTreeMap<_, _>>();
+				reference_trie::reference_trie_root::<Layout, _, _, _>(inputc);
 			})
-		},
-		data,
-	);
+		});
+	}
+
+	group.finish();
 }
 
-fn trie_mut_root_b(c: &mut Criterion) {
-	let data: Vec<Vec<(Vec<u8>, Vec<u8>)>> = vec![input_unsorted(29, 204800, 32)];
+fn trie_mut_ref_root(c: &mut Criterion) {
+	let params = vec![(29, 204800 / 2, 512 * 2), (29, 204800, 32)];
 
-	c.bench_function_over_inputs(
-		"trie_mut_root_b",
-		|b: &mut Bencher, data: &Vec<(Vec<u8>, Vec<u8>)>| {
+	let mut group = c.benchmark_group("trie_mut_ref_root");
+
+	for (seed, len, value_length) in params {
+		let input = input_unsorted(seed, len, value_length);
+		let param = format!("seed({}), len({}), value_length({})", seed, len, value_length);
+		group.bench_with_input(BenchmarkId::new("trie_mut_ref_root", param), &input, |b, i| {
 			b.iter(|| {
-				let datac: Vec<(Vec<u8>, Vec<u8>)> = data_sorted_unique(data.clone());
-				// this is in `reference_trie_root` added here to make things comparable
-				let inputc = datac
-					.iter()
-					.map(|v| (&v.0, &v.1))
-					.collect::<std::collections::BTreeMap<_, _>>();
-
-				reference_trie::calc_root::<Layout, _, _, _>(inputc);
-			})
-		},
-		data,
-	);
-}
-
-fn trie_mut_ref_root_a(c: &mut Criterion) {
-	let data: Vec<Vec<(Vec<u8>, Vec<u8>)>> = vec![input_unsorted(29, 204800 / 2, 512 * 2)];
-
-	c.bench_function_over_inputs(
-		"trie_mut_ref_root_a",
-		|b: &mut Bencher, data: &Vec<(Vec<u8>, Vec<u8>)>| {
-			b.iter(|| {
-				let datac: Vec<(Vec<u8>, Vec<u8>)> = data.clone(); // no need to sort for trie_root, see implementation
-
-				// this is in `reference_trie_root` added here to make things comparable
-				let inputc = datac
-					.iter()
-					.map(|v| (&v.0, &v.1))
-					.collect::<std::collections::BTreeMap<_, _>>();
-
+				let inputc = i.iter().map(|v| (&v.0, &v.1)).collect::<BTreeMap<_, _>>();
 				reference_trie::reference_trie_root_iter_build::<Layout, _, _, _>(inputc);
 			})
-		},
-		data,
-	);
+		});
+	}
+
+	group.finish();
 }
 
-fn trie_mut_ref_root_b(c: &mut Criterion) {
-	let data: Vec<Vec<(Vec<u8>, Vec<u8>)>> = vec![
-		//input_unsorted(29, 204800, 512),
-		input_unsorted(29, 204800, 32),
-	];
-
-	c.bench_function_over_inputs(
-		"trie_mut_ref_root_b",
-		|b: &mut Bencher, data: &Vec<(Vec<u8>, Vec<u8>)>| {
-			b.iter(|| {
-				let datac: Vec<(Vec<u8>, Vec<u8>)> = data.clone(); // no need to sort for trie_root, see implementation
-												   // this is in `reference_trie_root` added here to make things comparable
-				let inputc = datac
-					.iter()
-					.map(|v| (&v.0, &v.1))
-					.collect::<std::collections::BTreeMap<_, _>>();
-
-				reference_trie::reference_trie_root_iter_build::<Layout, _, _, _>(inputc);
-			})
-		},
-		data,
-	);
-}
-
-fn trie_mut_a(c: &mut Criterion) {
+fn trie_mut(c: &mut Criterion) {
 	use memory_db::HashKey;
 	use trie_db::TrieMut;
-	let data: Vec<Vec<(Vec<u8>, Vec<u8>)>> = vec![input_unsorted(29, 204800 / 2, 512 * 2)];
 
-	c.bench_function_over_inputs(
-		"trie_mut_a",
-		|b: &mut Bencher, data: &Vec<(Vec<u8>, Vec<u8>)>| {
+	let params = vec![(29, 204800 / 2, 512 * 2), (29, 204800, 32)];
+
+	let mut group = c.benchmark_group("trie_mut");
+
+	for (seed, len, value_length) in params {
+		let input = input_unsorted(seed, len, value_length);
+		let param = format!("seed({}), len({}), value_length({})", seed, len, value_length);
+		group.bench_with_input(BenchmarkId::new("trie_mut", param), &input, |b, i| {
 			b.iter(|| {
-				let datac: Vec<(Vec<u8>, Vec<u8>)> = data.clone();
-
 				let mut root = Default::default();
 				let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
 				let mut trie =
 					trie_db::TrieDBMutBuilder::<Layout>::new(&mut mdb, &mut root).build();
-				for (key, value) in datac {
+				for (key, value) in i {
 					trie.insert(&key, &value).expect(
 						"changes trie: insertion to trie is not allowed to fail within runtime",
 					);
 				}
 			})
-		},
-		data,
-	);
+		});
+	}
+
+	group.finish();
 }
 
-fn trie_mut_b(c: &mut Criterion) {
+fn trie_mut_build(c: &mut Criterion) {
 	use memory_db::HashKey;
-	use trie_db::TrieMut;
-	let data: Vec<Vec<(Vec<u8>, Vec<u8>)>> = vec![
-		//input_unsorted(29, 204800, 512),
-		input_unsorted(29, 204800, 32),
-	];
 
-	c.bench_function_over_inputs(
-		"trie_mut_b",
-		|b: &mut Bencher, data: &Vec<(Vec<u8>, Vec<u8>)>| {
+	let params = vec![(29, 204800 / 2, 512 * 2), (29, 204800, 32)];
+
+	let mut group = c.benchmark_group("trie_mut_build");
+
+	for (seed, len, value_length) in params {
+		let input = input_unsorted(seed, len, value_length);
+		let param = format!("seed({}), len({}), value_length({})", seed, len, value_length);
+		group.bench_with_input(BenchmarkId::new("trie_mut_build", param), &input, |b, i| {
 			b.iter(|| {
-				let datac: Vec<(Vec<u8>, Vec<u8>)> = data.clone();
-
-				let mut root = Default::default();
-				let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
-				let mut trie =
-					trie_db::TrieDBMutBuilder::<Layout>::new(&mut mdb, &mut root).build();
-				for (key, value) in datac {
-					trie.insert(&key, &value).expect(
-						"changes trie: insertion to trie is not allowed to fail within runtime",
-					);
-				}
-			})
-		},
-		data,
-	);
-}
-
-fn trie_mut_build_a(c: &mut Criterion) {
-	use memory_db::HashKey;
-	let data: Vec<Vec<(Vec<u8>, Vec<u8>)>> = vec![input_unsorted(29, 204800 / 2, 512 * 2)];
-
-	c.bench_function_over_inputs(
-		"trie_mut_build_a",
-		|b: &mut Bencher, data: &Vec<(Vec<u8>, Vec<u8>)>| {
-			b.iter(|| {
-				let datac: Vec<(Vec<u8>, Vec<u8>)> = data_sorted_unique(data.clone());
+				let i = data_sorted_unique(i.clone());
 				// this is in `reference_trie_root` added here to make things comparable
-				let inputc = datac
-					.iter()
-					.map(|v| (&v.0, &v.1))
-					.collect::<std::collections::BTreeMap<_, _>>();
+				let inputc = i.iter().map(|v| (&v.0, &v.1)).collect::<BTreeMap<_, _>>();
 
 				let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
 				reference_trie::calc_root_build::<Layout, _, _, _, _>(inputc, &mut mdb);
 			})
-		},
-		data,
-	);
-}
+		});
+	}
 
-fn trie_mut_build_b(c: &mut Criterion) {
-	use memory_db::HashKey;
-	let data: Vec<Vec<(Vec<u8>, Vec<u8>)>> = vec![
-		//input_unsorted(29, 204800, 512),
-		input_unsorted(29, 204800, 32),
-	];
-
-	c.bench_function_over_inputs(
-		"trie_mut_build_b",
-		|b: &mut Bencher, data: &Vec<(Vec<u8>, Vec<u8>)>| {
-			b.iter(|| {
-				let datac: Vec<(Vec<u8>, Vec<u8>)> = data_sorted_unique(data.clone());
-				// this is in `reference_trie_root` added here to make things comparable
-				let inputc = datac
-					.iter()
-					.map(|v| (&v.0, &v.1))
-					.collect::<std::collections::BTreeMap<_, _>>();
-
-				let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
-				reference_trie::calc_root_build::<Layout, _, _, _, _>(inputc, &mut mdb);
-			})
-		},
-		data,
-	);
+	group.finish();
 }
 
 fn trie_iteration(c: &mut Criterion) {
@@ -464,7 +314,7 @@ fn trie_iteration(c: &mut Criterion) {
 	let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
 	let root = reference_trie::calc_root_build::<Layout, _, _, _, _>(input, &mut mdb);
 
-	c.bench_function("trie_iteration", move |b: &mut Bencher| {
+	c.bench_function("trie_iteration", move |b| {
 		b.iter(|| {
 			let trie = trie_db::TrieDBBuilder::<Layout>::new(&mdb, &root).build();
 			let mut iter = trie_db::TrieDBNodeIterator::new(&trie).unwrap();
@@ -497,7 +347,7 @@ fn trie_proof_verification(c: &mut Criterion) {
 		})
 		.collect::<Vec<_>>();
 
-	c.bench_function("trie_proof_verification", move |b: &mut Bencher| {
+	c.bench_function("trie_proof_verification", move |b| {
 		b.iter(|| {
 			verify_proof::<Layout, _, _, _>(&root, &proof, items.iter()).unwrap();
 		})
