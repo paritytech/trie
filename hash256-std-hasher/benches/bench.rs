@@ -12,16 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[macro_use]
-extern crate criterion;
-use criterion::{black_box, Criterion};
-criterion_group!(benches, write_hash256_std_hasher, write_default_hasher);
-criterion_main!(benches);
-
-extern crate hash256_std_hasher;
-
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use hash256_std_hasher::Hash256StdHasher;
 use std::{collections::hash_map::DefaultHasher, hash::Hasher};
+
+criterion_group!(benches, write_hash256_std_hasher, write_default_hasher);
+criterion_main!(benches);
 
 fn write_hash256_std_hasher(b: &mut Criterion) {
 	b.bench_function("write_hash256_std_hasher", |b| {
