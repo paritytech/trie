@@ -142,7 +142,7 @@ pub mod nibble_ops {
 }
 
 /// Backing storage for `NibbleVec`s.
-pub(crate) type BackingByteVec = smallvec::SmallVec<[u8; 36]>;
+pub(crate) type BackingByteVec = smallvec::SmallVec<[u8; 40]>;
 
 /// Owning, nibble-oriented byte vector. Counterpart to `NibbleSlice`.
 /// Nibbles are always left aligned, so making a `NibbleVec` from
@@ -186,4 +186,14 @@ pub struct NibbleSlice<'a> {
 pub struct NibbleSliceIterator<'a> {
 	p: &'a NibbleSlice<'a>,
 	i: usize,
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn nibble_vec_size() {
+		assert_eq!(std::mem::size_of::<NibbleVec>(), 56);
+	}
 }
