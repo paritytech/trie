@@ -124,7 +124,7 @@ where
 {
 	fn eq(&self, other: &MemoryDB<H, KF, T>) -> bool {
 		for a in self.data.iter() {
-			match other.data.get(&a.0) {
+			match other.data.get(a.0) {
 				Some(v) if v != a.1 => return false,
 				None => return false,
 				_ => (),
