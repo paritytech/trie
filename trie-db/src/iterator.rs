@@ -113,7 +113,6 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 
 	/// Fetch value by hash at a current node height
 	fn fetch_value(
-		&self,
 		db: &TrieDB<L>,
 		key: &[u8],
 		prefix: Prefix,
@@ -481,7 +480,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						))))
 					}
 					let value = match maybe_value.expect("None checked above.") {
-						Value::Node(hash) => match self.fetch_value(db, &hash, (key_slice, None)) {
+						Value::Node(hash) => match Self::fetch_value(db, &hash, (key_slice, None)) {
 							Ok(value) => value,
 							Err(err) => return Some(Err(err)),
 						},
@@ -563,7 +562,7 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 		key: &[u8],
 		prefix: Prefix,
 	) -> Result<DBValue, TrieHash<L>, CError<L>> {
-		self.raw_iter.fetch_value(self.db, key, prefix)
+		TrieDBRawIterator::fetch_value(self.db, key, prefix)
 	}
 }
 
