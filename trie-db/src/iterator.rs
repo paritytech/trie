@@ -331,7 +331,6 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 		Result<(&NibbleVec, Option<&TrieHash<L>>, &Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>,
 	> {
 		enum IterStep<O, E> {
-			YieldNode,
 			PopTrail,
 			Continue,
 			Descend(Result<(OwnedNode<DBValue>, Option<O>), O, E>),
@@ -342,7 +341,15 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 				let node_data = b.node.data();
 
 				match (b.status, b.node.node_plan()) {
-					(Status::Entering, _) => IterStep::YieldNode,
+					(Status::Entering, _) => {
+						let crumb = self.trail.last_mut().expect(
+							"method would have exited at top of previous block if trial were empty;\
+								trial could not have been modified within the block since it was immutably borrowed;\
+								qed",
+						);
+						crumb.increment();
+						return Some(Ok((&self.key_nibbles, crumb.hash.as_ref(), &crumb.node)))
+					},
 					(Status::Exiting, node) => {
 						match node {
 							NodePlan::Empty | NodePlan::Leaf { .. } => {},
@@ -401,15 +408,6 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 			};
 
 			match iter_step {
-				IterStep::YieldNode => {
-					let crumb = self.trail.last_mut().expect(
-						"method would have exited at top of previous block if trial were empty;\
-							trial could not have been modified within the block since it was immutably borrowed;\
-							qed",
-					);
-					crumb.increment();
-					return Some(Ok((&self.key_nibbles, crumb.hash.as_ref(), &crumb.node)))
-				},
 				IterStep::PopTrail => {
 					self.trail.pop().expect(
 						"method would have exited at top of previous block if trial were empty;\
