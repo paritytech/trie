@@ -1,6 +1,6 @@
 [package]
 name = "trie-db-test"
-version = "0.26.0"
+version = "0.27.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Tests for trie-db crate"
 repository = "https://github.com/paritytech/trie"
@@ -12,12 +12,12 @@ name = "bench"
 harness = false
 
 [dependencies]
-trie-db = { path = "..", version = "0.24.0"}
+trie-db = { path = "..", version = "0.25.0"}
 hash-db = { path = "../../hash-db", version = "0.15.2"}
 memory-db = { path = "../../memory-db", version = "0.31.0" }
 rand = { version = "0.8", default-features = false, features = ["small_rng"] }
 trie-standardmap = { path = "../../test-support/trie-standardmap", version = "0.15.2" }
-reference-trie = { path = "../../test-support/reference-trie", version = "0.26.0" }
+reference-trie = { path = "../../test-support/reference-trie", version = "0.27.0" }
 hex-literal = "0.3"
 criterion = "0.4.0"
 env_logger = { version = "0.10", default-features = false }
