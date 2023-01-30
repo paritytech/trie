@@ -330,112 +330,90 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	) -> Option<
 		Result<(&NibbleVec, Option<&TrieHash<L>>, &Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>,
 	> {
-		enum IterStep<O, E> {
-			Continue,
-			Descend(Result<(OwnedNode<DBValue>, Option<O>), O, E>),
-		}
 		loop {
-			let iter_step = {
-				let b = self.trail.last_mut()?;
-				let node_data = b.node.data();
+			let crumb = self.trail.last_mut()?;
+			let node_data = crumb.node.data();
 
-				match (b.status, b.node.node_plan()) {
-					(Status::Entering, _) => {
-						let crumb = self.trail.last_mut().expect(
-							"method would have exited at top of previous block if trial were empty;\
-								trial could not have been modified within the block since it was immutably borrowed;\
-								qed",
-						);
-						crumb.increment();
-						return Some(Ok((&self.key_nibbles, crumb.hash.as_ref(), &crumb.node)))
-					},
-					(Status::Exiting, node) => {
-						match node {
-							NodePlan::Empty | NodePlan::Leaf { .. } => {},
-							NodePlan::Extension { partial, .. } => {
-								self.key_nibbles.drop_lasts(partial.len());
-							},
-							NodePlan::Branch { .. } => {
-								self.key_nibbles.pop();
-							},
-							NodePlan::NibbledBranch { partial, .. } => {
-								self.key_nibbles.drop_lasts(partial.len() + 1);
-							},
-						}
-						self.trail.pop().expect(
-							"method would have exited at top of previous block if trial were empty;\
-								trial could not have been modified within the block since it was immutably borrowed;\
-								qed",
-						);
-						self.trail.last_mut()?.increment();
-						continue
-					},
-					(Status::At, NodePlan::Extension { partial: partial_plan, child }) => {
-						let partial = partial_plan.build(node_data);
-						self.key_nibbles.append_partial(partial.right());
-						IterStep::Descend::<TrieHash<L>, CError<L>>(db.get_raw_or_lookup(
-							b.hash.unwrap_or_default(),
+			match (crumb.status, crumb.node.node_plan()) {
+				(Status::Entering, _) => {
+					// This is only necessary due to current borrow checker's limitation.
+					let crumb = self.trail.last_mut().expect("we've just fetched the last element using `last_mut` so this cannot fail; qed");
+					crumb.increment();
+					return Some(Ok((&self.key_nibbles, crumb.hash.as_ref(), &crumb.node)))
+				},
+				(Status::Exiting, node) => {
+					match node {
+						NodePlan::Empty | NodePlan::Leaf { .. } => {},
+						NodePlan::Extension { partial, .. } => {
+							self.key_nibbles.drop_lasts(partial.len());
+						},
+						NodePlan::Branch { .. } => {
+							self.key_nibbles.pop();
+						},
+						NodePlan::NibbledBranch { partial, .. } => {
+							self.key_nibbles.drop_lasts(partial.len() + 1);
+						},
+					}
+					self.trail.pop().expect("we've just fetched the last element using `last_mut` so this cannot fail; qed");
+					self.trail.last_mut()?.increment();
+				},
+				(Status::At, NodePlan::Extension { partial: partial_plan, child }) => {
+					let partial = partial_plan.build(node_data);
+					self.key_nibbles.append_partial(partial.right());
+
+					match db.get_raw_or_lookup(
+						crumb.hash.unwrap_or_default(),
+						child.build(node_data),
+						self.key_nibbles.as_prefix(),
+						true,
+					) {
+						Ok((node, node_hash)) => {
+							self.descend(node, node_hash);
+						},
+						Err(err) => {
+							crumb.increment();
+							return Some(Err(err))
+						},
+					}
+				},
+				(Status::At, NodePlan::Branch { .. }) => {
+					self.key_nibbles.push(0);
+					crumb.increment();
+				},
+				(Status::At, NodePlan::NibbledBranch { partial: partial_plan, .. }) => {
+					let partial = partial_plan.build(node_data);
+					self.key_nibbles.append_partial(partial.right());
+					self.key_nibbles.push(0);
+					crumb.increment();
+				},
+				(Status::AtChild(i), NodePlan::Branch { children, .. }) |
+				(Status::AtChild(i), NodePlan::NibbledBranch { children, .. }) => {
+					if let Some(child) = &children[i] {
+						self.key_nibbles.pop();
+						self.key_nibbles.push(i as u8);
+
+						match db.get_raw_or_lookup(
+							crumb.hash.unwrap_or_default(),
 							child.build(node_data),
 							self.key_nibbles.as_prefix(),
 							true,
-						))
-					},
-					(Status::At, NodePlan::Branch { .. }) => {
-						self.key_nibbles.push(0);
-						IterStep::Continue
-					},
-					(Status::At, NodePlan::NibbledBranch { partial: partial_plan, .. }) => {
-						let partial = partial_plan.build(node_data);
-						self.key_nibbles.append_partial(partial.right());
-						self.key_nibbles.push(0);
-						IterStep::Continue
-					},
-					(Status::AtChild(i), NodePlan::Branch { children, .. }) |
-					(Status::AtChild(i), NodePlan::NibbledBranch { children, .. }) => {
-						if let Some(child) = &children[i] {
-							self.key_nibbles.pop();
-							self.key_nibbles.push(i as u8);
-							IterStep::Descend::<TrieHash<L>, CError<L>>(db.get_raw_or_lookup(
-								b.hash.unwrap_or_default(),
-								child.build(node_data),
-								self.key_nibbles.as_prefix(),
-								true,
-							))
-						} else {
-							IterStep::Continue
+						) {
+							Ok((node, node_hash)) => {
+								self.descend(node, node_hash);
+							},
+							Err(err) => {
+								crumb.increment();
+								return Some(Err(err))
+							},
 						}
-					},
-					_ => panic!(
-						"Crumb::increment and TrieDBNodeIterator are implemented so that \
+					} else {
+						crumb.increment();
+					}
+				},
+				_ => panic!(
+					"Crumb::increment and TrieDBNodeIterator are implemented so that \
 						the above arms are the only possible states"
-					),
-				}
-			};
-
-			match iter_step {
-				IterStep::Descend::<TrieHash<L>, CError<L>>(Ok((node, node_hash))) => {
-					self.descend(node, node_hash);
-				},
-				IterStep::Descend::<TrieHash<L>, CError<L>>(Err(err)) => {
-					// Increment here as there is an implicit PopTrail.
-					self.trail.last_mut()
-						.expect(
-							"method would have exited at top of previous block if trial were empty;\
-								trial could not have been modified within the block since it was immutably borrowed;\
-								qed"
-						)
-						.increment();
-					return Some(Err(err))
-				},
-				IterStep::Continue => {
-					self.trail.last_mut()
-						.expect(
-							"method would have exited at top of previous block if trial were empty;\
-							trial could not have been modified within the block since it was immutably borrowed;\
-							qed"
-						)
-						.increment();
-				},
+				),
 			}
 		}
 	}
