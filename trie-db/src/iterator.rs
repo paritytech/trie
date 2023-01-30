@@ -328,7 +328,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 		&mut self,
 		db: &TrieDB<L>,
 	) -> Option<
-		Result<(NibbleVec, Option<TrieHash<L>>, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>,
+		Result<(&NibbleVec, Option<&TrieHash<L>>, &Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>,
 	> {
 		enum IterStep<O, E> {
 			YieldNode,
@@ -408,11 +408,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 							qed",
 					);
 					crumb.increment();
-					return Some(Ok((
-						self.key_nibbles.clone(),
-						crumb.hash.clone(),
-						crumb.node.clone(),
-					)))
+					return Some(Ok((&self.key_nibbles, crumb.hash.as_ref(), &crumb.node)))
 				},
 				IterStep::PopTrail => {
 					self.trail.pop().expect(
@@ -455,7 +451,8 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	pub fn next_item(&mut self, db: &TrieDB<L>) -> Option<TrieItem<TrieHash<L>, CError<L>>> {
 		while let Some(item) = self.next_raw_item(db) {
 			match item {
-				Ok((mut prefix, _, node)) => {
+				Ok((prefix, _, node)) => {
+					let mut prefix = prefix.clone();
 					let maybe_value = match node.node() {
 						Node::Leaf(partial, value) => {
 							prefix.append_partial(partial.right());
@@ -480,10 +477,11 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						))))
 					}
 					let value = match maybe_value.expect("None checked above.") {
-						Value::Node(hash) => match Self::fetch_value(db, &hash, (key_slice, None)) {
-							Ok(value) => value,
-							Err(err) => return Some(Err(err)),
-						},
+						Value::Node(hash) =>
+							match Self::fetch_value(db, &hash, (key_slice, None)) {
+								Ok(value) => value,
+								Err(err) => return Some(Err(err)),
+							},
 						Value::Inline(value) => value.to_vec(),
 					};
 					return Some(Ok((key, value)))
@@ -500,7 +498,8 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	pub fn next_key(&mut self, db: &TrieDB<L>) -> Option<TrieKeyItem<TrieHash<L>, CError<L>>> {
 		while let Some(item) = self.next_raw_item(db) {
 			match item {
-				Ok((mut prefix, _, node)) => {
+				Ok((prefix, _, node)) => {
+					let mut prefix = prefix.clone();
 					let maybe_value = match node.node() {
 						Node::Leaf(partial, value) => {
 							prefix.append_partial(partial.right());
@@ -600,6 +599,8 @@ impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, 'cache, L> {
 		Result<(NibbleVec, Option<TrieHash<L>>, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		self.raw_iter.next_raw_item(self.db)
+		self.raw_iter.next_raw_item(self.db).map(|result| {
+			result.map(|(nibble, hash, node)| (nibble.clone(), hash.cloned(), node.clone()))
+		})
 	}
 }
