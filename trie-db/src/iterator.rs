@@ -422,49 +422,47 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	///
 	/// Must be called with the same `db` as when the iterator was created.
 	pub fn next_item(&mut self, db: &TrieDB<L>) -> Option<TrieItem<TrieHash<L>, CError<L>>> {
-		while let Some(item) = self.next_raw_item(db) {
-			match item {
-				Ok((prefix, _, node)) => {
-					let mut prefix = prefix.clone();
-					let value = match node.node() {
-						Node::Leaf(partial, value) => {
-							prefix.append_partial(partial.right());
-							value
-						},
-						Node::Branch(_, value) => match value {
-							Some(value) => value,
-							None => continue,
-						},
-						Node::NibbledBranch(partial, _, value) => {
-							prefix.append_partial(partial.right());
-							match value {
-								Some(value) => value,
-								None => continue,
-							}
-						},
-						_ => continue,
-					};
-
-					let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
-					let key = key_slice.to_vec();
-					if let Some(extra_nibble) = maybe_extra_nibble {
-						return Some(Err(Box::new(TrieError::ValueAtIncompleteKey(
-							key,
-							extra_nibble,
-						))))
-					}
-					let value = match value {
-						Value::Node(hash) =>
-							match Self::fetch_value(db, &hash, (key_slice, None)) {
-								Ok(value) => value,
-								Err(err) => return Some(Err(err)),
-							},
-						Value::Inline(value) => value.to_vec(),
-					};
-					return Some(Ok((key, value)))
-				},
+		while let Some(raw_item) = self.next_raw_item(db) {
+			let (prefix, _, node) = match raw_item {
+				Ok(raw_item) => raw_item,
 				Err(err) => return Some(Err(err)),
+			};
+
+			let mut prefix = prefix.clone();
+			let value = match node.node() {
+				Node::Leaf(partial, value) => {
+					prefix.append_partial(partial.right());
+					value
+				},
+				Node::Branch(_, value) => match value {
+					Some(value) => value,
+					None => continue,
+				},
+				Node::NibbledBranch(partial, _, value) => {
+					prefix.append_partial(partial.right());
+					match value {
+						Some(value) => value,
+						None => continue,
+					}
+				},
+				_ => continue,
+			};
+
+			let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
+			let key = key_slice.to_vec();
+			if let Some(extra_nibble) = maybe_extra_nibble {
+				return Some(Err(Box::new(TrieError::ValueAtIncompleteKey(key, extra_nibble))))
 			}
+
+			let value = match value {
+				Value::Node(hash) => match Self::fetch_value(db, &hash, (key_slice, None)) {
+					Ok(value) => value,
+					Err(err) => return Some(Err(err)),
+				},
+				Value::Inline(value) => value.to_vec(),
+			};
+
+			return Some(Ok((key, value)))
 		}
 		None
 	}
@@ -473,39 +471,37 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	///
 	/// Must be called with the same `db` as when the iterator was created.
 	pub fn next_key(&mut self, db: &TrieDB<L>) -> Option<TrieKeyItem<TrieHash<L>, CError<L>>> {
-		while let Some(item) = self.next_raw_item(db) {
-			match item {
-				Ok((prefix, _, node)) => {
-					let mut prefix = prefix.clone();
-					match node.node() {
-						Node::Leaf(partial, _) => {
-							prefix.append_partial(partial.right());
-						},
-						Node::Branch(_, value) =>
-							if value.is_none() {
-								continue
-							},
-						Node::NibbledBranch(partial, _, value) => {
-							prefix.append_partial(partial.right());
-							if value.is_none() {
-								continue
-							}
-						},
-						_ => continue,
-					};
-
-					let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
-					let key = key_slice.to_vec();
-					if let Some(extra_nibble) = maybe_extra_nibble {
-						return Some(Err(Box::new(TrieError::ValueAtIncompleteKey(
-							key,
-							extra_nibble,
-						))))
-					}
-					return Some(Ok(key))
-				},
+		while let Some(raw_item) = self.next_raw_item(db) {
+			let (prefix, _, node) = match raw_item {
+				Ok(raw_item) => raw_item,
 				Err(err) => return Some(Err(err)),
+			};
+
+			let mut prefix = prefix.clone();
+			match node.node() {
+				Node::Leaf(partial, _) => {
+					prefix.append_partial(partial.right());
+				},
+				Node::Branch(_, value) =>
+					if value.is_none() {
+						continue
+					},
+				Node::NibbledBranch(partial, _, value) => {
+					prefix.append_partial(partial.right());
+					if value.is_none() {
+						continue
+					}
+				},
+				_ => continue,
+			};
+
+			let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
+			let key = key_slice.to_vec();
+			if let Some(extra_nibble) = maybe_extra_nibble {
+				return Some(Err(Box::new(TrieError::ValueAtIncompleteKey(key, extra_nibble))))
 			}
+
+			return Some(Ok(key))
 		}
 		None
 	}
