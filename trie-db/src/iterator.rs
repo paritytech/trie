@@ -331,7 +331,6 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 		Result<(&NibbleVec, Option<&TrieHash<L>>, &Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>,
 	> {
 		enum IterStep<O, E> {
-			PopTrail,
 			Continue,
 			Descend(Result<(OwnedNode<DBValue>, Option<O>), O, E>),
 		}
@@ -363,7 +362,13 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 								self.key_nibbles.drop_lasts(partial.len() + 1);
 							},
 						}
-						IterStep::PopTrail
+						self.trail.pop().expect(
+							"method would have exited at top of previous block if trial were empty;\
+								trial could not have been modified within the block since it was immutably borrowed;\
+								qed",
+						);
+						self.trail.last_mut()?.increment();
+						continue
 					},
 					(Status::At, NodePlan::Extension { partial: partial_plan, child }) => {
 						let partial = partial_plan.build(node_data);
@@ -408,14 +413,6 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 			};
 
 			match iter_step {
-				IterStep::PopTrail => {
-					self.trail.pop().expect(
-						"method would have exited at top of previous block if trial were empty;\
-							trial could not have been modified within the block since it was immutably borrowed;\
-							qed",
-					);
-					self.trail.last_mut()?.increment();
-				},
 				IterStep::Descend::<TrieHash<L>, CError<L>>(Ok((node, node_hash))) => {
 					self.descend(node, node_hash);
 				},
