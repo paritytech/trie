@@ -15,12 +15,13 @@
 use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout};
 use crate::{
 	nibble::{nibble_ops, NibbleSlice, NibbleVec},
-	node::{NodeHandle, NodePlan, OwnedNode},
+	node::{Node, NodeHandle, NodePlan, OwnedNode, Value},
 	triedb::TrieDB,
+	TrieError, TrieItem, TrieKeyItem,
 };
 use hash_db::{Hasher, Prefix, EMPTY_PREFIX};
 
-use crate::rstd::{rc::Rc, vec::Vec};
+use crate::rstd::{boxed::Box, rc::Rc, vec::Vec};
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -58,34 +59,21 @@ impl<H: Hasher> Crumb<H> {
 }
 
 /// Iterator for going through all nodes in the trie in pre-order traversal order.
-pub struct TrieDBNodeIterator<'a, 'cache, L: TrieLayout> {
-	db: &'a TrieDB<'a, 'cache, L>,
+pub struct TrieDBRawIterator<L: TrieLayout> {
 	trail: Vec<Crumb<L::Hash>>,
 	key_nibbles: NibbleVec,
 }
 
-/// When there is guaranties the storage backend do not change,
-/// this can be use to suspend and restore the iterator.
-pub struct SuspendedTrieDBNodeIterator<L: TrieLayout> {
-	trail: Vec<Crumb<L::Hash>>,
-	key_nibbles: NibbleVec,
-}
-
-impl<L: TrieLayout> SuspendedTrieDBNodeIterator<L> {
-	/// Restore iterator.
-	pub fn unsafe_restore<'a, 'cache>(
-		self,
-		db: &'a TrieDB<'a, 'cache, L>,
-	) -> TrieDBNodeIterator<'a, 'cache, L> {
-		TrieDBNodeIterator { db, trail: self.trail, key_nibbles: self.key_nibbles }
+impl<L: TrieLayout> TrieDBRawIterator<L> {
+	/// Create a new empty iterator.
+	pub fn empty() -> Self {
+		Self { trail: Vec::new(), key_nibbles: NibbleVec::new() }
 	}
-}
 
-impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 	/// Create a new iterator.
-	pub fn new(db: &'a TrieDB<'a, 'cache, L>) -> Result<Self, TrieHash<L>, CError<L>> {
+	pub fn new(db: &TrieDB<L>) -> Result<Self, TrieHash<L>, CError<L>> {
 		let mut r =
-			TrieDBNodeIterator { db, trail: Vec::with_capacity(8), key_nibbles: NibbleVec::new() };
+			TrieDBRawIterator { trail: Vec::with_capacity(8), key_nibbles: NibbleVec::new() };
 		let (root_node, root_hash) = db.get_raw_or_lookup(
 			*db.root(),
 			NodeHandle::Hash(db.root().as_ref()),
@@ -96,45 +84,63 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 		Ok(r)
 	}
 
+	/// Create a new iterator, but limited to a given prefix.
+	pub fn new_prefixed(db: &TrieDB<L>, prefix: &[u8]) -> Result<Self, TrieHash<L>, CError<L>> {
+		let mut iter = TrieDBRawIterator::new(db)?;
+		iter.prefix(db, prefix)?;
+
+		Ok(iter)
+	}
+
+	/// Create a new iterator, but limited to a given prefix.
+	/// It then do a seek operation from prefixed context (using `seek` lose
+	/// prefix context by default).
+	pub fn new_prefixed_then_seek(
+		db: &TrieDB<L>,
+		prefix: &[u8],
+		start_at: &[u8],
+	) -> Result<Self, TrieHash<L>, CError<L>> {
+		let mut iter = TrieDBRawIterator::new(db)?;
+		iter.prefix_then_seek(db, prefix, start_at)?;
+		Ok(iter)
+	}
+
 	/// Descend into a payload.
 	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<TrieHash<L>>) {
 		self.trail
 			.push(Crumb { hash: node_hash, status: Status::Entering, node: Rc::new(node) });
 	}
 
-	/// Suspend iterator. Warning this does not hold guaranties it can be restored later.
-	/// Restoring requires that trie backend does not change.
-	pub fn suspend(self) -> SuspendedTrieDBNodeIterator<L> {
-		SuspendedTrieDBNodeIterator { trail: self.trail, key_nibbles: self.key_nibbles }
-	}
-
 	/// Fetch value by hash at a current node height
-	pub fn fetch_value(
+	fn fetch_value(
 		&self,
+		db: &TrieDB<L>,
 		key: &[u8],
 		prefix: Prefix,
 	) -> Result<DBValue, TrieHash<L>, CError<L>> {
 		let mut res = TrieHash::<L>::default();
 		res.as_mut().copy_from_slice(key);
-		self.db.fetch_value(res, prefix)
+		db.fetch_value(res, prefix)
 	}
-}
 
-impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 	/// Seek a node position at 'key' for iterator.
 	/// Returns true if the cursor is at or after the key, but still shares
 	/// a common prefix with the key, return false if the key do not
 	/// share its prefix with the node.
 	/// This indicates if there is still nodes to iterate over in the case
 	/// where we limit iteration to 'key' as a prefix.
-	fn seek_prefix(&mut self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
+	pub(crate) fn seek_prefix(
+		&mut self,
+		db: &TrieDB<L>,
+		key: &[u8],
+	) -> Result<bool, TrieHash<L>, CError<L>> {
 		self.trail.clear();
 		self.key_nibbles.clear();
 		let key = NibbleSlice::new(key);
 
-		let (mut node, mut node_hash) = self.db.get_raw_or_lookup(
+		let (mut node, mut node_hash) = db.get_raw_or_lookup(
 			<TrieHash<L>>::default(),
-			NodeHandle::Hash(self.db.root().as_ref()),
+			NodeHandle::Hash(db.root().as_ref()),
 			EMPTY_PREFIX,
 			true,
 		)?;
@@ -175,7 +181,7 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 						self.key_nibbles.append_partial(slice.right());
 
 						let prefix = key.back(full_key_nibbles);
-						self.db.get_raw_or_lookup(
+						db.get_raw_or_lookup(
 							node_hash.unwrap_or_default(),
 							child.build(node_data),
 							prefix.left(),
@@ -196,7 +202,7 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 							partial = partial.mid(1);
 
 							let prefix = key.back(full_key_nibbles);
-							self.db.get_raw_or_lookup(
+							db.get_raw_or_lookup(
 								node_hash.unwrap_or_default(),
 								child.build(node_data),
 								prefix.left(),
@@ -235,7 +241,7 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 							partial = partial.mid(1);
 
 							let prefix = key.back(full_key_nibbles);
-							self.db.get_raw_or_lookup(
+							db.get_raw_or_lookup(
 								node_hash.unwrap_or_default(),
 								child.build(node_data),
 								prefix.left(),
@@ -262,8 +268,8 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 
 	/// Advance the iterator into a prefix, no value out of the prefix will be accessed
 	/// or returned after this operation.
-	pub fn prefix(&mut self, prefix: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
-		if self.seek_prefix(prefix)? {
+	fn prefix(&mut self, db: &TrieDB<L>, prefix: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+		if self.seek_prefix(db, prefix)? {
 			if let Some(v) = self.trail.pop() {
 				self.trail.clear();
 				self.trail.push(v);
@@ -277,13 +283,14 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 
 	/// Advance the iterator into a prefix, no value out of the prefix will be accessed
 	/// or returned after this operation.
-	pub fn prefix_then_seek(
+	fn prefix_then_seek(
 		&mut self,
+		db: &TrieDB<L>,
 		prefix: &[u8],
 		seek: &[u8],
 	) -> Result<(), TrieHash<L>, CError<L>> {
 		if seek.starts_with(prefix) {
-			self.seek_prefix(seek)?;
+			self.seek_prefix(db, seek)?;
 			let prefix_len = prefix.len() * crate::nibble::nibble_ops::NIBBLE_PER_BYTE;
 			let mut len = 0;
 			// look first prefix in trail
@@ -315,23 +322,15 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 		Ok(())
 	}
 
-	/// Access inner hash db.
-	pub fn db(&self) -> &dyn hash_db::HashDBRef<L::Hash, DBValue> {
-		self.db.db()
-	}
-}
-
-impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, 'cache, L> {
-	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
-		self.seek_prefix(key).map(|_| ())
-	}
-}
-
-impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, 'cache, L> {
-	type Item =
-		Result<(NibbleVec, Option<TrieHash<L>>, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
-
-	fn next(&mut self) -> Option<Self::Item> {
+	/// Fetches the next raw item.
+	//
+	/// Must be called with the same `db` as when the iterator was created.
+	fn next_raw_item(
+		&mut self,
+		db: &TrieDB<L>,
+	) -> Option<
+		Result<(NibbleVec, Option<TrieHash<L>>, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>,
+	> {
 		enum IterStep<O, E> {
 			YieldNode,
 			PopTrail,
@@ -363,7 +362,7 @@ impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, 'cache, L> {
 					(Status::At, NodePlan::Extension { partial: partial_plan, child }) => {
 						let partial = partial_plan.build(node_data);
 						self.key_nibbles.append_partial(partial.right());
-						IterStep::Descend::<TrieHash<L>, CError<L>>(self.db.get_raw_or_lookup(
+						IterStep::Descend::<TrieHash<L>, CError<L>>(db.get_raw_or_lookup(
 							b.hash.unwrap_or_default(),
 							child.build(node_data),
 							self.key_nibbles.as_prefix(),
@@ -385,7 +384,7 @@ impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, 'cache, L> {
 						if let Some(child) = &children[i] {
 							self.key_nibbles.pop();
 							self.key_nibbles.push(i as u8);
-							IterStep::Descend::<TrieHash<L>, CError<L>>(self.db.get_raw_or_lookup(
+							IterStep::Descend::<TrieHash<L>, CError<L>>(db.get_raw_or_lookup(
 								b.hash.unwrap_or_default(),
 								child.build(node_data),
 								self.key_nibbles.as_prefix(),
@@ -449,5 +448,159 @@ impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, 'cache, L> {
 				},
 			}
 		}
+	}
+
+	/// Fetches the next trie item.
+	///
+	/// Must be called with the same `db` as when the iterator was created.
+	pub fn next_item(&mut self, db: &TrieDB<L>) -> Option<TrieItem<TrieHash<L>, CError<L>>> {
+		while let Some(item) = self.next_raw_item(db) {
+			match item {
+				Ok((mut prefix, _, node)) => {
+					let maybe_value = match node.node() {
+						Node::Leaf(partial, value) => {
+							prefix.append_partial(partial.right());
+							Some(value)
+						},
+						Node::Branch(_, value) => value,
+						Node::NibbledBranch(partial, _, value) => {
+							prefix.append_partial(partial.right());
+							value
+						},
+						_ => None,
+					};
+					if maybe_value.is_none() {
+						continue
+					}
+					let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
+					let key = key_slice.to_vec();
+					if let Some(extra_nibble) = maybe_extra_nibble {
+						return Some(Err(Box::new(TrieError::ValueAtIncompleteKey(
+							key,
+							extra_nibble,
+						))))
+					}
+					let value = match maybe_value.expect("None checked above.") {
+						Value::Node(hash) => match self.fetch_value(db, &hash, (key_slice, None)) {
+							Ok(value) => value,
+							Err(err) => return Some(Err(err)),
+						},
+						Value::Inline(value) => value.to_vec(),
+					};
+					return Some(Ok((key, value)))
+				},
+				Err(err) => return Some(Err(err)),
+			}
+		}
+		None
+	}
+
+	/// Fetches the next key.
+	///
+	/// Must be called with the same `db` as when the iterator was created.
+	pub fn next_key(&mut self, db: &TrieDB<L>) -> Option<TrieKeyItem<TrieHash<L>, CError<L>>> {
+		while let Some(item) = self.next_raw_item(db) {
+			match item {
+				Ok((mut prefix, _, node)) => {
+					let maybe_value = match node.node() {
+						Node::Leaf(partial, value) => {
+							prefix.append_partial(partial.right());
+							Some(value)
+						},
+						Node::Branch(_, value) => value,
+						Node::NibbledBranch(partial, _, value) => {
+							prefix.append_partial(partial.right());
+							value
+						},
+						_ => None,
+					};
+					if maybe_value.is_none() {
+						continue
+					} else {
+						let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
+						let key = key_slice.to_vec();
+						if let Some(extra_nibble) = maybe_extra_nibble {
+							return Some(Err(Box::new(TrieError::ValueAtIncompleteKey(
+								key,
+								extra_nibble,
+							))))
+						}
+						return Some(Ok(key))
+					}
+				},
+				Err(err) => return Some(Err(err)),
+			}
+		}
+		None
+	}
+}
+
+/// Iterator for going through all nodes in the trie in pre-order traversal order.
+pub struct TrieDBNodeIterator<'a, 'cache, L: TrieLayout> {
+	db: &'a TrieDB<'a, 'cache, L>,
+	raw_iter: TrieDBRawIterator<L>,
+}
+
+impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
+	/// Create a new iterator.
+	pub fn new(db: &'a TrieDB<'a, 'cache, L>) -> Result<Self, TrieHash<L>, CError<L>> {
+		Ok(Self { raw_iter: TrieDBRawIterator::new(db)?, db })
+	}
+
+	/// Restore an iterator from a raw iterator.
+	pub fn from_raw(db: &'a TrieDB<'a, 'cache, L>, raw_iter: TrieDBRawIterator<L>) -> Self {
+		Self { db, raw_iter }
+	}
+
+	/// Convert the iterator to a raw iterator.
+	pub fn into_raw(self) -> TrieDBRawIterator<L> {
+		self.raw_iter
+	}
+
+	/// Fetch value by hash at a current node height
+	pub fn fetch_value(
+		&self,
+		key: &[u8],
+		prefix: Prefix,
+	) -> Result<DBValue, TrieHash<L>, CError<L>> {
+		self.raw_iter.fetch_value(self.db, key, prefix)
+	}
+}
+
+impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
+	/// Advance the iterator into a prefix, no value out of the prefix will be accessed
+	/// or returned after this operation.
+	pub fn prefix(&mut self, prefix: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+		self.raw_iter.prefix(self.db, prefix)
+	}
+
+	/// Advance the iterator into a prefix, no value out of the prefix will be accessed
+	/// or returned after this operation.
+	pub fn prefix_then_seek(
+		&mut self,
+		prefix: &[u8],
+		seek: &[u8],
+	) -> Result<(), TrieHash<L>, CError<L>> {
+		self.raw_iter.prefix_then_seek(self.db, prefix, seek)
+	}
+
+	/// Access inner hash db.
+	pub fn db(&self) -> &dyn hash_db::HashDBRef<L::Hash, DBValue> {
+		self.db.db()
+	}
+}
+
+impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, 'cache, L> {
+	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+		self.raw_iter.seek_prefix(self.db, key).map(|_| ())
+	}
+}
+
+impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, 'cache, L> {
+	type Item =
+		Result<(NibbleVec, Option<TrieHash<L>>, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		self.raw_iter.next_raw_item(self.db)
 	}
 }
