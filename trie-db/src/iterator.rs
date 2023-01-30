@@ -128,7 +128,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	/// share its prefix with the node.
 	/// This indicates if there is still nodes to iterate over in the case
 	/// where we limit iteration to 'key' as a prefix.
-	pub(crate) fn seek_prefix(
+	pub(crate) fn seek(
 		&mut self,
 		db: &TrieDB<L>,
 		key: &[u8],
@@ -268,7 +268,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	/// Advance the iterator into a prefix, no value out of the prefix will be accessed
 	/// or returned after this operation.
 	fn prefix(&mut self, db: &TrieDB<L>, prefix: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
-		if self.seek_prefix(db, prefix)? {
+		if self.seek(db, prefix)? {
 			if let Some(v) = self.trail.pop() {
 				self.trail.clear();
 				self.trail.push(v);
@@ -289,7 +289,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 		seek: &[u8],
 	) -> Result<(), TrieHash<L>, CError<L>> {
 		if seek.starts_with(prefix) {
-			self.seek_prefix(db, seek)?;
+			self.seek(db, seek)?;
 			let prefix_len = prefix.len() * crate::nibble::nibble_ops::NIBBLE_PER_BYTE;
 			let mut len = 0;
 			// look first prefix in trail
@@ -590,7 +590,7 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 
 impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, 'cache, L> {
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
-		self.raw_iter.seek_prefix(self.db, key).map(|_| ())
+		self.raw_iter.seek(self.db, key).map(|_| ())
 	}
 }
 

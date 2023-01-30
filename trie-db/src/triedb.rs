@@ -456,7 +456,7 @@ impl<'a, 'cache, L: TrieLayout> TrieDBIterator<'a, 'cache, L> {
 impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBIterator<'a, 'cache, L> {
 	/// Position the iterator on the first element with key >= `key`
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
-		self.raw_iter.seek_prefix(self.db, key).map(|_| ())
+		self.raw_iter.seek(self.db, key).map(|_| ())
 	}
 }
 
@@ -499,7 +499,7 @@ impl<'a, 'cache, L: TrieLayout> TrieDBKeyIterator<'a, 'cache, L> {
 impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBKeyIterator<'a, 'cache, L> {
 	/// Position the iterator on the first element with key >= `key`
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
-		self.raw_iter.seek_prefix(self.db, key).map(|_| ())
+		self.raw_iter.seek(self.db, key).map(|_| ())
 	}
 }
 
