@@ -6,8 +6,8 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 - Updated `hashbrown` to 0.13.2: [#177](https://github.com/paritytech/trie/pull/177)
-- Iterator refactoring:
-  - Removed `TrieDBNodeIterator`, `TrieDBKeyIterator::suspend` and `SuspendedTrieDBKeyIterator`
+- Iterator refactoring: [#181](https://github.com/paritytech/trie/pull/181)
+  - Removed `TrieDBKeyIterator::suspend` and `SuspendedTrieDBKeyIterator`
   - Added `TrieDBRawIterator`
 
 ## [0.24.0] - 2022-08-04
