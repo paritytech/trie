@@ -453,21 +453,25 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 			match item {
 				Ok((prefix, _, node)) => {
 					let mut prefix = prefix.clone();
-					let maybe_value = match node.node() {
+					let value = match node.node() {
 						Node::Leaf(partial, value) => {
-							prefix.append_partial(partial.right());
-							Some(value)
-						},
-						Node::Branch(_, value) => value,
-						Node::NibbledBranch(partial, _, value) => {
 							prefix.append_partial(partial.right());
 							value
 						},
-						_ => None,
+						Node::Branch(_, value) => match value {
+							Some(value) => value,
+							None => continue,
+						},
+						Node::NibbledBranch(partial, _, value) => {
+							prefix.append_partial(partial.right());
+							match value {
+								Some(value) => value,
+								None => continue,
+							}
+						},
+						_ => continue,
 					};
-					if maybe_value.is_none() {
-						continue
-					}
+
 					let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
 					let key = key_slice.to_vec();
 					if let Some(extra_nibble) = maybe_extra_nibble {
@@ -476,7 +480,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 							extra_nibble,
 						))))
 					}
-					let value = match maybe_value.expect("None checked above.") {
+					let value = match value {
 						Value::Node(hash) =>
 							match Self::fetch_value(db, &hash, (key_slice, None)) {
 								Ok(value) => value,
@@ -500,31 +504,32 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 			match item {
 				Ok((prefix, _, node)) => {
 					let mut prefix = prefix.clone();
-					let maybe_value = match node.node() {
-						Node::Leaf(partial, value) => {
+					match node.node() {
+						Node::Leaf(partial, _) => {
 							prefix.append_partial(partial.right());
-							Some(value)
 						},
-						Node::Branch(_, value) => value,
+						Node::Branch(_, value) =>
+							if value.is_none() {
+								continue
+							},
 						Node::NibbledBranch(partial, _, value) => {
 							prefix.append_partial(partial.right());
-							value
+							if value.is_none() {
+								continue
+							}
 						},
-						_ => None,
+						_ => continue,
 					};
-					if maybe_value.is_none() {
-						continue
-					} else {
-						let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
-						let key = key_slice.to_vec();
-						if let Some(extra_nibble) = maybe_extra_nibble {
-							return Some(Err(Box::new(TrieError::ValueAtIncompleteKey(
-								key,
-								extra_nibble,
-							))))
-						}
-						return Some(Ok(key))
+
+					let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
+					let key = key_slice.to_vec();
+					if let Some(extra_nibble) = maybe_extra_nibble {
+						return Some(Err(Box::new(TrieError::ValueAtIncompleteKey(
+							key,
+							extra_nibble,
+						))))
 					}
+					return Some(Ok(key))
 				},
 				Err(err) => return Some(Err(err)),
 			}
