@@ -185,6 +185,7 @@ impl NibbleVec {
 
 	/// Utility function for `append_optional_slice_and_nibble` after a clone.
 	/// Can be slow.
+	#[cfg(feature = "std")]
 	pub(crate) fn clone_append_optional_slice_and_nibble(
 		&self,
 		o_slice: Option<&NibbleSlice>,
