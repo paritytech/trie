@@ -91,7 +91,6 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 			root: self.root,
 			cache: self.cache.map(core::cell::RefCell::new),
 			recorder: self.recorder.map(core::cell::RefCell::new),
-			hash_count: 0,
 		}
 	}
 }
@@ -124,8 +123,6 @@ where
 {
 	db: &'db dyn HashDBRef<L::Hash, DBValue>,
 	root: &'db TrieHash<L>,
-	/// The number of hashes performed so far in operations on this trie.
-	hash_count: usize,
 	cache: Option<core::cell::RefCell<&'cache mut dyn TrieCache<L::Codec>>>,
 	recorder: Option<core::cell::RefCell<&'cache mut dyn TrieRecorder<TrieHash<L>>>>,
 }
@@ -392,7 +389,6 @@ where
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		f.debug_struct("TrieDB")
-			.field("hash_count", &self.hash_count)
 			.field(
 				"root",
 				&TrieAwareDebugNode {
