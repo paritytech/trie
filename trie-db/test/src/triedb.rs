@@ -204,7 +204,6 @@ fn debug_output_supports_pretty_print_internal<T: TrieLayout>() {
 		assert_eq!(
 			format!("{:#?}", t),
 			"TrieDB {
-    hash_count: 0,
     root: Node::Extension {
         slice: 4,
         item: Node::Branch {
