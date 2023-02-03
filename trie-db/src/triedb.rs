@@ -12,21 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "std")]
-use crate::nibble::NibbleVec;
 use crate::{
 	iterator::TrieDBRawIterator,
 	lookup::Lookup,
 	nibble::NibbleSlice,
-	node::{decode_hash, Node, NodeHandle, OwnedNode},
+	node::{decode_hash, NodeHandle, OwnedNode},
 	rstd::boxed::Box,
 	CError, DBValue, Query, Result, Trie, TrieAccess, TrieCache, TrieError, TrieHash, TrieItem,
 	TrieIterator, TrieKeyItem, TrieLayout, TrieRecorder,
 };
-use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
-
 #[cfg(feature = "std")]
-use crate::rstd::{fmt, vec::Vec};
+use crate::{
+	nibble::NibbleVec,
+	node::Node,
+	rstd::{fmt, vec::Vec},
+};
+use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
 
 /// A builder for creating a [`TrieDB`].
 pub struct TrieDBBuilder<'db, 'cache, L: TrieLayout> {
