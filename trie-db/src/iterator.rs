@@ -537,9 +537,7 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 	) -> Result<DBValue, TrieHash<L>, CError<L>> {
 		TrieDBRawIterator::fetch_value(self.db, key, prefix)
 	}
-}
 
-impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 	/// Advance the iterator into a prefix, no value out of the prefix will be accessed
 	/// or returned after this operation.
 	pub fn prefix(&mut self, prefix: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
