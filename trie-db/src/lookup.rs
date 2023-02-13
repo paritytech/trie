@@ -167,19 +167,7 @@ where
 				full_key,
 				|v, _, full_key, _, recorder, _| {
 					Ok(match v {
-						Value::Inline(v) => {
-							let hash = L::Hash::hash(&v);
-
-							if let Some(recoder) = recorder.as_mut() {
-								recoder.record(TrieAccess::Value {
-									hash,
-									value: v.into(),
-									full_key,
-								});
-							}
-
-							hash
-						},
+						Value::Inline(v) => L::Hash::hash(&v),
 						Value::Node(hash_bytes) => {
 							if let Some(recoder) = recorder.as_mut() {
 								recoder.record(TrieAccess::Hash { full_key });
@@ -223,17 +211,7 @@ where
 				full_key,
 				cache,
 				|value, _, full_key, _, _, recorder| match value {
-					ValueOwned::Inline(value, hash) => {
-						if let Some(recorder) = recorder.as_mut() {
-							recorder.record(TrieAccess::Value {
-								hash,
-								value: value.as_ref().into(),
-								full_key,
-							});
-						}
-
-						Ok((hash, Some(value.clone())))
-					},
+					ValueOwned::Inline(value, hash) => Ok((hash, Some(value.clone()))),
 					ValueOwned::Node(hash) => {
 						if let Some(recoder) = recorder.as_mut() {
 							recoder.record(TrieAccess::Hash { full_key });
@@ -317,7 +295,10 @@ where
 			},
 			Some(CachedValue::Existing { data, hash, .. }) =>
 				if let Some(data) = data.upgrade() {
-					if value_recording_required {
+					let is_inline = L::MAX_INLINE_VALUE
+						.map(|max| data.as_ref().len() < max as usize)
+						.unwrap_or(true);
+					if value_recording_required && !is_inline {
 						// As a value is only raw data, we can directly record it.
 						self.record(|| TrieAccess::Value {
 							hash: *hash,
