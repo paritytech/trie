@@ -22,7 +22,7 @@ pub struct HashedValueNoExt;
 
 /// No extension trie which stores value above a static size
 /// as external node.
-pub struct HashedValueNoExtThreshold;
+pub struct HashedValueNoExtThreshold<const C: u32>;
 
 impl TrieLayout for HashedValueNoExt {
 	const USE_EXTENSION: bool = false;
@@ -33,10 +33,10 @@ impl TrieLayout for HashedValueNoExt {
 	type Codec = ReferenceNodeCodecNoExtMeta<RefHasher>;
 }
 
-impl TrieLayout for HashedValueNoExtThreshold {
+impl<const C: u32> TrieLayout for HashedValueNoExtThreshold<C> {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
-	const MAX_INLINE_VALUE: Option<u32> = Some(1);
+	const MAX_INLINE_VALUE: Option<u32> = Some(C);
 
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExtMeta<RefHasher>;

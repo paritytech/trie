@@ -73,7 +73,7 @@ fn reference_hashed_null_node<T: TrieLayout>() -> <T::Hash as Hasher>::Out {
 #[test]
 fn playpen() {
 	env_logger::init();
-	playpen_internal::<HashedValueNoExtThreshold>();
+	playpen_internal::<HashedValueNoExtThreshold<1>>();
 	playpen_internal::<HashedValueNoExt>();
 	playpen_internal::<NoExtensionLayout>();
 	playpen_internal::<ExtensionLayout>();
@@ -543,7 +543,7 @@ fn register_proof_without_value() {
 	use reference_trie::HashedValueNoExtThreshold;
 	use std::{cell::RefCell, collections::HashMap};
 
-	type Layout = HashedValueNoExtThreshold;
+	type Layout = HashedValueNoExtThreshold<1>;
 	type MemoryDB = memory_db::MemoryDB<RefHasher, PrefixedKey<RefHasher>, DBValue>;
 	let x = [
 		(b"test1".to_vec(), vec![1; 32]), // inline
