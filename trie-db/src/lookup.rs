@@ -295,9 +295,10 @@ where
 			},
 			Some(CachedValue::Existing { data, hash, .. }) =>
 				if let Some(data) = data.upgrade() {
-					let is_inline = L::MAX_INLINE_VALUE
-						.map(|max| data.as_ref().len() < max as usize)
-						.unwrap_or(true);
+					// inline is either when no limit defined or when content
+					// is less than the limit.
+					let is_inline =
+						L::MAX_INLINE_VALUE.map_or(true, |max| max as usize > data.as_ref().len());
 					if value_recording_required && !is_inline {
 						// As a value is only raw data, we can directly record it.
 						self.record(|| TrieAccess::Value {

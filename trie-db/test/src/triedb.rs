@@ -452,7 +452,7 @@ fn test_recorder_with_cache_get_hash_internal<T: TrieLayout>() {
 	assert!(cache.get_node(&root).is_some());
 	// Also the data should be cached.
 
-	if T::MAX_INLINE_VALUE.map_or(true, |l| l as usize >= key_value[1].1.len()) {
+	if T::MAX_INLINE_VALUE.map_or(true, |l| l as usize > key_value[1].1.len()) {
 		assert!(matches!(
 			cache.lookup_value_for_key(&key_value[1].0).unwrap(),
 			CachedValue::Existing { hash, .. } if *hash == T::Hash::hash(&key_value[1].1)
@@ -508,13 +508,13 @@ fn test_recorder_with_cache_get_hash_internal<T: TrieLayout>() {
 			);
 
 			// Check if the values are part of the proof or not, based on the layout.
-			if T::MAX_INLINE_VALUE.map_or(true, |l| l as usize >= key_value[2].1.len()) {
+			if T::MAX_INLINE_VALUE.map_or(true, |l| l as usize > key_value[2].1.len()) {
 				assert_eq!(key_value[2].1, trie.get(&key_value[2].0).unwrap().unwrap());
 			} else {
 				assert!(trie.get(&key_value[2].0).is_err());
 			}
 
-			if T::MAX_INLINE_VALUE.map_or(true, |l| l as usize >= key_value[1].1.len()) {
+			if T::MAX_INLINE_VALUE.map_or(true, |l| l as usize > key_value[1].1.len()) {
 				assert_eq!(key_value[1].1, trie.get(&key_value[1].0).unwrap().unwrap());
 			} else {
 				assert!(trie.get(&key_value[1].0).is_err());

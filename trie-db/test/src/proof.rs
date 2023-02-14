@@ -161,7 +161,7 @@ test_layouts!(test_verify_invalid_child_reference, test_verify_invalid_child_ref
 fn test_verify_invalid_child_reference_internal<T: TrieLayout>() {
 	let (root, proof, _) = test_generate_proof::<T>(test_entries(), vec![b"bravo"]);
 
-	if T::MAX_INLINE_VALUE.map(|t| t as usize <= b"bravo".len()).unwrap_or(false) {
+	if T::MAX_INLINE_VALUE.map_or(false, |t| t as usize <= b"bravo".len()) {
 		// node will not be inline: ignore test
 		return
 	}
