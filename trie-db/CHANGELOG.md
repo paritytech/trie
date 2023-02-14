@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.25.1] - 2023-02-14
+- Fix recorder behavior: [#184](https://github.com/paritytech/trie/pull/184)
+
 ## [0.25.0] - 2023-02-03
 - Updated `hashbrown` to 0.13.2: [#177](https://github.com/paritytech/trie/pull/177)
 - Iterator refactoring: [#181](https://github.com/paritytech/trie/pull/181)

@@ -252,7 +252,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 	}
 
 	fn set_value(&mut self, value: &'a [u8]) {
-		self.value = if L::MAX_INLINE_VALUE.map(|max| value.len() < max as usize).unwrap_or(true) {
+		self.value = if L::MAX_INLINE_VALUE.map_or(true, |max| max as usize > value.len()) {
 			Some(Value::Inline(value))
 		} else {
 			let hash = L::Hash::hash(value);

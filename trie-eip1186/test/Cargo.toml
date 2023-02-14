@@ -9,7 +9,7 @@ edition = "2018"
 
 [dependencies]
 trie-eip1186 = { path = "..", version = "0.3.0"}
-trie-db = { path = "../../trie-db", version = "0.25.0"}
+trie-db = { path = "../../trie-db", version = "0.25.1"}
 hash-db = { path = "../../hash-db", version = "0.15.2"}
 reference-trie = { path = "../../test-support/reference-trie", version = "0.27.0" }
 memory-db = { path = "../../memory-db", version = "0.31.0" }
