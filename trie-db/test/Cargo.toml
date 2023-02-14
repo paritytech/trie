@@ -12,7 +12,7 @@ name = "bench"
 harness = false
 
 [dependencies]
-trie-db = { path = "..", version = "0.25.0"}
+trie-db = { path = "..", version = "0.25.1"}
 hash-db = { path = "../../hash-db", version = "0.15.2"}
 memory-db = { path = "../../memory-db", version = "0.31.0" }
 rand = { version = "0.8", default-features = false, features = ["small_rng"] }
