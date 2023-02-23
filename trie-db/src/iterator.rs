@@ -21,7 +21,7 @@ use crate::{
 };
 use hash_db::{Hasher, Prefix, EMPTY_PREFIX};
 
-use crate::rstd::{boxed::Box, rc::Rc, vec::Vec};
+use crate::rstd::{boxed::Box, sync::Arc, vec::Vec};
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -36,7 +36,7 @@ enum Status {
 #[derive(Eq, PartialEq)]
 struct Crumb<H: Hasher> {
 	hash: Option<H::Out>,
-	node: Rc<OwnedNode<DBValue>>,
+	node: Arc<OwnedNode<DBValue>>,
 	status: Status,
 }
 
@@ -108,7 +108,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	/// Descend into a payload.
 	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<TrieHash<L>>) {
 		self.trail
-			.push(Crumb { hash: node_hash, status: Status::Entering, node: Rc::new(node) });
+			.push(Crumb { hash: node_hash, status: Status::Entering, node: Arc::new(node) });
 	}
 
 	/// Fetch value by hash at a current node height
@@ -328,7 +328,11 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 		&mut self,
 		db: &TrieDB<L>,
 	) -> Option<
-		Result<(&NibbleVec, Option<&TrieHash<L>>, &Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>,
+		Result<
+			(&NibbleVec, Option<&TrieHash<L>>, &Arc<OwnedNode<DBValue>>),
+			TrieHash<L>,
+			CError<L>,
+		>,
 	> {
 		loop {
 			let crumb = self.trail.last_mut()?;
@@ -568,7 +572,7 @@ impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, 'cach
 
 impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, 'cache, L> {
 	type Item =
-		Result<(NibbleVec, Option<TrieHash<L>>, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
+		Result<(NibbleVec, Option<TrieHash<L>>, Arc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.raw_iter.next_raw_item(self.db).map(|result| {

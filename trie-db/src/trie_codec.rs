@@ -28,7 +28,7 @@
 use crate::{
 	nibble_ops::NIBBLE_LENGTH,
 	node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, ValuePlan},
-	rstd::{boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec, vec::Vec},
+	rstd::{boxed::Box, convert::TryInto, marker::PhantomData, result, sync::Arc, vec, vec::Vec},
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result, TrieDB, TrieDBRawIterator,
 	TrieError, TrieHash, TrieLayout,
 };
@@ -38,7 +38,7 @@ struct EncoderStackEntry<C: NodeCodec> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: NibbleVec,
 	/// Node in memory content.
-	node: Rc<OwnedNode<DBValue>>,
+	node: Arc<OwnedNode<DBValue>>,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
