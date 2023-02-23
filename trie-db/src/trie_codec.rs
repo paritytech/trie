@@ -29,7 +29,7 @@ use crate::{
 	nibble_ops::NIBBLE_LENGTH,
 	node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, ValuePlan},
 	rstd::{boxed::Box, convert::TryInto, marker::PhantomData, rc::Rc, result, vec, vec::Vec},
-	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result, TrieDB, TrieDBNodeIterator,
+	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result, TrieDB, TrieDBRawIterator,
 	TrieError, TrieHash, TrieLayout,
 };
 use hash_db::{HashDB, Prefix};
@@ -177,15 +177,17 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 /// followed by node encoded with 0 length value and the value
 /// as a standalone vec.
 fn detached_value<L: TrieLayout>(
+	db: &TrieDB<L>,
 	value: &ValuePlan,
 	node_data: &[u8],
 	node_prefix: Prefix,
-	val_fetcher: &TrieDBNodeIterator<L>,
 ) -> Option<Vec<u8>> {
 	let fetched;
 	match value {
 		ValuePlan::Node(hash_plan) => {
-			if let Ok(value) = val_fetcher.fetch_value(&node_data[hash_plan.clone()], node_prefix) {
+			if let Ok(value) =
+				TrieDBRawIterator::fetch_value(db, &node_data[hash_plan.clone()], node_prefix)
+			{
 				fetched = value;
 			} else {
 				return None
@@ -213,17 +215,17 @@ where
 	// entry.
 	let mut stack: Vec<EncoderStackEntry<L::Codec>> = Vec::new();
 
-	// TrieDBNodeIterator guarantees that:
+	// TrieDBRawIterator guarantees that:
 	// - It yields at least one node.
 	// - The first node yielded is the root node with an empty prefix and is not inline.
 	// - The prefixes yielded are in strictly increasing lexographic order.
-	let mut iter = TrieDBNodeIterator::new(db)?;
+	let mut iter = TrieDBRawIterator::new(db)?;
 
-	// Following from the guarantees about TrieDBNodeIterator, we guarantee that after the first
+	// Following from the guarantees about TrieDBRawIterator, we guarantee that after the first
 	// iteration of the loop below, the stack always has at least one entry and the bottom (front)
 	// of the stack is the root node, which is not inline. Furthermore, the iterator is not empty,
 	// so at least one iteration always occurs.
-	while let Some(item) = iter.next() {
+	while let Some(item) = iter.next_raw_item(db) {
 		match item {
 			Ok((prefix, node_hash, node)) => {
 				// Skip inline nodes, as they cannot contain hash references to other nodes by
@@ -242,7 +244,7 @@ where
 						// correctness.
 						last_entry.advance_child_index(&prefix).expect(
 							"all errors from advance_child_index indicate bugs with \
-								TrieDBNodeIterator or this function",
+								TrieDBRawIterator or this function",
 						);
 						last_entry.omit_children[last_entry.child_index] = true;
 						last_entry.child_index += 1;
@@ -256,20 +258,18 @@ where
 				let (children_len, detached_value) = match node.node_plan() {
 					NodePlan::Empty => (0, None),
 					NodePlan::Leaf { value, .. } =>
-						(0, detached_value(value, node.data(), prefix.as_prefix(), &iter)),
+						(0, detached_value(db, value, node.data(), prefix.as_prefix())),
 					NodePlan::Extension { .. } => (1, None),
 					NodePlan::NibbledBranch { value: Some(value), .. } |
-					NodePlan::Branch { value: Some(value), .. } => (
-						NIBBLE_LENGTH,
-						detached_value(value, node.data(), prefix.as_prefix(), &iter),
-					),
+					NodePlan::Branch { value: Some(value), .. } =>
+						(NIBBLE_LENGTH, detached_value(db, value, node.data(), prefix.as_prefix())),
 					NodePlan::NibbledBranch { value: None, .. } |
 					NodePlan::Branch { value: None, .. } => (NIBBLE_LENGTH, None),
 				};
 
 				stack.push(EncoderStackEntry {
-					prefix,
-					node,
+					prefix: prefix.clone(),
+					node: node.clone(),
 					child_index: 0,
 					omit_children: vec![false; children_len],
 					omit_value: detached_value.is_some(),

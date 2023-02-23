@@ -112,7 +112,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	}
 
 	/// Fetch value by hash at a current node height
-	fn fetch_value(
+	pub(crate) fn fetch_value(
 		db: &TrieDB<L>,
 		key: &[u8],
 		prefix: Prefix,
@@ -324,7 +324,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	/// Fetches the next raw item.
 	//
 	/// Must be called with the same `db` as when the iterator was created.
-	fn next_raw_item(
+	pub(crate) fn next_raw_item(
 		&mut self,
 		db: &TrieDB<L>,
 	) -> Option<
