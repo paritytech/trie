@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.26.0] - 2023-02-24
+- `TrieDBRawIterator` and `TrieDBNodeIterator` now return a node inside of an `Arc` instead of `Rc` [#185](https://github.com/paritytech/trie/pull/185)
+- `TrieDBRawIterator` is now `Send` and `Sync` [#185](https://github.com/paritytech/trie/pull/185)
+
 ## [0.25.1] - 2023-02-14
 - Fix recorder behavior: [#184](https://github.com/paritytech/trie/pull/184)
 

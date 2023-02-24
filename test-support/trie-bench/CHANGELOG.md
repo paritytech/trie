@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.36.0] - 2023-02-24
+- Updated `trie-db` to 0.26.0. [#185](https://github.com/paritytech/trie/pull/185)
+
 ## [0.35.0] - 2023-02-03
 - Updated `trie-db` to 0.25.0.
 

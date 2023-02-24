@@ -1,6 +1,6 @@
 [package]
 name = "trie-eip1186-test"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Tests for trie-eip1186 crate"
 repository = "https://github.com/paritytech/trie"
@@ -8,8 +8,8 @@ license = "Apache-2.0"
 edition = "2018"
 
 [dependencies]
-trie-eip1186 = { path = "..", version = "0.3.0"}
-trie-db = { path = "../../trie-db", version = "0.25.1"}
+trie-eip1186 = { path = "..", version = "0.4.0"}
+trie-db = { path = "../../trie-db", version = "0.26.0"}
 hash-db = { path = "../../hash-db", version = "0.15.2"}
-reference-trie = { path = "../../test-support/reference-trie", version = "0.27.0" }
+reference-trie = { path = "../../test-support/reference-trie", version = "0.28.0" }
 memory-db = { path = "../../memory-db", version = "0.31.0" }
