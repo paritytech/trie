@@ -1153,6 +1153,12 @@ mod tests {
 	use super::*;
 	use trie_db::{nibble_ops::NIBBLE_PER_BYTE, node::Node};
 
+	const _: fn() -> () = || {
+		struct AssertTrieDBRawIteratorIsSendAndSync
+		where
+			trie_db::TrieDBRawIterator<NoExtensionLayout>: Send + Sync;
+	};
+
 	#[test]
 	fn test_encoding_simple_trie() {
 		for prefix in
