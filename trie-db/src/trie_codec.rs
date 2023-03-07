@@ -111,7 +111,16 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 			self.node.node_plan()
 		};
 		let mut encoded = match node_plan {
-			NodePlan::Empty | NodePlan::Leaf { .. } => node_data.to_vec(),
+			NodePlan::Empty => node_data.to_vec(),
+			NodePlan::Leaf { partial, value } => {
+				if self.omit_value {
+					let partial = partial.build(node_data);
+				let value = value.build(node_data);
+				C::leaf_node(partial.right_iter(), partial.len(), value)
+				} else {
+					node_data.to_vec()
+				}
+			},
 			NodePlan::Extension { partial, child: _ } =>
 				if !self.omit_children[0] {
 					node_data.to_vec()
