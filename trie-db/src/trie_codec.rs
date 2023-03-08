@@ -34,7 +34,7 @@ use crate::{
 };
 use hash_db::{HashDB, Prefix};
 
-const OMMIT_VALUE_HASH: crate::node::Value<'static> = crate::node::Value::Inline(&[]);
+const OMIT_VALUE_HASH: crate::node::Value<'static> = crate::node::Value::Inline(&[]);
 
 struct EncoderStackEntry<C: NodeCodec> {
 	/// The prefix is the nibble path to the node in the trie.
@@ -107,7 +107,7 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 			NodePlan::Leaf { partial, value: _ } =>
 				if self.omit_value {
 					let partial = partial.build(node_data);
-					C::leaf_node(partial.right_iter(), partial.len(), OMMIT_VALUE_HASH)
+					C::leaf_node(partial.right_iter(), partial.len(), OMIT_VALUE_HASH)
 				} else {
 					node_data.to_vec()
 				},
@@ -121,7 +121,7 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 				},
 			NodePlan::Branch { value, children } => {
 				let value = if self.omit_value {
-					value.is_some().then_some(OMMIT_VALUE_HASH)
+					value.is_some().then_some(OMIT_VALUE_HASH)
 				} else {
 					value.as_ref().map(|v| v.build(node_data))
 				};
@@ -133,7 +133,7 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 			NodePlan::NibbledBranch { partial, value, children } => {
 				let partial = partial.build(node_data);
 				let value = if self.omit_value {
-					value.is_some().then_some(OMMIT_VALUE_HASH)
+					value.is_some().then_some(OMIT_VALUE_HASH)
 				} else {
 					value.as_ref().map(|v| v.build(node_data))
 				};
