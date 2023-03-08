@@ -20,8 +20,8 @@
 extern crate alloc;
 
 use hash_db::{
-	AsHashDB, AsPlainDB, HashDB, HashDBRef, Hasher as KeyHasher, MaybeDebug, MaybeOrd, PlainDB,
-	PlainDBRef, Prefix,
+	AsHashDB, AsPlainDB, HashDB, HashDBRef, Hasher as KeyHasher, MaybeDebug, PlainDB, PlainDBRef,
+	Prefix,
 };
 #[cfg(feature = "std")]
 use std::{
@@ -134,7 +134,7 @@ where
 }
 
 pub trait KeyFunction<H: KeyHasher> {
-	type Key: Send + Sync + Clone + hash::Hash + Eq + MaybeDebug + MaybeOrd;
+	type Key: Send + Sync + Clone + hash::Hash + Eq + MaybeDebug + core::cmp::Ord;
 
 	fn key(hash: &H::Out, prefix: Prefix) -> Self::Key;
 }

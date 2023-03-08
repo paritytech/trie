@@ -32,15 +32,6 @@ pub trait MaybeDebug {}
 #[cfg(not(feature = "std"))]
 impl<T> MaybeDebug for T {}
 
-#[cfg(not(feature = "std"))]
-pub trait MaybeOrd: core::cmp::Ord {}
-#[cfg(not(feature = "std"))]
-impl<T: core::cmp::Ord> MaybeOrd for T {}
-#[cfg(feature = "std")]
-pub trait MaybeOrd {}
-#[cfg(feature = "std")]
-impl<T> MaybeOrd for T {}
-
 /// A trie node prefix, it is the nibble path from the trie root
 /// to the trie node.
 /// For a node containing no partial key value it is the full key.
@@ -65,7 +56,7 @@ pub trait Hasher: Sync + Send {
 		+ AsMut<[u8]>
 		+ Default
 		+ MaybeDebug
-		+ MaybeOrd
+		+ core::cmp::Ord
 		+ PartialEq
 		+ Eq
 		+ hash::Hash
