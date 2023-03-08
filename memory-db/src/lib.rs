@@ -20,7 +20,8 @@
 extern crate alloc;
 
 use hash_db::{
-	AsHashDB, AsPlainDB, HashDB, HashDBRef, Hasher as KeyHasher, PlainDB, PlainDBRef, Prefix, MaybeOrd, MaybeDebug,
+	AsHashDB, AsPlainDB, HashDB, HashDBRef, Hasher as KeyHasher, MaybeDebug, MaybeOrd, PlainDB,
+	PlainDBRef, Prefix,
 };
 #[cfg(feature = "std")]
 use std::{
