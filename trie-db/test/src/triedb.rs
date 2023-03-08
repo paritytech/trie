@@ -19,8 +19,8 @@ use hex_literal::hex;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{test_layouts, HashedValueNoExtThreshold, TestTrieCache};
 use trie_db::{
-	CachedValue, DBValue, Lookup, NibbleSlice, Recorder, Trie, TrieCache, TrieDBBuilder,
-	TrieDBMutBuilder, TrieLayout, TrieMut,
+	encode_compact, CachedValue, DBValue, Lookup, NibbleSlice, Recorder, Trie, TrieCache,
+	TrieDBBuilder, TrieDBMutBuilder, TrieLayout, TrieMut,
 };
 
 type PrefixedMemoryDB<T> =
@@ -635,33 +635,33 @@ fn test_cache_internal<T: TrieLayout>() {
 
 #[test]
 fn test_record_value() {
-	type Layout = HashedValueNoExtThreshold<33>;
+	type L = HashedValueNoExtThreshold<33>;
 	// one root branch and two leaf, one with inline value, the other with node value.
 	let key_value = vec![(b"A".to_vec(), vec![1; 32]), (b"B".to_vec(), vec![1; 33])];
 
 	// Add some initial data to the trie
-	let mut memdb = PrefixedMemoryDB::<Layout>::default();
+	let mut memdb = PrefixedMemoryDB::<L>::default();
 	let mut root = Default::default();
 	{
-		let mut t = TrieDBMutBuilder::<Layout>::new(&mut memdb, &mut root).build();
+		let mut t = TrieDBMutBuilder::<L>::new(&mut memdb, &mut root).build();
 		for (key, value) in key_value.iter() {
 			t.insert(key, value).unwrap();
 		}
 	}
 
-	// Value access would record a tow node (branch and leaf with value 32 len inline).
-	let mut recorder = Recorder::<Layout>::new();
+	// Value access would record a two nodes (branch and leaf with value 32 len inline).
+	let mut recorder = Recorder::<L>::new();
 	let overlay = memdb.clone();
 	let new_root = root;
 	{
-		let trie = TrieDBBuilder::<Layout>::new(&overlay, &new_root)
+		let trie = TrieDBBuilder::<L>::new(&overlay, &new_root)
 			.with_recorder(&mut recorder)
 			.build();
 
 		trie.get(key_value[0].0.as_slice()).unwrap();
 	}
 
-	let mut partial_db = MemoryDBProof::<Layout>::default();
+	let mut partial_db = MemoryDBProof::<L>::default();
 	let mut count = 0;
 	for record in recorder.drain() {
 		count += 1;
@@ -670,19 +670,29 @@ fn test_record_value() {
 
 	assert_eq!(count, 2);
 
+	let compact_proof = {
+		let trie = <TrieDBBuilder<L>>::new(&partial_db, &root).build();
+		encode_compact::<L>(&trie).unwrap()
+	};
+	assert_eq!(compact_proof.len(), 2);
+	// two child branch with only one child accessed
+	assert_eq!(compact_proof[0].len(), 38);
+	// leaf node with inline 32 byte value
+	assert_eq!(compact_proof[1].len(), 34);
+
 	// Value access on node returns three items: a branch a leaf and a value node
-	let mut recorder = Recorder::<Layout>::new();
+	let mut recorder = Recorder::<L>::new();
 	let overlay = memdb.clone();
 	let new_root = root;
 	{
-		let trie = TrieDBBuilder::<Layout>::new(&overlay, &new_root)
+		let trie = TrieDBBuilder::<L>::new(&overlay, &new_root)
 			.with_recorder(&mut recorder)
 			.build();
 
 		trie.get(key_value[1].0.as_slice()).unwrap();
 	}
 
-	let mut partial_db = MemoryDBProof::<Layout>::default();
+	let mut partial_db = MemoryDBProof::<L>::default();
 	let mut count = 0;
 	for record in recorder.drain() {
 		count += 1;
@@ -691,19 +701,31 @@ fn test_record_value() {
 
 	assert_eq!(count, 3);
 
+	let compact_proof = {
+		let trie = <TrieDBBuilder<L>>::new(&partial_db, &root).build();
+		encode_compact::<L>(&trie).unwrap()
+	};
+	assert_eq!(compact_proof.len(), 3);
+	// two child branch with only one child accessed
+	assert_eq!(compact_proof[0].len(), 38);
+	// leaf with ommited hash value and escape header
+	assert_eq!(compact_proof[1].len(), 3);
+	// value node 33 bytes
+	assert_eq!(compact_proof[2].len(), 33);
+
 	// Hash access would record two node (branch and leaf with value 32 len inline).
-	let mut recorder = Recorder::<Layout>::new();
+	let mut recorder = Recorder::<L>::new();
 	let overlay = memdb.clone();
 	let new_root = root;
 	{
-		let trie = TrieDBBuilder::<Layout>::new(&overlay, &new_root)
+		let trie = TrieDBBuilder::<L>::new(&overlay, &new_root)
 			.with_recorder(&mut recorder)
 			.build();
 
 		trie.get_hash(key_value[0].0.as_slice()).unwrap();
 	}
 
-	let mut partial_db = MemoryDBProof::<Layout>::default();
+	let mut partial_db = MemoryDBProof::<L>::default();
 	let mut count = 0;
 	for record in recorder.drain() {
 		count += 1;
@@ -712,19 +734,29 @@ fn test_record_value() {
 
 	assert_eq!(count, 2);
 
+	let compact_proof = {
+		let trie = <TrieDBBuilder<L>>::new(&partial_db, &root).build();
+		encode_compact::<L>(&trie).unwrap()
+	};
+	assert_eq!(compact_proof.len(), 2);
+	// two child branch with only one child accessed
+	assert_eq!(compact_proof[0].len(), 38);
+	// leaf node with inline 32 byte value
+	assert_eq!(compact_proof[1].len(), 34);
+
 	// Hash access would record two node (branch and leaf with value 32 len inline).
-	let mut recorder = Recorder::<Layout>::new();
+	let mut recorder = Recorder::<L>::new();
 	let overlay = memdb.clone();
 	let new_root = root;
 	{
-		let trie = TrieDBBuilder::<Layout>::new(&overlay, &new_root)
+		let trie = TrieDBBuilder::<L>::new(&overlay, &new_root)
 			.with_recorder(&mut recorder)
 			.build();
 
 		trie.get_hash(key_value[1].0.as_slice()).unwrap();
 	}
 
-	let mut partial_db = MemoryDBProof::<Layout>::default();
+	let mut partial_db = MemoryDBProof::<L>::default();
 	let mut count = 0;
 	for record in recorder.drain() {
 		count += 1;
@@ -732,4 +764,14 @@ fn test_record_value() {
 	}
 
 	assert_eq!(count, 2);
+
+	let compact_proof = {
+		let trie = <TrieDBBuilder<L>>::new(&partial_db, &root).build();
+		encode_compact::<L>(&trie).unwrap()
+	};
+	assert_eq!(compact_proof.len(), 2);
+	// two child branch with only one child accessed
+	assert_eq!(compact_proof[0].len(), 38);
+	// leaf with value hash only.
+	assert_eq!(compact_proof[1].len(), 33);
 }

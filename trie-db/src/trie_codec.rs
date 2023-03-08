@@ -99,24 +99,14 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 	/// Generates the encoding of the subtrie rooted at this entry.
 	fn encode_node(&mut self) -> Result<Vec<u8>, C::HashOut, C::Error> {
 		let node_data = self.node.data();
-		let mut modified_node_plan;
-		let node_plan = if self.omit_value {
-			modified_node_plan = self.node.node_plan().clone();
-			if let Some(value) = modified_node_plan.value_plan_mut() {
-				// 0 length value.
-				*value = ValuePlan::Inline(0..0);
-			}
-			&modified_node_plan
-		} else {
-			self.node.node_plan()
-		};
+		let node_plan = self.node.node_plan();
 		let mut encoded = match node_plan {
 			NodePlan::Empty => node_data.to_vec(),
-			NodePlan::Leaf { partial, value } =>
+			NodePlan::Leaf { partial, value: _ } =>
 				if self.omit_value {
 					let partial = partial.build(node_data);
-					let value = value.build(node_data);
-					C::leaf_node(partial.right_iter(), partial.len(), value)
+					let no_value = crate::node::Value::Inline(&[]);
+					C::leaf_node(partial.right_iter(), partial.len(), no_value)
 				} else {
 					node_data.to_vec()
 				},
@@ -128,17 +118,29 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 					let empty_child = ChildReference::Inline(C::HashOut::default(), 0);
 					C::extension_node(partial.right_iter(), partial.len(), empty_child)
 				},
-			NodePlan::Branch { value, children } => C::branch_node(
-				Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
-				value.as_ref().map(|v| v.build(node_data)),
-			),
+			NodePlan::Branch { value, children } => {
+				let value = if self.omit_value {
+					value.as_ref().map(|_v| crate::node::Value::Inline(&[]))
+				} else {
+					value.as_ref().map(|v| v.build(node_data))
+				};
+				C::branch_node(
+					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
+					value,
+				)
+			},
 			NodePlan::NibbledBranch { partial, value, children } => {
 				let partial = partial.build(node_data);
+				let value = if self.omit_value {
+					value.as_ref().map(|_v| crate::node::Value::Inline(&[]))
+				} else {
+					value.as_ref().map(|v| v.build(node_data))
+				};
 				C::branch_node_nibbled(
 					partial.right_iter(),
 					partial.len(),
 					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
-					value.as_ref().map(|v| v.build(node_data)),
+					value,
 				)
 			},
 		};
