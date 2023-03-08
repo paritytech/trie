@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+- Switch no_std storage to BtreeMap.
+
 ## [0.31.0] - 2022-11-29
 - Removed `parity-util-mem` support. [#172](https://github.com/paritytech/trie/pull/172)
 

@@ -20,31 +20,22 @@
 extern crate alloc;
 
 use hash_db::{
-	AsHashDB, AsPlainDB, HashDB, HashDBRef, Hasher as KeyHasher, PlainDB, PlainDBRef, Prefix,
+	AsHashDB, AsPlainDB, HashDB, HashDBRef, Hasher as KeyHasher, PlainDB, PlainDBRef, Prefix, MaybeOrd, MaybeDebug,
 };
 #[cfg(feature = "std")]
 use std::{
-	borrow::Borrow, cmp::Eq, collections::hash_map::Entry, collections::HashMap, hash,
+	borrow::Borrow, cmp::Eq, collections::hash_map::Entry, collections::HashMap as Map, hash,
 	marker::PhantomData, mem,
 };
 
 #[cfg(not(feature = "std"))]
-use hashbrown::{hash_map::Entry, HashMap};
+use alloc::collections::btree_map::{BTreeMap as Map, Entry};
 
 #[cfg(not(feature = "std"))]
 use core::{borrow::Borrow, cmp::Eq, hash, marker::PhantomData, mem};
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-
-#[cfg(feature = "std")]
-pub trait MaybeDebug: std::fmt::Debug {}
-#[cfg(feature = "std")]
-impl<T: std::fmt::Debug> MaybeDebug for T {}
-#[cfg(not(feature = "std"))]
-pub trait MaybeDebug {}
-#[cfg(not(feature = "std"))]
-impl<T> MaybeDebug for T {}
 
 /// Reference-counted memory-based `HashDB` implementation.
 ///
@@ -93,7 +84,7 @@ where
 	H: KeyHasher,
 	KF: KeyFunction<H>,
 {
-	data: HashMap<KF::Key, (T, i32)>,
+	data: Map<KF::Key, (T, i32)>,
 	hashed_null_node: H::Out,
 	null_node_data: T,
 	_kf: PhantomData<KF>,
@@ -119,7 +110,6 @@ impl<H, KF, T> PartialEq<MemoryDB<H, KF, T>> for MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
 	KF: KeyFunction<H>,
-	<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
 	T: Eq + MaybeDebug,
 {
 	fn eq(&self, other: &MemoryDB<H, KF, T>) -> bool {
@@ -138,13 +128,12 @@ impl<H, KF, T> Eq for MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
 	KF: KeyFunction<H>,
-	<KF as KeyFunction<H>>::Key: Eq + MaybeDebug,
 	T: Eq + MaybeDebug,
 {
 }
 
 pub trait KeyFunction<H: KeyHasher> {
-	type Key: Send + Sync + Clone + hash::Hash + Eq;
+	type Key: Send + Sync + Clone + hash::Hash + Eq + MaybeDebug + MaybeOrd;
 
 	fn key(hash: &H::Out, prefix: Prefix) -> Self::Key;
 }
@@ -295,6 +284,7 @@ where
 	/// and possibly leaving some space in accordance with the resize policy.
 	#[inline]
 	pub fn shrink_to_fit(&mut self) {
+		#[cfg(feature = "std")]
 		self.data.shrink_to_fit();
 	}
 }
@@ -308,7 +298,7 @@ where
 	/// Create a new `MemoryDB` from a given null key/data
 	pub fn from_null_node(null_key: &[u8], null_node_data: T) -> Self {
 		MemoryDB {
-			data: HashMap::default(),
+			data: Map::default(),
 			hashed_null_node: H::hash(null_key),
 			null_node_data,
 			_kf: Default::default(),
@@ -361,8 +351,8 @@ where
 		});
 	}
 
-	/// Return the internal key-value HashMap, clearing the current state.
-	pub fn drain(&mut self) -> HashMap<KF::Key, (T, i32)> {
+	/// Return the internal key-value Map, clearing the current state.
+	pub fn drain(&mut self) -> Map<KF::Key, (T, i32)> {
 		mem::take(&mut self.data)
 	}
 
@@ -397,7 +387,7 @@ where
 	}
 
 	/// Get the keys in the database together with number of underlying references.
-	pub fn keys(&self) -> HashMap<KF::Key, i32> {
+	pub fn keys(&self) -> Map<KF::Key, i32> {
 		self.data
 			.iter()
 			.filter_map(|(k, v)| if v.1 != 0 { Some((k.clone(), v.1)) } else { None })
