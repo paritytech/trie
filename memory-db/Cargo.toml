@@ -9,7 +9,6 @@ edition = "2018"
 
 [dependencies]
 hash-db = { version = "0.15.2", path = "../hash-db", default-features = false }
-hashbrown = { version = "0.13.2", default-features = false, features = [ "ahash" ] }
 
 [dev-dependencies]
 keccak-hasher = { path = "../test-support/keccak-hasher" }

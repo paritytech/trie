@@ -56,6 +56,7 @@ pub trait Hasher: Sync + Send {
 		+ AsMut<[u8]>
 		+ Default
 		+ MaybeDebug
+		+ core::cmp::Ord
 		+ PartialEq
 		+ Eq
 		+ hash::Hash
