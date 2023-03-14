@@ -4,9 +4,9 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
-## [Unreleased]
-
+## [0.27.0] - 2023-03-14
 - Fix compact proof to skip including value node hashes [#187](https://github.com/paritytech/trie/pull/187)
+- Update dependencies. [#188](https://github.com/paritytech/trie/pull/188)
 
 ## [0.26.0] - 2023-02-24
 - `TrieDBRawIterator` and `TrieDBNodeIterator` now return a node inside of an `Arc` instead of `Rc` [#185](https://github.com/paritytech/trie/pull/185)

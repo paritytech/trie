@@ -1,6 +1,6 @@
 [package]
 name = "hash-db"
-version = "0.15.2"
+version = "0.16.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Trait for hash-keyed databases."
 license = "Apache-2.0"
