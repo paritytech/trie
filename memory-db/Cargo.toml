@@ -1,6 +1,6 @@
 [package]
 name = "memory-db"
-version = "0.31.0"
+version = "0.32.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "In-memory implementation of hash-db, useful for tests"
 repository = "https://github.com/paritytech/trie"
@@ -8,7 +8,7 @@ license = "Apache-2.0"
 edition = "2018"
 
 [dependencies]
-hash-db = { version = "0.15.2", path = "../hash-db", default-features = false }
+hash-db = { version = "0.16.0", path = "../hash-db", default-features = false }
 
 [dev-dependencies]
 keccak-hasher = { path = "../test-support/keccak-hasher" }

@@ -4,9 +4,8 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
-## [Unreleased]
-
-- Switch no_std storage to BtreeMap.
+## [0.32.0] - 2023-03-14
+- Switch no_std storage to BtreeMap. [#188](https://github.com/paritytech/trie/pull/188)
 
 ## [0.31.0] - 2022-11-29
 - Removed `parity-util-mem` support. [#172](https://github.com/paritytech/trie/pull/172)
