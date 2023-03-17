@@ -22,3 +22,6 @@ hex-literal = "0.3"
 criterion = "0.4.0"
 env_logger = { version = "0.10", default-features = false }
 log = "0.4"
+
+[dev-dependencies]
+array-bytes = "6.0.0"

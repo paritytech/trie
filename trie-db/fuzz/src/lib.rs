@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use arbitrary::Arbitrary;
 use hash_db::Hasher;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
@@ -256,6 +257,65 @@ pub fn fuzz_prefix_iter<T: TrieLayout>(input: &[u8]) {
 
 	assert_eq!(iter_res, iter_res2);
 	assert_eq!(error, 0);
+}
+
+#[derive(Debug, Arbitrary)]
+pub struct PrefixSeekTestInput {
+	keys: Vec<Vec<u8>>,
+	prefix_key: Vec<u8>,
+	seek_key: Vec<u8>,
+}
+
+fn printable_keys<T: AsRef<[u8]>>(iter: impl IntoIterator<Item = T>) -> String {
+	iter.into_iter()
+		.map(|key| format!("\"{}\"", array_bytes::bytes2hex("", key)))
+		.collect::<Vec<_>>()
+		.join(", ")
+}
+
+pub fn fuzz_prefix_seek_iter<T: TrieLayout>(mut input: PrefixSeekTestInput) {
+	type PrefixedMemoryDB<T> =
+		MemoryDB<<T as TrieLayout>::Hash, PrefixedKey<<T as TrieLayout>::Hash>, DBValue>;
+
+	input.keys.retain_mut(|key| !key.is_empty());
+
+	input.keys.sort_unstable();
+	input.keys.dedup();
+
+	let mut memdb = PrefixedMemoryDB::<T>::default();
+	let mut root = Default::default();
+	{
+		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+		for (index, key) in input.keys.iter().enumerate() {
+			t.insert(&key, &[index as u8]).unwrap();
+		}
+	}
+
+	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+	let iter =
+		trie_db::TrieDBIterator::new_prefixed_then_seek(&trie, &input.prefix_key, &input.seek_key)
+			.unwrap();
+	let output_keys: Vec<_> = iter.map(|item| item.unwrap().0).collect();
+
+	let input_keys = input.keys;
+	let seek_key = input.seek_key;
+	let prefix_key = input.prefix_key;
+	let expected_keys: Vec<_> = input_keys
+		.iter()
+		.filter(|key| key.starts_with(&prefix_key) && **key >= seek_key)
+		.cloned()
+		.collect();
+
+	if output_keys != expected_keys {
+		panic!(
+			"Test failed!\nresult = [{result}]\nexpected = [{expected}]\nprefix_key = \"{prefix_key}\"\nseek_key = \"{seek_key}\"\nkeys = [{input_keys}]",
+			result = printable_keys(output_keys),
+			expected = printable_keys(expected_keys),
+			prefix_key = array_bytes::bytes2hex("", prefix_key),
+			seek_key = array_bytes::bytes2hex("", seek_key),
+			input_keys = printable_keys(input_keys)
+		);
+	}
 }
 
 pub fn fuzz_that_verify_accepts_valid_proofs<T: TrieLayout>(input: &[u8]) {
