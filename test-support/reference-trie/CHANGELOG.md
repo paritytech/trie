@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.29.1] - 2023-03-17
+- Add substrate trie layouts [#190](https://github.com/paritytech/trie/pull/190)
 
 ## [0.29.0] - 2023-03-14
 - Update dependencies. [#188](https://github.com/paritytech/trie/pull/188) and [#187](https://github.com/paritytech/trie/pull/187)

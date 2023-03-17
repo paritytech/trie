@@ -288,35 +288,60 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 		prefix: &[u8],
 		seek: &[u8],
 	) -> Result<(), TrieHash<L>, CError<L>> {
-		if seek.starts_with(prefix) {
-			self.seek(db, seek)?;
-			let prefix_len = prefix.len() * crate::nibble::nibble_ops::NIBBLE_PER_BYTE;
-			let mut len = 0;
-			// look first prefix in trail
-			for i in 0..self.trail.len() {
-				match self.trail[i].node.node_plan() {
-					NodePlan::Empty => {},
-					NodePlan::Branch { .. } => {
-						len += 1;
-					},
-					NodePlan::Leaf { partial, .. } => {
-						len += partial.len();
-					},
-					NodePlan::Extension { partial, .. } => {
-						len += partial.len();
-					},
-					NodePlan::NibbledBranch { partial, .. } => {
-						len += 1;
-						len += partial.len();
-					},
-				}
-				if len > prefix_len {
-					self.trail = self.trail.split_off(i);
-					return Ok(())
-				}
+		if prefix.is_empty() {
+			// There's no prefix, so just seek.
+			return self.seek(db, seek).map(|_| ())
+		}
+
+		if seek.is_empty() || seek <= prefix {
+			// Either we're not supposed to seek anywhere,
+			// or we're supposed to seek *before* the prefix,
+			// so just directly go to the prefix.
+			return self.prefix(db, prefix)
+		}
+
+		if !seek.starts_with(prefix) {
+			// We're supposed to seek *after* the prefix,
+			// so just return an empty iterator.
+			self.trail.clear();
+			return Ok(())
+		}
+
+		if !self.seek(db, prefix)? {
+			// The database doesn't have a key with such a prefix.
+			self.trail.clear();
+			return Ok(())
+		}
+
+		// Now seek forward again.
+		self.seek(db, seek)?;
+
+		let prefix_len = prefix.len() * crate::nibble::nibble_ops::NIBBLE_PER_BYTE;
+		let mut len = 0;
+		// look first prefix in trail
+		for i in 0..self.trail.len() {
+			match self.trail[i].node.node_plan() {
+				NodePlan::Empty => {},
+				NodePlan::Branch { .. } => {
+					len += 1;
+				},
+				NodePlan::Leaf { partial, .. } => {
+					len += partial.len();
+				},
+				NodePlan::Extension { partial, .. } => {
+					len += partial.len();
+				},
+				NodePlan::NibbledBranch { partial, .. } => {
+					len += 1;
+					len += partial.len();
+				},
+			}
+			if len > prefix_len {
+				self.trail = self.trail.split_off(i);
+				return Ok(())
 			}
 		}
-		// default to empty iter
+
 		self.trail.clear();
 		Ok(())
 	}
