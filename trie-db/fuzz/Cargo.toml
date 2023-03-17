@@ -17,7 +17,7 @@ reference-trie = { path = "../../test-support/reference-trie", version = "0.29.0
 path = ".."
 
 [dependencies.libfuzzer-sys]
-git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
+version = "0.4.6"
 
 # Prevent this from interfering with workspaces
 [workspace]
