@@ -28,6 +28,7 @@ use trie_db::{
 pub use trie_root::TrieStream;
 use trie_root::{Hasher, Value as TrieStreamValue};
 
+mod substrate;
 mod substrate_like;
 pub mod node {
 	pub use trie_db::node::Node;
@@ -37,6 +38,9 @@ pub use substrate_like::{
 	trie_constants, HashedValueNoExt, HashedValueNoExtThreshold,
 	NodeCodec as ReferenceNodeCodecNoExtMeta, ReferenceTrieStreamNoExt,
 };
+
+pub use paste::paste;
+pub use substrate::{LayoutV0 as SubstrateV0, LayoutV1 as SubstrateV1};
 
 /// Reference hasher is a keccak hasher.
 pub type RefHasher = keccak_hasher::KeccakHasher;
@@ -55,6 +59,22 @@ macro_rules! test_layouts {
 			$test_internal::<$crate::NoExtensionLayout>();
 			eprintln!("Running with layout `ExtensionLayout`");
 			$test_internal::<$crate::ExtensionLayout>();
+		}
+	};
+}
+
+#[macro_export]
+macro_rules! test_layouts_substrate {
+	($test:ident) => {
+		$crate::paste! {
+			#[test]
+			fn [<$test _substrate_v0>]() {
+				$test::<$crate::SubstrateV0<$crate::RefHasher>>();
+			}
+			#[test]
+			fn [<$test _substrate_v1>]() {
+				$test::<$crate::SubstrateV1<$crate::RefHasher>>();
+			}
 		}
 	};
 }
