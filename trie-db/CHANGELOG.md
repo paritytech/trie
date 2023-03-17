@@ -4,6 +4,9 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
+## [0.27.1] - 2023-03-17
+- Fix `TrieDBRawIterator::prefix_then_seek`
+
 ## [0.27.0] - 2023-03-14
 - Fix compact proof to skip including value node hashes [#187](https://github.com/paritytech/trie/pull/187)
 - Update dependencies. [#188](https://github.com/paritytech/trie/pull/188)
