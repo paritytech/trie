@@ -160,7 +160,9 @@ struct ContentEncodingInfos {
 */
 
 /// Simplified recorder.
-pub enum RecorderState<O: codec::Output> {
+pub struct RecorderState<O: codec::Output>(RecorderStateInner<O>);
+
+enum RecorderStateInner<O: codec::Output> {
 	/// For FullNodes proofs, just send node to this stream.
 	Stream(O),
 	/// For FullNodes proofs, just send node to this stream.
@@ -193,8 +195,10 @@ pub fn record_query_plan<'a, L: TrieLayout, O: codec::Output>(
 	content_iter: QueryPlanItemIter<'a>,
 	output: Option<O>,
 	restart: Option<HaltedStateRecord<O>>,
-) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
-	Ok(())
+	size_limit: Option<usize>,
+	node_limit: Option<usize>,
+) -> Result<Option<HaltedStateRecord<O>>, VerifyError<TrieHash<L>, CError<L>>> {
+	Ok(None)
 }
 
 /// Proof reading iterator.
