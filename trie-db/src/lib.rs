@@ -56,6 +56,7 @@ mod iterator;
 mod lookup;
 mod nibble;
 mod node_codec;
+mod query_plan;
 mod trie_codec;
 
 pub use self::{
