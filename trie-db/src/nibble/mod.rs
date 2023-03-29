@@ -101,6 +101,19 @@ pub mod nibble_ops {
 		upper_bound * NIBBLE_PER_BYTE
 	}
 
+	/// Count the biggest common depth between two left aligned packed nibble slice and return
+	/// ordering.
+	pub fn biggest_depth_and_order(v1: &[u8], v2: &[u8]) -> (usize, cmp::Ordering) {
+		let upper_bound = cmp::min(v1.len(), v2.len());
+		for a in 0..upper_bound {
+			if v1[a] != v2[a] {
+				let (common, order) = left_common_and_order(v1[a], v2[a]);
+				return (a * NIBBLE_PER_BYTE + common, order)
+			}
+		}
+		(upper_bound * NIBBLE_PER_BYTE, v1.len().cmp(&v2.len()))
+	}
+
 	/// Calculate the number of common nibble between two left aligned bytes.
 	#[inline(always)]
 	pub fn left_common(a: u8, b: u8) -> usize {
@@ -110,6 +123,19 @@ pub mod nibble_ops {
 			1
 		} else {
 			0
+		}
+	}
+
+	/// Calculate the number of common nibble between two left aligned bytes.
+	#[inline(always)]
+	pub fn left_common_and_order(a: u8, b: u8) -> (usize, cmp::Ordering) {
+		let byte_order = a.cmp(&b);
+		if byte_order == cmp::Ordering::Equal {
+			(2, byte_order)
+		} else if pad_left(a) == pad_left(b) {
+			(1, byte_order)
+		} else {
+			(0, byte_order)
 		}
 	}
 

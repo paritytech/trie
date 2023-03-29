@@ -24,8 +24,11 @@
 use core::marker::PhantomData;
 
 use crate::{
-	node::OwnedNode, proof::VerifyError, rstd::result::Result, CError, TrieError, TrieHash,
-	TrieLayout, TrieDB,
+	nibble::{nibble_ops, LeftNibbleSlice, NibbleSlice},
+	node::{NodeHandle, NodePlan, OwnedNode},
+	proof::VerifyError,
+	rstd::{cmp::*, result::Result},
+	CError, DBValue, NibbleVec, Trie, TrieDB, TrieError, TrieHash, TrieLayout,
 };
 
 /// Item to query, in memory.
@@ -45,6 +48,27 @@ impl InMemQueryPlanItem {
 pub struct QueryPlanItem<'a> {
 	key: &'a [u8],
 	as_prefix: bool,
+}
+
+impl<'a> QueryPlanItem<'a> {
+	fn before(&self, other: &Self) -> (bool, usize) {
+		let (common_depth, ordering) = nibble_ops::biggest_depth_and_order(&self.key, &other.key);
+
+		(
+			match ordering {
+				Ordering::Less => {
+					if self.as_prefix {
+						// do not allow querying content inside a prefix
+						!other.key.starts_with(self.key)
+					} else {
+						true
+					}
+				},
+				Ordering::Greater | Ordering::Equal => false,
+			},
+			common_depth,
+		)
+	}
 }
 
 /// Query plan in memory.
@@ -85,7 +109,7 @@ impl InMemQueryPlan {
 }
 
 /// Query plan.
-struct QueryPlan<'a, I>
+pub struct QueryPlan<'a, I>
 where
 	I: Iterator<Item = QueryPlanItem<'a>>,
 {
@@ -139,13 +163,19 @@ impl Bitmap {
 	}
 }
 
+// TODO rename
 struct CompactEncodingInfos {
 	/// Node in memory content.
-	node: OwnedNode<Vec<u8>>,
+	node: OwnedNode<DBValue>,
 	/// Flags indicating whether each child is omitted in the encoded node.
-	omit_children: Bitmap,
+	accessed_children: Bitmap,
 	/// Skip value if value node is after.
-	omit_value: bool,
+	accessed_value: bool,
+	/// Depth of node in nible.
+	depth: usize,
+	/// Last descended child, this is only really needed when iterating on
+	/// prefix.
+	last_descended_child: u8,
 }
 
 /* likely compact encoding is enough
@@ -162,6 +192,7 @@ struct ContentEncodingInfos {
 /// Simplified recorder.
 pub struct RecorderState<O: codec::Output>(RecorderStateInner<O>);
 
+// TODO may be useless
 enum RecorderStateInner<O: codec::Output> {
 	/// For FullNodes proofs, just send node to this stream.
 	Stream(O),
@@ -169,6 +200,10 @@ enum RecorderStateInner<O: codec::Output> {
 	Compact(O, Vec<CompactEncodingInfos>),
 	/// For FullNodes proofs, just send node to this stream.
 	Content(O, Vec<CompactEncodingInfos>),
+	/// Restore from next node prefix to descend into
+	/// (skipping all query plan before this definition).
+	/// (prefix is key and a boolean to indicate if padded).
+	Stateless(O, Vec<u8>, bool),
 }
 
 /// When process is halted keep execution state
@@ -190,14 +225,139 @@ pub struct HaltedStateCheck {
 ///
 /// TODO output and restart are mutually exclusive. -> enum
 /// or remove output from halted state.
-pub fn record_query_plan<'a, L: TrieLayout, O: codec::Output>(
+pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItem<'a>>, O: codec::Output>(
 	db: &TrieDB<L>,
-	content_iter: QueryPlanItemIter<'a>,
+	mut query_plan: QueryPlan<'a, I>,
 	output: Option<O>,
 	restart: Option<HaltedStateRecord<O>>,
-	size_limit: Option<usize>,
-	node_limit: Option<usize>,
 ) -> Result<Option<HaltedStateRecord<O>>, VerifyError<TrieHash<L>, CError<L>>> {
+	let dummy_parent_hash = TrieHash::<L>::default();
+	let mut prefix = NibbleVec::new();
+	let mut stack: Vec<CompactEncodingInfos> = Vec::new();
+
+	let prev_query: Option<QueryPlanItem> = None;
+	while let Some(query) = query_plan.items.next() {
+		let (ordered, common_nibbles) =
+			prev_query.as_ref().map(|p| p.before(&query)).unwrap_or((true, 0));
+		if !ordered {
+			if query_plan.ignore_unordered {
+				continue
+			} else {
+				return Err(VerifyError::UnorderedKey(query.key.to_vec())) // TODO not kind as param if keeping
+				                                          // CompactContent
+			}
+		}
+		loop {
+			match prefix.len().cmp(&common_nibbles) {
+				Ordering::Equal | Ordering::Less => break,
+				Ordering::Greater =>
+					if let Some(item) = stack.pop() {
+						let depth = stack.last().map(|i| i.depth).unwrap_or(0);
+						prefix.drop_lasts(prefix.len() - depth);
+					} else {
+						return Ok(None)
+					},
+			}
+		}
+
+		// descend
+		let mut slice_query = NibbleSlice::new_offset(&query.key, common_nibbles);
+		let mut touched = false;
+		let mut iter_prefix = false;
+		let mut child_index = 0;
+		loop {
+			let child_handle = if let Some(mut item) = stack.last_mut() {
+				if slice_query.is_empty() {
+					if query.as_prefix {
+						touched = true;
+						iter_prefix = true;
+					} else {
+						touched = true;
+					}
+					break
+				}
+				child_index = slice_query.at(0);
+
+				// TODO this could be reuse from iterator, but it seems simple
+				// enough here too.
+				let node_data = item.node.data();
+
+				match item.node.node_plan() {
+					NodePlan::Empty | NodePlan::Leaf { .. } => break,
+					NodePlan::Extension { child, .. } => child.build(node_data),
+					NodePlan::NibbledBranch { children, .. } |
+					NodePlan::Branch { children, .. } =>
+						if let Some(child) = &children[child_index as usize] {
+							slice_query.advance(1);
+							prefix.push(child_index);
+							item.accessed_children.set(child_index as usize, true);
+
+							child.build(node_data)
+						} else {
+							break
+						},
+				}
+			} else {
+				NodeHandle::Hash(db.root().as_ref())
+			};
+
+			// TODO handle cache first
+			let child_node = db
+				.get_raw_or_lookup(dummy_parent_hash, child_handle, prefix.as_prefix(), false)
+				.map_err(|_| VerifyError::IncompleteProof)?; // actually incomplete db: TODO consider switching error
+
+			// TODO put in proof (only if Hash or inline for content one)
+
+			// descend in node
+			let mut node_depth = 0;
+			let mut descend_incomplete = false;
+
+			// TODO
+			//
+			let node_data = child_node.0.data();
+
+			match child_node.0.node_plan() {
+				NodePlan::Branch { .. } => (),
+				| NodePlan::Empty => (),
+				NodePlan::Leaf { partial, .. } |
+				NodePlan::NibbledBranch { partial, .. } |
+				NodePlan::Extension { partial, .. } => {
+					let partial = partial.build(node_data);
+					node_depth = partial.len();
+					prefix.append_partial(partial.right());
+
+					if slice_query.starts_with(&partial) {
+						slice_query.advance(partial.len());
+					} else {
+						descend_incomplete = true;
+					}
+				},
+			}
+
+			stack.push(CompactEncodingInfos {
+				node: child_node.0,
+				accessed_children: Default::default(),
+				accessed_value: false,
+				depth: prefix.len() + node_depth,
+				last_descended_child: child_index,
+			});
+
+			if descend_incomplete {
+				if query.as_prefix {
+					iter_prefix = true;
+				}
+				break
+			}
+		}
+
+		if touched {
+			// try access value
+		}
+		if iter_prefix {
+			// run prefix iteration
+		}
+	}
+
 	Ok(None)
 }
 
@@ -214,6 +374,8 @@ pub enum ReadProofItem<'a> {
 	/// When we set the query plan, we only return content
 	/// matching the query plan.
 	Value(&'a [u8], Vec<u8>),
+	/// No value seen for a key in the input query plan.
+	NoValue(&'a [u8]),
 	/// Seen fully covered prefix in proof, this is only
 	/// return when we read the proof with the query input (otherwhise
 	/// we would need to indicate every child without a hash as a prefix).
