@@ -240,3 +240,56 @@ fn test_verify_decode_error_internal<T: TrieLayout>() {
 		result => panic!("expected VerifyError::DecodeError, got {:?}", result),
 	}
 }
+
+test_layouts!(test_query_plan, test_query_plan_internal);
+fn test_query_plan_internal<L: TrieLayout>() {
+	use trie_db::query_plan::{record_query_plan, InMemQueryPlan, InMemQueryPlanItem};
+	let set = test_entries();
+	let (db, root) = {
+		let mut db = <MemoryDB<L>>::default();
+		let mut root = Default::default();
+		{
+			let mut trie = <TrieDBMutBuilder<L>>::new(&mut db, &mut root).build();
+			for (key, value) in set.iter() {
+				trie.insert(key, value).unwrap();
+			}
+		}
+		(db, root)
+	};
+	// TODO add a cache
+	let db = <TrieDBBuilder<L>>::new(&db, &root).build();
+
+	let query_plans = [
+		InMemQueryPlan {
+			items: vec![
+				InMemQueryPlanItem::new(b"bravo".to_vec(), false),
+				InMemQueryPlanItem::new(b"doge".to_vec(), false),
+				InMemQueryPlanItem::new(b"horsey".to_vec(), false),
+			],
+			current: None,
+			ignore_unordered: false,
+		},
+		InMemQueryPlan {
+			items: vec![
+				InMemQueryPlanItem::new(b"bravo".to_vec(), false),
+				InMemQueryPlanItem::new(b"do".to_vec(), true),
+			],
+			current: None,
+			ignore_unordered: false,
+		},
+		InMemQueryPlan {
+			items: vec![InMemQueryPlanItem::new(b"".to_vec(), true)],
+			current: None,
+			ignore_unordered: false,
+		},
+	];
+	for query_plan in query_plans {
+		// no limit
+
+		let query_plan_iter = query_plan.as_ref();
+		let paused = record_query_plan::<L, _>(&db, query_plan_iter, None).unwrap();
+		assert!(paused.is_none());
+
+		// TODO limit 1, 2, 3
+	}
+}

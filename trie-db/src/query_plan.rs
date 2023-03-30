@@ -38,6 +38,10 @@ pub struct InMemQueryPlanItem {
 }
 
 impl InMemQueryPlanItem {
+	/// Create new item.
+	pub fn new(key: Vec<u8>, as_prefix: bool) -> Self {
+		Self { key, as_prefix }
+	}
 	/// Get ref.
 	pub fn as_ref(&self) -> QueryPlanItem {
 		QueryPlanItem { key: &self.key, as_prefix: self.as_prefix }
@@ -72,12 +76,10 @@ impl<'a> QueryPlanItem<'a> {
 }
 
 /// Query plan in memory.
-struct InMemQueryPlan {
-	items: Vec<InMemQueryPlanItem>,
-	current: Option<InMemQueryPlanItem>,
-	ensure_ordered: bool,
-	ignore_unordered: bool,
-	allow_under_prefix: bool,
+pub struct InMemQueryPlan {
+	pub items: Vec<InMemQueryPlanItem>,
+	pub current: Option<InMemQueryPlanItem>,
+	pub ignore_unordered: bool,
 }
 
 /// Iterator as type of mapped slice iter is very noisy.
@@ -97,13 +99,11 @@ impl<'a> Iterator for QueryPlanItemIter<'a> {
 
 impl InMemQueryPlan {
 	/// Get ref.
-	fn as_ref(&self) -> QueryPlan<QueryPlanItemIter> {
+	pub fn as_ref(&self) -> QueryPlan<QueryPlanItemIter> {
 		QueryPlan {
 			items: QueryPlanItemIter(&self.items, 0),
 			current: self.current.as_ref().map(|i| i.as_ref()),
-			ensure_ordered: self.ensure_ordered,
 			ignore_unordered: self.ignore_unordered,
-			allow_under_prefix: self.allow_under_prefix,
 		}
 	}
 }
@@ -115,9 +115,7 @@ where
 {
 	items: I,
 	current: Option<QueryPlanItem<'a>>,
-	ensure_ordered: bool,
 	ignore_unordered: bool,
-	allow_under_prefix: bool,
 }
 
 /// Different proof support.
@@ -236,13 +234,16 @@ pub fn record_query_plan<
 	'a,
 	L: TrieLayout,
 	I: Iterator<Item = QueryPlanItem<'a>>,
-	O: codec::Output,
+	//	O: codec::Output,
 >(
 	db: &TrieDB<L>,
 	mut query_plan: QueryPlan<'a, I>,
-	output: Option<O>,
-	restart: Option<HaltedStateRecord<O>>,
-) -> Result<Option<HaltedStateRecord<O>>, VerifyError<TrieHash<L>, CError<L>>> {
+	//	output: Option<O>,
+	restart: Option<()>,
+	//	restart: Option<HaltedStateRecord<O>>, // TODO restore
+	//) -> Result<Option<HaltedStateRecord<O>>, VerifyError<TrieHash<L>, CError<L>>> { // TODO
+	//) restore
+) -> Result<Option<()>, VerifyError<TrieHash<L>, CError<L>>> {
 	let dummy_parent_hash = TrieHash::<L>::default();
 	let mut stack = RecordStack::default();
 
@@ -367,6 +368,7 @@ impl RecordStack {
 		let prefix = &mut self.prefix;
 		let stack = &mut self.items;
 		let mut descend_incomplete = false;
+		let mut stack_extension = false;
 		let child_handle = if let Some(item) = stack.last_mut() {
 			// TODO this could be reuse from iterator, but it seems simple
 			// enough here too.
@@ -375,7 +377,10 @@ impl RecordStack {
 			match item.node.node_plan() {
 				NodePlan::Empty | NodePlan::Leaf { .. } =>
 					return Ok(TryStackChildResult::NotStacked),
-				NodePlan::Extension { child, .. } => child.build(node_data),
+				NodePlan::Extension { child, .. } => {
+					stack_extension = true;
+					child.build(node_data)
+				},
 				NodePlan::NibbledBranch { children, .. } | NodePlan::Branch { children, .. } =>
 					if let Some(child) = &children[child_index as usize] {
 						slice_query.as_mut().map(|s| s.advance(1));
@@ -396,7 +401,6 @@ impl RecordStack {
 
 		// TODO put in proof (only if Hash or inline for content one)
 
-		let mut node_depth = 0;
 		let node_data = child_node.0.data();
 
 		match child_node.0.node_plan() {
@@ -406,9 +410,8 @@ impl RecordStack {
 			NodePlan::NibbledBranch { partial, .. } |
 			NodePlan::Extension { partial, .. } => {
 				let partial = partial.build(node_data);
-				node_depth = partial.len();
 				prefix.append_partial(partial.right());
-				if let Some(s) = slice_query {
+				if let Some(s) = slice_query.as_mut() {
 					if s.starts_with(&partial) {
 						s.advance(partial.len());
 					} else {
@@ -417,14 +420,21 @@ impl RecordStack {
 				}
 			},
 		}
-
-		stack.push(CompactEncodingInfos {
-			node: child_node.0,
-			accessed_children: Default::default(),
-			accessed_value: false,
-			depth: prefix.len() + node_depth,
-			next_descended_child: child_index + 1,
-		});
+		if stack_extension {
+			// rec call to stack branch
+			let sbranch = self.try_stack_child(child_index, db, parent_hash, slice_query)?;
+			let TryStackChildResult::Stacked = sbranch else {
+				return Err(VerifyError::InvalidChildReference(b"branch in db should follow extension".to_vec()));
+			};
+		} else {
+			stack.push(CompactEncodingInfos {
+				node: child_node.0,
+				accessed_children: Default::default(),
+				accessed_value: false,
+				depth: prefix.len(),
+				next_descended_child: child_index + 1,
+			});
+		}
 
 		if descend_incomplete {
 			Ok(TryStackChildResult::StackedDescendIncomplete)
@@ -434,10 +444,10 @@ impl RecordStack {
 	}
 
 	fn access_value<'a, L: TrieLayout>(
-		&self,
+		&mut self,
 		db: &TrieDB<L>,
 	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
-		let Some(item)= self.items.last() else {
+		let Some(item)= self.items.last_mut() else {
 		return Ok(false)
 	};
 		// TODO this could be reuse from iterator, but it seems simple
@@ -456,6 +466,7 @@ impl RecordStack {
 			_ => return Ok(false),
 		};
 
+		item.accessed_value = true;
 		// TODO register access to key and value
 
 		Ok(true)
