@@ -221,6 +221,13 @@ pub struct HaltedStateCheck {
 	currently_query_item: Option<InMemQueryPlanItem>,
 }
 
+#[derive(Default)]
+struct RecordStack {
+	items: Vec<CompactEncodingInfos>,
+	prefix: NibbleVec,
+	iter_prefix: Option<usize>,
+}
+
 /// Run query plan on a full db and record it.
 ///
 /// TODO output and restart are mutually exclusive. -> enum
@@ -237,9 +244,7 @@ pub fn record_query_plan<
 	restart: Option<HaltedStateRecord<O>>,
 ) -> Result<Option<HaltedStateRecord<O>>, VerifyError<TrieHash<L>, CError<L>>> {
 	let dummy_parent_hash = TrieHash::<L>::default();
-	// TODO stack and prefix in a single struct
-	let mut prefix = NibbleVec::new();
-	let mut stack: Vec<CompactEncodingInfos> = Vec::new();
+	let mut stack = RecordStack::default();
 
 	let prev_query: Option<QueryPlanItem> = None;
 	while let Some(query) = query_plan.items.next() {
@@ -254,13 +259,10 @@ pub fn record_query_plan<
 			}
 		}
 		loop {
-			match prefix.len().cmp(&common_nibbles) {
+			match stack.prefix.len().cmp(&common_nibbles) {
 				Ordering::Equal | Ordering::Less => break,
 				Ordering::Greater =>
-					if let Some(_item) = stack.pop() {
-						let depth = stack.last().map(|i| i.depth).unwrap_or(0);
-						prefix.drop_lasts(prefix.len() - depth);
-					} else {
+					if !stack.pop() {
 						return Ok(None)
 					},
 			}
@@ -269,24 +271,18 @@ pub fn record_query_plan<
 		// descend
 		let mut slice_query = NibbleSlice::new_offset(&query.key, common_nibbles);
 		let mut touched = false;
-		let mut iter_prefix = None;
 		loop {
-			if let Some(_item) = stack.last_mut() {
-				if slice_query.is_empty() {
-					if query.as_prefix {
-						iter_prefix = Some(stack.len());
-					} else {
-						touched = true;
-					}
-					break
+			if slice_query.is_empty() {
+				if query.as_prefix {
+					stack.enter_prefix_iter();
+				} else {
+					touched = true;
 				}
-			} else {
 				break
 			}
+
 			let child_index = slice_query.at(0);
-			match try_stack_child(
-				&mut prefix,
-				&mut stack,
+			match stack.try_stack_child(
 				child_index,
 				db,
 				dummy_parent_hash,
@@ -296,7 +292,7 @@ pub fn record_query_plan<
 				TryStackChildResult::NotStackedBranch | TryStackChildResult::NotStacked => break,
 				TryStackChildResult::StackedDescendIncomplete => {
 					if query.as_prefix {
-						iter_prefix = Some(stack.len());
+						stack.enter_prefix_iter();
 					}
 					break
 				},
@@ -305,24 +301,21 @@ pub fn record_query_plan<
 
 		if touched {
 			// try access value
+			stack.access_value(db)?;
 		}
-		if let Some(prefix_stack_depth) = iter_prefix.take() {
+		if let Some(prefix_stack_depth) = stack.iter_prefix.clone() {
 			// run prefix iteration
-
 			loop {
-				// Try access value
-				// TODO
-
 				// descend
 				let mut stacked = true;
 				loop {
 					if stacked {
 						// try access value in next node
-						access_value(&prefix, &stack, db)?;
+						stack.access_value(db)?;
 						stacked = false;
 					}
 
-					let child_index = if let Some(mut item) = stack.last_mut() {
+					let child_index = if let Some(mut item) = stack.items.last_mut() {
 						if item.next_descended_child as usize >= crate::nibble_ops::NIBBLE_LENGTH {
 							continue
 						}
@@ -331,14 +324,7 @@ pub fn record_query_plan<
 					} else {
 						break
 					};
-					match try_stack_child(
-						&mut prefix,
-						&mut stack,
-						child_index,
-						db,
-						dummy_parent_hash,
-						None,
-					)? {
+					match stack.try_stack_child(child_index, db, dummy_parent_hash, None)? {
 						TryStackChildResult::Stacked => {
 							stacked = true;
 						},
@@ -352,17 +338,11 @@ pub fn record_query_plan<
 
 				// pop
 
-				// TODO a pop function
-				if stack.len() == prefix_stack_depth {
+				if !stack.pop() {
 					break
 				}
-				if let Some(_item) = stack.pop() {
-					let depth = stack.last().map(|i| i.depth).unwrap_or(0);
-					prefix.drop_lasts(prefix.len() - depth);
-				} else {
-					unreachable!()
-				}
 			}
+			stack.exit_prefix_iter();
 		}
 	}
 
@@ -376,107 +356,131 @@ enum TryStackChildResult {
 	StackedDescendIncomplete,
 }
 
-fn try_stack_child<'a, L: TrieLayout>(
-	prefix: &mut NibbleVec,
-	stack: &mut Vec<CompactEncodingInfos>,
-	child_index: u8,
-	db: &TrieDB<L>,
-	parent_hash: TrieHash<L>,
-	mut slice_query: Option<&mut NibbleSlice>,
-) -> Result<TryStackChildResult, VerifyError<TrieHash<L>, CError<L>>> {
-	let mut descend_incomplete = false;
-	let child_handle = if let Some(item) = stack.last_mut() {
+impl RecordStack {
+	fn try_stack_child<'a, L: TrieLayout>(
+		&mut self,
+		child_index: u8,
+		db: &TrieDB<L>,
+		parent_hash: TrieHash<L>,
+		mut slice_query: Option<&mut NibbleSlice>,
+	) -> Result<TryStackChildResult, VerifyError<TrieHash<L>, CError<L>>> {
+		let prefix = &mut self.prefix;
+		let stack = &mut self.items;
+		let mut descend_incomplete = false;
+		let child_handle = if let Some(item) = stack.last_mut() {
+			// TODO this could be reuse from iterator, but it seems simple
+			// enough here too.
+			let node_data = item.node.data();
+
+			match item.node.node_plan() {
+				NodePlan::Empty | NodePlan::Leaf { .. } =>
+					return Ok(TryStackChildResult::NotStacked),
+				NodePlan::Extension { child, .. } => child.build(node_data),
+				NodePlan::NibbledBranch { children, .. } | NodePlan::Branch { children, .. } =>
+					if let Some(child) = &children[child_index as usize] {
+						slice_query.as_mut().map(|s| s.advance(1));
+						prefix.push(child_index);
+						item.accessed_children.set(child_index as usize, true);
+						child.build(node_data)
+					} else {
+						return Ok(TryStackChildResult::NotStackedBranch)
+					},
+			}
+		} else {
+			NodeHandle::Hash(db.root().as_ref())
+		};
+		// TODO handle cache first
+		let child_node = db
+			.get_raw_or_lookup(parent_hash, child_handle, prefix.as_prefix(), false)
+			.map_err(|_| VerifyError::IncompleteProof)?; // actually incomplete db: TODO consider switching error
+
+		// TODO put in proof (only if Hash or inline for content one)
+
+		let mut node_depth = 0;
+		let node_data = child_node.0.data();
+
+		match child_node.0.node_plan() {
+			NodePlan::Branch { .. } => (),
+			| NodePlan::Empty => (),
+			NodePlan::Leaf { partial, .. } |
+			NodePlan::NibbledBranch { partial, .. } |
+			NodePlan::Extension { partial, .. } => {
+				let partial = partial.build(node_data);
+				node_depth = partial.len();
+				prefix.append_partial(partial.right());
+				if let Some(s) = slice_query {
+					if s.starts_with(&partial) {
+						s.advance(partial.len());
+					} else {
+						descend_incomplete = true;
+					}
+				}
+			},
+		}
+
+		stack.push(CompactEncodingInfos {
+			node: child_node.0,
+			accessed_children: Default::default(),
+			accessed_value: false,
+			depth: prefix.len() + node_depth,
+			next_descended_child: child_index + 1,
+		});
+
+		if descend_incomplete {
+			Ok(TryStackChildResult::StackedDescendIncomplete)
+		} else {
+			Ok(TryStackChildResult::Stacked)
+		}
+	}
+
+	fn access_value<'a, L: TrieLayout>(
+		&self,
+		db: &TrieDB<L>,
+	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
+		let Some(item)= self.items.last() else {
+		return Ok(false)
+	};
 		// TODO this could be reuse from iterator, but it seems simple
 		// enough here too.
 		let node_data = item.node.data();
 
-		match item.node.node_plan() {
-			NodePlan::Empty | NodePlan::Leaf { .. } => return Ok(TryStackChildResult::NotStacked),
-			NodePlan::Extension { child, .. } => child.build(node_data),
-			NodePlan::NibbledBranch { children, .. } | NodePlan::Branch { children, .. } =>
-				if let Some(child) = &children[child_index as usize] {
-					slice_query.as_mut().map(|s| s.advance(1));
-					prefix.push(child_index);
-					item.accessed_children.set(child_index as usize, true);
-					child.build(node_data)
+		let value = match item.node.node_plan() {
+			NodePlan::Leaf { value, .. } => value.build(node_data),
+			NodePlan::Branch { value, .. } | NodePlan::NibbledBranch { value, .. } => {
+				if let Some(value) = value {
+					value.build(node_data)
 				} else {
-					return Ok(TryStackChildResult::NotStackedBranch)
-				},
-		}
-	} else {
-		NodeHandle::Hash(db.root().as_ref())
-	};
-	// TODO handle cache first
-	let child_node = db
-		.get_raw_or_lookup(parent_hash, child_handle, prefix.as_prefix(), false)
-		.map_err(|_| VerifyError::IncompleteProof)?; // actually incomplete db: TODO consider switching error
-
-	// TODO put in proof (only if Hash or inline for content one)
-
-	let mut node_depth = 0;
-	let node_data = child_node.0.data();
-
-	match child_node.0.node_plan() {
-		NodePlan::Branch { .. } => (),
-		| NodePlan::Empty => (),
-		NodePlan::Leaf { partial, .. } |
-		NodePlan::NibbledBranch { partial, .. } |
-		NodePlan::Extension { partial, .. } => {
-			let partial = partial.build(node_data);
-			node_depth = partial.len();
-			prefix.append_partial(partial.right());
-			if let Some(s) = slice_query {
-				if s.starts_with(&partial) {
-					s.advance(partial.len());
-				} else {
-					descend_incomplete = true;
+					return Ok(false)
 				}
-			}
-		},
+			},
+			_ => return Ok(false),
+		};
+
+		// TODO register access to key and value
+
+		Ok(true)
 	}
 
-	stack.push(CompactEncodingInfos {
-		node: child_node.0,
-		accessed_children: Default::default(),
-		accessed_value: false,
-		depth: prefix.len() + node_depth,
-		next_descended_child: child_index + 1,
-	});
-
-	if descend_incomplete {
-		Ok(TryStackChildResult::StackedDescendIncomplete)
-	} else {
-		Ok(TryStackChildResult::Stacked)
+	fn pop(&mut self) -> bool {
+		if self.iter_prefix == Some(self.items.len()) {
+			return false
+		}
+		if let Some(_item) = self.items.pop() {
+			let depth = self.items.last().map(|i| i.depth).unwrap_or(0);
+			self.prefix.drop_lasts(self.prefix.len() - depth);
+			true
+		} else {
+			false
+		}
 	}
-}
 
-fn access_value<'a, L: TrieLayout>(
-	prefix: &NibbleVec,
-	stack: &Vec<CompactEncodingInfos>,
-	db: &TrieDB<L>,
-) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
-	let Some(item)= stack.last() else {
-		return Ok(false)
-	};
-	// TODO this could be reuse from iterator, but it seems simple
-	// enough here too.
-	let node_data = item.node.data();
+	fn enter_prefix_iter(&mut self) {
+		self.iter_prefix = Some(self.items.len());
+	}
 
-	let value = match item.node.node_plan() {
-		NodePlan::Leaf { value, .. } => value.build(node_data),
-		NodePlan::Branch { value, .. } | NodePlan::NibbledBranch { value, .. } => {
-			if let Some(value) = value {
-				value.build(node_data)
-			} else {
-				return Ok(false)
-			}
-		},
-		_ => return Ok(false),
-	};
-
-	// TODO register access to key and value
-
-	Ok(true)
+	fn exit_prefix_iter(&mut self) {
+		self.iter_prefix = None
+	}
 }
 
 /// Proof reading iterator.
