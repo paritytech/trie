@@ -49,6 +49,8 @@ pub enum Error<HO, CE> {
 	IncompleteProof,
 	/// The root hash computed from the proof is incorrect.
 	RootMismatch(HO),
+	/// The hash computed from a node is incorrect.
+	HashMismatch(HO),
 	/// One of the proof nodes could not be decoded.
 	DecodeError(CE),
 }
@@ -75,6 +77,7 @@ impl<HO: std::fmt::Debug, CE: std::error::Error> std::fmt::Display for Error<HO,
 				write!(f, "Expected value was not found in the trie: key={:?}", key),
 			Error::IncompleteProof => write!(f, "Proof is incomplete -- expected more nodes"),
 			Error::RootMismatch(hash) => write!(f, "Computed incorrect root {:?} from proof", hash),
+			Error::HashMismatch(hash) => write!(f, "Computed incorrect hash {:?} from node", hash),
 			Error::DecodeError(err) => write!(f, "Unable to decode proof node: {}", err),
 		}
 	}

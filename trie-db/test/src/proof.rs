@@ -17,6 +17,7 @@ use reference_trie::{test_layouts, NoExtensionLayout};
 
 use trie_db::{
 	proof::{generate_proof, verify_proof, VerifyError},
+	query_plan::HaltedStateRecord,
 	DBValue, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieLayout, TrieMut,
 };
 
@@ -243,7 +244,10 @@ fn test_verify_decode_error_internal<T: TrieLayout>() {
 
 test_layouts!(test_query_plan, test_query_plan_internal);
 fn test_query_plan_internal<L: TrieLayout>() {
-	use trie_db::query_plan::{record_query_plan, InMemQueryPlan, InMemQueryPlanItem};
+	use trie_db::query_plan::{
+		record_query_plan, verify_query_plan_iter, InMemQueryPlan, InMemQueryPlanItem,
+		InMemoryRecorder, ProofKind, ReadProofItem, Recorder,
+	};
 	let set = test_entries();
 	let (db, root) = {
 		let mut db = <MemoryDB<L>>::default();
@@ -266,7 +270,6 @@ fn test_query_plan_internal<L: TrieLayout>() {
 				InMemQueryPlanItem::new(b"doge".to_vec(), false),
 				InMemQueryPlanItem::new(b"horsey".to_vec(), false),
 			],
-			current: None,
 			ignore_unordered: false,
 		},
 		InMemQueryPlan {
@@ -274,22 +277,56 @@ fn test_query_plan_internal<L: TrieLayout>() {
 				InMemQueryPlanItem::new(b"bravo".to_vec(), false),
 				InMemQueryPlanItem::new(b"do".to_vec(), true),
 			],
-			current: None,
 			ignore_unordered: false,
 		},
 		InMemQueryPlan {
 			items: vec![InMemQueryPlanItem::new(b"".to_vec(), true)],
-			current: None,
 			ignore_unordered: false,
 		},
 	];
 	for query_plan in query_plans {
+		let kind = ProofKind::FullNodes;
+		let recorder = Recorder::new(kind, InMemoryRecorder::default());
+		let from = HaltedStateRecord::from_start(recorder);
 		// no limit
 
 		let query_plan_iter = query_plan.as_ref();
-		let paused = record_query_plan::<L, _>(&db, query_plan_iter, None).unwrap();
-		assert!(paused.is_none());
+		let from = record_query_plan::<L, _, _>(&db, query_plan_iter, from).unwrap();
+		assert!(from.is_finished());
+		let proof = from.finish().output().nodes;
 
-		// TODO limit 1, 2, 3
+		let query_plan_iter = query_plan.as_ref();
+		let verify_iter = verify_query_plan_iter::<L, _, _, _>(
+			query_plan_iter,
+			proof.into_iter(),
+			None,
+			kind,
+			Some(root.clone()),
+		)
+		.unwrap();
+		let mut in_prefix = false;
+		for item in verify_iter {
+			match item.unwrap() {
+				ReadProofItem::Value(_key, _value) => {
+					// TODO remove from hashmap if not in prefix??
+				},
+				ReadProofItem::NoValue(_key) => {
+					// TODO remove from hashmap??
+				},
+				ReadProofItem::StartPrefix(_prefix) => {
+					// TODO remove from hashmap??
+					in_prefix = true;
+				},
+				ReadProofItem::EndPrefix => {
+					assert!(in_prefix);
+					in_prefix = false;
+				},
+				ReadProofItem::Halted(_) => {
+					unreachable!("full proof");
+				},
+			}
+		}
+
+		// TODO limit 1, 2, 3 and restarts
 	}
 }

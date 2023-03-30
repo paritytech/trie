@@ -25,13 +25,19 @@ use core::marker::PhantomData;
 
 use crate::{
 	nibble::{nibble_ops, LeftNibbleSlice, NibbleSlice},
-	node::{NodeHandle, NodePlan, OwnedNode},
+	node::{NodeHandle, NodePlan, OwnedNode, Value},
 	proof::VerifyError,
-	rstd::{borrow::Cow, cmp::*, result::Result},
+	rstd::{
+		borrow::{Borrow, Cow},
+		cmp::*,
+		result::Result,
+	},
 	CError, DBValue, NibbleVec, Trie, TrieDB, TrieError, TrieHash, TrieLayout,
 };
+use hash_db::Hasher;
 
 /// Item to query, in memory.
+#[derive(Default)]
 pub struct InMemQueryPlanItem {
 	key: Vec<u8>,
 	as_prefix: bool,
@@ -78,7 +84,6 @@ impl<'a> QueryPlanItem<'a> {
 /// Query plan in memory.
 pub struct InMemQueryPlan {
 	pub items: Vec<InMemQueryPlanItem>,
-	pub current: Option<InMemQueryPlanItem>,
 	pub ignore_unordered: bool,
 }
 
@@ -102,7 +107,6 @@ impl InMemQueryPlan {
 	pub fn as_ref(&self) -> QueryPlan<QueryPlanItemIter> {
 		QueryPlan {
 			items: QueryPlanItemIter(&self.items, 0),
-			current: self.current.as_ref().map(|i| i.as_ref()),
 			ignore_unordered: self.ignore_unordered,
 		}
 	}
@@ -114,7 +118,6 @@ where
 	I: Iterator<Item = QueryPlanItem<'a>>,
 {
 	items: I,
-	current: Option<QueryPlanItem<'a>>,
 	ignore_unordered: bool,
 }
 
@@ -181,6 +184,8 @@ struct CompactEncodingInfos {
 	/// Next descended child, this is only really needed when iterating on
 	/// prefix.
 	next_descended_child: u8,
+	/// Is the node inline.
+	is_inline: bool,
 }
 
 /* likely compact encoding is enough
@@ -208,6 +213,7 @@ pub trait RecorderOutput {
 /// be used.
 /// Sequence is guaranteed by pushing buffer in nodes
 /// every time a node is written.
+#[derive(Default)]
 pub struct InMemoryRecorder {
 	pub nodes: Vec<DBValue>,
 	pub buffer: Vec<u8>,
@@ -230,16 +236,93 @@ impl RecorderOutput for InMemoryRecorder {
 pub struct Recorder<O: RecorderOutput>(RecorderStateInner<O>);
 
 impl<O: RecorderOutput> Recorder<O> {
+	/// Get back output handle from a recorder.
+	pub fn output(self) -> O {
+		match self.0 {
+			RecorderStateInner::Stream(output) |
+			RecorderStateInner::Compact { output, .. } |
+			RecorderStateInner::CompactStream(output) |
+			RecorderStateInner::Content(output) => output,
+		}
+	}
+
 	/// Instantiate a new recorder.
 	pub fn new(proof_kind: ProofKind, output: O) -> Self {
 		let recorder = match proof_kind {
 			ProofKind::FullNodes => RecorderStateInner::Stream(output),
 			ProofKind::CompactNodes =>
 				RecorderStateInner::Compact { output, proof: Vec::new(), stacked_pos: Vec::new() },
-			ProofKind::CompactNodesStream => RecorderStateInner::CompactStream(output, Vec::new()),
+			ProofKind::CompactNodesStream => RecorderStateInner::CompactStream(output),
 			ProofKind::CompactContent => RecorderStateInner::Content(output),
 		};
 		Self(recorder)
+	}
+
+	fn record_stacked_node(&mut self, item: &CompactEncodingInfos, stack_pos: usize) {
+		match &mut self.0 {
+			RecorderStateInner::Stream(output) => {
+				output.write_entry(item.node.data().into());
+			},
+			RecorderStateInner::Compact { output, proof, stacked_pos } => {
+				unimplemented!()
+			},
+			RecorderStateInner::CompactStream(output) => {
+				unimplemented!()
+			},
+			RecorderStateInner::Content(output) => {
+				unimplemented!()
+			},
+		}
+	}
+
+	fn record_popped_node(&mut self, item: &CompactEncodingInfos, stack_pos: usize) {
+		match &mut self.0 {
+			RecorderStateInner::Stream(_) => (),
+			RecorderStateInner::Compact { output, proof, stacked_pos } => {
+				unimplemented!()
+			},
+			RecorderStateInner::CompactStream(output) => {
+				unimplemented!()
+			},
+			RecorderStateInner::Content(output) => {
+				unimplemented!()
+			},
+		}
+	}
+
+	fn record_value_node(&mut self, value: Vec<u8>) {
+		match &mut self.0 {
+			RecorderStateInner::Stream(output) => {
+				output.write_entry(value.into());
+			},
+			RecorderStateInner::Compact { output, proof, stacked_pos } => {
+				unimplemented!()
+			},
+			RecorderStateInner::CompactStream(output) => {
+				unimplemented!()
+			},
+			RecorderStateInner::Content(output) => {
+				unimplemented!()
+			},
+		}
+	}
+
+	fn record_value_inline(&mut self, value: &[u8]) {
+		match &mut self.0 {
+			RecorderStateInner::Stream(output) => {
+				// not writing inline value (already
+				// in parent node).
+			},
+			RecorderStateInner::Compact { output, proof, stacked_pos } => {
+				unimplemented!()
+			},
+			RecorderStateInner::CompactStream(output) => {
+				unimplemented!()
+			},
+			RecorderStateInner::Content(output) => {
+				unimplemented!()
+			},
+		}
 	}
 }
 
@@ -256,7 +339,7 @@ enum RecorderStateInner<O: RecorderOutput> {
 		stacked_pos: Vec<usize>,
 	},
 	/// For FullNodes proofs, just send node to this stream.
-	CompactStream(O, Vec<CompactEncodingInfos>),
+	CompactStream(O),
 	/// For FullNodes proofs, just send node to this stream.
 	Content(O),
 }
@@ -264,10 +347,34 @@ enum RecorderStateInner<O: RecorderOutput> {
 /// When process is halted keep execution state
 /// to restore later.
 pub struct HaltedStateRecord<O: RecorderOutput> {
-	recorder: Recorder<O>,
 	currently_query_item: Option<InMemQueryPlanItem>,
-	stack: Option<RecordStack>,
-	restart: Option<(Vec<u8>, bool)>,
+	stack: RecordStack<O>,
+	// This indicate a restore point, it takes precedence over
+	// stack and currently_query_item.
+	from: Option<(Vec<u8>, bool)>,
+}
+
+impl<O: RecorderOutput> HaltedStateRecord<O> {
+	pub fn from_start(recorder: Recorder<O>) -> Self {
+		HaltedStateRecord {
+			currently_query_item: None,
+			stack: RecordStack {
+				recorder,
+				items: Vec::new(),
+				prefix: NibbleVec::new(),
+				iter_prefix: None,
+			},
+			from: Some(Default::default()),
+		}
+	}
+
+	pub fn is_finished(&self) -> bool {
+		self.from == None
+	}
+
+	pub fn finish(self) -> Recorder<O> {
+		self.stack.recorder
+	}
 }
 
 /// When process is halted keep execution state
@@ -278,8 +385,8 @@ pub struct HaltedStateCheck {
 	currently_query_item: Option<InMemQueryPlanItem>,
 }
 
-#[derive(Default)]
-struct RecordStack {
+struct RecordStack<O: RecorderOutput> {
+	recorder: Recorder<O>,
 	items: Vec<CompactEncodingInfos>,
 	prefix: NibbleVec,
 	iter_prefix: Option<usize>,
@@ -293,21 +400,27 @@ pub fn record_query_plan<
 	'a,
 	L: TrieLayout,
 	I: Iterator<Item = QueryPlanItem<'a>>,
-	//	O: codec::Output,
+	O: RecorderOutput,
 >(
 	db: &TrieDB<L>,
 	mut query_plan: QueryPlan<'a, I>,
-	//	output: Option<O>,
-	restart: Option<()>,
-	//	restart: Option<HaltedStateRecord<O>>, // TODO restore
-	//) -> Result<Option<HaltedStateRecord<O>>, VerifyError<TrieHash<L>, CError<L>>> { // TODO
-	//) restore
-) -> Result<Option<()>, VerifyError<TrieHash<L>, CError<L>>> {
+	mut from: HaltedStateRecord<O>,
+) -> Result<HaltedStateRecord<O>, VerifyError<TrieHash<L>, CError<L>>> {
+	// TODO
+	//) resto
 	let dummy_parent_hash = TrieHash::<L>::default();
-	let mut stack = RecordStack::default();
+	if let Some(lower_bound) = from.from.take() {
+		// TODO implement stack building from lower bound: fetch in stack and don't record.
+		// First also advance iterator to skip and init currently_query_item.
+	}
+
+	let stack = &mut from.stack;
 
 	let prev_query: Option<QueryPlanItem> = None;
-	while let Some(query) = query_plan.items.next() {
+	let mut from_query = from.currently_query_item.take();
+	while let Some(query) =
+		from_query.as_ref().map(|f| f.as_ref()).or_else(|| query_plan.items.next())
+	{
 		let (ordered, common_nibbles) =
 			prev_query.as_ref().map(|p| p.before(&query)).unwrap_or((true, 0));
 		if !ordered {
@@ -323,7 +436,7 @@ pub fn record_query_plan<
 				Ordering::Equal | Ordering::Less => break,
 				Ordering::Greater =>
 					if !stack.pop() {
-						return Ok(None)
+						return Ok(from)
 					},
 			}
 		}
@@ -358,6 +471,8 @@ pub fn record_query_plan<
 				},
 			}
 		}
+
+		from_query = None;
 
 		if touched {
 			// try access value
@@ -406,7 +521,7 @@ pub fn record_query_plan<
 		}
 	}
 
-	Ok(None)
+	Ok(from)
 }
 
 enum TryStackChildResult {
@@ -416,7 +531,7 @@ enum TryStackChildResult {
 	StackedDescendIncomplete,
 }
 
-impl RecordStack {
+impl<O: RecorderOutput> RecordStack<O> {
 	fn try_stack_child<'a, L: TrieLayout>(
 		&mut self,
 		child_index: u8,
@@ -424,13 +539,12 @@ impl RecordStack {
 		parent_hash: TrieHash<L>,
 		mut slice_query: Option<&mut NibbleSlice>,
 	) -> Result<TryStackChildResult, VerifyError<TrieHash<L>, CError<L>>> {
+		let mut is_inline = false;
 		let prefix = &mut self.prefix;
 		let stack = &mut self.items;
 		let mut descend_incomplete = false;
 		let mut stack_extension = false;
 		let child_handle = if let Some(item) = stack.last_mut() {
-			// TODO this could be reuse from iterator, but it seems simple
-			// enough here too.
 			let node_data = item.node.data();
 
 			match item.node.node_plan() {
@@ -453,6 +567,11 @@ impl RecordStack {
 		} else {
 			NodeHandle::Hash(db.root().as_ref())
 		};
+		if let &NodeHandle::Inline(_) = &child_handle {
+			// TODO consider not going into inline for all proof but content.
+			// Returning NotStacked here sounds safe, then the is_inline field is not needed.
+			is_inline = true;
+		}
 		// TODO handle cache first
 		let child_node = db
 			.get_raw_or_lookup(parent_hash, child_handle, prefix.as_prefix(), false)
@@ -486,13 +605,16 @@ impl RecordStack {
 				return Err(VerifyError::InvalidChildReference(b"branch in db should follow extension".to_vec()));
 			};
 		} else {
-			stack.push(CompactEncodingInfos {
+			let infos = CompactEncodingInfos {
 				node: child_node.0,
 				accessed_children: Default::default(),
 				accessed_value: false,
 				depth: prefix.len(),
 				next_descended_child: child_index + 1,
-			});
+				is_inline,
+			};
+			self.recorder.record_stacked_node(&infos, stack.len());
+			stack.push(infos);
 		}
 
 		if descend_incomplete {
@@ -524,10 +646,20 @@ impl RecordStack {
 			},
 			_ => return Ok(false),
 		};
-
 		item.accessed_value = true;
-		// TODO register access to key and value
-
+		match value {
+			Value::Node(hash_slice) => {
+				let mut hash = TrieHash::<L>::default();
+				hash.as_mut().copy_from_slice(hash_slice);
+				let Some(value) = db.db().get(&hash, self.prefix.as_prefix()) else {
+					return Err(VerifyError::IncompleteProof);
+				};
+				self.recorder.record_value_node(value);
+			},
+			Value::Inline(value) => {
+				self.recorder.record_value_inline(value);
+			},
+		}
 		Ok(true)
 	}
 
@@ -535,7 +667,8 @@ impl RecordStack {
 		if self.iter_prefix == Some(self.items.len()) {
 			return false
 		}
-		if let Some(_item) = self.items.pop() {
+		if let Some(item) = self.items.pop() {
+			self.recorder.record_popped_node(&item, self.items.len());
 			let depth = self.items.last().map(|i| i.depth).unwrap_or(0);
 			self.prefix.drop_lasts(self.prefix.len() - depth);
 			true
@@ -554,8 +687,57 @@ impl RecordStack {
 }
 
 /// Proof reading iterator.
-pub struct ReadProofIterator<'a, L: TrieLayout> {
+pub struct ReadProofIterator<'a, L, C, D, P>
+where
+	L: TrieLayout,
+	C: Iterator<Item = QueryPlanItem<'a>>,
+	P: Iterator<Item = D>,
+	D: Borrow<[u8]>,
+{
+	query_plan: QueryPlan<'a, C>,
+	proof: P,
+	is_compact: bool,
+	expected_root: Option<TrieHash<L>>,
+	next_content: Option<QueryPlanItem<'a>>,
+	rem_next_content: bool,
+	stack: Vec<ItemStack<D>>,
+	prefix: NibbleVec,
+
 	_ph: PhantomData<&'a L>,
+}
+
+enum ItemStack<D: Borrow<[u8]>> {
+	Inline(OwnedNode<Vec<u8>>, usize),
+	Node(OwnedNode<D>, usize),
+}
+
+impl<D: Borrow<[u8]>> ItemStack<D> {
+	fn depth(&self) -> usize {
+		match self {
+			ItemStack::Inline(_, d) => *d,
+			ItemStack::Node(_, d) => *d,
+		}
+	}
+	fn set_depth(&mut self, d: usize) {
+		*match self {
+			ItemStack::Inline(_, d) => d,
+			ItemStack::Node(_, d) => d,
+		} = d;
+	}
+
+	fn data(&self) -> &[u8] {
+		match self {
+			ItemStack::Inline(n, _) => n.data(),
+			ItemStack::Node(n, _) => n.data(),
+		}
+	}
+
+	fn node_plan(&self) -> &NodePlan {
+		match self {
+			ItemStack::Inline(n, _) => n.node_plan(),
+			ItemStack::Node(n, _) => n.node_plan(),
+		}
+	}
 }
 
 /// Content return on success when reading proof.
@@ -565,36 +747,296 @@ pub enum ReadProofItem<'a> {
 	/// Seen value and key in proof.
 	/// When we set the query plan, we only return content
 	/// matching the query plan.
+	/// TODO try ref for value??
 	Value(&'a [u8], Vec<u8>),
 	/// No value seen for a key in the input query plan.
 	NoValue(&'a [u8]),
 	/// Seen fully covered prefix in proof, this is only
 	/// return when we read the proof with the query input (otherwhise
 	/// we would need to indicate every child without a hash as a prefix).
-	CoveredPrefix(&'a [u8]),
+	StartPrefix(&'a [u8]),
+	/// End of a previously start prefix.
+	EndPrefix,
 }
 
-impl<'a, L: TrieLayout> Iterator for ReadProofIterator<'a, L> {
+impl<'a, L, C, D, P> Iterator for ReadProofIterator<'a, L, C, D, P>
+where
+	L: TrieLayout,
+	C: Iterator<Item = QueryPlanItem<'a>>,
+	P: Iterator<Item = D>,
+	D: Borrow<[u8]>,
+{
 	type Item = Result<ReadProofItem<'a>, VerifyError<TrieHash<L>, CError<L>>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
+		let mut exit = false;
+		// read proof
+		loop {
+			if self.rem_next_content || self.next_content.is_none() {
+				if let Some(next) = self.query_plan.items.next() {
+					let (ordered, common_nibbles) = if let Some(old) = self.next_content.as_ref() {
+						old.before(&next)
+					} else {
+						(true, 0)
+					};
+					if !ordered {
+						if self.query_plan.ignore_unordered {
+							continue
+						} else {
+							return Some(Err(VerifyError::UnorderedKey(next.key.to_vec()))) // TODO not kind as param if keeping
+							                                   // CompactContent
+						}
+					}
+
+					while let Some(last) = self.stack.last() {
+						if last.depth() == common_nibbles {
+							self.prefix.drop_lasts(self.prefix.len() - last.depth());
+							break
+						}
+						if last.depth() < common_nibbles {
+							// depth should match.
+							return Some(Err(VerifyError::ExtraneousNode))
+						}
+					}
+					// TODO pop until common
+
+					self.rem_next_content = false;
+					self.next_content = Some(next);
+				} else {
+					self.rem_next_content = false;
+					self.next_content = None;
+					exit = true;
+					break
+				}
+			};
+			let to_check = self.next_content.as_ref().expect("Init above");
+			let mut at_value = false;
+			let mut to_check_slice = NibbleSlice::new(to_check.key);
+			match self.prefix.len().cmp(&to_check_slice.len()) {
+				Ordering::Equal => {
+					at_value = true;
+				},
+				Ordering::Greater => (),
+				Ordering::Less => {
+					unreachable!();
+				},
+			}
+
+			if at_value {
+				self.rem_next_content = true;
+				if let Some(node) = self.stack.last() {
+					let node_data = node.data();
+
+					let value = match node.node_plan() {
+						NodePlan::Leaf { value, .. } => Some(value.build(node_data)),
+						NodePlan::Branch { value, .. } | NodePlan::NibbledBranch { value, .. } =>
+							value.as_ref().map(|v| v.build(node_data)),
+						_ => None,
+					};
+					if let Some(value) = value {
+						match value {
+							Value::Inline(value) =>
+								return Some(Ok(ReadProofItem::Value(to_check.key, value.to_vec()))),
+							Value::Node(hash) => {
+								let Some(value) = self.proof.next() else {
+									return Some(Err(VerifyError::IncompleteProof));
+								};
+								if self.expected_root.is_some() {
+									let checked_hash = L::Hash::hash(value.borrow());
+									if checked_hash.as_ref() != hash {
+										let mut error_hash = TrieHash::<L>::default();
+										error_hash.as_mut().copy_from_slice(hash);
+										return Some(Err(VerifyError::HashMismatch(error_hash)))
+									}
+								}
+								return Some(Ok(ReadProofItem::Value(
+									to_check.key,
+									value.borrow().to_vec(),
+								)))
+							},
+						}
+					}
+
+					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
+				} else {
+					unreachable!();
+				}
+			}
+
+			let child_index = to_check_slice.at(self.prefix.len() + 1);
+			let child_handle = if let Some(node) = self.stack.last_mut() {
+				let node_data = node.data();
+
+				match node.node_plan() {
+					NodePlan::Empty | NodePlan::Leaf { .. } => {
+						self.rem_next_content = true;
+						return Some(Ok(ReadProofItem::NoValue(to_check.key)))
+					},
+					NodePlan::Extension { .. } => {
+						unreachable!("Extension never stacked")
+					},
+					NodePlan::NibbledBranch { children, .. } |
+					NodePlan::Branch { children, .. } =>
+						if let Some(child) = &children[child_index as usize] {
+							child.build(node_data)
+						} else {
+							self.rem_next_content = true;
+							return Some(Ok(ReadProofItem::NoValue(to_check.key)))
+						},
+				}
+			} else {
+				NodeHandle::Hash(self.expected_root.as_ref().map(AsRef::as_ref).unwrap_or(&[]))
+			};
+
+			let mut node = match child_handle {
+				NodeHandle::Inline(data) =>
+				// try access in inline then return
+					ItemStack::Inline(
+						match OwnedNode::new::<L::Codec>(data.to_vec()) {
+							Ok(node) => node,
+							Err(e) => return Some(Err(VerifyError::DecodeError(e))),
+						},
+						0,
+					),
+				NodeHandle::Hash(hash) => {
+					let Some(encoded_node) = self.proof.next() else {
+						exit = true;
+						break
+					};
+					let node = match OwnedNode::new::<L::Codec>(encoded_node) {
+						Ok(node) => node,
+						Err(e) => return Some(Err(VerifyError::DecodeError(e))),
+					};
+					if self.expected_root.is_some() {
+						let checked_hash = L::Hash::hash(node.data());
+						if checked_hash.as_ref() != hash {
+							let mut error_hash = TrieHash::<L>::default();
+							error_hash.as_mut().copy_from_slice(hash);
+							return Some(Err(VerifyError::HashMismatch(error_hash)))
+						}
+					}
+					ItemStack::Node(node, 0)
+				},
+			};
+
+			let mut descend_incomplete = false;
+			let node_data = node.data();
+
+			match node.node_plan() {
+				NodePlan::Branch { .. } => (),
+				| NodePlan::Empty => (),
+				NodePlan::Leaf { partial, .. } |
+				NodePlan::NibbledBranch { partial, .. } |
+				NodePlan::Extension { partial, .. } => {
+					let partial = partial.build(node_data);
+					if to_check_slice.starts_with(&partial) {
+						if self.prefix.len() > 0 {
+							self.prefix.push(child_index);
+							to_check_slice.advance(1);
+						}
+						to_check_slice.advance(partial.len());
+						self.prefix.append_partial(partial.right());
+					} else {
+						descend_incomplete = true;
+					}
+				},
+			}
+			if descend_incomplete {
+				self.rem_next_content = true;
+				return Some(Ok(ReadProofItem::NoValue(to_check.key)))
+			}
+			if let NodePlan::Extension { child, .. } = node.node_plan() {
+				let node_data = node.data();
+				let child = child.build(node_data);
+				match child {
+					NodeHandle::Hash(hash) => {
+						let Some(encoded_branch) = self.proof.next() else {
+							return Some(Err(VerifyError::IncompleteProof));
+						};
+
+						if self.expected_root.is_some() {
+							let checked_hash = L::Hash::hash(encoded_branch.borrow());
+							if checked_hash.as_ref() != hash {
+								let mut error_hash = TrieHash::<L>::default();
+								error_hash.as_mut().copy_from_slice(hash);
+								return Some(Err(VerifyError::HashMismatch(error_hash)))
+							}
+						}
+						node = match OwnedNode::new::<L::Codec>(encoded_branch) {
+							Ok(node) => ItemStack::Node(node, 0),
+							Err(e) => return Some(Err(VerifyError::DecodeError(e))),
+						};
+					},
+					NodeHandle::Inline(encoded_branch) => {
+						node = match OwnedNode::new::<L::Codec>(encoded_branch.to_vec()) {
+							Ok(node) => ItemStack::Inline(node, 0),
+							Err(e) => return Some(Err(VerifyError::DecodeError(e))),
+						};
+					},
+				}
+				let NodePlan::Branch { .. } = node.node_plan() else {
+					return Some(Err(VerifyError::IncompleteProof)) // TODO make error type??
+				};
+			}
+			node.set_depth(self.prefix.len());
+			self.stack.push(node);
+		}
+
+		if exit {
+			if self.rem_next_content {
+				self.next_content = None;
+				// TODO unstack check for compact
+
+				if self.proof.next().is_some() {
+					return Some(Err(VerifyError::ExtraneousNode))
+				}
+				// successfully finished
+				return None
+			} else {
+				// incomplete proof: TODO for compact check root
+				unimplemented!("TODO return Halted read proof item");
+			}
+		}
 		unimplemented!()
 	}
 }
 
 /// Read the proof.
-pub fn prove_query_plan_iter<'a, L: TrieLayout>(
-	content_iter: Option<QueryPlanItemIter<'a>>,
-	proof: impl Iterator<Item = &'a [u8]>,
+///
+/// If expected root is None, then we do not check hashes at all.
+pub fn verify_query_plan_iter<'a, L, C, D, P>(
+	mut query_plan: QueryPlan<'a, C>,
+	proof: P,
 	restart: Option<HaltedStateCheck>,
 	kind: ProofKind,
-	skip_hash_validation: bool,
-) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
-	if kind == ProofKind::CompactContent {
-		return Err(VerifyError::IncompleteProof) // TODO not kind as param if keeping CompactContent
-	}
+	expected_root: Option<TrieHash<L>>,
+) -> Result<ReadProofIterator<'a, L, C, D, P>, VerifyError<TrieHash<L>, CError<L>>>
+where
+	L: TrieLayout,
+	C: Iterator<Item = QueryPlanItem<'a>>,
+	P: Iterator<Item = D>,
+	D: Borrow<[u8]>,
+{
+	let is_compact = match kind {
+		ProofKind::CompactNodes | ProofKind::CompactContent => {
+			return Err(VerifyError::IncompleteProof) // TODO not kind as param if keeping CompactContent
+		},
+		ProofKind::FullNodes => false,
+		ProofKind::CompactNodesStream => true,
+	};
 
-	Ok(())
+	let next_content = query_plan.items.next();
+	Ok(ReadProofIterator {
+		query_plan,
+		proof,
+		is_compact,
+		expected_root,
+		next_content,
+		rem_next_content: false,
+		prefix: Default::default(),
+		stack: Default::default(),
+		_ph: PhantomData,
+	})
 }
 
 mod compact_content_proof {
