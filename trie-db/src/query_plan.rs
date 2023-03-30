@@ -27,7 +27,7 @@ use crate::{
 	nibble::{nibble_ops, LeftNibbleSlice, NibbleSlice},
 	node::{NodeHandle, NodePlan, OwnedNode},
 	proof::VerifyError,
-	rstd::{cmp::*, result::Result},
+	rstd::{borrow::Cow, cmp::*, result::Result},
 	CError, DBValue, NibbleVec, Trie, TrieDB, TrieError, TrieHash, TrieLayout,
 };
 
@@ -136,6 +136,13 @@ pub enum ProofKind {
 	/// proof at once.
 	CompactNodes,
 
+	/// Same encoding as CompactNodes, but with an alternate ordering that allows streaming
+	/// node and avoid unbound memory when building proof.
+	///
+	/// Ordering is starting at first met proof and parent up to intersection with next
+	/// sibling access in a branch, then next leaf, and repeating, finishing with root node.
+	CompactNodesStream,
+
 	/// Content oriented proof, no nodes are written, just a
 	/// sequence of accessed by lexicographical order as described
 	/// in compact_content_proof::Op.
@@ -187,28 +194,80 @@ struct ContentEncodingInfos {
 }
 */
 
+/// Allows sending proof recording as it is produced.
+pub trait RecorderOutput {
+	/// Append bytes.
+	fn write_bytes(&mut self, bytes: &[u8]);
+
+	/// Append a delimited sequence of bytes (usually a node).
+	fn write_entry(&mut self, bytes: Cow<[u8]>);
+}
+
+/// Simple in memory recorder.
+/// Depending on type of proof, nodes or buffer should
+/// be used.
+/// Sequence is guaranteed by pushing buffer in nodes
+/// every time a node is written.
+pub struct InMemoryRecorder {
+	pub nodes: Vec<DBValue>,
+	pub buffer: Vec<u8>,
+}
+
+impl RecorderOutput for InMemoryRecorder {
+	fn write_bytes(&mut self, bytes: &[u8]) {
+		if !self.buffer.is_empty() {
+			self.nodes.push(core::mem::take(&mut self.buffer));
+		}
+		self.buffer.extend_from_slice(bytes)
+	}
+
+	fn write_entry(&mut self, bytes: Cow<[u8]>) {
+		self.nodes.push(bytes.into_owned());
+	}
+}
+
 /// Simplified recorder.
-pub struct RecorderState<O: codec::Output>(RecorderStateInner<O>);
+pub struct Recorder<O: RecorderOutput>(RecorderStateInner<O>);
+
+impl<O: RecorderOutput> Recorder<O> {
+	/// Instantiate a new recorder.
+	pub fn new(proof_kind: ProofKind, output: O) -> Self {
+		let recorder = match proof_kind {
+			ProofKind::FullNodes => RecorderStateInner::Stream(output),
+			ProofKind::CompactNodes =>
+				RecorderStateInner::Compact { output, proof: Vec::new(), stacked_pos: Vec::new() },
+			ProofKind::CompactNodesStream => RecorderStateInner::CompactStream(output, Vec::new()),
+			ProofKind::CompactContent => RecorderStateInner::Content(output),
+		};
+		Self(recorder)
+	}
+}
 
 // TODO may be useless
-enum RecorderStateInner<O: codec::Output> {
+enum RecorderStateInner<O: RecorderOutput> {
 	/// For FullNodes proofs, just send node to this stream.
 	Stream(O),
+	/// For FullNodes proofs, Requires keeping all proof before sending it.
+	Compact {
+		output: O,
+		proof: Vec<Vec<u8>>,
+		/// Stacked position in proof to modify proof as needed
+		/// when information got accessed.
+		stacked_pos: Vec<usize>,
+	},
 	/// For FullNodes proofs, just send node to this stream.
-	Compact(O, Vec<CompactEncodingInfos>),
+	CompactStream(O, Vec<CompactEncodingInfos>),
 	/// For FullNodes proofs, just send node to this stream.
-	Content(O, Vec<CompactEncodingInfos>),
-	/// Restore from next node prefix to descend into
-	/// (skipping all query plan before this definition).
-	/// (prefix is key and a boolean to indicate if padded).
-	Stateless(O, Vec<u8>, bool),
+	Content(O),
 }
 
 /// When process is halted keep execution state
 /// to restore later.
-pub struct HaltedStateRecord<O: codec::Output> {
-	recorder: RecorderState<O>,
+pub struct HaltedStateRecord<O: RecorderOutput> {
+	recorder: Recorder<O>,
 	currently_query_item: Option<InMemQueryPlanItem>,
+	stack: Option<RecordStack>,
+	restart: Option<(Vec<u8>, bool)>,
 }
 
 /// When process is halted keep execution state
