@@ -43,6 +43,7 @@ use node::NodeOwned;
 
 pub mod node;
 pub mod proof;
+pub mod query_plan;
 pub mod recorder;
 pub mod sectriedb;
 pub mod sectriedbmut;
@@ -56,7 +57,6 @@ mod iterator;
 mod lookup;
 mod nibble;
 mod node_codec;
-mod query_plan;
 mod trie_codec;
 
 pub use self::{
