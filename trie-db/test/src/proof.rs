@@ -267,15 +267,15 @@ fn test_query_plan_internal<L: TrieLayout>() {
 		InMemQueryPlan {
 			items: vec![
 				InMemQueryPlanItem::new(b"bravo".to_vec(), false),
-				InMemQueryPlanItem::new(b"doge".to_vec(), false),
-				InMemQueryPlanItem::new(b"horsey".to_vec(), false),
+				InMemQueryPlanItem::new(b"do".to_vec(), true),
 			],
 			ignore_unordered: false,
 		},
 		InMemQueryPlan {
 			items: vec![
 				InMemQueryPlanItem::new(b"bravo".to_vec(), false),
-				InMemQueryPlanItem::new(b"do".to_vec(), true),
+				InMemQueryPlanItem::new(b"doge".to_vec(), false),
+				InMemQueryPlanItem::new(b"horsey".to_vec(), false),
 			],
 			ignore_unordered: false,
 		},

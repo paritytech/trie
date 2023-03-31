@@ -261,9 +261,10 @@ impl<O: RecorderOutput> Recorder<O> {
 
 	fn record_stacked_node(&mut self, item: &CompactEncodingInfos, stack_pos: usize) {
 		match &mut self.0 {
-			RecorderStateInner::Stream(output) => {
-				output.write_entry(item.node.data().into());
-			},
+			RecorderStateInner::Stream(output) =>
+				if !item.is_inline {
+					output.write_entry(item.node.data().into());
+				},
 			RecorderStateInner::Compact { output, proof, stacked_pos } => {
 				unimplemented!()
 			},
@@ -445,7 +446,7 @@ pub fn record_query_plan<
 		let mut slice_query = NibbleSlice::new_offset(&query.key, common_nibbles);
 		let mut touched = false;
 		loop {
-			if slice_query.is_empty() {
+			if slice_query.is_empty() && !stack.items.is_empty() {
 				if query.as_prefix {
 					stack.enter_prefix_iter();
 				} else {
@@ -454,7 +455,7 @@ pub fn record_query_plan<
 				break
 			}
 
-			let child_index = slice_query.at(0);
+			let child_index = if stack.items.is_empty() { 0 } else { slice_query.at(0) };
 			match stack.try_stack_child(
 				child_index,
 				db,
@@ -481,12 +482,13 @@ pub fn record_query_plan<
 		if touched {
 			// try access value
 			stack.access_value(db)?;
+			touched = false;
 		}
 		if let Some(prefix_stack_depth) = stack.iter_prefix.clone() {
 			// run prefix iteration
+			let mut stacked = true;
 			loop {
 				// descend
-				let mut stacked = true;
 				loop {
 					if stacked {
 						// try access value in next node
@@ -496,7 +498,7 @@ pub fn record_query_plan<
 
 					let child_index = if let Some(mut item) = stack.items.last_mut() {
 						if item.next_descended_child as usize >= crate::nibble_ops::NIBBLE_LENGTH {
-							continue
+							break
 						}
 						item.next_descended_child += 1;
 						item.next_descended_child - 1
@@ -558,10 +560,12 @@ impl<O: RecorderOutput> RecordStack<O> {
 			match item.node.node_plan() {
 				NodePlan::Empty | NodePlan::Leaf { .. } =>
 					return Ok(TryStackChildResult::NotStacked),
-				NodePlan::Extension { child, .. } => {
-					stack_extension = true;
-					child.build(node_data)
-				},
+				NodePlan::Extension { child, .. } =>
+					if child_index == 0 {
+						child.build(node_data)
+					} else {
+						return Ok(TryStackChildResult::NotStacked)
+					},
 				NodePlan::NibbledBranch { children, .. } | NodePlan::Branch { children, .. } =>
 					if let Some(child) = &children[child_index as usize] {
 						slice_query.as_mut().map(|s| s.advance(1));
@@ -606,24 +610,24 @@ impl<O: RecorderOutput> RecordStack<O> {
 				}
 			},
 		}
+		if let NodePlan::Extension { .. } = child_node.0.node_plan() {
+			stack_extension = true;
+		}
+		let infos = CompactEncodingInfos {
+			node: child_node.0,
+			accessed_children: Default::default(),
+			accessed_value: false,
+			depth: prefix.len(),
+			next_descended_child: 0,
+			is_inline,
+		};
+		self.recorder.record_stacked_node(&infos, stack.len());
+		stack.push(infos);
 		if stack_extension {
-			// rec call to stack branch
-			unimplemented!("extension node recoding");
-			let sbranch = self.try_stack_child(child_index, db, parent_hash, slice_query)?;
+			let sbranch = self.try_stack_child(0, db, parent_hash, slice_query)?;
 			let TryStackChildResult::Stacked = sbranch else {
 				return Err(VerifyError::InvalidChildReference(b"branch in db should follow extension".to_vec()));
 			};
-		} else {
-			let infos = CompactEncodingInfos {
-				node: child_node.0,
-				accessed_children: Default::default(),
-				accessed_value: false,
-				depth: prefix.len(),
-				next_descended_child: 0,
-				is_inline,
-			};
-			self.recorder.record_stacked_node(&infos, stack.len());
-			stack.push(infos);
 		}
 
 		if descend_incomplete {
@@ -680,6 +684,10 @@ impl<O: RecorderOutput> RecordStack<O> {
 			self.recorder.record_popped_node(&item, self.items.len());
 			let depth = self.items.last().map(|i| i.depth).unwrap_or(0);
 			self.prefix.drop_lasts(self.prefix.len() - depth);
+			if depth == item.depth {
+				// Two consecutive identical depth is an extension
+				self.pop();
+			}
 			true
 		} else {
 			false
@@ -790,6 +798,7 @@ impl<'a, L: TrieLayout, D: Borrow<[u8]>> ReadStack<'a, L, D> {
 		proof: &mut impl Iterator<Item = D>,
 		expected_root: &Option<TrieHash<L>>,
 		mut slice_query: Option<&mut NibbleSlice>,
+		query_prefix: bool,
 	) -> Result<TryStackChildResult, VerifyError<TrieHash<L>, CError<L>>> {
 		let check_hash = expected_root.is_some();
 		let child_handle = if let Some(node) = self.items.last_mut() {
@@ -835,6 +844,7 @@ impl<'a, L: TrieLayout, D: Borrow<[u8]>> ReadStack<'a, L, D> {
 		};
 		let node_data = node.data();
 
+		let mut prefix_incomplete = false;
 		match node.node_plan() {
 			NodePlan::Branch { .. } => (),
 			| NodePlan::Empty => (),
@@ -848,10 +858,21 @@ impl<'a, L: TrieLayout, D: Borrow<[u8]>> ReadStack<'a, L, D> {
 					}
 				}
 				let ok = if let Some(slice) = slice_query.as_mut() {
-					slice.starts_with(&partial)
+					if slice.starts_with(&partial) {
+						true
+					} else if query_prefix {
+						prefix_incomplete = true;
+						partial.starts_with(slice)
+					} else {
+						false
+					}
 				} else {
 					true
 				};
+				if prefix_incomplete {
+					// end of query
+					slice_query = None;
+				}
 				if ok {
 					if self.prefix.len() > 0 {
 						self.prefix.push(child_index);
@@ -895,7 +916,11 @@ impl<'a, L: TrieLayout, D: Borrow<[u8]>> ReadStack<'a, L, D> {
 		}
 		node.depth = self.prefix.len();
 		self.items.push(node);
-		Ok(TryStackChildResult::Stacked)
+		if prefix_incomplete {
+			Ok(TryStackChildResult::StackedDescendIncomplete)
+		} else {
+			Ok(TryStackChildResult::Stacked)
+		}
 	}
 
 	fn access_value(
@@ -1056,11 +1081,11 @@ where
 			while let Some((_, accessed_value)) = self.stack.iter_prefix.clone() {
 				// prefix iteration
 				if !accessed_value {
+					self.stack.iter_prefix.as_mut().map(|s| {
+						s.1 = true;
+					});
 					match self.stack.access_value(&mut self.proof, check_hash) {
 						Ok(Some(value)) => {
-							self.stack.iter_prefix.as_mut().map(|s| {
-								s.1 = true;
-							});
 							// prefix is &'a mut NibbleVec.
 							let prefix: &'a NibbleVec =
 								unsafe { core::mem::transmute(&self.stack.prefix) };
@@ -1073,7 +1098,6 @@ where
 						},
 					};
 				}
-				let mut stacked = false;
 				while let Some(child_index) = self.stack.items.last_mut().and_then(|last| {
 					if last.next_descended_child as usize >= crate::nibble_ops::NIBBLE_LENGTH {
 						None
@@ -1088,6 +1112,7 @@ where
 						&mut self.proof,
 						&self.expected_root,
 						None,
+						false,
 					) {
 						Ok(r) => r,
 						Err(e) => {
@@ -1097,7 +1122,9 @@ where
 					};
 					match r {
 						TryStackChildResult::Stacked => {
-							stacked = true;
+							self.stack.iter_prefix.as_mut().map(|p| {
+								p.1 = false;
+							});
 							break
 						},
 						TryStackChildResult::StackedDescendIncomplete => {
@@ -1110,12 +1137,11 @@ where
 						},
 					}
 				}
-				if !stacked {
+				if self.stack.iter_prefix.as_ref().map(|p| p.1).unwrap_or_default() {
 					if !self.stack.pop() {
 						// end iter
 						self.stack.exit_prefix_iter();
 					}
-					break
 				}
 			}
 			if did_prefix {
@@ -1129,9 +1155,10 @@ where
 			let as_prefix = to_check.as_prefix;
 			let mut at_value = false;
 			match self.stack.prefix.len().cmp(&to_check_len) {
-				Ordering::Equal => {
-					at_value = true;
-				},
+				Ordering::Equal =>
+					if !self.stack.items.is_empty() {
+						at_value = true;
+					},
 				Ordering::Less => (),
 				Ordering::Greater => {
 					unreachable!();
@@ -1165,6 +1192,7 @@ where
 				&mut self.proof,
 				&self.expected_root,
 				Some(&mut to_check_slice),
+				to_check.as_prefix,
 			) {
 				Ok(r) => r,
 				Err(e) => {
