@@ -450,7 +450,6 @@ impl<O: RecorderOutput> HaltedStateRecord<O> {
 	/// and stack.
 	pub fn statefull(&mut self, recorder: Recorder<O>) -> Recorder<O> {
 		let result = core::mem::replace(&mut self.stack.recorder, recorder);
-		self.from = None;
 		result
 	}
 
@@ -475,7 +474,7 @@ impl<O: RecorderOutput> HaltedStateRecord<O> {
 				iter_prefix: None,
 				halt: false,
 			},
-			from: Some(Default::default()),
+			from: None,
 		}
 	}
 
@@ -521,10 +520,21 @@ pub fn record_query_plan<
 	// TODO
 	//) resto
 	let dummy_parent_hash = TrieHash::<L>::default();
-	if let Some(lower_bound) = from.from.take() {
-		// TODO implement stack building from lower bound: fetch in stack and don't record.
-		// First also advance iterator to skip and init currently_query_item.
-	}
+	let restore = if let Some(lower_bound) = from.from.take() {
+		let mut statefull = true;
+		if from.currently_query_item.is_none() {
+			statefull = false;
+			// TODO implement stack building from lower bound: fetch in stack and don't record.
+			// First also advance iterator to skip and init currently_query_item.
+			unimplemented!()
+		}
+		Some((
+			lower_bound.0.len() * nibble_ops::NIBBLE_PER_BYTE - if lower_bound.1 { 1 } else { 2 },
+			statefull,
+		))
+	} else {
+		None
+	};
 
 	let stack = &mut from.stack;
 
@@ -532,73 +542,90 @@ pub fn record_query_plan<
 	let mut from_query = from.currently_query_item.take();
 	let mut from_query_ref = from_query.as_ref().map(|f| f.as_ref());
 	while let Some(query) = from_query_ref.clone().or_else(|| query_plan.items.next()) {
-		let (ordered, common_nibbles) =
-			prev_query.as_ref().map(|p| p.before(&query)).unwrap_or((true, 0));
-		if !ordered {
-			if query_plan.ignore_unordered {
-				continue
-			} else {
-				return Err(VerifyError::UnorderedKey(query.key.to_vec())) // TODO not kind as param if keeping
-				                                          // CompactContent
-			}
-		}
-		loop {
-			match stack.prefix.len().cmp(&common_nibbles) {
-				Ordering::Equal | Ordering::Less => break,
-				Ordering::Greater =>
-					if !stack.pop() {
-						return Ok(from)
-					},
-			}
-		}
-
-		// descend
-		let mut slice_query = NibbleSlice::new_offset(&query.key, common_nibbles);
-		let mut touched = false;
-		loop {
-			if slice_query.is_empty() && !stack.items.is_empty() {
-				if query.as_prefix {
-					stack.enter_prefix_iter();
+		let common_nibbles = if let Some((common_nibbles, statefull)) = restore {
+			if statefull {}
+			common_nibbles
+		} else {
+			let (ordered, common_nibbles) =
+				prev_query.as_ref().map(|p| p.before(&query)).unwrap_or((true, 0));
+			if !ordered {
+				if query_plan.ignore_unordered {
+					continue
 				} else {
-					touched = true;
+					return Err(VerifyError::UnorderedKey(query.key.to_vec())) // TODO not kind as param if keeping
+					                                      // CompactContent
 				}
-				break
 			}
-
-			let child_index = if stack.items.is_empty() { 0 } else { slice_query.at(0) };
-			if stack.halt {
-				let restart_cursor = unimplemented!();
-				from.from = restart_cursor;
-				from.currently_query_item = Some(query.to_owned());
-				return Ok(from)
+			loop {
+				match stack.prefix.len().cmp(&common_nibbles) {
+					Ordering::Equal | Ordering::Less => break,
+					Ordering::Greater =>
+						if !stack.pop() {
+							return Ok(from)
+						},
+				}
 			}
+			common_nibbles
+		};
 
-			match stack.try_stack_child(
-				child_index,
-				db,
-				dummy_parent_hash,
-				Some(&mut slice_query),
-			)? {
-				TryStackChildResult::Stacked => {},
-				TryStackChildResult::NotStackedBranch | TryStackChildResult::NotStacked => break,
-				TryStackChildResult::StackedDescendIncomplete => {
+		let mut first_iter = false;
+		if stack.iter_prefix.is_none() {
+			// descend
+			let mut slice_query = NibbleSlice::new_offset(&query.key, common_nibbles);
+			let mut touched = false;
+			loop {
+				if slice_query.is_empty() && !stack.items.is_empty() {
 					if query.as_prefix {
+						first_iter = true;
 						stack.enter_prefix_iter();
+					} else {
+						touched = true;
 					}
 					break
-				},
-				TryStackChildResult::Halted => {
-					unimplemented!()
-				},
+				}
+
+				let child_index = if stack.items.is_empty() { 0 } else { slice_query.at(0) };
+				match stack.try_stack_child(
+					child_index,
+					db,
+					dummy_parent_hash,
+					Some(&mut slice_query),
+				)? {
+					TryStackChildResult::Stacked => {},
+					TryStackChildResult::NotStackedBranch | TryStackChildResult::NotStacked =>
+						break,
+					TryStackChildResult::StackedDescendIncomplete => {
+						if query.as_prefix {
+							first_iter = true; // TODO reorder to avoid this bool?
+							stack.enter_prefix_iter();
+						}
+						break
+					},
+					TryStackChildResult::Halted => {
+						stack.prefix.push(child_index);
+						stack.halt = false;
+						from.from = Some((
+							stack.prefix.inner().to_vec(),
+							(stack.prefix.len() % nibble_ops::NIBBLE_PER_BYTE) != 0,
+						));
+						from.currently_query_item = Some(query.to_owned());
+						return Ok(from)
+					},
+				}
+			}
+
+			if touched {
+				// try access value
+				stack.access_value(db)?;
+				touched = false;
 			}
 		}
-
 		from_query_ref = None;
 		prev_query = Some(query);
 
 		if let Some(prefix_stack_depth) = stack.iter_prefix.clone() {
 			// run prefix iteration
-			let mut stacked = true;
+			let mut stacked = first_iter;
 			loop {
 				// descend
 				loop {
@@ -618,13 +645,6 @@ pub fn record_query_plan<
 						break
 					};
 
-					if stack.halt {
-						let restart_cursor = unimplemented!();
-						from.from = restart_cursor;
-						from.currently_query_item = prev_query.map(|q| q.to_owned());
-						return Ok(from)
-					}
-
 					match stack.try_stack_child(child_index, db, dummy_parent_hash, None)? {
 						TryStackChildResult::Stacked => {
 							stacked = true;
@@ -635,7 +655,16 @@ pub fn record_query_plan<
 							unreachable!("no slice query")
 						},
 						TryStackChildResult::Halted => {
-							unimplemented!()
+							if let Some(mut item) = stack.items.last_mut() {
+								item.next_descended_child -= 1;
+							}
+							stack.halt = false;
+							from.from = Some((
+								stack.prefix.inner().to_vec(),
+								(stack.prefix.len() % nibble_ops::NIBBLE_PER_BYTE) != 0,
+							));
+							from.currently_query_item = prev_query.map(|q| q.to_owned());
+							return Ok(from)
 						},
 					}
 				}
@@ -646,12 +675,6 @@ pub fn record_query_plan<
 				}
 			}
 			stack.exit_prefix_iter();
-		}
-
-		if touched {
-			// try access value
-			stack.access_value(db)?;
-			touched = false;
 		}
 	}
 
@@ -708,6 +731,10 @@ impl<O: RecorderOutput> RecordStack<O> {
 			// TODO consider not going into inline for all proof but content.
 			// Returning NotStacked here sounds safe, then the is_inline field is not needed.
 			is_inline = true;
+		} else {
+			if self.halt {
+				return Ok(TryStackChildResult::Halted)
+			}
 		}
 		// TODO handle cache first
 		let child_node = db
