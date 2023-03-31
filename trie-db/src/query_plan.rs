@@ -55,6 +55,7 @@ impl InMemQueryPlanItem {
 }
 
 /// Item to query.
+#[derive(Clone)]
 pub struct QueryPlanItem<'a> {
 	key: &'a [u8],
 	as_prefix: bool,
@@ -416,11 +417,10 @@ pub fn record_query_plan<
 
 	let stack = &mut from.stack;
 
-	let prev_query: Option<QueryPlanItem> = None;
+	let mut prev_query: Option<QueryPlanItem> = None;
 	let mut from_query = from.currently_query_item.take();
-	while let Some(query) =
-		from_query.as_ref().map(|f| f.as_ref()).or_else(|| query_plan.items.next())
-	{
+	let mut from_query_ref = from_query.as_ref().map(|f| f.as_ref());
+	while let Some(query) = from_query_ref.clone().or_else(|| query_plan.items.next()) {
 		let (ordered, common_nibbles) =
 			prev_query.as_ref().map(|p| p.before(&query)).unwrap_or((true, 0));
 		if !ordered {
@@ -475,7 +475,8 @@ pub fn record_query_plan<
 			}
 		}
 
-		from_query = None;
+		from_query_ref = None;
+		prev_query = Some(query);
 
 		if touched {
 			// try access value
@@ -607,6 +608,7 @@ impl<O: RecorderOutput> RecordStack<O> {
 		}
 		if stack_extension {
 			// rec call to stack branch
+			unimplemented!("extension node recoding");
 			let sbranch = self.try_stack_child(child_index, db, parent_hash, slice_query)?;
 			let TryStackChildResult::Stacked = sbranch else {
 				return Err(VerifyError::InvalidChildReference(b"branch in db should follow extension".to_vec()));
@@ -617,7 +619,7 @@ impl<O: RecorderOutput> RecordStack<O> {
 				accessed_children: Default::default(),
 				accessed_value: false,
 				depth: prefix.len(),
-				next_descended_child: child_index + 1,
+				next_descended_child: 0,
 				is_inline,
 			};
 			self.recorder.record_stacked_node(&infos, stack.len());
@@ -705,9 +707,25 @@ where
 	proof: P,
 	is_compact: bool,
 	expected_root: Option<TrieHash<L>>,
-	next_content: Option<QueryPlanItem<'a>>,
-	rem_next_content: bool,
+	current: Option<QueryPlanItem<'a>>,
+	state: ReadProofState,
 	stack: ReadStack<'a, L, D>,
+}
+
+#[derive(Eq, PartialEq)]
+enum ReadProofState {
+	/// Iteration not started.
+	NotStarted,
+	/// Iterating.
+	Running,
+	/// Switch next item.
+	SwitchQueryPlan,
+	/// Proof read.
+	PlanConsumed,
+	/// Proof read.
+	Halted,
+	/// Iteration finished.
+	Finished,
 }
 
 struct ItemStack<D: Borrow<[u8]>> {
@@ -803,8 +821,8 @@ impl<'a, L: TrieLayout, D: Borrow<[u8]>> ReadStack<'a, L, D> {
 				.into(),
 			NodeHandle::Hash(hash) => {
 				let Some(encoded_node) = proof.next() else {
-						return Ok(TryStackChildResult::Halted);
-					};
+					return Ok(TryStackChildResult::Halted);
+				};
 				let node = match OwnedNode::new::<L::Codec>(encoded_node) {
 					Ok(node) => node,
 					Err(e) => return Err(VerifyError::DecodeError(e)),
@@ -824,6 +842,11 @@ impl<'a, L: TrieLayout, D: Borrow<[u8]>> ReadStack<'a, L, D> {
 			NodePlan::NibbledBranch { partial, .. } |
 			NodePlan::Extension { partial, .. } => {
 				let partial = partial.build(node_data);
+				if self.prefix.len() > 0 {
+					if let Some(slice) = slice_query.as_mut() {
+						slice.advance(1);
+					}
+				}
 				let ok = if let Some(slice) = slice_query.as_mut() {
 					slice.starts_with(&partial)
 				} else {
@@ -832,9 +855,6 @@ impl<'a, L: TrieLayout, D: Borrow<[u8]>> ReadStack<'a, L, D> {
 				if ok {
 					if self.prefix.len() > 0 {
 						self.prefix.push(child_index);
-						if let Some(slice) = slice_query.as_mut() {
-							slice.advance(1);
-						}
 					}
 					if let Some(slice) = slice_query.as_mut() {
 						slice.advance(partial.len());
@@ -870,8 +890,8 @@ impl<'a, L: TrieLayout, D: Borrow<[u8]>> ReadStack<'a, L, D> {
 				},
 			}
 			let NodePlan::Branch { .. } = node.node_plan() else {
-					return Err(VerifyError::IncompleteProof) // TODO make error type??
-				};
+				return Err(VerifyError::IncompleteProof) // TODO make error type??
+			};
 		}
 		node.depth = self.prefix.len();
 		self.items.push(node);
@@ -897,8 +917,8 @@ impl<'a, L: TrieLayout, D: Borrow<[u8]>> ReadStack<'a, L, D> {
 					Value::Inline(value) => return Ok(Some(value.to_vec())),
 					Value::Node(hash) => {
 						let Some(value) = proof.next() else {
-									return Err(VerifyError::IncompleteProof);
-								};
+							return Err(VerifyError::IncompleteProof);
+						};
 						if check_hash {
 							verify_hash::<L>(value.borrow(), hash)?;
 						}
@@ -927,7 +947,7 @@ impl<'a, L: TrieLayout, D: Borrow<[u8]>> ReadStack<'a, L, D> {
 
 	fn pop_until(&mut self, target: usize) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
 		loop {
-			while let Some(last) = self.items.last() {
+			if let Some(last) = self.items.last() {
 				match last.depth.cmp(&target) {
 					Ordering::Greater => (),
 					// depth should match.
@@ -937,9 +957,16 @@ impl<'a, L: TrieLayout, D: Borrow<[u8]>> ReadStack<'a, L, D> {
 						return Ok(())
 					},
 				}
+			} else {
+				if target == 0 {
+					return Ok(())
+				} else {
+					break
+				}
 			}
 			let _ = self.items.pop();
 		}
+		// TODO other error
 		Err(VerifyError::ExtraneousNode)
 	}
 
@@ -981,12 +1008,19 @@ where
 	type Item = Result<ReadProofItem<'a>, VerifyError<TrieHash<L>, CError<L>>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
+		if self.state == ReadProofState::Finished {
+			return None
+		}
 		let check_hash = self.expected_root.is_some();
+
+		let mut to_check_slice = self.current.as_ref().map(|n| NibbleSlice::new(n.key));
 		// read proof
 		loop {
-			if self.rem_next_content || self.next_content.is_none() {
+			if self.state == ReadProofState::SwitchQueryPlan ||
+				self.state == ReadProofState::NotStarted
+			{
 				if let Some(next) = self.query_plan.items.next() {
-					let (ordered, common_nibbles) = if let Some(old) = self.next_content.as_ref() {
+					let (ordered, common_nibbles) = if let Some(old) = self.current.as_ref() {
 						old.before(&next)
 					} else {
 						(true, 0)
@@ -995,19 +1029,26 @@ where
 						if self.query_plan.ignore_unordered {
 							continue
 						} else {
+							self.state = ReadProofState::Finished;
 							return Some(Err(VerifyError::UnorderedKey(next.key.to_vec())))
 						}
 					}
 
 					let r = self.stack.pop_until(common_nibbles);
 					if let Err(e) = r {
+						self.state = ReadProofState::Finished;
 						return Some(Err(e))
 					}
-					self.rem_next_content = false;
-					self.next_content = Some(next);
+					self.state = ReadProofState::Running;
+					self.current = Some(next);
+					to_check_slice = self
+						.current
+						.as_ref()
+						.map(|n| NibbleSlice::new_offset(n.key, common_nibbles));
 				} else {
-					self.rem_next_content = false;
-					self.next_content = None;
+					self.state = ReadProofState::PlanConsumed;
+					self.current = None;
+					to_check_slice = None;
 					break
 				}
 			};
@@ -1026,7 +1067,10 @@ where
 							return Some(Ok(ReadProofItem::Value(prefix.inner(), value)))
 						},
 						Ok(None) => (),
-						Err(e) => return Some(Err(e)),
+						Err(e) => {
+							self.state = ReadProofState::Finished;
+							return Some(Err(e))
+						},
 					};
 				}
 				let mut stacked = false;
@@ -1046,7 +1090,10 @@ where
 						None,
 					) {
 						Ok(r) => r,
-						Err(e) => return Some(Err(e)),
+						Err(e) => {
+							self.state = ReadProofState::Finished;
+							return Some(Err(e))
+						},
 					};
 					match r {
 						TryStackChildResult::Stacked => {
@@ -1073,19 +1120,20 @@ where
 			}
 			if did_prefix {
 				// exit a prefix iter, next content looping
-				self.rem_next_content = true;
+				self.state = ReadProofState::SwitchQueryPlan;
 				continue
 			}
-			let to_check = self.next_content.as_ref().expect("Init above");
+			let to_check = self.current.as_ref().expect("Init above");
+			let to_check_len = to_check.key.len() * nibble_ops::NIBBLE_PER_BYTE;
+			let mut to_check_slice = to_check_slice.as_mut().expect("Init above");
 			let as_prefix = to_check.as_prefix;
 			let mut at_value = false;
-			let mut to_check_slice = NibbleSlice::new(to_check.key);
-			match self.stack.prefix.len().cmp(&to_check_slice.len()) {
+			match self.stack.prefix.len().cmp(&to_check_len) {
 				Ordering::Equal => {
 					at_value = true;
 				},
-				Ordering::Greater => (),
-				Ordering::Less => {
+				Ordering::Less => (),
+				Ordering::Greater => {
 					unreachable!();
 				},
 			}
@@ -1095,15 +1143,23 @@ where
 					self.stack.enter_prefix_iter();
 					continue
 				}
-				self.rem_next_content = true;
+				self.state = ReadProofState::SwitchQueryPlan;
 				match self.stack.access_value(&mut self.proof, check_hash) {
 					Ok(Some(value)) => return Some(Ok(ReadProofItem::Value(to_check.key, value))),
 					Ok(None) => return Some(Ok(ReadProofItem::NoValue(to_check.key))),
-					Err(e) => return Some(Err(e)),
+					Err(e) => {
+						self.state = ReadProofState::Finished;
+						return Some(Err(e))
+					},
 				}
 			}
 
-			let child_index = to_check_slice.at(self.stack.prefix.len() + 1);
+			let child_index = if self.stack.items.len() == 0 {
+				// dummy
+				0
+			} else {
+				to_check_slice.at(0)
+			};
 			let r = match self.stack.try_stack_child(
 				child_index,
 				&mut self.proof,
@@ -1111,7 +1167,10 @@ where
 				Some(&mut to_check_slice),
 			) {
 				Ok(r) => r,
-				Err(e) => return Some(Err(e)),
+				Err(e) => {
+					self.state = ReadProofState::Finished;
+					return Some(Err(e))
+				},
 			};
 			match r {
 				TryStackChildResult::Stacked => (),
@@ -1120,32 +1179,35 @@ where
 						self.stack.enter_prefix_iter();
 						continue
 					}
-					self.rem_next_content = true;
+					self.state = ReadProofState::SwitchQueryPlan;
 					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
 				},
 				TryStackChildResult::NotStacked => {
-					self.rem_next_content = true;
+					self.state = ReadProofState::SwitchQueryPlan;
 					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
 				},
 				TryStackChildResult::NotStackedBranch => {
-					self.rem_next_content = true;
+					self.state = ReadProofState::SwitchQueryPlan;
 					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
 				},
 				TryStackChildResult::Halted => break,
 			}
 		}
-		if self.rem_next_content {
-			self.next_content = None;
-			// TODO unstack check for compact
 
-			if self.proof.next().is_some() {
-				return Some(Err(VerifyError::ExtraneousNode))
-			}
-			// successfully finished
-			return None
+		if self.state == ReadProofState::Halted {
+			unimplemented!()
 		} else {
-			// incomplete proof: TODO for compact check root
-			unimplemented!("TODO return Halted read proof item");
+			debug_assert!(self.state == ReadProofState::PlanConsumed);
+			if self.is_compact {
+				unimplemented!("check hash from stack");
+			} else {
+				if self.proof.next().is_some() {
+					self.state = ReadProofState::Finished;
+					return Some(Err(VerifyError::ExtraneousNode))
+				}
+			}
+			self.state = ReadProofState::Finished;
+			return None
 		}
 	}
 }
@@ -1175,14 +1237,13 @@ where
 		ProofKind::CompactNodesStream => true,
 	};
 
-	let next_content = query_plan.items.next();
 	Ok(ReadProofIterator {
 		query_plan,
 		proof,
 		is_compact,
 		expected_root,
-		next_content,
-		rem_next_content: false,
+		current: None,
+		state: ReadProofState::NotStarted,
 		stack: ReadStack {
 			items: Default::default(),
 			prefix,
