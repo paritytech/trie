@@ -469,6 +469,9 @@ pub fn record_query_plan<
 					}
 					break
 				},
+				TryStackChildResult::Halted => {
+					unimplemented!()
+				},
 			}
 		}
 
@@ -507,6 +510,9 @@ pub fn record_query_plan<
 						TryStackChildResult::NotStacked => break,
 						TryStackChildResult::StackedDescendIncomplete => {
 							unreachable!("no slice query")
+						},
+						TryStackChildResult::Halted => {
+							unimplemented!()
 						},
 					}
 				}
