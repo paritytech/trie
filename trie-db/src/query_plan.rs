@@ -717,7 +717,7 @@ where
 	expected_root: Option<TrieHash<L>>,
 	current: Option<QueryPlanItem<'a>>,
 	state: ReadProofState,
-	stack: ReadStack<'a, L, D>,
+	stack: ReadStack<L, D>,
 }
 
 #[derive(Eq, PartialEq)]
@@ -769,9 +769,9 @@ impl<D: Borrow<[u8]>> ItemStack<D> {
 	}
 }
 
-struct ReadStack<'a, L: TrieLayout, D: Borrow<[u8]>> {
+struct ReadStack<L: TrieLayout, D: Borrow<[u8]>> {
 	items: Vec<ItemStack<D>>,
-	prefix: &'a mut NibbleVec,
+	prefix: NibbleVec,
 	iter_prefix: Option<(usize, bool)>, // limit and wether we return value
 	is_compact: bool,
 	_ph: PhantomData<L>,
@@ -791,7 +791,7 @@ fn verify_hash<L: TrieLayout>(
 	}
 }
 
-impl<'a, L: TrieLayout, D: Borrow<[u8]>> ReadStack<'a, L, D> {
+impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
 	fn try_stack_child(
 		&mut self,
 		child_index: u8,
@@ -962,8 +962,9 @@ impl<'a, L: TrieLayout, D: Borrow<[u8]>> ReadStack<'a, L, D> {
 		if self.iter_prefix.as_ref().map(|p| p.0 == self.items.len()).unwrap_or(false) {
 			return false
 		}
-		if let Some(last) = self.items.pop() {
-			self.prefix.drop_lasts(self.prefix.len() - last.depth);
+		if let Some(_last) = self.items.pop() {
+			let depth = self.items.last().map(|i| i.depth).unwrap_or(0);
+			self.prefix.drop_lasts(self.prefix.len() - depth);
 			true
 		} else {
 			false
@@ -1011,8 +1012,7 @@ pub enum ReadProofItem<'a> {
 	/// Seen value and key in proof.
 	/// When we set the query plan, we only return content
 	/// matching the query plan.
-	/// TODO try ref for value??
-	Value(&'a [u8], Vec<u8>),
+	Value(Cow<'a, [u8]>, Vec<u8>),
 	/// No value seen for a key in the input query plan.
 	NoValue(&'a [u8]),
 	/// Seen fully covered prefix in proof, this is only
@@ -1085,12 +1085,11 @@ where
 						s.1 = true;
 					});
 					match self.stack.access_value(&mut self.proof, check_hash) {
-						Ok(Some(value)) => {
-							// prefix is &'a mut NibbleVec.
-							let prefix: &'a NibbleVec =
-								unsafe { core::mem::transmute(&self.stack.prefix) };
-							return Some(Ok(ReadProofItem::Value(prefix.inner(), value)))
-						},
+						Ok(Some(value)) =>
+							return Some(Ok(ReadProofItem::Value(
+								self.stack.prefix.inner().to_vec().into(),
+								value,
+							))),
 						Ok(None) => (),
 						Err(e) => {
 							self.state = ReadProofState::Finished;
@@ -1172,7 +1171,8 @@ where
 				}
 				self.state = ReadProofState::SwitchQueryPlan;
 				match self.stack.access_value(&mut self.proof, check_hash) {
-					Ok(Some(value)) => return Some(Ok(ReadProofItem::Value(to_check.key, value))),
+					Ok(Some(value)) =>
+						return Some(Ok(ReadProofItem::Value(to_check.key.into(), value))),
 					Ok(None) => return Some(Ok(ReadProofItem::NoValue(to_check.key))),
 					Err(e) => {
 						self.state = ReadProofState::Finished;
@@ -1249,7 +1249,6 @@ pub fn verify_query_plan_iter<'a, L, C, D, P>(
 	restart: Option<HaltedStateCheck>,
 	kind: ProofKind,
 	expected_root: Option<TrieHash<L>>,
-	prefix: &'a mut NibbleVec,
 ) -> Result<ReadProofIterator<'a, L, C, D, P>, VerifyError<TrieHash<L>, CError<L>>>
 where
 	L: TrieLayout,
@@ -1274,7 +1273,7 @@ where
 		state: ReadProofState::NotStarted,
 		stack: ReadStack {
 			items: Default::default(),
-			prefix,
+			prefix: Default::default(),
 			is_compact,
 			iter_prefix: None,
 			_ph: PhantomData,

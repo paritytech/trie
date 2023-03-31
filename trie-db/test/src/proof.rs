@@ -15,6 +15,7 @@
 use hash_db::Hasher;
 use reference_trie::{test_layouts, NoExtensionLayout};
 
+use std::collections::BTreeMap;
 use trie_db::{
 	proof::{generate_proof, verify_proof, VerifyError},
 	query_plan::HaltedStateRecord,
@@ -265,10 +266,7 @@ fn test_query_plan_internal<L: TrieLayout>() {
 
 	let query_plans = [
 		InMemQueryPlan {
-			items: vec![
-				InMemQueryPlanItem::new(b"bravo".to_vec(), false),
-				InMemQueryPlanItem::new(b"do".to_vec(), true),
-			],
+			items: vec![InMemQueryPlanItem::new(b"".to_vec(), true)],
 			ignore_unordered: false,
 		},
 		InMemQueryPlan {
@@ -280,7 +278,10 @@ fn test_query_plan_internal<L: TrieLayout>() {
 			ignore_unordered: false,
 		},
 		InMemQueryPlan {
-			items: vec![InMemQueryPlanItem::new(b"".to_vec(), true)],
+			items: vec![
+				InMemQueryPlanItem::new(b"bravo".to_vec(), false),
+				InMemQueryPlanItem::new(b"do".to_vec(), true),
+			],
 			ignore_unordered: false,
 		},
 	];
@@ -296,27 +297,25 @@ fn test_query_plan_internal<L: TrieLayout>() {
 		let proof = from.finish().output().nodes;
 
 		let query_plan_iter = query_plan.as_ref();
-		let mut buffer = trie_db::NibbleVec::new();
 		let verify_iter = verify_query_plan_iter::<L, _, _, _>(
 			query_plan_iter,
 			proof.into_iter(),
 			None,
 			kind,
 			Some(root.clone()),
-			&mut buffer,
 		)
 		.unwrap();
+		let mut content: BTreeMap<_, _> = set.iter().cloned().collect();
 		let mut in_prefix = false;
 		for item in verify_iter {
 			match item.unwrap() {
-				ReadProofItem::Value(_key, _value) => {
-					// TODO remove from hashmap if not in prefix??
+				ReadProofItem::Value(key, value) => {
+					assert_eq!(content.get(&*key), Some(&value.as_ref()));
 				},
-				ReadProofItem::NoValue(_key) => {
-					// TODO remove from hashmap??
+				ReadProofItem::NoValue(key) => {
+					assert_eq!(content.get(key), None);
 				},
 				ReadProofItem::StartPrefix(_prefix) => {
-					// TODO remove from hashmap??
 					in_prefix = true;
 				},
 				ReadProofItem::EndPrefix => {
