@@ -529,6 +529,7 @@ enum TryStackChildResult {
 	NotStackedBranch,
 	NotStacked,
 	StackedDescendIncomplete,
+	Halted,
 }
 
 impl<O: RecorderOutput> RecordStack<O> {
@@ -629,8 +630,8 @@ impl<O: RecorderOutput> RecordStack<O> {
 		db: &TrieDB<L>,
 	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
 		let Some(item)= self.items.last_mut() else {
-		return Ok(false)
-	};
+			return Ok(false)
+		};
 		// TODO this could be reuse from iterator, but it seems simple
 		// enough here too.
 		let node_data = item.node.data();
@@ -700,9 +701,7 @@ where
 	expected_root: Option<TrieHash<L>>,
 	next_content: Option<QueryPlanItem<'a>>,
 	rem_next_content: bool,
-	stack: Vec<ItemStack<D>>,
-	prefix: NibbleVec,
-
+	stack: ReadStack<L, D>,
 	_ph: PhantomData<&'a L>,
 }
 
@@ -740,6 +739,196 @@ impl<D: Borrow<[u8]>> ItemStack<D> {
 	}
 }
 
+struct ReadStack<L: TrieLayout, D: Borrow<[u8]>> {
+	items: Vec<ItemStack<D>>,
+	prefix: NibbleVec,
+	is_compact: bool,
+	_ph: PhantomData<L>,
+}
+
+fn verify_hash<L: TrieLayout>(
+	data: &[u8],
+	expected: &[u8],
+) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
+	let checked_hash = L::Hash::hash(data);
+	if checked_hash.as_ref() != expected {
+		let mut error_hash = TrieHash::<L>::default();
+		error_hash.as_mut().copy_from_slice(expected);
+		Err(VerifyError::HashMismatch(error_hash))
+	} else {
+		Ok(())
+	}
+}
+
+impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
+	fn try_stack_child(
+		&mut self,
+		child_index: u8,
+		proof: &mut impl Iterator<Item = D>,
+		expected_root: &Option<TrieHash<L>>,
+		mut slice_query: Option<&mut NibbleSlice>,
+	) -> Result<TryStackChildResult, VerifyError<TrieHash<L>, CError<L>>> {
+		let check_hash = expected_root.is_some();
+		let child_handle = if let Some(node) = self.items.last_mut() {
+			let node_data = node.data();
+
+			match node.node_plan() {
+				NodePlan::Empty | NodePlan::Leaf { .. } =>
+					return Ok(TryStackChildResult::NotStacked),
+				NodePlan::Extension { .. } => {
+					unreachable!("Extension never stacked")
+				},
+				NodePlan::NibbledBranch { children, .. } | NodePlan::Branch { children, .. } =>
+					if let Some(child) = &children[child_index as usize] {
+						child.build(node_data)
+					} else {
+						return Ok(TryStackChildResult::NotStackedBranch)
+					},
+			}
+		} else {
+			NodeHandle::Hash(expected_root.as_ref().map(AsRef::as_ref).unwrap_or(&[]))
+		};
+		let mut node = match child_handle {
+			NodeHandle::Inline(data) =>
+			// try access in inline then return
+				ItemStack::Inline(
+					match OwnedNode::new::<L::Codec>(data.to_vec()) {
+						Ok(node) => node,
+						Err(e) => return Err(VerifyError::DecodeError(e)),
+					},
+					0,
+				),
+			NodeHandle::Hash(hash) => {
+				let Some(encoded_node) = proof.next() else {
+						return Ok(TryStackChildResult::Halted);
+					};
+				let node = match OwnedNode::new::<L::Codec>(encoded_node) {
+					Ok(node) => node,
+					Err(e) => return Err(VerifyError::DecodeError(e)),
+				};
+				if check_hash {
+					verify_hash::<L>(node.data(), hash)?;
+				}
+				ItemStack::Node(node, 0)
+			},
+		};
+		let node_data = node.data();
+
+		match node.node_plan() {
+			NodePlan::Branch { .. } => (),
+			| NodePlan::Empty => (),
+			NodePlan::Leaf { partial, .. } |
+			NodePlan::NibbledBranch { partial, .. } |
+			NodePlan::Extension { partial, .. } => {
+				let partial = partial.build(node_data);
+				let ok = if let Some(slice) = slice_query.as_mut() {
+					slice.starts_with(&partial)
+				} else {
+					true
+				};
+				if ok {
+					if self.prefix.len() > 0 {
+						self.prefix.push(child_index);
+						if let Some(slice) = slice_query.as_mut() {
+							slice.advance(1);
+						}
+					}
+					if let Some(slice) = slice_query.as_mut() {
+						slice.advance(partial.len());
+					}
+					self.prefix.append_partial(partial.right());
+				} else {
+					return Ok(TryStackChildResult::StackedDescendIncomplete)
+				}
+			},
+		}
+		if let NodePlan::Extension { child, .. } = node.node_plan() {
+			let node_data = node.data();
+			let child = child.build(node_data);
+			match child {
+				NodeHandle::Hash(hash) => {
+					let Some(encoded_branch) = proof.next() else {
+							// No halt on extension node (restart over a child index).
+							return Err(VerifyError::IncompleteProof);
+						};
+					if check_hash {
+						verify_hash::<L>(encoded_branch.borrow(), hash)?;
+					}
+					node = match OwnedNode::new::<L::Codec>(encoded_branch) {
+						Ok(node) => ItemStack::Node(node, 0),
+						Err(e) => return Err(VerifyError::DecodeError(e)),
+					};
+				},
+				NodeHandle::Inline(encoded_branch) => {
+					node = match OwnedNode::new::<L::Codec>(encoded_branch.to_vec()) {
+						Ok(node) => ItemStack::Inline(node, 0),
+						Err(e) => return Err(VerifyError::DecodeError(e)),
+					};
+				},
+			}
+			let NodePlan::Branch { .. } = node.node_plan() else {
+					return Err(VerifyError::IncompleteProof) // TODO make error type??
+				};
+		}
+		node.set_depth(self.prefix.len());
+		self.items.push(node);
+		Ok(TryStackChildResult::Stacked)
+	}
+
+	fn access_value(
+		&mut self,
+		proof: &mut impl Iterator<Item = D>,
+		check_hash: bool,
+	) -> Result<Option<Vec<u8>>, VerifyError<TrieHash<L>, CError<L>>> {
+		if let Some(node) = self.items.last() {
+			let node_data = node.data();
+
+			let value = match node.node_plan() {
+				NodePlan::Leaf { value, .. } => Some(value.build(node_data)),
+				NodePlan::Branch { value, .. } | NodePlan::NibbledBranch { value, .. } =>
+					value.as_ref().map(|v| v.build(node_data)),
+				_ => return Ok(None),
+			};
+			if let Some(value) = value {
+				match value {
+					Value::Inline(value) => return Ok(Some(value.to_vec())),
+					Value::Node(hash) => {
+						let Some(value) = proof.next() else {
+									return Err(VerifyError::IncompleteProof);
+								};
+						if check_hash {
+							verify_hash::<L>(value.borrow(), hash)?;
+						}
+						return Ok(Some(value.borrow().to_vec()))
+					},
+				}
+			}
+		} else {
+			return Err(VerifyError::IncompleteProof)
+		}
+
+		Ok(None)
+	}
+
+	fn pop_until(&mut self, target: usize) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
+		loop {
+			while let Some(last) = self.items.last() {
+				match last.depth().cmp(&target) {
+					Ordering::Greater => (),
+					// depth should match.
+					Ordering::Less => break,
+					Ordering::Equal => {
+						self.prefix.drop_lasts(self.prefix.len() - last.depth());
+						return Ok(())
+					},
+				}
+			}
+			let _ = self.items.pop();
+		}
+		Err(VerifyError::ExtraneousNode)
+	}
+}
+
 /// Content return on success when reading proof.
 pub enum ReadProofItem<'a> {
 	/// Successfull read of proof, not all content read.
@@ -769,7 +958,7 @@ where
 	type Item = Result<ReadProofItem<'a>, VerifyError<TrieHash<L>, CError<L>>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		let mut exit = false;
+		let check_hash = self.expected_root.is_some();
 		// read proof
 		loop {
 			if self.rem_next_content || self.next_content.is_none() {
@@ -788,31 +977,22 @@ where
 						}
 					}
 
-					while let Some(last) = self.stack.last() {
-						if last.depth() == common_nibbles {
-							self.prefix.drop_lasts(self.prefix.len() - last.depth());
-							break
-						}
-						if last.depth() < common_nibbles {
-							// depth should match.
-							return Some(Err(VerifyError::ExtraneousNode))
-						}
+					let r = self.stack.pop_until(common_nibbles);
+					if let Err(e) = r {
+						return Some(Err(e))
 					}
-					// TODO pop until common
-
 					self.rem_next_content = false;
 					self.next_content = Some(next);
 				} else {
 					self.rem_next_content = false;
 					self.next_content = None;
-					exit = true;
 					break
 				}
 			};
 			let to_check = self.next_content.as_ref().expect("Init above");
 			let mut at_value = false;
 			let mut to_check_slice = NibbleSlice::new(to_check.key);
-			match self.prefix.len().cmp(&to_check_slice.len()) {
+			match self.stack.prefix.len().cmp(&to_check_slice.len()) {
 				Ordering::Equal => {
 					at_value = true;
 				},
@@ -824,180 +1004,53 @@ where
 
 			if at_value {
 				self.rem_next_content = true;
-				if let Some(node) = self.stack.last() {
-					let node_data = node.data();
+				match self.stack.access_value(&mut self.proof, check_hash) {
+					Ok(Some(value)) => return Some(Ok(ReadProofItem::Value(to_check.key, value))),
+					Ok(None) => return Some(Ok(ReadProofItem::NoValue(to_check.key))),
+					Err(e) => return Some(Err(e)),
+				}
+			}
 
-					let value = match node.node_plan() {
-						NodePlan::Leaf { value, .. } => Some(value.build(node_data)),
-						NodePlan::Branch { value, .. } | NodePlan::NibbledBranch { value, .. } =>
-							value.as_ref().map(|v| v.build(node_data)),
-						_ => None,
-					};
-					if let Some(value) = value {
-						match value {
-							Value::Inline(value) =>
-								return Some(Ok(ReadProofItem::Value(to_check.key, value.to_vec()))),
-							Value::Node(hash) => {
-								let Some(value) = self.proof.next() else {
-									return Some(Err(VerifyError::IncompleteProof));
-								};
-								if self.expected_root.is_some() {
-									let checked_hash = L::Hash::hash(value.borrow());
-									if checked_hash.as_ref() != hash {
-										let mut error_hash = TrieHash::<L>::default();
-										error_hash.as_mut().copy_from_slice(hash);
-										return Some(Err(VerifyError::HashMismatch(error_hash)))
-									}
-								}
-								return Some(Ok(ReadProofItem::Value(
-									to_check.key,
-									value.borrow().to_vec(),
-								)))
-							},
-						}
-					}
-
+			let child_index = to_check_slice.at(self.stack.prefix.len() + 1);
+			let r = match self.stack.try_stack_child(
+				child_index,
+				&mut self.proof,
+				&self.expected_root,
+				Some(&mut to_check_slice),
+			) {
+				Ok(r) => r,
+				Err(e) => return Some(Err(e)),
+			};
+			match r {
+				TryStackChildResult::Stacked => (),
+				TryStackChildResult::StackedDescendIncomplete => {
+					self.rem_next_content = true;
 					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
-				} else {
-					unreachable!();
-				}
-			}
-
-			let child_index = to_check_slice.at(self.prefix.len() + 1);
-			let child_handle = if let Some(node) = self.stack.last_mut() {
-				let node_data = node.data();
-
-				match node.node_plan() {
-					NodePlan::Empty | NodePlan::Leaf { .. } => {
-						self.rem_next_content = true;
-						return Some(Ok(ReadProofItem::NoValue(to_check.key)))
-					},
-					NodePlan::Extension { .. } => {
-						unreachable!("Extension never stacked")
-					},
-					NodePlan::NibbledBranch { children, .. } |
-					NodePlan::Branch { children, .. } =>
-						if let Some(child) = &children[child_index as usize] {
-							child.build(node_data)
-						} else {
-							self.rem_next_content = true;
-							return Some(Ok(ReadProofItem::NoValue(to_check.key)))
-						},
-				}
-			} else {
-				NodeHandle::Hash(self.expected_root.as_ref().map(AsRef::as_ref).unwrap_or(&[]))
-			};
-
-			let mut node = match child_handle {
-				NodeHandle::Inline(data) =>
-				// try access in inline then return
-					ItemStack::Inline(
-						match OwnedNode::new::<L::Codec>(data.to_vec()) {
-							Ok(node) => node,
-							Err(e) => return Some(Err(VerifyError::DecodeError(e))),
-						},
-						0,
-					),
-				NodeHandle::Hash(hash) => {
-					let Some(encoded_node) = self.proof.next() else {
-						exit = true;
-						break
-					};
-					let node = match OwnedNode::new::<L::Codec>(encoded_node) {
-						Ok(node) => node,
-						Err(e) => return Some(Err(VerifyError::DecodeError(e))),
-					};
-					if self.expected_root.is_some() {
-						let checked_hash = L::Hash::hash(node.data());
-						if checked_hash.as_ref() != hash {
-							let mut error_hash = TrieHash::<L>::default();
-							error_hash.as_mut().copy_from_slice(hash);
-							return Some(Err(VerifyError::HashMismatch(error_hash)))
-						}
-					}
-					ItemStack::Node(node, 0)
 				},
-			};
-
-			let mut descend_incomplete = false;
-			let node_data = node.data();
-
-			match node.node_plan() {
-				NodePlan::Branch { .. } => (),
-				| NodePlan::Empty => (),
-				NodePlan::Leaf { partial, .. } |
-				NodePlan::NibbledBranch { partial, .. } |
-				NodePlan::Extension { partial, .. } => {
-					let partial = partial.build(node_data);
-					if to_check_slice.starts_with(&partial) {
-						if self.prefix.len() > 0 {
-							self.prefix.push(child_index);
-							to_check_slice.advance(1);
-						}
-						to_check_slice.advance(partial.len());
-						self.prefix.append_partial(partial.right());
-					} else {
-						descend_incomplete = true;
-					}
+				TryStackChildResult::NotStacked => {
+					self.rem_next_content = true;
+					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
 				},
-			}
-			if descend_incomplete {
-				self.rem_next_content = true;
-				return Some(Ok(ReadProofItem::NoValue(to_check.key)))
-			}
-			if let NodePlan::Extension { child, .. } = node.node_plan() {
-				let node_data = node.data();
-				let child = child.build(node_data);
-				match child {
-					NodeHandle::Hash(hash) => {
-						let Some(encoded_branch) = self.proof.next() else {
-							return Some(Err(VerifyError::IncompleteProof));
-						};
-
-						if self.expected_root.is_some() {
-							let checked_hash = L::Hash::hash(encoded_branch.borrow());
-							if checked_hash.as_ref() != hash {
-								let mut error_hash = TrieHash::<L>::default();
-								error_hash.as_mut().copy_from_slice(hash);
-								return Some(Err(VerifyError::HashMismatch(error_hash)))
-							}
-						}
-						node = match OwnedNode::new::<L::Codec>(encoded_branch) {
-							Ok(node) => ItemStack::Node(node, 0),
-							Err(e) => return Some(Err(VerifyError::DecodeError(e))),
-						};
-					},
-					NodeHandle::Inline(encoded_branch) => {
-						node = match OwnedNode::new::<L::Codec>(encoded_branch.to_vec()) {
-							Ok(node) => ItemStack::Inline(node, 0),
-							Err(e) => return Some(Err(VerifyError::DecodeError(e))),
-						};
-					},
-				}
-				let NodePlan::Branch { .. } = node.node_plan() else {
-					return Some(Err(VerifyError::IncompleteProof)) // TODO make error type??
-				};
-			}
-			node.set_depth(self.prefix.len());
-			self.stack.push(node);
-		}
-
-		if exit {
-			if self.rem_next_content {
-				self.next_content = None;
-				// TODO unstack check for compact
-
-				if self.proof.next().is_some() {
-					return Some(Err(VerifyError::ExtraneousNode))
-				}
-				// successfully finished
-				return None
-			} else {
-				// incomplete proof: TODO for compact check root
-				unimplemented!("TODO return Halted read proof item");
+				TryStackChildResult::NotStackedBranch => {
+					self.rem_next_content = true;
+					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
+				},
+				TryStackChildResult::Halted => break,
 			}
 		}
-		unimplemented!()
+		if self.rem_next_content {
+			self.next_content = None;
+			// TODO unstack check for compact
+
+			if self.proof.next().is_some() {
+				return Some(Err(VerifyError::ExtraneousNode))
+			}
+			// successfully finished
+			return None
+		} else {
+			// incomplete proof: TODO for compact check root
+			unimplemented!("TODO return Halted read proof item");
+		}
 	}
 }
 
@@ -1033,8 +1086,12 @@ where
 		expected_root,
 		next_content,
 		rem_next_content: false,
-		prefix: Default::default(),
-		stack: Default::default(),
+		stack: ReadStack {
+			items: Default::default(),
+			prefix: Default::default(),
+			is_compact,
+			_ph: PhantomData,
+		},
 		_ph: PhantomData,
 	})
 }
