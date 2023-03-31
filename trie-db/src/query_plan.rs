@@ -80,6 +80,10 @@ impl<'a> QueryPlanItem<'a> {
 			common_depth,
 		)
 	}
+
+	fn to_owned(&self) -> InMemQueryPlanItem {
+		InMemQueryPlanItem { key: self.key.to_vec(), as_prefix: self.as_prefix }
+	}
 }
 
 /// Query plan in memory.
@@ -189,17 +193,6 @@ struct CompactEncodingInfos {
 	is_inline: bool,
 }
 
-/* likely compact encoding is enough
-struct ContentEncodingInfos {
-	/// Node in memory content.
-	node: OwnedNode<Vec<u8>>,
-	/// Flags indicating whether each child is omitted in the encoded node.
-	omit_children: Bitmap,
-	/// Skip value if value node is after.
-	omit_value: bool,
-}
-*/
-
 /// Allows sending proof recording as it is produced.
 pub trait RecorderOutput {
 	/// Append bytes.
@@ -234,12 +227,22 @@ impl RecorderOutput for InMemoryRecorder {
 }
 
 /// Simplified recorder.
-pub struct Recorder<O: RecorderOutput>(RecorderStateInner<O>);
+pub struct Recorder<O: RecorderOutput> {
+	output: RecorderStateInner<O>,
+	limits: Limits,
+}
+
+/// Limits to size proof to record.
+struct Limits {
+	remaining_node: Option<usize>,
+	remaining_size: Option<usize>,
+	kind: ProofKind,
+}
 
 impl<O: RecorderOutput> Recorder<O> {
 	/// Get back output handle from a recorder.
 	pub fn output(self) -> O {
-		match self.0 {
+		match self.output {
 			RecorderStateInner::Stream(output) |
 			RecorderStateInner::Compact { output, .. } |
 			RecorderStateInner::CompactStream(output) |
@@ -248,21 +251,30 @@ impl<O: RecorderOutput> Recorder<O> {
 	}
 
 	/// Instantiate a new recorder.
-	pub fn new(proof_kind: ProofKind, output: O) -> Self {
-		let recorder = match proof_kind {
+	pub fn new(
+		kind: ProofKind,
+		output: O,
+		limit_node: Option<usize>,
+		limit_size: Option<usize>,
+	) -> Self {
+		let output = match kind {
 			ProofKind::FullNodes => RecorderStateInner::Stream(output),
 			ProofKind::CompactNodes =>
 				RecorderStateInner::Compact { output, proof: Vec::new(), stacked_pos: Vec::new() },
 			ProofKind::CompactNodesStream => RecorderStateInner::CompactStream(output),
 			ProofKind::CompactContent => RecorderStateInner::Content(output),
 		};
-		Self(recorder)
+		let limits = Limits { remaining_node: limit_node, remaining_size: limit_size, kind };
+		Self { output, limits }
 	}
 
-	fn record_stacked_node(&mut self, item: &CompactEncodingInfos, stack_pos: usize) {
-		match &mut self.0 {
+	#[must_use]
+	fn record_stacked_node(&mut self, item: &CompactEncodingInfos, _stack_pos: usize) -> bool {
+		let mut res = false;
+		match &mut self.output {
 			RecorderStateInner::Stream(output) =>
 				if !item.is_inline {
+					res = self.limits.add_node(item.node.data().len());
 					output.write_entry(item.node.data().into());
 				},
 			RecorderStateInner::Compact { output, proof, stacked_pos } => {
@@ -275,10 +287,11 @@ impl<O: RecorderOutput> Recorder<O> {
 				unimplemented!()
 			},
 		}
+		res
 	}
 
 	fn record_popped_node(&mut self, item: &CompactEncodingInfos, stack_pos: usize) {
-		match &mut self.0 {
+		match &mut self.output {
 			RecorderStateInner::Stream(_) => (),
 			RecorderStateInner::Compact { output, proof, stacked_pos } => {
 				unimplemented!()
@@ -292,9 +305,12 @@ impl<O: RecorderOutput> Recorder<O> {
 		}
 	}
 
-	fn record_value_node(&mut self, value: Vec<u8>) {
-		match &mut self.0 {
+	#[must_use]
+	fn record_value_node(&mut self, value: Vec<u8>) -> bool {
+		let mut res = false;
+		match &mut self.output {
 			RecorderStateInner::Stream(output) => {
+				res = self.limits.add_value(value.len());
 				output.write_entry(value.into());
 			},
 			RecorderStateInner::Compact { output, proof, stacked_pos } => {
@@ -307,10 +323,11 @@ impl<O: RecorderOutput> Recorder<O> {
 				unimplemented!()
 			},
 		}
+		res
 	}
 
 	fn record_value_inline(&mut self, value: &[u8]) {
-		match &mut self.0 {
+		match &mut self.output {
 			RecorderStateInner::Stream(output) => {
 				// not writing inline value (already
 				// in parent node).
@@ -325,6 +342,78 @@ impl<O: RecorderOutput> Recorder<O> {
 				unimplemented!()
 			},
 		}
+	}
+}
+
+impl Limits {
+	#[must_use]
+	fn add_node(&mut self, size: usize) -> bool {
+		let mut res = false;
+		match self.kind {
+			ProofKind::FullNodes => {
+				if let Some(rem_size) = self.remaining_size.as_mut() {
+					if *rem_size >= size {
+						*rem_size -= size;
+					} else {
+						*rem_size = 0;
+						res = true;
+					}
+				}
+				if let Some(rem_node) = self.remaining_node.as_mut() {
+					if *rem_node > 1 {
+						*rem_node -= 1;
+					} else {
+						*rem_node = 0;
+						res = true;
+					}
+				}
+			},
+			ProofKind::CompactNodes => {
+				unimplemented!()
+			},
+			ProofKind::CompactNodesStream => {
+				unimplemented!()
+			},
+			ProofKind::CompactContent => {
+				unimplemented!()
+			},
+		}
+		res
+	}
+
+	#[must_use]
+	fn add_value(&mut self, size: usize) -> bool {
+		let mut res = false;
+		match self.kind {
+			ProofKind::FullNodes => {
+				if let Some(rem_size) = self.remaining_size.as_mut() {
+					if *rem_size >= size {
+						*rem_size -= size;
+					} else {
+						*rem_size = 0;
+						res = true;
+					}
+				}
+				if let Some(rem_node) = self.remaining_node.as_mut() {
+					if *rem_node > 1 {
+						*rem_node -= 1;
+					} else {
+						*rem_node = 0;
+						res = true;
+					}
+				}
+			},
+			ProofKind::CompactNodes => {
+				unimplemented!()
+			},
+			ProofKind::CompactNodesStream => {
+				unimplemented!()
+			},
+			ProofKind::CompactContent => {
+				unimplemented!()
+			},
+		}
+		res
 	}
 }
 
@@ -357,6 +446,25 @@ pub struct HaltedStateRecord<O: RecorderOutput> {
 }
 
 impl<O: RecorderOutput> HaltedStateRecord<O> {
+	/// Indicate we reuse the query plan iterator
+	/// and stack.
+	pub fn statefull(&mut self, recorder: Recorder<O>) -> Recorder<O> {
+		let result = core::mem::replace(&mut self.stack.recorder, recorder);
+		self.from = None;
+		result
+	}
+
+	/// Indicate to use stateless (on a fresh proof
+	/// and a fresh query plan iterator).
+	pub fn stateless(&mut self, recorder: Recorder<O>) -> Recorder<O> {
+		let new_start = Self::from_start(recorder);
+		let old = core::mem::replace(self, new_start);
+		self.from = old.from;
+		self.currently_query_item = None;
+		old.stack.recorder
+	}
+
+	/// Init from start.
 	pub fn from_start(recorder: Recorder<O>) -> Self {
 		HaltedStateRecord {
 			currently_query_item: None,
@@ -365,6 +473,7 @@ impl<O: RecorderOutput> HaltedStateRecord<O> {
 				items: Vec::new(),
 				prefix: NibbleVec::new(),
 				iter_prefix: None,
+				halt: false,
 			},
 			from: Some(Default::default()),
 		}
@@ -392,6 +501,7 @@ struct RecordStack<O: RecorderOutput> {
 	items: Vec<CompactEncodingInfos>,
 	prefix: NibbleVec,
 	iter_prefix: Option<usize>,
+	halt: bool,
 }
 
 /// Run query plan on a full db and record it.
@@ -456,6 +566,13 @@ pub fn record_query_plan<
 			}
 
 			let child_index = if stack.items.is_empty() { 0 } else { slice_query.at(0) };
+			if stack.halt {
+				let restart_cursor = unimplemented!();
+				from.from = restart_cursor;
+				from.currently_query_item = Some(query.to_owned());
+				return Ok(from)
+			}
+
 			match stack.try_stack_child(
 				child_index,
 				db,
@@ -479,11 +596,6 @@ pub fn record_query_plan<
 		from_query_ref = None;
 		prev_query = Some(query);
 
-		if touched {
-			// try access value
-			stack.access_value(db)?;
-			touched = false;
-		}
 		if let Some(prefix_stack_depth) = stack.iter_prefix.clone() {
 			// run prefix iteration
 			let mut stacked = true;
@@ -505,6 +617,14 @@ pub fn record_query_plan<
 					} else {
 						break
 					};
+
+					if stack.halt {
+						let restart_cursor = unimplemented!();
+						from.from = restart_cursor;
+						from.currently_query_item = prev_query.map(|q| q.to_owned());
+						return Ok(from)
+					}
+
 					match stack.try_stack_child(child_index, db, dummy_parent_hash, None)? {
 						TryStackChildResult::Stacked => {
 							stacked = true;
@@ -521,12 +641,17 @@ pub fn record_query_plan<
 				}
 
 				// pop
-
 				if !stack.pop() {
 					break
 				}
 			}
 			stack.exit_prefix_iter();
+		}
+
+		if touched {
+			// try access value
+			stack.access_value(db)?;
+			touched = false;
 		}
 	}
 
@@ -621,7 +746,9 @@ impl<O: RecorderOutput> RecordStack<O> {
 			next_descended_child: 0,
 			is_inline,
 		};
-		self.recorder.record_stacked_node(&infos, stack.len());
+		if self.recorder.record_stacked_node(&infos, stack.len()) {
+			self.halt = true;
+		}
 		stack.push(infos);
 		if stack_extension {
 			let sbranch = self.try_stack_child(0, db, parent_hash, slice_query)?;
@@ -667,7 +794,9 @@ impl<O: RecorderOutput> RecordStack<O> {
 				let Some(value) = db.db().get(&hash, self.prefix.as_prefix()) else {
 					return Err(VerifyError::IncompleteProof);
 				};
-				self.recorder.record_value_node(value);
+				if self.recorder.record_value_node(value) {
+					self.halt = true;
+				}
 			},
 			Value::Inline(value) => {
 				self.recorder.record_value_inline(value);

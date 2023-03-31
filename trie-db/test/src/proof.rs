@@ -287,44 +287,62 @@ fn test_query_plan_internal<L: TrieLayout>() {
 	];
 	for query_plan in query_plans {
 		let kind = ProofKind::FullNodes;
-		let recorder = Recorder::new(kind, InMemoryRecorder::default());
-		let from = HaltedStateRecord::from_start(recorder);
-		// no limit
+		for limit_conf in [(0, false), (1, false), (1, true), (2, false), (2, true), (3, true)] {
+			let limit = limit_conf.0;
+			let limit = (limit != 0).then(|| limit);
+			let recorder = Recorder::new(kind, InMemoryRecorder::default(), limit, None);
+			let mut from = HaltedStateRecord::from_start(recorder);
+			// no limit
+			let mut proof: Vec<Vec<u8>> = Default::default();
+			loop {
+				let query_plan_iter = query_plan.as_ref();
+				from = record_query_plan::<L, _, _>(&db, query_plan_iter, from).unwrap();
 
-		let query_plan_iter = query_plan.as_ref();
-		let from = record_query_plan::<L, _, _>(&db, query_plan_iter, from).unwrap();
-		assert!(from.is_finished());
-		let proof = from.finish().output().nodes;
+				if limit.is_none() {
+					assert!(from.is_finished());
+				}
+				if from.is_finished() {
+					proof.append(&mut from.finish().output().nodes);
+					break
+				}
+				let rec = if limit_conf.1 {
+					from.stateless(Recorder::new(kind, InMemoryRecorder::default(), limit, None))
+				} else {
+					from.statefull(Recorder::new(kind, InMemoryRecorder::default(), limit, None))
+				};
+				proof.append(&mut rec.output().nodes);
+			}
 
-		let query_plan_iter = query_plan.as_ref();
-		let verify_iter = verify_query_plan_iter::<L, _, _, _>(
-			query_plan_iter,
-			proof.into_iter(),
-			None,
-			kind,
-			Some(root.clone()),
-		)
-		.unwrap();
-		let mut content: BTreeMap<_, _> = set.iter().cloned().collect();
-		let mut in_prefix = false;
-		for item in verify_iter {
-			match item.unwrap() {
-				ReadProofItem::Value(key, value) => {
-					assert_eq!(content.get(&*key), Some(&value.as_ref()));
-				},
-				ReadProofItem::NoValue(key) => {
-					assert_eq!(content.get(key), None);
-				},
-				ReadProofItem::StartPrefix(_prefix) => {
-					in_prefix = true;
-				},
-				ReadProofItem::EndPrefix => {
-					assert!(in_prefix);
-					in_prefix = false;
-				},
-				ReadProofItem::Halted(_) => {
-					unreachable!("full proof");
-				},
+			let query_plan_iter = query_plan.as_ref();
+			let verify_iter = verify_query_plan_iter::<L, _, _, _>(
+				query_plan_iter,
+				proof.into_iter(),
+				None,
+				kind,
+				Some(root.clone()),
+			)
+			.unwrap();
+			let content: BTreeMap<_, _> = set.iter().cloned().collect();
+			let mut in_prefix = false;
+			for item in verify_iter {
+				match item.unwrap() {
+					ReadProofItem::Value(key, value) => {
+						assert_eq!(content.get(&*key), Some(&value.as_ref()));
+					},
+					ReadProofItem::NoValue(key) => {
+						assert_eq!(content.get(key), None);
+					},
+					ReadProofItem::StartPrefix(_prefix) => {
+						in_prefix = true;
+					},
+					ReadProofItem::EndPrefix => {
+						assert!(in_prefix);
+						in_prefix = false;
+					},
+					ReadProofItem::Halted(_) => {
+						unreachable!("full proof");
+					},
+				}
 			}
 		}
 
