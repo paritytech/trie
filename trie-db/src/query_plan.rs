@@ -707,47 +707,46 @@ where
 	expected_root: Option<TrieHash<L>>,
 	next_content: Option<QueryPlanItem<'a>>,
 	rem_next_content: bool,
-	stack: ReadStack<L, D>,
-	_ph: PhantomData<&'a L>,
+	stack: ReadStack<'a, L, D>,
 }
 
-enum ItemStack<D: Borrow<[u8]>> {
-	Inline(OwnedNode<Vec<u8>>, usize),
-	Node(OwnedNode<D>, usize),
+struct ItemStack<D: Borrow<[u8]>> {
+	node: ItemStackNode<D>,
+	depth: usize,
+	next_descended_child: u8,
+}
+
+enum ItemStackNode<D: Borrow<[u8]>> {
+	Inline(OwnedNode<Vec<u8>>),
+	Node(OwnedNode<D>),
+}
+
+impl<D: Borrow<[u8]>> From<ItemStackNode<D>> for ItemStack<D> {
+	fn from(node: ItemStackNode<D>) -> Self {
+		ItemStack { node, depth: 0, next_descended_child: 0 }
+	}
 }
 
 impl<D: Borrow<[u8]>> ItemStack<D> {
-	fn depth(&self) -> usize {
-		match self {
-			ItemStack::Inline(_, d) => *d,
-			ItemStack::Node(_, d) => *d,
-		}
-	}
-	fn set_depth(&mut self, d: usize) {
-		*match self {
-			ItemStack::Inline(_, d) => d,
-			ItemStack::Node(_, d) => d,
-		} = d;
-	}
-
 	fn data(&self) -> &[u8] {
-		match self {
-			ItemStack::Inline(n, _) => n.data(),
-			ItemStack::Node(n, _) => n.data(),
+		match &self.node {
+			ItemStackNode::Inline(n) => n.data(),
+			ItemStackNode::Node(n) => n.data(),
 		}
 	}
 
 	fn node_plan(&self) -> &NodePlan {
-		match self {
-			ItemStack::Inline(n, _) => n.node_plan(),
-			ItemStack::Node(n, _) => n.node_plan(),
+		match &self.node {
+			ItemStackNode::Inline(n) => n.node_plan(),
+			ItemStackNode::Node(n) => n.node_plan(),
 		}
 	}
 }
 
-struct ReadStack<L: TrieLayout, D: Borrow<[u8]>> {
+struct ReadStack<'a, L: TrieLayout, D: Borrow<[u8]>> {
 	items: Vec<ItemStack<D>>,
-	prefix: NibbleVec,
+	prefix: &'a mut NibbleVec,
+	iter_prefix: Option<(usize, bool)>, // limit and wether we return value
 	is_compact: bool,
 	_ph: PhantomData<L>,
 }
@@ -766,7 +765,7 @@ fn verify_hash<L: TrieLayout>(
 	}
 }
 
-impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
+impl<'a, L: TrieLayout, D: Borrow<[u8]>> ReadStack<'a, L, D> {
 	fn try_stack_child(
 		&mut self,
 		child_index: u8,
@@ -794,16 +793,14 @@ impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
 		} else {
 			NodeHandle::Hash(expected_root.as_ref().map(AsRef::as_ref).unwrap_or(&[]))
 		};
-		let mut node = match child_handle {
+		let mut node: ItemStack<_> = match child_handle {
 			NodeHandle::Inline(data) =>
 			// try access in inline then return
-				ItemStack::Inline(
-					match OwnedNode::new::<L::Codec>(data.to_vec()) {
-						Ok(node) => node,
-						Err(e) => return Err(VerifyError::DecodeError(e)),
-					},
-					0,
-				),
+				ItemStackNode::Inline(match OwnedNode::new::<L::Codec>(data.to_vec()) {
+					Ok(node) => node,
+					Err(e) => return Err(VerifyError::DecodeError(e)),
+				})
+				.into(),
 			NodeHandle::Hash(hash) => {
 				let Some(encoded_node) = proof.next() else {
 						return Ok(TryStackChildResult::Halted);
@@ -815,7 +812,7 @@ impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
 				if check_hash {
 					verify_hash::<L>(node.data(), hash)?;
 				}
-				ItemStack::Node(node, 0)
+				ItemStackNode::Node(node).into()
 			},
 		};
 		let node_data = node.data();
@@ -861,13 +858,13 @@ impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
 						verify_hash::<L>(encoded_branch.borrow(), hash)?;
 					}
 					node = match OwnedNode::new::<L::Codec>(encoded_branch) {
-						Ok(node) => ItemStack::Node(node, 0),
+						Ok(node) => ItemStackNode::Node(node).into(),
 						Err(e) => return Err(VerifyError::DecodeError(e)),
 					};
 				},
 				NodeHandle::Inline(encoded_branch) => {
 					node = match OwnedNode::new::<L::Codec>(encoded_branch.to_vec()) {
-						Ok(node) => ItemStack::Inline(node, 0),
+						Ok(node) => ItemStackNode::Inline(node).into(),
 						Err(e) => return Err(VerifyError::DecodeError(e)),
 					};
 				},
@@ -876,7 +873,7 @@ impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
 					return Err(VerifyError::IncompleteProof) // TODO make error type??
 				};
 		}
-		node.set_depth(self.prefix.len());
+		node.depth = self.prefix.len();
 		self.items.push(node);
 		Ok(TryStackChildResult::Stacked)
 	}
@@ -916,15 +913,27 @@ impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
 		Ok(None)
 	}
 
+	fn pop(&mut self) -> bool {
+		if self.iter_prefix.as_ref().map(|p| p.0 == self.items.len()).unwrap_or(false) {
+			return false
+		}
+		if let Some(last) = self.items.pop() {
+			self.prefix.drop_lasts(self.prefix.len() - last.depth);
+			true
+		} else {
+			false
+		}
+	}
+
 	fn pop_until(&mut self, target: usize) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
 		loop {
 			while let Some(last) = self.items.last() {
-				match last.depth().cmp(&target) {
+				match last.depth.cmp(&target) {
 					Ordering::Greater => (),
 					// depth should match.
 					Ordering::Less => break,
 					Ordering::Equal => {
-						self.prefix.drop_lasts(self.prefix.len() - last.depth());
+						self.prefix.drop_lasts(self.prefix.len() - last.depth);
 						return Ok(())
 					},
 				}
@@ -932,6 +941,14 @@ impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
 			let _ = self.items.pop();
 		}
 		Err(VerifyError::ExtraneousNode)
+	}
+
+	fn enter_prefix_iter(&mut self) {
+		self.iter_prefix = Some((self.items.len(), false));
+	}
+
+	fn exit_prefix_iter(&mut self) {
+		self.iter_prefix = None
 	}
 }
 
@@ -978,8 +995,7 @@ where
 						if self.query_plan.ignore_unordered {
 							continue
 						} else {
-							return Some(Err(VerifyError::UnorderedKey(next.key.to_vec()))) // TODO not kind as param if keeping
-							                                   // CompactContent
+							return Some(Err(VerifyError::UnorderedKey(next.key.to_vec())))
 						}
 					}
 
@@ -995,7 +1011,73 @@ where
 					break
 				}
 			};
+			let did_prefix = self.stack.iter_prefix.is_some();
+			while let Some((_, accessed_value)) = self.stack.iter_prefix.clone() {
+				// prefix iteration
+				if !accessed_value {
+					match self.stack.access_value(&mut self.proof, check_hash) {
+						Ok(Some(value)) => {
+							self.stack.iter_prefix.as_mut().map(|s| {
+								s.1 = true;
+							});
+							// prefix is &'a mut NibbleVec.
+							let prefix: &'a NibbleVec =
+								unsafe { core::mem::transmute(&self.stack.prefix) };
+							return Some(Ok(ReadProofItem::Value(prefix.inner(), value)))
+						},
+						Ok(None) => (),
+						Err(e) => return Some(Err(e)),
+					};
+				}
+				let mut stacked = false;
+				while let Some(child_index) = self.stack.items.last_mut().and_then(|last| {
+					if last.next_descended_child as usize >= crate::nibble_ops::NIBBLE_LENGTH {
+						None
+					} else {
+						let child_index = last.next_descended_child;
+						last.next_descended_child += 1;
+						Some(child_index)
+					}
+				}) {
+					let r = match self.stack.try_stack_child(
+						child_index,
+						&mut self.proof,
+						&self.expected_root,
+						None,
+					) {
+						Ok(r) => r,
+						Err(e) => return Some(Err(e)),
+					};
+					match r {
+						TryStackChildResult::Stacked => {
+							stacked = true;
+							break
+						},
+						TryStackChildResult::StackedDescendIncomplete => {
+							unreachable!("slice query none");
+						},
+						TryStackChildResult::NotStacked => break,
+						TryStackChildResult::NotStackedBranch => (),
+						TryStackChildResult::Halted => {
+							unimplemented!()
+						},
+					}
+				}
+				if !stacked {
+					if !self.stack.pop() {
+						// end iter
+						self.stack.exit_prefix_iter();
+					}
+					break
+				}
+			}
+			if did_prefix {
+				// exit a prefix iter, next content looping
+				self.rem_next_content = true;
+				continue
+			}
 			let to_check = self.next_content.as_ref().expect("Init above");
+			let as_prefix = to_check.as_prefix;
 			let mut at_value = false;
 			let mut to_check_slice = NibbleSlice::new(to_check.key);
 			match self.stack.prefix.len().cmp(&to_check_slice.len()) {
@@ -1009,6 +1091,10 @@ where
 			}
 
 			if at_value {
+				if as_prefix {
+					self.stack.enter_prefix_iter();
+					continue
+				}
 				self.rem_next_content = true;
 				match self.stack.access_value(&mut self.proof, check_hash) {
 					Ok(Some(value)) => return Some(Ok(ReadProofItem::Value(to_check.key, value))),
@@ -1030,6 +1116,10 @@ where
 			match r {
 				TryStackChildResult::Stacked => (),
 				TryStackChildResult::StackedDescendIncomplete => {
+					if as_prefix {
+						self.stack.enter_prefix_iter();
+						continue
+					}
 					self.rem_next_content = true;
 					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
 				},
@@ -1069,6 +1159,7 @@ pub fn verify_query_plan_iter<'a, L, C, D, P>(
 	restart: Option<HaltedStateCheck>,
 	kind: ProofKind,
 	expected_root: Option<TrieHash<L>>,
+	prefix: &'a mut NibbleVec,
 ) -> Result<ReadProofIterator<'a, L, C, D, P>, VerifyError<TrieHash<L>, CError<L>>>
 where
 	L: TrieLayout,
@@ -1094,11 +1185,11 @@ where
 		rem_next_content: false,
 		stack: ReadStack {
 			items: Default::default(),
-			prefix: Default::default(),
+			prefix,
 			is_compact,
+			iter_prefix: None,
 			_ph: PhantomData,
 		},
-		_ph: PhantomData,
 	})
 }
 

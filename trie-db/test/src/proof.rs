@@ -296,12 +296,14 @@ fn test_query_plan_internal<L: TrieLayout>() {
 		let proof = from.finish().output().nodes;
 
 		let query_plan_iter = query_plan.as_ref();
+		let mut buffer = trie_db::NibbleVec::new();
 		let verify_iter = verify_query_plan_iter::<L, _, _, _>(
 			query_plan_iter,
 			proof.into_iter(),
 			None,
 			kind,
 			Some(root.clone()),
+			&mut buffer,
 		)
 		.unwrap();
 		let mut in_prefix = false;
