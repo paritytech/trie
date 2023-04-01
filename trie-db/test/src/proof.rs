@@ -296,9 +296,9 @@ fn test_query_plan_internal<L: TrieLayout>() {
 			let mut from = HaltedStateRecord::from_start(recorder);
 			// no limit
 			let mut proof: Vec<Vec<u8>> = Default::default();
+			let mut query_plan_iter = query_plan.as_ref();
 			loop {
-				let query_plan_iter = query_plan.as_ref();
-				from = record_query_plan::<L, _, _>(&db, query_plan_iter, from).unwrap();
+				from = record_query_plan::<L, _, _>(&db, &mut query_plan_iter, from).unwrap();
 
 				if limit.is_none() {
 					assert!(from.is_finished());
@@ -308,6 +308,7 @@ fn test_query_plan_internal<L: TrieLayout>() {
 					break
 				}
 				let rec = if limit_conf.1 {
+					query_plan_iter = query_plan.as_ref();
 					from.stateless(Recorder::new(kind, InMemoryRecorder::default(), limit, None))
 				} else {
 					from.statefull(Recorder::new(kind, InMemoryRecorder::default(), limit, None))

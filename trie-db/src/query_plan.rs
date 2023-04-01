@@ -514,7 +514,7 @@ pub fn record_query_plan<
 	O: RecorderOutput,
 >(
 	db: &TrieDB<L>,
-	mut query_plan: QueryPlan<'a, I>,
+	query_plan: &mut QueryPlan<'a, I>,
 	mut from: HaltedStateRecord<O>,
 ) -> Result<HaltedStateRecord<O>, VerifyError<TrieHash<L>, CError<L>>> {
 	// TODO
@@ -529,7 +529,7 @@ pub fn record_query_plan<
 			unimplemented!()
 		}
 		Some((
-			lower_bound.0.len() * nibble_ops::NIBBLE_PER_BYTE - if lower_bound.1 { 1 } else { 2 },
+			lower_bound.0.len() * nibble_ops::NIBBLE_PER_BYTE - if lower_bound.1 { 1 } else { 0 },
 			statefull,
 		))
 	} else {
@@ -542,9 +542,9 @@ pub fn record_query_plan<
 	let mut from_query = from.currently_query_item.take();
 	let mut from_query_ref = from_query.as_ref().map(|f| f.as_ref());
 	while let Some(query) = from_query_ref.clone().or_else(|| query_plan.items.next()) {
-		let common_nibbles = if let Some((common_nibbles, statefull)) = restore {
+		let common_nibbles = if let Some((slice_at, statefull)) = restore {
 			if statefull {}
-			common_nibbles
+			slice_at
 		} else {
 			let (ordered, common_nibbles) =
 				prev_query.as_ref().map(|p| p.before(&query)).unwrap_or((true, 0));
@@ -702,6 +702,7 @@ impl<O: RecorderOutput> RecordStack<O> {
 		let stack = &mut self.items;
 		let mut descend_incomplete = false;
 		let mut stack_extension = false;
+		let mut from_branch = None;
 		let child_handle = if let Some(item) = stack.last_mut() {
 			let node_data = item.node.data();
 
@@ -710,15 +711,14 @@ impl<O: RecorderOutput> RecordStack<O> {
 					return Ok(TryStackChildResult::NotStacked),
 				NodePlan::Extension { child, .. } =>
 					if child_index == 0 {
+						item.accessed_children.set(child_index as usize, true);
 						child.build(node_data)
 					} else {
 						return Ok(TryStackChildResult::NotStacked)
 					},
 				NodePlan::NibbledBranch { children, .. } | NodePlan::Branch { children, .. } =>
 					if let Some(child) = &children[child_index as usize] {
-						slice_query.as_mut().map(|s| s.advance(1));
-						prefix.push(child_index);
-						item.accessed_children.set(child_index as usize, true);
+						from_branch = Some(&mut item.accessed_children);
 						child.build(node_data)
 					} else {
 						return Ok(TryStackChildResult::NotStackedBranch)
@@ -732,9 +732,15 @@ impl<O: RecorderOutput> RecordStack<O> {
 			// Returning NotStacked here sounds safe, then the is_inline field is not needed.
 			is_inline = true;
 		} else {
-			if self.halt {
+			if self.halt && from_branch.is_some() {
 				return Ok(TryStackChildResult::Halted)
 			}
+		}
+		if let Some(accessed_children) = from_branch {
+			accessed_children.set(child_index as usize, true);
+
+			slice_query.as_mut().map(|s| s.advance(1));
+			prefix.push(child_index);
 		}
 		// TODO handle cache first
 		let child_node = db
