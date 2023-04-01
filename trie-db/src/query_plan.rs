@@ -230,6 +230,8 @@ impl RecorderOutput for InMemoryRecorder {
 pub struct Recorder<O: RecorderOutput> {
 	output: RecorderStateInner<O>,
 	limits: Limits,
+	// on restore only record content AFTER this position.
+	start_at: Option<usize>,
 }
 
 /// Limits to size proof to record.
@@ -265,11 +267,14 @@ impl<O: RecorderOutput> Recorder<O> {
 			ProofKind::CompactContent => RecorderStateInner::Content(output),
 		};
 		let limits = Limits { remaining_node: limit_node, remaining_size: limit_size, kind };
-		Self { output, limits }
+		Self { output, limits, start_at: None }
 	}
 
 	#[must_use]
 	fn record_stacked_node(&mut self, item: &CompactEncodingInfos, _stack_pos: usize) -> bool {
+		if self.start_at.map(|s| item.depth > s).unwrap_or(false) {
+			return false;
+		}
 		let mut res = false;
 		match &mut self.output {
 			RecorderStateInner::Stream(output) =>
@@ -291,6 +296,10 @@ impl<O: RecorderOutput> Recorder<O> {
 	}
 
 	fn record_popped_node(&mut self, item: &CompactEncodingInfos, stack_pos: usize) {
+		if self.start_at.map(|s| item.depth > s).unwrap_or(false) {
+			return;
+		}
+
 		match &mut self.output {
 			RecorderStateInner::Stream(_) => (),
 			RecorderStateInner::Compact { output, proof, stacked_pos } => {
@@ -306,7 +315,11 @@ impl<O: RecorderOutput> Recorder<O> {
 	}
 
 	#[must_use]
-	fn record_value_node(&mut self, value: Vec<u8>) -> bool {
+	fn record_value_node(&mut self, value: Vec<u8>, depth: usize) -> bool {
+		if self.start_at.map(|s| depth > s).unwrap_or(false) {
+			return false;
+		}
+
 		let mut res = false;
 		match &mut self.output {
 			RecorderStateInner::Stream(output) => {
@@ -326,7 +339,11 @@ impl<O: RecorderOutput> Recorder<O> {
 		res
 	}
 
-	fn record_value_inline(&mut self, value: &[u8]) {
+	fn record_value_inline(&mut self, value: &[u8], depth: usize) {
+		if self.start_at.map(|s| depth > s).unwrap_or(false) {
+			return;
+		}
+
 		match &mut self.output {
 			RecorderStateInner::Stream(output) => {
 				// not writing inline value (already
@@ -519,31 +536,45 @@ pub fn record_query_plan<
 ) -> Result<HaltedStateRecord<O>, VerifyError<TrieHash<L>, CError<L>>> {
 	// TODO
 	//) resto
+	let restore_buf;
+	let mut restore_buf2 = Vec::new();
 	let dummy_parent_hash = TrieHash::<L>::default();
-	let restore = if let Some(lower_bound) = from.from.take() {
-		let mut statefull = true;
+	let mut stateless = false;
+	let mut statefull = None;
+	let mut bound = LeftNibbleSlice::new(&[]);
+	if let Some(lower_bound) = from.from.take() {
 		if from.currently_query_item.is_none() {
-			statefull = false;
-			// TODO implement stack building from lower bound: fetch in stack and don't record.
-			// First also advance iterator to skip and init currently_query_item.
-			unimplemented!()
+			stateless = true;
+			restore_buf2 = lower_bound.0.clone();
+			restore_buf = lower_bound.0;
+			bound = LeftNibbleSlice::new(&restore_buf[..]);
+			if lower_bound.1 {
+				bound.truncate(bound.len() - 1);
+				restore_buf2.pop();
+			}
+			from.stack.recorder.start_at = Some(bound.len());
+		} else {
+			statefull = Some(
+				lower_bound.0.len() * nibble_ops::NIBBLE_PER_BYTE -
+					if lower_bound.1 { 1 } else { 0 },
+			);
 		}
-		Some((
-			lower_bound.0.len() * nibble_ops::NIBBLE_PER_BYTE - if lower_bound.1 { 1 } else { 0 },
-			statefull,
-		))
-	} else {
-		None
-	};
+	}
 
 	let stack = &mut from.stack;
 
-	let mut prev_query: Option<QueryPlanItem> = None;
+	let mut prev_query: Option<QueryPlanItem> = if stateless {
+		Some(QueryPlanItem {
+			key: restore_buf2.as_slice(),
+			as_prefix: false, // not checked only to advance.
+		})
+	} else {
+		None
+	};
 	let mut from_query = from.currently_query_item.take();
 	let mut from_query_ref = from_query.as_ref().map(|f| f.as_ref());
 	while let Some(query) = from_query_ref.clone().or_else(|| query_plan.items.next()) {
-		let common_nibbles = if let Some((slice_at, statefull)) = restore {
-			if statefull {}
+		let common_nibbles = if let Some(slice_at) = statefull.take() {
 			slice_at
 		} else {
 			let (ordered, common_nibbles) =
@@ -552,6 +583,9 @@ pub fn record_query_plan<
 				if query_plan.ignore_unordered {
 					continue
 				} else {
+					if stateless {
+						continue
+					}
 					return Err(VerifyError::UnorderedKey(query.key.to_vec())) // TODO not kind as param if keeping
 					                                      // CompactContent
 				}
@@ -567,7 +601,7 @@ pub fn record_query_plan<
 			}
 			common_nibbles
 		};
-
+		stateless = false;
 		let mut first_iter = false;
 		if stack.iter_prefix.is_none() {
 			// descend
@@ -827,12 +861,12 @@ impl<O: RecorderOutput> RecordStack<O> {
 				let Some(value) = db.db().get(&hash, self.prefix.as_prefix()) else {
 					return Err(VerifyError::IncompleteProof);
 				};
-				if self.recorder.record_value_node(value) {
+				if self.recorder.record_value_node(value, self.prefix.len()) {
 					self.halt = true;
 				}
 			},
 			Value::Inline(value) => {
-				self.recorder.record_value_inline(value);
+				self.recorder.record_value_inline(value, self.prefix.len());
 			},
 		}
 		Ok(true)
