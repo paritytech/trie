@@ -218,9 +218,7 @@ impl NibbleVec {
 
 	/// `NibbleVec` as a `LeftNibbleSlice`.
 	pub fn as_leftnibbleslice(&self) -> LeftNibbleSlice {
-		let mut result = LeftNibbleSlice::new(&self.inner);
-		result.truncate(self.len);
-		result
+		LeftNibbleSlice::new(&self.inner).truncate(self.len)
 	}
 
 	/// Do we start with the same nibbles as the whole of `them`?

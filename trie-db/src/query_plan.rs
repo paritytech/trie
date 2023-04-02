@@ -661,7 +661,6 @@ pub fn record_query_plan<
 						break
 					},
 					TryStackChildResult::Halted => {
-						stack.prefix.push(child_index);
 						stack.halt = false;
 						stack.prefix.push(child_index);
 						from.from = Some((
