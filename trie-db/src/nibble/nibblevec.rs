@@ -16,7 +16,7 @@
 
 use super::NibbleVec;
 use crate::{
-	nibble::{nibble_ops, BackingByteVec, NibbleSlice},
+	nibble::{nibble_ops, BackingByteVec, LeftNibbleSlice, NibbleSlice},
 	node::NodeKey,
 	node_codec::Partial,
 };
@@ -214,6 +214,13 @@ impl NibbleVec {
 		} else {
 			None
 		}
+	}
+
+	/// `NibbleVec` as a `LeftNibbleSlice`.
+	pub fn as_leftnibbleslice(&self) -> LeftNibbleSlice {
+		let mut result = LeftNibbleSlice::new(&self.inner);
+		result.truncate(self.len);
+		result
 	}
 
 	/// Do we start with the same nibbles as the whole of `them`?

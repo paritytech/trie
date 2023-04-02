@@ -273,7 +273,7 @@ impl<O: RecorderOutput> Recorder<O> {
 	#[must_use]
 	fn record_stacked_node(&mut self, item: &CompactEncodingInfos, _stack_pos: usize) -> bool {
 		if self.start_at.map(|s| item.depth > s).unwrap_or(false) {
-			return false;
+			return false
 		}
 		let mut res = false;
 		match &mut self.output {
@@ -297,7 +297,7 @@ impl<O: RecorderOutput> Recorder<O> {
 
 	fn record_popped_node(&mut self, item: &CompactEncodingInfos, stack_pos: usize) {
 		if self.start_at.map(|s| item.depth > s).unwrap_or(false) {
-			return;
+			return
 		}
 
 		match &mut self.output {
@@ -317,7 +317,7 @@ impl<O: RecorderOutput> Recorder<O> {
 	#[must_use]
 	fn record_value_node(&mut self, value: Vec<u8>, depth: usize) -> bool {
 		if self.start_at.map(|s| depth > s).unwrap_or(false) {
-			return false;
+			return false
 		}
 
 		let mut res = false;
@@ -341,7 +341,7 @@ impl<O: RecorderOutput> Recorder<O> {
 
 	fn record_value_inline(&mut self, value: &[u8], depth: usize) {
 		if self.start_at.map(|s| depth > s).unwrap_or(false) {
-			return;
+			return
 		}
 
 		match &mut self.output {
@@ -490,6 +490,7 @@ impl<O: RecorderOutput> HaltedStateRecord<O> {
 				prefix: NibbleVec::new(),
 				iter_prefix: None,
 				halt: false,
+				seek: None,
 			},
 			from: None,
 		}
@@ -517,6 +518,7 @@ struct RecordStack<O: RecorderOutput> {
 	items: Vec<CompactEncodingInfos>,
 	prefix: NibbleVec,
 	iter_prefix: Option<usize>,
+	seek: Option<NibbleVec>,
 	halt: bool,
 }
 
@@ -536,33 +538,41 @@ pub fn record_query_plan<
 ) -> Result<HaltedStateRecord<O>, VerifyError<TrieHash<L>, CError<L>>> {
 	// TODO
 	//) resto
-	let restore_buf;
+	//	let restore_buf;
 	let mut restore_buf2 = Vec::new();
 	let dummy_parent_hash = TrieHash::<L>::default();
 	let mut stateless = false;
 	let mut statefull = None;
-	let mut bound = LeftNibbleSlice::new(&[]);
 	if let Some(lower_bound) = from.from.take() {
 		if from.currently_query_item.is_none() {
 			stateless = true;
 			restore_buf2 = lower_bound.0.clone();
-			restore_buf = lower_bound.0;
-			bound = LeftNibbleSlice::new(&restore_buf[..]);
+			let mut bound = NibbleVec::new();
+			bound.append_optional_slice_and_nibble(Some(&NibbleSlice::new(&lower_bound.0)), None);
+			if lower_bound.1 {
+				bound.pop();
+			}
+			/*
+			bound = LeftNibbleSlice::new(&restore_buf.0[..]);
 			if lower_bound.1 {
 				bound.truncate(bound.len() - 1);
-				restore_buf2.pop();
+				//restore_buf2.pop();
 			}
+			*/
 			from.stack.recorder.start_at = Some(bound.len());
+			from.stack.seek = Some(bound);
 		} else {
 			statefull = Some(
 				lower_bound.0.len() * nibble_ops::NIBBLE_PER_BYTE -
-					if lower_bound.1 { 1 } else { 0 },
+					if lower_bound.1 { 2 } else { 1 },
 			);
 		}
 	}
 
 	let stack = &mut from.stack;
 
+	let mut prev_query: Option<QueryPlanItem> = None;
+	/*
 	let mut prev_query: Option<QueryPlanItem> = if stateless {
 		Some(QueryPlanItem {
 			key: restore_buf2.as_slice(),
@@ -571,9 +581,28 @@ pub fn record_query_plan<
 	} else {
 		None
 	};
+	*/
 	let mut from_query = from.currently_query_item.take();
 	let mut from_query_ref = from_query.as_ref().map(|f| f.as_ref());
 	while let Some(query) = from_query_ref.clone().or_else(|| query_plan.items.next()) {
+		if stateless {
+			let bound = stack.seek.as_ref().expect("Initiated for stateless");
+			let bound = bound.as_leftnibbleslice();
+			let query_slice = LeftNibbleSlice::new(&query.key);
+			if query_slice.starts_with(&bound) {
+			} else if query.as_prefix {
+				if bound.starts_with(&query_slice) {
+				} else {
+					continue
+				}
+			} else {
+				continue
+			}
+			stateless = false;
+			if !query.as_prefix {
+				stack.seek = None;
+			}
+		}
 		let common_nibbles = if let Some(slice_at) = statefull.take() {
 			slice_at
 		} else {
@@ -583,9 +612,6 @@ pub fn record_query_plan<
 				if query_plan.ignore_unordered {
 					continue
 				} else {
-					if stateless {
-						continue
-					}
 					return Err(VerifyError::UnorderedKey(query.key.to_vec())) // TODO not kind as param if keeping
 					                                      // CompactContent
 				}
@@ -601,7 +627,6 @@ pub fn record_query_plan<
 			}
 			common_nibbles
 		};
-		stateless = false;
 		let mut first_iter = false;
 		if stack.iter_prefix.is_none() {
 			// descend
@@ -638,10 +663,12 @@ pub fn record_query_plan<
 					TryStackChildResult::Halted => {
 						stack.prefix.push(child_index);
 						stack.halt = false;
+						stack.prefix.push(child_index);
 						from.from = Some((
 							stack.prefix.inner().to_vec(),
 							(stack.prefix.len() % nibble_ops::NIBBLE_PER_BYTE) != 0,
 						));
+						stack.prefix.pop();
 						from.currently_query_item = Some(query.to_owned());
 						return Ok(from)
 					},
@@ -693,10 +720,12 @@ pub fn record_query_plan<
 								item.next_descended_child -= 1;
 							}
 							stack.halt = false;
+							stack.prefix.push(child_index);
 							from.from = Some((
 								stack.prefix.inner().to_vec(),
 								(stack.prefix.len() % nibble_ops::NIBBLE_PER_BYTE) != 0,
 							));
+							stack.prefix.pop();
 							from.currently_query_item = prev_query.map(|q| q.to_owned());
 							return Ok(from)
 						},
@@ -805,12 +834,22 @@ impl<O: RecorderOutput> RecordStack<O> {
 		if let NodePlan::Extension { .. } = child_node.0.node_plan() {
 			stack_extension = true;
 		}
+		let next_descended_child = if let Some(seek) = self.seek.as_ref() {
+			if prefix.len() <= seek.len() {
+				seek.at(prefix.len())
+			} else {
+				self.seek = None;
+				0
+			}
+		} else {
+			0
+		};
 		let infos = CompactEncodingInfos {
 			node: child_node.0,
 			accessed_children: Default::default(),
 			accessed_value: false,
 			depth: prefix.len(),
-			next_descended_child: 0,
+			next_descended_child,
 			is_inline,
 		};
 		if self.recorder.record_stacked_node(&infos, stack.len()) {
