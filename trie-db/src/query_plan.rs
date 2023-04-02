@@ -272,7 +272,7 @@ impl<O: RecorderOutput> Recorder<O> {
 
 	#[must_use]
 	fn record_stacked_node(&mut self, item: &CompactEncodingInfos, _stack_pos: usize) -> bool {
-		if self.start_at.map(|s| item.depth > s).unwrap_or(false) {
+		if self.start_at.map(|s| s > item.depth).unwrap_or(false) {
 			return false
 		}
 		let mut res = false;
@@ -296,7 +296,7 @@ impl<O: RecorderOutput> Recorder<O> {
 	}
 
 	fn record_popped_node(&mut self, item: &CompactEncodingInfos, stack_pos: usize) {
-		if self.start_at.map(|s| item.depth > s).unwrap_or(false) {
+		if self.start_at.map(|s| s > item.depth).unwrap_or(false) {
 			return
 		}
 
@@ -316,7 +316,7 @@ impl<O: RecorderOutput> Recorder<O> {
 
 	#[must_use]
 	fn record_value_node(&mut self, value: Vec<u8>, depth: usize) -> bool {
-		if self.start_at.map(|s| depth > s).unwrap_or(false) {
+		if self.start_at.map(|s| s > depth).unwrap_or(false) {
 			return false
 		}
 
@@ -340,7 +340,7 @@ impl<O: RecorderOutput> Recorder<O> {
 	}
 
 	fn record_value_inline(&mut self, value: &[u8], depth: usize) {
-		if self.start_at.map(|s| depth > s).unwrap_or(false) {
+		if self.start_at.map(|s| s > depth).unwrap_or(false) {
 			return
 		}
 
@@ -835,7 +835,7 @@ impl<O: RecorderOutput> RecordStack<O> {
 			stack_extension = true;
 		}
 		let next_descended_child = if let Some(seek) = self.seek.as_ref() {
-			if prefix.len() <= seek.len() {
+			if prefix.len() < seek.len() {
 				seek.at(prefix.len())
 			} else {
 				self.seek = None;
