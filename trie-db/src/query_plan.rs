@@ -242,6 +242,16 @@ struct Limits {
 }
 
 impl<O: RecorderOutput> Recorder<O> {
+	/// Check and update start at record.
+	/// When return true, do record.
+	fn check_start_at(&mut self, depth: usize) -> bool {
+		if self.start_at.map(|s| s > depth).unwrap_or(false) {
+			false
+		} else {
+			self.start_at = None;
+			true
+		}
+	}
 	/// Get back output handle from a recorder.
 	pub fn output(self) -> O {
 		match self.output {
@@ -272,7 +282,7 @@ impl<O: RecorderOutput> Recorder<O> {
 
 	#[must_use]
 	fn record_stacked_node(&mut self, item: &CompactEncodingInfos, _stack_pos: usize) -> bool {
-		if self.start_at.map(|s| s > item.depth).unwrap_or(false) {
+		if !self.check_start_at(item.depth) {
 			return false
 		}
 		let mut res = false;
@@ -296,7 +306,7 @@ impl<O: RecorderOutput> Recorder<O> {
 	}
 
 	fn record_popped_node(&mut self, item: &CompactEncodingInfos, stack_pos: usize) {
-		if self.start_at.map(|s| s > item.depth).unwrap_or(false) {
+		if !self.check_start_at(item.depth) {
 			return
 		}
 
@@ -316,7 +326,7 @@ impl<O: RecorderOutput> Recorder<O> {
 
 	#[must_use]
 	fn record_value_node(&mut self, value: Vec<u8>, depth: usize) -> bool {
-		if self.start_at.map(|s| s > depth).unwrap_or(false) {
+		if !self.check_start_at(depth) {
 			return false
 		}
 
@@ -340,7 +350,7 @@ impl<O: RecorderOutput> Recorder<O> {
 	}
 
 	fn record_value_inline(&mut self, value: &[u8], depth: usize) {
-		if self.start_at.map(|s| s > depth).unwrap_or(false) {
+		if !self.check_start_at(depth) {
 			return
 		}
 

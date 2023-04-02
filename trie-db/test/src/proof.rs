@@ -274,14 +274,14 @@ fn test_query_plan_internal<L: TrieLayout>() {
 			ignore_unordered: false,
 		},
 		InMemQueryPlan {
+			items: vec![InMemQueryPlanItem::new(b"".to_vec(), true)],
+			ignore_unordered: false,
+		},
+		InMemQueryPlan {
 			items: vec![
 				InMemQueryPlanItem::new(b"bravo".to_vec(), false),
 				InMemQueryPlanItem::new(b"do".to_vec(), true),
 			],
-			ignore_unordered: false,
-		},
-		InMemQueryPlan {
-			items: vec![InMemQueryPlanItem::new(b"".to_vec(), true)],
 			ignore_unordered: false,
 		},
 	];
