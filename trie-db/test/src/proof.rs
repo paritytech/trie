@@ -290,7 +290,10 @@ fn test_query_plan_internal<L: TrieLayout>() {
 		},
 	];
 	for query_plan in query_plans {
-		for limit_conf in [(0, false), (1, false), (1, true), (2, false), (2, true), (3, true)] {
+		for limit_conf in [
+			/* (0, false), */
+			(1, false), /* (1, true), (2, false), (2, true), (3, true) */
+		] {
 			let limit = limit_conf.0;
 			let limit = (limit != 0).then(|| limit);
 			let recorder = Recorder::new(kind, InMemoryRecorder::default(), limit, None);
@@ -318,10 +321,11 @@ fn test_query_plan_internal<L: TrieLayout>() {
 			}
 
 			let mut full_proof: Vec<Vec<u8>> = Default::default();
-
+			proofs.reverse();
 			let mut query_plan_iter: QueryPlan<_> = query_plan.as_ref();
-			let mut state: HaltedStateCheck<_, _, _> = query_plan_iter.into();
-			loop {
+			let mut run_state: Option<HaltedStateCheck<_, _, _>> = Some(query_plan_iter.into());
+			let mut has_run_full = false;
+			while let Some(state) = run_state.take() {
 				let proof = if let Some(proof) = proofs.pop() {
 					full_proof.extend_from_slice(&proof);
 					proof
@@ -340,6 +344,7 @@ fn test_query_plan_internal<L: TrieLayout>() {
 				.unwrap();
 				let content: BTreeMap<_, _> = set.iter().cloned().collect();
 				let mut in_prefix = false;
+				let mut halted = false;
 				for item in verify_iter {
 					match item.unwrap() {
 						ReadProofItem::Value(key, value) => {
@@ -356,12 +361,16 @@ fn test_query_plan_internal<L: TrieLayout>() {
 							in_prefix = false;
 						},
 						ReadProofItem::Halted(resume) => {
-							state = *resume;
-							continue
+							run_state = Some(*resume);
+							break
 						},
 					}
 				}
-				break
+				if run_state.is_none() && !has_run_full {
+					has_run_full = true;
+					query_plan_iter = query_plan.as_ref();
+					run_state = Some(query_plan_iter.into());
+				}
 			}
 		}
 

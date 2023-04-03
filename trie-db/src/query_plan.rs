@@ -525,6 +525,7 @@ pub struct HaltedStateCheck<'a, L, C, D> {
 	current: Option<QueryPlanItem<'a>>,
 	stack: ReadStack<L, D>,
 	state: ReadProofState,
+	restore_offset: usize,
 }
 
 impl<'a, L, C, D> From<QueryPlan<'a, C>> for HaltedStateCheck<'a, L, C, D> {
@@ -545,6 +546,7 @@ impl<'a, L, C, D> From<QueryPlan<'a, C>> for HaltedStateCheck<'a, L, C, D> {
 			},
 			state: ReadProofState::NotStarted,
 			current: None,
+			restore_offset: 0,
 			query_plan,
 		}
 	}
@@ -991,6 +993,7 @@ where
 	current: Option<QueryPlanItem<'a>>,
 	state: ReadProofState,
 	stack: ReadStack<L, D>,
+	restore_offset: usize,
 }
 
 #[derive(Eq, PartialEq)]
@@ -1309,12 +1312,16 @@ where
 		if self.state == ReadProofState::Finished {
 			return None
 		}
-		if self.state == ReadProofState::Halted {
-			todo!("restore needed??");
-		}
 		let check_hash = self.expected_root.is_some();
+		let mut to_check_slice = if self.state == ReadProofState::Halted {
+			self.state = ReadProofState::Running;
+			self.current
+				.as_ref()
+				.map(|n| NibbleSlice::new_offset(n.key, self.restore_offset))
+		} else {
+			self.current.as_ref().map(|n| NibbleSlice::new(n.key))
+		};
 
-		let mut to_check_slice = self.current.as_ref().map(|n| NibbleSlice::new(n.key));
 		// read proof
 		loop {
 			if self.state == ReadProofState::SwitchQueryPlan ||
@@ -1522,6 +1529,7 @@ where
 				current,
 				stack,
 				state: ReadProofState::Halted,
+				restore_offset: to_check_slice.map(|s| s.offset()).unwrap_or(0),
 			}))))
 		} else {
 			debug_assert!(self.state == ReadProofState::PlanConsumed);
@@ -1553,7 +1561,7 @@ where
 	P: Iterator<Item = D>,
 	D: Borrow<[u8]>,
 {
-	let HaltedStateCheck { query_plan, current, stack, state } = state;
+	let HaltedStateCheck { query_plan, current, stack, state, restore_offset } = state;
 
 	match query_plan.kind {
 		ProofKind::CompactNodes | ProofKind::CompactContent => {
@@ -1570,6 +1578,7 @@ where
 		current,
 		state,
 		stack,
+		restore_offset,
 	})
 }
 

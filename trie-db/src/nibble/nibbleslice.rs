@@ -42,6 +42,10 @@ impl<'a> NibbleSlice<'a> {
 		Self::new_slice(data, offset)
 	}
 
+	pub(crate) fn offset(&self) -> usize {
+		self.offset
+	}
+
 	fn new_slice(data: &'a [u8], offset: usize) -> Self {
 		NibbleSlice { data, offset }
 	}
