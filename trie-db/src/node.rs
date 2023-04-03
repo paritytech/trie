@@ -583,7 +583,7 @@ impl NodePlan {
 /// the `OwnedNode`. This is useful for trie iterators.
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(PartialEq, Eq)]
-pub struct OwnedNode<D: Borrow<[u8]>> {
+pub struct OwnedNode<D> {
 	data: D,
 	plan: NodePlan,
 }

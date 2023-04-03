@@ -264,6 +264,7 @@ fn test_query_plan_internal<L: TrieLayout>() {
 	// TODO add a cache
 	let db = <TrieDBBuilder<L>>::new(&db, &root).build();
 
+	let kind = ProofKind::FullNodes;
 	let query_plans = [
 		InMemQueryPlan {
 			items: vec![
@@ -272,10 +273,12 @@ fn test_query_plan_internal<L: TrieLayout>() {
 				InMemQueryPlanItem::new(b"horsey".to_vec(), false),
 			],
 			ignore_unordered: false,
+			kind,
 		},
 		InMemQueryPlan {
 			items: vec![InMemQueryPlanItem::new(b"".to_vec(), true)],
 			ignore_unordered: false,
+			kind,
 		},
 		InMemQueryPlan {
 			items: vec![
@@ -283,10 +286,10 @@ fn test_query_plan_internal<L: TrieLayout>() {
 				InMemQueryPlanItem::new(b"do".to_vec(), true),
 			],
 			ignore_unordered: false,
+			kind,
 		},
 	];
 	for query_plan in query_plans {
-		let kind = ProofKind::FullNodes;
 		for limit_conf in [(0, false), (1, false), (1, true), (2, false), (2, true), (3, true)] {
 			let limit = limit_conf.0;
 			let limit = (limit != 0).then(|| limit);
@@ -317,12 +320,11 @@ fn test_query_plan_internal<L: TrieLayout>() {
 			let mut full_proof: Vec<Vec<u8>> = Default::default();
 
 			let mut query_plan_iter: QueryPlan<_> = query_plan.as_ref();
-			let mut state: HaltedStateCheck<_> = query_plan_iter.into();
+			let mut state: HaltedStateCheck<_, _, _> = query_plan_iter.into();
 			loop {
 				let proof = if let Some(proof) = proofs.pop() {
 					full_proof.extend_from_slice(&proof);
-					continue
-				//					proof
+					proof
 				} else {
 					if proofs.len() == 0 {
 						break
@@ -333,7 +335,6 @@ fn test_query_plan_internal<L: TrieLayout>() {
 				let verify_iter = verify_query_plan_iter::<L, _, _, _>(
 					state,
 					proof.into_iter(),
-					kind,
 					Some(root.clone()),
 				)
 				.unwrap();
@@ -355,7 +356,7 @@ fn test_query_plan_internal<L: TrieLayout>() {
 							in_prefix = false;
 						},
 						ReadProofItem::Halted(resume) => {
-							state = resume;
+							state = *resume;
 							continue
 						},
 					}

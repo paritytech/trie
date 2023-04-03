@@ -29,6 +29,7 @@ use crate::{
 	proof::VerifyError,
 	rstd::{
 		borrow::{Borrow, Cow},
+		boxed::Box,
 		cmp::*,
 		result::Result,
 	},
@@ -89,6 +90,7 @@ impl<'a> QueryPlanItem<'a> {
 /// Query plan in memory.
 pub struct InMemQueryPlan {
 	pub items: Vec<InMemQueryPlanItem>,
+	pub kind: ProofKind,
 	pub ignore_unordered: bool,
 }
 
@@ -112,6 +114,7 @@ impl InMemQueryPlan {
 	pub fn as_ref(&self) -> QueryPlan<QueryPlanItemIter> {
 		QueryPlan {
 			items: QueryPlanItemIter(&self.items, 0),
+			kind: self.kind,
 			ignore_unordered: self.ignore_unordered,
 			_ph: PhantomData,
 		}
@@ -122,6 +125,7 @@ impl InMemQueryPlan {
 pub struct QueryPlan<'a, I> {
 	items: I,
 	ignore_unordered: bool,
+	kind: ProofKind,
 	_ph: PhantomData<&'a ()>,
 }
 
@@ -516,17 +520,33 @@ impl<O: RecorderOutput> HaltedStateRecord<O> {
 
 /// When process is halted keep execution state
 /// to restore later.
-pub struct HaltedStateCheck<'a, C> {
-	stack: (),
-	stack_content: (),
-	currently_query_item: Option<InMemQueryPlanItem>,
+pub struct HaltedStateCheck<'a, L, C, D> {
 	query_plan: QueryPlan<'a, C>,
-	//	_ph: PhantomData<D, P>,
+	current: Option<QueryPlanItem<'a>>,
+	stack: ReadStack<L, D>,
+	state: ReadProofState,
 }
 
-impl<'a, C> From<QueryPlan<'a, C>> for HaltedStateCheck<'a, C> {
+impl<'a, L, C, D> From<QueryPlan<'a, C>> for HaltedStateCheck<'a, L, C, D> {
 	fn from(query_plan: QueryPlan<'a, C>) -> Self {
-		HaltedStateCheck { stack: (), stack_content: (), currently_query_item: None, query_plan }
+		let is_compact = match query_plan.kind {
+			ProofKind::FullNodes => false,
+			ProofKind::CompactNodesStream => true,
+			_ => false,
+		};
+
+		HaltedStateCheck {
+			stack: ReadStack {
+				items: Default::default(),
+				prefix: Default::default(),
+				is_compact,
+				iter_prefix: None,
+				_ph: PhantomData,
+			},
+			state: ReadProofState::NotStarted,
+			current: None,
+			query_plan,
+		}
 	}
 }
 
@@ -962,7 +982,9 @@ where
 	P: Iterator<Item = D>,
 	D: Borrow<[u8]>,
 {
-	query_plan: QueryPlan<'a, C>,
+	// always needed, this is option only
+	// to avoid unsafe code when halting.
+	query_plan: Option<QueryPlan<'a, C>>,
 	proof: P,
 	is_compact: bool,
 	expected_root: Option<TrieHash<L>>,
@@ -987,13 +1009,13 @@ enum ReadProofState {
 	Finished,
 }
 
-struct ItemStack<D: Borrow<[u8]>> {
+struct ItemStack<D> {
 	node: ItemStackNode<D>,
 	depth: usize,
 	next_descended_child: u8,
 }
 
-enum ItemStackNode<D: Borrow<[u8]>> {
+enum ItemStackNode<D> {
 	Inline(OwnedNode<Vec<u8>>),
 	Node(OwnedNode<D>),
 }
@@ -1020,7 +1042,7 @@ impl<D: Borrow<[u8]>> ItemStack<D> {
 	}
 }
 
-struct ReadStack<L: TrieLayout, D: Borrow<[u8]>> {
+struct ReadStack<L, D> {
 	items: Vec<ItemStack<D>>,
 	prefix: NibbleVec,
 	iter_prefix: Option<(usize, bool)>, // limit and wether we return value
@@ -1257,9 +1279,9 @@ impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
 }
 
 /// Content return on success when reading proof.
-pub enum ReadProofItem<'a, C> {
+pub enum ReadProofItem<'a, L, C, D> {
 	/// Successfull read of proof, not all content read.
-	Halted(HaltedStateCheck<'a, C>),
+	Halted(Box<HaltedStateCheck<'a, L, C, D>>),
 	/// Seen value and key in proof.
 	/// When we set the query plan, we only return content
 	/// matching the query plan.
@@ -1281,11 +1303,14 @@ where
 	P: Iterator<Item = D>,
 	D: Borrow<[u8]>,
 {
-	type Item = Result<ReadProofItem<'a, C>, VerifyError<TrieHash<L>, CError<L>>>;
+	type Item = Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		if self.state == ReadProofState::Finished {
 			return None
+		}
+		if self.state == ReadProofState::Halted {
+			todo!("restore needed??");
 		}
 		let check_hash = self.expected_root.is_some();
 
@@ -1295,14 +1320,15 @@ where
 			if self.state == ReadProofState::SwitchQueryPlan ||
 				self.state == ReadProofState::NotStarted
 			{
-				if let Some(next) = self.query_plan.items.next() {
+				let query_plan = self.query_plan.as_mut().expect("Removed with state");
+				if let Some(next) = query_plan.items.next() {
 					let (ordered, common_nibbles) = if let Some(old) = self.current.as_ref() {
 						old.before(&next)
 					} else {
 						(true, 0)
 					};
 					if !ordered {
-						if self.query_plan.ignore_unordered {
+						if query_plan.ignore_unordered {
 							continue
 						} else {
 							self.state = ReadProofState::Finished;
@@ -1469,12 +1495,34 @@ where
 					self.state = ReadProofState::SwitchQueryPlan;
 					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
 				},
-				TryStackChildResult::Halted => break,
+				TryStackChildResult::Halted => {
+					self.state = ReadProofState::Halted;
+					break
+				},
 			}
 		}
 
 		if self.state == ReadProofState::Halted {
-			unimplemented!()
+			self.state = ReadProofState::Finished;
+			let query_plan = crate::rstd::mem::replace(&mut self.query_plan, None);
+			let query_plan = query_plan.expect("Init with state");
+			let current = crate::rstd::mem::take(&mut self.current);
+			let stack = crate::rstd::mem::replace(
+				&mut self.stack,
+				ReadStack {
+					items: Default::default(),
+					prefix: Default::default(),
+					is_compact: self.is_compact,
+					iter_prefix: None,
+					_ph: PhantomData,
+				},
+			);
+			return Some(Ok(ReadProofItem::Halted(Box::new(HaltedStateCheck {
+				query_plan,
+				current,
+				stack,
+				state: ReadProofState::Halted,
+			}))))
 		} else {
 			debug_assert!(self.state == ReadProofState::PlanConsumed);
 			if self.is_compact {
@@ -1491,28 +1539,12 @@ where
 	}
 }
 
-/*
-impl<'a, L, C, D, P> ReadProofIterator<'a, L, C, D, P>
-where
-	L: TrieLayout,
-	C: Iterator<Item = QueryPlanItem<'a>>,
-	P: Iterator<Item = D>,
-	D: Borrow<[u8]>,
-{
-	/// On suspended check extract compenents to restart later.
-	pub fn halted(self) -> QueryPlan<'a, C> {
-		self.query_plan
-	}
-}
-*/
-
 /// Read the proof.
 ///
 /// If expected root is None, then we do not check hashes at all.
 pub fn verify_query_plan_iter<'a, L, C, D, P>(
-	state: HaltedStateCheck<'a, C>,
+	state: HaltedStateCheck<'a, L, C, D>,
 	proof: P,
-	kind: ProofKind,
 	expected_root: Option<TrieHash<L>>,
 ) -> Result<ReadProofIterator<'a, L, C, D, P>, VerifyError<TrieHash<L>, CError<L>>>
 where
@@ -1521,29 +1553,23 @@ where
 	P: Iterator<Item = D>,
 	D: Borrow<[u8]>,
 {
-	let HaltedStateCheck { mut query_plan, .. } = state;
-	let is_compact = match kind {
+	let HaltedStateCheck { query_plan, current, stack, state } = state;
+
+	match query_plan.kind {
 		ProofKind::CompactNodes | ProofKind::CompactContent => {
 			return Err(VerifyError::IncompleteProof) // TODO not kind as param if keeping CompactContent
 		},
-		ProofKind::FullNodes => false,
-		ProofKind::CompactNodesStream => true,
+		_ => (),
 	};
 
 	Ok(ReadProofIterator {
-		query_plan,
+		query_plan: Some(query_plan),
 		proof,
-		is_compact,
+		is_compact: stack.is_compact,
 		expected_root,
-		current: None,
-		state: ReadProofState::NotStarted,
-		stack: ReadStack {
-			items: Default::default(),
-			prefix: Default::default(),
-			is_compact,
-			iter_prefix: None,
-			_ph: PhantomData,
-		},
+		current,
+		state,
+		stack,
 	})
 }
 
