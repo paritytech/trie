@@ -18,7 +18,7 @@ use reference_trie::{test_layouts, NoExtensionLayout};
 use std::collections::BTreeMap;
 use trie_db::{
 	proof::{generate_proof, verify_proof, VerifyError},
-	query_plan::HaltedStateRecord,
+	query_plan::{HaltedStateCheck, HaltedStateRecord},
 	DBValue, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieLayout, TrieMut,
 };
 
@@ -246,8 +246,8 @@ fn test_verify_decode_error_internal<T: TrieLayout>() {
 test_layouts!(test_query_plan, test_query_plan_internal);
 fn test_query_plan_internal<L: TrieLayout>() {
 	use trie_db::query_plan::{
-		record_query_plan, verify_query_plan_iter, InMemQueryPlan, InMemQueryPlanItem,
-		InMemoryRecorder, ProofKind, ReadProofItem, Recorder,
+		record_query_plan, verify_query_plan_iter, HaltedStateCheck, InMemQueryPlan,
+		InMemQueryPlanItem, InMemoryRecorder, ProofKind, QueryPlan, ReadProofItem, Recorder,
 	};
 	let set = test_entries();
 	let (db, root) = {
@@ -293,7 +293,7 @@ fn test_query_plan_internal<L: TrieLayout>() {
 			let recorder = Recorder::new(kind, InMemoryRecorder::default(), limit, None);
 			let mut from = HaltedStateRecord::from_start(recorder);
 			// no limit
-			let mut proof: Vec<Vec<u8>> = Default::default();
+			let mut proofs: Vec<Vec<Vec<u8>>> = Default::default();
 			let mut query_plan_iter = query_plan.as_ref();
 			loop {
 				from = record_query_plan::<L, _, _>(&db, &mut query_plan_iter, from).unwrap();
@@ -302,7 +302,7 @@ fn test_query_plan_internal<L: TrieLayout>() {
 					assert!(from.is_finished());
 				}
 				if from.is_finished() {
-					proof.append(&mut from.finish().output().nodes);
+					proofs.push(from.finish().output().nodes);
 					break
 				}
 				let rec = if limit_conf.1 {
@@ -311,39 +311,56 @@ fn test_query_plan_internal<L: TrieLayout>() {
 				} else {
 					from.statefull(Recorder::new(kind, InMemoryRecorder::default(), limit, None))
 				};
-				proof.append(&mut rec.output().nodes);
+				proofs.push(rec.output().nodes);
 			}
 
-			let query_plan_iter = query_plan.as_ref();
-			let verify_iter = verify_query_plan_iter::<L, _, _, _>(
-				query_plan_iter,
-				proof.into_iter(),
-				None,
-				kind,
-				Some(root.clone()),
-			)
-			.unwrap();
-			let content: BTreeMap<_, _> = set.iter().cloned().collect();
-			let mut in_prefix = false;
-			for item in verify_iter {
-				match item.unwrap() {
-					ReadProofItem::Value(key, value) => {
-						assert_eq!(content.get(&*key), Some(&value.as_ref()));
-					},
-					ReadProofItem::NoValue(key) => {
-						assert_eq!(content.get(key), None);
-					},
-					ReadProofItem::StartPrefix(_prefix) => {
-						in_prefix = true;
-					},
-					ReadProofItem::EndPrefix => {
-						assert!(in_prefix);
-						in_prefix = false;
-					},
-					ReadProofItem::Halted(_) => {
-						unreachable!("full proof");
-					},
+			let mut full_proof: Vec<Vec<u8>> = Default::default();
+
+			let mut query_plan_iter: QueryPlan<_> = query_plan.as_ref();
+			let mut state: HaltedStateCheck<_> = query_plan_iter.into();
+			loop {
+				let proof = if let Some(proof) = proofs.pop() {
+					full_proof.extend_from_slice(&proof);
+					continue
+				//					proof
+				} else {
+					if proofs.len() == 0 {
+						break
+					}
+					proofs.clear();
+					std::mem::take(&mut full_proof)
+				};
+				let verify_iter = verify_query_plan_iter::<L, _, _, _>(
+					state,
+					proof.into_iter(),
+					kind,
+					Some(root.clone()),
+				)
+				.unwrap();
+				let content: BTreeMap<_, _> = set.iter().cloned().collect();
+				let mut in_prefix = false;
+				for item in verify_iter {
+					match item.unwrap() {
+						ReadProofItem::Value(key, value) => {
+							assert_eq!(content.get(&*key), Some(&value.as_ref()));
+						},
+						ReadProofItem::NoValue(key) => {
+							assert_eq!(content.get(key), None);
+						},
+						ReadProofItem::StartPrefix(_prefix) => {
+							in_prefix = true;
+						},
+						ReadProofItem::EndPrefix => {
+							assert!(in_prefix);
+							in_prefix = false;
+						},
+						ReadProofItem::Halted(resume) => {
+							state = resume;
+							continue
+						},
+					}
 				}
+				break
 			}
 		}
 

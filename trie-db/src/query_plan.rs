@@ -113,17 +113,16 @@ impl InMemQueryPlan {
 		QueryPlan {
 			items: QueryPlanItemIter(&self.items, 0),
 			ignore_unordered: self.ignore_unordered,
+			_ph: PhantomData,
 		}
 	}
 }
 
 /// Query plan.
-pub struct QueryPlan<'a, I>
-where
-	I: Iterator<Item = QueryPlanItem<'a>>,
-{
+pub struct QueryPlan<'a, I> {
 	items: I,
 	ignore_unordered: bool,
+	_ph: PhantomData<&'a ()>,
 }
 
 /// Different proof support.
@@ -517,10 +516,18 @@ impl<O: RecorderOutput> HaltedStateRecord<O> {
 
 /// When process is halted keep execution state
 /// to restore later.
-pub struct HaltedStateCheck {
+pub struct HaltedStateCheck<'a, C> {
 	stack: (),
 	stack_content: (),
 	currently_query_item: Option<InMemQueryPlanItem>,
+	query_plan: QueryPlan<'a, C>,
+	//	_ph: PhantomData<D, P>,
+}
+
+impl<'a, C> From<QueryPlan<'a, C>> for HaltedStateCheck<'a, C> {
+	fn from(query_plan: QueryPlan<'a, C>) -> Self {
+		HaltedStateCheck { stack: (), stack_content: (), currently_query_item: None, query_plan }
+	}
 }
 
 struct RecordStack<O: RecorderOutput> {
@@ -1250,9 +1257,9 @@ impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
 }
 
 /// Content return on success when reading proof.
-pub enum ReadProofItem<'a> {
+pub enum ReadProofItem<'a, C> {
 	/// Successfull read of proof, not all content read.
-	Halted(HaltedStateCheck),
+	Halted(HaltedStateCheck<'a, C>),
 	/// Seen value and key in proof.
 	/// When we set the query plan, we only return content
 	/// matching the query plan.
@@ -1274,7 +1281,7 @@ where
 	P: Iterator<Item = D>,
 	D: Borrow<[u8]>,
 {
-	type Item = Result<ReadProofItem<'a>, VerifyError<TrieHash<L>, CError<L>>>;
+	type Item = Result<ReadProofItem<'a, C>, VerifyError<TrieHash<L>, CError<L>>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		if self.state == ReadProofState::Finished {
@@ -1484,13 +1491,27 @@ where
 	}
 }
 
+/*
+impl<'a, L, C, D, P> ReadProofIterator<'a, L, C, D, P>
+where
+	L: TrieLayout,
+	C: Iterator<Item = QueryPlanItem<'a>>,
+	P: Iterator<Item = D>,
+	D: Borrow<[u8]>,
+{
+	/// On suspended check extract compenents to restart later.
+	pub fn halted(self) -> QueryPlan<'a, C> {
+		self.query_plan
+	}
+}
+*/
+
 /// Read the proof.
 ///
 /// If expected root is None, then we do not check hashes at all.
 pub fn verify_query_plan_iter<'a, L, C, D, P>(
-	mut query_plan: QueryPlan<'a, C>,
+	state: HaltedStateCheck<'a, C>,
 	proof: P,
-	restart: Option<HaltedStateCheck>,
 	kind: ProofKind,
 	expected_root: Option<TrieHash<L>>,
 ) -> Result<ReadProofIterator<'a, L, C, D, P>, VerifyError<TrieHash<L>, CError<L>>>
@@ -1500,6 +1521,7 @@ where
 	P: Iterator<Item = D>,
 	D: Borrow<[u8]>,
 {
+	let HaltedStateCheck { mut query_plan, .. } = state;
 	let is_compact = match kind {
 		ProofKind::CompactNodes | ProofKind::CompactContent => {
 			return Err(VerifyError::IncompleteProof) // TODO not kind as param if keeping CompactContent
