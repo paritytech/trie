@@ -1416,7 +1416,10 @@ where
 						TryStackChildResult::NotStacked => break,
 						TryStackChildResult::NotStackedBranch => (),
 						TryStackChildResult::Halted => {
-							unimplemented!()
+							if let Some(last) = self.stack.items.last_mut() {
+								last.next_descended_child -= 1;
+							}
+							return self.halt(None)
 						},
 					}
 				}
@@ -1502,48 +1505,59 @@ where
 					self.state = ReadProofState::SwitchQueryPlan;
 					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
 				},
-				TryStackChildResult::Halted => {
-					self.state = ReadProofState::Halted;
-					break
-				},
+				TryStackChildResult::Halted => return self.halt(Some(to_check_slice)),
 			}
 		}
 
-		if self.state == ReadProofState::Halted {
-			self.state = ReadProofState::Finished;
-			let query_plan = crate::rstd::mem::replace(&mut self.query_plan, None);
-			let query_plan = query_plan.expect("Init with state");
-			let current = crate::rstd::mem::take(&mut self.current);
-			let stack = crate::rstd::mem::replace(
-				&mut self.stack,
-				ReadStack {
-					items: Default::default(),
-					prefix: Default::default(),
-					is_compact: self.is_compact,
-					iter_prefix: None,
-					_ph: PhantomData,
-				},
-			);
-			return Some(Ok(ReadProofItem::Halted(Box::new(HaltedStateCheck {
-				query_plan,
-				current,
-				stack,
-				state: ReadProofState::Halted,
-				restore_offset: to_check_slice.map(|s| s.offset()).unwrap_or(0),
-			}))))
+		debug_assert!(self.state == ReadProofState::PlanConsumed);
+		if self.is_compact {
+			unimplemented!("check hash from stack");
 		} else {
-			debug_assert!(self.state == ReadProofState::PlanConsumed);
-			if self.is_compact {
-				unimplemented!("check hash from stack");
-			} else {
-				if self.proof.next().is_some() {
-					self.state = ReadProofState::Finished;
-					return Some(Err(VerifyError::ExtraneousNode))
-				}
+			if self.proof.next().is_some() {
+				self.state = ReadProofState::Finished;
+				return Some(Err(VerifyError::ExtraneousNode))
 			}
-			self.state = ReadProofState::Finished;
-			return None
 		}
+		self.state = ReadProofState::Finished;
+		return None
+	}
+}
+
+impl<'a, L, C, D, P> ReadProofIterator<'a, L, C, D, P>
+where
+	L: TrieLayout,
+	C: Iterator<Item = QueryPlanItem<'a>>,
+	P: Iterator<Item = D>,
+	D: Borrow<[u8]>,
+{
+	fn halt(
+		&mut self,
+		to_check_slice: Option<&mut NibbleSlice>,
+	) -> Option<Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>> {
+		if self.is_compact {
+			unimplemented!("check hash from stack");
+		}
+		self.state = ReadProofState::Finished;
+		let query_plan = crate::rstd::mem::replace(&mut self.query_plan, None);
+		let query_plan = query_plan.expect("Init with state");
+		let current = crate::rstd::mem::take(&mut self.current);
+		let stack = crate::rstd::mem::replace(
+			&mut self.stack,
+			ReadStack {
+				items: Default::default(),
+				prefix: Default::default(),
+				is_compact: self.is_compact,
+				iter_prefix: None,
+				_ph: PhantomData,
+			},
+		);
+		Some(Ok(ReadProofItem::Halted(Box::new(HaltedStateCheck {
+			query_plan,
+			current,
+			stack,
+			state: ReadProofState::Halted,
+			restore_offset: to_check_slice.map(|s| s.offset()).unwrap_or(0),
+		}))))
 	}
 }
 
