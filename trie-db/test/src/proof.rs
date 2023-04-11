@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use hash_db::Hasher;
-use reference_trie::{test_layouts, NoExtensionLayout};
+use reference_trie::{test_layouts, NoExtensionLayout, TestTrieCache};
 
 use std::collections::BTreeMap;
 use trie_db::{
@@ -250,6 +250,9 @@ fn test_query_plan_internal<L: TrieLayout>() {
 		InMemQueryPlanItem, InMemoryRecorder, ProofKind, QueryPlan, ReadProofItem, Recorder,
 	};
 	let set = test_entries();
+
+	let mut cache = TestTrieCache::<L>::default();
+
 	let (db, root) = {
 		let mut db = <MemoryDB<L>>::default();
 		let mut root = Default::default();
@@ -261,8 +264,7 @@ fn test_query_plan_internal<L: TrieLayout>() {
 		}
 		(db, root)
 	};
-	// TODO add a cache
-	let db = <TrieDBBuilder<L>>::new(&db, &root).build();
+	let db = <TrieDBBuilder<L>>::new(&db, &root).with_cache(&mut cache).build();
 
 	let kind = ProofKind::FullNodes;
 	let query_plans = [

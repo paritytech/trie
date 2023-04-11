@@ -578,26 +578,17 @@ pub fn record_query_plan<
 	// TODO
 	//) resto
 	//	let restore_buf;
-	let mut restore_buf2 = Vec::new();
 	let dummy_parent_hash = TrieHash::<L>::default();
 	let mut stateless = false;
 	let mut statefull = None;
 	if let Some(lower_bound) = from.from.take() {
 		if from.currently_query_item.is_none() {
 			stateless = true;
-			restore_buf2 = lower_bound.0.clone();
 			let mut bound = NibbleVec::new();
 			bound.append_optional_slice_and_nibble(Some(&NibbleSlice::new(&lower_bound.0)), None);
 			if lower_bound.1 {
 				bound.pop();
 			}
-			/*
-			bound = LeftNibbleSlice::new(&restore_buf.0[..]);
-			if lower_bound.1 {
-				bound.truncate(bound.len() - 1);
-				//restore_buf2.pop();
-			}
-			*/
 			from.stack.recorder.start_at = Some(bound.len());
 			from.stack.seek = Some(bound);
 		} else {
@@ -845,7 +836,13 @@ impl<O: RecorderOutput> RecordStack<O> {
 		}
 		// TODO handle cache first
 		let child_node = db
-			.get_raw_or_lookup(parent_hash, child_handle, prefix.as_prefix(), false)
+			.get_raw_or_lookup_with_cache(
+				parent_hash,
+				child_handle,
+				prefix.as_prefix(),
+				false,
+				true,
+			)
 			.map_err(|_| VerifyError::IncompleteProof)?; // actually incomplete db: TODO consider switching error
 
 		// TODO put in proof (only if Hash or inline for content one)
