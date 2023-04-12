@@ -266,113 +266,126 @@ fn test_query_plan_internal<L: TrieLayout>() {
 	};
 	let db = <TrieDBBuilder<L>>::new(&db, &root).with_cache(&mut cache).build();
 
-	let kind = ProofKind::FullNodes;
-	let query_plans = [
-		InMemQueryPlan {
-			items: vec![InMemQueryPlanItem::new(b"".to_vec(), true)],
-			ignore_unordered: false,
-			kind,
-		},
-		InMemQueryPlan {
-			items: vec![
-				InMemQueryPlanItem::new(b"bravo".to_vec(), false),
-				InMemQueryPlanItem::new(b"do".to_vec(), true),
-			],
-			ignore_unordered: false,
-			kind,
-		},
-		InMemQueryPlan {
-			items: vec![
-				InMemQueryPlanItem::new(b"bravo".to_vec(), false),
-				InMemQueryPlanItem::new(b"doge".to_vec(), false),
-				InMemQueryPlanItem::new(b"horsey".to_vec(), false),
-			],
-			ignore_unordered: false,
-			kind,
-		},
-	];
-	for query_plan in query_plans {
-		for limit_conf in [(0, false), (1, false), (1, true), (2, false), (2, true), (3, true)] {
-			let limit = limit_conf.0;
-			let limit = (limit != 0).then(|| limit);
-			let recorder = Recorder::new(kind, InMemoryRecorder::default(), limit, None);
-			let mut from = HaltedStateRecord::from_start(recorder);
-			// no limit
-			let mut proofs: Vec<Vec<Vec<u8>>> = Default::default();
-			let mut query_plan_iter = query_plan.as_ref();
-			loop {
-				from = record_query_plan::<L, _, _>(&db, &mut query_plan_iter, from).unwrap();
+	for kind in [ProofKind::CompactNodes, ProofKind::FullNodes] {
+		let query_plans = [
+			InMemQueryPlan {
+				items: vec![InMemQueryPlanItem::new(b"".to_vec(), true)],
+				ignore_unordered: false,
+				kind,
+			},
+			InMemQueryPlan {
+				items: vec![
+					InMemQueryPlanItem::new(b"bravo".to_vec(), false),
+					InMemQueryPlanItem::new(b"do".to_vec(), true),
+				],
+				ignore_unordered: false,
+				kind,
+			},
+			InMemQueryPlan {
+				items: vec![
+					InMemQueryPlanItem::new(b"bravo".to_vec(), false),
+					InMemQueryPlanItem::new(b"doge".to_vec(), false),
+					InMemQueryPlanItem::new(b"horsey".to_vec(), false),
+				],
+				ignore_unordered: false,
+				kind,
+			},
+		];
+		for query_plan in query_plans {
+			for limit_conf in [(0, false), (1, false), (1, true), (2, false), (2, true), (3, true)]
+			{
+				let limit = limit_conf.0;
+				let limit = (limit != 0).then(|| limit);
+				let recorder = Recorder::new(kind, InMemoryRecorder::default(), limit, None);
+				let mut from = HaltedStateRecord::from_start(recorder);
+				// no limit
+				let mut proofs: Vec<Vec<Vec<u8>>> = Default::default();
+				let mut query_plan_iter = query_plan.as_ref();
+				loop {
+					from = record_query_plan::<L, _, _>(&db, &mut query_plan_iter, from).unwrap();
 
-				if limit.is_none() {
-					assert!(from.is_finished());
-				}
-				if from.is_finished() {
-					proofs.push(from.finish().output().nodes);
-					break
-				}
-				let rec = if limit_conf.1 {
-					query_plan_iter = query_plan.as_ref();
-					from.stateless(Recorder::new(kind, InMemoryRecorder::default(), limit, None))
-				} else {
-					from.statefull(Recorder::new(kind, InMemoryRecorder::default(), limit, None))
-				};
-				proofs.push(rec.output().nodes);
-			}
-
-			let mut full_proof: Vec<Vec<u8>> = Default::default();
-			proofs.reverse();
-			let mut query_plan_iter: QueryPlan<_> = query_plan.as_ref();
-			let mut run_state: Option<HaltedStateCheck<_, _, _>> = Some(query_plan_iter.into());
-			let mut has_run_full = false;
-			while let Some(state) = run_state.take() {
-				let proof = if let Some(proof) = proofs.pop() {
-					full_proof.extend_from_slice(&proof);
-					proof
-				} else {
-					if proofs.len() == 0 {
+					if limit.is_none() {
+						assert!(from.is_finished());
+					}
+					if from.is_finished() {
+						proofs.push(from.finish().output().nodes);
 						break
 					}
-					proofs.clear();
-					std::mem::take(&mut full_proof)
-				};
-				let verify_iter = verify_query_plan_iter::<L, _, _, _>(
-					state,
-					proof.into_iter(),
-					Some(root.clone()),
-				)
-				.unwrap();
-				let content: BTreeMap<_, _> = set.iter().cloned().collect();
-				let mut in_prefix = false;
-				let mut halted = false;
-				for item in verify_iter {
-					match item.unwrap() {
-						ReadProofItem::Value(key, value) => {
-							assert_eq!(content.get(&*key), Some(&value.as_ref()));
-						},
-						ReadProofItem::NoValue(key) => {
-							assert_eq!(content.get(key), None);
-						},
-						ReadProofItem::StartPrefix(_prefix) => {
-							in_prefix = true;
-						},
-						ReadProofItem::EndPrefix => {
-							assert!(in_prefix);
-							in_prefix = false;
-						},
-						ReadProofItem::Halted(resume) => {
-							run_state = Some(*resume);
+					let rec = if limit_conf.1 {
+						query_plan_iter = query_plan.as_ref();
+						from.stateless(Recorder::new(
+							kind,
+							InMemoryRecorder::default(),
+							limit,
+							None,
+						))
+					} else {
+						from.statefull(Recorder::new(
+							kind,
+							InMemoryRecorder::default(),
+							limit,
+							None,
+						))
+					};
+					proofs.push(rec.output().nodes);
+				}
+
+				let mut full_proof: Vec<Vec<u8>> = Default::default();
+				proofs.reverse();
+				let mut query_plan_iter: QueryPlan<_> = query_plan.as_ref();
+				let mut run_state: Option<HaltedStateCheck<_, _, _>> = Some(query_plan_iter.into());
+				let mut has_run_full = false;
+				while let Some(state) = run_state.take() {
+					let proof = if let Some(proof) = proofs.pop() {
+						full_proof.extend_from_slice(&proof);
+						proof
+					} else {
+						if full_proof.is_empty() {
 							break
-						},
+						}
+						proofs.clear();
+						std::mem::take(&mut full_proof)
+					};
+					let verify_iter = verify_query_plan_iter::<L, _, _, _>(
+						state,
+						proof.into_iter(),
+						Some(root.clone()),
+					)
+					.unwrap();
+					let content: BTreeMap<_, _> = set.iter().cloned().collect();
+					let mut in_prefix = false;
+					let mut halted = false;
+					for item in verify_iter {
+						match item.unwrap() {
+							ReadProofItem::Value(key, value) => {
+								assert_eq!(content.get(&*key), Some(&value.as_ref()));
+							},
+							ReadProofItem::NoValue(key) => {
+								assert_eq!(content.get(key), None);
+							},
+							ReadProofItem::StartPrefix(_prefix) => {
+								in_prefix = true;
+							},
+							ReadProofItem::EndPrefix => {
+								assert!(in_prefix);
+								in_prefix = false;
+							},
+							ReadProofItem::Halted(resume) => {
+								run_state = Some(*resume);
+								break
+							},
+						}
+					}
+					if run_state.is_none() && !has_run_full {
+						has_run_full = true;
+						query_plan_iter = query_plan.as_ref();
+						run_state = Some(query_plan_iter.into());
 					}
 				}
-				if run_state.is_none() && !has_run_full {
-					has_run_full = true;
-					query_plan_iter = query_plan.as_ref();
-					run_state = Some(query_plan_iter.into());
+				if !has_run_full {
+					panic!("did not run full proof")
 				}
 			}
 		}
-
-		// TODO limit 1, 2, 3 and restarts
 	}
 }

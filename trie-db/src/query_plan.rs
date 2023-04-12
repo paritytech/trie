@@ -165,11 +165,23 @@ pub enum ProofKind {
 #[derive(Default, Clone, Copy)]
 struct Bitmap(u16);
 
-impl Bitmap {
+pub(crate) trait BitmapAccess: Copy {
+	fn at(&self, i: usize) -> bool;
+}
+
+impl BitmapAccess for Bitmap {
 	fn at(&self, i: usize) -> bool {
 		self.0 & (1u16 << i) != 0
 	}
+}
 
+impl<'a> BitmapAccess for &'a [bool] {
+	fn at(&self, i: usize) -> bool {
+		self[i]
+	}
+}
+
+impl Bitmap {
 	fn set(&mut self, i: usize, v: bool) {
 		if v {
 			self.0 |= 1u16 << i
@@ -295,9 +307,12 @@ impl<O: RecorderOutput> Recorder<O> {
 					res = self.limits.add_node(item.node.data().len());
 					output.write_entry(item.node.data().into());
 				},
-			RecorderStateInner::Compact { output, proof, stacked_pos } => {
-				unimplemented!()
-			},
+			RecorderStateInner::Compact { output, proof, stacked_pos } =>
+				if !item.is_inline {
+					res = self.limits.add_node(item.node.data().len());
+					stacked_pos.push(proof.len());
+					proof.push(Vec::new());
+				},
 			RecorderStateInner::CompactStream(output) => {
 				unimplemented!()
 			},
@@ -308,16 +323,23 @@ impl<O: RecorderOutput> Recorder<O> {
 		res
 	}
 
-	fn record_popped_node(&mut self, item: &CompactEncodingInfos, stack_pos: usize) {
+	fn record_popped_node<L: TrieLayout>(&mut self, item: &CompactEncodingInfos, stack_pos: usize) {
 		if !self.check_start_at(item.depth) {
 			return
 		}
 
 		match &mut self.output {
 			RecorderStateInner::Stream(_) => (),
-			RecorderStateInner::Compact { output, proof, stacked_pos } => {
-				unimplemented!()
-			},
+			RecorderStateInner::Compact { output, proof, stacked_pos } =>
+				if !item.is_inline {
+					let at = stacked_pos.pop().expect("always stacked");
+					proof[at] = crate::trie_codec::encode_node_internal::<L::Codec>(
+						&item.node,
+						item.accessed_value,
+						item.accessed_children,
+					)
+					.expect("TODO error handling, can it actually fail?");
+				},
 			RecorderStateInner::CompactStream(output) => {
 				unimplemented!()
 			},
@@ -340,7 +362,8 @@ impl<O: RecorderOutput> Recorder<O> {
 				output.write_entry(value.into());
 			},
 			RecorderStateInner::Compact { output, proof, stacked_pos } => {
-				unimplemented!()
+				res = self.limits.add_value(value.len());
+				proof.push(value.into());
 			},
 			RecorderStateInner::CompactStream(output) => {
 				unimplemented!()
@@ -358,12 +381,33 @@ impl<O: RecorderOutput> Recorder<O> {
 		}
 
 		match &mut self.output {
-			RecorderStateInner::Stream(output) => {
+			RecorderStateInner::Compact { .. } | RecorderStateInner::Stream(_) => {
 				// not writing inline value (already
 				// in parent node).
 			},
-			RecorderStateInner::Compact { output, proof, stacked_pos } => {
+			RecorderStateInner::CompactStream(output) => {
 				unimplemented!()
+			},
+			RecorderStateInner::Content(output) => {
+				unimplemented!()
+			},
+		}
+	}
+
+	fn finalize(&mut self) {
+		match &mut self.output {
+			RecorderStateInner::Compact { output, proof, stacked_pos } => {
+				if stacked_pos.len() > 0 {
+					// halted: complete up to 0 and write all nodes keeping stack.
+					unimplemented!()
+				} else {
+					for entry in core::mem::take(proof) {
+						output.write_entry(entry.into());
+					}
+				}
+			},
+			RecorderStateInner::Stream(output) => {
+				// all written
 			},
 			RecorderStateInner::CompactStream(output) => {
 				unimplemented!()
@@ -380,7 +424,7 @@ impl Limits {
 	fn add_node(&mut self, size: usize) -> bool {
 		let mut res = false;
 		match self.kind {
-			ProofKind::FullNodes => {
+			ProofKind::CompactNodes | ProofKind::FullNodes => {
 				if let Some(rem_size) = self.remaining_size.as_mut() {
 					if *rem_size >= size {
 						*rem_size -= size;
@@ -397,9 +441,6 @@ impl Limits {
 						res = true;
 					}
 				}
-			},
-			ProofKind::CompactNodes => {
-				unimplemented!()
 			},
 			ProofKind::CompactNodesStream => {
 				unimplemented!()
@@ -415,7 +456,7 @@ impl Limits {
 	fn add_value(&mut self, size: usize) -> bool {
 		let mut res = false;
 		match self.kind {
-			ProofKind::FullNodes => {
+			ProofKind::CompactNodes | ProofKind::FullNodes => {
 				if let Some(rem_size) = self.remaining_size.as_mut() {
 					if *rem_size >= size {
 						*rem_size -= size;
@@ -433,9 +474,6 @@ impl Limits {
 					}
 				}
 			},
-			ProofKind::CompactNodes => {
-				unimplemented!()
-			},
 			ProofKind::CompactNodesStream => {
 				unimplemented!()
 			},
@@ -444,6 +482,42 @@ impl Limits {
 			},
 		}
 		res
+	}
+
+	fn reclaim_child_hash(&mut self, size: usize) {
+		match self.kind {
+			ProofKind::FullNodes => unreachable!(),
+			ProofKind::CompactNodes => {
+				// replaced by a 0 len inline hash so same size encoding
+				if let Some(rem_size) = self.remaining_size.as_mut() {
+					*rem_size += size;
+				}
+			},
+			ProofKind::CompactNodesStream => {
+				unimplemented!()
+			},
+			ProofKind::CompactContent => {
+				unimplemented!()
+			},
+		}
+	}
+
+	fn reclaim_value_hash(&mut self, size: usize) {
+		match self.kind {
+			ProofKind::FullNodes => unreachable!(),
+			ProofKind::CompactNodes => {
+				if let Some(rem_size) = self.remaining_size.as_mut() {
+					// escape byte added
+					*rem_size += size - 1;
+				}
+			},
+			ProofKind::CompactNodesStream => {
+				unimplemented!()
+			},
+			ProofKind::CompactContent => {
+				unimplemented!()
+			},
+		}
 	}
 }
 
@@ -650,7 +724,8 @@ pub fn record_query_plan<
 				match stack.prefix.len().cmp(&common_nibbles) {
 					Ordering::Equal | Ordering::Less => break,
 					Ordering::Greater =>
-						if !stack.pop() {
+						if !stack.pop::<L>() {
+							stack.recorder.finalize();
 							return Ok(from)
 						},
 				}
@@ -699,6 +774,7 @@ pub fn record_query_plan<
 						));
 						stack.prefix.pop();
 						from.currently_query_item = Some(query.to_owned());
+						stack.recorder.finalize();
 						return Ok(from)
 					},
 				}
@@ -756,13 +832,14 @@ pub fn record_query_plan<
 							));
 							stack.prefix.pop();
 							from.currently_query_item = prev_query.map(|q| q.to_owned());
+							stack.recorder.finalize();
 							return Ok(from)
 						},
 					}
 				}
 
 				// pop
-				if !stack.pop() {
+				if !stack.pop::<L>() {
 					break
 				}
 			}
@@ -770,6 +847,8 @@ pub fn record_query_plan<
 		}
 	}
 
+	while !stack.pop::<L>() {}
+	stack.recorder.finalize();
 	Ok(from)
 }
 
@@ -946,17 +1025,17 @@ impl<O: RecorderOutput> RecordStack<O> {
 		Ok(true)
 	}
 
-	fn pop(&mut self) -> bool {
+	fn pop<L: TrieLayout>(&mut self) -> bool {
 		if self.iter_prefix == Some(self.items.len()) {
 			return false
 		}
 		if let Some(item) = self.items.pop() {
-			self.recorder.record_popped_node(&item, self.items.len());
+			self.recorder.record_popped_node::<L>(&item, self.items.len());
 			let depth = self.items.last().map(|i| i.depth).unwrap_or(0);
 			self.prefix.drop_lasts(self.prefix.len() - depth);
 			if depth == item.depth {
 				// Two consecutive identical depth is an extension
-				self.pop();
+				self.pop::<L>();
 			}
 			true
 		} else {
@@ -1575,7 +1654,7 @@ where
 	let HaltedStateCheck { query_plan, current, stack, state, restore_offset } = state;
 
 	match query_plan.kind {
-		ProofKind::CompactNodes | ProofKind::CompactContent => {
+		ProofKind::CompactNodesStream | ProofKind::CompactContent => {
 			return Err(VerifyError::IncompleteProof) // TODO not kind as param if keeping CompactContent
 		},
 		_ => (),
