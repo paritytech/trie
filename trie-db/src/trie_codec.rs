@@ -414,27 +414,35 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	/// Preconditions:
 	/// - if node is an extension node, then `children[0]` is Some.
 	fn encode_node(self, attached_hash: Option<&[u8]>) -> Vec<u8> {
-		let attached_hash = attached_hash.map(|h| crate::node::Value::Node(h));
-		match self.node {
-			Node::Empty => C::empty_node().to_vec(),
-			Node::Leaf(partial, value) =>
-				C::leaf_node(partial.right_iter(), partial.len(), attached_hash.unwrap_or(value)),
-			Node::Extension(partial, _) => C::extension_node(
-				partial.right_iter(),
-				partial.len(),
-				self.children[0].expect("required by method precondition; qed"),
-			),
-			Node::Branch(_, value) => C::branch_node(
-				self.children.into_iter(),
-				if attached_hash.is_some() { attached_hash } else { value },
-			),
-			Node::NibbledBranch(partial, _, value) => C::branch_node_nibbled(
-				partial.right_iter(),
-				partial.len(),
-				self.children.iter(),
-				if attached_hash.is_some() { attached_hash } else { value },
-			),
-		}
+		encode_read_node_internal::<C>(self.node, &self.children, attached_hash)
+	}
+}
+
+pub(crate) fn encode_read_node_internal<C: NodeCodec>(
+	node: Node,
+	children: &Vec<Option<ChildReference<C::HashOut>>>,
+	attached_hash: Option<&[u8]>,
+) -> Vec<u8> {
+	let attached_hash = attached_hash.map(|h| crate::node::Value::Node(h));
+	match node {
+		Node::Empty => C::empty_node().to_vec(),
+		Node::Leaf(partial, value) =>
+			C::leaf_node(partial.right_iter(), partial.len(), attached_hash.unwrap_or(value)),
+		Node::Extension(partial, _) => C::extension_node(
+			partial.right_iter(),
+			partial.len(),
+			children[0].expect("required by method precondition; qed"),
+		),
+		Node::Branch(_, value) => C::branch_node(
+			children.into_iter(),
+			if attached_hash.is_some() { attached_hash } else { value },
+		),
+		Node::NibbledBranch(partial, _, value) => C::branch_node_nibbled(
+			partial.right_iter(),
+			partial.len(),
+			children.iter(),
+			if attached_hash.is_some() { attached_hash } else { value },
+		),
 	}
 }
 

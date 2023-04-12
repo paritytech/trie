@@ -24,7 +24,7 @@
 use core::marker::PhantomData;
 
 use crate::{
-	nibble::{nibble_ops, LeftNibbleSlice, NibbleSlice},
+	nibble::{nibble_ops, nibble_ops::NIBBLE_LENGTH, LeftNibbleSlice, NibbleSlice},
 	node::{NodeHandle, NodePlan, OwnedNode, Value},
 	proof::VerifyError,
 	rstd::{
@@ -33,7 +33,7 @@ use crate::{
 		cmp::*,
 		result::Result,
 	},
-	CError, DBValue, NibbleVec, Trie, TrieDB, TrieError, TrieHash, TrieLayout,
+	CError, ChildReference, DBValue, NibbleVec, Trie, TrieDB, TrieError, TrieHash, TrieLayout,
 };
 use hash_db::Hasher;
 
@@ -594,7 +594,7 @@ impl<O: RecorderOutput> HaltedStateRecord<O> {
 
 /// When process is halted keep execution state
 /// to restore later.
-pub struct HaltedStateCheck<'a, L, C, D> {
+pub struct HaltedStateCheck<'a, L: TrieLayout, C, D> {
 	query_plan: QueryPlan<'a, C>,
 	current: Option<QueryPlanItem<'a>>,
 	stack: ReadStack<L, D>,
@@ -602,11 +602,12 @@ pub struct HaltedStateCheck<'a, L, C, D> {
 	restore_offset: usize,
 }
 
-impl<'a, L, C, D> From<QueryPlan<'a, C>> for HaltedStateCheck<'a, L, C, D> {
+impl<'a, L: TrieLayout, C, D> From<QueryPlan<'a, C>> for HaltedStateCheck<'a, L, C, D> {
 	fn from(query_plan: QueryPlan<'a, C>) -> Self {
 		let is_compact = match query_plan.kind {
 			ProofKind::FullNodes => false,
 			ProofKind::CompactNodesStream => true,
+			ProofKind::CompactNodes => true,
 			_ => false,
 		};
 
@@ -615,6 +616,7 @@ impl<'a, L, C, D> From<QueryPlan<'a, C>> for HaltedStateCheck<'a, L, C, D> {
 				items: Default::default(),
 				prefix: Default::default(),
 				is_compact,
+				expect_value: false,
 				iter_prefix: None,
 				_ph: PhantomData,
 			},
@@ -802,7 +804,7 @@ pub fn record_query_plan<
 					}
 
 					let child_index = if let Some(mut item) = stack.items.last_mut() {
-						if item.next_descended_child as usize >= crate::nibble_ops::NIBBLE_LENGTH {
+						if item.next_descended_child as usize >= NIBBLE_LENGTH {
 							break
 						}
 						item.next_descended_child += 1;
@@ -847,7 +849,7 @@ pub fn record_query_plan<
 		}
 	}
 
-	while !stack.pop::<L>() {}
+	while stack.pop::<L>() {}
 	stack.recorder.finalize();
 	Ok(from)
 }
@@ -927,6 +929,7 @@ impl<O: RecorderOutput> RecordStack<O> {
 		// TODO put in proof (only if Hash or inline for content one)
 
 		let node_data = child_node.0.data();
+		//println!("r: {:?}", &node_data);
 
 		match child_node.0.node_plan() {
 			NodePlan::Branch { .. } => (),
@@ -1088,8 +1091,10 @@ enum ReadProofState {
 	Finished,
 }
 
-struct ItemStack<D> {
+struct ItemStack<L: TrieLayout, D> {
 	node: ItemStackNode<D>,
+	children: Vec<Option<ChildReference<TrieHash<L>>>>,
+	attached_value_hash: Option<TrieHash<L>>,
 	depth: usize,
 	next_descended_child: u8,
 }
@@ -1099,13 +1104,62 @@ enum ItemStackNode<D> {
 	Node(OwnedNode<D>),
 }
 
-impl<D: Borrow<[u8]>> From<ItemStackNode<D>> for ItemStack<D> {
-	fn from(node: ItemStackNode<D>) -> Self {
-		ItemStack { node, depth: 0, next_descended_child: 0 }
+impl<L: TrieLayout, D: Borrow<[u8]>> From<(ItemStackNode<D>, bool)> for ItemStack<L, D> {
+	fn from((node, is_compact): (ItemStackNode<D>, bool)) -> Self {
+		let children = if !is_compact {
+			Vec::new()
+		} else {
+			match &node {
+				ItemStackNode::Inline(_) => Vec::new(),
+				ItemStackNode::Node(node) => match node.node_plan() {
+					NodePlan::Empty | NodePlan::Leaf { .. } => Vec::new(),
+					NodePlan::Extension { child, .. } => {
+						let mut result: Vec<Option<ChildReference<TrieHash<L>>>> = vec![None; 1];
+						let node_data = node.data();
+						match child.build(node_data) {
+							NodeHandle::Inline(data) if data.is_empty() => (),
+							child => {
+								use std::convert::TryInto;
+								let child_ref =
+									child.try_into().expect("TODO proper error and not using From");
+
+								result[0] = Some(child_ref);
+							},
+						}
+						result
+					},
+					NodePlan::Branch { children, .. } |
+					NodePlan::NibbledBranch { children, .. } => {
+						let mut i = 0;
+						let mut result: Vec<Option<ChildReference<TrieHash<L>>>> =
+							vec![None; NIBBLE_LENGTH];
+						let node_data = node.data();
+						while i < NIBBLE_LENGTH {
+							match children[i].as_ref().map(|c| c.build(node_data)) {
+								Some(NodeHandle::Inline(data)) if data.is_empty() => (),
+								Some(child) => {
+									use std::convert::TryInto;
+									let child_ref = child
+										.try_into()
+										.expect("TODO proper error and not using From");
+
+									result[i] = Some(child_ref);
+								},
+								None => {},
+							}
+							i += 1;
+						}
+						result
+					},
+				},
+			}
+		};
+
+		ItemStack { node, depth: 0, next_descended_child: 0, children, attached_value_hash: None }
 	}
 }
 
-impl<D: Borrow<[u8]>> ItemStack<D> {
+impl<L: TrieLayout, D: Borrow<[u8]>> ItemStack<L, D> {
 	fn data(&self) -> &[u8] {
 		match &self.node {
 			ItemStackNode::Inline(n) => n.data(),
@@ -1121,11 +1175,12 @@ impl<D: Borrow<[u8]>> ItemStack<D> {
 	}
 }
 
-struct ReadStack<L, D> {
-	items: Vec<ItemStack<D>>,
+struct ReadStack<L: TrieLayout, D> {
+	items: Vec<ItemStack<L, D>>,
 	prefix: NibbleVec,
 	iter_prefix: Option<(usize, bool)>, // limit and wether we return value
 	is_compact: bool,
+	expect_value: bool,
 	_ph: PhantomData<L>,
 }
 
@@ -1143,7 +1198,27 @@ fn verify_hash<L: TrieLayout>(
 	}
 }
 
-impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
+/// Byte array where we can remove first item.
+/// This is only needed for the ESCAPE_HEADER of COMPACT which
+/// itself is not strictly needed (we can know if escaped from
+/// query plan).
+pub trait SplitFirst: Borrow<[u8]> {
+	fn split_first(&mut self);
+}
+
+impl SplitFirst for Vec<u8> {
+	fn split_first(&mut self) {
+		*self = self.split_off(1);
+	}
+}
+
+impl<'a> SplitFirst for &'a [u8] {
+	fn split_first(&mut self) {
+		*self = &self[1..];
+	}
+}
+
+impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 	fn try_stack_child(
 		&mut self,
 		child_index: u8,
@@ -1170,17 +1245,49 @@ impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
 					},
 			}
 		} else {
-			NodeHandle::Hash(expected_root.as_ref().map(AsRef::as_ref).unwrap_or(&[]))
+			if self.is_compact {
+				NodeHandle::Inline(&[])
+			} else {
+				NodeHandle::Hash(expected_root.as_ref().map(AsRef::as_ref).unwrap_or(&[]))
+			}
 		};
-		let mut node: ItemStack<_> = match child_handle {
+		let mut node: ItemStack<_, _> = match child_handle {
 			NodeHandle::Inline(data) =>
-			// try access in inline then return
-				ItemStackNode::Inline(match OwnedNode::new::<L::Codec>(data.to_vec()) {
-					Ok(node) => node,
-					Err(e) => return Err(VerifyError::DecodeError(e)),
-				})
-				.into(),
+				if self.is_compact && data.len() == 0 {
+					// ommitted hash
+					let Some(mut encoded_node) = proof.next() else {
+					// halt happens with a hash, this is not.
+					return Err(VerifyError::IncompleteProof);
+				};
+					if self.is_compact &&
+						encoded_node.borrow().len() > 0 &&
+						Some(encoded_node.borrow()[0]) ==
+							<L::Codec as crate::node_codec::NodeCodec>::ESCAPE_HEADER
+					{
+						self.expect_value = true;
+						// no value to visit TODO set a boolean to ensure we got a hash and don
+						// t expect reanding a node value
+						encoded_node.split_first();
+					}
+					let node = match OwnedNode::new::<L::Codec>(encoded_node) {
+						Ok(node) => node,
+						Err(e) => return Err(VerifyError::DecodeError(e)),
+					};
+					(ItemStackNode::Node(node), self.is_compact).into()
+				} else {
+					// try access in inline then return
+					(
+						ItemStackNode::Inline(match OwnedNode::new::<L::Codec>(data.to_vec()) {
+							Ok(node) => node,
+							Err(e) => return Err(VerifyError::DecodeError(e)),
+						}),
+						self.is_compact,
+					)
+						.into()
+				},
 			NodeHandle::Hash(hash) => {
+				// TODO if is_compact allow only if restart bellow depth (otherwhise should be
+				// inline(0)) or means halted (if something in proof it is extraneous node)
 				let Some(encoded_node) = proof.next() else {
 					return Ok(TryStackChildResult::Halted);
 				};
@@ -1188,10 +1295,10 @@ impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
 					Ok(node) => node,
 					Err(e) => return Err(VerifyError::DecodeError(e)),
 				};
-				if check_hash {
+				if !self.is_compact && check_hash {
 					verify_hash::<L>(node.data(), hash)?;
 				}
-				ItemStackNode::Node(node).into()
+				(ItemStackNode::Node(node), self.is_compact).into()
 			},
 		};
 		let node_data = node.data();
@@ -1251,13 +1358,13 @@ impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
 						verify_hash::<L>(encoded_branch.borrow(), hash)?;
 					}
 					node = match OwnedNode::new::<L::Codec>(encoded_branch) {
-						Ok(node) => ItemStackNode::Node(node).into(),
+						Ok(node) => (ItemStackNode::Node(node), self.is_compact).into(),
 						Err(e) => return Err(VerifyError::DecodeError(e)),
 					};
 				},
 				NodeHandle::Inline(encoded_branch) => {
 					node = match OwnedNode::new::<L::Codec>(encoded_branch.to_vec()) {
-						Ok(node) => ItemStackNode::Inline(node).into(),
+						Ok(node) => (ItemStackNode::Inline(node), self.is_compact).into(),
 						Err(e) => return Err(VerifyError::DecodeError(e)),
 					};
 				},
@@ -1267,6 +1374,10 @@ impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
 			};
 		}
 		node.depth = self.prefix.len();
+		// needed for compact
+		self.items.last_mut().map(|parent| {
+			parent.next_descended_child = child_index + 1;
+		});
 		self.items.push(node);
 		if prefix_incomplete {
 			Ok(TryStackChildResult::StackedDescendIncomplete)
@@ -1291,8 +1402,27 @@ impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
 			};
 			if let Some(value) = value {
 				match value {
-					Value::Inline(value) => return Ok(Some(value.to_vec())),
+					Value::Inline(value) =>
+						if self.expect_value {
+							assert!(self.is_compact);
+							self.expect_value = false;
+							let Some(value) = proof.next() else {
+								return Err(VerifyError::IncompleteProof);
+							};
+							if check_hash {
+								let hash = L::Hash::hash(value.borrow());
+								self.items.last_mut().map(|i| i.attached_value_hash = Some(hash));
+							}
+							return Ok(Some(value.borrow().to_vec()))
+						} else {
+							return Ok(Some(value.to_vec()))
+						},
 					Value::Node(hash) => {
+						if self.expect_value {
+							let mut error_hash = TrieHash::<L>::default();
+							error_hash.as_mut().copy_from_slice(hash);
+							return Err(VerifyError::ExtraneousHashReference(error_hash))
+						}
 						let Some(value) = proof.next() else {
 							return Err(VerifyError::IncompleteProof);
 						};
@@ -1310,20 +1440,78 @@ impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
 		Ok(None)
 	}
 
-	fn pop(&mut self) -> bool {
+	fn pop(
+		&mut self,
+		expected_root: &Option<TrieHash<L>>,
+	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
 		if self.iter_prefix.as_ref().map(|p| p.0 == self.items.len()).unwrap_or(false) {
-			return false
+			return Ok(false)
 		}
-		if let Some(_last) = self.items.pop() {
+		if let Some(last) = self.items.pop() {
 			let depth = self.items.last().map(|i| i.depth).unwrap_or(0);
 			self.prefix.drop_lasts(self.prefix.len() - depth);
-			true
+			if self.is_compact && expected_root.is_some() {
+				match last.node {
+					ItemStackNode::Inline(_) => (),
+					ItemStackNode::Node(node) => {
+						let origin = 0; // TODO restart depth in stack
+						let node_data = node.data();
+						let node = node.node_plan().build(node_data);
+						let encoded_node = crate::trie_codec::encode_read_node_internal::<L::Codec>(
+							node,
+							&last.children,
+							last.attached_value_hash.as_ref().map(|h| h.as_ref()),
+						);
+
+						//println!("{:?}", encoded_node);
+						if self.items.len() == origin {
+							if let Some(parent) = self.items.last() {
+								unimplemented!("check agains right child");
+							} else {
+								let expected = expected_root.as_ref().expect("checked above");
+								verify_hash::<L>(&encoded_node, expected.as_ref())?;
+							}
+						} else {
+							let hash = L::Hash::hash(&encoded_node);
+							if let Some(parent) = self.items.last_mut() {
+								let at = parent.next_descended_child - 1;
+								parent.children[at as usize] = Some(ChildReference::Hash(hash));
+							} else {
+								if &Some(hash) != expected_root {
+									return Err(VerifyError::RootMismatch(hash))
+								}
+							}
+						}
+					},
+				}
+			}
+			Ok(true)
 		} else {
-			false
+			Ok(false)
 		}
 	}
 
-	fn pop_until(&mut self, target: usize) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
+	fn pop_until(
+		&mut self,
+		target: usize,
+		expected_root: &Option<TrieHash<L>>,
+	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
+		if self.is_compact && expected_root.is_some() {
+			// one by one
+			while let Some(last) = self.items.last() {
+				match last.depth.cmp(&target) {
+					Ordering::Greater => (),
+					// depth should match.
+					Ordering::Less => {
+						// TODO other error
+						return Err(VerifyError::ExtraneousNode)
+					},
+					Ordering::Equal => return Ok(()),
+				}
+				// one by one
+				let _ = self.pop(expected_root)?;
+			}
+		}
 		loop {
 			if let Some(last) = self.items.last() {
 				match last.depth.cmp(&target) {
@@ -1358,7 +1546,7 @@ impl<L: TrieLayout, D: Borrow<[u8]>> ReadStack<L, D> {
 }
 
 /// Content return on success when reading proof.
-pub enum ReadProofItem<'a, L, C, D> {
+pub enum ReadProofItem<'a, L: TrieLayout, C, D> {
 	/// Successfull read of proof, not all content read.
 	Halted(Box<HaltedStateCheck<'a, L, C, D>>),
 	/// Seen value and key in proof.
@@ -1380,7 +1568,7 @@ where
 	L: TrieLayout,
 	C: Iterator<Item = QueryPlanItem<'a>>,
 	P: Iterator<Item = D>,
-	D: Borrow<[u8]>,
+	D: SplitFirst,
 {
 	type Item = Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>;
 
@@ -1419,7 +1607,7 @@ where
 						}
 					}
 
-					let r = self.stack.pop_until(common_nibbles);
+					let r = self.stack.pop_until(common_nibbles, &self.expected_root);
 					if let Err(e) = r {
 						self.state = ReadProofState::Finished;
 						return Some(Err(e))
@@ -1458,7 +1646,7 @@ where
 					};
 				}
 				while let Some(child_index) = self.stack.items.last_mut().and_then(|last| {
-					if last.next_descended_child as usize >= crate::nibble_ops::NIBBLE_LENGTH {
+					if last.next_descended_child as usize >= NIBBLE_LENGTH {
 						None
 					} else {
 						let child_index = last.next_descended_child;
@@ -1500,7 +1688,13 @@ where
 					}
 				}
 				if self.stack.iter_prefix.as_ref().map(|p| p.1).unwrap_or_default() {
-					if !self.stack.pop() {
+					if !match self.stack.pop(&self.expected_root) {
+						Ok(r) => r,
+						Err(e) => {
+							self.state = ReadProofState::Finished;
+							return Some(Err(e))
+						},
+					} {
 						// end iter
 						self.stack.exit_prefix_iter();
 					}
@@ -1587,7 +1781,13 @@ where
 
 		debug_assert!(self.state == ReadProofState::PlanConsumed);
 		if self.is_compact {
-			unimplemented!("check hash from stack");
+			let stack_to = 0; // TODO restart is different
+				  //					let r = self.stack.pop_until(common_nibbles, &self.expected_root);
+			let r = self.stack.pop_until(stack_to, &self.expected_root);
+			if let Err(e) = r {
+				self.state = ReadProofState::Finished;
+				return Some(Err(e))
+			}
 		} else {
 			if self.proof.next().is_some() {
 				self.state = ReadProofState::Finished;
@@ -1604,7 +1804,7 @@ where
 	L: TrieLayout,
 	C: Iterator<Item = QueryPlanItem<'a>>,
 	P: Iterator<Item = D>,
-	D: Borrow<[u8]>,
+	D: SplitFirst,
 {
 	fn halt(
 		&mut self,
@@ -1623,6 +1823,7 @@ where
 				items: Default::default(),
 				prefix: Default::default(),
 				is_compact: self.is_compact,
+				expect_value: false,
 				iter_prefix: None,
 				_ph: PhantomData,
 			},
@@ -1649,7 +1850,7 @@ where
 	L: TrieLayout,
 	C: Iterator<Item = QueryPlanItem<'a>>,
 	P: Iterator<Item = D>,
-	D: Borrow<[u8]>,
+	D: SplitFirst,
 {
 	let HaltedStateCheck { query_plan, current, stack, state, restore_offset } = state;
 
