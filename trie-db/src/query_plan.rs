@@ -1356,9 +1356,14 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 			match child {
 				NodeHandle::Hash(hash) => {
 					let Some(encoded_branch) = proof.next() else {
-							// No halt on extension node (restart over a child index).
-							return Err(VerifyError::IncompleteProof);
-						};
+						// No halt on extension node (restart over a child index).
+						return Err(VerifyError::IncompleteProof);
+					};
+					if self.is_compact {
+						let mut error_hash = TrieHash::<L>::default();
+						error_hash.as_mut().copy_from_slice(hash);
+						return Err(VerifyError::ExtraneousHashReference(error_hash));
+					}
 					if check_hash {
 						verify_hash::<L>(encoded_branch.borrow(), hash)?;
 					}
@@ -1367,11 +1372,26 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 						Err(e) => return Err(VerifyError::DecodeError(e)),
 					};
 				},
-				NodeHandle::Inline(encoded_branch) => {
-					node = match OwnedNode::new::<L::Codec>(encoded_branch.to_vec()) {
-						Ok(node) => (ItemStackNode::Inline(node), self.is_compact).into(),
-						Err(e) => return Err(VerifyError::DecodeError(e)),
-					};
+				NodeHandle::Inline(data) => {
+					if self.is_compact && data.len() == 0 {
+						unimplemented!("This requires to put extension in stack");
+						/*
+						// ommitted hash
+						let Some(encoded_node) = proof.next() else {
+							// halt happens with a hash, this is not.
+							return Err(VerifyError::IncompleteProof);
+						};
+						node = match OwnedNode::new::<L::Codec>(encoded_node) {
+							Ok(node) => (ItemStackNode::Node(node), self.is_compact).into(),
+							Err(e) => return Err(VerifyError::DecodeError(e)),
+						};
+						*/
+					} else {
+						node = match OwnedNode::new::<L::Codec>(data.to_vec()) {
+							Ok(node) => (ItemStackNode::Inline(node), self.is_compact).into(),
+							Err(e) => return Err(VerifyError::DecodeError(e)),
+						};
+					}
 				},
 			}
 			let NodePlan::Branch { .. } = node.node_plan() else {
