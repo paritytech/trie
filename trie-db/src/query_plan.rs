@@ -196,9 +196,9 @@ struct CompactEncodingInfos {
 	/// Node in memory content.
 	node: OwnedNode<DBValue>,
 	/// Flags indicating whether each child is omitted in the encoded node.
-	accessed_children: Bitmap,
+	accessed_children_node: Bitmap,
 	/// Skip value if value node is after.
-	accessed_value: bool,
+	accessed_value_node: bool,
 	/// Depth of node in nible.
 	depth: usize,
 	/// Next descended child, this is only really needed when iterating on
@@ -335,8 +335,8 @@ impl<O: RecorderOutput> Recorder<O> {
 					let at = stacked_pos.pop().expect("always stacked");
 					proof[at] = crate::trie_codec::encode_node_internal::<L::Codec>(
 						&item.node,
-						item.accessed_value,
-						item.accessed_children,
+						item.accessed_value_node,
+						item.accessed_children_node,
 					)
 					.expect("TODO error handling, can it actually fail?");
 				},
@@ -884,14 +884,17 @@ impl<O: RecorderOutput> RecordStack<O> {
 					return Ok(TryStackChildResult::NotStacked),
 				NodePlan::Extension { child, .. } =>
 					if child_index == 0 {
-						item.accessed_children.set(child_index as usize, true);
-						child.build(node_data)
+						let child_handle = child.build(node_data);
+						if let &NodeHandle::Hash(_) = &child_handle {
+							item.accessed_children_node.set(child_index as usize, true);
+						}
+						child_handle
 					} else {
 						return Ok(TryStackChildResult::NotStacked)
 					},
 				NodePlan::NibbledBranch { children, .. } | NodePlan::Branch { children, .. } =>
 					if let Some(child) = &children[child_index as usize] {
-						from_branch = Some(&mut item.accessed_children);
+						from_branch = Some(&mut item.accessed_children_node);
 						child.build(node_data)
 					} else {
 						return Ok(TryStackChildResult::NotStackedBranch)
@@ -909,8 +912,10 @@ impl<O: RecorderOutput> RecordStack<O> {
 				return Ok(TryStackChildResult::Halted)
 			}
 		}
-		if let Some(accessed_children) = from_branch {
-			accessed_children.set(child_index as usize, true);
+		if let Some(accessed_children_node) = from_branch {
+			if !is_inline {
+				accessed_children_node.set(child_index as usize, true);
+			}
 
 			slice_query.as_mut().map(|s| s.advance(1));
 			prefix.push(child_index);
@@ -963,8 +968,8 @@ impl<O: RecorderOutput> RecordStack<O> {
 		};
 		let infos = CompactEncodingInfos {
 			node: child_node.0,
-			accessed_children: Default::default(),
-			accessed_value: false,
+			accessed_children_node: Default::default(),
+			accessed_value_node: false,
 			depth: prefix.len(),
 			next_descended_child,
 			is_inline,
@@ -1009,9 +1014,9 @@ impl<O: RecorderOutput> RecordStack<O> {
 			},
 			_ => return Ok(false),
 		};
-		item.accessed_value = true;
 		match value {
 			Value::Node(hash_slice) => {
+				item.accessed_value_node = true;
 				let mut hash = TrieHash::<L>::default();
 				hash.as_mut().copy_from_slice(hash_slice);
 				let Some(value) = db.db().get(&hash, self.prefix.as_prefix()) else {
@@ -1626,9 +1631,9 @@ where
 				}
 			};
 			let did_prefix = self.stack.iter_prefix.is_some();
-			while let Some((_, accessed_value)) = self.stack.iter_prefix.clone() {
+			while let Some((_, accessed_value_node)) = self.stack.iter_prefix.clone() {
 				// prefix iteration
-				if !accessed_value {
+				if !accessed_value_node {
 					self.stack.iter_prefix.as_mut().map(|s| {
 						s.1 = true;
 					});
