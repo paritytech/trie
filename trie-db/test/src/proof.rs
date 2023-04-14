@@ -292,9 +292,10 @@ fn test_query_plan_internal<L: TrieLayout>() {
 			},
 		];
 		for query_plan in query_plans {
-			for limit_conf in
-				[(0, false) /* (1, false), (1, true), (2, false), (2, true), (3, true) */]
-			{
+			for limit_conf in [
+				/* (0, false) */
+				(1, false), /* (1, true), (2, false), (2, true), (3, true) */
+			] {
 				let limit = limit_conf.0;
 				let limit = (limit != 0).then(|| limit);
 				let recorder = Recorder::new(kind, InMemoryRecorder::default(), limit, None);

@@ -332,14 +332,16 @@ impl<O: RecorderOutput> Recorder<O> {
 			RecorderStateInner::Stream(_) => (),
 			RecorderStateInner::Compact { output, proof, stacked_pos } =>
 				if !item.is_inline {
-					let at = stacked_pos.pop().expect("always stacked");
-					proof[at] = crate::trie_codec::encode_node_internal::<L::Codec>(
-						&item.node,
-						item.accessed_value_node,
-						item.accessed_children_node,
-					)
-					.expect("TODO error handling, can it actually fail?");
+					if let Some(at) = stacked_pos.pop() {
+						proof[at] = crate::trie_codec::encode_node_internal::<L::Codec>(
+							&item.node,
+							item.accessed_value_node,
+							item.accessed_children_node,
+						)
+						.expect("TODO error handling, can it actually fail?");
+					} // else when restarting record, this is not to be recorded
 				},
+
 			RecorderStateInner::CompactStream(output) => {
 				unimplemented!()
 			},
@@ -394,16 +396,31 @@ impl<O: RecorderOutput> Recorder<O> {
 		}
 	}
 
-	fn finalize(&mut self) {
+	fn finalize<L: TrieLayout>(&mut self, items: &Vec<CompactEncodingInfos>) {
 		match &mut self.output {
 			RecorderStateInner::Compact { output, proof, stacked_pos } => {
-				if stacked_pos.len() > 0 {
+				let restarted_from = 0;
+				if stacked_pos.len() > restarted_from {
 					// halted: complete up to 0 and write all nodes keeping stack.
-					unimplemented!()
-				} else {
-					for entry in core::mem::take(proof) {
-						output.write_entry(entry.into());
+					let mut at = stacked_pos.len();
+					let mut items = items.iter().rev();
+					while let Some(pos) = stacked_pos.pop() {
+						loop {
+							let item = items.next().expect("pos stacked with an item");
+							if !item.is_inline {
+								proof[pos] = crate::trie_codec::encode_node_internal::<L::Codec>(
+									&item.node,
+									item.accessed_value_node,
+									item.accessed_children_node,
+								)
+								.expect("TODO error handling, can it actually fail?");
+								break
+							}
+						}
 					}
+				}
+				for entry in core::mem::take(proof) {
+					output.write_entry(entry.into());
 				}
 			},
 			RecorderStateInner::Stream(output) => {
@@ -594,7 +611,7 @@ impl<O: RecorderOutput> HaltedStateRecord<O> {
 
 /// When process is halted keep execution state
 /// to restore later.
-pub struct HaltedStateCheck<'a, L: TrieLayout, C, D> {
+pub struct HaltedStateCheck<'a, L: TrieLayout, C, D: SplitFirst> {
 	query_plan: QueryPlan<'a, C>,
 	current: Option<QueryPlanItem<'a>>,
 	stack: ReadStack<L, D>,
@@ -602,7 +619,7 @@ pub struct HaltedStateCheck<'a, L: TrieLayout, C, D> {
 	restore_offset: usize,
 }
 
-impl<'a, L: TrieLayout, C, D> From<QueryPlan<'a, C>> for HaltedStateCheck<'a, L, C, D> {
+impl<'a, L: TrieLayout, C, D: SplitFirst> From<QueryPlan<'a, C>> for HaltedStateCheck<'a, L, C, D> {
 	fn from(query_plan: QueryPlan<'a, C>) -> Self {
 		let is_compact = match query_plan.kind {
 			ProofKind::FullNodes => false,
@@ -614,6 +631,7 @@ impl<'a, L: TrieLayout, C, D> From<QueryPlan<'a, C>> for HaltedStateCheck<'a, L,
 		HaltedStateCheck {
 			stack: ReadStack {
 				items: Default::default(),
+				start_items: 0,
 				prefix: Default::default(),
 				is_compact,
 				expect_value: false,
@@ -657,6 +675,7 @@ pub fn record_query_plan<
 	let dummy_parent_hash = TrieHash::<L>::default();
 	let mut stateless = false;
 	let mut statefull = None;
+	let mut depth_started_from = 0;
 	if let Some(lower_bound) = from.from.take() {
 		if from.currently_query_item.is_none() {
 			stateless = true;
@@ -666,12 +685,13 @@ pub fn record_query_plan<
 				bound.pop();
 			}
 			from.stack.recorder.start_at = Some(bound.len());
+			depth_started_from = bound.len();
 			from.stack.seek = Some(bound);
 		} else {
-			statefull = Some(
-				lower_bound.0.len() * nibble_ops::NIBBLE_PER_BYTE -
-					if lower_bound.1 { 2 } else { 1 },
-			);
+			let bound_len = lower_bound.0.len() * nibble_ops::NIBBLE_PER_BYTE -
+				if lower_bound.1 { 2 } else { 1 };
+			//			from.stack.recorder.start_at = Some(bound_len);
+			statefull = Some(bound_len);
 		}
 	}
 
@@ -710,6 +730,7 @@ pub fn record_query_plan<
 			}
 		}
 		let common_nibbles = if let Some(slice_at) = statefull.take() {
+			depth_started_from = slice_at + 1;
 			slice_at
 		} else {
 			let (ordered, common_nibbles) =
@@ -727,7 +748,7 @@ pub fn record_query_plan<
 					Ordering::Equal | Ordering::Less => break,
 					Ordering::Greater =>
 						if !stack.pop::<L>() {
-							stack.recorder.finalize();
+							stack.recorder.finalize::<L>(&stack.items);
 							return Ok(from)
 						},
 				}
@@ -776,7 +797,7 @@ pub fn record_query_plan<
 						));
 						stack.prefix.pop();
 						from.currently_query_item = Some(query.to_owned());
-						stack.recorder.finalize();
+						stack.recorder.finalize::<L>(&stack.items);
 						return Ok(from)
 					},
 				}
@@ -834,7 +855,7 @@ pub fn record_query_plan<
 							));
 							stack.prefix.pop();
 							from.currently_query_item = prev_query.map(|q| q.to_owned());
-							stack.recorder.finalize();
+							stack.recorder.finalize::<L>(&stack.items);
 							return Ok(from)
 						},
 					}
@@ -850,7 +871,7 @@ pub fn record_query_plan<
 	}
 
 	while stack.pop::<L>() {}
-	stack.recorder.finalize();
+	stack.recorder.finalize::<L>(&stack.items);
 	Ok(from)
 }
 
@@ -1066,7 +1087,7 @@ where
 	L: TrieLayout,
 	C: Iterator<Item = QueryPlanItem<'a>>,
 	P: Iterator<Item = D>,
-	D: Borrow<[u8]>,
+	D: SplitFirst,
 {
 	// always needed, this is option only
 	// to avoid unsafe code when halting.
@@ -1096,7 +1117,7 @@ enum ReadProofState {
 	Finished,
 }
 
-struct ItemStack<L: TrieLayout, D> {
+struct ItemStack<L: TrieLayout, D: SplitFirst> {
 	node: ItemStackNode<D>,
 	children: Vec<Option<ChildReference<TrieHash<L>>>>,
 	attached_value_hash: Option<TrieHash<L>>,
@@ -1104,12 +1125,25 @@ struct ItemStack<L: TrieLayout, D> {
 	next_descended_child: u8,
 }
 
-enum ItemStackNode<D> {
+impl<L: TrieLayout, D: SplitFirst> Clone for ItemStack<L, D> {
+	fn clone(&self) -> Self {
+		ItemStack {
+			node: self.node.clone(),
+			children: self.children.clone(),
+			attached_value_hash: self.attached_value_hash,
+			depth: self.depth,
+			next_descended_child: self.next_descended_child,
+		}
+	}
+}
+
+#[derive(Clone)]
+enum ItemStackNode<D: SplitFirst> {
 	Inline(OwnedNode<Vec<u8>>),
 	Node(OwnedNode<D>),
 }
 
-impl<L: TrieLayout, D: Borrow<[u8]>> From<(ItemStackNode<D>, bool)> for ItemStack<L, D> {
+impl<L: TrieLayout, D: SplitFirst> From<(ItemStackNode<D>, bool)> for ItemStack<L, D> {
 	fn from((node, is_compact): (ItemStackNode<D>, bool)) -> Self {
 		let children = if !is_compact {
 			Vec::new()
@@ -1164,7 +1198,7 @@ impl<L: TrieLayout, D: Borrow<[u8]>> From<(ItemStackNode<D>, bool)> for ItemStac
 	}
 }
 
-impl<L: TrieLayout, D: Borrow<[u8]>> ItemStack<L, D> {
+impl<L: TrieLayout, D: SplitFirst> ItemStack<L, D> {
 	fn data(&self) -> &[u8] {
 		match &self.node {
 			ItemStackNode::Inline(n) => n.data(),
@@ -1180,13 +1214,28 @@ impl<L: TrieLayout, D: Borrow<[u8]>> ItemStack<L, D> {
 	}
 }
 
-struct ReadStack<L: TrieLayout, D> {
+struct ReadStack<L: TrieLayout, D: SplitFirst> {
 	items: Vec<ItemStack<L, D>>,
 	prefix: NibbleVec,
 	iter_prefix: Option<(usize, bool)>, // limit and wether we return value
+	start_items: usize,
 	is_compact: bool,
 	expect_value: bool,
 	_ph: PhantomData<L>,
+}
+
+impl<L: TrieLayout, D: SplitFirst> Clone for ReadStack<L, D> {
+	fn clone(&self) -> Self {
+		ReadStack {
+			items: self.items.clone(),
+			start_items: self.start_items.clone(),
+			prefix: self.prefix.clone(),
+			iter_prefix: self.iter_prefix,
+			is_compact: self.is_compact,
+			expect_value: self.expect_value,
+			_ph: PhantomData,
+		}
+	}
 }
 
 fn verify_hash<L: TrieLayout>(
@@ -1207,7 +1256,7 @@ fn verify_hash<L: TrieLayout>(
 /// This is only needed for the ESCAPE_HEADER of COMPACT which
 /// itself is not strictly needed (we can know if escaped from
 /// query plan).
-pub trait SplitFirst: Borrow<[u8]> {
+pub trait SplitFirst: Borrow<[u8]> + Clone {
 	fn split_first(&mut self);
 }
 
@@ -1293,9 +1342,19 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 			NodeHandle::Hash(hash) => {
 				// TODO if is_compact allow only if restart bellow depth (otherwhise should be
 				// inline(0)) or means halted (if something in proof it is extraneous node)
-				let Some(encoded_node) = proof.next() else {
+				let Some(mut encoded_node) = proof.next() else {
 					return Ok(TryStackChildResult::Halted);
 				};
+				if self.is_compact &&
+					encoded_node.borrow().len() > 0 &&
+					Some(encoded_node.borrow()[0]) ==
+						<L::Codec as crate::node_codec::NodeCodec>::ESCAPE_HEADER
+				{
+					self.expect_value = true;
+					// no value to visit TODO set a boolean to ensure we got a hash and don
+					// t expect reanding a node value
+					encoded_node.split_first();
+				}
 				let node = match OwnedNode::new::<L::Codec>(encoded_node) {
 					Ok(node) => node,
 					Err(e) => return Err(VerifyError::DecodeError(e)),
@@ -1362,7 +1421,7 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 					if self.is_compact {
 						let mut error_hash = TrieHash::<L>::default();
 						error_hash.as_mut().copy_from_slice(hash);
-						return Err(VerifyError::ExtraneousHashReference(error_hash));
+						return Err(VerifyError::ExtraneousHashReference(error_hash))
 					}
 					if check_hash {
 						verify_hash::<L>(encoded_branch.borrow(), hash)?;
@@ -1375,17 +1434,17 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 				NodeHandle::Inline(data) => {
 					if self.is_compact && data.len() == 0 {
 						unimplemented!("This requires to put extension in stack");
-						/*
-						// ommitted hash
-						let Some(encoded_node) = proof.next() else {
-							// halt happens with a hash, this is not.
-							return Err(VerifyError::IncompleteProof);
-						};
-						node = match OwnedNode::new::<L::Codec>(encoded_node) {
-							Ok(node) => (ItemStackNode::Node(node), self.is_compact).into(),
-							Err(e) => return Err(VerifyError::DecodeError(e)),
-						};
-						*/
+					/*
+					// ommitted hash
+					let Some(encoded_node) = proof.next() else {
+						// halt happens with a hash, this is not.
+						return Err(VerifyError::IncompleteProof);
+					};
+					node = match OwnedNode::new::<L::Codec>(encoded_node) {
+						Ok(node) => (ItemStackNode::Node(node), self.is_compact).into(),
+						Err(e) => return Err(VerifyError::DecodeError(e)),
+					};
+					*/
 					} else {
 						node = match OwnedNode::new::<L::Codec>(data.to_vec()) {
 							Ok(node) => (ItemStackNode::Inline(node), self.is_compact).into(),
@@ -1479,7 +1538,7 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 				match last.node {
 					ItemStackNode::Inline(_) => (),
 					ItemStackNode::Node(node) => {
-						let origin = 0; // TODO restart depth in stack
+						let origin = self.start_items;
 						let node_data = node.data();
 						let node = node.node_plan().build(node_data);
 						let encoded_node = crate::trie_codec::encode_read_node_internal::<L::Codec>(
@@ -1491,11 +1550,21 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 						//println!("{:?}", encoded_node);
 						if self.items.len() == origin {
 							if let Some(parent) = self.items.last() {
-								unimplemented!("check agains right child");
+								let at = parent.next_descended_child - 1;
+								if let Some(Some(ChildReference::Hash(expected))) =
+									parent.children.get(at as usize)
+								{
+									verify_hash::<L>(&encoded_node, expected.as_ref())?;
+								} else {
+									return Err(VerifyError::RootMismatch(Default::default()))
+								}
 							} else {
 								let expected = expected_root.as_ref().expect("checked above");
 								verify_hash::<L>(&encoded_node, expected.as_ref())?;
 							}
+						} else if self.items.len() < origin {
+							// popped origin, need to check against new origin
+							self.start_items = self.items.len();
 						} else {
 							let hash = L::Hash::hash(&encoded_node);
 							if let Some(parent) = self.items.last_mut() {
@@ -1520,8 +1589,16 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 		&mut self,
 		target: usize,
 		expected_root: &Option<TrieHash<L>>,
+		check_only: bool,
 	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
 		if self.is_compact && expected_root.is_some() {
+			// TODO pop with check only, here unefficient implementation where we just restore
+
+			let mut restore = None;
+			if check_only {
+				restore = Some(self.clone());
+				self.iter_prefix = None;
+			}
 			// one by one
 			while let Some(last) = self.items.last() {
 				match last.depth.cmp(&target) {
@@ -1535,6 +1612,11 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 				}
 				// one by one
 				let _ = self.pop(expected_root)?;
+			}
+
+			if let Some(old) = restore.take() {
+				*self = old;
+				return Ok(())
 			}
 		}
 		loop {
@@ -1571,7 +1653,7 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 }
 
 /// Content return on success when reading proof.
-pub enum ReadProofItem<'a, L: TrieLayout, C, D> {
+pub enum ReadProofItem<'a, L: TrieLayout, C, D: SplitFirst> {
 	/// Successfull read of proof, not all content read.
 	Halted(Box<HaltedStateCheck<'a, L, C, D>>),
 	/// Seen value and key in proof.
@@ -1632,7 +1714,7 @@ where
 						}
 					}
 
-					let r = self.stack.pop_until(common_nibbles, &self.expected_root);
+					let r = self.stack.pop_until(common_nibbles, &self.expected_root, false);
 					if let Err(e) = r {
 						self.state = ReadProofState::Finished;
 						return Some(Err(e))
@@ -1808,7 +1890,7 @@ where
 		if self.is_compact {
 			let stack_to = 0; // TODO restart is different
 				  //					let r = self.stack.pop_until(common_nibbles, &self.expected_root);
-			let r = self.stack.pop_until(stack_to, &self.expected_root);
+			let r = self.stack.pop_until(stack_to, &self.expected_root, false);
 			if let Err(e) = r {
 				self.state = ReadProofState::Finished;
 				return Some(Err(e))
@@ -1836,16 +1918,22 @@ where
 		to_check_slice: Option<&mut NibbleSlice>,
 	) -> Option<Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>> {
 		if self.is_compact {
-			unimplemented!("check hash from stack");
+			let stack_to = 0; // TODO restart is different
+			let r = self.stack.pop_until(stack_to, &self.expected_root, true);
+			if let Err(e) = r {
+				self.state = ReadProofState::Finished;
+				return Some(Err(e))
+			}
 		}
 		self.state = ReadProofState::Finished;
 		let query_plan = crate::rstd::mem::replace(&mut self.query_plan, None);
 		let query_plan = query_plan.expect("Init with state");
 		let current = crate::rstd::mem::take(&mut self.current);
-		let stack = crate::rstd::mem::replace(
+		let mut stack = crate::rstd::mem::replace(
 			&mut self.stack,
 			ReadStack {
 				items: Default::default(),
+				start_items: 0,
 				prefix: Default::default(),
 				is_compact: self.is_compact,
 				expect_value: false,
@@ -1853,6 +1941,7 @@ where
 				_ph: PhantomData,
 			},
 		);
+		stack.start_items = stack.items.len();
 		Some(Ok(ReadProofItem::Halted(Box::new(HaltedStateCheck {
 			query_plan,
 			current,

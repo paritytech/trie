@@ -588,6 +588,12 @@ pub struct OwnedNode<D> {
 	plan: NodePlan,
 }
 
+impl<D: Clone> Clone for OwnedNode<D> {
+	fn clone(&self) -> Self {
+		OwnedNode { data: self.data.clone(), plan: self.plan.clone() }
+	}
+}
+
 impl<D: Borrow<[u8]>> OwnedNode<D> {
 	/// Construct an `OwnedNode` by decoding an owned data source according to some codec.
 	pub fn new<C: NodeCodec>(data: D) -> core::result::Result<Self, C::Error> {
