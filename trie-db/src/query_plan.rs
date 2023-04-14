@@ -1570,24 +1570,24 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 							if let Some(parent) = self.items.last_mut() {
 								let at = parent.next_descended_child - 1;
 								match parent.children[at as usize] {
-									None =>
-										return Err(VerifyError::RootMismatch(Default::default())),
 									Some(ChildReference::Hash(expected)) => {
 										// can append if chunks are concatenated (not progressively
 										// checked)
 										verify_hash::<L>(&encoded_node, expected.as_ref())?;
 									},
-									Some(ChildReference::Inline(_h, size)) => {
-										if size > 0 {
-											// only non inline are stacked
-											return Err(
-												VerifyError::RootMismatch(Default::default()),
-											)
-										}
+									None => {
 										// Complete
 										parent.children[at as usize] =
 											Some(ChildReference::Hash(hash));
 									},
+									Some(ChildReference::Inline(_h, size)) if size == 0 => {
+										// Complete
+										parent.children[at as usize] =
+											Some(ChildReference::Hash(hash));
+									},
+									_ =>
+									// only non inline are stacked
+										return Err(VerifyError::RootMismatch(Default::default())),
 								}
 							} else {
 								if &Some(hash) != expected_root {
