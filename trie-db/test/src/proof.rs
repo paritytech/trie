@@ -267,6 +267,12 @@ fn test_query_plan_internal<L: TrieLayout>() {
 	let db = <TrieDBBuilder<L>>::new(&db, &root).with_cache(&mut cache).build();
 
 	for kind in [ProofKind::CompactNodes /* ProofKind::FullNodes */] {
+		if kind == ProofKind::CompactNodes && L::USE_EXTENSION {
+			// Compact proofs are not supported with extensions.
+			// Requires changing the way extension are handled
+			// when decoding (putting on stack).
+			continue
+		}
 		let query_plans = [
 			InMemQueryPlan {
 				items: vec![InMemQueryPlanItem::new(b"".to_vec(), true)],
@@ -293,8 +299,8 @@ fn test_query_plan_internal<L: TrieLayout>() {
 		];
 		for query_plan in query_plans {
 			for limit_conf in [
-				/* (0, false) */
-				(1, false), /* (1, true), (2, false), (2, true), (3, true) */
+				(1, true), /* (0, false), (1, false), (1, true), (2, false), (2, true), (3,
+				            * true) */
 			] {
 				let limit = limit_conf.0;
 				let limit = (limit != 0).then(|| limit);
