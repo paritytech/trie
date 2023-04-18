@@ -266,11 +266,15 @@ fn test_query_plan_internal<L: TrieLayout>() {
 	};
 	let db = <TrieDBBuilder<L>>::new(&db, &root).with_cache(&mut cache).build();
 
-	for kind in [ProofKind::CompactNodes, ProofKind::FullNodes] {
-		if kind == ProofKind::CompactNodes && L::USE_EXTENSION {
+	for kind in [ProofKind::CompactContent, ProofKind::CompactNodes, ProofKind::FullNodes] {
+		if (kind == ProofKind::CompactContent || kind == ProofKind::CompactNodes) &&
+			L::USE_EXTENSION
+		{
 			// Compact proofs are not supported with extensions.
 			// Requires changing the way extension are handled
 			// when decoding (putting on stack).
+			// Not implemented for `CompactContent`, would need
+			// to not append 0 after pushing an extension node.
 			continue
 		}
 		let query_plans = [
@@ -338,6 +342,12 @@ fn test_query_plan_internal<L: TrieLayout>() {
 
 				let mut full_proof: Vec<Vec<u8>> = Default::default();
 				proofs.reverse();
+
+				if kind == ProofKind::CompactContent {
+					// Decode not written
+					continue
+				}
+
 				let mut query_plan_iter: QueryPlan<_> = query_plan.as_ref();
 				let mut run_state: Option<HaltedStateCheck<_, _, _>> = Some(query_plan_iter.into());
 				let mut has_run_full = false;
