@@ -266,7 +266,7 @@ fn test_query_plan_internal<L: TrieLayout>() {
 	};
 	let db = <TrieDBBuilder<L>>::new(&db, &root).with_cache(&mut cache).build();
 
-	for kind in [ProofKind::CompactNodes /* ProofKind::FullNodes */] {
+	for kind in [ProofKind::CompactNodes, ProofKind::FullNodes] {
 		if kind == ProofKind::CompactNodes && L::USE_EXTENSION {
 			// Compact proofs are not supported with extensions.
 			// Requires changing the way extension are handled

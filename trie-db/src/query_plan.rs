@@ -147,13 +147,14 @@ pub enum ProofKind {
 	/// proof at once.
 	CompactNodes,
 
+	/* TODO does not seem usefull, CompactContent is strictly better
 	/// Same encoding as CompactNodes, but with an alternate ordering that allows streaming
 	/// node and avoid unbound memory when building proof.
 	///
 	/// Ordering is starting at first met proof and parent up to intersection with next
 	/// sibling access in a branch, then next leaf, and repeating, finishing with root node.
 	CompactNodesStream,
-
+	*/
 	/// Content oriented proof, no nodes are written, just a
 	/// sequence of accessed by lexicographical order as described
 	/// in compact_content_proof::Op.
@@ -272,8 +273,7 @@ impl<O: RecorderOutput> Recorder<O> {
 		match self.output {
 			RecorderStateInner::Stream(output) |
 			RecorderStateInner::Compact { output, .. } |
-			RecorderStateInner::CompactStream(output) |
-			RecorderStateInner::Content(output) => output,
+			RecorderStateInner::Content { output, .. } => output,
 		}
 	}
 
@@ -288,8 +288,7 @@ impl<O: RecorderOutput> Recorder<O> {
 			ProofKind::FullNodes => RecorderStateInner::Stream(output),
 			ProofKind::CompactNodes =>
 				RecorderStateInner::Compact { output, proof: Vec::new(), stacked_pos: Vec::new() },
-			ProofKind::CompactNodesStream => RecorderStateInner::CompactStream(output),
-			ProofKind::CompactContent => RecorderStateInner::Content(output),
+			ProofKind::CompactContent => RecorderStateInner::Content { output, stacked_push: None },
 		};
 		let limits = Limits { remaining_node: limit_node, remaining_size: limit_size, kind };
 		Self { output, limits, start_at: None }
@@ -313,10 +312,7 @@ impl<O: RecorderOutput> Recorder<O> {
 					stacked_pos.push(proof.len());
 					proof.push(Vec::new());
 				},
-			RecorderStateInner::CompactStream(output) => {
-				unimplemented!()
-			},
-			RecorderStateInner::Content(output) => {
+			RecorderStateInner::Content { output, stacked_push } => {
 				unimplemented!()
 			},
 		}
@@ -341,11 +337,7 @@ impl<O: RecorderOutput> Recorder<O> {
 						.expect("TODO error handling, can it actually fail?");
 					} // else when restarting record, this is not to be recorded
 				},
-
-			RecorderStateInner::CompactStream(output) => {
-				unimplemented!()
-			},
-			RecorderStateInner::Content(output) => {
+			RecorderStateInner::Content { output, stacked_push } => {
 				unimplemented!()
 			},
 		}
@@ -367,10 +359,7 @@ impl<O: RecorderOutput> Recorder<O> {
 				res = self.limits.add_value(value.len());
 				proof.push(value.into());
 			},
-			RecorderStateInner::CompactStream(output) => {
-				unimplemented!()
-			},
-			RecorderStateInner::Content(output) => {
+			RecorderStateInner::Content { output, stacked_push } => {
 				unimplemented!()
 			},
 		}
@@ -387,10 +376,7 @@ impl<O: RecorderOutput> Recorder<O> {
 				// not writing inline value (already
 				// in parent node).
 			},
-			RecorderStateInner::CompactStream(output) => {
-				unimplemented!()
-			},
-			RecorderStateInner::Content(output) => {
+			RecorderStateInner::Content { output, stacked_push } => {
 				unimplemented!()
 			},
 		}
@@ -426,10 +412,7 @@ impl<O: RecorderOutput> Recorder<O> {
 			RecorderStateInner::Stream(output) => {
 				// all written
 			},
-			RecorderStateInner::CompactStream(output) => {
-				unimplemented!()
-			},
-			RecorderStateInner::Content(output) => {
+			RecorderStateInner::Content { output, stacked_push } => {
 				unimplemented!()
 			},
 		}
@@ -458,9 +441,6 @@ impl Limits {
 						res = true;
 					}
 				}
-			},
-			ProofKind::CompactNodesStream => {
-				unimplemented!()
 			},
 			ProofKind::CompactContent => {
 				unimplemented!()
@@ -491,9 +471,6 @@ impl Limits {
 					}
 				}
 			},
-			ProofKind::CompactNodesStream => {
-				unimplemented!()
-			},
 			ProofKind::CompactContent => {
 				unimplemented!()
 			},
@@ -510,9 +487,6 @@ impl Limits {
 					*rem_size += size;
 				}
 			},
-			ProofKind::CompactNodesStream => {
-				unimplemented!()
-			},
 			ProofKind::CompactContent => {
 				unimplemented!()
 			},
@@ -527,9 +501,6 @@ impl Limits {
 					// escape byte added
 					*rem_size += size - 1;
 				}
-			},
-			ProofKind::CompactNodesStream => {
-				unimplemented!()
 			},
 			ProofKind::CompactContent => {
 				unimplemented!()
@@ -551,9 +522,11 @@ enum RecorderStateInner<O: RecorderOutput> {
 		stacked_pos: Vec<usize>,
 	},
 	/// For FullNodes proofs, just send node to this stream.
-	CompactStream(O),
-	/// For FullNodes proofs, just send node to this stream.
-	Content(O),
+	Content {
+		output: O,
+		// push from depth
+		stacked_push: Option<(Vec<u8>, u8)>,
+	},
 }
 
 /// When process is halted keep execution state
@@ -623,7 +596,6 @@ impl<'a, L: TrieLayout, C, D: SplitFirst> From<QueryPlan<'a, C>> for HaltedState
 	fn from(query_plan: QueryPlan<'a, C>) -> Self {
 		let is_compact = match query_plan.kind {
 			ProofKind::FullNodes => false,
-			ProofKind::CompactNodesStream => true,
 			ProofKind::CompactNodes => true,
 			_ => false,
 		};
@@ -1988,7 +1960,7 @@ where
 	let HaltedStateCheck { query_plan, current, stack, state, restore_offset } = state;
 
 	match query_plan.kind {
-		ProofKind::CompactNodesStream | ProofKind::CompactContent => {
+		ProofKind::CompactContent => {
 			return Err(VerifyError::IncompleteProof) // TODO not kind as param if keeping CompactContent
 		},
 		_ => (),
