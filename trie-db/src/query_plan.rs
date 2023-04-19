@@ -41,6 +41,7 @@ use hash_db::Hasher;
 #[derive(Default)]
 pub struct InMemQueryPlanItem {
 	key: Vec<u8>,
+	//	hash_only: bool, TODO implement
 	as_prefix: bool,
 }
 
@@ -59,6 +60,7 @@ impl InMemQueryPlanItem {
 #[derive(Clone)]
 pub struct QueryPlanItem<'a> {
 	key: &'a [u8],
+	//	hash_only: bool, TODO implement
 	as_prefix: bool,
 }
 
@@ -193,6 +195,7 @@ impl Bitmap {
 }
 
 // TODO rename
+#[derive(Clone)]
 struct CompactEncodingInfos {
 	/// Node in memory content.
 	node: OwnedNode<DBValue>,
@@ -269,6 +272,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 			true
 		}
 	}
+
 	/// Get back output handle from a recorder.
 	pub fn output(self) -> O {
 		match self.output {
@@ -289,7 +293,8 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 			ProofKind::FullNodes => RecorderStateInner::Stream(output),
 			ProofKind::CompactNodes =>
 				RecorderStateInner::Compact { output, proof: Vec::new(), stacked_pos: Vec::new() },
-			ProofKind::CompactContent => RecorderStateInner::Content { output, stacked_push: None },
+			ProofKind::CompactContent =>
+				RecorderStateInner::Content { output, stacked_push: None, stacked_pop: None },
 		};
 		let limits = Limits { remaining_node: limit_node, remaining_size: limit_size, kind };
 		Self { output, limits, start_at: None, _ph: PhantomData }
@@ -301,6 +306,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 		item: &CompactEncodingInfos,
 		stack_pos: usize,
 		parent_index: u8,
+		items: &Vec<CompactEncodingInfos>,
 	) -> bool {
 		if !self.check_start_at(item.depth) {
 			return false
@@ -318,7 +324,8 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 					stacked_pos.push(proof.len());
 					proof.push(Vec::new());
 				},
-			RecorderStateInner::Content { output, stacked_push } => {
+			RecorderStateInner::Content { output, stacked_push, stacked_pop } => {
+				Self::flush_compact_content_pop(output, item.depth, items);
 				if stacked_push.is_none() {
 					*stacked_push = Some(NibbleVec::new());
 				}
@@ -349,19 +356,43 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 			// TODO actually should be unreachable
 			return
 		}
-		if let RecorderStateInner::Content { output, stacked_push } = &mut self.output {
+		if let RecorderStateInner::Content { output, stacked_push, .. } = &mut self.output {
 			if let Some(buff) = stacked_push.take() {
 				let mask = if buff.len() % 2 == 0 { 0xff } else { 0xf0 };
-				let op = compact_content_proof::Op::<TrieHash<L>, Vec<u8>>::KeyPush(buff.inner().to_vec(), mask);
+				let op = compact_content_proof::Op::<TrieHash<L>, Vec<u8>>::KeyPush(
+					buff.inner().to_vec(),
+					mask,
+				);
 				use codec::Encode;
 				output.write_bytes(&op.encode());
 			}
 		}
 	}
 
-	fn record_popped_node(&mut self, item: &CompactEncodingInfos, stack_pos: usize) {
+	fn flush_compact_content_pop(out: &mut O, from: usize, items: &Vec<CompactEncodingInfos>) {
+		let pop_to = items.last().map(|i| i.depth).unwrap_or(0);
+		assert!(from >= pop_to);
+		if from > pop_to && pop_to > 0 {
+			// Warning this implies key size limit of u16::max
+			let op =
+				compact_content_proof::Op::<TrieHash<L>, Vec<u8>>::KeyPop((from - pop_to) as u16);
+			use codec::Encode;
+			out.write_bytes(&op.encode());
+		}
+	}
+
+	fn record_popped_node(
+		&mut self,
+		item: &CompactEncodingInfos,
+		items: &Vec<CompactEncodingInfos>,
+	) {
 		if !self.check_start_at(item.depth) {
 			return
+		}
+		let stack_pos = items.len();
+		if let RecorderStateInner::Content { .. } = &self.output {
+			// if no value accessed, then we can have push then stack pop.
+			self.flush_compact_content_pushes(item.depth);
 		}
 
 		match &mut self.output {
@@ -377,8 +408,62 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 						.expect("TODO error handling, can it actually fail?");
 					} // else when restarting record, this is not to be recorded
 				},
-			RecorderStateInner::Content { output, stacked_push } => {
-				unimplemented!()
+			RecorderStateInner::Content { output, stacked_pop, .. } => {
+				if stacked_pop.is_none() {
+					*stacked_pop = Some(item.depth);
+				}
+				// two case: children to register or all children accessed.
+				let mut has_hash_to_write = false;
+				let node_data = item.node.data();
+				match item.node.node_plan() {
+					NodePlan::Branch { children, .. } |
+					NodePlan::NibbledBranch { children, .. } =>
+						for i in 0..children.len() {
+							if children[i].is_some() && !item.accessed_children_node.at(i) {
+								has_hash_to_write = true;
+								break
+							}
+						},
+					_ => (),
+				}
+
+				if has_hash_to_write || stack_pos == 0 {
+					Self::flush_compact_content_pop(output, item.depth, items);
+				}
+				if !has_hash_to_write {
+					return
+				}
+				match item.node.node_plan() {
+					NodePlan::Branch { children, .. } |
+					NodePlan::NibbledBranch { children, .. } => {
+						for i in 0..children.len() {
+							if let Some(child) = &children[i] {
+								if !item.accessed_children_node.at(i) {
+									match child.build(node_data) {
+										NodeHandle::Hash(hash_slice) => {
+											let mut hash = TrieHash::<L>::default();
+											hash.as_mut().copy_from_slice(hash_slice);
+											let op = compact_content_proof::Op::<
+												TrieHash<L>,
+												Vec<u8>,
+											>::HashChild(
+												compact_content_proof::Enc(hash), i as u8
+											);
+											use codec::Encode;
+											output.write_bytes(&op.encode());
+										},
+										NodeHandle::Inline(_) => {
+											unreachable!("Should be accessed"); // TODO all inline content with this proof
+											 // requires to be part of the proof, even
+											 // if unaccessed.
+										},
+									}
+								}
+							}
+						}
+					},
+					_ => (),
+				}
 			},
 		}
 	}
@@ -391,7 +476,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 
 		let mut res = false;
 		if let RecorderStateInner::Content { .. } = &self.output {
-				self.flush_compact_content_pushes(depth);
+			self.flush_compact_content_pushes(depth);
 		}
 		match &mut self.output {
 			RecorderStateInner::Stream(output) => {
@@ -402,7 +487,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 				res = self.limits.add_value(value.len());
 				proof.push(value.into());
 			},
-			RecorderStateInner::Content { output, stacked_push } => {
+			RecorderStateInner::Content { output, .. } => {
 				let op = compact_content_proof::Op::<TrieHash<L>, Vec<u8>>::Value(value);
 				use codec::Encode;
 				output.write_bytes(&op.encode());
@@ -416,7 +501,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 			return
 		}
 		if let RecorderStateInner::Content { .. } = &self.output {
-				self.flush_compact_content_pushes(depth);
+			self.flush_compact_content_pushes(depth);
 		}
 
 		match &mut self.output {
@@ -424,11 +509,57 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 				// not writing inline value (already
 				// in parent node).
 			},
-			RecorderStateInner::Content { output, stacked_push } => {
+			RecorderStateInner::Content { output, .. } => {
 				let op = compact_content_proof::Op::<TrieHash<L>, &[u8]>::Value(value);
 				use codec::Encode;
 				output.write_bytes(&op.encode());
 			},
+		}
+	}
+
+	fn record_skip_value(&mut self, items: &Vec<CompactEncodingInfos>) {
+		let mut op = None;
+		if let RecorderStateInner::Content { .. } = &self.output {
+			if let Some(item) = items.last() {
+				assert!(!item.accessed_value_node);
+				if !self.check_start_at(item.depth) {
+					return
+				}
+				let node_data = item.node.data();
+
+				match item.node.node_plan() {
+					NodePlan::Leaf { value, .. } |
+					NodePlan::Branch { value: Some(value), .. } |
+					NodePlan::NibbledBranch { value: Some(value), .. } => {
+						op = Some(match value.build(node_data) {
+							Value::Node(hash_slice) => {
+								let mut hash = TrieHash::<L>::default();
+								hash.as_mut().copy_from_slice(hash_slice);
+								compact_content_proof::Op::<_, Vec<u8>>::HashValue(
+									compact_content_proof::Enc(hash),
+								)
+							},
+							Value::Inline(value) =>
+								compact_content_proof::Op::<TrieHash<L>, Vec<u8>>::Value(
+									value.to_vec(),
+								),
+						});
+					},
+					_ => return,
+				}
+
+				self.flush_compact_content_pushes(item.depth);
+			}
+		}
+
+		if let Some(op) = op {
+			match &mut self.output {
+				RecorderStateInner::Content { output, .. } => {
+					use codec::Encode;
+					output.write_bytes(&op.encode());
+				},
+				_ => (),
+			}
 		}
 	}
 
@@ -438,7 +569,6 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 				let restarted_from = 0;
 				if stacked_pos.len() > restarted_from {
 					// halted: complete up to 0 and write all nodes keeping stack.
-					let at = stacked_pos.len();
 					let mut items = items.iter().rev();
 					while let Some(pos) = stacked_pos.pop() {
 						loop {
@@ -462,8 +592,14 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 			RecorderStateInner::Stream(output) => {
 				// all written
 			},
-			RecorderStateInner::Content { output, stacked_push } => {
-				unimplemented!()
+			RecorderStateInner::Content { output, stacked_push, stacked_pop } => {
+				assert!(stacked_push.is_none());
+				// TODO could use function with &item and &[item] as param
+				// to skip this clone.
+				let mut items = items.clone();
+				while let Some(item) = items.pop() {
+					self.record_popped_node(&item, &items);
+				}
 			},
 		}
 	}
@@ -574,8 +710,10 @@ enum RecorderStateInner<O: RecorderOutput> {
 	/// For FullNodes proofs, just send node to this stream.
 	Content {
 		output: O,
-		// push from depth.
+		// push current todos.
 		stacked_push: Option<NibbleVec>,
+		// pop from depth.
+		stacked_pop: Option<usize>,
 	},
 }
 
@@ -783,14 +921,18 @@ pub fn record_query_plan<
 			let mut slice_query = NibbleSlice::new_offset(&query.key, common_nibbles);
 			let mut touched = false;
 			loop {
-				if slice_query.is_empty() && !stack.items.is_empty() {
-					if query.as_prefix {
-						first_iter = true;
-						stack.enter_prefix_iter();
+				if !stack.items.is_empty() {
+					if slice_query.is_empty() {
+						if query.as_prefix {
+							first_iter = true;
+							stack.enter_prefix_iter();
+						} else {
+							touched = true;
+						}
+						break
 					} else {
-						touched = true;
+						stack.recorder.record_skip_value(&stack.items);
 					}
-					break
 				}
 
 				let child_index = if stack.items.is_empty() { 0 } else { slice_query.at(0) };
@@ -1017,7 +1159,7 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 			next_descended_child,
 			is_inline,
 		};
-		if self.recorder.record_stacked_node(&infos, stack.len(), child_index) {
+		if self.recorder.record_stacked_node(&infos, stack.len(), child_index, &*stack) {
 			self.halt = true;
 		}
 		stack.push(infos);
@@ -1081,7 +1223,7 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 			return false
 		}
 		if let Some(item) = self.items.pop() {
-			self.recorder.record_popped_node(&item, self.items.len());
+			self.recorder.record_popped_node(&item, &self.items);
 			let depth = self.items.last().map(|i| i.depth).unwrap_or(0);
 			self.prefix.drop_lasts(self.prefix.len() - depth);
 			if depth == item.depth {
