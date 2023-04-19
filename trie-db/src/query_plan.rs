@@ -846,7 +846,6 @@ pub fn record_query_plan<
 	let mut statefull = None;
 	let mut depth_started_from = 0;
 	// When define we iter prefix in a node but really want the next non inline.
-	let mut inline_reg = None;
 	if let Some(lower_bound) = from.from.take() {
 		if from.currently_query_item.is_none() {
 			stateless = true;
@@ -917,11 +916,42 @@ pub fn record_query_plan<
 			loop {
 				match stack.prefix.len().cmp(&common_nibbles) {
 					Ordering::Equal | Ordering::Less => break,
-					Ordering::Greater =>
+					Ordering::Greater => {
+						if query_plan.kind.record_inline() {
+							if let Some(item) = stack.items.last() {
+								let pre = item.next_descended_child + 1;
+								for i in pre..NIBBLE_LENGTH as u8 {
+									match stack.try_stack_child(
+										i,
+										db,
+										dummy_parent_hash,
+										None,
+										true,
+									)? {
+										// only expect a stacked prefix here
+										TryStackChildResult::Stacked => {
+											let (f, halt) =
+												iter_prefix::<L, O>(from, None, db, true, true)?;
+											if halt {
+												// no halt on inline.
+												unreachable!()
+											} else {
+												from = f;
+												stack = &mut from.stack;
+												from_query_ref = None;
+												stack.pop();
+											}
+										},
+										_ => (),
+									}
+								}
+							}
+						}
 						if !stack.pop() {
 							stack.recorder.finalize(&stack.items);
 							return Ok(from)
-						},
+						}
+					},
 				}
 			}
 			common_nibbles
@@ -942,11 +972,7 @@ pub fn record_query_plan<
 			continue
 		}
 		// descend
-		let (mut slice_query, mut replay) = if let Some(restart) = inline_reg.take() {
-			restart
-		} else {
-			(NibbleSlice::new_offset(&query.key, common_nibbles), None)
-		};
+		let mut slice_query = NibbleSlice::new_offset(&query.key, common_nibbles);
 		let mut touched = false;
 		loop {
 			if !stack.items.is_empty() {
@@ -969,29 +995,14 @@ pub fn record_query_plan<
 				}
 			}
 
-			let (pre, child_index) = if let Some(r) = replay.take() {
-				let child_index = if let Some(mut item) = stack.items.last_mut() {
-					if item.next_descended_child as usize >= NIBBLE_LENGTH - 1 {
-						break
-					}
-					item.next_descended_child += 1;
-					item.next_descended_child
-				} else {
-					break
-				};
-				r
-			} else if stack.items.is_empty() {
-				(0, 0)
-			} else {
-				(0, slice_query.at(0))
-			};
+			let child_index = if stack.items.is_empty() { 0 } else { slice_query.at(0) };
 			if query_plan.kind.record_inline() {
+				let pre = stack.items.last().map(|i| i.next_descended_child + 1).unwrap_or(0);
 				for i in pre..child_index {
 					match stack.try_stack_child(i, db, dummy_parent_hash, None, true)? {
 						// only expect a stacked prefix here
 						TryStackChildResult::Stacked => {
-							let (f, halt) =
-								iter_prefix::<L, O>(from, Some(&query), db, true, true)?;
+							let (f, halt) = iter_prefix::<L, O>(from, None, db, true, true)?;
 							if halt {
 								// no halt on inline.
 								unreachable!()
@@ -999,6 +1010,7 @@ pub fn record_query_plan<
 								from = f;
 								stack = &mut from.stack;
 								from_query_ref = None;
+								stack.pop();
 							}
 						},
 						_ => (),
@@ -1050,8 +1062,35 @@ pub fn record_query_plan<
 		from_query_ref = None;
 		prev_query = Some(query);
 	}
+	loop {
+		if query_plan.kind.record_inline() {
+			if let Some(item) = stack.items.last() {
+				let pre = item.next_descended_child + 1;
+				for i in pre..NIBBLE_LENGTH as u8 {
+					match stack.try_stack_child(i, db, dummy_parent_hash, None, true)? {
+						// only expect a stacked prefix here
+						TryStackChildResult::Stacked => {
+							let (f, halt) = iter_prefix::<L, O>(from, None, db, true, true)?;
+							if halt {
+								// no halt on inline.
+								unreachable!()
+							} else {
+								from = f;
+								stack = &mut from.stack;
+								from_query_ref = None;
+								stack.pop();
+							}
+						},
+						_ => (),
+					}
+				}
+			}
+		}
 
-	while stack.pop() {}
+		if !stack.pop() {
+			break
+		}
+	}
 	stack.recorder.finalize(&stack.items);
 	Ok(from)
 }
