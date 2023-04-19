@@ -165,6 +165,15 @@ pub enum ProofKind {
 	CompactContent,
 }
 
+impl ProofKind {
+	fn record_inline(&self) -> bool {
+		match self {
+			ProofKind::FullNodes | ProofKind::CompactNodes => false,
+			ProofKind::CompactContent => true,
+		}
+	}
+}
+
 #[derive(Default, Clone, Copy)]
 struct Bitmap(u16);
 
@@ -836,6 +845,8 @@ pub fn record_query_plan<
 	let mut stateless = false;
 	let mut statefull = None;
 	let mut depth_started_from = 0;
+	// When define we iter prefix in a node but really want the next non inline.
+	let mut inline_reg = None;
 	if let Some(lower_bound) = from.from.take() {
 		if from.currently_query_item.is_none() {
 			stateless = true;
@@ -855,7 +866,7 @@ pub fn record_query_plan<
 		}
 	}
 
-	let stack = &mut from.stack;
+	let mut stack = &mut from.stack;
 
 	let mut prev_query: Option<QueryPlanItem> = None;
 	/*
@@ -916,127 +927,203 @@ pub fn record_query_plan<
 			common_nibbles
 		};
 		let mut first_iter = false;
-		if stack.iter_prefix.is_none() {
-			// descend
-			let mut slice_query = NibbleSlice::new_offset(&query.key, common_nibbles);
-			let mut touched = false;
-			loop {
-				if !stack.items.is_empty() {
-					if slice_query.is_empty() {
-						if query.as_prefix {
-							first_iter = true;
-							stack.enter_prefix_iter();
+		if stack.iter_prefix.is_some() {
+			// statefull halted during iteration.
+			let (f, halt) = iter_prefix::<L, O>(from, Some(&query), db, false, false)?;
+			if halt {
+				return Ok(f)
+			} else {
+				from = f;
+				stack = &mut from.stack;
+				from_query_ref = None;
+			}
+			from_query_ref = None;
+			prev_query = Some(query);
+			continue
+		}
+		// descend
+		let (mut slice_query, mut replay) = if let Some(restart) = inline_reg.take() {
+			restart
+		} else {
+			(NibbleSlice::new_offset(&query.key, common_nibbles), None)
+		};
+		let mut touched = false;
+		loop {
+			if !stack.items.is_empty() {
+				if slice_query.is_empty() {
+					if query.as_prefix {
+						let (f, halt) = iter_prefix::<L, O>(from, Some(&query), db, true, false)?;
+						if halt {
+							return Ok(f)
 						} else {
-							touched = true;
+							from = f;
+							stack = &mut from.stack;
+							from_query_ref = None;
 						}
-						break
 					} else {
-						stack.recorder.record_skip_value(&stack.items);
+						touched = true;
+					}
+					break
+				} else {
+					stack.recorder.record_skip_value(&stack.items);
+				}
+			}
+
+			let (pre, child_index) = if let Some(r) = replay.take() {
+				let child_index = if let Some(mut item) = stack.items.last_mut() {
+					if item.next_descended_child as usize >= NIBBLE_LENGTH - 1 {
+						break
+					}
+					item.next_descended_child += 1;
+					item.next_descended_child
+				} else {
+					break
+				};
+				r
+			} else if stack.items.is_empty() {
+				(0, 0)
+			} else {
+				(0, slice_query.at(0))
+			};
+			if query_plan.kind.record_inline() {
+				for i in pre..child_index {
+					match stack.try_stack_child(i, db, dummy_parent_hash, None, true)? {
+						// only expect a stacked prefix here
+						TryStackChildResult::Stacked => {
+							let (f, halt) =
+								iter_prefix::<L, O>(from, Some(&query), db, true, true)?;
+							if halt {
+								// no halt on inline.
+								unreachable!()
+							} else {
+								from = f;
+								stack = &mut from.stack;
+								from_query_ref = None;
+							}
+						},
+						_ => (),
 					}
 				}
-
-				let child_index = if stack.items.is_empty() { 0 } else { slice_query.at(0) };
-				match stack.try_stack_child(
-					child_index,
-					db,
-					dummy_parent_hash,
-					Some(&mut slice_query),
-				)? {
-					TryStackChildResult::Stacked => {},
-					TryStackChildResult::NotStackedBranch | TryStackChildResult::NotStacked =>
-						break,
-					TryStackChildResult::StackedDescendIncomplete => {
-						if query.as_prefix {
-							first_iter = true; // TODO reorder to avoid this bool?
-							stack.enter_prefix_iter();
+			}
+			match stack.try_stack_child(
+				child_index,
+				db,
+				dummy_parent_hash,
+				Some(&mut slice_query),
+				false,
+			)? {
+				TryStackChildResult::Stacked => {},
+				TryStackChildResult::NotStackedBranch | TryStackChildResult::NotStacked => break,
+				TryStackChildResult::StackedDescendIncomplete => {
+					if query.as_prefix {
+						let (f, halt) = iter_prefix::<L, O>(from, Some(&query), db, true, false)?;
+						if halt {
+							return Ok(f)
+						} else {
+							from = f;
+							stack = &mut from.stack;
+							from_query_ref = None;
 						}
-						break
-					},
-					TryStackChildResult::Halted => {
-						stack.halt = false;
-						stack.prefix.push(child_index);
-						from.from = Some((
-							stack.prefix.inner().to_vec(),
-							(stack.prefix.len() % nibble_ops::NIBBLE_PER_BYTE) != 0,
-						));
-						stack.prefix.pop();
-						from.currently_query_item = Some(query.to_owned());
-						stack.recorder.finalize(&stack.items);
-						return Ok(from)
-					},
-				}
+					}
+					break
+				},
+				TryStackChildResult::Halted => {
+					stack.halt = false;
+					stack.prefix.push(child_index);
+					from.from = Some((
+						stack.prefix.inner().to_vec(),
+						(stack.prefix.len() % nibble_ops::NIBBLE_PER_BYTE) != 0,
+					));
+					stack.prefix.pop();
+					from.currently_query_item = Some(query.to_owned());
+					stack.recorder.finalize(&stack.items);
+					return Ok(from)
+				},
 			}
+		}
 
-			if touched {
-				// try access value
-				stack.access_value(db)?;
-				touched = false;
-			}
+		if touched {
+			// try access value
+			stack.access_value(db)?;
+			touched = false;
 		}
 		from_query_ref = None;
 		prev_query = Some(query);
-
-		if let Some(prefix_stack_depth) = stack.iter_prefix.clone() {
-			// run prefix iteration
-			let mut stacked = first_iter;
-			loop {
-				// descend
-				loop {
-					if stacked {
-						// try access value in next node
-						stack.access_value(db)?;
-						stacked = false;
-					}
-
-					let child_index = if let Some(mut item) = stack.items.last_mut() {
-						if item.next_descended_child as usize >= NIBBLE_LENGTH {
-							break
-						}
-						item.next_descended_child += 1;
-						item.next_descended_child - 1
-					} else {
-						break
-					};
-
-					match stack.try_stack_child(child_index, db, dummy_parent_hash, None)? {
-						TryStackChildResult::Stacked => {
-							stacked = true;
-						},
-						TryStackChildResult::NotStackedBranch => (),
-						TryStackChildResult::NotStacked => break,
-						TryStackChildResult::StackedDescendIncomplete => {
-							unreachable!("no slice query")
-						},
-						TryStackChildResult::Halted => {
-							if let Some(mut item) = stack.items.last_mut() {
-								item.next_descended_child -= 1;
-							}
-							stack.halt = false;
-							stack.prefix.push(child_index);
-							from.from = Some((
-								stack.prefix.inner().to_vec(),
-								(stack.prefix.len() % nibble_ops::NIBBLE_PER_BYTE) != 0,
-							));
-							stack.prefix.pop();
-							from.currently_query_item = prev_query.map(|q| q.to_owned());
-							stack.recorder.finalize(&stack.items);
-							return Ok(from)
-						},
-					}
-				}
-
-				// pop
-				if !stack.pop() {
-					break
-				}
-			}
-			stack.exit_prefix_iter();
-		}
 	}
 
 	while stack.pop() {}
 	stack.recorder.finalize(&stack.items);
 	Ok(from)
+}
+
+fn iter_prefix<L: TrieLayout, O: RecorderOutput>(
+	mut from: HaltedStateRecord<O, L>,
+	prev_query: Option<&QueryPlanItem>,
+	db: &TrieDB<L>,
+	first_iter: bool,
+	inline_iter: bool,
+) -> Result<(HaltedStateRecord<O, L>, bool), VerifyError<TrieHash<L>, CError<L>>> {
+	let stack = &mut from.stack;
+	let dummy_parent_hash = TrieHash::<L>::default();
+	if first_iter {
+		stack.enter_prefix_iter();
+	}
+
+	// run prefix iteration
+	let mut stacked = first_iter;
+	loop {
+		// descend
+		loop {
+			if stacked {
+				// try access value in next node
+				stack.access_value(db)?;
+				stacked = false;
+			}
+
+			let child_index = if let Some(mut item) = stack.items.last_mut() {
+				if item.next_descended_child as usize >= NIBBLE_LENGTH {
+					break
+				}
+				item.next_descended_child += 1;
+				item.next_descended_child - 1
+			} else {
+				break
+			};
+
+			match stack.try_stack_child(child_index, db, dummy_parent_hash, None, inline_iter)? {
+				TryStackChildResult::Stacked => {
+					stacked = true;
+				},
+				TryStackChildResult::NotStackedBranch => (),
+				TryStackChildResult::NotStacked => break,
+				TryStackChildResult::StackedDescendIncomplete => {
+					unreachable!("no slice query")
+				},
+				TryStackChildResult::Halted => {
+					if let Some(mut item) = stack.items.last_mut() {
+						item.next_descended_child -= 1;
+					}
+					stack.halt = false;
+					stack.prefix.push(child_index);
+					from.from = Some((
+						stack.prefix.inner().to_vec(),
+						(stack.prefix.len() % nibble_ops::NIBBLE_PER_BYTE) != 0,
+					));
+					stack.prefix.pop();
+					from.currently_query_item = prev_query.map(|q| q.to_owned());
+					stack.recorder.finalize(&stack.items);
+					return Ok((from, true))
+				},
+			}
+		}
+
+		// pop
+		if !stack.pop() {
+			break
+		}
+	}
+	stack.exit_prefix_iter();
+	Ok((from, false))
 }
 
 enum TryStackChildResult {
@@ -1054,6 +1141,7 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		db: &TrieDB<L>,
 		parent_hash: TrieHash<L>,
 		mut slice_query: Option<&mut NibbleSlice>,
+		inline_only: bool,
 	) -> Result<TryStackChildResult, VerifyError<TrieHash<L>, CError<L>>> {
 		let mut is_inline = false;
 		let prefix = &mut self.prefix;
@@ -1164,7 +1252,7 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		}
 		stack.push(infos);
 		if stack_extension {
-			let sbranch = self.try_stack_child(0, db, parent_hash, slice_query)?;
+			let sbranch = self.try_stack_child(0, db, parent_hash, slice_query, inline_only)?;
 			let TryStackChildResult::Stacked = sbranch else {
 				return Err(VerifyError::InvalidChildReference(b"branch in db should follow extension".to_vec()));
 			};

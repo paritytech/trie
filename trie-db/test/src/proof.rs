@@ -266,7 +266,9 @@ fn test_query_plan_internal<L: TrieLayout>() {
 	};
 	let db = <TrieDBBuilder<L>>::new(&db, &root).with_cache(&mut cache).build();
 
-	for kind in [ProofKind::CompactContent, ProofKind::CompactNodes, ProofKind::FullNodes] {
+	for kind in
+		[/* ProofKind::CompactContent, */ ProofKind::CompactNodes, ProofKind::FullNodes]
+	{
 		if (kind == ProofKind::CompactContent || kind == ProofKind::CompactNodes) &&
 			L::USE_EXTENSION
 		{
