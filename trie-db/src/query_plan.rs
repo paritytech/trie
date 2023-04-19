@@ -462,9 +462,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 											output.write_bytes(&op.encode());
 										},
 										NodeHandle::Inline(_) => {
-											unreachable!("Should be accessed"); // TODO all inline content with this proof
-											 // requires to be part of the proof, even
-											 // if unaccessed.
+											// As been accessed if needed (inline are not mark).
 										},
 									}
 								}
