@@ -21,8 +21,8 @@ use reference_trie::{
 	test_layouts, test_layouts_substrate, HashedValueNoExtThreshold, TestTrieCache,
 };
 use trie_db::{
-	encode_compact, CachedValue, DBValue, Lookup, NibbleSlice, Recorder, Trie, TrieCache,
-	TrieDBBuilder, TrieDBMutBuilder, TrieLayout, TrieMut,
+	encode_compact, CachedValue, DBValue, Lookup, NibbleSlice, NibbleVec, NodeCodec, Recorder,
+	Trie, TrieCache, TrieDBBuilder, TrieDBMutBuilder, TrieLayout, TrieMut,
 };
 
 type PrefixedMemoryDB<T> =
@@ -585,6 +585,11 @@ fn test_recorder_with_cache_get_hash_internal<T: TrieLayout>() {
 		));
 	}
 
+	let keys_and_values = [
+		(key_value[2].0.clone(), key_value[2].1.clone()),
+		(key_value[1].0.clone(), key_value[1].1.clone()),
+	];
+
 	// Run this multiple times to ensure that the cache is not interfering the recording.
 	for i in 0..6 {
 		// Ensure that it works with a filled value/node cache and without it.
@@ -601,14 +606,41 @@ fn test_recorder_with_cache_get_hash_internal<T: TrieLayout>() {
 				.with_recorder(&mut recorder)
 				.build();
 
-			assert_eq!(
-				T::Hash::hash(&key_value[2].1),
-				trie.get_hash(&key_value[2].0).unwrap().unwrap()
+			for (key, value) in &keys_and_values {
+				assert_eq!(T::Hash::hash(&value), trie.get_hash(&key).unwrap().unwrap());
+			}
+		}
+
+		for (key, value) in &keys_and_values {
+			if T::MAX_INLINE_VALUE.map_or(true, |m| m as usize > value.len()) {
+				let node_hash = cache.node_hash_for_key(&key).unwrap();
+
+				assert_ne!(
+				T::Hash::hash(&value),
+				cache.node_hash_for_key(&key).unwrap(),
+				"Data should be attached to a node, so the hash can not be the same as of the data",
 			);
-			assert_eq!(
-				T::Hash::hash(&key_value[1].1),
-				trie.get_hash(&key_value[1].0).unwrap().unwrap()
-			);
+
+				let node_data = memdb
+					.get(&node_hash, NibbleSlice::new(&key).original_data_as_prefix())
+					.unwrap();
+
+				let node = T::Codec::decode(&node_data).unwrap().to_owned_node::<T>().unwrap();
+
+				assert!(
+					node.data()
+						.into_iter()
+						.chain(
+							node.child_iter()
+								.flat_map(|v| v.1.as_inline().map(|n| n.data()))
+								.flatten()
+						)
+						.any(|d| value.as_slice() == d.deref()),
+					"Data must be inline in the node or inline in any of the inline childs!"
+				);
+			} else {
+				assert_eq!(T::Hash::hash(&value), cache.node_hash_for_key(&key).unwrap(),);
+			}
 		}
 
 		let mut partial_db = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
@@ -619,26 +651,15 @@ fn test_recorder_with_cache_get_hash_internal<T: TrieLayout>() {
 		{
 			let trie = TrieDBBuilder::<T>::new(&partial_db, &root).build();
 
-			assert_eq!(
-				T::Hash::hash(&key_value[2].1),
-				trie.get_hash(&key_value[2].0).unwrap().unwrap()
-			);
-			assert_eq!(
-				T::Hash::hash(&key_value[1].1),
-				trie.get_hash(&key_value[1].0).unwrap().unwrap()
-			);
+			for (key, value) in &keys_and_values {
+				assert_eq!(T::Hash::hash(&value), trie.get_hash(&key).unwrap().unwrap());
 
-			// Check if the values are part of the proof or not, based on the layout.
-			if T::MAX_INLINE_VALUE.map_or(true, |l| l as usize > key_value[2].1.len()) {
-				assert_eq!(key_value[2].1, trie.get(&key_value[2].0).unwrap().unwrap());
-			} else {
-				assert!(trie.get(&key_value[2].0).is_err());
-			}
-
-			if T::MAX_INLINE_VALUE.map_or(true, |l| l as usize > key_value[1].1.len()) {
-				assert_eq!(key_value[1].1, trie.get(&key_value[1].0).unwrap().unwrap());
-			} else {
-				assert!(trie.get(&key_value[1].0).is_err());
+				// Check if the values are part of the proof or not, based on the layout.
+				if T::MAX_INLINE_VALUE.map_or(true, |l| l as usize > value.len()) {
+					assert_eq!(*value, trie.get(&key).unwrap().unwrap());
+				} else {
+					assert!(trie.get(&key).is_err());
+				}
 			}
 		}
 	}

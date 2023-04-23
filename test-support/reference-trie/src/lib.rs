@@ -1116,6 +1116,7 @@ pub struct TestTrieCache<L: TrieLayout> {
 	/// In a real implementation we need to make sure that this is unique per trie root.
 	value_cache: HashMap<Vec<u8>, trie_db::CachedValue<TrieHash<L>>>,
 	node_cache: HashMap<TrieHash<L>, NodeOwned<TrieHash<L>>>,
+	key_to_node_hash: HashMap<Vec<u8>, TrieHash<L>>,
 }
 
 impl<L: TrieLayout> TestTrieCache<L> {
@@ -1128,11 +1129,18 @@ impl<L: TrieLayout> TestTrieCache<L> {
 	pub fn clear_node_cache(&mut self) {
 		self.node_cache.clear();
 	}
+
+	/// Returns the hash of the node where the value associated to `key` can be found.
+	///
+	/// Requires that `key` was accessed with this cache recording the access.
+	pub fn node_hash_for_key(&self, key: &[u8]) -> Option<TrieHash<L>> {
+		self.key_to_node_hash.get(key).cloned()
+	}
 }
 
 impl<L: TrieLayout> Default for TestTrieCache<L> {
 	fn default() -> Self {
-		Self { value_cache: Default::default(), node_cache: Default::default() }
+		Self { value_cache: Default::default(), node_cache: Default::default(), key_to_node_hash: Default::default() }
 	}
 }
 
@@ -1141,8 +1149,17 @@ impl<L: TrieLayout> trie_db::TrieCache<L::Codec> for TestTrieCache<L> {
 		self.value_cache.get(key)
 	}
 
-	fn cache_value_for_key(&mut self, key: &[u8], value: trie_db::CachedValue<TrieHash<L>>) {
+	fn cache_value_for_key(
+		&mut self,
+		key: &[u8],
+		value: trie_db::CachedValue<TrieHash<L>>,
+		node_hash: Option<TrieHash<L>>,
+	) {
 		self.value_cache.insert(key.to_vec(), value);
+
+		if let Some(node_hash) = node_hash {
+			self.key_to_node_hash.insert(key.to_vec(), node_hash);
+		}
 	}
 
 	fn get_or_insert_node(

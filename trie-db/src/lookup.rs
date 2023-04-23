@@ -89,12 +89,13 @@ where
 		v: ValueOwned<TrieHash<L>>,
 		prefix: Prefix,
 		full_key: &[u8],
+		node_hash: TrieHash<L>,
 		cache: &mut dyn crate::TrieCache<L::Codec>,
 		db: &dyn HashDBRef<L::Hash, DBValue>,
 		recorder: &mut Option<&mut dyn TrieRecorder<TrieHash<L>>>,
 	) -> Result<(Bytes, TrieHash<L>), TrieHash<L>, CError<L>> {
-		match v {
-			ValueOwned::Inline(value, hash) => Ok((value.clone(), hash)),
+		let (value, hash, node_hash) = match v {
+			ValueOwned::Inline(value, hash) => (value.clone(), hash, node_hash),
 			ValueOwned::Node(hash) => {
 				let node = cache.get_or_insert_node(hash, &mut || {
 					let value = db
@@ -120,9 +121,13 @@ where
 					});
 				}
 
-				Ok((value, hash))
+				(value, hash, hash)
 			},
-		}
+		};
+
+		cache.cache_value_for_key(full_key, (value.clone(), hash).into(), Some(node_hash));
+
+		Ok((value, hash))
 	}
 
 	fn record<'b>(&mut self, get_access: impl FnOnce() -> TrieAccess<'b, TrieHash<L>>)
@@ -206,30 +211,33 @@ where
 		{
 			hash
 		} else {
-			let hash_and_value = self.look_up_with_cache_internal(
+			let hash_value_and_node_hash = self.look_up_with_cache_internal(
 				nibble_key,
 				full_key,
 				cache,
-				|value, _, full_key, _, _, recorder| match value {
-					ValueOwned::Inline(value, hash) => Ok((hash, Some(value.clone()))),
+				|value, _, full_key, node_hash, _, _, recorder| match value {
+					ValueOwned::Inline(value, hash) => Ok((hash, Some(value.clone()), node_hash)),
 					ValueOwned::Node(hash) => {
 						if let Some(recoder) = recorder.as_mut() {
 							recoder.record(TrieAccess::Hash { full_key });
 						}
 
-						Ok((hash, None))
+						// Value node, so the hash of the node is the hash of the value itself.
+						Ok((hash, None, hash))
 					},
 				},
 			)?;
 
-			match &hash_and_value {
-				Some((hash, Some(value))) =>
-					cache.cache_value_for_key(full_key, (value.clone(), *hash).into()),
-				Some((hash, None)) => cache.cache_value_for_key(full_key, (*hash).into()),
-				None => cache.cache_value_for_key(full_key, CachedValue::NonExisting),
-			}
+			let (cached_value, node_hash) = match &hash_value_and_node_hash {
+				Some((hash, Some(value), node_hash)) =>
+					((value.clone(), *hash).into(), Some(*node_hash)),
+				Some((hash, None, node_hash)) => ((*hash).into(), Some(*node_hash)),
+				None => (CachedValue::NonExisting, None),
+			};
 
-			hash_and_value.map(|v| v.0)
+			cache.cache_value_for_key(full_key, cached_value, node_hash);
+
+			hash_value_and_node_hash.map(|v| v.0)
 		};
 
 		Ok(res)
@@ -249,8 +257,8 @@ where
 			self.recorder.as_ref().map(|r| r.trie_nodes_recorded_for_key(full_key));
 
 		let (value_cache_allowed, value_recording_required) = match trie_nodes_recorded {
-			// If we already have the trie nodes recorded up to the value, we are allowed
-			// to use the value cache.
+			// If we already have the trie nodes recorded up to the value or recording is disabled,
+			// we are allowed to use the value cache.
 			Some(RecordedForKey::Value) | None => (true, false),
 			// If we only have recorded the hash, we are allowed to use the value cache, but
 			// we may need to have the value recorded.
@@ -269,8 +277,6 @@ where
 				Self::load_owned_value,
 			)?;
 
-			cache.cache_value_for_key(full_key, data.clone().into());
-
 			Ok(data.map(|d| d.0))
 		};
 
@@ -278,20 +284,18 @@ where
 		{
 			Some(CachedValue::NonExisting) => None,
 			Some(CachedValue::ExistingHash(hash)) => {
-				let data = Self::load_owned_value(
+				Self::load_owned_value(
 					// If we only have the hash cached, this can only be a value node.
 					// For inline nodes we cache them directly as `CachedValue::Existing`.
 					ValueOwned::Node(*hash),
 					nibble_key.original_data_as_prefix(),
 					full_key,
+					*hash,
 					cache,
 					self.db,
 					&mut self.recorder,
-				)?;
-
-				cache.cache_value_for_key(full_key, data.clone().into());
-
-				Some(data.0)
+				)
+				.map(|d| Some(d.0))?
 			},
 			Some(CachedValue::Existing { data, hash, .. }) =>
 				if let Some(data) = data.upgrade() {
@@ -329,6 +333,7 @@ where
 			ValueOwned<TrieHash<L>>,
 			Prefix,
 			&[u8],
+			TrieHash<L>,
 			&mut dyn crate::TrieCache<L::Codec>,
 			&dyn HashDBRef<L::Hash, DBValue>,
 			&mut Option<&mut dyn TrieRecorder<TrieHash<L>>>,
@@ -372,6 +377,7 @@ where
 								value,
 								nibble_key.original_data_as_prefix(),
 								full_key,
+								hash,
 								cache,
 								self.db,
 								&mut self.recorder,
@@ -400,6 +406,7 @@ where
 									value,
 									nibble_key.original_data_as_prefix(),
 									full_key,
+									hash,
 									cache,
 									self.db,
 									&mut self.recorder,
@@ -438,6 +445,7 @@ where
 									value,
 									nibble_key.original_data_as_prefix(),
 									full_key,
+									hash,
 									cache,
 									self.db,
 									&mut self.recorder,

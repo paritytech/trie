@@ -600,6 +600,11 @@ impl<H: Copy> CachedValue<H> {
 			Self::NonExisting => None,
 		}
 	}
+
+	/// Returns `true` if `self == Self::Existing`.
+	pub fn is_existing(&self) -> bool {
+		matches!(self, Self::Existing { .. })
+	}
 }
 
 impl<H> From<(Bytes, H)> for CachedValue<H> {
@@ -660,12 +665,21 @@ pub trait TrieCache<NC: NodeCodec> {
 
 	/// Cache the given `value` for the given `key`.
 	///
+	/// `node_hash` being the hash of the node this value attached to. For an inline value it
+	/// means that the hash belongs to the hash of the trie node the value can be found in. For a
+	/// node value the hash is equal to the hash of the data.
+	///
 	/// # Attention
 	///
 	/// The cache can be used for different tries, aka with different roots. This means
 	/// that the cache implementation needs to take care of caching `value` for the current
 	/// trie root.
-	fn cache_value_for_key(&mut self, key: &[u8], value: CachedValue<NC::HashOut>);
+	fn cache_value_for_key(
+		&mut self,
+		key: &[u8],
+		value: CachedValue<NC::HashOut>,
+		node_hash: Option<NC::HashOut>,
+	);
 
 	/// Get or insert a [`NodeOwned`].
 	///
