@@ -266,7 +266,11 @@ fn test_query_plan_internal<L: TrieLayout>() {
 	};
 	let db = <TrieDBBuilder<L>>::new(&db, &root).with_cache(&mut cache).build();
 
-	for kind in [ProofKind::CompactContent, ProofKind::CompactNodes, ProofKind::FullNodes] {
+	for (hash_only, kind) in [
+		(false, ProofKind::CompactContent),
+		(false, ProofKind::CompactNodes),
+		(false, ProofKind::FullNodes),
+	] {
 		if (kind == ProofKind::CompactContent || kind == ProofKind::CompactNodes) &&
 			L::USE_EXTENSION
 		{
@@ -279,23 +283,23 @@ fn test_query_plan_internal<L: TrieLayout>() {
 		}
 		let query_plans = [
 			InMemQueryPlan {
-				items: vec![InMemQueryPlanItem::new(b"".to_vec(), true)],
+				items: vec![InMemQueryPlanItem::new(b"".to_vec(), hash_only, true)],
 				ignore_unordered: false,
 				kind,
 			},
 			InMemQueryPlan {
 				items: vec![
-					InMemQueryPlanItem::new(b"bravo".to_vec(), false),
-					InMemQueryPlanItem::new(b"do".to_vec(), true),
+					InMemQueryPlanItem::new(b"bravo".to_vec(), hash_only, false),
+					InMemQueryPlanItem::new(b"do".to_vec(), hash_only, true),
 				],
 				ignore_unordered: false,
 				kind,
 			},
 			InMemQueryPlan {
 				items: vec![
-					InMemQueryPlanItem::new(b"bravo".to_vec(), false),
-					InMemQueryPlanItem::new(b"doge".to_vec(), false),
-					InMemQueryPlanItem::new(b"horsey".to_vec(), false),
+					InMemQueryPlanItem::new(b"bravo".to_vec(), hash_only, false),
+					InMemQueryPlanItem::new(b"doge".to_vec(), hash_only, false),
+					InMemQueryPlanItem::new(b"horsey".to_vec(), hash_only, false),
 				],
 				ignore_unordered: false,
 				kind,

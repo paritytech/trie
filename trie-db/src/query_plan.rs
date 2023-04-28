@@ -41,18 +41,19 @@ use hash_db::Hasher;
 #[derive(Default)]
 pub struct InMemQueryPlanItem {
 	key: Vec<u8>,
+	hash_only: bool,
 	//	hash_only: bool, TODO implement
 	as_prefix: bool,
 }
 
 impl InMemQueryPlanItem {
 	/// Create new item.
-	pub fn new(key: Vec<u8>, as_prefix: bool) -> Self {
-		Self { key, as_prefix }
+	pub fn new(key: Vec<u8>, hash_only: bool, as_prefix: bool) -> Self {
+		Self { key, hash_only, as_prefix }
 	}
 	/// Get ref.
 	pub fn as_ref(&self) -> QueryPlanItem {
-		QueryPlanItem { key: &self.key, as_prefix: self.as_prefix }
+		QueryPlanItem { key: &self.key, hash_only: self.hash_only, as_prefix: self.as_prefix }
 	}
 }
 
@@ -60,7 +61,7 @@ impl InMemQueryPlanItem {
 #[derive(Clone)]
 pub struct QueryPlanItem<'a> {
 	key: &'a [u8],
-	//	hash_only: bool, TODO implement
+	hash_only: bool,
 	as_prefix: bool,
 }
 
@@ -85,7 +86,11 @@ impl<'a> QueryPlanItem<'a> {
 	}
 
 	fn to_owned(&self) -> InMemQueryPlanItem {
-		InMemQueryPlanItem { key: self.key.to_vec(), as_prefix: self.as_prefix }
+		InMemQueryPlanItem {
+			key: self.key.to_vec(),
+			hash_only: self.hash_only,
+			as_prefix: self.as_prefix,
+		}
 	}
 }
 
