@@ -249,13 +249,13 @@ pub struct InMemoryRecorder {
 
 impl RecorderOutput for InMemoryRecorder {
 	fn write_bytes(&mut self, bytes: &[u8]) {
-		if !self.buffer.is_empty() {
-			self.nodes.push(core::mem::take(&mut self.buffer));
-		}
 		self.buffer.extend_from_slice(bytes)
 	}
 
 	fn write_entry(&mut self, bytes: Cow<[u8]>) {
+		if !self.buffer.is_empty() {
+			self.nodes.push(core::mem::take(&mut self.buffer));
+		}
 		self.nodes.push(bytes.into_owned());
 	}
 }
@@ -339,8 +339,8 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 					stacked_pos.push(proof.len());
 					proof.push(Vec::new());
 				},
-			RecorderStateInner::Content { output, stacked_push, stacked_pop: _ } => {
-				Self::flush_compact_content_pop(output, item.depth, items);
+			RecorderStateInner::Content { output, stacked_push, stacked_pop } => {
+				Self::flush_compact_content_pop2(output, stacked_pop, items);
 				if stacked_push.is_none() {
 					*stacked_push = Some(NibbleVec::new());
 				}
@@ -384,10 +384,18 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 		}
 	}
 
-	fn flush_compact_content_pop(out: &mut O, from: usize, items: &Vec<CompactEncodingInfos>) {
+	fn flush_compact_content_pop2(
+		out: &mut O,
+		stacked_from: &mut Option<usize>,
+		items: &Vec<CompactEncodingInfos>,
+	) {
+		let Some(from) = stacked_from.take() else {
+			return
+		};
 		let pop_to = items.last().map(|i| i.depth).unwrap_or(0);
-		assert!(from >= pop_to);
-		if from > pop_to && pop_to > 0 {
+		debug_assert!(from > pop_to);
+		if pop_to > 0 {
+			debug_assert!(from - pop_to <= u16::max_value() as usize);
 			// Warning this implies key size limit of u16::max
 			let op =
 				compact_content_proof::Op::<TrieHash<L>, Vec<u8>>::KeyPop((from - pop_to) as u16);
@@ -443,7 +451,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 				}
 
 				if has_hash_to_write || stack_pos == 0 {
-					Self::flush_compact_content_pop(output, item.depth, items);
+					Self::flush_compact_content_pop2(output, stacked_pop, items);
 				}
 				if !has_hash_to_write {
 					return
@@ -2331,15 +2339,15 @@ where
 	})
 }
 
-mod compact_content_proof {
+pub mod compact_content_proof {
 
-	use codec::{Decode, Encode};
+	pub use codec::{Decode, Encode};
 
 	/// Representation of each encoded action
 	/// for building the proof.
 	/// TODO ref variant for encoding ??
 	#[derive(Encode, Decode, Debug)]
-	pub(crate) enum Op<H, V> {
+	pub enum Op<H, V> {
 		// key content followed by a mask for last byte.
 		// If mask erase some content the content need to
 		// be set at 0 (or error).

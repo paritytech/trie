@@ -267,9 +267,10 @@ fn test_query_plan_internal<L: TrieLayout>() {
 	let db = <TrieDBBuilder<L>>::new(&db, &root).with_cache(&mut cache).build();
 
 	for (hash_only, kind) in [
-		(true, ProofKind::FullNodes),
 		(false, ProofKind::CompactContent),
+		(true, ProofKind::FullNodes),
 		(false, ProofKind::CompactNodes),
+		(true, ProofKind::CompactNodes),
 		(false, ProofKind::FullNodes),
 	] {
 		if (kind == ProofKind::CompactContent || kind == ProofKind::CompactNodes) &&
@@ -306,7 +307,7 @@ fn test_query_plan_internal<L: TrieLayout>() {
 				kind,
 			},
 		];
-		for query_plan in query_plans {
+		for (nb_plan, query_plan) in query_plans.iter().enumerate() {
 			for limit_conf in [(0, false), (1, false), (1, true), (2, false), (2, true), (3, true)]
 			{
 				let limit = limit_conf.0;
@@ -323,7 +324,11 @@ fn test_query_plan_internal<L: TrieLayout>() {
 						assert!(from.is_finished());
 					}
 					if from.is_finished() {
-						proofs.push(from.finish().output().nodes);
+						if kind == ProofKind::CompactContent {
+							proofs.push(vec![from.finish().output().buffer]);
+						} else {
+							proofs.push(from.finish().output().nodes);
+						}
 						break
 					}
 					let rec = if limit_conf.1 {
@@ -342,13 +347,66 @@ fn test_query_plan_internal<L: TrieLayout>() {
 							None,
 						))
 					};
-					proofs.push(rec.output().nodes);
+					if kind == ProofKind::CompactContent {
+						proofs.push(vec![rec.output().buffer]);
+					} else {
+						proofs.push(rec.output().nodes);
+					}
 				}
 
 				let mut full_proof: Vec<Vec<u8>> = Default::default();
 				proofs.reverse();
 
+				fn shifted(bytes: &[u8], aligned: bool) -> Vec<u8> {
+					let mut shifted: Vec<u8> = vec![];
+					let last = bytes.len();
+					bytes.iter().enumerate().for_each(|(i, b)| {
+						shifted.last_mut().map(|l| {
+							*l |= *b >> 4;
+						});
+						if !(i == last - 1 && aligned) {
+							shifted.push(*b << 4);
+						}
+					});
+					shifted
+				}
+
 				if kind == ProofKind::CompactContent {
+					use trie_db::query_plan::compact_content_proof::{Encode, Op};
+					// hard coded check
+					if nb_plan == 0 && L::MAX_INLINE_VALUE.is_some() {
+						if limit == None {
+							// full on iter all
+							assert_eq!(proofs.len(), 1);
+							assert_eq!(proofs[0].len(), 1);
+
+							let refs: &[Op<trie_db::TrieHash<L>, Vec<u8>>] = &[
+								Op::KeyPush(b"alfa".to_vec(), 0xff),
+								Op::Value([0; 32].to_vec()),
+								Op::KeyPop(7),
+								Op::KeyPush(shifted(b"bravo", false), 0xf0),
+								Op::Value(b"bravo".to_vec()),
+								Op::KeyPop(9),
+								Op::KeyPush(shifted(b"do", false), 0xf0),
+								Op::Value(b"verb".to_vec()),
+								Op::KeyPush(b"g".to_vec(), 0xff),
+								Op::Value(b"puppy".to_vec()),
+								Op::KeyPush(b"e".to_vec(), 0xff),
+								Op::Value([0; 32].to_vec()),
+								Op::KeyPop(7),
+								Op::KeyPush(shifted(b"horse", false), 0xf0),
+								Op::Value(b"stallion".to_vec()),
+								Op::KeyPop(5),
+								Op::KeyPush(shifted(b"use", false), 0xf0),
+								Op::Value(b"building".to_vec()),
+							];
+							let mut encoded = Vec::new();
+							for r in refs {
+								r.encode_to(&mut encoded);
+							}
+							assert_eq!(proofs[0][0], encoded);
+						}
+					}
 					// Decode not written
 					continue
 				}
