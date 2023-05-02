@@ -340,7 +340,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 					proof.push(Vec::new());
 				},
 			RecorderStateInner::Content { output, stacked_push, stacked_pop } => {
-				Self::flush_compact_content_pop2(output, stacked_pop, items);
+				Self::flush_compact_content_pop2(output, stacked_pop, items, None);
 				if stacked_push.is_none() {
 					*stacked_push = Some(NibbleVec::new());
 				}
@@ -388,20 +388,19 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 		out: &mut O,
 		stacked_from: &mut Option<usize>,
 		items: &Vec<CompactEncodingInfos>,
+		add_depth: Option<usize>,
 	) {
 		let Some(from) = stacked_from.take() else {
 			return
 		};
-		let pop_to = items.last().map(|i| i.depth).unwrap_or(0);
+		let pop_to = items.last().map(|i| i.depth).unwrap_or(0) + add_depth.unwrap_or(0);
 		debug_assert!(from > pop_to);
-		if pop_to > 0 {
-			debug_assert!(from - pop_to <= u16::max_value() as usize);
-			// Warning this implies key size limit of u16::max
-			let op =
-				compact_content_proof::Op::<TrieHash<L>, Vec<u8>>::KeyPop((from - pop_to) as u16);
-			use codec::Encode;
-			out.write_bytes(&op.encode());
-		}
+
+		debug_assert!(from - pop_to <= u16::max_value() as usize);
+		// Warning this implies key size limit of u16::max
+		let op = compact_content_proof::Op::<TrieHash<L>, Vec<u8>>::KeyPop((from - pop_to) as u16);
+		use codec::Encode;
+		out.write_bytes(&op.encode());
 	}
 
 	fn record_popped_node(
@@ -432,7 +431,9 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 					} // else when restarting record, this is not to be recorded
 				},
 			RecorderStateInner::Content { output, stacked_pop, .. } => {
+				let mut had_stack = true;
 				if stacked_pop.is_none() {
+					had_stack = false;
 					*stacked_pop = Some(item.depth);
 				}
 				// two case: children to register or all children accessed.
@@ -450,8 +451,13 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 					_ => (),
 				}
 
-				if has_hash_to_write || stack_pos == 0 {
-					Self::flush_compact_content_pop2(output, stacked_pop, items);
+				if has_hash_to_write {
+					Self::flush_compact_content_pop2(
+						output,
+						stacked_pop,
+						items,
+						had_stack.then(|| item.depth),
+					);
 				}
 				if !has_hash_to_write {
 					return
@@ -1227,6 +1233,9 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 			// Returning NotStacked here sounds safe, then the is_inline field is not needed.
 			is_inline = true;
 		} else {
+			if inline_only {
+				return Ok(TryStackChildResult::NotStacked)
+			}
 			if self.halt && from_branch.is_some() {
 				return Ok(TryStackChildResult::Halted)
 			}
@@ -2384,6 +2393,14 @@ pub mod compact_content_proof {
 
 		fn encode_to<T: codec::Output + ?Sized>(&self, dest: &mut T) {
 			dest.write(self.0.as_ref())
+		}
+	}
+
+	impl<H: AsMut<[u8]> + Default> From<&[u8]> for Enc<H> {
+		fn from(v: &[u8]) -> Self {
+			let mut hash = H::default();
+			hash.as_mut().copy_from_slice(v);
+			Enc(hash)
 		}
 	}
 

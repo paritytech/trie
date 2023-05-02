@@ -268,10 +268,10 @@ fn test_query_plan_internal<L: TrieLayout>() {
 
 	for (hash_only, kind) in [
 		(false, ProofKind::CompactContent),
+		(false, ProofKind::FullNodes),
 		(true, ProofKind::FullNodes),
 		(false, ProofKind::CompactNodes),
 		(true, ProofKind::CompactNodes),
-		(false, ProofKind::FullNodes),
 	] {
 		if (kind == ProofKind::CompactContent || kind == ProofKind::CompactNodes) &&
 			L::USE_EXTENSION
@@ -372,15 +372,18 @@ fn test_query_plan_internal<L: TrieLayout>() {
 				}
 
 				if kind == ProofKind::CompactContent {
+					if L::MAX_INLINE_VALUE.is_none() {
+						continue
+					}
 					use trie_db::query_plan::compact_content_proof::{Encode, Op};
 					// hard coded check
-					if nb_plan == 0 && L::MAX_INLINE_VALUE.is_some() {
-						if limit == None {
-							// full on iter all
-							assert_eq!(proofs.len(), 1);
-							assert_eq!(proofs[0].len(), 1);
+					if limit == None {
+						// full on iter all
+						assert_eq!(proofs.len(), 1);
+						assert_eq!(proofs[0].len(), 1);
 
-							let refs: &[Op<trie_db::TrieHash<L>, Vec<u8>>] = &[
+						let refs: Vec<Op<trie_db::TrieHash<L>, Vec<u8>>> = match nb_plan {
+							0 => vec![
 								Op::KeyPush(b"alfa".to_vec(), 0xff),
 								Op::Value([0; 32].to_vec()),
 								Op::KeyPop(7),
@@ -399,13 +402,44 @@ fn test_query_plan_internal<L: TrieLayout>() {
 								Op::KeyPop(5),
 								Op::KeyPush(shifted(b"use", false), 0xf0),
 								Op::Value(b"building".to_vec()),
-							];
-							let mut encoded = Vec::new();
-							for r in refs {
-								r.encode_to(&mut encoded);
-							}
-							assert_eq!(proofs[0][0], encoded);
+							],
+							1 => vec![
+								Op::KeyPush(b"bravo".to_vec(), 0xff),
+								Op::Value(b"bravo".to_vec()),
+								Op::KeyPop(9),
+								Op::KeyPush(shifted(b"do", false), 0xf0),
+								Op::Value(b"verb".to_vec()),
+								Op::KeyPush(b"g".to_vec(), 0xff),
+								Op::Value(b"puppy".to_vec()),
+								Op::KeyPush(b"e".to_vec(), 0xff),
+								Op::Value([0; 32].to_vec()),
+								Op::KeyPop(7),
+								Op::HashChild(
+									(&[
+										44, 27, 209, 105, 69, 70, 73, 254, 82, 36, 236, 20, 32,
+										247, 110, 189, 213, 140, 86, 162, 229, 70, 86, 163, 223,
+										26, 52, 253, 176, 201, 65, 248,
+									][..])
+										.into(),
+									1,
+								),
+								Op::HashChild(
+									(&[
+										31, 82, 102, 128, 24, 85, 151, 92, 70, 18, 78, 14, 161, 91,
+										109, 136, 84, 6, 128, 190, 201, 49, 142, 21, 154, 250, 246,
+										133, 0, 199, 138, 49,
+									][..])
+										.into(),
+									8,
+								),
+							],
+							_ => continue,
+						};
+						let mut encoded = Vec::new();
+						for r in refs {
+							r.encode_to(&mut encoded);
 						}
+						assert_eq!(proofs[0][0], encoded);
 					}
 					// Decode not written
 					continue
