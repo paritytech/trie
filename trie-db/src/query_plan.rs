@@ -332,13 +332,13 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 					res = self.limits.add_node(item.node.data().len());
 					output.write_entry(item.node.data().into());
 				},
-			RecorderStateInner::Compact { output, proof, stacked_pos } =>
+			RecorderStateInner::Compact { output: _, proof, stacked_pos } =>
 				if !item.is_inline {
 					res = self.limits.add_node(item.node.data().len());
 					stacked_pos.push(proof.len());
 					proof.push(Vec::new());
 				},
-			RecorderStateInner::Content { output, stacked_push, stacked_pop } => {
+			RecorderStateInner::Content { output, stacked_push, stacked_pop: _ } => {
 				Self::flush_compact_content_pop(output, item.depth, items);
 				if stacked_push.is_none() {
 					*stacked_push = Some(NibbleVec::new());
@@ -495,7 +495,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 				res = self.limits.add_value(value.len());
 				output.write_entry(value.into());
 			},
-			RecorderStateInner::Compact { output, proof, stacked_pos } => {
+			RecorderStateInner::Compact { output: _, proof, stacked_pos: _ } => {
 				res = self.limits.add_value(value.len());
 				proof.push(value.into());
 			},
@@ -529,6 +529,8 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 		}
 	}
 
+	// TODO this should be call also in all node (not only when not finding value):
+	// then could just be part of enter node?
 	fn record_skip_value(&mut self, items: &Vec<CompactEncodingInfos>) {
 		let mut op = None;
 		if let RecorderStateInner::Content { .. } = &self.output {
@@ -601,10 +603,10 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 					output.write_entry(entry.into());
 				}
 			},
-			RecorderStateInner::Stream(output) => {
+			RecorderStateInner::Stream(_output) => {
 				// all written
 			},
-			RecorderStateInner::Content { output, stacked_push, stacked_pop } => {
+			RecorderStateInner::Content { output: _, stacked_push, stacked_pop: _ } => {
 				assert!(stacked_push.is_none());
 				// TODO could use function with &item and &[item] as param
 				// to skip this clone.
@@ -707,7 +709,6 @@ impl Limits {
 	}
 }
 
-// TODO may be useless
 enum RecorderStateInner<O: RecorderOutput> {
 	/// For FullNodes proofs, just send node to this stream.
 	Stream(O),
@@ -822,7 +823,7 @@ struct RecordStack<O: RecorderOutput, L: TrieLayout> {
 	recorder: Recorder<O, L>,
 	items: Vec<CompactEncodingInfos>,
 	prefix: NibbleVec,
-	iter_prefix: Option<usize>,
+	iter_prefix: Option<(usize, bool)>,
 	seek: Option<NibbleVec>,
 	halt: bool,
 }
@@ -847,7 +848,6 @@ pub fn record_query_plan<
 	let dummy_parent_hash = TrieHash::<L>::default();
 	let mut stateless = false;
 	let mut statefull = None;
-	let mut depth_started_from = 0;
 	// When define we iter prefix in a node but really want the next non inline.
 	if let Some(lower_bound) = from.from.take() {
 		if from.currently_query_item.is_none() {
@@ -858,7 +858,6 @@ pub fn record_query_plan<
 				bound.pop();
 			}
 			from.stack.recorder.start_at = Some(bound.len());
-			depth_started_from = bound.len();
 			from.stack.seek = Some(bound);
 		} else {
 			let bound_len = lower_bound.0.len() * nibble_ops::NIBBLE_PER_BYTE -
@@ -871,16 +870,6 @@ pub fn record_query_plan<
 	let mut stack = &mut from.stack;
 
 	let mut prev_query: Option<QueryPlanItem> = None;
-	/*
-	let mut prev_query: Option<QueryPlanItem> = if stateless {
-		Some(QueryPlanItem {
-			key: restore_buf2.as_slice(),
-			as_prefix: false, // not checked only to advance.
-		})
-	} else {
-		None
-	};
-	*/
 	let from_query = from.currently_query_item.take();
 	let mut from_query_ref = from_query.as_ref().map(|f| f.as_ref());
 	while let Some(query) = from_query_ref.clone().or_else(|| query_plan.items.next()) {
@@ -903,7 +892,6 @@ pub fn record_query_plan<
 			}
 		}
 		let common_nibbles = if let Some(slice_at) = statefull.take() {
-			depth_started_from = slice_at + 1;
 			slice_at
 		} else {
 			let (ordered, common_nibbles) =
@@ -912,8 +900,7 @@ pub fn record_query_plan<
 				if query_plan.ignore_unordered {
 					continue
 				} else {
-					return Err(VerifyError::UnorderedKey(query.key.to_vec())) // TODO not kind as param if keeping
-					                                      // CompactContent
+					return Err(VerifyError::UnorderedKey(query.key.to_vec()))
 				}
 			}
 			loop {
@@ -933,15 +920,15 @@ pub fn record_query_plan<
 									)? {
 										// only expect a stacked prefix here
 										TryStackChildResult::Stacked => {
-											let (f, halt) =
-												iter_prefix::<L, O>(from, None, db, true, true)?;
+											let (f, halt) = iter_prefix::<L, O>(
+												from, None, db, false, true, true,
+											)?;
 											if halt {
 												// no halt on inline.
 												unreachable!()
 											} else {
 												from = f;
 												stack = &mut from.stack;
-												from_query_ref = None;
 												stack.pop();
 											}
 										},
@@ -959,16 +946,14 @@ pub fn record_query_plan<
 			}
 			common_nibbles
 		};
-		let mut first_iter = false;
-		if stack.iter_prefix.is_some() {
+		if let Some((_, hash_only)) = stack.iter_prefix.clone() {
 			// statefull halted during iteration.
-			let (f, halt) = iter_prefix::<L, O>(from, Some(&query), db, false, false)?;
+			let (f, halt) = iter_prefix::<L, O>(from, Some(&query), db, hash_only, false, false)?;
 			if halt {
 				return Ok(f)
 			} else {
 				from = f;
 				stack = &mut from.stack;
-				from_query_ref = None;
 			}
 			from_query_ref = None;
 			prev_query = Some(query);
@@ -976,23 +961,28 @@ pub fn record_query_plan<
 		}
 		// descend
 		let mut slice_query = NibbleSlice::new_offset(&query.key, common_nibbles);
-		let mut touched = false;
-		loop {
+		let touched = loop {
 			if !stack.items.is_empty() {
 				if slice_query.is_empty() {
 					if query.as_prefix {
-						let (f, halt) = iter_prefix::<L, O>(from, Some(&query), db, true, false)?;
+						let (f, halt) = iter_prefix::<L, O>(
+							from,
+							Some(&query),
+							db,
+							query.hash_only,
+							true,
+							false,
+						)?;
 						if halt {
 							return Ok(f)
 						} else {
 							from = f;
 							stack = &mut from.stack;
-							from_query_ref = None;
 						}
+						break false
 					} else {
-						touched = true;
+						break true
 					}
-					break
 				} else {
 					stack.recorder.record_skip_value(&stack.items);
 				}
@@ -1005,14 +995,13 @@ pub fn record_query_plan<
 					match stack.try_stack_child(i, db, dummy_parent_hash, None, true)? {
 						// only expect a stacked prefix here
 						TryStackChildResult::Stacked => {
-							let (f, halt) = iter_prefix::<L, O>(from, None, db, true, true)?;
+							let (f, halt) = iter_prefix::<L, O>(from, None, db, false, true, true)?;
 							if halt {
 								// no halt on inline.
 								unreachable!()
 							} else {
 								from = f;
 								stack = &mut from.stack;
-								from_query_ref = None;
 								stack.pop();
 							}
 						},
@@ -1028,19 +1017,26 @@ pub fn record_query_plan<
 				false,
 			)? {
 				TryStackChildResult::Stacked => {},
-				TryStackChildResult::NotStackedBranch | TryStackChildResult::NotStacked => break,
+				TryStackChildResult::NotStackedBranch | TryStackChildResult::NotStacked =>
+					break false,
 				TryStackChildResult::StackedDescendIncomplete => {
 					if query.as_prefix {
-						let (f, halt) = iter_prefix::<L, O>(from, Some(&query), db, true, false)?;
+						let (f, halt) = iter_prefix::<L, O>(
+							from,
+							Some(&query),
+							db,
+							query.hash_only,
+							true,
+							false,
+						)?;
 						if halt {
 							return Ok(f)
 						} else {
 							from = f;
 							stack = &mut from.stack;
-							from_query_ref = None;
 						}
 					}
-					break
+					break false
 				},
 				TryStackChildResult::Halted => {
 					stack.halt = false;
@@ -1055,12 +1051,11 @@ pub fn record_query_plan<
 					return Ok(from)
 				},
 			}
-		}
+		};
 
 		if touched {
 			// try access value
-			stack.access_value(db)?;
-			touched = false;
+			stack.access_value(db, query.hash_only)?;
 		}
 		from_query_ref = None;
 		prev_query = Some(query);
@@ -1073,14 +1068,13 @@ pub fn record_query_plan<
 					match stack.try_stack_child(i, db, dummy_parent_hash, None, true)? {
 						// only expect a stacked prefix here
 						TryStackChildResult::Stacked => {
-							let (f, halt) = iter_prefix::<L, O>(from, None, db, true, true)?;
+							let (f, halt) = iter_prefix::<L, O>(from, None, db, false, true, true)?;
 							if halt {
 								// no halt on inline.
 								unreachable!()
 							} else {
 								from = f;
 								stack = &mut from.stack;
-								from_query_ref = None;
 								stack.pop();
 							}
 						},
@@ -1102,13 +1096,14 @@ fn iter_prefix<L: TrieLayout, O: RecorderOutput>(
 	mut from: HaltedStateRecord<O, L>,
 	prev_query: Option<&QueryPlanItem>,
 	db: &TrieDB<L>,
+	hash_only: bool,
 	first_iter: bool,
 	inline_iter: bool,
 ) -> Result<(HaltedStateRecord<O, L>, bool), VerifyError<TrieHash<L>, CError<L>>> {
 	let stack = &mut from.stack;
 	let dummy_parent_hash = TrieHash::<L>::default();
 	if first_iter {
-		stack.enter_prefix_iter();
+		stack.enter_prefix_iter(hash_only);
 	}
 
 	// run prefix iteration
@@ -1118,7 +1113,7 @@ fn iter_prefix<L: TrieLayout, O: RecorderOutput>(
 		loop {
 			if stacked {
 				// try access value in next node
-				stack.access_value(db)?;
+				stack.access_value(db, hash_only)?;
 				stacked = false;
 			}
 
@@ -1310,6 +1305,7 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 	fn access_value<'a>(
 		&mut self,
 		db: &TrieDB<L>,
+		hash_only: bool,
 	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
 		let Some(item)= self.items.last_mut() else {
 			return Ok(false)
@@ -1349,7 +1345,7 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 	}
 
 	fn pop(&mut self) -> bool {
-		if self.iter_prefix == Some(self.items.len()) {
+		if self.iter_prefix.map(|(l, _)| l == self.items.len()).unwrap_or(false) {
 			return false
 		}
 		if let Some(item) = self.items.pop() {
@@ -1366,8 +1362,8 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		}
 	}
 
-	fn enter_prefix_iter(&mut self) {
-		self.iter_prefix = Some(self.items.len());
+	fn enter_prefix_iter(&mut self, hash_only: bool) {
+		self.iter_prefix = Some((self.items.len(), hash_only));
 	}
 
 	fn exit_prefix_iter(&mut self) {
