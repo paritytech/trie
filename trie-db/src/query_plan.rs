@@ -1326,17 +1326,20 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 			_ => return Ok(false),
 		};
 		match value {
-			Value::Node(hash_slice) => {
-				item.accessed_value_node = true;
-				let mut hash = TrieHash::<L>::default();
-				hash.as_mut().copy_from_slice(hash_slice);
-				let Some(value) = db.db().get(&hash, self.prefix.as_prefix()) else {
-					return Err(VerifyError::IncompleteProof);
-				};
-				if self.recorder.record_value_node(value, self.prefix.len()) {
-					self.halt = true;
-				}
-			},
+			Value::Node(hash_slice) =>
+				if !hash_only {
+					item.accessed_value_node = true;
+					let mut hash = TrieHash::<L>::default();
+					hash.as_mut().copy_from_slice(hash_slice);
+					let Some(value) = db.db().get(&hash, self.prefix.as_prefix()) else {
+						return Err(VerifyError::IncompleteProof);
+					};
+					if self.recorder.record_value_node(value, self.prefix.len()) {
+						self.halt = true;
+					}
+				} else {
+					self.recorder.record_skip_value(&self.items);
+				},
 			Value::Inline(value) => {
 				self.recorder.record_value_inline(value, self.prefix.len());
 			},
