@@ -267,6 +267,7 @@ fn test_query_plan_internal<L: TrieLayout>() {
 	let db = <TrieDBBuilder<L>>::new(&db, &root).with_cache(&mut cache).build();
 
 	for (hash_only, kind) in [
+		(true, ProofKind::FullNodes),
 		(false, ProofKind::CompactContent),
 		(false, ProofKind::CompactNodes),
 		(false, ProofKind::FullNodes),
@@ -377,6 +378,13 @@ fn test_query_plan_internal<L: TrieLayout>() {
 					let mut halted = false;
 					for item in verify_iter {
 						match item.unwrap() {
+							ReadProofItem::Hash(key, hash) => {
+								assert!(hash_only);
+								assert_eq!(
+									content.get(&*key).map(|v| L::Hash::hash(&v.as_ref())),
+									Some(hash)
+								);
+							},
 							ReadProofItem::Value(key, value) => {
 								assert_eq!(content.get(&*key), Some(&value.as_ref()));
 							},

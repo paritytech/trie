@@ -98,6 +98,7 @@ impl<'a> QueryPlanItem<'a> {
 pub struct InMemQueryPlan {
 	pub items: Vec<InMemQueryPlanItem>,
 	pub kind: ProofKind,
+	// TODO rem
 	pub ignore_unordered: bool,
 }
 
@@ -1510,7 +1511,8 @@ impl<L: TrieLayout, D: SplitFirst> ItemStack<L, D> {
 struct ReadStack<L: TrieLayout, D: SplitFirst> {
 	items: Vec<ItemStack<L, D>>,
 	prefix: NibbleVec,
-	iter_prefix: Option<(usize, bool)>, // limit and wether we return value
+	// limit and wether we return value and if hash only iteration.
+	iter_prefix: Option<(usize, bool, bool)>,
 	start_items: usize,
 	is_compact: bool,
 	expect_value: bool,
@@ -1521,8 +1523,8 @@ impl<L: TrieLayout, D: SplitFirst> Clone for ReadStack<L, D> {
 	fn clone(&self) -> Self {
 		ReadStack {
 			items: self.items.clone(),
-			start_items: self.start_items.clone(),
 			prefix: self.prefix.clone(),
+			start_items: self.start_items.clone(),
 			iter_prefix: self.iter_prefix,
 			is_compact: self.is_compact,
 			expect_value: self.expect_value,
@@ -1767,7 +1769,8 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 		&mut self,
 		proof: &mut impl Iterator<Item = D>,
 		check_hash: bool,
-	) -> Result<Option<Vec<u8>>, VerifyError<TrieHash<L>, CError<L>>> {
+		hash_only: bool,
+	) -> Result<(Option<Vec<u8>>, Option<TrieHash<L>>), VerifyError<TrieHash<L>, CError<L>>> {
 		if let Some(node) = self.items.last() {
 			let node_data = node.data();
 
@@ -1775,7 +1778,7 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 				NodePlan::Leaf { value, .. } => Some(value.build(node_data)),
 				NodePlan::Branch { value, .. } | NodePlan::NibbledBranch { value, .. } =>
 					value.as_ref().map(|v| v.build(node_data)),
-				_ => return Ok(None),
+				_ => return Ok((None, None)),
 			};
 			if let Some(value) = value {
 				match value {
@@ -1783,6 +1786,10 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 						if self.expect_value {
 							assert!(self.is_compact);
 							self.expect_value = false;
+							if hash_only {
+								return Err(VerifyError::ExtraneousValue(Default::default()))
+							}
+
 							let Some(value) = proof.next() else {
 								return Err(VerifyError::IncompleteProof);
 							};
@@ -1790,15 +1797,28 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 								let hash = L::Hash::hash(value.borrow());
 								self.items.last_mut().map(|i| i.attached_value_hash = Some(hash));
 							}
-							return Ok(Some(value.borrow().to_vec()))
+							return Ok((Some(value.borrow().to_vec()), None))
 						} else {
-							return Ok(Some(value.to_vec()))
+							if hash_only {
+								let hash = L::Hash::hash(value.borrow());
+								return Ok((None, Some(hash)))
+							}
+							return Ok((Some(value.to_vec()), None))
 						},
 					Value::Node(hash) => {
 						if self.expect_value {
+							if hash_only {
+								return Err(VerifyError::ExtraneousValue(Default::default()))
+							}
+							self.expect_value = false;
 							let mut error_hash = TrieHash::<L>::default();
 							error_hash.as_mut().copy_from_slice(hash);
 							return Err(VerifyError::ExtraneousHashReference(error_hash))
+						}
+						if hash_only {
+							let mut result_hash = TrieHash::<L>::default();
+							result_hash.as_mut().copy_from_slice(hash);
+							return Ok((None, Some(result_hash)))
 						}
 						let Some(value) = proof.next() else {
 							return Err(VerifyError::IncompleteProof);
@@ -1806,7 +1826,7 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 						if check_hash {
 							verify_hash::<L>(value.borrow(), hash)?;
 						}
-						return Ok(Some(value.borrow().to_vec()))
+						return Ok((Some(value.borrow().to_vec()), None))
 					},
 				}
 			}
@@ -1814,7 +1834,7 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 			return Err(VerifyError::IncompleteProof)
 		}
 
-		Ok(None)
+		Ok((None, None))
 	}
 
 	fn pop(
@@ -1955,8 +1975,8 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 		Err(VerifyError::ExtraneousNode)
 	}
 
-	fn enter_prefix_iter(&mut self) {
-		self.iter_prefix = Some((self.items.len(), false));
+	fn enter_prefix_iter(&mut self, hash_only: bool) {
+		self.iter_prefix = Some((self.items.len(), false, hash_only));
 	}
 
 	fn exit_prefix_iter(&mut self) {
@@ -1969,9 +1989,11 @@ pub enum ReadProofItem<'a, L: TrieLayout, C, D: SplitFirst> {
 	/// Successfull read of proof, not all content read.
 	Halted(Box<HaltedStateCheck<'a, L, C, D>>),
 	/// Seen value and key in proof.
-	/// When we set the query plan, we only return content
-	/// matching the query plan.
+	/// We only return content matching the query plan.
 	Value(Cow<'a, [u8]>, Vec<u8>),
+	/// Seen hash of value and key in proof.
+	/// We only return content matching the query plan.
+	Hash(Cow<'a, [u8]>, TrieHash<L>),
 	/// No value seen for a key in the input query plan.
 	NoValue(&'a [u8]),
 	/// Seen fully covered prefix in proof, this is only
@@ -2045,19 +2067,25 @@ where
 				}
 			};
 			let did_prefix = self.stack.iter_prefix.is_some();
-			while let Some((_, accessed_value_node)) = self.stack.iter_prefix.clone() {
+			while let Some((_, accessed_value_node, hash_only)) = self.stack.iter_prefix.clone() {
 				// prefix iteration
 				if !accessed_value_node {
 					self.stack.iter_prefix.as_mut().map(|s| {
 						s.1 = true;
 					});
-					match self.stack.access_value(&mut self.proof, check_hash) {
-						Ok(Some(value)) =>
+					match self.stack.access_value(&mut self.proof, check_hash, hash_only) {
+						Ok((Some(value), None)) =>
 							return Some(Ok(ReadProofItem::Value(
 								self.stack.prefix.inner().to_vec().into(),
 								value,
 							))),
-						Ok(None) => (),
+						Ok((None, Some(hash))) =>
+							return Some(Ok(ReadProofItem::Hash(
+								self.stack.prefix.inner().to_vec().into(),
+								hash,
+							))),
+						Ok((None, None)) => (),
+						Ok(_) => unreachable!(),
 						Err(e) => {
 							self.state = ReadProofState::Finished;
 							return Some(Err(e))
@@ -2127,7 +2155,8 @@ where
 			let to_check = self.current.as_ref().expect("Init above");
 			let to_check_len = to_check.key.len() * nibble_ops::NIBBLE_PER_BYTE;
 			let mut to_check_slice = to_check_slice.as_mut().expect("Init above");
-			let as_prefix = to_check.as_prefix;
+			let as_prefix = to_check.as_prefix; // TODO useless?
+			let hash_only = to_check.hash_only; // TODO useless?
 			let mut at_value = false;
 			match self.stack.prefix.len().cmp(&to_check_len) {
 				Ordering::Equal =>
@@ -2142,14 +2171,17 @@ where
 
 			if at_value {
 				if as_prefix {
-					self.stack.enter_prefix_iter();
+					self.stack.enter_prefix_iter(hash_only);
 					continue
 				}
 				self.state = ReadProofState::SwitchQueryPlan;
-				match self.stack.access_value(&mut self.proof, check_hash) {
-					Ok(Some(value)) =>
+				match self.stack.access_value(&mut self.proof, check_hash, hash_only) {
+					Ok((Some(value), None)) =>
 						return Some(Ok(ReadProofItem::Value(to_check.key.into(), value))),
-					Ok(None) => return Some(Ok(ReadProofItem::NoValue(to_check.key))),
+					Ok((None, Some(hash))) =>
+						return Some(Ok(ReadProofItem::Hash(to_check.key.into(), hash))),
+					Ok((None, None)) => return Some(Ok(ReadProofItem::NoValue(to_check.key))),
+					Ok(_) => unreachable!(),
 					Err(e) => {
 						self.state = ReadProofState::Finished;
 						return Some(Err(e))
@@ -2180,7 +2212,7 @@ where
 				TryStackChildResult::Stacked => (),
 				TryStackChildResult::StackedDescendIncomplete => {
 					if as_prefix {
-						self.stack.enter_prefix_iter();
+						self.stack.enter_prefix_iter(hash_only);
 						continue
 					}
 					self.state = ReadProofState::SwitchQueryPlan;
