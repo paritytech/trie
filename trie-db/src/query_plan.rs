@@ -60,9 +60,9 @@ impl InMemQueryPlanItem {
 /// Item to query.
 #[derive(Clone)]
 pub struct QueryPlanItem<'a> {
-	key: &'a [u8],
-	hash_only: bool,
-	as_prefix: bool,
+	pub key: &'a [u8],
+	pub hash_only: bool,
+	pub as_prefix: bool,
 }
 
 impl<'a> QueryPlanItem<'a> {
