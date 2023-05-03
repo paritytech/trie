@@ -277,6 +277,13 @@ struct Limits {
 }
 
 impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
+	fn mark_inline_access(&self) -> bool {
+		match &self.output {
+			RecorderStateInner::Content { .. } => true,
+			_ => false,
+		}
+	}
+
 	/// Check and update start at record.
 	/// When return true, do record.
 	fn check_start_at(&mut self, depth: usize) -> bool {
@@ -1241,7 +1248,7 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 			}
 		}
 		if let Some(accessed_children_node) = from_branch {
-			if !is_inline {
+			if !is_inline || self.recorder.mark_inline_access() {
 				accessed_children_node.set(child_index as usize, true);
 			}
 
