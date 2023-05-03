@@ -930,34 +930,8 @@ pub fn record_query_plan<
 					Ordering::Equal | Ordering::Less => break,
 					Ordering::Greater => {
 						if query_plan.kind.record_inline() {
-							if let Some(item) = stack.items.last() {
-								let pre = item.next_descended_child + 1;
-								for i in pre..NIBBLE_LENGTH as u8 {
-									match stack.try_stack_child(
-										i,
-										db,
-										dummy_parent_hash,
-										None,
-										true,
-									)? {
-										// only expect a stacked prefix here
-										TryStackChildResult::Stacked => {
-											let (f, halt) = iter_prefix::<L, O>(
-												from, None, db, false, true, true,
-											)?;
-											if halt {
-												// no halt on inline.
-												unreachable!()
-											} else {
-												from = f;
-												stack = &mut from.stack;
-												stack.pop();
-											}
-										},
-										_ => (),
-									}
-								}
-							}
+							from = try_stack_inline_child(from, db, NIBBLE_LENGTH as u8)?;
+							stack = &mut from.stack;
 						}
 						if !stack.pop() {
 							stack.recorder.finalize(&stack.items);
@@ -1012,25 +986,13 @@ pub fn record_query_plan<
 
 			let child_index = if stack.items.is_empty() { 0 } else { slice_query.at(0) };
 			if query_plan.kind.record_inline() {
-				let pre = stack.items.last().map(|i| i.next_descended_child + 1).unwrap_or(0);
-				for i in pre..child_index {
-					match stack.try_stack_child(i, db, dummy_parent_hash, None, true)? {
-						// only expect a stacked prefix here
-						TryStackChildResult::Stacked => {
-							let (f, halt) = iter_prefix::<L, O>(from, None, db, false, true, true)?;
-							if halt {
-								// no halt on inline.
-								unreachable!()
-							} else {
-								from = f;
-								stack = &mut from.stack;
-								stack.pop();
-							}
-						},
-						_ => (),
-					}
-				}
+				from = try_stack_inline_child(from, db, child_index)?;
+				stack = &mut from.stack;
 			}
+			stack.items.last_mut().map(|i| {
+				// TODO only needed for content but could be better to be always aligned
+				i.next_descended_child = child_index + 1;
+			});
 			match stack.try_stack_child(
 				child_index,
 				db,
@@ -1084,26 +1046,8 @@ pub fn record_query_plan<
 	}
 	loop {
 		if query_plan.kind.record_inline() {
-			if let Some(item) = stack.items.last() {
-				let pre = item.next_descended_child + 1;
-				for i in pre..NIBBLE_LENGTH as u8 {
-					match stack.try_stack_child(i, db, dummy_parent_hash, None, true)? {
-						// only expect a stacked prefix here
-						TryStackChildResult::Stacked => {
-							let (f, halt) = iter_prefix::<L, O>(from, None, db, false, true, true)?;
-							if halt {
-								// no halt on inline.
-								unreachable!()
-							} else {
-								from = f;
-								stack = &mut from.stack;
-								stack.pop();
-							}
-						},
-						_ => (),
-					}
-				}
-			}
+			from = try_stack_inline_child(from, db, NIBBLE_LENGTH as u8)?;
+			stack = &mut from.stack;
 		}
 
 		if !stack.pop() {
@@ -1111,6 +1055,38 @@ pub fn record_query_plan<
 		}
 	}
 	stack.recorder.finalize(&stack.items);
+	Ok(from)
+}
+
+fn try_stack_inline_child<'a, L: TrieLayout, O: RecorderOutput>(
+	mut from: HaltedStateRecord<O, L>,
+	db: &TrieDB<L>,
+	upper: u8,
+) -> Result<HaltedStateRecord<O, L>, VerifyError<TrieHash<L>, CError<L>>> {
+	let dummy_parent_hash = TrieHash::<L>::default();
+	let mut stack = &mut from.stack;
+	if let Some(item) = stack.items.last() {
+		let pre = item.next_descended_child; // TODO put next_descended child to 16 for leaf (skip some noop iter)
+		for i in pre..upper as u8 {
+			match stack.try_stack_child(i, db, dummy_parent_hash, None, true)? {
+				// only expect a stacked prefix here
+				TryStackChildResult::Stacked => {
+					let (f, halt) = iter_prefix::<L, O>(from, None, db, false, true, true)?;
+					if halt {
+						// no halt on inline.
+						unreachable!()
+					} else {
+						from = f;
+						stack = &mut from.stack;
+						stack.pop();
+					}
+				},
+				TryStackChildResult::NotStackedBranch => (),
+				_ => break,
+			}
+		}
+	}
+	stack.items.last_mut().map(|i| i.next_descended_child = upper);
 	Ok(from)
 }
 
@@ -1241,7 +1217,7 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 			is_inline = true;
 		} else {
 			if inline_only {
-				return Ok(TryStackChildResult::NotStacked)
+				return Ok(TryStackChildResult::NotStackedBranch)
 			}
 			if self.halt && from_branch.is_some() {
 				return Ok(TryStackChildResult::Halted)

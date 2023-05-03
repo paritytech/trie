@@ -308,6 +308,12 @@ fn test_query_plan_internal<L: TrieLayout>() {
 			},
 		];
 		for (nb_plan, query_plan) in query_plans.iter().enumerate() {
+			/*
+			// TODO rem
+			if nb_plan < 1 {
+				continue
+			}
+			*/
 			for limit_conf in [(0, false), (1, false), (1, true), (2, false), (2, true), (3, true)]
 			{
 				let limit = limit_conf.0;
@@ -438,7 +444,34 @@ fn test_query_plan_internal<L: TrieLayout>() {
 										),
 									]
 								} else {
-									continue
+									vec![
+										Op::KeyPush(b"bravo".to_vec(), 0xff),
+										Op::Value(b"bravo".to_vec()),
+										Op::KeyPop(9),
+										Op::KeyPush(shifted(b"do", false), 0xf0),
+										Op::Value(b"verb".to_vec()),
+										Op::KeyPush(b"g".to_vec(), 0xff),
+										Op::Value(b"puppy".to_vec()),
+										Op::KeyPush(b"e".to_vec(), 0xff),
+										Op::Value([0; 32].to_vec()),
+										Op::KeyPop(7),
+										// inline ix 8
+										Op::KeyPush(shifted(b"horse", false), 0xf0),
+										Op::Value(b"stallion".to_vec()),
+										Op::KeyPop(5),
+										Op::KeyPush(shifted(b"use", false), 0xf0),
+										Op::Value(b"building".to_vec()),
+										Op::KeyPop(9),
+										Op::HashChild(
+											(&[
+												225, 211, 100, 128, 231, 82, 240, 112, 33, 165,
+												225, 30, 244, 128, 56, 45, 17, 21, 138, 87, 3, 211,
+												231, 109, 244, 137, 208, 244, 12, 65, 196, 119,
+											][..])
+												.into(),
+											1,
+										),
+									]
 								},
 							_ => continue,
 						};
