@@ -1693,7 +1693,7 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 					slice_query = None;
 				}
 				if ok {
-					if self.prefix.len() > 0 {
+					if self.items.len() > 0 {
 						self.prefix.push(child_index);
 					}
 					if let Some(slice) = slice_query.as_mut() {
