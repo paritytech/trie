@@ -131,10 +131,10 @@ impl InMemQueryPlan {
 
 /// Query plan.
 pub struct QueryPlan<'a, I> {
-	items: I,
-	ignore_unordered: bool,
-	kind: ProofKind,
-	_ph: PhantomData<&'a ()>,
+	pub items: I,
+	pub ignore_unordered: bool,
+	pub kind: ProofKind,
+	pub _ph: PhantomData<&'a ()>,
 }
 
 /// Different proof support.
