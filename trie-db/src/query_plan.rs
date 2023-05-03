@@ -783,6 +783,11 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 
 	/// Init from start.
 	pub fn from_start(recorder: Recorder<O, L>) -> Self {
+		Self::from_at(recorder, None)
+	}
+
+	/// Init from position or start.
+	pub fn from_at(recorder: Recorder<O, L>, at: Option<(Vec<u8>, bool)>) -> Self {
 		HaltedStateRecord {
 			currently_query_item: None,
 			stack: RecordStack {
@@ -793,8 +798,12 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 				halt: false,
 				seek: None,
 			},
-			from: None,
+			from: at,
 		}
+	}
+
+	pub fn stopped_at(&self) -> Option<(Vec<u8>, bool)> {
+		self.from.clone()
 	}
 
 	pub fn is_finished(&self) -> bool {
