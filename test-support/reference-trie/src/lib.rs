@@ -51,7 +51,6 @@ macro_rules! test_layouts {
 	($test:ident, $test_internal:ident) => {
 		#[test]
 		fn $test() {
-			$test_internal::<$crate::SubstrateV1<$crate::RefHasher>>(); // TODO rem
 			eprintln!("Running with layout `HashedValueNoExtThreshold`");
 			$test_internal::<$crate::HashedValueNoExtThreshold<1>>();
 			eprintln!("Running with layout `SubstrateV1`");

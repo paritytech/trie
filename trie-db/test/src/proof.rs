@@ -310,7 +310,7 @@ fn test_query_plan_internal<L: TrieLayout>() {
 		for (nb_plan, query_plan) in query_plans.iter().enumerate() {
 			/*
 			// TODO rem
-			if nb_plan < 1 {
+			if nb_plan < 2 {
 				continue
 			}
 			*/
@@ -456,6 +456,95 @@ fn test_query_plan_internal<L: TrieLayout>() {
 										Op::Value([0; 32].to_vec()),
 										Op::KeyPop(7),
 										// inline ix 8
+										Op::KeyPush(shifted(b"horse", false), 0xf0),
+										Op::Value(b"stallion".to_vec()),
+										Op::KeyPop(5),
+										Op::KeyPush(shifted(b"use", false), 0xf0),
+										Op::Value(b"building".to_vec()),
+										Op::KeyPop(9),
+										Op::HashChild(
+											(&[
+												225, 211, 100, 128, 231, 82, 240, 112, 33, 165,
+												225, 30, 244, 128, 56, 45, 17, 21, 138, 87, 3, 211,
+												231, 109, 244, 137, 208, 244, 12, 65, 196, 119,
+											][..])
+												.into(),
+											1,
+										),
+									]
+								},
+							2 =>
+							// bravo, doge, horsey
+								if all {
+									vec![
+										Op::KeyPush(b"bravo".to_vec(), 0xff),
+										Op::Value(b"bravo".to_vec()),
+										Op::KeyPop(9),
+										Op::KeyPush(shifted(b"do", false), 0xf0),
+										// hash value here is not really good (could only be with
+										// child hashes when no hash query).
+										Op::HashValue(
+											(&[
+												48, 51, 75, 77, 6, 75, 210, 124, 205, 63, 59, 165,
+												81, 140, 222, 237, 196, 168, 203, 206, 105, 245,
+												15, 154, 233, 147, 189, 123, 194, 243, 179, 137,
+											][..])
+												.into(),
+										),
+										Op::KeyPush(b"g".to_vec(), 0xff),
+										Op::HashValue(
+											(&[
+												104, 225, 103, 23, 160, 148, 143, 214, 98, 64, 250,
+												245, 134, 99, 233, 36, 28, 150, 26, 205, 25, 165,
+												122, 211, 170, 180, 45, 82, 143, 71, 191, 19,
+											][..])
+												.into(),
+										),
+										Op::KeyPush(b"e".to_vec(), 0xff),
+										Op::Value([0; 32].to_vec()),
+										Op::KeyPop(7),
+										Op::KeyPush(shifted(b"horse", false), 0xf0),
+										Op::HashValue(
+											(&[
+												170, 195, 61, 227, 244, 86, 86, 205, 233, 84, 40,
+												116, 166, 25, 158, 33, 18, 236, 208, 172, 115, 246,
+												158, 34, 158, 170, 197, 139, 219, 254, 124, 136,
+											][..])
+												.into(),
+										),
+										Op::KeyPop(5),
+										Op::HashChild(
+											(&[
+												115, 96, 173, 184, 157, 30, 165, 173, 98, 91, 45,
+												97, 173, 249, 2, 240, 133, 247, 131, 7, 128, 195,
+												235, 114, 210, 152, 24, 22, 105, 232, 147, 171,
+											][..])
+												.into(),
+											5,
+										),
+										Op::KeyPop(4),
+										Op::HashChild(
+											(&[
+												44, 27, 209, 105, 69, 70, 73, 254, 82, 36, 236, 20,
+												32, 247, 110, 189, 213, 140, 86, 162, 229, 70, 86,
+												163, 223, 26, 52, 253, 176, 201, 65, 248,
+											][..])
+												.into(),
+											1,
+										),
+									]
+								} else {
+									vec![
+										Op::KeyPush(b"bravo".to_vec(), 0xff),
+										Op::Value(b"bravo".to_vec()),
+										Op::KeyPop(9),
+										Op::KeyPush(shifted(b"do", false), 0xf0),
+										Op::Value(b"verb".to_vec()),
+										Op::KeyPush(b"g".to_vec(), 0xff),
+										Op::Value(b"puppy".to_vec()),
+										Op::KeyPush(b"e".to_vec(), 0xff),
+										Op::Value([0; 32].to_vec()),
+										Op::KeyPop(7),
 										Op::KeyPush(shifted(b"horse", false), 0xf0),
 										Op::Value(b"stallion".to_vec()),
 										Op::KeyPop(5),

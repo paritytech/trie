@@ -400,7 +400,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 		let Some(from) = stacked_from.take() else {
 			return
 		};
-		let pop_to = items.last().map(|i| i.depth).unwrap_or(0) + add_depth.unwrap_or(0);
+		let pop_to = add_depth.unwrap_or_else(|| items.last().map(|i| i.depth).unwrap_or(0));
 		debug_assert!(from > pop_to);
 
 		debug_assert!(from - pop_to <= u16::max_value() as usize);
@@ -446,29 +446,21 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 				// two case: children to register or all children accessed.
 				let mut has_hash_to_write = false;
 				let node_data = item.node.data();
-				match item.node.node_plan() {
-					NodePlan::Branch { children, .. } |
-					NodePlan::NibbledBranch { children, .. } =>
-						for i in 0..children.len() {
-							if children[i].is_some() && !item.accessed_children_node.at(i) {
-								has_hash_to_write = true;
-								break
-							}
-						},
-					_ => (),
+				if let Some(last_item) = items.last() {
+					match last_item.node.node_plan() {
+						NodePlan::Branch { children, .. } |
+						NodePlan::NibbledBranch { children, .. } =>
+							for i in 0..children.len() {
+								if children[i].is_some() && !last_item.accessed_children_node.at(i)
+								{
+									has_hash_to_write = true;
+									break
+								}
+							},
+						_ => (),
+					}
 				}
 
-				if has_hash_to_write {
-					Self::flush_compact_content_pop2(
-						output,
-						stacked_pop,
-						items,
-						had_stack.then(|| item.depth),
-					);
-				}
-				if !has_hash_to_write {
-					return
-				}
 				match item.node.node_plan() {
 					NodePlan::Branch { children, .. } |
 					NodePlan::NibbledBranch { children, .. } => {
@@ -497,6 +489,15 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 						}
 					},
 					_ => (),
+				}
+				if has_hash_to_write {
+					Self::flush_compact_content_pop2(
+						output,
+						stacked_pop,
+						items,
+						None,
+						//had_stack.then(|| item.depth),
+					);
 				}
 			},
 		}
