@@ -1671,7 +1671,7 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 			NodePlan::NibbledBranch { partial, .. } |
 			NodePlan::Extension { partial, .. } => {
 				let partial = partial.build(node_data);
-				if self.prefix.len() > 0 {
+				if self.items.len() > 0 {
 					if let Some(slice) = slice_query.as_mut() {
 						slice.advance(1);
 					}
