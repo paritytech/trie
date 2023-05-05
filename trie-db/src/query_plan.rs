@@ -408,7 +408,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 	fn flush_compact_content_pop2(
 		out: &mut O,
 		stacked_from: &mut Option<usize>,
-		items: &Vec<CompactEncodingInfos>,
+		items: &[CompactEncodingInfos],
 		add_depth: Option<usize>,
 		limits: &mut Limits,
 	) -> bool {
@@ -433,7 +433,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 	fn record_popped_node(
 		&mut self,
 		item: &CompactEncodingInfos,
-		items: &Vec<CompactEncodingInfos>,
+		items: &[CompactEncodingInfos],
 	) -> bool {
 		let mut res = false;
 		if !self.check_start_at(item.depth) {
@@ -684,9 +684,10 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 				assert!(stacked_push.is_none());
 				// TODO could use function with &item and &[item] as param
 				// to skip this clone.
-				let mut items = items.clone();
-				while let Some(item) = items.pop() {
-					let _ = self.record_popped_node(&item, &items);
+				for i in (0..items.len()).rev() {
+					let item = items.get(i).expect("bounded iter");
+					let items = &items[..i];
+					let _ = self.record_popped_node(item, &items);
 				}
 			},
 		}
