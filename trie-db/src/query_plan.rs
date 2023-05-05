@@ -347,7 +347,15 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 					proof.push(Vec::new());
 				},
 			RecorderStateInner::Content { output, stacked_push, stacked_pop } => {
-				Self::flush_compact_content_pop2(output, stacked_pop, items, None);
+				if Self::flush_compact_content_pop2(
+					output,
+					stacked_pop,
+					items,
+					None,
+					&mut self.limits,
+				) {
+					res = true
+				}
 				if stacked_push.is_none() {
 					*stacked_push = Some(NibbleVec::new());
 				}
@@ -373,10 +381,12 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 		res
 	}
 
-	fn flush_compact_content_pushes(&mut self, depth: usize) {
+	#[must_use]
+	fn flush_compact_content_pushes(&mut self, depth: usize) -> bool {
+		let mut res = false;
 		if !self.check_start_at(depth) {
 			// TODO actually should be unreachable
-			return
+			return res
 		}
 		if let RecorderStateInner::Content { output, stacked_push, .. } = &mut self.output {
 			if let Some(buff) = stacked_push.take() {
@@ -386,19 +396,25 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 					mask,
 				);
 				use codec::Encode;
-				output.write_bytes(&op.encode());
+				let encoded = op.encode();
+				res = self.limits.add_node(encoded.len());
+				output.write_bytes(&encoded);
 			}
 		}
+		res
 	}
 
+	#[must_use]
 	fn flush_compact_content_pop2(
 		out: &mut O,
 		stacked_from: &mut Option<usize>,
 		items: &Vec<CompactEncodingInfos>,
 		add_depth: Option<usize>,
-	) {
+		limits: &mut Limits,
+	) -> bool {
+		let mut res = false;
 		let Some(from) = stacked_from.take() else {
-			return
+			return res
 		};
 		let pop_to = add_depth.unwrap_or_else(|| items.last().map(|i| i.depth).unwrap_or(0));
 		debug_assert!(from > pop_to);
@@ -407,21 +423,28 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 		// Warning this implies key size limit of u16::max
 		let op = compact_content_proof::Op::<TrieHash<L>, Vec<u8>>::KeyPop((from - pop_to) as u16);
 		use codec::Encode;
-		out.write_bytes(&op.encode());
+		let encoded = op.encode();
+		res = limits.add_node(encoded.len());
+		out.write_bytes(&encoded);
+		res
 	}
 
+	#[must_use]
 	fn record_popped_node(
 		&mut self,
 		item: &CompactEncodingInfos,
 		items: &Vec<CompactEncodingInfos>,
-	) {
+	) -> bool {
+		let mut res = false;
 		if !self.check_start_at(item.depth) {
-			return
+			return res
 		}
 		let stack_pos = items.len();
 		if let RecorderStateInner::Content { .. } = &self.output {
 			// if no value accessed, then we can have push then stack pop.
-			self.flush_compact_content_pushes(item.depth);
+			if self.flush_compact_content_pushes(item.depth) {
+				res = true;
+			}
 		}
 
 		match &mut self.output {
@@ -478,7 +501,9 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 												compact_content_proof::Enc(hash), i as u8
 											);
 											use codec::Encode;
-											output.write_bytes(&op.encode());
+											let encoded = op.encode();
+											res = self.limits.add_node(encoded.len());
+											output.write_bytes(&encoded);
 										},
 										NodeHandle::Inline(_) => {
 											// As been accessed if needed (inline are not mark).
@@ -491,16 +516,20 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 					_ => (),
 				}
 				if has_hash_to_write {
-					Self::flush_compact_content_pop2(
+					if Self::flush_compact_content_pop2(
 						output,
 						stacked_pop,
 						items,
 						None,
+						&mut self.limits,
 						//had_stack.then(|| item.depth),
-					);
+					) {
+						res = true;
+					}
 				}
 			},
 		}
+		res
 	}
 
 	#[must_use]
@@ -511,7 +540,9 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 
 		let mut res = false;
 		if let RecorderStateInner::Content { .. } = &self.output {
-			self.flush_compact_content_pushes(depth);
+			if self.flush_compact_content_pushes(depth) {
+				res = true;
+			}
 		}
 		match &mut self.output {
 			RecorderStateInner::Stream(output) => {
@@ -525,18 +556,24 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 			RecorderStateInner::Content { output, .. } => {
 				let op = compact_content_proof::Op::<TrieHash<L>, Vec<u8>>::Value(value);
 				use codec::Encode;
-				output.write_bytes(&op.encode());
+				let mut encoded = op.encode();
+				res = self.limits.add_node(encoded.len());
+				output.write_bytes(&encoded);
 			},
 		}
 		res
 	}
 
-	fn record_value_inline(&mut self, value: &[u8], depth: usize) {
+	#[must_use]
+	fn record_value_inline(&mut self, value: &[u8], depth: usize) -> bool {
+		let mut res = false;
 		if !self.check_start_at(depth) {
-			return
+			return res
 		}
 		if let RecorderStateInner::Content { .. } = &self.output {
-			self.flush_compact_content_pushes(depth);
+			if self.flush_compact_content_pushes(depth) {
+				res = true;
+			}
 		}
 
 		match &mut self.output {
@@ -547,20 +584,28 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 			RecorderStateInner::Content { output, .. } => {
 				let op = compact_content_proof::Op::<TrieHash<L>, &[u8]>::Value(value);
 				use codec::Encode;
-				output.write_bytes(&op.encode());
+				let mut encoded = op.encode();
+				res = self.limits.add_node(encoded.len());
+				output.write_bytes(&encoded);
 			},
 		}
+		res
 	}
 
 	// TODO this should be call also in all node (not only when not finding value):
 	// then could just be part of enter node?
-	fn record_skip_value(&mut self, items: &Vec<CompactEncodingInfos>) {
+	#[must_use]
+	fn record_skip_value(&mut self, items: &mut Vec<CompactEncodingInfos>) -> bool {
+		let mut res = false;
 		let mut op = None;
 		if let RecorderStateInner::Content { .. } = &self.output {
-			if let Some(item) = items.last() {
-				assert!(!item.accessed_value_node);
+			if let Some(item) = items.last_mut() {
+				if item.accessed_value_node {
+					return res
+				}
+				item.accessed_value_node = true;
 				if !self.check_start_at(item.depth) {
-					return
+					return res
 				}
 				let node_data = item.node.data();
 
@@ -582,10 +627,12 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 								),
 						});
 					},
-					_ => return,
+					_ => return res,
 				}
 
-				self.flush_compact_content_pushes(item.depth);
+				if self.flush_compact_content_pushes(item.depth) {
+					res = true;
+				}
 			}
 		}
 
@@ -593,11 +640,14 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 			match &mut self.output {
 				RecorderStateInner::Content { output, .. } => {
 					use codec::Encode;
-					output.write_bytes(&op.encode());
+					let mut encoded = op.encode();
+					res = self.limits.add_node(encoded.len());
+					output.write_bytes(&encoded);
 				},
 				_ => (),
 			}
 		}
+		res
 	}
 
 	fn finalize(&mut self, items: &Vec<CompactEncodingInfos>) {
@@ -630,12 +680,13 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 				// all written
 			},
 			RecorderStateInner::Content { output: _, stacked_push, stacked_pop: _ } => {
+				// TODO protect existing stack as for compact
 				assert!(stacked_push.is_none());
 				// TODO could use function with &item and &[item] as param
 				// to skip this clone.
 				let mut items = items.clone();
 				while let Some(item) = items.pop() {
-					self.record_popped_node(&item, &items);
+					let _ = self.record_popped_node(&item, &items);
 				}
 			},
 		}
@@ -666,7 +717,23 @@ impl Limits {
 				}
 			},
 			ProofKind::CompactContent => {
-				unimplemented!()
+				// everything is counted as a node.
+				if let Some(rem_size) = self.remaining_size.as_mut() {
+					if *rem_size >= size {
+						*rem_size -= size;
+					} else {
+						*rem_size = 0;
+						res = true;
+					}
+				}
+				if let Some(rem_node) = self.remaining_node.as_mut() {
+					if *rem_node > 1 {
+						*rem_node -= 1;
+					} else {
+						*rem_node = 0;
+						res = true;
+					}
+				}
 			},
 		}
 		res
@@ -695,7 +762,7 @@ impl Limits {
 				}
 			},
 			ProofKind::CompactContent => {
-				unimplemented!()
+				unreachable!()
 			},
 		}
 		res
@@ -990,7 +1057,9 @@ pub fn record_query_plan<
 						break true
 					}
 				} else {
-					stack.recorder.record_skip_value(&stack.items);
+					if stack.recorder.record_skip_value(&mut stack.items) {
+						stack.halt = true;
+					}
 				}
 			}
 
@@ -1349,11 +1418,14 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 						self.halt = true;
 					}
 				} else {
-					self.recorder.record_skip_value(&self.items);
+					if self.recorder.record_skip_value(&mut self.items) {
+						self.halt = true;
+					}
 				},
-			Value::Inline(value) => {
-				self.recorder.record_value_inline(value, self.prefix.len());
-			},
+			Value::Inline(value) =>
+				if self.recorder.record_value_inline(value, self.prefix.len()) {
+					self.halt = true;
+				},
 		}
 		Ok(true)
 	}
@@ -1363,7 +1435,9 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 			return false
 		}
 		if let Some(item) = self.items.pop() {
-			self.recorder.record_popped_node(&item, &self.items);
+			if self.recorder.record_popped_node(&item, &self.items) {
+				self.halt = true;
+			}
 			let depth = self.items.last().map(|i| i.depth).unwrap_or(0);
 			self.prefix.drop_lasts(self.prefix.len() - depth);
 			if depth == item.depth {
