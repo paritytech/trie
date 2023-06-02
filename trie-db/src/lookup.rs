@@ -58,7 +58,13 @@ where
 		query: Q,
 	) -> Result<Q::Item, TrieHash<L>, CError<L>> {
 		match v {
-			Value::Inline(value) => Ok(query.decode(&value)),
+			Value::Inline(value) => {
+				if let Some(recorder) = recorder {
+					recorder.record(TrieAccess::InlineValue { full_key });
+				}
+
+				Ok(query.decode(&value))
+			},
 			Value::Node(hash) => {
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash);
@@ -94,7 +100,13 @@ where
 		recorder: &mut Option<&mut dyn TrieRecorder<TrieHash<L>>>,
 	) -> Result<(Bytes, TrieHash<L>), TrieHash<L>, CError<L>> {
 		match v {
-			ValueOwned::Inline(value, hash) => Ok((value.clone(), hash)),
+			ValueOwned::Inline(value, hash) => {
+				if let Some(recorder) = recorder {
+					recorder.record(TrieAccess::InlineValue { full_key });
+				}
+
+				Ok((value.clone(), hash))
+			},
 			ValueOwned::Node(hash) => {
 				let node = cache.get_or_insert_node(hash, &mut || {
 					let value = db
@@ -167,7 +179,13 @@ where
 				full_key,
 				|v, _, full_key, _, recorder, _| {
 					Ok(match v {
-						Value::Inline(v) => L::Hash::hash(&v),
+						Value::Inline(v) => {
+							if let Some(recoder) = recorder.as_mut() {
+								recoder.record(TrieAccess::InlineValue { full_key });
+							}
+
+							L::Hash::hash(&v)
+						},
 						Value::Node(hash_bytes) => {
 							if let Some(recoder) = recorder.as_mut() {
 								recoder.record(TrieAccess::Hash { full_key });
@@ -211,7 +229,13 @@ where
 				full_key,
 				cache,
 				|value, _, full_key, _, _, recorder| match value {
-					ValueOwned::Inline(value, hash) => Ok((hash, Some(value.clone()))),
+					ValueOwned::Inline(value, hash) => {
+						if let Some(recoder) = recorder.as_mut() {
+							recoder.record(TrieAccess::InlineValue { full_key });
+						}
+
+						Ok((hash, Some(value.clone())))
+					},
 					ValueOwned::Node(hash) => {
 						if let Some(recoder) = recorder.as_mut() {
 							recoder.record(TrieAccess::Hash { full_key });

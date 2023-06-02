@@ -21,8 +21,8 @@ use reference_trie::{
 	test_layouts, test_layouts_substrate, HashedValueNoExtThreshold, TestTrieCache,
 };
 use trie_db::{
-	encode_compact, CachedValue, DBValue, Lookup, NibbleSlice, Recorder, Trie, TrieCache,
-	TrieDBBuilder, TrieDBMutBuilder, TrieLayout, TrieMut,
+	encode_compact, CachedValue, DBValue, Lookup, NibbleSlice, RecordedForKey, Recorder, Trie,
+	TrieCache, TrieDBBuilder, TrieDBMutBuilder, TrieLayout, TrieMut, TrieRecorder,
 };
 
 type PrefixedMemoryDB<T> =
@@ -895,4 +895,76 @@ fn test_record_value() {
 	assert_eq!(compact_proof[0].len(), 38);
 	// leaf with value hash only.
 	assert_eq!(compact_proof[1].len(), 33);
+}
+
+test_layouts!(test_trie_nodes_recorded, test_trie_nodes_recorded_internal);
+fn test_trie_nodes_recorded_internal<T: TrieLayout>() {
+	let key_value = vec![
+		(b"A".to_vec(), vec![1; 64]),
+		(b"AA".to_vec(), vec![2; 64]),
+		(b"AB".to_vec(), vec![3; 4]),
+		(b"B".to_vec(), vec![4; 64]),
+		(b"BC".to_vec(), vec![4; 64]),
+	];
+	const NON_EXISTENT_KEY: &[u8] = &*b"NOT";
+
+	let mut memdb = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
+	let mut root = Default::default();
+
+	{
+		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+		for (key, value) in &key_value {
+			t.insert(key, value).unwrap();
+		}
+	}
+
+	for mut cache in [Some(TestTrieCache::<T>::default()), None] {
+		for get_hash in [true, false] {
+			let mut recorder = Recorder::<T>::default();
+			{
+				let trie = TrieDBBuilder::<T>::new(&memdb, &root)
+					.with_recorder(&mut recorder)
+					.with_optional_cache(cache.as_mut().map(|c| c as &mut _))
+					.build();
+				for (key, _) in &key_value {
+					if get_hash {
+						assert!(trie.get_hash(key).unwrap().is_some());
+					} else {
+						assert!(trie.get(key).unwrap().is_some());
+					}
+				}
+
+				if get_hash {
+					assert!(trie.get_hash(&NON_EXISTENT_KEY).unwrap().is_none());
+				} else {
+					assert!(trie.get(&NON_EXISTENT_KEY).unwrap().is_none());
+				}
+			}
+
+			for (key, value) in &key_value {
+				let recorded = recorder.trie_nodes_recorded_for_key(&key);
+
+				let is_inline = T::MAX_INLINE_VALUE.map_or(true, |m| value.len() < m as usize);
+
+				let expected = if get_hash && !is_inline {
+					RecordedForKey::Hash
+				} else {
+					RecordedForKey::Value
+				};
+
+				assert_eq!(
+					expected,
+					recorded,
+					"{:?} max_inline: {:?} get_hash: {get_hash}",
+					String::from_utf8(key.to_vec()),
+					T::MAX_INLINE_VALUE
+				);
+			}
+
+			assert_eq!(
+				RecordedForKey::None,
+				recorder.trie_nodes_recorded_for_key(&NON_EXISTENT_KEY),
+			);
+		}
+	}
 }

@@ -173,6 +173,13 @@ pub enum TrieAccess<'a, H> {
 	///
 	/// Should map to [`RecordedForKey::Value`] when checking the recorder.
 	Value { hash: H, value: rstd::borrow::Cow<'a, [u8]>, full_key: &'a [u8] },
+	/// A value was accessed that is stored inline a node.
+	///
+	/// As the value is stored inline there is no need to separately record the value as it is part
+	/// of a node. The given `full_key` is the key to access this value in the trie.
+	///
+	/// Should map to [`RecordedForKey::Value`] when checking the recorder.
+	InlineValue { full_key: &'a [u8] },
 	/// The hash of the value for the given `full_key` was accessed.
 	///
 	/// Should map to [`RecordedForKey::Hash`] when checking the recorder.
@@ -184,7 +191,7 @@ pub enum TrieAccess<'a, H> {
 }
 
 /// Result of [`TrieRecorder::trie_nodes_recorded_for_key`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecordedForKey {
 	/// We recorded all trie nodes up to the value for a storage key.
 	///
