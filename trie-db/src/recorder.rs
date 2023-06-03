@@ -75,7 +75,7 @@ impl<L: TrieLayout> TrieRecorder<TrieHash<L>> for Recorder<L> {
 			},
 			TrieAccess::InlineValue { full_key } => {
 				self.recorded_keys.entry(full_key.to_vec()).insert(RecordedForKey::Value);
-			}
+			},
 		}
 	}
 
