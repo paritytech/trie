@@ -36,6 +36,12 @@ pub trait NodeCodec: Sized {
 	/// branch or leaf with hash of value, followed by the value node.
 	const ESCAPE_HEADER: Option<u8> = None;
 
+	/// Size delta for compact encoding of omitted nodes.
+	const DELTA_COMPACT_OMITTED_NODE: usize;
+
+	/// Size delta for compact encoding of omitted value nodes.
+	const DELTA_COMPACT_OMITTED_VALUE: usize;
+
 	/// Codec error type.
 	type Error: Error;
 

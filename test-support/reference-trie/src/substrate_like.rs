@@ -149,6 +149,8 @@ impl<H> NodeCodecT for NodeCodec<H>
 where
 	H: Hasher,
 {
+	const DELTA_COMPACT_OMITTED_NODE: usize = 32;
+	const DELTA_COMPACT_OMITTED_VALUE: usize = 30;
 	const ESCAPE_HEADER: Option<u8> = Some(trie_constants::ESCAPE_COMPACT_HEADER);
 	type Error = Error;
 	type HashOut = H::Out;

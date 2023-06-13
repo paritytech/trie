@@ -18,7 +18,6 @@ use reference_trie::{test_layouts, NoExtensionLayout, TestTrieCache};
 use std::collections::BTreeMap;
 use trie_db::{
 	proof::{generate_proof, verify_proof, VerifyError},
-	query_plan::{HaltedStateCheck, HaltedStateRecord},
 	DBValue, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieLayout, TrieMut,
 };
 
@@ -246,8 +245,9 @@ fn test_verify_decode_error_internal<T: TrieLayout>() {
 test_layouts!(test_query_plan, test_query_plan_internal);
 fn test_query_plan_internal<L: TrieLayout>() {
 	use trie_db::query_plan::{
-		record_query_plan, verify_query_plan_iter, HaltedStateCheck, InMemQueryPlan,
-		InMemQueryPlanItem, InMemoryRecorder, ProofKind, QueryPlan, ReadProofItem, Recorder,
+		record_query_plan, verify_query_plan_iter, HaltedStateCheck, HaltedStateRecord,
+		InMemQueryPlan, InMemQueryPlanItem, InMemoryRecorder, ProofKind, QueryPlan, ReadProofItem,
+		Recorder,
 	};
 	let set = test_entries();
 
@@ -308,12 +308,6 @@ fn test_query_plan_internal<L: TrieLayout>() {
 			},
 		];
 		for (nb_plan, query_plan) in query_plans.iter().enumerate() {
-			/*
-			// TODO rem
-			if nb_plan < 2 {
-				continue
-			}
-			*/
 			for limit_conf in [(0, false), (1, false), (1, true), (2, false), (2, true), (3, true)]
 			{
 				let limit = limit_conf.0;
@@ -679,7 +673,6 @@ fn test_query_plan_internal<L: TrieLayout>() {
 					.unwrap();
 					let content: BTreeMap<_, _> = set.iter().cloned().collect();
 					let mut in_prefix = false;
-					let mut halted = false;
 					for item in verify_iter {
 						match item.unwrap() {
 							ReadProofItem::Hash(key, hash) => {
