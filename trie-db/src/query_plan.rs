@@ -1313,13 +1313,7 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		}
 		// TODO handle cache first
 		let child_node = db
-			.get_raw_or_lookup_with_cache(
-				parent_hash,
-				child_handle,
-				prefix.as_prefix(),
-				false,
-				true,
-			)
+			.get_raw_or_lookup_with_cache(parent_hash, child_handle, prefix.as_prefix(), false)
 			.map_err(|_| VerifyError::IncompleteProof)?; // actually incomplete db: TODO consider switching error
 
 		// TODO put in proof (only if Hash or inline for content one)

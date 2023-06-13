@@ -154,13 +154,7 @@ where
 		partial_key: Prefix,
 		record_access: bool,
 	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
-		self.get_raw_or_lookup_with_cache(
-			parent_hash,
-			node_handle,
-			partial_key,
-			record_access,
-			false,
-		)
+		self.get_raw_or_lookup_with_cache(parent_hash, node_handle, partial_key, record_access)
 	}
 
 	/// Same as get_raw_or_lookup but with optionally use of the node cache.
@@ -173,7 +167,6 @@ where
 		node_handle: NodeHandle,
 		partial_key: Prefix,
 		record_access: bool,
-		with_cache: bool,
 	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
 		let (node_hash, node_data) = match node_handle {
 			NodeHandle::Hash(data) => {
