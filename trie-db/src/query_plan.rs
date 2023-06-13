@@ -233,6 +233,9 @@ pub trait RecorderOutput {
 	/// Append bytes.
 	fn write_bytes(&mut self, bytes: &[u8]);
 
+	/// Bytes buf len.
+	fn buf_len(&self) -> usize;
+
 	/// Append a delimited sequence of bytes (usually a node).
 	fn write_entry(&mut self, bytes: Cow<[u8]>);
 }
@@ -251,6 +254,10 @@ pub struct InMemoryRecorder {
 impl RecorderOutput for InMemoryRecorder {
 	fn write_bytes(&mut self, bytes: &[u8]) {
 		self.buffer.extend_from_slice(bytes)
+	}
+
+	fn buf_len(&self) -> usize {
+		self.buffer.len()
 	}
 
 	fn write_entry(&mut self, bytes: Cow<[u8]>) {
@@ -404,10 +411,10 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 					buff.inner().to_vec(),
 					mask,
 				);
-				use codec::Encode;
-				let encoded = op.encode();
-				res = self.limits.add_node(encoded.len(), 0, false);
-				output.write_bytes(&encoded);
+				let init_len = output.buf_len();
+				op.encode_into(output);
+				let written = output.buf_len() - init_len;
+				res = self.limits.add_node(written, 0, false);
 			}
 		}
 		res
@@ -421,9 +428,8 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 		add_depth: Option<usize>,
 		limits: &mut Limits,
 	) -> bool {
-		let mut res = false;
 		let Some(from) = stacked_from.take() else {
-			return res
+			return false
 		};
 		let pop_to = add_depth.unwrap_or_else(|| items.last().map(|i| i.depth).unwrap_or(0));
 		debug_assert!(from > pop_to);
@@ -431,11 +437,10 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 		debug_assert!(from - pop_to <= u16::max_value() as usize);
 		// Warning this implies key size limit of u16::max
 		let op = compact_content_proof::Op::<TrieHash<L>, Vec<u8>>::KeyPop((from - pop_to) as u16);
-		use codec::Encode;
-		let encoded = op.encode();
-		res = limits.add_node(encoded.len(), 0, false);
-		out.write_bytes(&encoded);
-		res
+		let init_len = out.buf_len();
+		op.encode_into(out);
+		let written = out.buf_len() - init_len;
+		limits.add_node(written, 0, false)
 	}
 
 	#[must_use]
@@ -503,13 +508,11 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 											let op = compact_content_proof::Op::<
 												TrieHash<L>,
 												Vec<u8>,
-											>::HashChild(
-												compact_content_proof::Enc(hash), i as u8
-											);
-											use codec::Encode;
-											let encoded = op.encode();
-											res = self.limits.add_node(encoded.len(), 0, false);
-											output.write_bytes(&encoded);
+											>::HashChild(hash, i as u8);
+											let init_len = output.buf_len();
+											op.encode_into(output);
+											let written = output.buf_len() - init_len;
+											res = self.limits.add_node(written, 0, false)
 										},
 										NodeHandle::Inline(_) => {
 											// As been accessed if needed (inline are not mark).
@@ -558,10 +561,10 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 			},
 			RecorderStateInner::Content { output, .. } => {
 				let op = compact_content_proof::Op::<TrieHash<L>, Vec<u8>>::Value(value);
-				use codec::Encode;
-				let encoded = op.encode();
-				res |= self.limits.add_node(encoded.len(), 0, false);
-				output.write_bytes(&encoded);
+				let init_len = output.buf_len();
+				op.encode_into(output);
+				let written = output.buf_len() - init_len;
+				res |= self.limits.add_node(written, 0, false)
 			},
 		}
 		res
@@ -586,10 +589,10 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 			},
 			RecorderStateInner::Content { output, .. } => {
 				let op = compact_content_proof::Op::<TrieHash<L>, &[u8]>::Value(value);
-				use codec::Encode;
-				let mut encoded = op.encode();
-				res = self.limits.add_node(encoded.len(), 0, false);
-				output.write_bytes(&encoded);
+				let init_len = output.buf_len();
+				op.encode_into(output);
+				let written = output.buf_len() - init_len;
+				res = self.limits.add_node(written, 0, false);
 			},
 		}
 		res
@@ -620,9 +623,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 							Value::Node(hash_slice) => {
 								let mut hash = TrieHash::<L>::default();
 								hash.as_mut().copy_from_slice(hash_slice);
-								compact_content_proof::Op::<_, Vec<u8>>::HashValue(
-									compact_content_proof::Enc(hash),
-								)
+								compact_content_proof::Op::<_, Vec<u8>>::HashValue(hash)
 							},
 							Value::Inline(value) =>
 								compact_content_proof::Op::<TrieHash<L>, Vec<u8>>::Value(
@@ -642,10 +643,10 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 		if let Some(op) = op {
 			match &mut self.output {
 				RecorderStateInner::Content { output, .. } => {
-					use codec::Encode;
-					let encoded = op.encode();
-					res = self.limits.add_node(encoded.len(), 0, false);
-					output.write_bytes(&encoded);
+					let init_len = output.buf_len();
+					op.encode_into(output);
+					let written = output.buf_len() - init_len;
+					res = self.limits.add_node(written, 0, false);
 				},
 				_ => (),
 			}
@@ -2396,15 +2397,12 @@ where
 }
 
 pub mod compact_content_proof {
-
-	pub use codec::{Decode, Encode};
-
 	use super::RecorderOutput;
 
 	/// Representation of each encoded action
 	/// for building the proof.
-	/// TODO ref variant for encoding ??
-	#[derive(Encode, Decode, Debug)]
+	/// TODO ref variant for encoding ?? or key using V and use Op<&H, &[u8]>.
+	#[derive(Debug)]
 	pub enum Op<H, V> {
 		// key content followed by a mask for last byte.
 		// If mask erase some content the content need to
@@ -2418,63 +2416,196 @@ pub mod compact_content_proof {
 		// TODO should be compact encoding of number.
 		KeyPop(u16),
 		// u8 is child index, shorthand for key push one nibble followed by key pop.
-		HashChild(Enc<H>, u8),
+		HashChild(H, u8),
 		// All value variant are only after a `KeyPush` or at first position.
-		HashValue(Enc<H>),
+		HashValue(H),
 		Value(V),
 		// This is not strictly necessary, only if the proof is not sized, otherwhise if we know
 		// the stream will end it can be skipped.
 		EndProof,
 	}
 
-	impl<H: AsRef<[u8]>, V> Op<H, V> {
+	// Limiting size to u32 (could also just use a terminal character).
+	#[derive(Debug, PartialEq, Eq)]
+	#[repr(transparent)]
+	struct VarInt(u32);
+
+	impl VarInt {
+		fn encoded_len(&self) -> usize {
+			if self.0 == 0 {
+				return 1
+			}
+			let len = 32 - self.0.leading_zeros() as usize;
+			if len % 7 == 0 {
+				len / 7
+			} else {
+				len / 7 + 1
+			}
+			/*
+			match self.0 {
+				l if l < 2 ^ 7 => 1, // leading 0: 25
+				l if l < 2 ^ 14 => 2, // leading 0: 18
+
+				l if l < 2 ^ 21 => 3, // 11
+				l if l < 2 ^ 28 => 4, // 4
+				_ => 5,
+			}
+			*/
+		}
+
+		fn encode_into(&self, out: &mut impl RecorderOutput) {
+			let mut to_encode = self.0;
+			for _ in 0..self.encoded_len() - 1 {
+				out.write_bytes(&[0b1000_0000 | to_encode as u8]);
+				to_encode >>= 7;
+			}
+			out.write_bytes(&[to_encode as u8]);
+		}
+
+		fn decode(encoded: &[u8]) -> Result<(Self, usize), ()> {
+			let mut value = 0u32;
+			for (i, byte) in encoded.iter().enumerate() {
+				let last = byte & 0b1000_0000 == 0;
+				value |= ((byte & 0b0111_1111) as u32) << (i * 7);
+				if last {
+					return Ok((VarInt(value), i + 1))
+				}
+			}
+			Err(())
+		}
+	}
+
+	#[test]
+	fn varint_encode_decode() {
+		let mut buf = super::InMemoryRecorder::default();
+		for i in 0..u16::MAX as u32 + 1 {
+			VarInt(i).encode_into(&mut buf);
+			assert_eq!(buf.buffer.len(), VarInt(i).encoded_len());
+			assert_eq!(Ok((VarInt(i), buf.buffer.len())), VarInt::decode(&buf.buffer));
+			buf.buffer.clear();
+		}
+	}
+
+	impl<H: AsRef<[u8]>, V: AsRef<[u8]>> Op<H, V> {
 		/// Calculate encoded len.
 		pub fn encoded_len(&self) -> usize {
-			todo!()
+			let mut len = 1;
+			match self {
+				Op::KeyPush(key, _mask) => {
+					len += VarInt(key.len() as u32).encoded_len();
+					len += key.len();
+					len += 1;
+				},
+				Op::KeyPop(nb) => {
+					len += VarInt(*nb as u32).encoded_len();
+				},
+				Op::HashChild(hash, _at) => {
+					len += hash.as_ref().len();
+					len += 1;
+				},
+				Op::HashValue(hash) => {
+					len += hash.as_ref().len();
+				},
+				Op::Value(value) => {
+					len += VarInt(value.as_ref().len() as u32).encoded_len();
+					len += value.as_ref().len();
+				},
+				Op::EndProof => (),
+			}
+			len
 		}
 
 		/// Write op.
 		pub fn encode_into(&self, out: &mut impl RecorderOutput) {
-			todo!()
+			match self {
+				Op::KeyPush(key, mask) => {
+					out.write_bytes(&[0]);
+					VarInt(key.len() as u32).encode_into(out);
+					out.write_bytes(&key);
+					out.write_bytes(&[*mask]);
+				},
+				Op::KeyPop(nb) => {
+					out.write_bytes(&[1]);
+					VarInt(*nb as u32).encode_into(out);
+				},
+				Op::HashChild(hash, at) => {
+					out.write_bytes(&[2]);
+					out.write_bytes(hash.as_ref());
+					out.write_bytes(&[*at]);
+				},
+				Op::HashValue(hash) => {
+					out.write_bytes(&[3]);
+					out.write_bytes(hash.as_ref());
+				},
+				Op::Value(value) => {
+					out.write_bytes(&[4]);
+					let value = value.as_ref();
+					VarInt(value.len() as u32).encode_into(out);
+					out.write_bytes(&value);
+				},
+				Op::EndProof => {
+					out.write_bytes(&[5]);
+				},
+			}
 		}
+	}
 
+	impl<H: AsRef<[u8]> + AsMut<[u8]> + Default> Op<H, Vec<u8>> {
 		/// Read an op, return op and number byte read. Or error if invalid encoded.
 		pub fn decode(encoded: &[u8]) -> Result<(Self, usize), ()> {
-			todo!()
-		}
-	}
-
-	#[derive(Debug)]
-	#[repr(transparent)]
-	pub struct Enc<H>(pub H);
-
-	impl<H: AsRef<[u8]>> Encode for Enc<H> {
-		fn size_hint(&self) -> usize {
-			self.0.as_ref().len()
-		}
-
-		fn encoded_size(&self) -> usize {
-			self.0.as_ref().len()
-		}
-
-		fn encode_to<T: codec::Output + ?Sized>(&self, dest: &mut T) {
-			dest.write(self.0.as_ref())
-		}
-	}
-
-	impl<H: AsMut<[u8]> + Default> From<&[u8]> for Enc<H> {
-		fn from(v: &[u8]) -> Self {
-			let mut hash = H::default();
-			hash.as_mut().copy_from_slice(v);
-			Enc(hash)
-		}
-	}
-
-	impl<H: AsMut<[u8]> + Default> Decode for Enc<H> {
-		fn decode<I: codec::Input>(input: &mut I) -> core::result::Result<Self, codec::Error> {
-			let mut dest = H::default();
-			input.read(dest.as_mut())?;
-			Ok(Enc(dest))
+			let mut i = 0;
+			if i >= encoded.len() {
+				return Err(())
+			}
+			Ok(match encoded[i] {
+				0 => {
+					let (len, offset) = VarInt::decode(&encoded[i + 1..])?;
+					i += 1 + offset;
+					if i + len.0 as usize >= encoded.len() {
+						return Err(())
+					}
+					let key = &encoded[i..i + len.0 as usize];
+					let mask = encoded[i + len.0 as usize];
+					(Op::KeyPush(key.to_vec(), mask), i + len.0 as usize + 1)
+				},
+				1 => {
+					let (len, offset) = VarInt::decode(&encoded[i + 1..])?;
+					if len.0 > u16::MAX as u32 {
+						return Err(())
+					}
+					(Op::KeyPop(len.0 as u16), i + 1 + offset)
+				},
+				2 => {
+					let mut hash = H::default();
+					let end = i + 1 + hash.as_ref().len();
+					if end >= encoded.len() {
+						return Err(())
+					}
+					hash.as_mut().copy_from_slice(&encoded[i + 1..end]);
+					let mask = encoded[end];
+					(Op::HashChild(hash, mask), end + 1)
+				},
+				3 => {
+					let mut hash = H::default();
+					let end = i + 1 + hash.as_ref().len();
+					if end >= encoded.len() {
+						return Err(())
+					}
+					hash.as_mut().copy_from_slice(&encoded[i + 1..end]);
+					(Op::HashValue(hash), end)
+				},
+				4 => {
+					let (len, offset) = VarInt::decode(&encoded[i + 1..])?;
+					i += 1 + offset;
+					if i + len.0 as usize > encoded.len() {
+						return Err(())
+					}
+					let value = &encoded[i..i + len.0 as usize];
+					(Op::Value(value.to_vec()), i + len.0 as usize)
+				},
+				5 => (Op::EndProof, 1),
+				_ => return Err(()),
+			})
 		}
 	}
 }
