@@ -119,27 +119,32 @@ impl NibbleVec {
 
 	/// Append another `NibbleVec`. Can be slow (alignement of second vec).
 	pub fn append(&mut self, v: &NibbleVec) {
-		if v.len == 0 {
+		self.append_slice(v.into());
+	}
+
+	/// Append a `LeftNibbleSlice`. Can be slow (alignement of second vec).
+	pub fn append_slice(&mut self, v: crate::nibble::LeftNibbleSlice) {
+		if v.len() == 0 {
 			return
 		}
 
-		let final_len = self.len + v.len;
+		let final_len = self.len + v.len();
 		let offset = self.len % nibble_ops::NIBBLE_PER_BYTE;
 		let final_offset = final_len % nibble_ops::NIBBLE_PER_BYTE;
 		let last_index = self.len / nibble_ops::NIBBLE_PER_BYTE;
 		if offset > 0 {
 			let (s1, s2) = nibble_ops::SPLIT_SHIFTS;
 			self.inner[last_index] =
-				nibble_ops::pad_left(self.inner[last_index]) | (v.inner[0] >> s2);
-			(0..v.inner.len() - 1)
-				.for_each(|i| self.inner.push(v.inner[i] << s1 | v.inner[i + 1] >> s2));
+				nibble_ops::pad_left(self.inner[last_index]) | (v.bytes[0] >> s2);
+			(0..v.bytes.len() - 1)
+				.for_each(|i| self.inner.push(v.bytes[i] << s1 | v.bytes[i + 1] >> s2));
 			if final_offset > 0 {
-				self.inner.push(v.inner[v.inner.len() - 1] << s1);
+				self.inner.push(v.bytes[v.bytes.len() - 1] << s1);
 			}
 		} else {
-			(0..v.inner.len()).for_each(|i| self.inner.push(v.inner[i]));
+			(0..v.bytes.len()).for_each(|i| self.inner.push(v.bytes[i]));
 		}
-		self.len += v.len;
+		self.len += v.len();
 	}
 
 	/// Append a `Partial`. Can be slow (alignement of partial).

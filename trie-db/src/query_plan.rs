@@ -59,7 +59,7 @@ impl InMemQueryPlanItem {
 }
 
 /// Item to query.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct QueryPlanItem<'a> {
 	pub key: &'a [u8],
 	pub hash_only: bool,
@@ -933,6 +933,7 @@ impl<'a, L: TrieLayout, C> From<QueryPlan<'a, C>> for HaltedStateCheckContent<'a
 				iter_prefix: None,
 				is_prev_push_key: false,
 				is_prev_pop_key: false,
+				is_prev_hash_child: None,
 				first: true,
 				_ph: PhantomData,
 			},
@@ -1554,10 +1555,20 @@ enum ValueSet<H, V> {
 	//	BranchHash(H, u8),
 }
 
+impl<H, V> ValueSet<H, V> {
+	fn as_ref(&self) -> Option<&V> {
+		match self {
+			ValueSet::Standard(v) => Some(v),
+			//ValueSet::ForceInline(v) | ValueSet::ForceHashed(v) => Some(v),
+			ValueSet::HashOnly(..) | ValueSet::None => None,
+			// ValueSet::BranchHash(..) => None,
+		}
+	}
+}
+
 struct ItemContentStack<L: TrieLayout> {
-	children: Vec<Option<TrieHash<L>>>,
+	children: Vec<Option<ChildReference<TrieHash<L>>>>,
 	value: ValueSet<TrieHash<L>, Vec<u8>>,
-	attached_value_hash: Option<TrieHash<L>>,
 	depth: usize,
 }
 
@@ -1578,7 +1589,6 @@ impl<L: TrieLayout> Clone for ItemContentStack<L> {
 		ItemContentStack {
 			children: self.children.clone(),
 			value: self.value.clone(),
-			attached_value_hash: self.attached_value_hash,
 			depth: self.depth,
 		}
 	}
@@ -1678,6 +1688,7 @@ struct ReadContentStack<L: TrieLayout> {
 	// limit and wether we return value and if hash only iteration.
 	iter_prefix: Option<(usize, bool, bool)>,
 	start_items: usize,
+	is_prev_hash_child: Option<u8>,
 	expect_value: bool,
 	is_prev_push_key: bool,
 	is_prev_pop_key: bool,
@@ -1709,6 +1720,7 @@ impl<L: TrieLayout> Clone for ReadContentStack<L> {
 			expect_value: self.expect_value,
 			is_prev_push_key: self.is_prev_push_key,
 			is_prev_pop_key: self.is_prev_pop_key,
+			is_prev_hash_child: self.is_prev_hash_child,
 			first: self.first,
 			_ph: PhantomData,
 		}
@@ -2210,6 +2222,187 @@ impl<L: TrieLayout> ReadContentStack<L> {
 		}
 		Err(VerifyError::ExtraneousNode)
 	}
+
+	#[inline(always)]
+	fn stack_empty(&mut self, depth: usize) {
+		/*
+		items: Vec<ItemContentStack<L>>,
+		prefix: NibbleVec,
+		// limit and wether we return value and if hash only iteration.
+		iter_prefix: Option<(usize, bool, bool)>,
+		start_items: usize,
+			*/
+
+		self.items.push(ItemContentStack {
+			children: vec![None; NIBBLE_LENGTH],
+			value: ValueSet::None,
+			depth,
+		})
+	}
+
+	#[inline(always)]
+	fn stack_pop(
+		&mut self,
+		full_key: &NibbleVec,
+		nb_nibble: Option<usize>,
+		expected_root: &Option<TrieHash<L>>,
+	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
+		let target_depth = nb_nibble.map(|n| full_key.len() - n);
+		let mut first = true;
+		while self
+			.items
+			.last()
+			.map(|item| target_depth.map(|target| item.depth > target).unwrap_or(true))
+			.unwrap_or(false)
+		{
+			let item = self.items.pop().expect("Checked");
+			let mut from_depth =
+				self.items.last().map(|item| item.depth).unwrap_or(target_depth.unwrap_or(0));
+			if let Some(from) = target_depth {
+				if from > from_depth {
+					self.stack_empty(from);
+					from_depth = from;
+				}
+			}
+			let depth = item.depth;
+			let is_root = target_depth.is_none() && self.items.is_empty();
+			let inc = if is_root { 0 } else { 1 };
+
+			let child_reference = if item.children.iter().any(|child| child.is_some()) {
+				let nkey = (depth > (from_depth + inc))
+					.then(|| (from_depth + inc, depth - from_depth - inc));
+				if L::USE_EXTENSION {
+					let extension_only = first &&
+						matches!(&item.value, &ValueSet::None) &&
+						item.children.iter().filter(|child| child.is_some()).count() == 1;
+					self.items.push(item); // TODO this looks bad (pop then push, branch or leaf function should or should
+					   // not pop instead)
+					   // encode branch
+					self.standard_extension(
+						&full_key.inner().as_ref()[..],
+						depth,
+						is_root,
+						nkey,
+						extension_only,
+					)
+				} else {
+					self.items.push(item); // TODO this looks bad (pop then push, branch or leaf function should or should
+					   // not pop instead)
+					   // encode branch
+					self.no_extension(
+						&full_key.inner().as_ref()[..],
+						callback,
+						depth,
+						is_root,
+						nkey,
+					)
+				}
+			} else {
+				// leaf with value
+				self.flush_value_change(
+					callback,
+					&full_key.inner().as_ref()[..],
+					from_depth + inc,
+					item.2,
+					&item.1,
+					is_root,
+				)
+			};
+
+			if self.items.is_empty() && !is_root {
+				self.stack_empty(from_depth);
+			}
+
+			if let Some(item) = self.items.last_mut() {
+				let child_ix = full_key.at(item.depth);
+				if let Some(hash) = item.children[child_ix as usize].as_ref() {
+					if self.items.len() == self.start_items + 1 {
+						if expected_root.is_some() && hash != child_reference {
+							return Some(Err(VerifyError::HashMismatch(*child_reference)))
+						}
+					} else {
+						return Some(Err(VerifyError::ExtraneousHashReference(*hash)))
+						// return Err(CompactDecoderError::HashChildNotOmitted.into())
+					}
+				}
+				item.children[child_ix as usize] = Some(child_reference);
+			} else {
+				if let Some(root) = expected_root.as_ref() {
+					if nb_nibble.is_none() {
+						if root != child_reference {
+							return Some(Err(VerifyError::RootMismatch(*child_reference)))
+						}
+					}
+				}
+			}
+			first = false;
+			self.start_items = core::cmp::min(self.start_items, self.items.len());
+		}
+		Ok(())
+	}
+
+	fn process(encoded_node: Vec<u8>, is_root: bool) -> ChildReference<TrieHash<L>> {
+		let len = encoded_node.len();
+		if !is_root && len < <L::Hash as Hasher>::LENGTH {
+			let mut h = <<L::Hash as Hasher>::Out as Default>::default();
+			h.as_mut()[..len].copy_from_slice(&encoded_node[..len]);
+			return ChildReference::Inline(h, len)
+		}
+		let hash = <L::Hash as Hasher>::hash(encoded_node.as_slice());
+		ChildReference::Hash(hash)
+	}
+
+	// TODO factor with iter_build (reuse cacheaccum here).
+	#[inline(always)]
+	fn standard_extension(
+		&mut self,
+		key_branch: &[u8],
+		branch_d: usize,
+		is_root: bool,
+		nkey: Option<(usize, usize)>,
+		extension_only: bool,
+	) -> ChildReference<TrieHash<L>> {
+		let last = self.items.len() - 1;
+		assert_eq!(self.items[last].depth, branch_d);
+
+		let ItemContentStack { children, value: v, depth, .. } = self.items.pop().expect("checked");
+
+		debug_assert!(branch_d == depth);
+		let pr = NibbleSlice::new_offset(&key_branch, branch_d);
+
+		let hashed;
+		let value = if let Some(v) = v.as_ref() {
+			Some(if let Some(value) = Value::new_inline(v.as_ref(), L::MAX_INLINE_VALUE) {
+				value
+			} else {
+				let mut prefix = NibbleSlice::new_offset(&key_branch, 0);
+				prefix.advance(branch_d);
+
+				hashed = <L::Hash as Hasher>::hash(v.as_ref());
+				Value::Node(hashed.as_ref())
+			})
+		} else {
+			None
+		};
+
+		// encode branch
+		let branch_hash = if !extension_only {
+			let encoded = L::Codec::branch_node(children.iter(), value);
+			Self::process(encoded, is_root && nkey.is_none())
+		} else {
+			// This is hacky but extension only store as first children
+			children[0].unwrap()
+		};
+
+		if let Some(nkeyix) = nkey {
+			let pr = NibbleSlice::new_offset(&key_branch, nkeyix.0);
+			let nib = pr.right_range_iter(nkeyix.1);
+			let encoded = L::Codec::extension_node(nib, nkeyix.1, branch_hash);
+			Self::process(encoded, is_root)
+		} else {
+			branch_hash
+		}
+	}
 }
 
 /// Content return on success when reading proof.
@@ -2534,10 +2727,123 @@ where
 					break
 				}
 			};
+			let did_prefix = self.stack.iter_prefix.is_some();
+		}
+		use compact_content_proof::Op;
+		// op sequence check
+
+		while let Some(op) = self.proof.next() {
+			let Some(op) = op else {
+				self.state = ReadProofState::Finished;
+				return Some(Err(VerifyError::ExtraneousNode)); // TODO a decode op error
+			};
+
+			// check ordering logic
+			// TODO wrap in an error and put bools in a struct
+			match &op {
+				Op::KeyPush(..) => {
+					if self.stack.is_prev_push_key {
+						self.state = ReadProofState::Finished;
+						return Some(Err(VerifyError::ExtraneousNode)) // TODO a decode op error
+						                      // TODO return
+						                      // Err(CompactDecoderError::ConsecutivePushKeys.
+						                      // into())
+					}
+					self.stack.is_prev_push_key = true;
+					self.stack.is_prev_pop_key = false;
+					self.stack.is_prev_hash_child = None;
+					self.stack.first = false;
+				},
+				Op::KeyPop(..) => {
+					if self.stack.is_prev_pop_key {
+						self.state = ReadProofState::Finished;
+						return Some(Err(VerifyError::ExtraneousNode)) // TODO a decode op error
+						                      // return Err(CompactDecoderError::ConsecutivePopKeys.
+						                      // into())
+					}
+					self.stack.is_prev_push_key = false;
+					self.stack.is_prev_pop_key = true;
+					self.stack.is_prev_hash_child = None;
+					self.stack.first = false;
+				},
+				Op::HashChild(_, ix) => {
+					if let Some(prev_ix) = self.stack.is_prev_hash_child.as_ref() {
+						if prev_ix >= ix {
+							self.state = ReadProofState::Finished;
+							return Some(Err(VerifyError::ExtraneousNode)) // TODO a decode op error
+							                  // return Err(CompactDecoderError::NotConsecutiveHash.
+							                  // into())
+						}
+					}
+					// child ix on an existing content would be handle by iter_build.
+					self.stack.is_prev_push_key = false;
+					self.stack.is_prev_pop_key = false;
+					self.stack.is_prev_hash_child = Some(*ix);
+				},
+				Op::Value(_) => {
+					//	| Op::ValueForceInline(_) | Op::ValueForceHashed(_) => {
+					if !(self.stack.is_prev_push_key || self.stack.first) {
+						self.state = ReadProofState::Finished;
+						return Some(Err(VerifyError::ExtraneousNode)) // TODO a decode op error
+						                      // return Err(CompactDecoderError::ValueNotAfterPush.
+						                      // into())
+					}
+					self.stack.is_prev_push_key = false;
+					self.stack.is_prev_pop_key = false;
+					self.stack.is_prev_hash_child = None;
+					self.stack.first = false;
+				},
+				_ => {
+					self.stack.is_prev_push_key = false;
+					self.stack.is_prev_pop_key = false;
+					self.stack.is_prev_hash_child = None;
+					self.stack.first = false;
+				},
+			}
+
+			// debug TODO make it log and external function
+			match &op {
+				Op::HashChild(hash, child_ix) => {
+					println!("ChildHash {:?}, {:?}, {:?}", self.stack.prefix, child_ix, hash);
+				},
+				Op::HashValue(hash) => {
+					println!("ValueHash {:?}, {:?}", self.stack.prefix, hash);
+				},
+				Op::Value(value) => {
+					println!("Value {:?}, {:?}", self.stack.prefix, value);
+				},
+				_ => (),
+			}
+
+			// act
+			let r = match op {
+				Op::KeyPush(partial, mask) => {
+					self.stack
+						.prefix
+						.append_slice(LeftNibbleSlice::new_with_mask(partial.as_slice(), mask));
+					self.stack.stack_empty(self.stack.prefix.len());
+					Ok(())
+				},
+				Op::KeyPop(nb_nibble) => {
+					let r = self.stack.stack_pop(
+						&self.stack.prefix,
+						Some(nb_nibble as usize),
+						&self.expected_root,
+					);
+					self.stack.prefix.drop_lasts(nb_nibble.into());
+					r
+				},
+				Op::EndProof => break,
+				op => self.stack.set_cache_change(op.into()),
+			};
+			if let Err(e) = r {
+				self.state = ReadProofState::Finished;
+				return Some(Err(e))
+			}
 		}
 		todo!()
 		/*
-			let did_prefix = self.stack.iter_prefix.is_some();
+
 			while let Some((_, accessed_value_node, hash_only)) = self.stack.iter_prefix.clone() {
 				// prefix iteration
 				if !accessed_value_node {
@@ -2563,6 +2869,7 @@ where
 						},
 					};
 				}
+
 				while let Some(child_index) = self.stack.items.last_mut().and_then(|last| {
 					if last.next_descended_child as usize >= NIBBLE_LENGTH {
 						None
