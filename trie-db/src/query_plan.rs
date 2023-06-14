@@ -931,6 +931,9 @@ impl<'a, L: TrieLayout, C> From<QueryPlan<'a, C>> for HaltedStateCheckContent<'a
 				prefix: Default::default(),
 				expect_value: false,
 				iter_prefix: None,
+				is_prev_push_key: false,
+				is_prev_pop_key: false,
+				first: true,
 				_ph: PhantomData,
 			},
 			state: ReadProofState::NotStarted,
@@ -1541,12 +1544,21 @@ struct ItemStack<L: TrieLayout, D: SplitFirst> {
 	next_descended_child: u8,
 }
 
+#[derive(Clone)]
+enum ValueSet<H, V> {
+	None,
+	Standard(V),
+	HashOnly(H),
+	//	ForceInline(V),
+	//	ForceHashed(V),
+	//	BranchHash(H, u8),
+}
+
 struct ItemContentStack<L: TrieLayout> {
 	children: Vec<Option<TrieHash<L>>>,
-	inline_value: Option<Vec<u8>>,
+	value: ValueSet<TrieHash<L>, Vec<u8>>,
 	attached_value_hash: Option<TrieHash<L>>,
 	depth: usize,
-	next_descended_child: u8,
 }
 
 impl<L: TrieLayout, D: SplitFirst> Clone for ItemStack<L, D> {
@@ -1557,6 +1569,17 @@ impl<L: TrieLayout, D: SplitFirst> Clone for ItemStack<L, D> {
 			attached_value_hash: self.attached_value_hash,
 			depth: self.depth,
 			next_descended_child: self.next_descended_child,
+		}
+	}
+}
+
+impl<L: TrieLayout> Clone for ItemContentStack<L> {
+	fn clone(&self) -> Self {
+		ItemContentStack {
+			children: self.children.clone(),
+			value: self.value.clone(),
+			attached_value_hash: self.attached_value_hash,
+			depth: self.depth,
 		}
 	}
 }
@@ -1656,6 +1679,9 @@ struct ReadContentStack<L: TrieLayout> {
 	iter_prefix: Option<(usize, bool, bool)>,
 	start_items: usize,
 	expect_value: bool,
+	is_prev_push_key: bool,
+	is_prev_pop_key: bool,
+	first: bool,
 	_ph: PhantomData<L>,
 }
 
@@ -1668,6 +1694,22 @@ impl<L: TrieLayout, D: SplitFirst> Clone for ReadStack<L, D> {
 			iter_prefix: self.iter_prefix,
 			is_compact: self.is_compact,
 			expect_value: self.expect_value,
+			_ph: PhantomData,
+		}
+	}
+}
+
+impl<L: TrieLayout> Clone for ReadContentStack<L> {
+	fn clone(&self) -> Self {
+		ReadContentStack {
+			items: self.items.clone(),
+			prefix: self.prefix.clone(),
+			start_items: self.start_items.clone(),
+			iter_prefix: self.iter_prefix,
+			expect_value: self.expect_value,
+			is_prev_push_key: self.is_prev_push_key,
+			is_prev_pop_key: self.is_prev_pop_key,
+			first: self.first,
 			_ph: PhantomData,
 		}
 	}
@@ -2124,6 +2166,52 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 	}
 }
 
+impl<L: TrieLayout> ReadContentStack<L> {
+	fn pop_until(
+		&mut self,
+		target: usize,
+		check_only: bool, // TODO used?
+	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
+		// TODO pop with check only, here unefficient implementation where we just restore
+
+		let mut restore = None;
+		if check_only {
+			restore = Some(self.clone());
+			self.iter_prefix = None;
+		}
+		// one by one
+		while let Some(last) = self.items.last() {
+			// depth should match.
+			match last.depth.cmp(&target) {
+				Ordering::Greater => {
+					// TODO could implicit pop here with a variant
+					// that do not write redundant pop.
+					return Err(VerifyError::ExtraneousNode) // TODO more precise error
+				},
+				Ordering::Less => {
+					if self.first {
+						// allowed to have next at a upper level
+					} else {
+						return Err(VerifyError::ExtraneousNode)
+					}
+				},
+				Ordering::Equal => return Ok(()),
+			}
+
+			// start_items update.
+			self.start_items = core::cmp::min(self.start_items, self.items.len());
+			// one by one
+			let _ = self.items.pop();
+		}
+
+		if let Some(old) = restore.take() {
+			*self = old;
+			return Ok(())
+		}
+		Err(VerifyError::ExtraneousNode)
+	}
+}
+
 /// Content return on success when reading proof.
 pub enum ReadProofItem<'a, L: TrieLayout, C, D: SplitFirst> {
 	/// Successfull read of proof, not all content read.
@@ -2158,14 +2246,13 @@ where
 			return None
 		}
 		let check_hash = self.expected_root.is_some();
-		let mut to_check_slice = if self.state == ReadProofState::Halted {
+		if self.state == ReadProofState::Halted {
 			self.state = ReadProofState::Running;
-			self.current
-				.as_ref()
-				.map(|n| NibbleSlice::new_offset(n.key, self.restore_offset))
-		} else {
-			self.current.as_ref().map(|n| NibbleSlice::new(n.key))
-		};
+		}
+		let mut to_check_slice = self
+			.current
+			.as_ref()
+			.map(|n| NibbleSlice::new_offset(n.key, self.restore_offset));
 
 		// read proof
 		loop {
@@ -2398,21 +2485,17 @@ where
 	type Item = Result<ReadProofItem<'a, L, C, Vec<u8>>, VerifyError<TrieHash<L>, CError<L>>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		todo!()
-		/*
 		if self.state == ReadProofState::Finished {
 			return None
 		}
 		let check_hash = self.expected_root.is_some();
-		let mut to_check_slice = if self.state == ReadProofState::Halted {
+		if self.state == ReadProofState::Halted {
 			self.state = ReadProofState::Running;
-			self.current
-				.as_ref()
-				.map(|n| NibbleSlice::new_offset(n.key, self.restore_offset))
-		} else {
-			self.current.as_ref().map(|n| NibbleSlice::new(n.key))
-		};
-
+		}
+		let mut to_check_slice = self
+			.current
+			.as_ref()
+			.map(|n| NibbleSlice::new_offset(n.key, self.restore_offset));
 		// read proof
 		loop {
 			if self.state == ReadProofState::SwitchQueryPlan ||
@@ -2434,7 +2517,7 @@ where
 						}
 					}
 
-					let r = self.stack.pop_until(common_nibbles, &self.expected_root, false);
+					let r = self.stack.pop_until(common_nibbles, false);
 					if let Err(e) = r {
 						self.state = ReadProofState::Finished;
 						return Some(Err(e))
@@ -2451,6 +2534,9 @@ where
 					break
 				}
 			};
+		}
+		todo!()
+		/*
 			let did_prefix = self.stack.iter_prefix.is_some();
 			while let Some((_, accessed_value_node, hash_only)) = self.stack.iter_prefix.clone() {
 				// prefix iteration
