@@ -245,9 +245,10 @@ fn test_verify_decode_error_internal<T: TrieLayout>() {
 test_layouts!(test_query_plan, test_query_plan_internal);
 fn test_query_plan_internal<L: TrieLayout>() {
 	use trie_db::query_plan::{
-		record_query_plan, verify_query_plan_iter, HaltedStateCheck, HaltedStateRecord,
-		InMemQueryPlan, InMemQueryPlanItem, InMemoryRecorder, ProofKind, QueryPlan, ReadProofItem,
-		Recorder,
+		compact_content_proof::IterOpProof, record_query_plan, verify_query_plan_iter,
+		verify_query_plan_iter_content, HaltedStateCheck, HaltedStateCheckContent,
+		HaltedStateCheckNode, HaltedStateRecord, InMemQueryPlan, InMemQueryPlanItem,
+		InMemoryRecorder, ProofKind, QueryPlan, ReadProofItem, Recorder,
 	};
 	let set = test_entries();
 
@@ -385,6 +386,7 @@ fn test_query_plan_internal<L: TrieLayout>() {
 						_ => continue,
 					};
 					let mut nb = 0;
+					let mut proofs = proofs.clone();
 					while let Some(proof) = proofs.pop() {
 						use trie_db::query_plan::compact_content_proof::Op;
 						// full on iter all
@@ -660,11 +662,16 @@ fn test_query_plan_internal<L: TrieLayout>() {
 						assert_eq!(proof[0], encoded.buffer);
 						nb += 1;
 					}
-					continue
+					// continue
 				}
 
 				let mut query_plan_iter: QueryPlan<_> = query_plan.as_ref();
-				let mut run_state: Option<HaltedStateCheck<_, _, _>> = Some(query_plan_iter.into());
+				let is_content_proof = kind == ProofKind::CompactContent;
+				let mut run_state: Option<HaltedStateCheck<_, _, _>> = Some(if is_content_proof {
+					HaltedStateCheck::Content(query_plan_iter.into())
+				} else {
+					HaltedStateCheck::Node(query_plan_iter.into())
+				});
 				let mut has_run_full = false;
 				while let Some(state) = run_state.take() {
 					let proof = if let Some(proof) = proofs.pop() {
@@ -677,15 +684,44 @@ fn test_query_plan_internal<L: TrieLayout>() {
 						proofs.clear();
 						std::mem::take(&mut full_proof)
 					};
-					let verify_iter = verify_query_plan_iter::<L, _, _, _>(
-						state,
-						proof.into_iter(),
-						Some(root.clone()),
-					)
-					.unwrap();
+					let (mut verify_iter, mut verify_iter_content) = if is_content_proof {
+						(
+							None,
+							Some(
+								verify_query_plan_iter_content::<L, _, IterOpProof<_, _>>(
+									state,
+									(&proof[0]).into(),
+									Some(root.clone()),
+								)
+								.unwrap(),
+							),
+						)
+					} else {
+						(
+							Some(
+								verify_query_plan_iter::<L, _, _, _>(
+									state,
+									proof.into_iter(),
+									Some(root.clone()),
+								)
+								.unwrap(),
+							),
+							None,
+						)
+					};
+					let mut next_item = || {
+						if let Some(verify_iter) = verify_iter.as_mut() {
+							verify_iter.next()
+						} else if let Some(verify_iter_content) = verify_iter_content.as_mut() {
+							verify_iter_content.next()
+						} else {
+							None
+						}
+					};
+
 					let content: BTreeMap<_, _> = set.iter().cloned().collect();
 					let mut in_prefix = false;
-					for item in verify_iter {
+					while let Some(item) = next_item() {
 						match item.unwrap() {
 							ReadProofItem::Hash(key, hash) => {
 								assert!(hash_only);
@@ -716,7 +752,11 @@ fn test_query_plan_internal<L: TrieLayout>() {
 					if run_state.is_none() && !has_run_full {
 						has_run_full = true;
 						query_plan_iter = query_plan.as_ref();
-						run_state = Some(query_plan_iter.into());
+						run_state = Some(if is_content_proof {
+							HaltedStateCheck::Content(query_plan_iter.into())
+						} else {
+							HaltedStateCheck::Node(query_plan_iter.into())
+						});
 					}
 				}
 				if !has_run_full {
