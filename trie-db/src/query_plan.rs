@@ -36,6 +36,7 @@ use crate::{
 	},
 	CError, ChildReference, DBValue, NibbleVec, Trie, TrieDB, TrieHash, TrieLayout,
 };
+use compact_content_proof::Op;
 use hash_db::Hasher;
 
 /// Item to query, in memory.
@@ -407,10 +408,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 		if let RecorderStateInner::Content { output, stacked_push, .. } = &mut self.output {
 			if let Some(buff) = stacked_push.take() {
 				let mask = if buff.len() % 2 == 0 { 0xff } else { 0xf0 };
-				let op = compact_content_proof::Op::<TrieHash<L>, Vec<u8>>::KeyPush(
-					buff.inner().to_vec(),
-					mask,
-				);
+				let op = Op::<TrieHash<L>, Vec<u8>>::KeyPush(buff.inner().to_vec(), mask);
 				let init_len = output.buf_len();
 				op.encode_into(output);
 				let written = output.buf_len() - init_len;
@@ -436,7 +434,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 
 		debug_assert!(from - pop_to <= u16::max_value() as usize);
 		// Warning this implies key size limit of u16::max
-		let op = compact_content_proof::Op::<TrieHash<L>, Vec<u8>>::KeyPop((from - pop_to) as u16);
+		let op = Op::<TrieHash<L>, Vec<u8>>::KeyPop((from - pop_to) as u16);
 		let init_len = out.buf_len();
 		op.encode_into(out);
 		let written = out.buf_len() - init_len;
@@ -505,10 +503,9 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 										NodeHandle::Hash(hash_slice) => {
 											let mut hash = TrieHash::<L>::default();
 											hash.as_mut().copy_from_slice(hash_slice);
-											let op = compact_content_proof::Op::<
-												TrieHash<L>,
-												Vec<u8>,
-											>::HashChild(hash, i as u8);
+											let op = Op::<TrieHash<L>, Vec<u8>>::HashChild(
+												hash, i as u8,
+											);
 											let init_len = output.buf_len();
 											op.encode_into(output);
 											let written = output.buf_len() - init_len;
@@ -560,7 +557,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 				proof.push(value.into());
 			},
 			RecorderStateInner::Content { output, .. } => {
-				let op = compact_content_proof::Op::<TrieHash<L>, Vec<u8>>::Value(value);
+				let op = Op::<TrieHash<L>, Vec<u8>>::Value(value);
 				let init_len = output.buf_len();
 				op.encode_into(output);
 				let written = output.buf_len() - init_len;
@@ -588,7 +585,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 				// in parent node).
 			},
 			RecorderStateInner::Content { output, .. } => {
-				let op = compact_content_proof::Op::<TrieHash<L>, &[u8]>::Value(value);
+				let op = Op::<TrieHash<L>, &[u8]>::Value(value);
 				let init_len = output.buf_len();
 				op.encode_into(output);
 				let written = output.buf_len() - init_len;
@@ -623,12 +620,10 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 							Value::Node(hash_slice) => {
 								let mut hash = TrieHash::<L>::default();
 								hash.as_mut().copy_from_slice(hash_slice);
-								compact_content_proof::Op::<_, Vec<u8>>::HashValue(hash)
+								Op::<_, Vec<u8>>::HashValue(hash)
 							},
 							Value::Inline(value) =>
-								compact_content_proof::Op::<TrieHash<L>, Vec<u8>>::Value(
-									value.to_vec(),
-								),
+								Op::<TrieHash<L>, Vec<u8>>::Value(value.to_vec()),
 						});
 					},
 					_ => return res,
@@ -1508,7 +1503,7 @@ pub struct ReadProofContentIterator<'a, L, C, P>
 where
 	L: TrieLayout,
 	C: Iterator<Item = QueryPlanItem<'a>>,
-	P: Iterator<Item = Option<compact_content_proof::Op<TrieHash<L>, Vec<u8>>>>,
+	P: Iterator<Item = Option<Op<TrieHash<L>, Vec<u8>>>>,
 {
 	// always needed, this is option only
 	// to avoid unsafe code when halting.
@@ -1519,6 +1514,7 @@ where
 	state: ReadProofState,
 	stack: ReadContentStack<L>,
 	restore_offset: usize,
+	buf_op: Option<Op<TrieHash<L>, Vec<u8>>>,
 }
 
 #[derive(Eq, PartialEq)]
@@ -1552,7 +1548,7 @@ enum ValueSet<H, V> {
 	HashOnly(H),
 	//	ForceInline(V),
 	//	ForceHashed(V),
-	//	BranchHash(H, u8),
+	BranchHash(H, u8),
 }
 
 impl<H, V> ValueSet<H, V> {
@@ -1560,8 +1556,20 @@ impl<H, V> ValueSet<H, V> {
 		match self {
 			ValueSet::Standard(v) => Some(v),
 			//ValueSet::ForceInline(v) | ValueSet::ForceHashed(v) => Some(v),
-			ValueSet::HashOnly(..) | ValueSet::None => None,
-			// ValueSet::BranchHash(..) => None,
+			ValueSet::HashOnly(..) | ValueSet::BranchHash(..) | ValueSet::None => None,
+		}
+	}
+}
+
+impl<H, V> From<Op<H, V>> for ValueSet<H, V> {
+	fn from(op: Op<H, V>) -> Self {
+		match op {
+			Op::HashChild(hash, child_ix) => ValueSet::BranchHash(hash, child_ix),
+			Op::HashValue(hash) => ValueSet::HashOnly(hash),
+			Op::Value(value) => ValueSet::Standard(value),
+			//Op::ValueForceInline(value) => ValueSet::ForceInline(value),
+			//Op::ValueForceHashed(value) => ValueSet::ForceHashed(value),
+			_ => ValueSet::None,
 		}
 	}
 }
@@ -2243,101 +2251,83 @@ impl<L: TrieLayout> ReadContentStack<L> {
 	#[inline(always)]
 	fn stack_pop(
 		&mut self,
-		full_key: &NibbleVec,
 		nb_nibble: Option<usize>,
 		expected_root: &Option<TrieHash<L>>,
 	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
-		let target_depth = nb_nibble.map(|n| full_key.len() - n);
+		let target_depth = nb_nibble.map(|n| self.prefix.len() - n);
 		let mut first = true;
 		while self
 			.items
-			.last()
-			.map(|item| target_depth.map(|target| item.depth > target).unwrap_or(true))
-			.unwrap_or(false)
-		{
-			let item = self.items.pop().expect("Checked");
-			let mut from_depth =
-				self.items.last().map(|item| item.depth).unwrap_or(target_depth.unwrap_or(0));
-			if let Some(from) = target_depth {
-				if from > from_depth {
-					self.stack_empty(from);
-					from_depth = from;
-				}
-			}
-			let depth = item.depth;
-			let is_root = target_depth.is_none() && self.items.is_empty();
-			let inc = if is_root { 0 } else { 1 };
-
-			let child_reference = if item.children.iter().any(|child| child.is_some()) {
-				let nkey = (depth > (from_depth + inc))
-					.then(|| (from_depth + inc, depth - from_depth - inc));
-				if L::USE_EXTENSION {
-					let extension_only = first &&
-						matches!(&item.value, &ValueSet::None) &&
-						item.children.iter().filter(|child| child.is_some()).count() == 1;
-					self.items.push(item); // TODO this looks bad (pop then push, branch or leaf function should or should
-					   // not pop instead)
-					   // encode branch
-					self.standard_extension(
-						&full_key.inner().as_ref()[..],
-						depth,
-						is_root,
-						nkey,
-						extension_only,
-					)
-				} else {
-					self.items.push(item); // TODO this looks bad (pop then push, branch or leaf function should or should
-					   // not pop instead)
-					   // encode branch
-					self.no_extension(
-						&full_key.inner().as_ref()[..],
-						callback,
-						depth,
-						is_root,
-						nkey,
-					)
-				}
-			} else {
-				// leaf with value
-				self.flush_value_change(
-					callback,
-					&full_key.inner().as_ref()[..],
-					from_depth + inc,
-					item.2,
-					&item.1,
-					is_root,
-				)
-			};
-
-			if self.items.is_empty() && !is_root {
-				self.stack_empty(from_depth);
-			}
-
-			if let Some(item) = self.items.last_mut() {
-				let child_ix = full_key.at(item.depth);
-				if let Some(hash) = item.children[child_ix as usize].as_ref() {
-					if self.items.len() == self.start_items + 1 {
-						if expected_root.is_some() && hash != child_reference {
-							return Some(Err(VerifyError::HashMismatch(*child_reference)))
+				.last()
+				.map(|item| target_depth.map(|target| item.depth > target).unwrap_or(true))
+				.unwrap_or(false)
+				{
+					let item = self.items.pop().expect("Checked");
+					let mut from_depth =
+						self.items.last().map(|item| item.depth).unwrap_or(target_depth.unwrap_or(0));
+					if let Some(from) = target_depth {
+						if from > from_depth {
+							self.stack_empty(from);
+							from_depth = from;
 						}
+					}
+					let depth = item.depth;
+					let is_root = target_depth.is_none() && self.items.is_empty();
+					let inc = if is_root { 0 } else { 1 };
+
+					let child_reference = if item.children.iter().any(|child| child.is_some()) {
+						let nkey = (depth > (from_depth + inc))
+							.then(|| (from_depth + inc, depth - from_depth - inc));
+							if L::USE_EXTENSION {
+								let extension_only = first &&
+									matches!(&item.value, &ValueSet::None) &&
+									item.children.iter().filter(|child| child.is_some()).count() == 1;
+								self.items.push(item); // TODO this looks bad (pop then push, branch or leaf function should or should
+																			 // not pop instead)
+																			 // encode branch
+								self.standard_extension(depth, is_root, nkey, extension_only)
+							} else {
+								self.items.push(item); // TODO this looks bad (pop then push, branch or leaf function should or should
+																			 // not pop instead)
+																			 // encode branch
+								self.no_extension(depth, is_root, nkey)
+							}
 					} else {
-						return Some(Err(VerifyError::ExtraneousHashReference(*hash)))
-						// return Err(CompactDecoderError::HashChildNotOmitted.into())
+						// leaf with value
+						self.flush_value_change(from_depth + inc, item.depth, &item.value, is_root)
+					};
+
+					if self.items.is_empty() && !is_root {
+						self.stack_empty(from_depth);
 					}
-				}
-				item.children[child_ix as usize] = Some(child_reference);
-			} else {
-				if let Some(root) = expected_root.as_ref() {
-					if nb_nibble.is_none() {
-						if root != child_reference {
-							return Some(Err(VerifyError::RootMismatch(*child_reference)))
+
+					let items_len = self.items.len();
+					if let Some(item) = self.items.last_mut() {
+						let child_ix = self.prefix.at(item.depth);
+						if let Some(hash) = item.children[child_ix as usize].as_ref() {
+							if items_len == self.start_items + 1 {
+								if expected_root.is_some() && hash != &child_reference {
+									return Err(VerifyError::HashMismatch(*child_reference.disp_hash()))
+								}
+							} else {
+								return Err(VerifyError::ExtraneousHashReference(*hash.disp_hash()))
+									// return Err(CompactDecoderError::HashChildNotOmitted.into())
+							}
+						}
+						item.children[child_ix as usize] = Some(child_reference);
+					} else {
+						if let Some(root) = expected_root.as_ref() {
+							if nb_nibble.is_none() {
+								if root != child_reference.disp_hash() {
+									return Err(VerifyError::RootMismatch(*child_reference.disp_hash()))
+								}
+							}
 						}
 					}
+					first = false;
+					// TODO can skip hash checks when above start_items.
+					self.start_items = core::cmp::min(self.start_items, self.items.len());
 				}
-			}
-			first = false;
-			self.start_items = core::cmp::min(self.start_items, self.items.len());
-		}
 		Ok(())
 	}
 
@@ -2356,12 +2346,12 @@ impl<L: TrieLayout> ReadContentStack<L> {
 	#[inline(always)]
 	fn standard_extension(
 		&mut self,
-		key_branch: &[u8],
 		branch_d: usize,
 		is_root: bool,
 		nkey: Option<(usize, usize)>,
 		extension_only: bool,
 	) -> ChildReference<TrieHash<L>> {
+		let key_branch = &self.prefix.inner().as_ref()[..];
 		let last = self.items.len() - 1;
 		assert_eq!(self.items[last].depth, branch_d);
 
@@ -2403,6 +2393,99 @@ impl<L: TrieLayout> ReadContentStack<L> {
 			branch_hash
 		}
 	}
+
+	#[inline(always)]
+	fn no_extension(
+		&mut self,
+		branch_d: usize,
+		is_root: bool,
+		nkey: Option<(usize, usize)>,
+	) -> ChildReference<TrieHash<L>> {
+		let key_branch = &self.prefix.inner().as_ref()[..];
+		let ItemContentStack { children, value: v, depth, .. } = self.items.pop().expect("checked");
+
+		debug_assert!(branch_d == depth);
+		// encode branch
+		let nkeyix = nkey.unwrap_or((branch_d, 0));
+		let pr = NibbleSlice::new_offset(&key_branch, nkeyix.0);
+		let hashed;
+		let value = if let Some(v) = v.as_ref() {
+			Some(if let Some(value) = Value::new_inline(v.as_ref(), L::MAX_INLINE_VALUE) {
+				value
+			} else {
+				let mut prefix = NibbleSlice::new_offset(&key_branch, 0);
+				prefix.advance(branch_d);
+				hashed = <L::Hash as Hasher>::hash(v.as_ref());
+				Value::Node(hashed.as_ref())
+			})
+		} else {
+			if let ValueSet::HashOnly(h) = &v {
+				Some(Value::Node(h.as_ref()))
+			} else {
+				None
+			}
+		};
+
+		let encoded = L::Codec::branch_node_nibbled(
+			pr.right_range_iter(nkeyix.1),
+			nkeyix.1,
+			children.iter(),
+			value,
+		);
+		Self::process(encoded, is_root)
+	}
+
+	fn flush_value_change<'a>(
+		&mut self,
+		from_depth: usize,
+		to_depth: usize,
+		value: &ValueSet<TrieHash<L>, Vec<u8>>,
+		is_root: bool,
+	) -> ChildReference<TrieHash<L>> {
+		let key_content = &self.prefix.inner().as_ref()[..];
+		let k2 = &key_content[..to_depth / nibble_ops::NIBBLE_PER_BYTE];
+		let pr = NibbleSlice::new_offset(k2, from_depth);
+
+		let hashed;
+		let value = match value {
+			ValueSet::Standard(v) =>
+				if let Some(value) = Value::new_inline(v.as_ref(), L::MAX_INLINE_VALUE) {
+					value
+				} else {
+					hashed = <L::Hash as Hasher>::hash(v.as_ref());
+					Value::Node(hashed.as_ref())
+				},
+			ValueSet::HashOnly(h) => {
+				Value::Node(h.as_ref()) // TODO may have following hash and fail? ont if leaf
+			},
+			ValueSet::BranchHash(..) | ValueSet::None => unreachable!("Not in cache accum"),
+		};
+		let encoded = L::Codec::leaf_node(pr.right_iter(), pr.len(), value);
+		Self::process(encoded, is_root)
+	}
+
+	#[inline(always)]
+	fn set_cache_change(
+		&mut self,
+		change: ValueSet<TrieHash<L>, Vec<u8>>,
+	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
+		if self.items.is_empty() {
+			self.stack_empty(0);
+		}
+		let last = self.items.len() - 1;
+		let mut item = &mut self.items[last];
+		match change {
+			ValueSet::BranchHash(h, i) => {
+				if let Some(hash) = item.children[i as usize].as_ref() {
+					return Err(VerifyError::ExtraneousHashReference(*hash.disp_hash()))
+					//return Err(CompactDecoderError::HashChildNotOmitted.into()) TODO
+				}
+				item.children[i as usize] = Some(ChildReference::Hash(h));
+			},
+			value => item.value = value,
+		}
+		Ok(())
+	}
 }
 
 /// Content return on success when reading proof.
@@ -2411,6 +2494,7 @@ pub enum ReadProofItem<'a, L: TrieLayout, C, D: SplitFirst> {
 	Halted(Box<HaltedStateCheck<'a, L, C, D>>),
 	/// Seen value and key in proof.
 	/// We only return content matching the query plan.
+	/// TODO should be possible to return &Vec<u8>
 	Value(Cow<'a, [u8]>, Vec<u8>),
 	/// Seen hash of value and key in proof.
 	/// We only return content matching the query plan.
@@ -2420,8 +2504,10 @@ pub enum ReadProofItem<'a, L: TrieLayout, C, D: SplitFirst> {
 	/// Seen fully covered prefix in proof, this is only
 	/// return when we read the proof with the query input (otherwhise
 	/// we would need to indicate every child without a hash as a prefix).
+	/// TODO unused implement
 	StartPrefix(&'a [u8]),
 	/// End of a previously start prefix.
+	/// TODO unused implement
 	EndPrefix,
 }
 
@@ -2673,7 +2759,7 @@ impl<'a, L, C, P> Iterator for ReadProofContentIterator<'a, L, C, P>
 where
 	L: TrieLayout,
 	C: Iterator<Item = QueryPlanItem<'a>>,
-	P: Iterator<Item = Option<compact_content_proof::Op<TrieHash<L>, Vec<u8>>>>,
+	P: Iterator<Item = Option<Op<TrieHash<L>, Vec<u8>>>>,
 {
 	type Item = Result<ReadProofItem<'a, L, C, Vec<u8>>, VerifyError<TrieHash<L>, CError<L>>>;
 
@@ -2724,308 +2810,217 @@ where
 				} else {
 					self.state = ReadProofState::PlanConsumed;
 					self.current = None;
-					break
 				}
 			};
 			let did_prefix = self.stack.iter_prefix.is_some();
-		}
-		use compact_content_proof::Op;
-		// op sequence check
+			// op sequence check
 
-		while let Some(op) = self.proof.next() {
-			let Some(op) = op else {
-				self.state = ReadProofState::Finished;
-				return Some(Err(VerifyError::ExtraneousNode)); // TODO a decode op error
-			};
+			let mut from_iter = false;
+			while let Some(op) = self.buf_op.take().map(Option::Some).or_else(|| {
+				from_iter = true;
+				self.proof.next()
+			}) {
+				let Some(op) = op else {
+					self.state = ReadProofState::Finished;
+					return Some(Err(VerifyError::ExtraneousNode)); // TODO a decode op error
+				};
+				if from_iter {
+					// check ordering logic
+					// TODO wrap in an error and put bools in a struct
+					match &op {
+						Op::KeyPush(..) => {
+							if self.stack.is_prev_push_key {
+								self.state = ReadProofState::Finished;
+								return Some(Err(VerifyError::ExtraneousNode)) // TODO a decode op error
+								              // TODO return
+								              // Err(CompactDecoderError::ConsecutivePushKeys.
+								              // into())
+							}
+							self.stack.is_prev_push_key = true;
+							self.stack.is_prev_pop_key = false;
+							self.stack.is_prev_hash_child = None;
+							self.stack.first = false;
+						},
+						Op::KeyPop(..) => {
+							if self.stack.is_prev_pop_key {
+								self.state = ReadProofState::Finished;
+								return Some(Err(VerifyError::ExtraneousNode)) // TODO a decode op error
+								              // return Err(CompactDecoderError::ConsecutivePopKeys.
+								              // into())
+							}
+							self.stack.is_prev_push_key = false;
+							self.stack.is_prev_pop_key = true;
+							self.stack.is_prev_hash_child = None;
+							self.stack.first = false;
+						},
+						Op::HashChild(_, ix) => {
+							if let Some(prev_ix) = self.stack.is_prev_hash_child.as_ref() {
+								if prev_ix >= ix {
+									self.state = ReadProofState::Finished;
+									return Some(Err(VerifyError::ExtraneousNode)) // TODO a decode op error
+									          // return Err(CompactDecoderError::NotConsecutiveHash.
+									          // into())
+								}
+							}
+							// child ix on an existing content would be handle by iter_build.
+							self.stack.is_prev_push_key = false;
+							self.stack.is_prev_pop_key = false;
+							self.stack.is_prev_hash_child = Some(*ix);
+						},
+						Op::Value(_) => {
+							//	| Op::ValueForceInline(_) | Op::ValueForceHashed(_) => {
+							if !(self.stack.is_prev_push_key || self.stack.first) {
+								self.state = ReadProofState::Finished;
+								return Some(Err(VerifyError::ExtraneousNode)) // TODO a decode op error
+								              // return Err(CompactDecoderError::ValueNotAfterPush.
+								              // into())
+							}
+							self.stack.is_prev_push_key = false;
+							self.stack.is_prev_pop_key = false;
+							self.stack.is_prev_hash_child = None;
+							self.stack.first = false;
+						},
+						_ => {
+							self.stack.is_prev_push_key = false;
+							self.stack.is_prev_pop_key = false;
+							self.stack.is_prev_hash_child = None;
+							self.stack.first = false;
+						},
+					}
 
-			// check ordering logic
-			// TODO wrap in an error and put bools in a struct
-			match &op {
-				Op::KeyPush(..) => {
-					if self.stack.is_prev_push_key {
-						self.state = ReadProofState::Finished;
-						return Some(Err(VerifyError::ExtraneousNode)) // TODO a decode op error
-						                      // TODO return
-						                      // Err(CompactDecoderError::ConsecutivePushKeys.
-						                      // into())
+					// debug TODO make it log and external function
+					match &op {
+						Op::HashChild(hash, child_ix) => {
+							println!(
+								"ChildHash {:?}, {:?}, {:?}",
+								self.stack.prefix, child_ix, hash
+							);
+						},
+						Op::HashValue(hash) => {
+							println!("ValueHash {:?}, {:?}", self.stack.prefix, hash);
+						},
+						Op::Value(value) => {
+							println!("Value {:?}, {:?}", self.stack.prefix, value);
+						},
+						_ => (),
 					}
-					self.stack.is_prev_push_key = true;
-					self.stack.is_prev_pop_key = false;
-					self.stack.is_prev_hash_child = None;
-					self.stack.first = false;
-				},
-				Op::KeyPop(..) => {
-					if self.stack.is_prev_pop_key {
+				}
+				from_iter = false;
+
+				// netx
+				let item = if match &op {
+					Op::Value(..) | Op::HashValue(..) => true,
+					_ => false,
+				} {
+					let Some(current) = self.current.as_ref() else {
+						let r = self.stack.stack_pop(None, &self.expected_root);
 						self.state = ReadProofState::Finished;
-						return Some(Err(VerifyError::ExtraneousNode)) // TODO a decode op error
-						                      // return Err(CompactDecoderError::ConsecutivePopKeys.
-						                      // into())
-					}
-					self.stack.is_prev_push_key = false;
-					self.stack.is_prev_pop_key = true;
-					self.stack.is_prev_hash_child = None;
-					self.stack.first = false;
-				},
-				Op::HashChild(_, ix) => {
-					if let Some(prev_ix) = self.stack.is_prev_hash_child.as_ref() {
-						if prev_ix >= ix {
+						if let Err(e) = r {
 							self.state = ReadProofState::Finished;
-							return Some(Err(VerifyError::ExtraneousNode)) // TODO a decode op error
-							                  // return Err(CompactDecoderError::NotConsecutiveHash.
-							                  // into())
+							return Some(Err(e))
+						}
+						return None; // finished
+					};
+					let mut to_check_slice = to_check_slice.as_mut().expect("Init above");
+
+					let mut at_value = false;
+					let mut next_query = false;
+					let query_slice = LeftNibbleSlice::new(&current.key);
+					match self.stack.prefix.as_leftnibbleslice().cmp(&query_slice) {
+						Ordering::Equal =>
+							if !self.stack.items.is_empty() {
+								at_value = true;
+							},
+						Ordering::Less => (),
+						Ordering::Greater =>
+							if current.as_prefix {
+								let query_slice = LeftNibbleSlice::new(&current.key);
+								if self.stack.prefix.as_leftnibbleslice().starts_with(&query_slice)
+								{
+									at_value = true;
+								} else {
+									next_query = true;
+								}
+							} else {
+								next_query = true;
+							},
+					}
+					if next_query {
+						self.buf_op = Some(op);
+						if current.as_prefix {
+							break
+						} else {
+							return Some(Ok(ReadProofItem::NoValue(&current.key)))
 						}
 					}
-					// child ix on an existing content would be handle by iter_build.
-					self.stack.is_prev_push_key = false;
-					self.stack.is_prev_pop_key = false;
-					self.stack.is_prev_hash_child = Some(*ix);
-				},
-				Op::Value(_) => {
-					//	| Op::ValueForceInline(_) | Op::ValueForceHashed(_) => {
-					if !(self.stack.is_prev_push_key || self.stack.first) {
-						self.state = ReadProofState::Finished;
-						return Some(Err(VerifyError::ExtraneousNode)) // TODO a decode op error
-						                      // return Err(CompactDecoderError::ValueNotAfterPush.
-						                      // into())
-					}
-					self.stack.is_prev_push_key = false;
-					self.stack.is_prev_pop_key = false;
-					self.stack.is_prev_hash_child = None;
-					self.stack.first = false;
-				},
-				_ => {
-					self.stack.is_prev_push_key = false;
-					self.stack.is_prev_pop_key = false;
-					self.stack.is_prev_hash_child = None;
-					self.stack.first = false;
-				},
-			}
 
-			// debug TODO make it log and external function
-			match &op {
-				Op::HashChild(hash, child_ix) => {
-					println!("ChildHash {:?}, {:?}, {:?}", self.stack.prefix, child_ix, hash);
-				},
-				Op::HashValue(hash) => {
-					println!("ValueHash {:?}, {:?}", self.stack.prefix, hash);
-				},
-				Op::Value(value) => {
-					println!("Value {:?}, {:?}", self.stack.prefix, value);
-				},
-				_ => (),
-			}
-
-			// act
-			let r = match op {
-				Op::KeyPush(partial, mask) => {
-					self.stack
-						.prefix
-						.append_slice(LeftNibbleSlice::new_with_mask(partial.as_slice(), mask));
-					self.stack.stack_empty(self.stack.prefix.len());
-					Ok(())
-				},
-				Op::KeyPop(nb_nibble) => {
-					let r = self.stack.stack_pop(
-						&self.stack.prefix,
-						Some(nb_nibble as usize),
-						&self.expected_root,
-					);
-					self.stack.prefix.drop_lasts(nb_nibble.into());
-					r
-				},
-				Op::EndProof => break,
-				op => self.stack.set_cache_change(op.into()),
-			};
-			if let Err(e) = r {
-				self.state = ReadProofState::Finished;
-				return Some(Err(e))
-			}
-		}
-		todo!()
-		/*
-
-			while let Some((_, accessed_value_node, hash_only)) = self.stack.iter_prefix.clone() {
-				// prefix iteration
-				if !accessed_value_node {
-					self.stack.iter_prefix.as_mut().map(|s| {
-						s.1 = true;
-					});
-					match self.stack.access_value(&mut self.proof, check_hash, hash_only) {
-						Ok((Some(value), None)) =>
-							return Some(Ok(ReadProofItem::Value(
-								self.stack.prefix.inner().to_vec().into(),
-								value,
-							))),
-						Ok((None, Some(hash))) =>
-							return Some(Ok(ReadProofItem::Hash(
-								self.stack.prefix.inner().to_vec().into(),
-								hash,
-							))),
-						Ok((None, None)) => (),
-						Ok(_) => unreachable!(),
-						Err(e) => {
-							self.state = ReadProofState::Finished;
-							return Some(Err(e))
-						},
-					};
-				}
-
-				while let Some(child_index) = self.stack.items.last_mut().and_then(|last| {
-					if last.next_descended_child as usize >= NIBBLE_LENGTH {
-						None
+					if at_value {
+						match &op {
+							Op::Value(value) => {
+								// TODO could get content from op with no clone.
+								Some(ReadProofItem::Value(self.stack.prefix.inner().to_vec().into(), value.clone()))
+							},
+							Op::HashValue(hash) => {
+								// TODO could get content from op with no clone.
+								Some(ReadProofItem::Hash(self.stack.prefix.inner().to_vec().into(), hash.clone()))
+							},
+							_ => unreachable!(),
+						}
 					} else {
-						let child_index = last.next_descended_child;
-						last.next_descended_child += 1;
-						Some(child_index)
+						match &op {
+							Op::Value(value) => {
+								// hash value here not value
+								if L::MAX_INLINE_VALUE.map(|max| max as usize <= value.len()).unwrap_or(false) {
+									self.state = ReadProofState::Finished;
+									return Some(Err(VerifyError::ExtraneousValue(value.clone())));
+								}
+							},
+							_ => (),
+						}
+						None
 					}
-				}) {
-					let r = match self.stack.try_stack_child(
-						child_index,
-						&mut self.proof,
-						&self.expected_root,
-						None,
-						false,
-					) {
-						Ok(r) => r,
-						Err(e) => {
-							self.state = ReadProofState::Finished;
-							return Some(Err(e))
-						},
-					};
-					match r {
-						TryStackChildResult::Stacked => {
-							self.stack.iter_prefix.as_mut().map(|p| {
-								p.1 = false;
-							});
-							break
-						},
-						TryStackChildResult::StackedDescendIncomplete => {
-							unreachable!("slice query none");
-						},
-						TryStackChildResult::NotStacked => break,
-						TryStackChildResult::NotStackedBranch => (),
-						TryStackChildResult::Halted => {
-							if let Some(last) = self.stack.items.last_mut() {
-								last.next_descended_child -= 1;
-							}
-							return self.halt(None)
-						},
-					}
-				}
-				if self.stack.iter_prefix.as_ref().map(|p| p.1).unwrap_or_default() {
-					if !match self.stack.pop(&self.expected_root) {
-						Ok(r) => r,
-						Err(e) => {
-							self.state = ReadProofState::Finished;
-							return Some(Err(e))
-						},
-					} {
-						// end iter
-						self.stack.exit_prefix_iter();
-					}
-				}
-			}
-			if did_prefix {
-				// exit a prefix iter, next content looping
-				self.state = ReadProofState::SwitchQueryPlan;
-				continue
-			}
-			let to_check = self.current.as_ref().expect("Init above");
-			let to_check_len = to_check.key.len() * nibble_ops::NIBBLE_PER_BYTE;
-			let mut to_check_slice = to_check_slice.as_mut().expect("Init above");
-			let as_prefix = to_check.as_prefix; // TODO useless?
-			let hash_only = to_check.hash_only; // TODO useless?
-			let mut at_value = false;
-			match self.stack.prefix.len().cmp(&to_check_len) {
-				Ordering::Equal =>
-					if !self.stack.items.is_empty() {
-						at_value = true;
-					},
-				Ordering::Less => (),
-				Ordering::Greater => {
-					unreachable!();
-				},
-			}
+				} else {
+					None
+				};
 
-			if at_value {
-				if as_prefix {
-					self.stack.enter_prefix_iter(hash_only);
-					continue
-				}
-				self.state = ReadProofState::SwitchQueryPlan;
-				match self.stack.access_value(&mut self.proof, check_hash, hash_only) {
-					Ok((Some(value), None)) =>
-						return Some(Ok(ReadProofItem::Value(to_check.key.into(), value))),
-					Ok((None, Some(hash))) =>
-						return Some(Ok(ReadProofItem::Hash(to_check.key.into(), hash))),
-					Ok((None, None)) => return Some(Ok(ReadProofItem::NoValue(to_check.key))),
-					Ok(_) => unreachable!(),
-					Err(e) => {
-						self.state = ReadProofState::Finished;
-						return Some(Err(e))
+				// act
+				let r = match op {
+					Op::KeyPush(partial, mask) => {
+						self.stack
+							.prefix
+							.append_slice(LeftNibbleSlice::new_with_mask(partial.as_slice(), mask));
+						self.stack.stack_empty(self.stack.prefix.len());
+						Ok(())
 					},
-				}
-			}
-
-			let child_index = if self.stack.items.len() == 0 {
-				// dummy
-				0
-			} else {
-				to_check_slice.at(0)
-			};
-			let r = match self.stack.try_stack_child(
-				child_index,
-				&mut self.proof,
-				&self.expected_root,
-				Some(&mut to_check_slice),
-				to_check.as_prefix,
-			) {
-				Ok(r) => r,
-				Err(e) => {
+					Op::KeyPop(nb_nibble) => {
+						let r = self.stack.stack_pop(Some(nb_nibble as usize), &self.expected_root);
+						self.stack.prefix.drop_lasts(nb_nibble.into());
+						r
+					},
+					Op::EndProof => break,
+					op => self.stack.set_cache_change(op.into()),
+				};
+				if let Err(e) = r {
 					self.state = ReadProofState::Finished;
 					return Some(Err(e))
-				},
-			};
-			match r {
-				TryStackChildResult::Stacked => (),
-				TryStackChildResult::StackedDescendIncomplete => {
-					if as_prefix {
-						self.stack.enter_prefix_iter(hash_only);
-						continue
-					}
-					self.state = ReadProofState::SwitchQueryPlan;
-					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
-				},
-				TryStackChildResult::NotStacked => {
-					self.state = ReadProofState::SwitchQueryPlan;
-					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
-				},
-				TryStackChildResult::NotStackedBranch => {
-					self.state = ReadProofState::SwitchQueryPlan;
-					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
-				},
-				TryStackChildResult::Halted => return self.halt(Some(to_check_slice)),
+				}
+				if let Some(r) = item {
+					return Some(Ok(r))
+				}
+			}
+			if self.current.is_some() {
+				// TODO return halt instead
+				return Some(Err(VerifyError::IncompleteProof))
 			}
 		}
 
-		debug_assert!(self.state == ReadProofState::PlanConsumed);
-		if self.is_compact {
-			let stack_to = 0; // TODO restart is different
-				  //					let r = self.stack.pop_until(common_nibbles, &self.expected_root);
-			let r = self.stack.pop_until(stack_to, &self.expected_root, false);
-			if let Err(e) = r {
-				self.state = ReadProofState::Finished;
-				return Some(Err(e))
-			}
-		} else {
-			if self.proof.next().is_some() {
-				self.state = ReadProofState::Finished;
-				return Some(Err(VerifyError::ExtraneousNode))
-			}
-		}
+
 		self.state = ReadProofState::Finished;
-		return None
-			*/
+		if self.proof.next().is_some() {
+			return Some(Err(VerifyError::ExtraneousNode))
+		} else {
+			return None
+		}
 	}
 }
 
@@ -3124,7 +3119,7 @@ pub fn verify_query_plan_iter_content<'a, L, C, P>(
 where
 	L: TrieLayout,
 	C: Iterator<Item = QueryPlanItem<'a>>,
-	P: Iterator<Item = Option<compact_content_proof::Op<TrieHash<L>, Vec<u8>>>>,
+	P: Iterator<Item = Option<Op<TrieHash<L>, Vec<u8>>>>,
 {
 	let HaltedStateCheck::Content(state) = state else {
 		return Err(VerifyError::IncompleteProof) // TODO not kind as param if keeping CompactContent
@@ -3147,6 +3142,7 @@ where
 		state,
 		stack,
 		restore_offset,
+		buf_op: None,
 	})
 }
 

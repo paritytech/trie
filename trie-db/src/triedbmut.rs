@@ -555,12 +555,22 @@ enum Stored<L: TrieLayout> {
 }
 
 /// Used to build a collection of child nodes from a collection of `NodeHandle`s
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub enum ChildReference<HO> {
 	// `HO` is e.g. `H256`, i.e. the output of a `Hasher`
 	Hash(HO),
 	Inline(HO, usize), // usize is the length of the node data we store in the `H::Out`
+}
+
+impl<HO> ChildReference<HO> {
+	// Representation of hash, may contain filler bytes.
+	pub fn disp_hash(&self) -> &HO {
+		match self {
+			ChildReference::Hash(h) => h,
+			ChildReference::Inline(h, _) => h,
+		}
+	}
 }
 
 impl<'a, HO> TryFrom<EncodedNodeHandle<'a>> for ChildReference<HO>
