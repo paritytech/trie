@@ -818,8 +818,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 		}
 
 		if let Some(nb_children) = process_children {
-			self.try_stack_content_child(NIBBLE_LENGTH as u8)
-				.expect("stack inline do not fetch");
+			self.try_stack_content_child().expect("stack inline do not fetch");
 		}
 		let items = &self.stack.items[..at];
 		match &mut self.stack.recorder.output {
@@ -850,12 +849,12 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 	// Add child for content
 	fn try_stack_content_child(
 		&mut self,
-		upper: u8,
+		//upper: u8,
 	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
 		let dummy_parent_hash = TrieHash::<L>::default();
 		if let Some(item) = self.stack.items.last() {
 			let pre = item.next_descended_child; // TODO put next_descended child to 16 for leaf (skip some noop iter)
-			for i in pre..upper as u8 {
+			for i in 0..NIBBLE_LENGTH as u8 {
 				match self.stack.try_stack_child(i, None, dummy_parent_hash, None, true)? {
 					// only expect a stacked prefix here
 					TryStackChildResult::Stacked => {
@@ -872,7 +871,10 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 				}
 			}
 		}
-		self.stack.items.last_mut().map(|i| i.next_descended_child = upper);
+		self.stack
+			.items
+			.last_mut()
+			.map(|i| i.next_descended_child = NIBBLE_LENGTH as u8);
 		Ok(())
 	}
 
@@ -1147,7 +1149,7 @@ pub fn record_query_plan<
 					Ordering::Equal | Ordering::Less => break,
 					Ordering::Greater => {
 						if query_plan.kind.record_inline() {
-							from.try_stack_content_child(NIBBLE_LENGTH as u8)?;
+							from.try_stack_content_child()?;
 						}
 						if !from.pop() {
 							from.finalize();
@@ -1191,9 +1193,9 @@ pub fn record_query_plan<
 			}
 
 			let child_index = if from.stack.items.is_empty() { 0 } else { slice_query.at(0) };
-			if query_plan.kind.record_inline() {
+			/*if query_plan.kind.record_inline() {
 				from.try_stack_content_child(child_index)?;
-			}
+			}*/
 			from.stack.items.last_mut().map(|i| {
 				// TODO only needed for content but could be better to be always aligned
 				i.next_descended_child = child_index + 1;
@@ -1243,7 +1245,7 @@ pub fn record_query_plan<
 	// TODO loop redundant with finalize??
 	loop {
 		if query_plan.kind.record_inline() {
-			from.try_stack_content_child(NIBBLE_LENGTH as u8)?;
+			from.try_stack_content_child()?;
 		}
 
 		if !from.pop() {
@@ -1269,7 +1271,7 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		db: Option<&TrieDB<L>>,
 		parent_hash: TrieHash<L>,
 		mut slice_query: Option<&mut NibbleSlice>,
-		inline_only: bool, // TODO remove all inline only param and make it db is_none
+		inline_only: bool, // TODO remove all inline only param and make it db is_none TODO rename
 	) -> Result<TryStackChildResult, VerifyError<TrieHash<L>, CError<L>>> {
 		let mut is_inline = false;
 		let prefix = &mut self.prefix;
@@ -1277,6 +1279,10 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		let mut stack_extension = false;
 		let mut from_branch = None;
 		let child_handle = if let Some(item) = self.items.last_mut() {
+			if inline_only && item.accessed_children_node.at(child_index as usize) {
+				return Ok(TryStackChildResult::NotStackedBranch)
+			}
+
 			let node_data = item.node.data();
 
 			match item.node.node_plan() {

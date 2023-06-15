@@ -397,7 +397,8 @@ fn test_query_plan_internal<L: TrieLayout>() {
 						//						assert_eq!(proofs.len(), 1);
 						assert_eq!(proof.len(), 1);
 
-						break
+						break;
+
 						let refs: Vec<Op<trie_db::TrieHash<L>, Vec<u8>>> =
 							match (limit.unwrap_or(0), nb_plan, nb) {
 								(0, 0, 0) => vec![
