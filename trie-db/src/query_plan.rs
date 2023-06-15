@@ -364,7 +364,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 					proof.push(Vec::new());
 				},
 			RecorderStateInner::Content { output, stacked_push, stacked_pop } => {
-				if Self::flush_compact_content_pop(
+				if flush_compact_content_pop::<O, L>(
 					output,
 					stacked_pop,
 					items,
@@ -414,125 +414,6 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 				let written = output.buf_len() - init_len;
 				res = self.limits.add_node(written, 0, false);
 			}
-		}
-		res
-	}
-
-	#[must_use]
-	fn flush_compact_content_pop(
-		out: &mut O,
-		stacked_from: &mut Option<usize>,
-		items: &[CompactEncodingInfos],
-		add_depth: Option<usize>,
-		limits: &mut Limits,
-	) -> bool {
-		let Some(from) = stacked_from.take() else {
-			return false
-		};
-		let pop_to = add_depth.unwrap_or_else(|| items.last().map(|i| i.depth).unwrap_or(0));
-		debug_assert!(from > pop_to);
-
-		debug_assert!(from - pop_to <= u16::max_value() as usize);
-		// Warning this implies key size limit of u16::max
-		let op = Op::<TrieHash<L>, Vec<u8>>::KeyPop((from - pop_to) as u16);
-		let init_len = out.buf_len();
-		op.encode_into(out);
-		let written = out.buf_len() - init_len;
-		limits.add_node(written, 0, false)
-	}
-
-	#[must_use]
-	fn record_popped_node(
-		&mut self,
-		item: &CompactEncodingInfos,
-		items: &[CompactEncodingInfos],
-	) -> bool {
-		let mut res = false;
-		if !self.check_start_at(item.depth) {
-			return res
-		}
-		if let RecorderStateInner::Content { .. } = &self.output {
-			// if no value accessed, then we can have push then stack pop.
-			if self.flush_compact_content_pushes(item.depth) {
-				res = true;
-			}
-		}
-
-		match &mut self.output {
-			RecorderStateInner::Stream(_) => (),
-			RecorderStateInner::Compact { proof, stacked_pos, .. } =>
-				if !item.is_inline {
-					if let Some(at) = stacked_pos.pop() {
-						proof[at] = crate::trie_codec::encode_node_internal::<L::Codec>(
-							&item.node,
-							item.accessed_value_node,
-							item.accessed_children_node,
-						)
-						.expect("TODO error handling, can it actually fail?");
-					} // else when restarting record, this is not to be recorded
-				},
-			RecorderStateInner::Content { output, stacked_pop, .. } => {
-				if stacked_pop.is_none() {
-					*stacked_pop = Some(item.depth);
-				}
-				// two case: children to register or all children accessed.
-				let mut has_hash_to_write = false;
-				let node_data = item.node.data();
-				if let Some(last_item) = items.last() {
-					match last_item.node.node_plan() {
-						NodePlan::Branch { children, .. } |
-						NodePlan::NibbledBranch { children, .. } =>
-							for i in 0..children.len() {
-								if children[i].is_some() && !last_item.accessed_children_node.at(i)
-								{
-									has_hash_to_write = true;
-									break
-								}
-							},
-						_ => (),
-					}
-				}
-
-				match item.node.node_plan() {
-					NodePlan::Branch { children, .. } |
-					NodePlan::NibbledBranch { children, .. } => {
-						for i in 0..children.len() {
-							if let Some(child) = &children[i] {
-								if !item.accessed_children_node.at(i) {
-									match child.build(node_data) {
-										NodeHandle::Hash(hash_slice) => {
-											let mut hash = TrieHash::<L>::default();
-											hash.as_mut().copy_from_slice(hash_slice);
-											let op = Op::<TrieHash<L>, Vec<u8>>::HashChild(
-												hash, i as u8,
-											);
-											let init_len = output.buf_len();
-											op.encode_into(output);
-											let written = output.buf_len() - init_len;
-											res = self.limits.add_node(written, 0, false)
-										},
-										NodeHandle::Inline(_) => {
-											// As been accessed if needed (inline are not mark).
-										},
-									}
-								}
-							}
-						}
-					},
-					_ => (),
-				}
-				if has_hash_to_write {
-					if Self::flush_compact_content_pop(
-						output,
-						stacked_pop,
-						items,
-						None,
-						&mut self.limits,
-					) {
-						res = true;
-					}
-				}
-			},
 		}
 		res
 	}
@@ -647,49 +528,6 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 			}
 		}
 		res
-	}
-
-	fn finalize(&mut self, items: &Vec<CompactEncodingInfos>) {
-		match &mut self.output {
-			RecorderStateInner::Compact { output, proof, stacked_pos } => {
-				let restarted_from = 0;
-				if stacked_pos.len() > restarted_from {
-					// halted: complete up to 0 and write all nodes keeping stack.
-					let mut items = items.iter().rev();
-					while let Some(pos) = stacked_pos.pop() {
-						loop {
-							let item = items.next().expect("pos stacked with an item");
-							if !item.is_inline {
-								proof[pos] = crate::trie_codec::encode_node_internal::<L::Codec>(
-									&item.node,
-									item.accessed_value_node,
-									item.accessed_children_node,
-								)
-								.expect("TODO error handling, can it actually fail?");
-								break
-							}
-						}
-					}
-				}
-				for entry in core::mem::take(proof) {
-					output.write_entry(entry.into());
-				}
-			},
-			RecorderStateInner::Stream(_output) => {
-				// all written
-			},
-			RecorderStateInner::Content { output: _, stacked_push, stacked_pop: _ } => {
-				// TODO protect existing stack as for compact
-				assert!(stacked_push.is_none());
-				// TODO could use function with &item and &[item] as param
-				// to skip this clone.
-				for i in (0..items.len()).rev() {
-					let item = items.get(i).expect("bounded iter");
-					let items = &items[..i];
-					let _ = self.record_popped_node(item, &items);
-				}
-			},
-		}
 	}
 }
 
@@ -1033,7 +871,7 @@ pub fn record_query_plan<
 							stack = &mut from.stack;
 						}
 						if !stack.pop() {
-							stack.recorder.finalize(&stack.items);
+							stack.finalize();
 							return Ok(from)
 						}
 					},
@@ -1132,7 +970,7 @@ pub fn record_query_plan<
 					));
 					stack.prefix.pop();
 					from.currently_query_item = Some(query.to_owned());
-					stack.recorder.finalize(&stack.items);
+					stack.finalize();
 					return Ok(from)
 				},
 			}
@@ -1155,7 +993,7 @@ pub fn record_query_plan<
 			break
 		}
 	}
-	stack.recorder.finalize(&stack.items);
+	stack.finalize();
 	Ok(from)
 }
 
@@ -1247,7 +1085,7 @@ fn iter_prefix<L: TrieLayout, O: RecorderOutput>(
 					));
 					stack.prefix.pop();
 					from.currently_query_item = prev_query.map(|q| q.to_owned());
-					stack.recorder.finalize(&stack.items);
+					stack.finalize();
 					return Ok((from, true))
 				},
 			}
@@ -1453,10 +1291,13 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		if self.iter_prefix.map(|(l, _)| l == self.items.len()).unwrap_or(false) {
 			return false
 		}
-		if let Some(item) = self.items.pop() {
-			if self.recorder.record_popped_node(&item, &self.items) {
+		let at = self.items.len();
+		if at > 0 {
+			if self.record_popped_node(at - 1) {
 				self.halt = true;
 			}
+		}
+		if let Some(item) = self.items.pop() {
 			let depth = self.items.last().map(|i| i.depth).unwrap_or(0);
 			self.prefix.drop_lasts(self.prefix.len() - depth);
 			if depth == item.depth {
@@ -1476,6 +1317,167 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 	fn exit_prefix_iter(&mut self) {
 		self.iter_prefix = None
 	}
+
+	#[must_use]
+	fn record_popped_node(&mut self, at: usize) -> bool {
+		let item = self.items.get(at).expect("bounded iter");
+		let items = &self.items[..at];
+		let mut res = false;
+		if !self.recorder.check_start_at(item.depth) {
+			return res
+		}
+		if let RecorderStateInner::Content { .. } = &self.recorder.output {
+			// if no value accessed, then we can have push then stack pop.
+			if self.recorder.flush_compact_content_pushes(item.depth) {
+				res = true;
+			}
+		}
+
+		match &mut self.recorder.output {
+			RecorderStateInner::Stream(_) => (),
+			RecorderStateInner::Compact { proof, stacked_pos, .. } =>
+				if !item.is_inline {
+					if let Some(at) = stacked_pos.pop() {
+						proof[at] = crate::trie_codec::encode_node_internal::<L::Codec>(
+							&item.node,
+							item.accessed_value_node,
+							item.accessed_children_node,
+						)
+						.expect("TODO error handling, can it actually fail?");
+					} // else when restarting record, this is not to be recorded
+				},
+			RecorderStateInner::Content { output, stacked_pop, .. } => {
+				if stacked_pop.is_none() {
+					*stacked_pop = Some(item.depth);
+				}
+				// two case: children to register or all children accessed.
+				let mut has_hash_to_write = false;
+				let node_data = item.node.data();
+				if let Some(last_item) = items.last() {
+					match last_item.node.node_plan() {
+						NodePlan::Branch { children, .. } |
+						NodePlan::NibbledBranch { children, .. } =>
+							for i in 0..children.len() {
+								if children[i].is_some() && !last_item.accessed_children_node.at(i)
+								{
+									has_hash_to_write = true;
+									break
+								}
+							},
+						_ => (),
+					}
+				}
+
+				match item.node.node_plan() {
+					NodePlan::Branch { children, .. } |
+					NodePlan::NibbledBranch { children, .. } => {
+						for i in 0..children.len() {
+							if let Some(child) = &children[i] {
+								if !item.accessed_children_node.at(i) {
+									match child.build(node_data) {
+										NodeHandle::Hash(hash_slice) => {
+											let mut hash = TrieHash::<L>::default();
+											hash.as_mut().copy_from_slice(hash_slice);
+											let op = Op::<TrieHash<L>, Vec<u8>>::HashChild(
+												hash, i as u8,
+											);
+											let init_len = output.buf_len();
+											op.encode_into(output);
+											let written = output.buf_len() - init_len;
+											res = self.recorder.limits.add_node(written, 0, false)
+										},
+										NodeHandle::Inline(_) => {
+											// As been accessed if needed (inline are not mark).
+											// TODO need to process
+											println!("TODO need to process");
+										},
+									}
+								}
+							}
+						}
+					},
+					_ => (),
+				}
+				if has_hash_to_write {
+					if flush_compact_content_pop::<O, L>(
+						output,
+						stacked_pop,
+						items,
+						None,
+						&mut self.recorder.limits,
+					) {
+						res = true;
+					}
+				}
+			},
+		}
+		res
+	}
+
+	fn finalize(&mut self) {
+		let items = &self.items;
+		match &mut self.recorder.output {
+			RecorderStateInner::Compact { output, proof, stacked_pos } => {
+				let restarted_from = 0;
+				if stacked_pos.len() > restarted_from {
+					// halted: complete up to 0 and write all nodes keeping stack.
+					let mut items = items.iter().rev();
+					while let Some(pos) = stacked_pos.pop() {
+						loop {
+							let item = items.next().expect("pos stacked with an item");
+							if !item.is_inline {
+								proof[pos] = crate::trie_codec::encode_node_internal::<L::Codec>(
+									&item.node,
+									item.accessed_value_node,
+									item.accessed_children_node,
+								)
+								.expect("TODO error handling, can it actually fail?");
+								break
+							}
+						}
+					}
+				}
+				for entry in core::mem::take(proof) {
+					output.write_entry(entry.into());
+				}
+			},
+			RecorderStateInner::Stream(_output) => {
+				// all written
+			},
+			RecorderStateInner::Content { output: _, stacked_push, stacked_pop: _ } => {
+				// TODO protect existing stack as for compact
+				assert!(stacked_push.is_none());
+				// TODO could use function with &item and &[item] as param
+				// to skip this clone.
+				for i in (0..items.len()).rev() {
+					let _ = self.record_popped_node(i);
+				}
+			},
+		}
+	}
+}
+
+#[must_use]
+fn flush_compact_content_pop<O: RecorderOutput, L: TrieLayout>(
+	out: &mut O,
+	stacked_from: &mut Option<usize>,
+	items: &[CompactEncodingInfos],
+	add_depth: Option<usize>,
+	limits: &mut Limits,
+) -> bool {
+	let Some(from) = stacked_from.take() else {
+			return false
+		};
+	let pop_to = add_depth.unwrap_or_else(|| items.last().map(|i| i.depth).unwrap_or(0));
+	debug_assert!(from > pop_to);
+
+	debug_assert!(from - pop_to <= u16::max_value() as usize);
+	// Warning this implies key size limit of u16::max
+	let op = Op::<TrieHash<L>, Vec<u8>>::KeyPop((from - pop_to) as u16);
+	let init_len = out.buf_len();
+	op.encode_into(out);
+	let written = out.buf_len() - init_len;
+	limits.add_node(written, 0, false)
 }
 
 /// Proof reading iterator.
@@ -2824,6 +2826,7 @@ where
 				from_iter = true;
 				self.proof.next()
 			}) {
+				println!("read: {:?}", op);
 				let Some(op) = op else {
 					let r = self.stack.stack_pop(None, &self.expected_root);
 						self.state = ReadProofState::Finished;
