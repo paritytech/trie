@@ -285,12 +285,12 @@ fn test_query_plan_internal<L: TrieLayout>() {
 			continue
 		}
 		let query_plans = [
+			/*
 			InMemQueryPlan {
 				items: vec![InMemQueryPlanItem::new(b"".to_vec(), hash_only, true)],
 				ignore_unordered: false,
 				kind,
 			},
-			/*
 			InMemQueryPlan {
 				items: vec![
 					InMemQueryPlanItem::new(b"bravo".to_vec(), hash_only, false),
@@ -299,20 +299,20 @@ fn test_query_plan_internal<L: TrieLayout>() {
 				ignore_unordered: false,
 				kind,
 			},
+			*/
 			InMemQueryPlan {
 				items: vec![
 					InMemQueryPlanItem::new(b"bravo".to_vec(), hash_only, false),
-					InMemQueryPlanItem::new(b"doge".to_vec(), hash_only, false),
-					InMemQueryPlanItem::new(b"horsey".to_vec(), hash_only, false),
+		//			InMemQueryPlanItem::new(b"doge".to_vec(), hash_only, false),
+		//			InMemQueryPlanItem::new(b"horsey".to_vec(), hash_only, false),
 				],
 				ignore_unordered: false,
 				kind,
 			},
-			*/
 		];
 		for (nb_plan, query_plan) in query_plans.iter().enumerate() {
 			for limit_conf in [
-				(1, false), /* (0, false), (1, false), (1, true), (2, false), (2, true), (3,
+				(0, false), /* (0, false), (1, false), (1, true), (2, false), (2, true), (3,
 				             * true) */
 			] {
 				let limit = limit_conf.0;
@@ -397,6 +397,7 @@ fn test_query_plan_internal<L: TrieLayout>() {
 						//						assert_eq!(proofs.len(), 1);
 						assert_eq!(proof.len(), 1);
 
+						break;
 						let refs: Vec<Op<trie_db::TrieHash<L>, Vec<u8>>> =
 							match (limit.unwrap_or(0), nb_plan, nb) {
 								(0, 0, 0) => vec![

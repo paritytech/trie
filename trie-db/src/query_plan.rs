@@ -477,7 +477,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 	}
 
 	// TODO this should be call also in all node (not only when not finding value):
-	// then could just be part of enter node?
+	// then could just be part of enter node? TODO rem
 	#[must_use]
 	fn record_skip_value(&mut self, items: &mut Vec<CompactEncodingInfos>) -> bool {
 		let mut res = false;
@@ -526,6 +526,24 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 				},
 				_ => (),
 			}
+		}
+		res
+	}
+
+	#[must_use]
+	fn touched_child_hash(&mut self, hash_slice: &[u8], i: u8) -> bool {
+		let mut res = false;
+		match &mut self.output {
+			RecorderStateInner::Content { output, .. } => {
+				let mut hash = TrieHash::<L>::default();
+				hash.as_mut().copy_from_slice(hash_slice);
+				let op = Op::<TrieHash<L>, Vec<u8>>::HashChild(hash, i as u8);
+				let init_len = output.buf_len();
+				op.encode_into(output);
+				let written = output.buf_len() - init_len;
+				res = self.limits.add_node(written, 0, false);
+			},
+			_ => (),
 		}
 		res
 	}
@@ -698,6 +716,270 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 	pub fn finish(self) -> Recorder<O, L> {
 		self.stack.recorder
 	}
+
+	fn finalize(&mut self) {
+		let stack = &mut self.stack;
+		let items = &stack.items;
+		match &mut stack.recorder.output {
+			RecorderStateInner::Compact { output, proof, stacked_pos } => {
+				let restarted_from = 0;
+				if stacked_pos.len() > restarted_from {
+					// halted: complete up to 0 and write all nodes keeping stack.
+					let mut items = items.iter().rev();
+					while let Some(pos) = stacked_pos.pop() {
+						loop {
+							let item = items.next().expect("pos stacked with an item");
+							if !item.is_inline {
+								proof[pos] = crate::trie_codec::encode_node_internal::<L::Codec>(
+									&item.node,
+									item.accessed_value_node,
+									item.accessed_children_node,
+								)
+								.expect("TODO error handling, can it actually fail?");
+								break
+							}
+						}
+					}
+				}
+				for entry in core::mem::take(proof) {
+					output.write_entry(entry.into());
+				}
+			},
+			RecorderStateInner::Stream(_output) => {
+				// all written
+			},
+			RecorderStateInner::Content { output: _, stacked_push, stacked_pop: _ } => {
+				// TODO protect existing stack as for compact
+				assert!(stacked_push.is_none());
+				// TODO could use function with &item and &[item] as param
+				// to skip this clone.
+				for i in (0..items.len()).rev() {
+					let _ = self.record_popped_node(i);
+				}
+			},
+		}
+	}
+
+	#[must_use]
+	fn record_popped_node(&mut self, at: usize) -> bool {
+		let item = self.stack.items.get(at).expect("bounded iter");
+		let items = &self.stack.items[..at];
+		let mut res = false;
+		if !self.stack.recorder.check_start_at(item.depth) {
+			return res
+		}
+		if let RecorderStateInner::Content { .. } = &self.stack.recorder.output {
+			// if no value accessed, then we can have push then stack pop.
+			if self.stack.recorder.flush_compact_content_pushes(item.depth) {
+				res = true;
+			}
+		}
+
+		let mut process_children = None;
+		let mut has_hash_to_write = false;
+		match &mut self.stack.recorder.output {
+			RecorderStateInner::Stream(_) => (),
+			RecorderStateInner::Compact { proof, stacked_pos, .. } =>
+				if !item.is_inline {
+					if let Some(at) = stacked_pos.pop() {
+						proof[at] = crate::trie_codec::encode_node_internal::<L::Codec>(
+							&item.node,
+							item.accessed_value_node,
+							item.accessed_children_node,
+						)
+						.expect("TODO error handling, can it actually fail?");
+					} // else when restarting record, this is not to be recorded
+				},
+			RecorderStateInner::Content { output, stacked_pop, .. } => {
+				// two case: children to register or all children accessed.
+				if let Some(last_item) = items.last() {
+					match last_item.node.node_plan() {
+						NodePlan::Branch { children, .. } |
+						NodePlan::NibbledBranch { children, .. } =>
+							for i in 0..children.len() {
+								if children[i].is_some() && !last_item.accessed_children_node.at(i)
+								{
+									has_hash_to_write = true;
+									break
+								}
+							},
+						_ => (),
+					}
+				}
+
+				match item.node.node_plan() {
+					NodePlan::Branch { children, .. } |
+					NodePlan::NibbledBranch { children, .. } => {
+						process_children = Some(children.len());
+					},
+					_ => (),
+				}
+			},
+		}
+
+		if let Some(nb_children) = process_children {
+			self.try_stack_content_child(NIBBLE_LENGTH as u8)
+				.expect("stack inline do not fetch");
+		}
+		let items = &self.stack.items[..at];
+		match &mut self.stack.recorder.output {
+			RecorderStateInner::Content { output, stacked_pop, .. } => {
+				let item = &self.stack.items.get(at).expect("bounded iter");
+				if stacked_pop.is_none() {
+					*stacked_pop = Some(item.depth);
+				}
+
+				if has_hash_to_write {
+					if flush_compact_content_pop::<O, L>(
+						output,
+						stacked_pop,
+						items,
+						None,
+						&mut self.stack.recorder.limits,
+					) {
+						res = true;
+					}
+				}
+			},
+			_ => (),
+		}
+
+		res
+	}
+
+	// Add child for content
+	fn try_stack_content_child(
+		&mut self,
+		upper: u8,
+	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
+		let dummy_parent_hash = TrieHash::<L>::default();
+		if let Some(item) = self.stack.items.last() {
+			let pre = item.next_descended_child; // TODO put next_descended child to 16 for leaf (skip some noop iter)
+			for i in pre..upper as u8 {
+				match self.stack.try_stack_child(i, None, dummy_parent_hash, None, true)? {
+					// only expect a stacked prefix here
+					TryStackChildResult::Stacked => {
+						let halt = self.iter_prefix(None, None, false, true, true)?;
+						if halt {
+							// no halt on inline.
+							unreachable!()
+						} else {
+							self.pop();
+						}
+					},
+					TryStackChildResult::NotStackedBranch => (),
+					_ => break,
+				}
+			}
+		}
+		self.stack.items.last_mut().map(|i| i.next_descended_child = upper);
+		Ok(())
+	}
+
+	fn pop(&mut self) -> bool {
+		if self
+			.stack
+			.iter_prefix
+			.map(|(l, _)| l == self.stack.items.len())
+			.unwrap_or(false)
+		{
+			return false
+		}
+		let at = self.stack.items.len();
+		if at > 0 {
+			if self.record_popped_node(at - 1) {
+				self.stack.halt = true;
+			}
+		}
+		if let Some(item) = self.stack.items.pop() {
+			let depth = self.stack.items.last().map(|i| i.depth).unwrap_or(0);
+			self.stack.prefix.drop_lasts(self.stack.prefix.len() - depth);
+			if depth == item.depth {
+				// Two consecutive identical depth is an extension
+				self.pop();
+			}
+			true
+		} else {
+			false
+		}
+	}
+
+	fn iter_prefix(
+		&mut self,
+		prev_query: Option<&QueryPlanItem>,
+		db: Option<&TrieDB<L>>,
+		hash_only: bool,
+		first_iter: bool,
+		inline_iter: bool,
+	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
+		let dummy_parent_hash = TrieHash::<L>::default();
+		if first_iter {
+			self.stack.enter_prefix_iter(hash_only);
+		}
+
+		// run prefix iteration
+		let mut stacked = first_iter;
+		loop {
+			// descend
+			loop {
+				if stacked {
+					// try access value in next node
+					self.stack.access_value(db, hash_only)?;
+					stacked = false;
+				}
+
+				let child_index = if let Some(mut item) = self.stack.items.last_mut() {
+					if item.next_descended_child as usize >= NIBBLE_LENGTH {
+						break
+					}
+					item.next_descended_child += 1;
+					item.next_descended_child - 1
+				} else {
+					break
+				};
+
+				match self.stack.try_stack_child(
+					child_index,
+					db,
+					dummy_parent_hash,
+					None,
+					inline_iter,
+				)? {
+					TryStackChildResult::Stacked => {
+						stacked = true;
+					},
+					TryStackChildResult::NotStackedBranch => (),
+					TryStackChildResult::NotStacked => break,
+					TryStackChildResult::StackedDescendIncomplete => {
+						unreachable!("no slice query")
+					},
+					TryStackChildResult::Halted => {
+						if let Some(mut item) = self.stack.items.last_mut() {
+							item.next_descended_child -= 1;
+						}
+						self.stack.halt = false;
+						self.stack.prefix.push(child_index);
+						let dest_from = Some((
+							self.stack.prefix.inner().to_vec(),
+							(self.stack.prefix.len() % nibble_ops::NIBBLE_PER_BYTE) != 0,
+						));
+						self.stack.prefix.pop();
+						self.finalize();
+						self.from = dest_from;
+						self.currently_query_item = prev_query.map(|q| q.to_owned());
+						return Ok(true)
+					},
+				}
+			}
+
+			// pop
+			if !self.pop() {
+				break
+			}
+		}
+		self.stack.exit_prefix_iter();
+		Ok(false)
+	}
 }
 
 /// When process is halted keep execution state
@@ -826,14 +1108,12 @@ pub fn record_query_plan<
 		}
 	}
 
-	let mut stack = &mut from.stack;
-
 	let mut prev_query: Option<QueryPlanItem> = None;
 	let from_query = from.currently_query_item.take();
 	let mut from_query_ref = from_query.as_ref().map(|f| f.as_ref());
 	while let Some(query) = from_query_ref.clone().or_else(|| query_plan.items.next()) {
 		if stateless {
-			let bound = stack.seek.as_ref().expect("Initiated for stateless");
+			let bound = from.stack.seek.as_ref().expect("Initiated for stateless");
 			let bound = bound.as_leftnibbleslice();
 			let query_slice = LeftNibbleSlice::new(&query.key);
 			if query_slice.starts_with(&bound) {
@@ -847,7 +1127,7 @@ pub fn record_query_plan<
 			}
 			stateless = false;
 			if !query.as_prefix {
-				stack.seek = None;
+				from.stack.seek = None;
 			}
 		}
 		let common_nibbles = if let Some(slice_at) = statefull.take() {
@@ -863,15 +1143,14 @@ pub fn record_query_plan<
 				}
 			}
 			loop {
-				match stack.prefix.len().cmp(&common_nibbles) {
+				match from.stack.prefix.len().cmp(&common_nibbles) {
 					Ordering::Equal | Ordering::Less => break,
 					Ordering::Greater => {
 						if query_plan.kind.record_inline() {
-							try_stack_inline_child(from, NIBBLE_LENGTH as u8)?;
-							stack = &mut from.stack;
+							from.try_stack_content_child(NIBBLE_LENGTH as u8)?;
 						}
-						if !stack.pop() {
-							stack.finalize();
+						if !from.pop() {
+							from.finalize();
 							return Ok(())
 						}
 					},
@@ -879,13 +1158,11 @@ pub fn record_query_plan<
 			}
 			common_nibbles
 		};
-		if let Some((_, hash_only)) = stack.iter_prefix.clone() {
+		if let Some((_, hash_only)) = from.stack.iter_prefix.clone() {
 			// statefull halted during iteration.
-			let halt = iter_prefix::<L, O>(from, Some(&query), Some(db), hash_only, false, false)?;
+			let halt = from.iter_prefix(Some(&query), Some(db), hash_only, false, false)?;
 			if halt {
 				return Ok(())
-			} else {
-				stack = &mut from.stack;
 			}
 			from_query_ref = None;
 			prev_query = Some(query);
@@ -894,43 +1171,34 @@ pub fn record_query_plan<
 		// descend
 		let mut slice_query = NibbleSlice::new_offset(&query.key, common_nibbles);
 		let touched = loop {
-			if !stack.items.is_empty() {
+			if !from.stack.items.is_empty() {
 				if slice_query.is_empty() {
 					if query.as_prefix {
-						let halt = iter_prefix::<L, O>(
-							from,
-							Some(&query),
-							Some(db),
-							query.hash_only,
-							true,
-							false,
-						)?;
+						let halt =
+							from.iter_prefix(Some(&query), Some(db), query.hash_only, true, false)?;
 						if halt {
 							return Ok(())
-						} else {
-							stack = &mut from.stack;
 						}
 						break false
 					} else {
 						break true
 					}
 				} else {
-					if stack.recorder.record_skip_value(&mut stack.items) {
-						stack.halt = true;
+					if from.stack.recorder.record_skip_value(&mut from.stack.items) {
+						from.stack.halt = true;
 					}
 				}
 			}
 
-			let child_index = if stack.items.is_empty() { 0 } else { slice_query.at(0) };
+			let child_index = if from.stack.items.is_empty() { 0 } else { slice_query.at(0) };
 			if query_plan.kind.record_inline() {
-				try_stack_inline_child(from, child_index)?;
-				stack = &mut from.stack;
+				from.try_stack_content_child(child_index)?;
 			}
-			stack.items.last_mut().map(|i| {
+			from.stack.items.last_mut().map(|i| {
 				// TODO only needed for content but could be better to be always aligned
 				i.next_descended_child = child_index + 1;
 			});
-			match stack.try_stack_child(
+			match from.stack.try_stack_child(
 				child_index,
 				Some(db),
 				dummy_parent_hash,
@@ -942,32 +1210,24 @@ pub fn record_query_plan<
 					break false,
 				TryStackChildResult::StackedDescendIncomplete => {
 					if query.as_prefix {
-						let halt = iter_prefix::<L, O>(
-							from,
-							Some(&query),
-							Some(db),
-							query.hash_only,
-							true,
-							false,
-						)?;
+						let halt =
+							from.iter_prefix(Some(&query), Some(db), query.hash_only, true, false)?;
 						if halt {
 							return Ok(())
-						} else {
-							stack = &mut from.stack;
 						}
 					}
 					break false
 				},
 				TryStackChildResult::Halted => {
-					stack.halt = false;
-					stack.prefix.push(child_index);
+					from.stack.halt = false;
+					from.stack.prefix.push(child_index);
 					from.from = Some((
-						stack.prefix.inner().to_vec(),
-						(stack.prefix.len() % nibble_ops::NIBBLE_PER_BYTE) != 0,
+						from.stack.prefix.inner().to_vec(),
+						(from.stack.prefix.len() % nibble_ops::NIBBLE_PER_BYTE) != 0,
 					));
-					stack.prefix.pop();
+					from.stack.prefix.pop();
 					from.currently_query_item = Some(query.to_owned());
-					stack.finalize();
+					from.finalize();
 					return Ok(())
 				},
 			}
@@ -975,125 +1235,23 @@ pub fn record_query_plan<
 
 		if touched {
 			// try access value
-			stack.access_value(Some(db), query.hash_only)?;
+			from.stack.access_value(Some(db), query.hash_only)?;
 		}
 		from_query_ref = None;
 		prev_query = Some(query);
 	}
+	// TODO loop redundant with finalize??
 	loop {
 		if query_plan.kind.record_inline() {
-			try_stack_inline_child(from, NIBBLE_LENGTH as u8)?;
-			stack = &mut from.stack;
+			from.try_stack_content_child(NIBBLE_LENGTH as u8)?;
 		}
 
-		if !stack.pop() {
+		if !from.pop() {
 			break
 		}
 	}
-	stack.finalize();
+	from.finalize();
 	Ok(())
-}
-
-fn try_stack_inline_child<'a, L: TrieLayout, O: RecorderOutput>(
-	from: &mut HaltedStateRecord<O, L>,
-	upper: u8,
-) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
-	let dummy_parent_hash = TrieHash::<L>::default();
-	let mut stack = &mut from.stack;
-	if let Some(item) = stack.items.last() {
-		let pre = item.next_descended_child; // TODO put next_descended child to 16 for leaf (skip some noop iter)
-		for i in pre..upper as u8 {
-			match stack.try_stack_child(i, None, dummy_parent_hash, None, true)? {
-				// only expect a stacked prefix here
-				TryStackChildResult::Stacked => {
-					let halt = iter_prefix::<L, O>(from, None, None, false, true, true)?;
-					if halt {
-						// no halt on inline.
-						unreachable!()
-					} else {
-						stack = &mut from.stack;
-						stack.pop();
-					}
-				},
-				TryStackChildResult::NotStackedBranch => (),
-				_ => break,
-			}
-		}
-	}
-	stack.items.last_mut().map(|i| i.next_descended_child = upper);
-	Ok(())
-}
-
-fn iter_prefix<L: TrieLayout, O: RecorderOutput>(
-	from: &mut HaltedStateRecord<O, L>,
-	prev_query: Option<&QueryPlanItem>,
-	db: Option<&TrieDB<L>>,
-	hash_only: bool,
-	first_iter: bool,
-	inline_iter: bool,
-) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
-	let stack = &mut from.stack;
-	let dummy_parent_hash = TrieHash::<L>::default();
-	if first_iter {
-		stack.enter_prefix_iter(hash_only);
-	}
-
-	// run prefix iteration
-	let mut stacked = first_iter;
-	loop {
-		// descend
-		loop {
-			if stacked {
-				// try access value in next node
-				stack.access_value(db, hash_only)?;
-				stacked = false;
-			}
-
-			let child_index = if let Some(mut item) = stack.items.last_mut() {
-				if item.next_descended_child as usize >= NIBBLE_LENGTH {
-					break
-				}
-				item.next_descended_child += 1;
-				item.next_descended_child - 1
-			} else {
-				break
-			};
-
-			match stack.try_stack_child(child_index, db, dummy_parent_hash, None, inline_iter)? {
-				TryStackChildResult::Stacked => {
-					stacked = true;
-				},
-				TryStackChildResult::NotStackedBranch => (),
-				TryStackChildResult::NotStacked => break,
-				TryStackChildResult::StackedDescendIncomplete => {
-					unreachable!("no slice query")
-				},
-				TryStackChildResult::Halted => {
-					if let Some(mut item) = stack.items.last_mut() {
-						item.next_descended_child -= 1;
-					}
-					stack.halt = false;
-					stack.prefix.push(child_index);
-					let dest_from = Some((
-						stack.prefix.inner().to_vec(),
-						(stack.prefix.len() % nibble_ops::NIBBLE_PER_BYTE) != 0,
-					));
-					stack.prefix.pop();
-					stack.finalize();
-					from.from = dest_from;
-					from.currently_query_item = prev_query.map(|q| q.to_owned());
-					return Ok(true)
-				},
-			}
-		}
-
-		// pop
-		if !stack.pop() {
-			break
-		}
-	}
-	stack.exit_prefix_iter();
-	Ok(false)
 }
 
 enum TryStackChildResult {
@@ -1115,11 +1273,10 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 	) -> Result<TryStackChildResult, VerifyError<TrieHash<L>, CError<L>>> {
 		let mut is_inline = false;
 		let prefix = &mut self.prefix;
-		let stack = &mut self.items;
 		let mut descend_incomplete = false;
 		let mut stack_extension = false;
 		let mut from_branch = None;
-		let child_handle = if let Some(item) = stack.last_mut() {
+		let child_handle = if let Some(item) = self.items.last_mut() {
 			let node_data = item.node.data();
 
 			match item.node.node_plan() {
@@ -1146,17 +1303,23 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		} else {
 			NodeHandle::Hash(db.expect("non inline").root().as_ref())
 		};
-		if let &NodeHandle::Inline(_) = &child_handle {
-			// TODO consider not going into inline for all proof but content.
-			// Returning NotStacked here sounds safe, then the is_inline field is not needed.
-			is_inline = true;
-		} else {
-			if inline_only {
-				return Ok(TryStackChildResult::NotStackedBranch)
-			}
-			if self.halt && from_branch.is_some() {
-				return Ok(TryStackChildResult::Halted)
-			}
+		match &child_handle {
+			NodeHandle::Inline(_) => {
+				// TODO consider not going into inline for all proof but content.
+				// Returning NotStacked here sounds safe, then the is_inline field is not needed.
+				is_inline = true;
+			},
+			NodeHandle::Hash(hash) => {
+				if inline_only {
+					if self.recorder.touched_child_hash(hash, child_index) {
+						self.halt = true;
+					}
+					return Ok(TryStackChildResult::NotStackedBranch)
+				}
+				if self.halt && from_branch.is_some() {
+					return Ok(TryStackChildResult::Halted)
+				}
+			},
 		}
 		if let Some(accessed_children_node) = from_branch {
 			if !is_inline || self.recorder.mark_inline_access() {
@@ -1226,13 +1389,15 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 			next_descended_child,
 			is_inline,
 		};
-		if self
-			.recorder
-			.record_stacked_node(&infos, stack.is_empty(), child_index, &*stack)
-		{
+		if self.recorder.record_stacked_node(
+			&infos,
+			self.items.is_empty(),
+			child_index,
+			&self.items,
+		) {
 			self.halt = true;
 		}
-		stack.push(infos);
+		self.items.push(infos);
 		if stack_extension {
 			let sbranch = self.try_stack_child(0, db, parent_hash, slice_query, inline_only)?;
 			let TryStackChildResult::Stacked = sbranch else {
@@ -1295,175 +1460,12 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		Ok(true)
 	}
 
-	fn pop(&mut self) -> bool {
-		if self.iter_prefix.map(|(l, _)| l == self.items.len()).unwrap_or(false) {
-			return false
-		}
-		let at = self.items.len();
-		if at > 0 {
-			if self.record_popped_node(at - 1) {
-				self.halt = true;
-			}
-		}
-		if let Some(item) = self.items.pop() {
-			let depth = self.items.last().map(|i| i.depth).unwrap_or(0);
-			self.prefix.drop_lasts(self.prefix.len() - depth);
-			if depth == item.depth {
-				// Two consecutive identical depth is an extension
-				self.pop();
-			}
-			true
-		} else {
-			false
-		}
-	}
-
 	fn enter_prefix_iter(&mut self, hash_only: bool) {
 		self.iter_prefix = Some((self.items.len(), hash_only));
 	}
 
 	fn exit_prefix_iter(&mut self) {
 		self.iter_prefix = None
-	}
-
-	#[must_use]
-	fn record_popped_node(&mut self, at: usize) -> bool {
-		let item = self.items.get(at).expect("bounded iter");
-		let items = &self.items[..at];
-		let mut res = false;
-		if !self.recorder.check_start_at(item.depth) {
-			return res
-		}
-		if let RecorderStateInner::Content { .. } = &self.recorder.output {
-			// if no value accessed, then we can have push then stack pop.
-			if self.recorder.flush_compact_content_pushes(item.depth) {
-				res = true;
-			}
-		}
-
-		match &mut self.recorder.output {
-			RecorderStateInner::Stream(_) => (),
-			RecorderStateInner::Compact { proof, stacked_pos, .. } =>
-				if !item.is_inline {
-					if let Some(at) = stacked_pos.pop() {
-						proof[at] = crate::trie_codec::encode_node_internal::<L::Codec>(
-							&item.node,
-							item.accessed_value_node,
-							item.accessed_children_node,
-						)
-						.expect("TODO error handling, can it actually fail?");
-					} // else when restarting record, this is not to be recorded
-				},
-			RecorderStateInner::Content { output, stacked_pop, .. } => {
-				if stacked_pop.is_none() {
-					*stacked_pop = Some(item.depth);
-				}
-				// two case: children to register or all children accessed.
-				let mut has_hash_to_write = false;
-				let node_data = item.node.data();
-				if let Some(last_item) = items.last() {
-					match last_item.node.node_plan() {
-						NodePlan::Branch { children, .. } |
-						NodePlan::NibbledBranch { children, .. } =>
-							for i in 0..children.len() {
-								if children[i].is_some() && !last_item.accessed_children_node.at(i)
-								{
-									has_hash_to_write = true;
-									break
-								}
-							},
-						_ => (),
-					}
-				}
-
-				match item.node.node_plan() {
-					NodePlan::Branch { children, .. } |
-					NodePlan::NibbledBranch { children, .. } => {
-						for i in 0..children.len() {
-							if let Some(child) = &children[i] {
-								if !item.accessed_children_node.at(i) {
-									match child.build(node_data) {
-										NodeHandle::Hash(hash_slice) => {
-											let mut hash = TrieHash::<L>::default();
-											hash.as_mut().copy_from_slice(hash_slice);
-											let op = Op::<TrieHash<L>, Vec<u8>>::HashChild(
-												hash, i as u8,
-											);
-											let init_len = output.buf_len();
-											op.encode_into(output);
-											let written = output.buf_len() - init_len;
-											res = self.recorder.limits.add_node(written, 0, false)
-										},
-										NodeHandle::Inline(_) => {
-											// As been accessed if needed (inline are not mark).
-											// from is HaltedStateRecord
-											//											from = try_stack_inline_child(from, db, NIBBLE_LENGTH
-											// as u8)?;
-											println!("TODO need to process");
-										},
-									}
-								}
-							}
-						}
-					},
-					_ => (),
-				}
-				if has_hash_to_write {
-					if flush_compact_content_pop::<O, L>(
-						output,
-						stacked_pop,
-						items,
-						None,
-						&mut self.recorder.limits,
-					) {
-						res = true;
-					}
-				}
-			},
-		}
-		res
-	}
-
-	fn finalize(&mut self) {
-		let items = &self.items;
-		match &mut self.recorder.output {
-			RecorderStateInner::Compact { output, proof, stacked_pos } => {
-				let restarted_from = 0;
-				if stacked_pos.len() > restarted_from {
-					// halted: complete up to 0 and write all nodes keeping stack.
-					let mut items = items.iter().rev();
-					while let Some(pos) = stacked_pos.pop() {
-						loop {
-							let item = items.next().expect("pos stacked with an item");
-							if !item.is_inline {
-								proof[pos] = crate::trie_codec::encode_node_internal::<L::Codec>(
-									&item.node,
-									item.accessed_value_node,
-									item.accessed_children_node,
-								)
-								.expect("TODO error handling, can it actually fail?");
-								break
-							}
-						}
-					}
-				}
-				for entry in core::mem::take(proof) {
-					output.write_entry(entry.into());
-				}
-			},
-			RecorderStateInner::Stream(_output) => {
-				// all written
-			},
-			RecorderStateInner::Content { output: _, stacked_push, stacked_pop: _ } => {
-				// TODO protect existing stack as for compact
-				assert!(stacked_push.is_none());
-				// TODO could use function with &item and &[item] as param
-				// to skip this clone.
-				for i in (0..items.len()).rev() {
-					let _ = self.record_popped_node(i);
-				}
-			},
-		}
 	}
 }
 
@@ -1476,8 +1478,8 @@ fn flush_compact_content_pop<O: RecorderOutput, L: TrieLayout>(
 	limits: &mut Limits,
 ) -> bool {
 	let Some(from) = stacked_from.take() else {
-			return false
-		};
+		return false
+	};
 	let pop_to = add_depth.unwrap_or_else(|| items.last().map(|i| i.depth).unwrap_or(0));
 	debug_assert!(from > pop_to);
 
@@ -2941,12 +2943,13 @@ where
 				}
 				from_iter = false;
 
-				// netx
+				// next
 				let item = if match &op {
 					Op::Value(..) | Op::HashValue(..) => true,
 					_ => false,
 				} {
 					let Some(current) = self.current.as_ref() else {
+						// can be inline content at end of a proof: TODO continue reading
 						let r = self.stack.stack_pop(None, &self.expected_root);
 						self.state = ReadProofState::Finished;
 						if let Err(e) = r {
