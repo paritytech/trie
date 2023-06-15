@@ -1314,6 +1314,11 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 					if self.recorder.touched_child_hash(hash, child_index) {
 						self.halt = true;
 					}
+					if self.recorder.mark_inline_access() {
+						if let Some(accessed_children_node) = from_branch {
+							accessed_children_node.set(child_index as usize, true);
+						}
+					}
 					return Ok(TryStackChildResult::NotStackedBranch)
 				}
 				if self.halt && from_branch.is_some() {
@@ -2948,47 +2953,43 @@ where
 					Op::Value(..) | Op::HashValue(..) => true,
 					_ => false,
 				} {
-					let Some(current) = self.current.as_ref() else {
-						// can be inline content at end of a proof: TODO continue reading
-						let r = self.stack.stack_pop(None, &self.expected_root);
-						self.state = ReadProofState::Finished;
-						if let Err(e) = r {
-							self.state = ReadProofState::Finished;
-							return Some(Err(e))
-						}
-						return None; // finished
-					};
 					let mut to_check_slice = to_check_slice.as_mut().expect("Init above");
 
 					let mut at_value = false;
 					let mut next_query = false;
-					let query_slice = LeftNibbleSlice::new(&current.key);
-					match self.stack.prefix.as_leftnibbleslice().cmp(&query_slice) {
-						Ordering::Equal =>
-							if !self.stack.items.is_empty() {
-								at_value = true;
-							},
-						Ordering::Less => (),
-						Ordering::Greater =>
-							if current.as_prefix {
-								let query_slice = LeftNibbleSlice::new(&current.key);
-								if self.stack.prefix.as_leftnibbleslice().starts_with(&query_slice)
-								{
+					if let Some(current) = self.current.as_ref() {
+						let query_slice = LeftNibbleSlice::new(&current.key);
+						match self.stack.prefix.as_leftnibbleslice().cmp(&query_slice) {
+							Ordering::Equal =>
+								if !self.stack.items.is_empty() {
 									at_value = true;
+								},
+							Ordering::Less => (),
+							Ordering::Greater =>
+								if current.as_prefix {
+									let query_slice = LeftNibbleSlice::new(&current.key);
+									if self
+										.stack
+										.prefix
+										.as_leftnibbleslice()
+										.starts_with(&query_slice)
+									{
+										at_value = true;
+									} else {
+										next_query = true;
+									}
 								} else {
 									next_query = true;
-								}
+								},
+						}
+						if next_query {
+							self.buf_op = Some(op);
+							self.state = ReadProofState::SwitchQueryPlan;
+							if current.as_prefix {
+								break
 							} else {
-								next_query = true;
-							},
-					}
-					if next_query {
-						self.buf_op = Some(op);
-						self.state = ReadProofState::SwitchQueryPlan;
-						if current.as_prefix {
-							break
-						} else {
-							return Some(Ok(ReadProofItem::NoValue(&current.key)))
+								return Some(Ok(ReadProofItem::NoValue(&current.key)))
+							}
 						}
 					}
 
