@@ -18,8 +18,8 @@ use reference_trie::{test_layouts, NoExtensionLayout, TestTrieCache};
 use std::collections::BTreeMap;
 use trie_db::{
 	proof::{generate_proof, verify_proof, VerifyError},
-	DBValue, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieLayout, TrieMut,
 	query_plan::ProofKind,
+	DBValue, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieLayout, TrieMut,
 };
 
 type MemoryDB<T> = memory_db::MemoryDB<
@@ -262,8 +262,9 @@ fn test_query_plan_content_internal<L: TrieLayout>() {
 }
 
 fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
+	use trie_db::content_proof::IterOpProof;
 	use trie_db::query_plan::{
-		compact_content_proof::IterOpProof, record_query_plan, verify_query_plan_iter,
+		record_query_plan, verify_query_plan_iter,
 		verify_query_plan_iter_content, HaltedStateCheck, HaltedStateCheckContent,
 		HaltedStateCheckNode, HaltedStateRecord, InMemQueryPlan, InMemQueryPlanItem,
 		InMemoryRecorder, QueryPlan, ReadProofItem, Recorder,
@@ -386,7 +387,7 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 				let mut nb = 0;
 				let mut proofs = proofs.clone();
 				while let Some(proof) = proofs.pop() {
-					use trie_db::query_plan::compact_content_proof::Op;
+					use trie_db::content_proof::Op;
 					// full on iter all
 					//						assert_eq!(proofs.len(), 1);
 					assert_eq!(proof.len(), 1);
@@ -680,12 +681,13 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 					std::mem::take(&mut full_proof)
 				};
 				let (mut verify_iter, mut verify_iter_content) = if is_content_proof {
+					let proof_iter: IterOpProof<_, _> = (&proof[0]).into();
 					(
 						None,
 						Some(
 							verify_query_plan_iter_content::<L, _, IterOpProof<_, _>>(
 								state,
-								(&proof[0]).into(),
+								proof_iter,
 								Some(root.clone()),
 							)
 							.unwrap(),
