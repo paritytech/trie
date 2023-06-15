@@ -429,7 +429,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 			}
 		}
 
-		let mut process_children = None;
+		let mut process_children = false;
 		let mut has_hash_to_write = false;
 		match &mut self.stack.recorder.output {
 			RecorderStateInner::Stream(_) => (),
@@ -444,34 +444,28 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 						.expect("TODO error handling, can it actually fail?");
 					} // else when restarting record, this is not to be recorded
 				},
-			RecorderStateInner::Content { output, stacked_pop, .. } => {
+			RecorderStateInner::Content { .. } => {
 				// two case: children to register or all children accessed.
 				if let Some(last_item) = items.last() {
 					match last_item.node.node_plan() {
 						NodePlan::Branch { children, .. } |
-						NodePlan::NibbledBranch { children, .. } =>
+						NodePlan::NibbledBranch { children, .. } => {
+							process_children = true;
 							for i in 0..children.len() {
 								if children[i].is_some() && !last_item.accessed_children_node.at(i)
 								{
 									has_hash_to_write = true;
 									break
 								}
-							},
+							}
+						},
 						_ => (),
 					}
-				}
-
-				match item.node.node_plan() {
-					NodePlan::Branch { children, .. } |
-					NodePlan::NibbledBranch { children, .. } => {
-						process_children = Some(children.len());
-					},
-					_ => (),
 				}
 			},
 		}
 
-		if let Some(nb_children) = process_children {
+		if process_children {
 			self.try_stack_content_child().expect("stack inline do not fetch");
 		}
 		let items = &self.stack.items[..at];
@@ -506,8 +500,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 		//upper: u8,
 	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
 		let dummy_parent_hash = TrieHash::<L>::default();
-		if let Some(item) = self.stack.items.last() {
-			let pre = item.next_descended_child; // TODO put next_descended child to 16 for leaf (skip some noop iter)
+		if !self.stack.items.is_empty() {
 			for i in 0..NIBBLE_LENGTH as u8 {
 				match self.stack.try_stack_child(i, None, dummy_parent_hash, None, true)? {
 					// only expect a stacked prefix here

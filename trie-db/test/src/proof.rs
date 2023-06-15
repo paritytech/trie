@@ -262,12 +262,13 @@ fn test_query_plan_content_internal<L: TrieLayout>() {
 }
 
 fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
-	use trie_db::content_proof::IterOpProof;
-	use trie_db::query_plan::{
-		record_query_plan, verify_query_plan_iter,
-		verify_query_plan_iter_content, HaltedStateCheck, HaltedStateCheckContent,
-		HaltedStateCheckNode, HaltedStateRecord, InMemQueryPlan, InMemQueryPlanItem,
-		InMemoryRecorder, QueryPlan, ReadProofItem, Recorder,
+	use trie_db::{
+		content_proof::IterOpProof,
+		query_plan::{
+			record_query_plan, verify_query_plan_iter, verify_query_plan_iter_content,
+			HaltedStateCheck, HaltedStateRecord, InMemQueryPlan, InMemQueryPlanItem,
+			InMemoryRecorder, QueryPlan, ReadProofItem, Recorder,
+		},
 	};
 	let set = test_entries();
 

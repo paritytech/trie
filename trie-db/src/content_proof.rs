@@ -12,19 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 //! Compact content proof, a sequence of content as met in the trie.
-//! Exception for hashes that are only encoded when node is popped, allowing to merge a few more key manipulation op.
-//! Values are return as seen to avoid the need to keep them all (warning a return value may be from an invalid proof
-//! and action on those value usually need to be revertible).
+//! Exception for hashes that are only encoded when node is popped, allowing to merge a few more key
+//! manipulation op. Values are return as seen to avoid the need to keep them all (warning a return
+//! value may be from an invalid proof and action on those value usually need to be revertible).
 //! Proof validity as for compact proof is only possible to check at the end of the proof reading.
 
+use crate::query_plan::RecorderOutput;
 /// Representation of each encoded action
 /// for building the proof.
 /// TODO ref variant for encoding ?? or key using V and use Op<&H, &[u8]>.
-
 use core::marker::PhantomData;
-use crate::query_plan::RecorderOutput;
 
 #[derive(Debug)]
 pub enum Op<H, V> {
