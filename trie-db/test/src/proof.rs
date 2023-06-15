@@ -323,7 +323,7 @@ fn test_query_plan_internal<L: TrieLayout>() {
 				let mut proofs: Vec<Vec<Vec<u8>>> = Default::default();
 				let mut query_plan_iter = query_plan.as_ref();
 				loop {
-					from = record_query_plan::<L, _, _>(&db, &mut query_plan_iter, from).unwrap();
+					record_query_plan::<L, _, _>(&db, &mut query_plan_iter, &mut from).unwrap();
 
 					if limit.is_none() {
 						assert!(from.is_finished());
