@@ -616,18 +616,18 @@ pub mod query_plan {
 		FuzzContext { reference, db, root, conf, small_values, big_values, values }
 	}
 
-	#[derive(Arbitrary)]
+	#[derive(Arbitrary, Clone, Debug)]
 	enum ArbitraryKey {
 		Indexed(usize),
 		Random(Vec<u8>),
 	}
 
 	/// Base arbitrary for fuzzing.
-	#[derive(Arbitrary)]
+	#[derive(Arbitrary, Clone, Debug)]
 	pub struct ArbitraryQueryPlan(Vec<(bool, ArbitraryKey)>);
 
 	fn arbitrary_query_plan<L: TrieLayout>(
-		context: &mut FuzzContext<L>,
+		context: &FuzzContext<L>,
 		plan: ArbitraryQueryPlan,
 	) -> InMemQueryPlan {
 		let conf = &context.conf;
@@ -667,8 +667,8 @@ pub mod query_plan {
 	}
 
 	/// Main entry point for query plan fuzzing.
-	pub fn fuzz_query_plan<L: TrieLayout>(mut context: FuzzContext<L>, plan: ArbitraryQueryPlan) {
-		let query_plan = arbitrary_query_plan(&mut context, plan);
+	pub fn fuzz_query_plan<L: TrieLayout>(context: &FuzzContext<L>, plan: ArbitraryQueryPlan) {
+		let query_plan = arbitrary_query_plan(context, plan);
 
 		let kind = context.conf.kind;
 		let limit = context.conf.limit;
@@ -716,5 +716,27 @@ pub mod query_plan {
 			&context.reference,
 			context.conf.hash_only,
 		);
+	}
+
+	/// Fuzzing conf 1.
+	pub const CONF1: Conf = Conf {
+		seed: 0u64,
+		kind: ProofKind::FullNodes,
+		nb_key_value: 300,
+		nb_small_value_set: 5,
+		nb_big_value_set: 5,
+		hash_only: false,
+		limit: 0, // no limit
+		proof_spawn_with_persistence: false,
+	};
+
+	#[test]
+	fn fuzz_query_plan_1() {
+		use reference_trie::{RefHasher, SubstrateV1};
+		let plans = [ArbitraryQueryPlan(vec![])];
+		let context: FuzzContext<SubstrateV1<RefHasher>> = build_state(CONF1);
+		for plan in plans {
+			fuzz_query_plan::<SubstrateV1<RefHasher>>(&context, plan.clone());
+		}
 	}
 }
