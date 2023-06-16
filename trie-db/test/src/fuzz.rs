@@ -599,7 +599,7 @@ pub mod query_plan {
 
 		// add the test entries
 		for (key, value) in test_entries() {
-			reference.insert(key.to_vec(), value.to_vec()).unwrap();
+			reference.insert(key.to_vec(), value.to_vec());
 		}
 
 		let (db, root) = {
