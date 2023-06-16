@@ -15,13 +15,15 @@ harness = false
 trie-db = { path = "..", version = "0.27.0"}
 hash-db = { path = "../../hash-db", version = "0.16.0"}
 memory-db = { path = "../../memory-db", version = "0.32.0" }
-rand = { version = "0.8", default-features = false, features = ["small_rng"] }
 trie-standardmap = { path = "../../test-support/trie-standardmap", version = "0.16.0" }
 reference-trie = { path = "../../test-support/reference-trie", version = "0.29.0" }
-hex-literal = "0.3"
+arbitrary = { version = "1.3.0", features = ["derive"] }
+array-bytes = "6.0.0"
 criterion = "0.4.0"
 env_logger = { version = "0.10", default-features = false }
+hex-literal = "0.3"
 log = "0.4"
+rand = { version = "0.8", default-features = false, features = ["small_rng"] }
 
 [dev-dependencies]
 array-bytes = "6.0.0"

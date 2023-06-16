@@ -14,25 +14,16 @@
 
 //! Tests for trie-db crate.
 
-#[cfg(test)]
 mod fatdb;
-#[cfg(test)]
 mod fatdbmut;
-#[cfg(test)]
+pub mod fuzz;
 mod iter_build;
-#[cfg(test)]
 mod iterator;
-#[cfg(test)]
 mod proof;
-#[cfg(test)]
+mod query_plan;
 mod recorder;
-#[cfg(test)]
 mod sectriedb;
-#[cfg(test)]
 mod sectriedbmut;
-#[cfg(test)]
 mod trie_codec;
-#[cfg(test)]
 mod triedb;
-#[cfg(test)]
 mod triedbmut;

@@ -17,6 +17,8 @@ array-bytes = "6.0.0"
 
 [dependencies.trie-db]
 path = ".."
+[dependencies.trie-db-test]
+path = "../test"
 
 [dependencies.libfuzzer-sys]
 version = "0.4.6"
