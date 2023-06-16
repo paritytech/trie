@@ -49,7 +49,7 @@ mod verify;
 mod verify_content;
 
 /// Item to query, in memory.
-#[derive(Default)]
+#[derive(Default, Clone, Debug)]
 pub struct InMemQueryPlanItem {
 	key: Vec<u8>,
 	hash_only: bool,
@@ -106,6 +106,7 @@ impl<'a> QueryPlanItem<'a> {
 }
 
 /// Query plan in memory.
+#[derive(Clone, Debug)]
 pub struct InMemQueryPlan {
 	pub items: Vec<InMemQueryPlanItem>,
 	pub kind: ProofKind,
@@ -149,7 +150,7 @@ pub struct QueryPlan<'a, I> {
 }
 
 /// Different proof support.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ProofKind {
 	/// Proof is a sequence of fully encoded node, this is not
 	/// size efficient but allows streaming a proof better, since

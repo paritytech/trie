@@ -471,3 +471,369 @@ fn test_trie_codec_proof<L: TrieLayout>(entries: Vec<(Vec<u8>, Vec<u8>)>, keys: 
 		assert_eq!(trie.get(key.as_slice()).unwrap(), expected_value);
 	}
 }
+
+/// Query plan proof fuzzing.
+pub mod query_plan {
+	use super::*;
+	use crate::proof::{test_entries, MemoryDB};
+	use arbitrary::Arbitrary;
+	use rand::{rngs::SmallRng, RngCore, SeedableRng};
+	use reference_trie::TestTrieCache;
+	use std::collections::{BTreeMap, BTreeSet};
+	use trie_db::{
+		content_proof::IterOpProof,
+		query_plan::{
+			record_query_plan, verify_query_plan_iter, verify_query_plan_iter_content,
+			HaltedStateCheck, HaltedStateRecord, InMemQueryPlan, InMemQueryPlanItem,
+			InMemoryRecorder, ProofKind, QueryPlan, ReadProofItem, Recorder,
+		},
+		TrieHash, TrieLayout,
+	};
+
+	const KEY_SIZES: [usize; 7] = [1, 2, 3, 4, 5, 29, 300];
+
+	// deterministic generator.
+	type Rng = SmallRng;
+
+	/// Config for fuzzing.
+	#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+	pub struct Conf {
+		/// Seed.
+		pub seed: u64,
+		/// proof kind.
+		pub kind: ProofKind,
+		/// number of items in state.
+		pub nb_key_value: usize,
+		/// number of different small value.
+		pub nb_small_value_set: usize,
+		/// number of different small value.
+		pub nb_big_value_set: usize,
+		/// Test querying hash only
+		pub hash_only: bool,
+		/// Limit the number of non inline value per proof
+		/// TODO could be arbitrary.
+		pub limit: usize,
+		/// Do we create proof on same memory.
+		pub proof_spawn_with_persistence: bool,
+		/*
+		/// number of query existing.
+		pub nb_existing_value_query: usize,
+		/// number of query existing.
+		pub nb_missing_value_query: usize,
+		/// prefix query (can reduce `nb_existing_value_query`).
+		pub nb_prefix_query: usize,
+		*/
+	}
+
+	#[derive(Clone)]
+	pub struct FuzzContext<L: TrieLayout> {
+		pub reference: BTreeMap<Vec<u8>, Vec<u8>>,
+		pub db: MemoryDB<L>,
+		pub root: TrieHash<L>,
+		pub conf: Conf,
+		pub small_values: BTreeSet<Vec<u8>>,
+		pub big_values: BTreeSet<Vec<u8>>,
+		pub values: Vec<Vec<u8>>,
+	}
+
+	fn bytes_set(
+		rng: &mut Rng,
+		nb: usize,
+		sizes: &[usize],
+		max_byte_value: Option<usize>,
+	) -> BTreeSet<Vec<u8>> {
+		if let Some(max_byte_value) = max_byte_value {
+			let max_nb_value = sizes.len() * max_byte_value;
+			if nb > (max_nb_value / 2) {
+				panic!("too many value {}, max is {}", nb, max_nb_value / 2);
+			}
+		}
+		let mut set = BTreeSet::new();
+		let mut buff = vec![0u8; nb * 2];
+		while set.len() < nb {
+			rng.fill_bytes(&mut buff);
+			for i in 0..buff.len() / 2 {
+				let size = buff[i * 2] as usize % sizes.len();
+				let value = if let Some(max_byte_value) = max_byte_value {
+					let byte = buff[(i * 2) + 1] % max_byte_value as u8;
+					vec![byte; sizes[size]]
+				} else {
+					let mut value = vec![0u8; sizes[size]];
+					rng.fill_bytes(&mut value);
+					value
+				};
+				set.insert(value);
+			}
+		}
+		set
+	}
+
+	fn small_value_set(rng: &mut Rng, nb: usize) -> BTreeSet<Vec<u8>> {
+		let sizes = [1, 2, 30, 31, 32];
+		let max_byte_value = 4; // avoid to many different values.
+		bytes_set(rng, nb, &sizes, Some(max_byte_value))
+	}
+
+	fn big_value_set(rng: &mut Rng, nb: usize) -> BTreeSet<Vec<u8>> {
+		let sizes = [33, 34, 301, 302];
+		let max_byte_value = 4; // avoid to many different values.
+		bytes_set(rng, nb, &sizes, Some(max_byte_value))
+	}
+
+	fn key_set(rng: &mut Rng, nb: usize) -> BTreeSet<Vec<u8>> {
+		bytes_set(rng, nb, &KEY_SIZES[..], None)
+	}
+
+	fn build_state<L: TrieLayout>(conf: Conf) -> FuzzContext<L> {
+		let mut rng = Rng::seed_from_u64(conf.seed);
+		let mut reference = BTreeMap::<Vec<u8>, Vec<u8>>::new();
+		let small_values = small_value_set(&mut rng, conf.nb_small_value_set);
+		let big_values = big_value_set(&mut rng, conf.nb_big_value_set);
+		let mut values: Vec<Vec<u8>> = small_values.iter().cloned().collect();
+		values.extend(big_values.iter().cloned());
+		let values = values;
+		let keys = key_set(&mut rng, conf.nb_key_value);
+		for k in keys.into_iter() {
+			let value_index = rng.next_u32() as usize % values.len();
+			reference.insert(k, values[value_index].clone());
+		}
+
+		// add the test entries
+		for (key, value) in test_entries() {
+			reference.insert(key.to_vec(), value.to_vec()).unwrap();
+		}
+
+		let mut cache = TestTrieCache::<L>::default();
+
+		let (db, root) = {
+			let mut db = <MemoryDB<L>>::default();
+			let mut root = Default::default();
+			{
+				let mut trie = <TrieDBMutBuilder<L>>::new(&mut db, &mut root).build();
+				for (key, value) in reference.iter() {
+					trie.insert(key, value).unwrap();
+				}
+			}
+			(db, root)
+		};
+		FuzzContext { reference, db, root, conf, small_values, big_values, values }
+	}
+
+	#[derive(Arbitrary)]
+	enum ArbitraryKey {
+		Indexed(usize),
+		Random(Vec<u8>),
+	}
+
+	/// Base arbitrary for fuzzing.
+	#[derive(Arbitrary)]
+	pub struct ArbitraryQueryPlan(Vec<(bool, ArbitraryKey)>);
+
+	fn arbitrary_query_plan<L: TrieLayout>(
+		context: &mut FuzzContext<L>,
+		plan: ArbitraryQueryPlan,
+	) -> InMemQueryPlan {
+		let conf = &context.conf;
+		let mut set = BTreeSet::new();
+		for (prefix, k) in plan.0.iter() {
+			// TODO Rc to avoid clone
+			match k {
+				ArbitraryKey::Indexed(at) => {
+					set.insert((context.values[at % context.values.len()].clone(), !prefix));
+				},
+				ArbitraryKey::Random(k) => {
+					set.insert((k.clone(), !prefix));
+				},
+			}
+		}
+		let mut prev_pref: Option<Vec<u8>> = None;
+		let mut query_plan = InMemQueryPlan {
+			items: Vec::with_capacity(set.len()),
+			kind: conf.kind,
+			ignore_unordered: false,
+		};
+		for (key, not_prefix) in set.into_iter() {
+			if let Some(pref) = prev_pref.as_ref() {
+				if key.starts_with(pref) {
+					continue
+				}
+				prev_pref = None;
+			}
+
+			if !not_prefix {
+				prev_pref = Some(key.clone());
+			}
+
+			query_plan.items.push(InMemQueryPlanItem::new(key, conf.hash_only, !not_prefix));
+		}
+		query_plan
+	}
+
+	/// Main entry point for query plan fuzzing.
+	pub fn fuzz_query_plan<L: TrieLayout>(mut context: FuzzContext<L>, plan: ArbitraryQueryPlan) {
+		let query_plan = arbitrary_query_plan(&mut context, plan);
+
+		let kind = context.conf.kind;
+		let limit = context.conf.limit;
+		let limit = (limit != 0).then(|| limit);
+		let recorder = Recorder::new(context.conf.kind, InMemoryRecorder::default(), limit, None);
+		let mut from = HaltedStateRecord::from_start(recorder);
+		let mut proofs: Vec<Vec<Vec<u8>>> = Default::default();
+		let mut query_plan_iter = query_plan.as_ref();
+		let mut cache = TestTrieCache::<L>::default();
+		let db = <TrieDBBuilder<L>>::new(&context.db, &context.root)
+			.with_cache(&mut cache)
+			.build();
+		loop {
+			record_query_plan::<L, _, _>(&db, &mut query_plan_iter, &mut from).unwrap();
+
+			if limit.is_none() {
+				assert!(from.is_finished());
+			}
+			if from.is_finished() {
+				if kind == ProofKind::CompactContent {
+					proofs.push(vec![from.finish().output().buffer]);
+				} else {
+					proofs.push(from.finish().output().nodes);
+				}
+				break
+			}
+			let rec = if context.conf.proof_spawn_with_persistence {
+				from.statefull(Recorder::new(kind, InMemoryRecorder::default(), limit, None))
+			} else {
+				query_plan_iter = query_plan.as_ref();
+				from.stateless(Recorder::new(kind, InMemoryRecorder::default(), limit, None))
+			};
+			if kind == ProofKind::CompactContent {
+				proofs.push(vec![rec.output().buffer]);
+			} else {
+				proofs.push(rec.output().nodes);
+			}
+		}
+
+		check_proofs::<L>(
+			proofs,
+			query_plan,
+			context.conf.kind,
+			context.root,
+			&context.reference,
+			context.conf.hash_only,
+		);
+	}
+
+	pub fn check_proofs<L: TrieLayout>(
+		mut proofs: Vec<Vec<Vec<u8>>>,
+		query_plan_in_mem: InMemQueryPlan,
+		kind: ProofKind,
+		root: TrieHash<L>,
+		content: &BTreeMap<Vec<u8>, Vec<u8>>,
+		hash_only: bool,
+	) {
+		let mut full_proof: Vec<Vec<u8>> = Default::default();
+		proofs.reverse();
+
+		let is_content_proof = kind == ProofKind::CompactContent;
+		let query_plan: QueryPlan<_> = query_plan_in_mem.as_ref();
+		let mut run_state: Option<HaltedStateCheck<_, _, _>> = Some(if is_content_proof {
+			HaltedStateCheck::Content(query_plan.into())
+		} else {
+			HaltedStateCheck::Node(query_plan.into())
+		});
+		let mut has_run_full = false;
+		while let Some(state) = run_state.take() {
+			let proof = if let Some(proof) = proofs.pop() {
+				full_proof.extend_from_slice(&proof);
+				proof
+			} else {
+				if full_proof.is_empty() {
+					break
+				}
+				proofs.clear();
+				std::mem::take(&mut full_proof)
+			};
+			let (mut verify_iter, mut verify_iter_content) = if is_content_proof {
+				let proof_iter: IterOpProof<_, _> = (&proof[0]).into();
+				(
+					None,
+					Some(
+						verify_query_plan_iter_content::<L, _, IterOpProof<_, _>>(
+							state,
+							proof_iter,
+							Some(root.clone()),
+						)
+						.unwrap(),
+					),
+				)
+			} else {
+				(
+					Some(
+						verify_query_plan_iter::<L, _, _, _>(
+							state,
+							proof.into_iter(),
+							Some(root.clone()),
+						)
+						.unwrap(),
+					),
+					None,
+				)
+			};
+			let mut next_item = || {
+				if let Some(verify_iter) = verify_iter.as_mut() {
+					verify_iter.next()
+				} else if let Some(verify_iter_content) = verify_iter_content.as_mut() {
+					verify_iter_content.next()
+				} else {
+					None
+				}
+			};
+
+			let mut in_prefix = false;
+			// TODO need stricter check of query plan (advance query plan iter and expect all items
+			// touched!!!
+			while let Some(item) = next_item() {
+				match item.unwrap() {
+					ReadProofItem::Hash(key, hash) => {
+						assert!(hash_only);
+						assert_eq!(
+							content.get(&*key).map(|v| L::Hash::hash(&v.as_ref())),
+							Some(hash)
+						);
+					},
+					ReadProofItem::Value(key, value) => {
+						assert_eq!(content.get(&*key), Some(value.as_ref()));
+					},
+					ReadProofItem::NoValue(key) => {
+						assert_eq!(content.get(key), None);
+					},
+					ReadProofItem::StartPrefix(_prefix) => {
+						in_prefix = true;
+					},
+					ReadProofItem::EndPrefix => {
+						assert!(in_prefix);
+						in_prefix = false;
+					},
+					ReadProofItem::Halted(resume) => {
+						run_state = Some(*resume);
+						break
+					},
+				}
+			}
+			if kind == ProofKind::FullNodes {
+				if run_state.is_none() && !has_run_full {
+					has_run_full = true;
+					let query_plan_iter = query_plan_in_mem.as_ref();
+					run_state = Some(if is_content_proof {
+						HaltedStateCheck::Content(query_plan_iter.into())
+					} else {
+						HaltedStateCheck::Node(query_plan_iter.into())
+					});
+				}
+			} else {
+				has_run_full = true;
+			}
+		}
+		if !has_run_full {
+			panic!("did not run full proof")
+		}
+	}
+}
