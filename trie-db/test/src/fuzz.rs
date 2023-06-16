@@ -481,11 +481,9 @@ pub mod query_plan {
 	use reference_trie::TestTrieCache;
 	use std::collections::{BTreeMap, BTreeSet};
 	use trie_db::{
-		content_proof::IterOpProof,
 		query_plan::{
-			record_query_plan, verify_query_plan_iter, verify_query_plan_iter_content,
-			HaltedStateCheck, HaltedStateRecord, InMemQueryPlan, InMemQueryPlanItem,
-			InMemoryRecorder, ProofKind, QueryPlan, ReadProofItem, Recorder,
+			record_query_plan, HaltedStateRecord, InMemQueryPlan, InMemQueryPlanItem,
+			InMemoryRecorder, ProofKind, Recorder,
 		},
 		TrieHash, TrieLayout,
 	};
@@ -584,7 +582,8 @@ pub mod query_plan {
 		bytes_set(rng, nb, &KEY_SIZES[..], None)
 	}
 
-	fn build_state<L: TrieLayout>(conf: Conf) -> FuzzContext<L> {
+	/// State building (out of fuzzing loop).
+	pub fn build_state<L: TrieLayout>(conf: Conf) -> FuzzContext<L> {
 		let mut rng = Rng::seed_from_u64(conf.seed);
 		let mut reference = BTreeMap::<Vec<u8>, Vec<u8>>::new();
 		let small_values = small_value_set(&mut rng, conf.nb_small_value_set);
@@ -602,8 +601,6 @@ pub mod query_plan {
 		for (key, value) in test_entries() {
 			reference.insert(key.to_vec(), value.to_vec()).unwrap();
 		}
-
-		let mut cache = TestTrieCache::<L>::default();
 
 		let (db, root) = {
 			let mut db = <MemoryDB<L>>::default();
@@ -711,129 +708,13 @@ pub mod query_plan {
 			}
 		}
 
-		check_proofs::<L>(
+		crate::query_plan::check_proofs::<L>(
 			proofs,
-			query_plan,
+			&query_plan,
 			context.conf.kind,
 			context.root,
 			&context.reference,
 			context.conf.hash_only,
 		);
-	}
-
-	pub fn check_proofs<L: TrieLayout>(
-		mut proofs: Vec<Vec<Vec<u8>>>,
-		query_plan_in_mem: InMemQueryPlan,
-		kind: ProofKind,
-		root: TrieHash<L>,
-		content: &BTreeMap<Vec<u8>, Vec<u8>>,
-		hash_only: bool,
-	) {
-		let mut full_proof: Vec<Vec<u8>> = Default::default();
-		proofs.reverse();
-
-		let is_content_proof = kind == ProofKind::CompactContent;
-		let query_plan: QueryPlan<_> = query_plan_in_mem.as_ref();
-		let mut run_state: Option<HaltedStateCheck<_, _, _>> = Some(if is_content_proof {
-			HaltedStateCheck::Content(query_plan.into())
-		} else {
-			HaltedStateCheck::Node(query_plan.into())
-		});
-		let mut has_run_full = false;
-		while let Some(state) = run_state.take() {
-			let proof = if let Some(proof) = proofs.pop() {
-				full_proof.extend_from_slice(&proof);
-				proof
-			} else {
-				if full_proof.is_empty() {
-					break
-				}
-				proofs.clear();
-				std::mem::take(&mut full_proof)
-			};
-			let (mut verify_iter, mut verify_iter_content) = if is_content_proof {
-				let proof_iter: IterOpProof<_, _> = (&proof[0]).into();
-				(
-					None,
-					Some(
-						verify_query_plan_iter_content::<L, _, IterOpProof<_, _>>(
-							state,
-							proof_iter,
-							Some(root.clone()),
-						)
-						.unwrap(),
-					),
-				)
-			} else {
-				(
-					Some(
-						verify_query_plan_iter::<L, _, _, _>(
-							state,
-							proof.into_iter(),
-							Some(root.clone()),
-						)
-						.unwrap(),
-					),
-					None,
-				)
-			};
-			let mut next_item = || {
-				if let Some(verify_iter) = verify_iter.as_mut() {
-					verify_iter.next()
-				} else if let Some(verify_iter_content) = verify_iter_content.as_mut() {
-					verify_iter_content.next()
-				} else {
-					None
-				}
-			};
-
-			let mut in_prefix = false;
-			// TODO need stricter check of query plan (advance query plan iter and expect all items
-			// touched!!!
-			while let Some(item) = next_item() {
-				match item.unwrap() {
-					ReadProofItem::Hash(key, hash) => {
-						assert!(hash_only);
-						assert_eq!(
-							content.get(&*key).map(|v| L::Hash::hash(&v.as_ref())),
-							Some(hash)
-						);
-					},
-					ReadProofItem::Value(key, value) => {
-						assert_eq!(content.get(&*key), Some(value.as_ref()));
-					},
-					ReadProofItem::NoValue(key) => {
-						assert_eq!(content.get(key), None);
-					},
-					ReadProofItem::StartPrefix(_prefix) => {
-						in_prefix = true;
-					},
-					ReadProofItem::EndPrefix => {
-						assert!(in_prefix);
-						in_prefix = false;
-					},
-					ReadProofItem::Halted(resume) => {
-						run_state = Some(*resume);
-						break
-					},
-				}
-			}
-			if kind == ProofKind::FullNodes {
-				if run_state.is_none() && !has_run_full {
-					has_run_full = true;
-					let query_plan_iter = query_plan_in_mem.as_ref();
-					run_state = Some(if is_content_proof {
-						HaltedStateCheck::Content(query_plan_iter.into())
-					} else {
-						HaltedStateCheck::Node(query_plan_iter.into())
-					});
-				}
-			} else {
-				has_run_full = true;
-			}
-		}
-		if !has_run_full {
-			panic!("did not run full proof")
-		}
 	}
 }
