@@ -837,6 +837,7 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		let mut is_inline = false;
 		let prefix = &mut self.prefix;
 		let mut descend_incomplete = false;
+		let mut descend_incomplete_stacked = false;
 		let mut stack_extension = false;
 		let mut from_branch = None;
 		let child_handle = if let Some(item) = self.items.last_mut() {
@@ -936,6 +937,7 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 						s.advance(partial.len());
 					} else {
 						descend_incomplete = true;
+						descend_incomplete_stacked = partial.starts_with(s);
 					}
 				}
 			},
@@ -978,7 +980,11 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		}
 
 		if descend_incomplete {
-			Ok(TryStackChildResult::StackedDescendIncomplete)
+			if descend_incomplete_stacked {
+				Ok(TryStackChildResult::StackedDescendIncomplete)
+			} else {
+				Ok(TryStackChildResult::NotStacked)
+			}
 		} else {
 			Ok(TryStackChildResult::Stacked)
 		}

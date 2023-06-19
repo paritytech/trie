@@ -775,7 +775,7 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 					}
 					self.prefix.append_partial(partial.right());
 				} else {
-					return Ok(TryStackChildResult::StackedDescendIncomplete)
+					return Ok(TryStackChildResult::NotStacked)
 				}
 			},
 		}
