@@ -740,7 +740,9 @@ pub fn record_query_plan<
 			continue
 		}
 		// descend
-		let mut slice_query = NibbleSlice::new_offset(&query.key, common_nibbles);
+		let add = if from.stack.items.len() == 0 { 0 } else { 1 };
+		let mut slice_query = NibbleSlice::new_offset(&query.key, from.stack.prefix.len() + add);
+
 		let touched = loop {
 			if !from.stack.items.is_empty() {
 				if slice_query.is_empty() {
