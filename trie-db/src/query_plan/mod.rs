@@ -372,6 +372,7 @@ pub enum HaltedStateCheck<'a, L: TrieLayout, C, D: SplitFirst> {
 	Content(HaltedStateCheckContent<'a, L, C>),
 }
 
+#[derive(Eq, PartialEq)]
 enum TryStackChildResult {
 	/// If there is no child to stack.
 	NotStacked,

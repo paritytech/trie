@@ -494,7 +494,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 		//upper: u8,
 	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
 		let mut res = false;
-		let Some(item) = self.stack.get(at) else {
+		let Some(item) = self.stack.items.get(at) else {
 			return Ok(res);
 		};
 		let dummy_parent_hash = TrieHash::<L>::default();
@@ -503,7 +503,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 				match self.stack.try_stack_child(i, None, dummy_parent_hash, None)? {
 					// only expect a stacked full prefix or not stacked here
 					TryStackChildResult::StackedFull => {
-						item.accessed_children_node.set(i, true);
+						item.accessed_children_node.set(i as usize, true);
 						let halt = self.iter_prefix(None, None, false, true)?;
 						if halt {
 							// no halt on inline.
@@ -734,6 +734,9 @@ pub fn record_query_plan<
 							} else {
 								0
 							};
+							// seek got updated correctle.
+							debug_assert!(common_nibbles <= parent_depth);
+							/* TODO rem if debug_assert ok
 							if common_nibbles > parent_depth {
 								let query_slice = LeftNibbleSlice::new(&query.key);
 								if query_slice.starts_with(&from.stack.prefix.as_leftnibbleslice())
@@ -741,6 +744,7 @@ pub fn record_query_plan<
 									break query_slice.len()
 								}
 							}
+							*/
 						}
 
 						/* TODO these seems redundant with pop try_stack call
@@ -868,8 +872,6 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		let inline_only = db.is_none();
 		let mut is_inline = false;
 		let prefix = &mut self.prefix;
-		let mut descend_incomplete = false;
-		let mut descend_incomplete_stacked = false;
 		let mut stack_extension = false;
 		let mut from_branch = None;
 		let child_handle = if let Some(item) = self.items.last_mut() {
@@ -961,26 +963,26 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		//println!("r: {:?}", &node_data);
 
 		let result = match child_node.node_plan() {
-			NodePlan::Branch { .. } => (),
-			| NodePlan::Empty => (),
+			NodePlan::Branch { .. } | NodePlan::Empty => TryStackChildResult::StackedFull,
 			NodePlan::Leaf { partial, .. } |
 			NodePlan::NibbledBranch { partial, .. } |
 			NodePlan::Extension { partial, .. } => {
 				let partial = partial.build(node_data);
 				prefix.append_partial(partial.right());
 				if let Some(s) = slice_query.as_mut() {
-					if s.starts_with(&partial) {
-						s.advance(partial.len());
+					let common = partial.common_prefix(s);
+					s.advance(common);
+					// s starts with partial
+					if common == partial.len() {
 						TryStackChildResult::StackedFull
+					} else if common == s.len() {
+						// partial strats with s
+						TryStackChildResult::StackedInto
 					} else {
-						descend_incomplete = true;
-						descend_incomplete_stacked = partial.starts_with(s);
-						if partial.starts_with(s) {
-							TryStackChildResult::StackedInto
-						} else {
-							TryStackChildResult::StackedAfter
-						}
+						TryStackChildResult::StackedAfter
 					}
+				} else {
+					TryStackChildResult::StackedFull
 				}
 			},
 		};
