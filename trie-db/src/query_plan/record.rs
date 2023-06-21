@@ -734,9 +734,6 @@ pub fn record_query_plan<
 							} else {
 								0
 							};
-							// seek got updated correctle.
-							debug_assert!(common_nibbles <= parent_depth);
-							/* TODO rem if debug_assert ok
 							if common_nibbles > parent_depth {
 								let query_slice = LeftNibbleSlice::new(&query.key);
 								if query_slice.starts_with(&from.stack.prefix.as_leftnibbleslice())
@@ -744,7 +741,6 @@ pub fn record_query_plan<
 									break query_slice.len()
 								}
 							}
-							*/
 						}
 
 						/* TODO these seems redundant with pop try_stack call
