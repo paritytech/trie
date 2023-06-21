@@ -45,6 +45,31 @@ where
 	restore_offset: usize,
 }
 
+struct ReadStack<L: TrieLayout, D: SplitFirst> {
+	items: Vec<StackedNodeCheck<L, D>>,
+	prefix: NibbleVec,
+	// limit and wether we return value and if hash only iteration.
+	iter_prefix: Option<(usize, bool, bool)>,
+	start_items: usize,
+	is_compact: bool,
+	expect_value: bool,
+	_ph: PhantomData<L>,
+}
+
+impl<L: TrieLayout, D: SplitFirst> Clone for ReadStack<L, D> {
+	fn clone(&self) -> Self {
+		ReadStack {
+			items: self.items.clone(),
+			prefix: self.prefix.clone(),
+			start_items: self.start_items.clone(),
+			iter_prefix: self.iter_prefix,
+			is_compact: self.is_compact,
+			expect_value: self.expect_value,
+			_ph: PhantomData,
+		}
+	}
+}
+
 /// Read the proof.
 ///
 /// If expected root is None, then we do not check hashes at all.
@@ -408,5 +433,422 @@ impl<'a, L: TrieLayout, C, D: SplitFirst> From<QueryPlan<'a, C>>
 			restore_offset: 0,
 			query_plan,
 		}
+	}
+}
+
+impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
+	fn try_stack_child(
+		&mut self,
+		child_index: u8,
+		proof: &mut impl Iterator<Item = D>,
+		expected_root: &Option<TrieHash<L>>,
+		mut slice_query: Option<&mut NibbleSlice>,
+		query_prefix: bool,
+	) -> Result<TryStackChildResult, VerifyError<TrieHash<L>, CError<L>>> {
+		let check_hash = expected_root.is_some();
+		let child_handle = if let Some(node) = self.items.last_mut() {
+			let node_data = node.data();
+
+			match node.node_plan() {
+				NodePlan::Empty | NodePlan::Leaf { .. } =>
+					return Ok(TryStackChildResult::NotStacked),
+				NodePlan::Extension { .. } => {
+					unreachable!("Extension never stacked")
+				},
+				NodePlan::NibbledBranch { children, .. } | NodePlan::Branch { children, .. } =>
+					if let Some(child) = &children[child_index as usize] {
+						child.build(node_data)
+					} else {
+						return Ok(TryStackChildResult::NotStackedBranch)
+					},
+			}
+		} else {
+			if self.is_compact {
+				NodeHandle::Inline(&[])
+			} else {
+				NodeHandle::Hash(expected_root.as_ref().map(AsRef::as_ref).unwrap_or(&[]))
+			}
+		};
+		let mut node: StackedNodeCheck<_, _> = match child_handle {
+			NodeHandle::Inline(data) =>
+				if self.is_compact && data.len() == 0 {
+					// ommitted hash
+					let Some(mut encoded_node) = proof.next() else {
+					// halt happens with a hash, this is not.
+					return Err(VerifyError::IncompleteProof);
+				};
+					if self.is_compact &&
+						encoded_node.borrow().len() > 0 &&
+						Some(encoded_node.borrow()[0]) ==
+							<L::Codec as crate::node_codec::NodeCodec>::ESCAPE_HEADER
+					{
+						self.expect_value = true;
+						// no value to visit TODO set a boolean to ensure we got a hash and don
+						// t expect reanding a node value
+						encoded_node.split_first();
+					}
+					let node = match OwnedNode::new::<L::Codec>(encoded_node) {
+						Ok(node) => node,
+						Err(e) => return Err(VerifyError::DecodeError(e)),
+					};
+					(ItemStackNode::Node(node), self.is_compact).into()
+				} else {
+					// try access in inline then return
+					(
+						ItemStackNode::Inline(match OwnedNode::new::<L::Codec>(data.to_vec()) {
+							Ok(node) => node,
+							Err(e) => return Err(VerifyError::DecodeError(e)),
+						}),
+						self.is_compact,
+					)
+						.into()
+				},
+			NodeHandle::Hash(hash) => {
+				// TODO if is_compact allow only if restart bellow depth (otherwhise should be
+				// inline(0)) or means halted (if something in proof it is extraneous node)
+				let Some(mut encoded_node) = proof.next() else {
+					return Ok(TryStackChildResult::Halted);
+				};
+				if self.is_compact &&
+					encoded_node.borrow().len() > 0 &&
+					Some(encoded_node.borrow()[0]) ==
+						<L::Codec as crate::node_codec::NodeCodec>::ESCAPE_HEADER
+				{
+					self.expect_value = true;
+					// no value to visit TODO set a boolean to ensure we got a hash and don
+					// t expect reanding a node value
+					encoded_node.split_first();
+				}
+				let node = match OwnedNode::new::<L::Codec>(encoded_node) {
+					Ok(node) => node,
+					Err(e) => return Err(VerifyError::DecodeError(e)),
+				};
+				if !self.is_compact && check_hash {
+					verify_hash::<L>(node.data(), hash)?;
+				}
+				(ItemStackNode::Node(node), self.is_compact).into()
+			},
+		};
+		let node_data = node.data();
+
+		let mut prefix_incomplete = false;
+		match node.node_plan() {
+			NodePlan::Branch { .. } => (),
+			| NodePlan::Empty => (),
+			NodePlan::Leaf { partial, .. } |
+			NodePlan::NibbledBranch { partial, .. } |
+			NodePlan::Extension { partial, .. } => {
+				let partial = partial.build(node_data);
+				if self.items.len() > 0 {
+					if let Some(slice) = slice_query.as_mut() {
+						slice.advance(1);
+					}
+				}
+				let ok = if let Some(slice) = slice_query.as_mut() {
+					if slice.starts_with(&partial) {
+						true
+					} else if query_prefix {
+						prefix_incomplete = true;
+						partial.starts_with(slice)
+					} else {
+						false
+					}
+				} else {
+					true
+				};
+				if prefix_incomplete {
+					// end of query
+					slice_query = None;
+				}
+				if ok {
+					if self.items.len() > 0 {
+						self.prefix.push(child_index);
+					}
+					if let Some(slice) = slice_query.as_mut() {
+						slice.advance(partial.len());
+					}
+					self.prefix.append_partial(partial.right());
+				} else {
+					return Ok(TryStackChildResult::NotStacked)
+				}
+			},
+		}
+		if let NodePlan::Extension { child, .. } = node.node_plan() {
+			let node_data = node.data();
+			let child = child.build(node_data);
+			match child {
+				NodeHandle::Hash(hash) => {
+					let Some(encoded_branch) = proof.next() else {
+						// No halt on extension node (restart over a child index).
+						return Err(VerifyError::IncompleteProof);
+					};
+					if self.is_compact {
+						let mut error_hash = TrieHash::<L>::default();
+						error_hash.as_mut().copy_from_slice(hash);
+						return Err(VerifyError::ExtraneousHashReference(error_hash))
+					}
+					if check_hash {
+						verify_hash::<L>(encoded_branch.borrow(), hash)?;
+					}
+					node = match OwnedNode::new::<L::Codec>(encoded_branch) {
+						Ok(node) => (ItemStackNode::Node(node), self.is_compact).into(),
+						Err(e) => return Err(VerifyError::DecodeError(e)),
+					};
+				},
+				NodeHandle::Inline(data) => {
+					if self.is_compact && data.len() == 0 {
+						unimplemented!("This requires to put extension in stack");
+					/*
+					// ommitted hash
+					let Some(encoded_node) = proof.next() else {
+						// halt happens with a hash, this is not.
+						return Err(VerifyError::IncompleteProof);
+					};
+					node = match OwnedNode::new::<L::Codec>(encoded_node) {
+						Ok(node) => (ItemStackNode::Node(node), self.is_compact).into(),
+						Err(e) => return Err(VerifyError::DecodeError(e)),
+					};
+					*/
+					} else {
+						node = match OwnedNode::new::<L::Codec>(data.to_vec()) {
+							Ok(node) => (ItemStackNode::Inline(node), self.is_compact).into(),
+							Err(e) => return Err(VerifyError::DecodeError(e)),
+						};
+					}
+				},
+			}
+			let NodePlan::Branch { .. } = node.node_plan() else {
+				return Err(VerifyError::IncompleteProof) // TODO make error type??
+			};
+		}
+		node.depth = self.prefix.len();
+		// needed for compact
+		self.items.last_mut().map(|parent| {
+			parent.next_descended_child = child_index + 1;
+		});
+		self.items.push(node);
+		if prefix_incomplete {
+			Ok(TryStackChildResult::StackedDescendIncomplete)
+		} else {
+			Ok(TryStackChildResult::Stacked)
+		}
+	}
+
+	fn access_value(
+		&mut self,
+		proof: &mut impl Iterator<Item = D>,
+		check_hash: bool,
+		hash_only: bool,
+	) -> Result<(Option<Vec<u8>>, Option<TrieHash<L>>), VerifyError<TrieHash<L>, CError<L>>> {
+		if let Some(node) = self.items.last() {
+			let node_data = node.data();
+
+			let value = match node.node_plan() {
+				NodePlan::Leaf { value, .. } => Some(value.build(node_data)),
+				NodePlan::Branch { value, .. } | NodePlan::NibbledBranch { value, .. } =>
+					value.as_ref().map(|v| v.build(node_data)),
+				_ => return Ok((None, None)),
+			};
+			if let Some(value) = value {
+				match value {
+					Value::Inline(value) =>
+						if self.expect_value {
+							assert!(self.is_compact);
+							self.expect_value = false;
+							if hash_only {
+								return Err(VerifyError::ExtraneousValue(Default::default()))
+							}
+
+							let Some(value) = proof.next() else {
+								return Err(VerifyError::IncompleteProof);
+							};
+							if check_hash {
+								let hash = L::Hash::hash(value.borrow());
+								self.items.last_mut().map(|i| i.attached_value_hash = Some(hash));
+							}
+							return Ok((Some(value.borrow().to_vec()), None))
+						} else {
+							if hash_only {
+								let hash = L::Hash::hash(value.borrow());
+								return Ok((None, Some(hash)))
+							}
+							return Ok((Some(value.to_vec()), None))
+						},
+					Value::Node(hash) => {
+						if self.expect_value {
+							if hash_only {
+								return Err(VerifyError::ExtraneousValue(Default::default()))
+							}
+							self.expect_value = false;
+							let mut error_hash = TrieHash::<L>::default();
+							error_hash.as_mut().copy_from_slice(hash);
+							return Err(VerifyError::ExtraneousHashReference(error_hash))
+						}
+						if hash_only {
+							let mut result_hash = TrieHash::<L>::default();
+							result_hash.as_mut().copy_from_slice(hash);
+							return Ok((None, Some(result_hash)))
+						}
+						let Some(value) = proof.next() else {
+							return Err(VerifyError::IncompleteProof);
+						};
+						if check_hash {
+							verify_hash::<L>(value.borrow(), hash)?;
+						}
+						return Ok((Some(value.borrow().to_vec()), None))
+					},
+				}
+			}
+		} else {
+			return Err(VerifyError::IncompleteProof)
+		}
+
+		Ok((None, None))
+	}
+
+	fn pop(
+		&mut self,
+		expected_root: &Option<TrieHash<L>>,
+	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
+		if self.iter_prefix.as_ref().map(|p| p.0 == self.items.len()).unwrap_or(false) {
+			return Ok(false)
+		}
+		if let Some(last) = self.items.pop() {
+			let depth = self.items.last().map(|i| i.depth).unwrap_or(0);
+			self.prefix.drop_lasts(self.prefix.len() - depth);
+			if self.is_compact && expected_root.is_some() {
+				match last.node {
+					ItemStackNode::Inline(_) => (),
+					ItemStackNode::Node(node) => {
+						let origin = self.start_items;
+						let node_data = node.data();
+						let node = node.node_plan().build(node_data);
+						let encoded_node = crate::trie_codec::encode_read_node_internal::<L::Codec>(
+							node,
+							&last.children,
+							last.attached_value_hash.as_ref().map(|h| h.as_ref()),
+						);
+
+						//println!("{:?}", encoded_node);
+						if self.items.len() == origin {
+							if let Some(parent) = self.items.last() {
+								let at = parent.next_descended_child - 1;
+								if let Some(Some(ChildReference::Hash(expected))) =
+									parent.children.get(at as usize)
+								{
+									verify_hash::<L>(&encoded_node, expected.as_ref())?;
+								} else {
+									return Err(VerifyError::RootMismatch(Default::default()))
+								}
+							} else {
+								let expected = expected_root.as_ref().expect("checked above");
+								verify_hash::<L>(&encoded_node, expected.as_ref())?;
+							}
+						} else if self.items.len() < origin {
+							// popped origin, need to check against new origin
+							self.start_items = self.items.len();
+						} else {
+							let hash = L::Hash::hash(&encoded_node);
+							if let Some(parent) = self.items.last_mut() {
+								let at = parent.next_descended_child - 1;
+								match parent.children[at as usize] {
+									Some(ChildReference::Hash(expected)) => {
+										// can append if chunks are concatenated (not progressively
+										// checked)
+										verify_hash::<L>(&encoded_node, expected.as_ref())?;
+									},
+									None => {
+										// Complete
+										parent.children[at as usize] =
+											Some(ChildReference::Hash(hash));
+									},
+									Some(ChildReference::Inline(_h, size)) if size == 0 => {
+										// Complete
+										parent.children[at as usize] =
+											Some(ChildReference::Hash(hash));
+									},
+									_ =>
+									// only non inline are stacked
+										return Err(VerifyError::RootMismatch(Default::default())),
+								}
+							} else {
+								if &Some(hash) != expected_root {
+									return Err(VerifyError::RootMismatch(hash))
+								}
+							}
+						}
+					},
+				}
+			}
+			Ok(true)
+		} else {
+			Ok(false)
+		}
+	}
+
+	fn pop_until(
+		&mut self,
+		target: usize,
+		expected_root: &Option<TrieHash<L>>,
+		check_only: bool,
+	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
+		if self.is_compact && expected_root.is_some() {
+			// TODO pop with check only, here unefficient implementation where we just restore
+
+			let mut restore = None;
+			if check_only {
+				restore = Some(self.clone());
+				self.iter_prefix = None;
+			}
+			// one by one
+			while let Some(last) = self.items.last() {
+				match last.depth.cmp(&target) {
+					Ordering::Greater => (),
+					// depth should match.
+					Ordering::Less => {
+						// TODO other error
+						return Err(VerifyError::ExtraneousNode)
+					},
+					Ordering::Equal => return Ok(()),
+				}
+				// one by one
+				let _ = self.pop(expected_root)?;
+			}
+
+			if let Some(old) = restore.take() {
+				*self = old;
+				return Ok(())
+			}
+		}
+		loop {
+			if let Some(last) = self.items.last() {
+				match last.depth.cmp(&target) {
+					Ordering::Greater => (),
+					// depth should match.
+					Ordering::Less => break,
+					Ordering::Equal => {
+						self.prefix.drop_lasts(self.prefix.len() - last.depth);
+						return Ok(())
+					},
+				}
+			} else {
+				if target == 0 {
+					return Ok(())
+				} else {
+					break
+				}
+			}
+			let _ = self.items.pop();
+		}
+		// TODO other error
+		Err(VerifyError::ExtraneousNode)
+	}
+
+	fn enter_prefix_iter(&mut self, hash_only: bool) {
+		self.iter_prefix = Some((self.items.len(), false, hash_only));
+	}
+
+	fn exit_prefix_iter(&mut self) {
+		self.iter_prefix = None
 	}
 }

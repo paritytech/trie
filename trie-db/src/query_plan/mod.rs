@@ -167,14 +167,6 @@ pub enum ProofKind {
 	/// proof at once.
 	CompactNodes,
 
-	/* TODO does not seem usefull, CompactContent is strictly better
-	/// Same encoding as CompactNodes, but with an alternate ordering that allows streaming
-	/// node and avoid unbound memory when building proof.
-	///
-	/// Ordering is starting at first met proof and parent up to intersection with next
-	/// sibling access in a branch, then next leaf, and repeating, finishing with root node.
-	CompactNodesStream,
-	*/
 	/// Content oriented proof, no nodes are written, just a
 	/// sequence of accessed by lexicographical order as described
 	/// in content_proof::Op.
@@ -222,17 +214,16 @@ impl Bitmap {
 	}
 }
 
-// TODO rename
 #[derive(Clone)]
-struct CompactEncodingInfos {
+struct StackedNodeRecord {
 	/// Node in memory content.
 	node: OwnedNode<DBValue>,
-	/// Flags indicating whether each child is omitted in the encoded node.
+	/// Flags indicating whether each child is omitted (accessed) in the encoded node.
 	/// For some encoding, it also record if the child has already been written.
 	accessed_children_node: Bitmap,
 	/// Skip value if value node is after.
 	accessed_value_node: bool,
-	/// Depth of node in nible.
+	/// Depth of node in nibbles (actual depth of an attached value (post partial)).
 	depth: usize,
 	/// Next descended child, can also be use to get node position in parent
 	/// (this minus one).
@@ -382,11 +373,23 @@ pub enum HaltedStateCheck<'a, L: TrieLayout, C, D: SplitFirst> {
 }
 
 enum TryStackChildResult {
-	Stacked,
-	NotStackedBranch,
+	/// If there is no child to stack.
 	NotStacked,
-	StackedDescendIncomplete,
+	/// Same indicating it is a branch so in case of iteration
+	/// we will attempt next child.
+	NotStackedBranch,
+	/// Nothing stacked, this is a next child attempt that allows
+	/// suspending proof registering of proof check iteration.
 	Halted,
+	/// Child stacked and matched of the full partial key.
+	StackedFull,
+	/// Child stacked but part of partial key is into.
+	/// If prefix query plan item, this is part of the prefix.
+	StackedInto,
+	/// Child stacked but part of partial key is after.
+	/// Indicate that the query plan item need to be switched.
+	/// Next query plan item could still be using this stacked node (as any stacked variant).
+	StackedAfter,
 }
 
 #[derive(Eq, PartialEq)]
@@ -405,7 +408,7 @@ enum ReadProofState {
 	Finished,
 }
 
-struct ItemStack<L: TrieLayout, D: SplitFirst> {
+struct StackedNodeCheck<L: TrieLayout, D: SplitFirst> {
 	node: ItemStackNode<D>,
 	children: Vec<Option<ChildReference<TrieHash<L>>>>,
 	attached_value_hash: Option<TrieHash<L>>,
@@ -420,7 +423,6 @@ enum ValueSet<H, V> {
 	HashOnly(H),
 	//	ForceInline(V),
 	//	ForceHashed(V),
-	BranchHash(H, u8),
 }
 
 impl<H, V> ValueSet<H, V> {
@@ -428,7 +430,7 @@ impl<H, V> ValueSet<H, V> {
 		match self {
 			ValueSet::Standard(v) => Some(v),
 			//ValueSet::ForceInline(v) | ValueSet::ForceHashed(v) => Some(v),
-			ValueSet::HashOnly(..) | ValueSet::BranchHash(..) | ValueSet::None => None,
+			ValueSet::HashOnly(..) | ValueSet::None => None,
 		}
 	}
 }
@@ -436,7 +438,6 @@ impl<H, V> ValueSet<H, V> {
 impl<H, V> From<Op<H, V>> for ValueSet<H, V> {
 	fn from(op: Op<H, V>) -> Self {
 		match op {
-			Op::HashChild(hash, child_ix) => ValueSet::BranchHash(hash, child_ix),
 			Op::HashValue(hash) => ValueSet::HashOnly(hash),
 			Op::Value(value) => ValueSet::Standard(value),
 			//Op::ValueForceInline(value) => ValueSet::ForceInline(value),
@@ -452,9 +453,9 @@ struct ItemContentStack<L: TrieLayout> {
 	depth: usize,
 }
 
-impl<L: TrieLayout, D: SplitFirst> Clone for ItemStack<L, D> {
+impl<L: TrieLayout, D: SplitFirst> Clone for StackedNodeCheck<L, D> {
 	fn clone(&self) -> Self {
-		ItemStack {
+		StackedNodeCheck {
 			node: self.node.clone(),
 			children: self.children.clone(),
 			attached_value_hash: self.attached_value_hash,
@@ -480,7 +481,7 @@ enum ItemStackNode<D: SplitFirst> {
 	Node(OwnedNode<D>),
 }
 
-impl<L: TrieLayout, D: SplitFirst> From<(ItemStackNode<D>, bool)> for ItemStack<L, D> {
+impl<L: TrieLayout, D: SplitFirst> From<(ItemStackNode<D>, bool)> for StackedNodeCheck<L, D> {
 	fn from((node, is_compact): (ItemStackNode<D>, bool)) -> Self {
 		let children = if !is_compact {
 			Vec::new()
@@ -531,11 +532,17 @@ impl<L: TrieLayout, D: SplitFirst> From<(ItemStackNode<D>, bool)> for ItemStack<
 			}
 		};
 
-		ItemStack { node, depth: 0, next_descended_child: 0, children, attached_value_hash: None }
+		StackedNodeCheck {
+			node,
+			depth: 0,
+			next_descended_child: 0,
+			children,
+			attached_value_hash: None,
+		}
 	}
 }
 
-impl<L: TrieLayout, D: SplitFirst> ItemStack<L, D> {
+impl<L: TrieLayout, D: SplitFirst> StackedNodeCheck<L, D> {
 	fn data(&self) -> &[u8] {
 		match &self.node {
 			ItemStackNode::Inline(n) => n.data(),
@@ -547,63 +554,6 @@ impl<L: TrieLayout, D: SplitFirst> ItemStack<L, D> {
 		match &self.node {
 			ItemStackNode::Inline(n) => n.node_plan(),
 			ItemStackNode::Node(n) => n.node_plan(),
-		}
-	}
-}
-
-struct ReadStack<L: TrieLayout, D: SplitFirst> {
-	items: Vec<ItemStack<L, D>>,
-	prefix: NibbleVec,
-	// limit and wether we return value and if hash only iteration.
-	iter_prefix: Option<(usize, bool, bool)>,
-	start_items: usize,
-	is_compact: bool,
-	expect_value: bool,
-	_ph: PhantomData<L>,
-}
-
-struct ReadContentStack<L: TrieLayout> {
-	items: Vec<ItemContentStack<L>>,
-	prefix: NibbleVec,
-	// limit and wether we return value and if hash only iteration.
-	// TODO should be removable (just check current).
-	iter_prefix: Option<(usize, bool, bool)>,
-	start_items: usize,
-	is_prev_hash_child: Option<u8>,
-	expect_value: bool,
-	is_prev_push_key: bool,
-	is_prev_pop_key: bool,
-	first: bool,
-	_ph: PhantomData<L>,
-}
-
-impl<L: TrieLayout, D: SplitFirst> Clone for ReadStack<L, D> {
-	fn clone(&self) -> Self {
-		ReadStack {
-			items: self.items.clone(),
-			prefix: self.prefix.clone(),
-			start_items: self.start_items.clone(),
-			iter_prefix: self.iter_prefix,
-			is_compact: self.is_compact,
-			expect_value: self.expect_value,
-			_ph: PhantomData,
-		}
-	}
-}
-
-impl<L: TrieLayout> Clone for ReadContentStack<L> {
-	fn clone(&self) -> Self {
-		ReadContentStack {
-			items: self.items.clone(),
-			prefix: self.prefix.clone(),
-			start_items: self.start_items.clone(),
-			iter_prefix: self.iter_prefix,
-			expect_value: self.expect_value,
-			is_prev_push_key: self.is_prev_push_key,
-			is_prev_pop_key: self.is_prev_pop_key,
-			is_prev_hash_child: self.is_prev_hash_child,
-			first: self.first,
-			_ph: PhantomData,
 		}
 	}
 }
@@ -639,728 +589,6 @@ impl SplitFirst for Vec<u8> {
 impl<'a> SplitFirst for &'a [u8] {
 	fn split_first(&mut self) {
 		*self = &self[1..];
-	}
-}
-
-impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
-	fn try_stack_child(
-		&mut self,
-		child_index: u8,
-		proof: &mut impl Iterator<Item = D>,
-		expected_root: &Option<TrieHash<L>>,
-		mut slice_query: Option<&mut NibbleSlice>,
-		query_prefix: bool,
-	) -> Result<TryStackChildResult, VerifyError<TrieHash<L>, CError<L>>> {
-		let check_hash = expected_root.is_some();
-		let child_handle = if let Some(node) = self.items.last_mut() {
-			let node_data = node.data();
-
-			match node.node_plan() {
-				NodePlan::Empty | NodePlan::Leaf { .. } =>
-					return Ok(TryStackChildResult::NotStacked),
-				NodePlan::Extension { .. } => {
-					unreachable!("Extension never stacked")
-				},
-				NodePlan::NibbledBranch { children, .. } | NodePlan::Branch { children, .. } =>
-					if let Some(child) = &children[child_index as usize] {
-						child.build(node_data)
-					} else {
-						return Ok(TryStackChildResult::NotStackedBranch)
-					},
-			}
-		} else {
-			if self.is_compact {
-				NodeHandle::Inline(&[])
-			} else {
-				NodeHandle::Hash(expected_root.as_ref().map(AsRef::as_ref).unwrap_or(&[]))
-			}
-		};
-		let mut node: ItemStack<_, _> = match child_handle {
-			NodeHandle::Inline(data) =>
-				if self.is_compact && data.len() == 0 {
-					// ommitted hash
-					let Some(mut encoded_node) = proof.next() else {
-					// halt happens with a hash, this is not.
-					return Err(VerifyError::IncompleteProof);
-				};
-					if self.is_compact &&
-						encoded_node.borrow().len() > 0 &&
-						Some(encoded_node.borrow()[0]) ==
-							<L::Codec as crate::node_codec::NodeCodec>::ESCAPE_HEADER
-					{
-						self.expect_value = true;
-						// no value to visit TODO set a boolean to ensure we got a hash and don
-						// t expect reanding a node value
-						encoded_node.split_first();
-					}
-					let node = match OwnedNode::new::<L::Codec>(encoded_node) {
-						Ok(node) => node,
-						Err(e) => return Err(VerifyError::DecodeError(e)),
-					};
-					(ItemStackNode::Node(node), self.is_compact).into()
-				} else {
-					// try access in inline then return
-					(
-						ItemStackNode::Inline(match OwnedNode::new::<L::Codec>(data.to_vec()) {
-							Ok(node) => node,
-							Err(e) => return Err(VerifyError::DecodeError(e)),
-						}),
-						self.is_compact,
-					)
-						.into()
-				},
-			NodeHandle::Hash(hash) => {
-				// TODO if is_compact allow only if restart bellow depth (otherwhise should be
-				// inline(0)) or means halted (if something in proof it is extraneous node)
-				let Some(mut encoded_node) = proof.next() else {
-					return Ok(TryStackChildResult::Halted);
-				};
-				if self.is_compact &&
-					encoded_node.borrow().len() > 0 &&
-					Some(encoded_node.borrow()[0]) ==
-						<L::Codec as crate::node_codec::NodeCodec>::ESCAPE_HEADER
-				{
-					self.expect_value = true;
-					// no value to visit TODO set a boolean to ensure we got a hash and don
-					// t expect reanding a node value
-					encoded_node.split_first();
-				}
-				let node = match OwnedNode::new::<L::Codec>(encoded_node) {
-					Ok(node) => node,
-					Err(e) => return Err(VerifyError::DecodeError(e)),
-				};
-				if !self.is_compact && check_hash {
-					verify_hash::<L>(node.data(), hash)?;
-				}
-				(ItemStackNode::Node(node), self.is_compact).into()
-			},
-		};
-		let node_data = node.data();
-
-		let mut prefix_incomplete = false;
-		match node.node_plan() {
-			NodePlan::Branch { .. } => (),
-			| NodePlan::Empty => (),
-			NodePlan::Leaf { partial, .. } |
-			NodePlan::NibbledBranch { partial, .. } |
-			NodePlan::Extension { partial, .. } => {
-				let partial = partial.build(node_data);
-				if self.items.len() > 0 {
-					if let Some(slice) = slice_query.as_mut() {
-						slice.advance(1);
-					}
-				}
-				let ok = if let Some(slice) = slice_query.as_mut() {
-					if slice.starts_with(&partial) {
-						true
-					} else if query_prefix {
-						prefix_incomplete = true;
-						partial.starts_with(slice)
-					} else {
-						false
-					}
-				} else {
-					true
-				};
-				if prefix_incomplete {
-					// end of query
-					slice_query = None;
-				}
-				if ok {
-					if self.items.len() > 0 {
-						self.prefix.push(child_index);
-					}
-					if let Some(slice) = slice_query.as_mut() {
-						slice.advance(partial.len());
-					}
-					self.prefix.append_partial(partial.right());
-				} else {
-					return Ok(TryStackChildResult::NotStacked)
-				}
-			},
-		}
-		if let NodePlan::Extension { child, .. } = node.node_plan() {
-			let node_data = node.data();
-			let child = child.build(node_data);
-			match child {
-				NodeHandle::Hash(hash) => {
-					let Some(encoded_branch) = proof.next() else {
-						// No halt on extension node (restart over a child index).
-						return Err(VerifyError::IncompleteProof);
-					};
-					if self.is_compact {
-						let mut error_hash = TrieHash::<L>::default();
-						error_hash.as_mut().copy_from_slice(hash);
-						return Err(VerifyError::ExtraneousHashReference(error_hash))
-					}
-					if check_hash {
-						verify_hash::<L>(encoded_branch.borrow(), hash)?;
-					}
-					node = match OwnedNode::new::<L::Codec>(encoded_branch) {
-						Ok(node) => (ItemStackNode::Node(node), self.is_compact).into(),
-						Err(e) => return Err(VerifyError::DecodeError(e)),
-					};
-				},
-				NodeHandle::Inline(data) => {
-					if self.is_compact && data.len() == 0 {
-						unimplemented!("This requires to put extension in stack");
-					/*
-					// ommitted hash
-					let Some(encoded_node) = proof.next() else {
-						// halt happens with a hash, this is not.
-						return Err(VerifyError::IncompleteProof);
-					};
-					node = match OwnedNode::new::<L::Codec>(encoded_node) {
-						Ok(node) => (ItemStackNode::Node(node), self.is_compact).into(),
-						Err(e) => return Err(VerifyError::DecodeError(e)),
-					};
-					*/
-					} else {
-						node = match OwnedNode::new::<L::Codec>(data.to_vec()) {
-							Ok(node) => (ItemStackNode::Inline(node), self.is_compact).into(),
-							Err(e) => return Err(VerifyError::DecodeError(e)),
-						};
-					}
-				},
-			}
-			let NodePlan::Branch { .. } = node.node_plan() else {
-				return Err(VerifyError::IncompleteProof) // TODO make error type??
-			};
-		}
-		node.depth = self.prefix.len();
-		// needed for compact
-		self.items.last_mut().map(|parent| {
-			parent.next_descended_child = child_index + 1;
-		});
-		self.items.push(node);
-		if prefix_incomplete {
-			Ok(TryStackChildResult::StackedDescendIncomplete)
-		} else {
-			Ok(TryStackChildResult::Stacked)
-		}
-	}
-
-	fn access_value(
-		&mut self,
-		proof: &mut impl Iterator<Item = D>,
-		check_hash: bool,
-		hash_only: bool,
-	) -> Result<(Option<Vec<u8>>, Option<TrieHash<L>>), VerifyError<TrieHash<L>, CError<L>>> {
-		if let Some(node) = self.items.last() {
-			let node_data = node.data();
-
-			let value = match node.node_plan() {
-				NodePlan::Leaf { value, .. } => Some(value.build(node_data)),
-				NodePlan::Branch { value, .. } | NodePlan::NibbledBranch { value, .. } =>
-					value.as_ref().map(|v| v.build(node_data)),
-				_ => return Ok((None, None)),
-			};
-			if let Some(value) = value {
-				match value {
-					Value::Inline(value) =>
-						if self.expect_value {
-							assert!(self.is_compact);
-							self.expect_value = false;
-							if hash_only {
-								return Err(VerifyError::ExtraneousValue(Default::default()))
-							}
-
-							let Some(value) = proof.next() else {
-								return Err(VerifyError::IncompleteProof);
-							};
-							if check_hash {
-								let hash = L::Hash::hash(value.borrow());
-								self.items.last_mut().map(|i| i.attached_value_hash = Some(hash));
-							}
-							return Ok((Some(value.borrow().to_vec()), None))
-						} else {
-							if hash_only {
-								let hash = L::Hash::hash(value.borrow());
-								return Ok((None, Some(hash)))
-							}
-							return Ok((Some(value.to_vec()), None))
-						},
-					Value::Node(hash) => {
-						if self.expect_value {
-							if hash_only {
-								return Err(VerifyError::ExtraneousValue(Default::default()))
-							}
-							self.expect_value = false;
-							let mut error_hash = TrieHash::<L>::default();
-							error_hash.as_mut().copy_from_slice(hash);
-							return Err(VerifyError::ExtraneousHashReference(error_hash))
-						}
-						if hash_only {
-							let mut result_hash = TrieHash::<L>::default();
-							result_hash.as_mut().copy_from_slice(hash);
-							return Ok((None, Some(result_hash)))
-						}
-						let Some(value) = proof.next() else {
-							return Err(VerifyError::IncompleteProof);
-						};
-						if check_hash {
-							verify_hash::<L>(value.borrow(), hash)?;
-						}
-						return Ok((Some(value.borrow().to_vec()), None))
-					},
-				}
-			}
-		} else {
-			return Err(VerifyError::IncompleteProof)
-		}
-
-		Ok((None, None))
-	}
-
-	fn pop(
-		&mut self,
-		expected_root: &Option<TrieHash<L>>,
-	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
-		if self.iter_prefix.as_ref().map(|p| p.0 == self.items.len()).unwrap_or(false) {
-			return Ok(false)
-		}
-		if let Some(last) = self.items.pop() {
-			let depth = self.items.last().map(|i| i.depth).unwrap_or(0);
-			self.prefix.drop_lasts(self.prefix.len() - depth);
-			if self.is_compact && expected_root.is_some() {
-				match last.node {
-					ItemStackNode::Inline(_) => (),
-					ItemStackNode::Node(node) => {
-						let origin = self.start_items;
-						let node_data = node.data();
-						let node = node.node_plan().build(node_data);
-						let encoded_node = crate::trie_codec::encode_read_node_internal::<L::Codec>(
-							node,
-							&last.children,
-							last.attached_value_hash.as_ref().map(|h| h.as_ref()),
-						);
-
-						//println!("{:?}", encoded_node);
-						if self.items.len() == origin {
-							if let Some(parent) = self.items.last() {
-								let at = parent.next_descended_child - 1;
-								if let Some(Some(ChildReference::Hash(expected))) =
-									parent.children.get(at as usize)
-								{
-									verify_hash::<L>(&encoded_node, expected.as_ref())?;
-								} else {
-									return Err(VerifyError::RootMismatch(Default::default()))
-								}
-							} else {
-								let expected = expected_root.as_ref().expect("checked above");
-								verify_hash::<L>(&encoded_node, expected.as_ref())?;
-							}
-						} else if self.items.len() < origin {
-							// popped origin, need to check against new origin
-							self.start_items = self.items.len();
-						} else {
-							let hash = L::Hash::hash(&encoded_node);
-							if let Some(parent) = self.items.last_mut() {
-								let at = parent.next_descended_child - 1;
-								match parent.children[at as usize] {
-									Some(ChildReference::Hash(expected)) => {
-										// can append if chunks are concatenated (not progressively
-										// checked)
-										verify_hash::<L>(&encoded_node, expected.as_ref())?;
-									},
-									None => {
-										// Complete
-										parent.children[at as usize] =
-											Some(ChildReference::Hash(hash));
-									},
-									Some(ChildReference::Inline(_h, size)) if size == 0 => {
-										// Complete
-										parent.children[at as usize] =
-											Some(ChildReference::Hash(hash));
-									},
-									_ =>
-									// only non inline are stacked
-										return Err(VerifyError::RootMismatch(Default::default())),
-								}
-							} else {
-								if &Some(hash) != expected_root {
-									return Err(VerifyError::RootMismatch(hash))
-								}
-							}
-						}
-					},
-				}
-			}
-			Ok(true)
-		} else {
-			Ok(false)
-		}
-	}
-
-	fn pop_until(
-		&mut self,
-		target: usize,
-		expected_root: &Option<TrieHash<L>>,
-		check_only: bool,
-	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
-		if self.is_compact && expected_root.is_some() {
-			// TODO pop with check only, here unefficient implementation where we just restore
-
-			let mut restore = None;
-			if check_only {
-				restore = Some(self.clone());
-				self.iter_prefix = None;
-			}
-			// one by one
-			while let Some(last) = self.items.last() {
-				match last.depth.cmp(&target) {
-					Ordering::Greater => (),
-					// depth should match.
-					Ordering::Less => {
-						// TODO other error
-						return Err(VerifyError::ExtraneousNode)
-					},
-					Ordering::Equal => return Ok(()),
-				}
-				// one by one
-				let _ = self.pop(expected_root)?;
-			}
-
-			if let Some(old) = restore.take() {
-				*self = old;
-				return Ok(())
-			}
-		}
-		loop {
-			if let Some(last) = self.items.last() {
-				match last.depth.cmp(&target) {
-					Ordering::Greater => (),
-					// depth should match.
-					Ordering::Less => break,
-					Ordering::Equal => {
-						self.prefix.drop_lasts(self.prefix.len() - last.depth);
-						return Ok(())
-					},
-				}
-			} else {
-				if target == 0 {
-					return Ok(())
-				} else {
-					break
-				}
-			}
-			let _ = self.items.pop();
-		}
-		// TODO other error
-		Err(VerifyError::ExtraneousNode)
-	}
-
-	fn enter_prefix_iter(&mut self, hash_only: bool) {
-		self.iter_prefix = Some((self.items.len(), false, hash_only));
-	}
-
-	fn exit_prefix_iter(&mut self) {
-		self.iter_prefix = None
-	}
-}
-
-impl<L: TrieLayout> ReadContentStack<L> {
-	fn pop_until(
-		&mut self,
-		target: usize,
-		check_only: bool, // TODO used?
-	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
-		// TODO pop with check only, here unefficient implementation where we just restore
-
-		let mut restore = None;
-		if check_only {
-			restore = Some(self.clone());
-			self.iter_prefix = None;
-		}
-		// one by one
-		while let Some(last) = self.items.last() {
-			// depth should match.
-			match last.depth.cmp(&target) {
-				Ordering::Greater => {
-					// TODO could implicit pop here with a variant
-					// that do not write redundant pop.
-					return Err(VerifyError::ExtraneousNode) // TODO more precise error
-				},
-				Ordering::Less => {
-					if self.first {
-						// allowed to have next at a upper level
-					} else {
-						return Err(VerifyError::ExtraneousNode)
-					}
-				},
-				Ordering::Equal => return Ok(()),
-			}
-
-			// start_items update.
-			self.start_items = core::cmp::min(self.start_items, self.items.len());
-			// one by one
-			let _ = self.items.pop();
-		}
-
-		if let Some(old) = restore.take() {
-			*self = old;
-			return Ok(())
-		}
-		if self.items.is_empty() && target == 0 {
-			Ok(())
-		} else {
-			Err(VerifyError::ExtraneousNode)
-		}
-	}
-
-	#[inline(always)]
-	fn stack_empty(&mut self, depth: usize) {
-		/*
-		items: Vec<ItemContentStack<L>>,
-		prefix: NibbleVec,
-		// limit and wether we return value and if hash only iteration.
-		iter_prefix: Option<(usize, bool, bool)>,
-		start_items: usize,
-			*/
-
-		self.items.push(ItemContentStack {
-			children: vec![None; NIBBLE_LENGTH],
-			value: ValueSet::None,
-			depth,
-		})
-	}
-
-	#[inline(always)]
-	fn stack_pop(
-		&mut self,
-		nb_nibble: Option<usize>,
-		expected_root: &Option<TrieHash<L>>,
-	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
-		let target_depth = nb_nibble.map(|n| self.prefix.len() - n);
-		let mut first = true;
-		while self
-			.items
-			.last()
-			.map(|item| target_depth.map(|target| item.depth > target).unwrap_or(true))
-			.unwrap_or(false)
-		{
-			let item = self.items.pop().expect("Checked");
-			let mut from_depth =
-				self.items.last().map(|item| item.depth).unwrap_or(target_depth.unwrap_or(0));
-			if let Some(from) = target_depth {
-				if from > from_depth {
-					self.stack_empty(from);
-					from_depth = from;
-				}
-			}
-			let depth = item.depth;
-			let is_root = target_depth.is_none() && self.items.is_empty();
-			let inc = if is_root { 0 } else { 1 };
-
-			let child_reference = if item.children.iter().any(|child| child.is_some()) {
-				let nkey = (depth > (from_depth + inc))
-					.then(|| (from_depth + inc, depth - from_depth - inc));
-				if L::USE_EXTENSION {
-					let extension_only = first &&
-						matches!(&item.value, &ValueSet::None) &&
-						item.children.iter().filter(|child| child.is_some()).count() == 1;
-					self.items.push(item); // TODO this looks bad (pop then push, branch or leaf function should or should
-					   // not pop instead)
-					   // encode branch
-					self.standard_extension(depth, is_root, nkey, extension_only)
-				} else {
-					self.items.push(item); // TODO this looks bad (pop then push, branch or leaf function should or should
-					   // not pop instead)
-					   // encode branch
-					self.no_extension(depth, is_root, nkey)
-				}
-			} else {
-				// leaf with value
-				self.flush_value_change(from_depth + inc, item.depth, &item.value, is_root)
-			};
-
-			if self.items.is_empty() && !is_root {
-				self.stack_empty(from_depth);
-			}
-
-			let items_len = self.items.len();
-			if let Some(item) = self.items.last_mut() {
-				let child_ix = self.prefix.at(item.depth);
-				if let Some(hash) = item.children[child_ix as usize].as_ref() {
-					if items_len == self.start_items + 1 {
-						if expected_root.is_some() && hash != &child_reference {
-							return Err(VerifyError::HashMismatch(*child_reference.disp_hash()))
-						}
-					} else {
-						return Err(VerifyError::ExtraneousHashReference(*hash.disp_hash()))
-						// return Err(CompactDecoderError::HashChildNotOmitted.into())
-					}
-				}
-				item.children[child_ix as usize] = Some(child_reference);
-			} else {
-				if let Some(root) = expected_root.as_ref() {
-					if nb_nibble.is_none() {
-						if root != child_reference.disp_hash() {
-							return Err(VerifyError::RootMismatch(*child_reference.disp_hash()))
-						}
-					}
-				}
-			}
-			first = false;
-			// TODO can skip hash checks when above start_items.
-			self.start_items = core::cmp::min(self.start_items, self.items.len());
-		}
-		Ok(())
-	}
-
-	fn process(encoded_node: Vec<u8>, is_root: bool) -> ChildReference<TrieHash<L>> {
-		let len = encoded_node.len();
-		if !is_root && len < <L::Hash as Hasher>::LENGTH {
-			let mut h = <<L::Hash as Hasher>::Out as Default>::default();
-			h.as_mut()[..len].copy_from_slice(&encoded_node[..len]);
-			return ChildReference::Inline(h, len)
-		}
-		let hash = <L::Hash as Hasher>::hash(encoded_node.as_slice());
-		ChildReference::Hash(hash)
-	}
-
-	// TODO factor with iter_build (reuse cacheaccum here).
-	#[inline(always)]
-	fn standard_extension(
-		&mut self,
-		branch_d: usize,
-		is_root: bool,
-		nkey: Option<(usize, usize)>,
-		extension_only: bool,
-	) -> ChildReference<TrieHash<L>> {
-		let key_branch = &self.prefix.inner().as_ref()[..];
-		let last = self.items.len() - 1;
-		assert_eq!(self.items[last].depth, branch_d);
-
-		let ItemContentStack { children, value: v, depth, .. } = self.items.pop().expect("checked");
-
-		debug_assert!(branch_d == depth);
-
-		let hashed;
-		let value = if let Some(v) = v.as_ref() {
-			Some(if let Some(value) = Value::new_inline(v.as_ref(), L::MAX_INLINE_VALUE) {
-				value
-			} else {
-				let mut prefix = NibbleSlice::new_offset(&key_branch, 0);
-				prefix.advance(branch_d);
-
-				hashed = <L::Hash as Hasher>::hash(v.as_ref());
-				Value::Node(hashed.as_ref())
-			})
-		} else {
-			None
-		};
-
-		// encode branch
-		let branch_hash = if !extension_only {
-			let encoded = L::Codec::branch_node(children.iter(), value);
-			Self::process(encoded, is_root && nkey.is_none())
-		} else {
-			// This is hacky but extension only store as first children
-			children[0].unwrap()
-		};
-
-		if let Some(nkeyix) = nkey {
-			let pr = NibbleSlice::new_offset(&key_branch, nkeyix.0);
-			let nib = pr.right_range_iter(nkeyix.1);
-			let encoded = L::Codec::extension_node(nib, nkeyix.1, branch_hash);
-			Self::process(encoded, is_root)
-		} else {
-			branch_hash
-		}
-	}
-
-	#[inline(always)]
-	fn no_extension(
-		&mut self,
-		branch_d: usize,
-		is_root: bool,
-		nkey: Option<(usize, usize)>,
-	) -> ChildReference<TrieHash<L>> {
-		let key_branch = &self.prefix.inner().as_ref()[..];
-		let ItemContentStack { children, value: v, depth, .. } = self.items.pop().expect("checked");
-
-		debug_assert!(branch_d == depth);
-		// encode branch
-		let nkeyix = nkey.unwrap_or((branch_d, 0));
-		let pr = NibbleSlice::new_offset(&key_branch, nkeyix.0);
-		let hashed;
-		let value = if let Some(v) = v.as_ref() {
-			Some(if let Some(value) = Value::new_inline(v.as_ref(), L::MAX_INLINE_VALUE) {
-				value
-			} else {
-				let mut prefix = NibbleSlice::new_offset(&key_branch, 0);
-				prefix.advance(branch_d);
-				hashed = <L::Hash as Hasher>::hash(v.as_ref());
-				Value::Node(hashed.as_ref())
-			})
-		} else {
-			if let ValueSet::HashOnly(h) = &v {
-				Some(Value::Node(h.as_ref()))
-			} else {
-				None
-			}
-		};
-
-		let encoded = L::Codec::branch_node_nibbled(
-			pr.right_range_iter(nkeyix.1),
-			nkeyix.1,
-			children.iter(),
-			value,
-		);
-		Self::process(encoded, is_root)
-	}
-
-	fn flush_value_change<'a>(
-		&mut self,
-		from_depth: usize,
-		to_depth: usize,
-		value: &ValueSet<TrieHash<L>, Vec<u8>>,
-		is_root: bool,
-	) -> ChildReference<TrieHash<L>> {
-		let key_content = &self.prefix.inner().as_ref()[..];
-		let k2 = &key_content[..to_depth / nibble_ops::NIBBLE_PER_BYTE];
-		let pr = NibbleSlice::new_offset(k2, from_depth);
-
-		let hashed;
-		let value = match value {
-			ValueSet::Standard(v) =>
-				if let Some(value) = Value::new_inline(v.as_ref(), L::MAX_INLINE_VALUE) {
-					value
-				} else {
-					hashed = <L::Hash as Hasher>::hash(v.as_ref());
-					Value::Node(hashed.as_ref())
-				},
-			ValueSet::HashOnly(h) => {
-				Value::Node(h.as_ref()) // TODO may have following hash and fail? ont if leaf
-			},
-			ValueSet::BranchHash(..) | ValueSet::None => unreachable!("Not in cache accum"),
-		};
-		let encoded = L::Codec::leaf_node(pr.right_iter(), pr.len(), value);
-		Self::process(encoded, is_root)
-	}
-
-	#[inline(always)]
-	fn set_cache_change(
-		&mut self,
-		change: ValueSet<TrieHash<L>, Vec<u8>>,
-	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
-		if self.items.is_empty() {
-			self.stack_empty(0);
-		}
-		let last = self.items.len() - 1;
-		let mut item = &mut self.items[last];
-		match change {
-			ValueSet::BranchHash(h, i) => {
-				if let Some(hash) = item.children[i as usize].as_ref() {
-					return Err(VerifyError::ExtraneousHashReference(*hash.disp_hash()))
-					//return Err(CompactDecoderError::HashChildNotOmitted.into()) TODO
-				}
-				item.children[i as usize] = Some(ChildReference::Hash(h));
-			},
-			value => item.value = value,
-		}
-		Ok(())
 	}
 }
 

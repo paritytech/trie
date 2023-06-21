@@ -110,13 +110,13 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 				record_query_plan::<L, _, _>(&db, &mut query_plan_iter, &mut from).unwrap();
 
 				if limit.is_none() {
-					assert!(from.is_finished());
+					assert!(!from.is_halted());
 				}
-				if from.is_finished() {
+				if !from.is_halted() {
 					if kind == ProofKind::CompactContent {
-						proofs.push(vec![from.finish().output().buffer]);
+						proofs.push(vec![from.finish().buffer]);
 					} else {
-						proofs.push(from.finish().output().nodes);
+						proofs.push(from.finish().nodes);
 					}
 					break
 				}
@@ -127,10 +127,10 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 					from.statefull(Recorder::new(kind, InMemoryRecorder::default(), limit, None))
 				};
 				if kind == ProofKind::CompactContent {
-					proofs.push(vec![rec.output().buffer]);
+					proofs.push(vec![rec.buffer]);
 					break // TODO remove
 				} else {
-					proofs.push(rec.output().nodes);
+					proofs.push(rec.nodes);
 				}
 			}
 			let content: BTreeMap<_, _> =
