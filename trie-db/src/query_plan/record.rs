@@ -40,7 +40,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 		if self.start_at.map(|s| s > depth).unwrap_or(false) {
 			false
 		} else {
-			//self.start_at = None;
+			self.start_at = None;
 			true
 		}
 	}
