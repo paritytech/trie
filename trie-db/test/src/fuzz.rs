@@ -689,9 +689,9 @@ pub mod query_plan {
 			}
 			if !from.is_halted() {
 				if kind == ProofKind::CompactContent {
-					proofs.push(vec![from.output().buffer]);
+					proofs.push(vec![from.finish().buffer]);
 				} else {
-					proofs.push(from.output().nodes);
+					proofs.push(from.finish().nodes);
 				}
 				break
 			}

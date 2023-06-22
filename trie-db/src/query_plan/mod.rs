@@ -175,6 +175,7 @@ pub enum ProofKind {
 	CompactContent,
 }
 
+/*
 impl ProofKind {
 	// Do we need to record child hash and inline value individually.
 	fn record_inline(&self) -> bool {
@@ -184,6 +185,7 @@ impl ProofKind {
 		}
 	}
 }
+*/
 
 #[derive(Default, Clone, Copy)]
 struct Bitmap(u16);

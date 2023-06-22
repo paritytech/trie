@@ -707,7 +707,7 @@ impl<L: TrieLayout> ReadContentStack<L> {
 			ValueSet::HashOnly(h) => {
 				Value::Node(h.as_ref()) // TODO may have following hash and fail? ont if leaf
 			},
-			ValueSet::BranchHash(..) | ValueSet::None => unreachable!("Not in cache accum"),
+			ValueSet::None => unreachable!("Not in cache accum"),
 		};
 		let encoded = L::Codec::leaf_node(pr.right_iter(), pr.len(), value);
 		Self::process(encoded, is_root)
@@ -733,7 +733,7 @@ impl<L: TrieLayout> ReadContentStack<L> {
 			self.stack_empty(0);
 		}
 		let last = self.items.len() - 1;
-		let mut item = &mut self.items[last];
+		let item = &mut self.items[last];
 		let i = branch_index as usize;
 		if let Some(hash) = item.children[i].as_ref() {
 			return Err(VerifyError::ExtraneousHashReference(*hash.disp_hash()))

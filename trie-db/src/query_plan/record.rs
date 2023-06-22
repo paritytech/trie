@@ -418,7 +418,6 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 	#[must_use]
 	fn record_popped_node(&mut self, at: usize) -> bool {
 		let item = self.stack.items.get(at).expect("bounded check call");
-		let items = &self.stack.items[..at];
 		let mut res = false;
 		if !self.stack.recorder.check_start_at(item.depth) {
 			return res
@@ -494,15 +493,18 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 		//upper: u8,
 	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
 		let mut res = false;
-		let Some(item) = self.stack.items.get(at) else {
-			return Ok(res);
-		};
 		let dummy_parent_hash = TrieHash::<L>::default();
 		for i in 0..NIBBLE_LENGTH as u8 {
+			let Some(item) = self.stack.items.get(at) else {
+				return Ok(res);
+			};
 			if !item.accessed_children_node.at(i as usize) {
 				match self.stack.try_stack_child(i, None, dummy_parent_hash, None)? {
 					// only expect a stacked full prefix or not stacked here
 					TryStackChildResult::StackedFull => {
+						let Some(item) = self.stack.items.get_mut(at) else {
+							return Ok(res);
+						};
 						item.accessed_children_node.set(i as usize, true);
 						let halt = self.iter_prefix(None, None, false, true)?;
 						if halt {
@@ -518,13 +520,16 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 				}
 			}
 		}
+		let Some(item) = self.stack.items.get(at) else {
+			return Ok(res);
+		};
 		for i in 0..NIBBLE_LENGTH as u8 {
 			if !item.accessed_children_node.at(i as usize) {
 				let node_data = item.node.data();
 
 				match item.node.node_plan() {
 					NodePlan::Empty | NodePlan::Leaf { .. } => (),
-					NodePlan::Extension { child, .. } => (),
+					NodePlan::Extension { .. } => (),
 					NodePlan::NibbledBranch { children, .. } |
 					NodePlan::Branch { children, .. } =>
 						if let Some(child) = &children[i as usize] {
@@ -710,7 +715,7 @@ pub fn record_query_plan<
 				from.stack.seek = None;
 			}
 		}
-		let common_nibbles = if let Some(slice_at) = statefull.take() {
+		let _common_nibbles = if let Some(slice_at) = statefull.take() {
 			slice_at
 		} else {
 			let (ordered, common_nibbles) =
@@ -722,27 +727,27 @@ pub fn record_query_plan<
 					return Err(VerifyError::UnorderedKey(query.key.to_vec()))
 				}
 			}
+			let query_slice = LeftNibbleSlice::new(&query.key);
+			// TODO this could also be passed around from try stack result then
+			// slice_query_len
+			let common_from = query_slice.common_prefix(&from.stack.prefix.as_leftnibbleslice());
+			if common_from < common_nibbles {
+				/*if query.as_prefix {
+					let halt =
+							from.iter_prefix(Some(&query), Some(db), query.hash_only, true)?;
+						if halt {
+							return Ok(())
+						}
+				}*/
+				from_query_ref = None;
+				prev_query = Some(query);
+				continue
+			}
+			let common_nibbles = max(common_nibbles, common_from);
 			loop {
-				let mut first = true;
 				match from.stack.prefix.len().cmp(&common_nibbles) {
 					Ordering::Equal | Ordering::Less => break common_nibbles,
 					Ordering::Greater => {
-						if first {
-							// may be into a node partial in such a way we don't need pop.
-							let parent_depth = if from.stack.items.len() > 1 {
-								from.stack.items[from.stack.items.len() - 2].depth
-							} else {
-								0
-							};
-							if common_nibbles > parent_depth {
-								let query_slice = LeftNibbleSlice::new(&query.key);
-								if query_slice.starts_with(&from.stack.prefix.as_leftnibbleslice())
-								{
-									break query_slice.len()
-								}
-							}
-						}
-
 						/* TODO these seems redundant with pop try_stack call
 						if query_plan.kind.record_inline() {
 							if from.stack.items.len() > 0 {
@@ -914,7 +919,7 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 				// Returning NotStacked here sounds safe, then the is_inline field is not needed.
 				is_inline = true;
 			},
-			NodeHandle::Hash(hash) => {
+			NodeHandle::Hash(_) => {
 				if inline_only {
 					/* TODO this should write on pop not on stack...
 					if self.recorder.touched_child_hash(hash, child_index) {

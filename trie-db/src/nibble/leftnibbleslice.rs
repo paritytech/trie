@@ -82,6 +82,28 @@ impl<'a> LeftNibbleSlice<'a> {
 		(0..partial.len()).all(|i| self.at(offset + i) == Some(partial.at(i)))
 	}
 
+	/// How many of the same nibbles at the beginning do we match with `them`?
+	pub fn common_prefix(&self, them: &Self) -> usize {
+		let max = cmp::min(self.len, them.len);
+		let mut nb = 0;
+		for i in 0..(max / NIBBLE_PER_BYTE) {
+			if self.bytes[i] == them.bytes[i] {
+				nb += NIBBLE_PER_BYTE;
+			} else {
+				break
+			}
+		}
+		for i in 0..NIBBLE_PER_BYTE {
+			let s_at = self.at(nb + 1);
+			if s_at.is_some() && self.at(nb + i) == them.at(nb + i) {
+				nb += 1;
+			} else {
+				break
+			}
+		}
+		nb
+	}
+
 	fn cmp(&self, other: &Self) -> Ordering {
 		let common_len = cmp::min(self.len(), other.len());
 		let common_byte_len = common_len / NIBBLE_PER_BYTE;

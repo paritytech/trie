@@ -40,9 +40,9 @@ where
 	is_compact: bool,
 	expected_root: Option<TrieHash<L>>,
 	current: Option<QueryPlanItem<'a>>,
+	current_offset: usize,
 	state: ReadProofState,
 	stack: ReadStack<L, D>,
-	restore_offset: usize,
 }
 
 struct ReadStack<L: TrieLayout, D: SplitFirst> {
@@ -104,7 +104,7 @@ where
 		current,
 		state,
 		stack,
-		restore_offset,
+		current_offset: restore_offset,
 	})
 }
 
@@ -117,7 +117,6 @@ where
 {
 	fn halt(
 		&mut self,
-		to_check_slice: Option<&mut NibbleSlice>,
 	) -> Option<Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>> {
 		if self.is_compact {
 			let stack_to = 0; // TODO restart is different
@@ -147,9 +146,9 @@ where
 		Some(Ok(ReadProofItem::Halted(Box::new(HaltedStateCheck::Node(HaltedStateCheckNode {
 			query_plan,
 			current,
+			restore_offset: self.current_offset,
 			stack,
 			state: ReadProofState::Halted,
-			restore_offset: to_check_slice.map(|s| s.offset()).unwrap_or(0),
 		})))))
 	}
 }
@@ -174,7 +173,7 @@ where
 		let mut to_check_slice = self
 			.current
 			.as_ref()
-			.map(|n| NibbleSlice::new_offset(n.key, self.restore_offset));
+			.map(|n| NibbleSlice::new_offset(n.key, self.current_offset));
 
 		// read proof
 		loop {
@@ -197,11 +196,23 @@ where
 						}
 					}
 
+					let query_slice = LeftNibbleSlice::new(&next.key);
+					// TODO this could also be passed around from try stack result then
+					// slice_query_len
+					let common_from =
+						query_slice.common_prefix(&self.stack.prefix.as_leftnibbleslice());
+					if common_from < common_nibbles {
+						self.current = Some(next);
+						self.state = ReadProofState::SwitchQueryPlan;
+						continue
+					}
+
 					let r = self.stack.pop_until(common_nibbles, &self.expected_root, false);
 					if let Err(e) = r {
 						self.state = ReadProofState::Finished;
 						return Some(Err(e))
 					}
+
 					self.state = ReadProofState::Running;
 					self.current = Some(next);
 					to_check_slice = self
@@ -254,7 +265,6 @@ where
 						&mut self.proof,
 						&self.expected_root,
 						None,
-						false,
 					) {
 						Ok(r) => r,
 						Err(e) => {
@@ -262,14 +272,15 @@ where
 							return Some(Err(e))
 						},
 					};
+					self.current_offset = to_check_slice.map(|s| s.offset()).unwrap_or(0);
 					match r {
-						TryStackChildResult::Stacked => {
+						TryStackChildResult::StackedFull => {
 							self.stack.iter_prefix.as_mut().map(|p| {
 								p.1 = false;
 							});
 							break
 						},
-						TryStackChildResult::StackedDescendIncomplete => {
+						TryStackChildResult::StackedAfter | TryStackChildResult::StackedInto => {
 							unreachable!("slice query none");
 						},
 						TryStackChildResult::NotStacked => break,
@@ -278,7 +289,7 @@ where
 							if let Some(last) = self.stack.items.last_mut() {
 								last.next_descended_child -= 1;
 							}
-							return self.halt(None)
+							return self.halt()
 						},
 					}
 				}
@@ -300,6 +311,7 @@ where
 				self.state = ReadProofState::SwitchQueryPlan;
 				continue
 			}
+
 			let to_check = self.current.as_ref().expect("Init above");
 			let to_check_len = to_check.key.len() * nibble_ops::NIBBLE_PER_BYTE;
 			let mut to_check_slice = to_check_slice.as_mut().expect("Init above");
@@ -313,7 +325,10 @@ where
 					},
 				Ordering::Less => (),
 				Ordering::Greater => {
-					unreachable!();
+					// two consecutive query in a node that hide them (two miss in a same proof
+					// node).
+					self.state = ReadProofState::SwitchQueryPlan;
+					continue
 				},
 			}
 
@@ -348,7 +363,6 @@ where
 				&mut self.proof,
 				&self.expected_root,
 				Some(&mut to_check_slice),
-				to_check.as_prefix,
 			) {
 				Ok(r) => r,
 				Err(e) => {
@@ -356,13 +370,18 @@ where
 					return Some(Err(e))
 				},
 			};
+			self.current_offset = to_check_slice.offset();
 			match r {
-				TryStackChildResult::Stacked => (),
-				TryStackChildResult::StackedDescendIncomplete => {
+				TryStackChildResult::StackedFull => (),
+				TryStackChildResult::StackedInto => {
 					if as_prefix {
 						self.stack.enter_prefix_iter(hash_only);
 						continue
 					}
+					self.state = ReadProofState::SwitchQueryPlan;
+					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
+				},
+				TryStackChildResult::StackedAfter => {
 					self.state = ReadProofState::SwitchQueryPlan;
 					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
 				},
@@ -374,7 +393,7 @@ where
 					self.state = ReadProofState::SwitchQueryPlan;
 					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
 				},
-				TryStackChildResult::Halted => return self.halt(Some(to_check_slice)),
+				TryStackChildResult::Halted => return self.halt(),
 			}
 		}
 
@@ -443,7 +462,6 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 		proof: &mut impl Iterator<Item = D>,
 		expected_root: &Option<TrieHash<L>>,
 		mut slice_query: Option<&mut NibbleSlice>,
-		query_prefix: bool,
 	) -> Result<TryStackChildResult, VerifyError<TrieHash<L>, CError<L>>> {
 		let check_hash = expected_root.is_some();
 		let child_handle = if let Some(node) = self.items.last_mut() {
@@ -474,9 +492,9 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 				if self.is_compact && data.len() == 0 {
 					// ommitted hash
 					let Some(mut encoded_node) = proof.next() else {
-					// halt happens with a hash, this is not.
-					return Err(VerifyError::IncompleteProof);
-				};
+						// halt happens with a hash, this is not.
+						return Err(VerifyError::IncompleteProof);
+					};
 					if self.is_compact &&
 						encoded_node.borrow().len() > 0 &&
 						Some(encoded_node.borrow()[0]) ==
@@ -530,8 +548,7 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 			},
 		};
 		let node_data = node.data();
-
-		let mut prefix_incomplete = false;
+		let mut result = TryStackChildResult::StackedFull;
 		match node.node_plan() {
 			NodePlan::Branch { .. } => (),
 			| NodePlan::Empty => (),
@@ -542,35 +559,28 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 				if self.items.len() > 0 {
 					if let Some(slice) = slice_query.as_mut() {
 						slice.advance(1);
+						self.prefix.push(child_index);
 					}
 				}
-				let ok = if let Some(slice) = slice_query.as_mut() {
+				result = if let Some(slice) = slice_query.as_mut() {
 					if slice.starts_with(&partial) {
-						true
-					} else if query_prefix {
-						prefix_incomplete = true;
-						partial.starts_with(slice)
+						TryStackChildResult::StackedFull
+					} else if partial.starts_with(slice) {
+						TryStackChildResult::StackedInto
 					} else {
-						false
+						TryStackChildResult::StackedAfter
 					}
 				} else {
-					true
+					TryStackChildResult::StackedInto
 				};
-				if prefix_incomplete {
+				if result == TryStackChildResult::StackedAfter {
 					// end of query
 					slice_query = None;
 				}
-				if ok {
-					if self.items.len() > 0 {
-						self.prefix.push(child_index);
-					}
-					if let Some(slice) = slice_query.as_mut() {
-						slice.advance(partial.len());
-					}
-					self.prefix.append_partial(partial.right());
-				} else {
-					return Ok(TryStackChildResult::NotStacked)
+				if let Some(slice) = slice_query.as_mut() {
+					slice.advance(partial.len());
 				}
+				self.prefix.append_partial(partial.right());
 			},
 		}
 		if let NodePlan::Extension { child, .. } = node.node_plan() {
@@ -627,11 +637,7 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 			parent.next_descended_child = child_index + 1;
 		});
 		self.items.push(node);
-		if prefix_incomplete {
-			Ok(TryStackChildResult::StackedDescendIncomplete)
-		} else {
-			Ok(TryStackChildResult::Stacked)
-		}
+		Ok(result)
 	}
 
 	fn access_value(
