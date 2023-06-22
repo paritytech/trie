@@ -991,7 +991,7 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 			stack_extension = true;
 		}
 		let next_descended_child = if let Some(seek) = self.seek.as_ref() {
-			if result == TryStackChildResult::StackedFull && prefix.len() < seek.len() {
+			if result != TryStackChildResult::StackedAfter && prefix.len() < seek.len() {
 				seek.at(prefix.len())
 			} else {
 				self.seek = None;

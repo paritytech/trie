@@ -265,6 +265,7 @@ where
 						&mut self.proof,
 						&self.expected_root,
 						None,
+						false,
 					) {
 						Ok(r) => r,
 						Err(e) => {
@@ -363,6 +364,7 @@ where
 				&mut self.proof,
 				&self.expected_root,
 				Some(&mut to_check_slice),
+				as_prefix,
 			) {
 				Ok(r) => r,
 				Err(e) => {
@@ -462,6 +464,7 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 		proof: &mut impl Iterator<Item = D>,
 		expected_root: &Option<TrieHash<L>>,
 		mut slice_query: Option<&mut NibbleSlice>,
+		query_as_prefix: bool,
 	) -> Result<TryStackChildResult, VerifyError<TrieHash<L>, CError<L>>> {
 		let check_hash = expected_root.is_some();
 		let child_handle = if let Some(node) = self.items.last_mut() {
@@ -559,8 +562,8 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 				if self.items.len() > 0 {
 					if let Some(slice) = slice_query.as_mut() {
 						slice.advance(1);
-						self.prefix.push(child_index);
 					}
+					self.prefix.push(child_index);
 				}
 				result = if let Some(slice) = slice_query.as_mut() {
 					if slice.starts_with(&partial) {
@@ -571,14 +574,15 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 						TryStackChildResult::StackedAfter
 					}
 				} else {
-					TryStackChildResult::StackedInto
+					TryStackChildResult::StackedFull
 				};
 				if result == TryStackChildResult::StackedAfter {
 					// end of query
 					slice_query = None;
-				}
-				if let Some(slice) = slice_query.as_mut() {
-					slice.advance(partial.len());
+				} else if let Some(slice) = slice_query.as_mut() {
+					if !query_as_prefix {
+						slice.advance(partial.len());
+					}
 				}
 				self.prefix.append_partial(partial.right());
 			},

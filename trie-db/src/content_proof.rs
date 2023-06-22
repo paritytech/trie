@@ -99,7 +99,7 @@ impl VarInt {
 
 #[test]
 fn varint_encode_decode() {
-	let mut buf = super::InMemoryRecorder::default();
+	let mut buf = crate::query_plan::InMemoryRecorder::default();
 	for i in 0..u16::MAX as u32 + 1 {
 		VarInt(i).encode_into(&mut buf);
 		assert_eq!(buf.buffer.len(), VarInt(i).encoded_len());
