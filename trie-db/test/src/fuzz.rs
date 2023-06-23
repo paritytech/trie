@@ -673,7 +673,11 @@ pub mod query_plan {
 	}
 
 	/// Main entry point for query plan fuzzing.
-	pub fn fuzz_query_plan_conf<L: TrieLayout>(context: &FuzzContext<L>, conf: Conf, plan: ArbitraryQueryPlan) {
+	pub fn fuzz_query_plan_conf<L: TrieLayout>(
+		context: &FuzzContext<L>,
+		conf: Conf,
+		plan: ArbitraryQueryPlan,
+	) {
 		let query_plan = arbitrary_query_plan(context, plan);
 
 		let kind = conf.kind;
@@ -759,6 +763,35 @@ pub mod query_plan {
 		let context: FuzzContext<SubstrateV1<RefHasher>> = build_state(CONF1);
 		for plan in plans {
 			fuzz_query_plan::<SubstrateV1<RefHasher>>(&context, plan.clone());
+		}
+	}
+
+	#[test]
+	fn fuzz_query_plan_2() {
+		use reference_trie::{RefHasher, SubstrateV1};
+		let plans = [
+			ArbitraryQueryPlan(vec![
+				(false, ArbitraryKey::Indexed(18446475631341993995)),
+				(true, ArbitraryKey::Indexed(254)),
+			]),
+			ArbitraryQueryPlan(vec![(
+				true,
+				ArbitraryKey::Random(vec![252, 63, 149, 166, 164, 38]),
+			)]),
+			ArbitraryQueryPlan(vec![(false, ArbitraryKey::Indexed(459829968682))]),
+			ArbitraryQueryPlan(vec![
+				(false, ArbitraryKey::Indexed(17942346408707227648)),
+				(false, ArbitraryKey::Indexed(37833)),
+			]),
+			ArbitraryQueryPlan(vec![(true, ArbitraryKey::Indexed(43218140957))]),
+			ArbitraryQueryPlan(vec![]),
+		];
+		let mut conf = CONF1.clone();
+		let context: FuzzContext<SubstrateV1<RefHasher>> = build_state(CONF1);
+		for plan in plans {
+			conf.limit = 2;
+			conf.proof_spawn_with_persistence = true;
+			fuzz_query_plan_conf::<SubstrateV1<RefHasher>>(&context, conf, plan.clone());
 		}
 	}
 }

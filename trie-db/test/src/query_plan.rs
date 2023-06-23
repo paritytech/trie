@@ -44,7 +44,7 @@ fn test_query_plan_compact_internal<L: TrieLayout>() {
 test_layouts!(test_query_plan_content, test_query_plan_content_internal);
 fn test_query_plan_content_internal<L: TrieLayout>() {
 	test_query_plan_internal::<L>(ProofKind::CompactContent, false);
-	//test_query_plan_internal::<L>(ProofKind::CompactNodes, true);
+	test_query_plan_internal::<L>(ProofKind::CompactNodes, true);
 }
 
 fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
