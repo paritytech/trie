@@ -972,16 +972,17 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 				prefix.append_partial(partial.right());
 				if let Some(s) = slice_query.as_mut() {
 					let common = partial.common_prefix(s);
-					s.advance(common);
 					// s starts with partial
-					if common == partial.len() {
+					let r = if common == partial.len() {
 						TryStackChildResult::StackedFull
 					} else if common == s.len() {
 						// partial strats with s
 						TryStackChildResult::StackedInto
 					} else {
 						TryStackChildResult::StackedAfter
-					}
+					};
+					s.advance(common);
+					r
 				} else {
 					TryStackChildResult::StackedFull
 				}
