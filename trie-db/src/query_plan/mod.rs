@@ -612,7 +612,7 @@ pub enum ReadProofItem<'a, L: TrieLayout, C, D: SplitFirst> {
 	/// return when we read the proof with the query input (otherwhise
 	/// we would need to indicate every child without a hash as a prefix).
 	/// TODO unused implement
-	StartPrefix(&'a [u8]),
+	StartPrefix(Vec<u8>),
 	/// End of a previously start prefix.
 	/// TODO unused implement
 	EndPrefix,
