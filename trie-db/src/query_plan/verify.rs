@@ -201,7 +201,13 @@ where
 					// slice_query_len
 					let common_from =
 						query_slice.common_prefix(&self.stack.prefix.as_leftnibbleslice());
-					if common_from <= common_nibbles && common_from != 0 {
+					let last_start_at = if self.stack.items.len() > 1 {
+						self.stack.items[self.stack.items.len() - 2].depth
+					} else {
+						0
+					};
+					if common_from > last_start_at {
+						//					if common_from <= common_nibbles && common_from != 0 {
 						self.current = Some(next);
 						self.state = ReadProofState::SwitchQueryPlan;
 						continue
