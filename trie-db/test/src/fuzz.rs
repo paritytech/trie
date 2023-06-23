@@ -668,12 +668,18 @@ pub mod query_plan {
 
 	/// Main entry point for query plan fuzzing.
 	pub fn fuzz_query_plan<L: TrieLayout>(context: &FuzzContext<L>, plan: ArbitraryQueryPlan) {
+		let conf = context.conf.clone();
+		fuzz_query_plan_conf(context, conf, plan);
+	}
+
+	/// Main entry point for query plan fuzzing.
+	pub fn fuzz_query_plan_conf<L: TrieLayout>(context: &FuzzContext<L>, conf: Conf, plan: ArbitraryQueryPlan) {
 		let query_plan = arbitrary_query_plan(context, plan);
 
-		let kind = context.conf.kind;
-		let limit = context.conf.limit;
+		let kind = conf.kind;
+		let limit = conf.limit;
 		let limit = (limit != 0).then(|| limit);
-		let recorder = Recorder::new(context.conf.kind, InMemoryRecorder::default(), limit, None);
+		let recorder = Recorder::new(conf.kind, InMemoryRecorder::default(), limit, None);
 		let mut from = HaltedStateRecord::from_start(recorder);
 		let mut proofs: Vec<Vec<Vec<u8>>> = Default::default();
 		let mut query_plan_iter = query_plan.as_ref();
@@ -695,7 +701,7 @@ pub mod query_plan {
 				}
 				break
 			}
-			let rec = if context.conf.proof_spawn_with_persistence {
+			let rec = if conf.proof_spawn_with_persistence {
 				from.statefull(Recorder::new(kind, InMemoryRecorder::default(), limit, None))
 			} else {
 				query_plan_iter = query_plan.as_ref();
@@ -711,10 +717,10 @@ pub mod query_plan {
 		crate::query_plan::check_proofs::<L>(
 			proofs,
 			&query_plan,
-			context.conf.kind,
+			conf.kind,
 			context.root,
 			&context.reference,
-			context.conf.hash_only,
+			conf.hash_only,
 		);
 	}
 

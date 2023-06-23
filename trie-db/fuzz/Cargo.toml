@@ -75,3 +75,7 @@ path = "fuzz_targets/prefix_seek_iter.rs"
 [[bin]]
 name = "query_plan_1"
 path = "fuzz_targets/query_plan_1.rs"
+
+[[bin]]
+name = "query_plan_2"
+path = "fuzz_targets/query_plan_2.rs"
