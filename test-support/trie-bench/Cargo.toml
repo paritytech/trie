@@ -14,5 +14,5 @@ hash-db = { path = "../../hash-db" , version = "0.16.0"}
 memory-db = { path = "../../memory-db", version = "0.32.0" }
 trie-root = { path = "../../trie-root", version = "0.18.0" }
 trie-db = { path = "../../trie-db", version = "0.27.0" }
-criterion = "0.4.0"
+criterion = "0.5.1"
 parity-scale-codec = "3.0.0"
