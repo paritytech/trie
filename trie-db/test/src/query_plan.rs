@@ -24,7 +24,7 @@ use trie_db::{
 	query_plan::{
 		record_query_plan, verify_query_plan_iter, verify_query_plan_iter_content,
 		HaltedStateCheck, HaltedStateRecord, InMemQueryPlan, InMemQueryPlanItem, InMemoryRecorder,
-		ProofKind, QueryPlan, ReadProofItem, Recorder,
+		ProofKind, QueryPlan, QueryPlanItem, ReadProofItem, Recorder,
 	},
 	TrieDBBuilder, TrieDBMutBuilder, TrieHash, TrieLayout, TrieMut,
 };
@@ -443,6 +443,7 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 		}
 	}
 }
+
 /// Proof checking.
 pub fn check_proofs<L: TrieLayout>(
 	mut proofs: Vec<Vec<Vec<u8>>>,
@@ -462,6 +463,8 @@ pub fn check_proofs<L: TrieLayout>(
 	} else {
 		HaltedStateCheck::Node(query_plan.into())
 	});
+	let mut query_plan_iter: QueryPlan<_> = query_plan_in_mem.as_ref();
+	let mut current_plan = query_plan_iter.items.next();
 	let mut has_run_full = false;
 	while let Some(state) = run_state.take() {
 		let proof = if let Some(proof) = proofs.pop() {
@@ -511,26 +514,80 @@ pub fn check_proofs<L: TrieLayout>(
 		};
 
 		let mut in_prefix = false;
-		// TODO need stricter check of query plan (advance query plan iter and expect all items
-		// touched!!!
 		while let Some(item) = next_item() {
 			match item.unwrap() {
 				ReadProofItem::Hash(key, hash) => {
 					assert!(hash_only);
 					assert_eq!(content.get(&*key).map(|v| L::Hash::hash(&v.as_ref())), Some(hash));
+					if in_prefix {
+						assert!(current_plan
+							.as_ref()
+							.map(|item| key.starts_with(item.key) &&
+								item.hash_only && item.as_prefix)
+							.unwrap_or(false));
+					} else {
+						assert_eq!(
+							current_plan.as_ref(),
+							Some(&QueryPlanItem { key: &key, hash_only: true, as_prefix: false })
+						);
+						current_plan = query_plan_iter.items.next();
+					}
 				},
 				ReadProofItem::Value(key, value) => {
 					assert_eq!(content.get(&*key), Some(value.as_ref()));
+					if in_prefix {
+						assert!(current_plan
+							.as_ref()
+							.map(|item| key.starts_with(item.key) &&
+								!item.hash_only && item.as_prefix)
+							.unwrap_or(false));
+					} else {
+						assert_eq!(
+							current_plan.as_ref(),
+							Some(&QueryPlanItem { key: &key, hash_only: false, as_prefix: false })
+						);
+						current_plan = query_plan_iter.items.next();
+					}
 				},
 				ReadProofItem::NoValue(key) => {
 					assert_eq!(content.get(key), None);
+					assert!(!in_prefix);
+					if hash_only {
+						assert_eq!(
+							current_plan.as_ref(),
+							Some(&QueryPlanItem { key: &key, hash_only: true, as_prefix: false })
+						);
+					} else {
+						assert_eq!(
+							current_plan.as_ref(),
+							Some(&QueryPlanItem { key: &key, hash_only: false, as_prefix: false })
+						);
+					}
+					current_plan = query_plan_iter.items.next();
 				},
-				ReadProofItem::StartPrefix(_prefix) => {
+				ReadProofItem::StartPrefix(prefix) => {
 					in_prefix = true;
+					if hash_only {
+						assert_eq!(
+							current_plan.as_ref(),
+							Some(&QueryPlanItem { key: &prefix, hash_only: true, as_prefix: true })
+						);
+					} else {
+						assert_eq!(
+							current_plan.as_ref(),
+							Some(&QueryPlanItem {
+								key: &prefix,
+								hash_only: false,
+								as_prefix: true
+							})
+						);
+					}
 				},
 				ReadProofItem::EndPrefix => {
 					assert!(in_prefix);
 					in_prefix = false;
+					assert!(current_plan.as_ref().map(|item| item.as_prefix).unwrap_or(false));
+					current_plan = query_plan_iter.items.next();
 				},
 				ReadProofItem::Halted(resume) => {
 					run_state = Some(*resume);
@@ -538,14 +595,20 @@ pub fn check_proofs<L: TrieLayout>(
 				},
 			}
 		}
+		if run_state.is_none() {
+			assert_eq!(current_plan.as_ref(), None)
+		}
 		if kind == ProofKind::FullNodes {
 			if run_state.is_none() && !has_run_full {
 				has_run_full = true;
-				let query_plan_iter = query_plan_in_mem.as_ref();
+				query_plan_iter = query_plan_in_mem.as_ref();
+				current_plan = query_plan_iter.items.next();
+
+				let query_plan_iter_2 = query_plan_in_mem.as_ref();
 				run_state = Some(if is_content_proof {
-					HaltedStateCheck::Content(query_plan_iter.into())
+					HaltedStateCheck::Content(query_plan_iter_2.into())
 				} else {
-					HaltedStateCheck::Node(query_plan_iter.into())
+					HaltedStateCheck::Node(query_plan_iter_2.into())
 				});
 			}
 		} else {
