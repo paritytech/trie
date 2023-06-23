@@ -734,7 +734,14 @@ pub mod query_plan {
 	fn fuzz_query_plan_1() {
 		use reference_trie::{RefHasher, SubstrateV1};
 		let plans = [
-			ArbitraryQueryPlan(vec![(true, ArbitraryKey::Random(vec![252, 63,149, 166, 164, 38]))]),
+			ArbitraryQueryPlan(vec![
+				(false, ArbitraryKey::Indexed(18446475631341993995)),
+				(true, ArbitraryKey::Indexed(254)),
+			]),
+			ArbitraryQueryPlan(vec![(
+				true,
+				ArbitraryKey::Random(vec![252, 63, 149, 166, 164, 38]),
+			)]),
 			ArbitraryQueryPlan(vec![(false, ArbitraryKey::Indexed(459829968682))]),
 			ArbitraryQueryPlan(vec![
 				(false, ArbitraryKey::Indexed(17942346408707227648)),

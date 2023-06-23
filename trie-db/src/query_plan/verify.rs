@@ -201,7 +201,9 @@ where
 					// slice_query_len
 					let common_from =
 						query_slice.common_prefix(&self.stack.prefix.as_leftnibbleslice());
-					if common_from < common_nibbles {
+					if common_from <= common_nibbles
+					/* && common_from != 0 */
+					{
 						self.current = Some(next);
 						self.state = ReadProofState::SwitchQueryPlan;
 						continue

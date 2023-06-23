@@ -731,7 +731,9 @@ pub fn record_query_plan<
 			// TODO this could also be passed around from try stack result then
 			// slice_query_len
 			let common_from = query_slice.common_prefix(&from.stack.prefix.as_leftnibbleslice());
-			if common_from < common_nibbles {
+			if common_from <= common_nibbles
+			/* && common_from != 1000 */
+			{
 				/*if query.as_prefix {
 					let halt =
 							from.iter_prefix(Some(&query), Some(db), query.hash_only, true)?;
@@ -743,7 +745,7 @@ pub fn record_query_plan<
 				prev_query = Some(query);
 				continue
 			}
-			let common_nibbles = max(common_nibbles, common_from);
+			//let common_nibbles = max(common_nibbles, common_from);
 			loop {
 				match from.stack.prefix.len().cmp(&common_nibbles) {
 					Ordering::Equal | Ordering::Less => break common_nibbles,
