@@ -466,6 +466,7 @@ pub fn check_proofs<L: TrieLayout>(
 	let mut query_plan_iter: QueryPlan<_> = query_plan_in_mem.as_ref();
 	let mut current_plan = query_plan_iter.items.next();
 	let mut has_run_full = false;
+	let mut in_prefix = false;
 	while let Some(state) = run_state.take() {
 		let proof = if let Some(proof) = proofs.pop() {
 			full_proof.extend_from_slice(&proof);
@@ -513,7 +514,6 @@ pub fn check_proofs<L: TrieLayout>(
 			}
 		};
 
-		let mut in_prefix = false;
 		while let Some(item) = next_item() {
 			match item.unwrap() {
 				ReadProofItem::Hash(key, hash) => {

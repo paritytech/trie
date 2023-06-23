@@ -43,6 +43,8 @@ where
 	current_offset: usize,
 	state: ReadProofState,
 	stack: ReadStack<L, D>,
+	send_enter_prefix: Option<Vec<u8>>,
+	send_exit_prefix: bool,
 	buffed_result:
 		Option<Option<Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>>>,
 }
@@ -55,8 +57,6 @@ struct ReadStack<L: TrieLayout, D: SplitFirst> {
 	start_items: usize,
 	is_compact: bool,
 	expect_value: bool,
-	send_enter_prefix: Option<Vec<u8>>,
-	send_exit_prefix: bool,
 	_ph: PhantomData<L>,
 }
 
@@ -69,8 +69,6 @@ impl<L: TrieLayout, D: SplitFirst> Clone for ReadStack<L, D> {
 			iter_prefix: self.iter_prefix,
 			is_compact: self.is_compact,
 			expect_value: self.expect_value,
-			send_enter_prefix: self.send_enter_prefix.clone(),
-			send_exit_prefix: self.send_exit_prefix,
 			_ph: PhantomData,
 		}
 	}
@@ -111,6 +109,8 @@ where
 		state,
 		stack,
 		current_offset: restore_offset,
+		send_enter_prefix: None,
+		send_exit_prefix: false,
 		buffed_result: None,
 	})
 }
@@ -137,8 +137,6 @@ where
 		let query_plan = crate::rstd::mem::replace(&mut self.query_plan, None);
 		let query_plan = query_plan.expect("Init with state");
 		let current = crate::rstd::mem::take(&mut self.current);
-		debug_assert!(!self.stack.send_exit_prefix);
-		debug_assert!(self.stack.send_enter_prefix.is_none());
 		let mut stack = crate::rstd::mem::replace(
 			&mut self.stack,
 			ReadStack {
@@ -148,8 +146,6 @@ where
 				is_compact: self.is_compact,
 				expect_value: false,
 				iter_prefix: None,
-				send_enter_prefix: None,
-				send_exit_prefix: false,
 				_ph: PhantomData,
 			},
 		);
@@ -161,6 +157,16 @@ where
 			stack,
 			state: ReadProofState::Halted,
 		})))))
+	}
+
+	fn enter_prefix_iter(&mut self, hash_only: bool, key: &[u8]) {
+		self.send_enter_prefix = Some(key.to_vec());
+		self.stack.iter_prefix = Some((self.stack.items.len(), false, hash_only));
+	}
+
+	fn exit_prefix_iter(&mut self) {
+		self.send_exit_prefix = true;
+		self.stack.iter_prefix = None
 	}
 }
 
@@ -174,19 +180,19 @@ where
 	type Item = Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		debug_assert!(self.stack.send_enter_prefix.is_none());
-		debug_assert!(!self.stack.send_exit_prefix);
+		debug_assert!(self.send_enter_prefix.is_none());
+		debug_assert!(!self.send_exit_prefix);
 		if let Some(r) = self.buffed_result.take() {
 			return r
 		}
 		let r = self.next_inner();
-		if let Some(k) = self.stack.send_enter_prefix.take() {
+		if let Some(k) = self.send_enter_prefix.take() {
 			self.buffed_result = Some(r);
 			return Some(Ok(ReadProofItem::StartPrefix(k)))
 		}
-		if self.stack.send_exit_prefix {
+		if self.send_exit_prefix {
 			self.buffed_result = Some(r);
-			self.stack.send_exit_prefix = false;
+			self.send_exit_prefix = false;
 			return Some(Ok(ReadProofItem::EndPrefix))
 		} else {
 			r
@@ -349,7 +355,7 @@ where
 						},
 					} {
 						// end iter
-						self.stack.exit_prefix_iter();
+						self.exit_prefix_iter();
 					}
 				}
 			}
@@ -381,7 +387,7 @@ where
 
 			if at_value {
 				if as_prefix {
-					self.stack.enter_prefix_iter(
+					self.enter_prefix_iter(
 						hash_only,
 						&self.current.as_ref().expect("enter prefix").key,
 					);
@@ -425,7 +431,7 @@ where
 				TryStackChildResult::StackedFull => (),
 				TryStackChildResult::StackedInto => {
 					if as_prefix {
-						self.stack.enter_prefix_iter(
+						self.enter_prefix_iter(
 							hash_only,
 							&self.current.as_ref().expect("enter prefix").key,
 						);
@@ -498,8 +504,6 @@ impl<'a, L: TrieLayout, C, D: SplitFirst> From<QueryPlan<'a, C>>
 				is_compact,
 				expect_value: false,
 				iter_prefix: None,
-				send_enter_prefix: None,
-				send_exit_prefix: false,
 				_ph: PhantomData,
 			},
 			state: ReadProofState::NotStarted,
@@ -901,15 +905,5 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 		}
 		// TODO other error
 		Err(VerifyError::ExtraneousNode)
-	}
-
-	fn enter_prefix_iter(&mut self, hash_only: bool, key: &[u8]) {
-		self.send_enter_prefix = Some(key.to_vec());
-		self.iter_prefix = Some((self.items.len(), false, hash_only));
-	}
-
-	fn exit_prefix_iter(&mut self) {
-		self.send_exit_prefix = true;
-		self.iter_prefix = None
 	}
 }
