@@ -254,10 +254,10 @@ where
 						0
 					};
 					if common_from > last_start_at {
-						//					if common_from <= common_nibbles && common_from != 0 {
+						// if common_from <= common_nibbles && common_from != 0 {
 						self.current = Some(next);
-						self.state = ReadProofState::SwitchQueryPlan;
-						continue
+						let current = self.current.as_ref().expect("current is set");
+						return self.missing_switch_next(current.as_prefix, current.key)
 					}
 
 					let r = self.stack.pop_until(common_nibbles, &self.expected_root, false);
@@ -380,8 +380,7 @@ where
 				Ordering::Greater => {
 					// two consecutive query in a node that hide them (two miss in a same proof
 					// node).
-					self.state = ReadProofState::SwitchQueryPlan;
-					continue
+					return self.missing_switch_next(as_prefix, to_check.key)
 				},
 			}
 
@@ -443,13 +442,7 @@ where
 				TryStackChildResult::NotStackedBranch |
 				TryStackChildResult::NotStacked |
 				TryStackChildResult::StackedAfter => {
-					self.state = ReadProofState::SwitchQueryPlan;
-					if as_prefix {
-						self.send_enter_prefix = Some(to_check.key.to_vec());
-						return Some(Ok(ReadProofItem::EndPrefix))
-					} else {
-						return Some(Ok(ReadProofItem::NoValue(to_check.key)))
-					}
+					return self.missing_switch_next(as_prefix, to_check.key)
 				},
 				TryStackChildResult::Halted => return self.halt(),
 			}
@@ -472,6 +465,20 @@ where
 		}
 		self.state = ReadProofState::Finished;
 		return None
+	}
+
+	fn missing_switch_next(
+		&mut self,
+		as_prefix: bool,
+		key: &'a [u8],
+	) -> Option<Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>> {
+		self.state = ReadProofState::SwitchQueryPlan;
+		if as_prefix {
+			self.send_enter_prefix = Some(key.to_vec());
+			return Some(Ok(ReadProofItem::EndPrefix))
+		} else {
+			return Some(Ok(ReadProofItem::NoValue(key)))
+		}
 	}
 }
 
