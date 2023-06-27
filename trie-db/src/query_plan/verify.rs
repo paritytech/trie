@@ -440,17 +440,16 @@ where
 					self.state = ReadProofState::SwitchQueryPlan;
 					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
 				},
+				TryStackChildResult::NotStackedBranch |
+				TryStackChildResult::NotStacked |
 				TryStackChildResult::StackedAfter => {
 					self.state = ReadProofState::SwitchQueryPlan;
-					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
-				},
-				TryStackChildResult::NotStacked => {
-					self.state = ReadProofState::SwitchQueryPlan;
-					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
-				},
-				TryStackChildResult::NotStackedBranch => {
-					self.state = ReadProofState::SwitchQueryPlan;
-					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
+					if as_prefix {
+						self.send_enter_prefix = Some(to_check.key.to_vec());
+						return Some(Ok(ReadProofItem::EndPrefix))
+					} else {
+						return Some(Ok(ReadProofItem::NoValue(to_check.key)))
+					}
 				},
 				TryStackChildResult::Halted => return self.halt(),
 			}
