@@ -231,6 +231,7 @@ where
 				return Some(Ok(ReadProofItem::EndPrefix))
 			}
 			if self.state == ReadProofState::SwitchQueryPlan ||
+				self.state == ReadProofState::SwitchQueryPlanInto ||
 				self.state == ReadProofState::NotStarted
 			{
 				let query_plan = self.query_plan.as_mut().expect("Removed with state");
@@ -255,7 +256,8 @@ where
 					let common_from =
 						query_slice.common_prefix(&self.stack.prefix.as_leftnibbleslice());
 					let last_start_at = if self.stack.items.len() > 1 {
-						self.stack.items[self.stack.items.len() - 2].depth
+						self.stack.items[self.stack.items.len() - 2].depth +
+							if self.state == ReadProofState::SwitchQueryPlanInto { 0 } else { 1 }
 					} else {
 						0
 					};
@@ -263,9 +265,10 @@ where
 						// if common_from <= common_nibbles && common_from != 0 {
 						self.current = Some(next);
 						let current = self.current.as_ref().expect("current is set");
-						return self.missing_switch_next(current.as_prefix, current.key)
+						return self.missing_switch_next(current.as_prefix, current.key, false)
 					}
 
+					//					let common_nibbles = min(common_nibbles, common_from);
 					let r = self.stack.pop_until(common_nibbles, &self.expected_root, false);
 					if let Err(e) = r {
 						self.state = ReadProofState::Finished;
@@ -386,7 +389,7 @@ where
 				Ordering::Greater => {
 					// two consecutive query in a node that hide them (two miss in a same proof
 					// node).
-					return self.missing_switch_next(as_prefix, to_check.key)
+					return self.missing_switch_next(as_prefix, to_check.key, false)
 				},
 			}
 
@@ -398,7 +401,7 @@ where
 					);
 					continue
 				}
-				self.state = ReadProofState::SwitchQueryPlan;
+				self.state = ReadProofState::SwitchQueryPlanInto;
 				match self.stack.access_value(&mut self.proof, check_hash, hash_only) {
 					Ok((Some(value), None)) =>
 						return Some(Ok(ReadProofItem::Value(to_check.key.into(), value))),
@@ -442,12 +445,13 @@ where
 						);
 						continue
 					}
-					self.state = ReadProofState::SwitchQueryPlan;
+					self.state = ReadProofState::SwitchQueryPlanInto;
 					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
 				},
-				TryStackChildResult::NotStackedBranch |
-				TryStackChildResult::NotStacked |
-				TryStackChildResult::StackedAfter => return self.missing_switch_next(as_prefix, to_check.key),
+				TryStackChildResult::NotStackedBranch | TryStackChildResult::NotStacked =>
+					return self.missing_switch_next(as_prefix, to_check.key, false),
+				TryStackChildResult::StackedAfter =>
+					return self.missing_switch_next(as_prefix, to_check.key, true),
 				TryStackChildResult::Halted => return self.halt(),
 			}
 		}
@@ -475,8 +479,13 @@ where
 		&mut self,
 		as_prefix: bool,
 		key: &'a [u8],
+		into: bool,
 	) -> Option<Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>> {
-		self.state = ReadProofState::SwitchQueryPlan;
+		self.state = if into {
+			ReadProofState::SwitchQueryPlanInto
+		} else {
+			ReadProofState::SwitchQueryPlan
+		};
 		if as_prefix {
 			self.send_enter_prefix = Some(key.to_vec());
 			return Some(Ok(ReadProofItem::EndPrefix))

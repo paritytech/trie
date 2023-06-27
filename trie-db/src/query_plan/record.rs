@@ -695,6 +695,7 @@ pub fn record_query_plan<
 	let mut prev_query: Option<QueryPlanItem> = None;
 	let from_query = from.currently_query_item.take();
 	let mut from_query_ref = from_query.as_ref().map(|f| f.as_ref());
+	let mut prev_stacked_into = true;
 	while let Some(query) = from_query_ref.clone().or_else(|| query_plan.items.next()) {
 		if stateless {
 			// advance query plan
@@ -732,7 +733,8 @@ pub fn record_query_plan<
 			// slice_query_len
 			let common_from = query_slice.common_prefix(&from.stack.prefix.as_leftnibbleslice());
 			let last_start_at = if from.stack.items.len() > 1 {
-				from.stack.items[from.stack.items.len() - 2].depth
+				from.stack.items[from.stack.items.len() - 2].depth +
+					if prev_stacked_into { 0 } else { 1 }
 			} else {
 				0
 			};
@@ -749,7 +751,7 @@ pub fn record_query_plan<
 				prev_query = Some(query);
 				continue
 			}
-			//let common_nibbles = max(common_nibbles, common_from);
+			//	let common_nibbles = min(common_nibbles, common_from);
 			loop {
 				match from.stack.prefix.len().cmp(&common_nibbles) {
 					Ordering::Equal | Ordering::Less => break common_nibbles,
@@ -769,6 +771,7 @@ pub fn record_query_plan<
 				}
 			}
 		};
+		prev_stacked_into = true;
 		if let Some((_, hash_only)) = from.stack.iter_prefix.clone() {
 			// statefull halted during iteration.
 			let halt = from.iter_prefix(Some(&query), Some(db), hash_only, false)?;
@@ -817,9 +820,14 @@ pub fn record_query_plan<
 				Some(&mut slice_query),
 			)? {
 				TryStackChildResult::StackedFull => {},
-				TryStackChildResult::NotStackedBranch | TryStackChildResult::NotStacked =>
-					break false,
-				TryStackChildResult::StackedAfter => break false,
+				TryStackChildResult::NotStackedBranch | TryStackChildResult::NotStacked => {
+					prev_stacked_into = false;
+					break false
+				},
+				TryStackChildResult::StackedAfter => {
+					prev_stacked_into = true;
+					break false
+				},
 				TryStackChildResult::StackedInto => {
 					if query.as_prefix {
 						let halt =
