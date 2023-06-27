@@ -224,6 +224,12 @@ where
 
 		// read proof
 		loop {
+			if self.send_exit_prefix {
+				debug_assert!(self.send_enter_prefix.is_none());
+				debug_assert!(self.buffed_result.is_none());
+				self.send_exit_prefix = false;
+				return Some(Ok(ReadProofItem::EndPrefix))
+			}
 			if self.state == ReadProofState::SwitchQueryPlan ||
 				self.state == ReadProofState::NotStarted
 			{
@@ -441,9 +447,7 @@ where
 				},
 				TryStackChildResult::NotStackedBranch |
 				TryStackChildResult::NotStacked |
-				TryStackChildResult::StackedAfter => {
-					return self.missing_switch_next(as_prefix, to_check.key)
-				},
+				TryStackChildResult::StackedAfter => return self.missing_switch_next(as_prefix, to_check.key),
 				TryStackChildResult::Halted => return self.halt(),
 			}
 		}

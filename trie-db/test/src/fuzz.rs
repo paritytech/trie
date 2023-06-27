@@ -745,6 +745,10 @@ pub mod query_plan {
 		use reference_trie::{RefHasher, SubstrateV1};
 		let plans = [
 			ArbitraryQueryPlan(vec![
+				(true, ArbitraryKey::Random(vec![76])),
+				(true, ArbitraryKey::Random(vec![198, 198, 234, 35, 76, 76, 1])),
+			]),
+			ArbitraryQueryPlan(vec![
 				(false, ArbitraryKey::Random(vec![225])),
 				(true, ArbitraryKey::Random(vec![225, 225, 225, 142])),
 			]),
