@@ -253,27 +253,6 @@ where
 						}
 					}
 
-					let query_slice = LeftNibbleSlice::new(&next.key);
-					// TODO this could also be passed around from try stack result then
-					// slice_query_len
-					let common_from =
-						query_slice.common_prefix(&self.stack.prefix.as_leftnibbleslice());
-					/*
-					let last_start_at = if self.stack.items.len() > 1 {
-						self.stack.items[self.stack.items.len() - 2].depth +
-							if self.state == ReadProofState::SwitchQueryPlanInto { 0 } else { 1 }
-					} else {
-						0
-					};
-					if common_from > last_start_at {
-						// if common_from <= common_nibbles && common_from != 0 {
-						self.current = Some(next);
-						let current = self.current.as_ref().expect("current is set");
-						return self.missing_switch_next(current.as_prefix, current.key, false)
-					}
-
-					*/
-					//					let common_nibbles = min(common_nibbles, common_from);
 					match self.stack.pop_until(common_nibbles, &self.expected_root, false) {
 						Ok(true) => {
 							self.current = Some(next);
@@ -941,7 +920,5 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 			}
 			let _ = self.items.pop();
 		}
-		// TODO other error
-		Err(VerifyError::ExtraneousNode)
 	}
 }
