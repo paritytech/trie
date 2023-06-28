@@ -57,6 +57,7 @@ struct ReadStack<L: TrieLayout, D: SplitFirst> {
 	start_items: usize,
 	is_compact: bool,
 	expect_value: bool,
+	accessed_root: bool,
 	_ph: PhantomData<L>,
 }
 
@@ -69,6 +70,7 @@ impl<L: TrieLayout, D: SplitFirst> Clone for ReadStack<L, D> {
 			iter_prefix: self.iter_prefix,
 			is_compact: self.is_compact,
 			expect_value: self.expect_value,
+			accessed_root: self.accessed_root,
 			_ph: PhantomData,
 		}
 	}
@@ -146,6 +148,7 @@ where
 				is_compact: self.is_compact,
 				expect_value: false,
 				iter_prefix: None,
+				accessed_root: false,
 				_ph: PhantomData,
 			},
 		);
@@ -255,6 +258,7 @@ where
 					// slice_query_len
 					let common_from =
 						query_slice.common_prefix(&self.stack.prefix.as_leftnibbleslice());
+					/*
 					let last_start_at = if self.stack.items.len() > 1 {
 						self.stack.items[self.stack.items.len() - 2].depth +
 							if self.state == ReadProofState::SwitchQueryPlanInto { 0 } else { 1 }
@@ -268,11 +272,19 @@ where
 						return self.missing_switch_next(current.as_prefix, current.key, false)
 					}
 
+					*/
 					//					let common_nibbles = min(common_nibbles, common_from);
-					let r = self.stack.pop_until(common_nibbles, &self.expected_root, false);
-					if let Err(e) = r {
-						self.state = ReadProofState::Finished;
-						return Some(Err(e))
+					match self.stack.pop_until(common_nibbles, &self.expected_root, false) {
+						Ok(true) => {
+							self.current = Some(next);
+							let current = self.current.as_ref().expect("current is set");
+							return self.missing_switch_next(current.as_prefix, current.key, false)
+						},
+						Err(e) => {
+							self.state = ReadProofState::Finished;
+							return Some(Err(e))
+						},
+						Ok(false) => (),
 					}
 
 					self.state = ReadProofState::Running;
@@ -523,6 +535,7 @@ impl<'a, L: TrieLayout, C, D: SplitFirst> From<QueryPlan<'a, C>>
 				is_compact,
 				expect_value: false,
 				iter_prefix: None,
+				accessed_root: false,
 				_ph: PhantomData,
 			},
 			state: ReadProofState::NotStarted,
@@ -559,6 +572,9 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 					},
 			}
 		} else {
+			if self.accessed_root {
+				return Ok(TryStackChildResult::NotStacked)
+			}
 			if self.is_compact {
 				NodeHandle::Inline(&[])
 			} else {
@@ -873,7 +889,7 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 		target: usize,
 		expected_root: &Option<TrieHash<L>>,
 		check_only: bool,
-	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
+	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
 		if self.is_compact && expected_root.is_some() {
 			// TODO pop with check only, here unefficient implementation where we just restore
 
@@ -888,10 +904,10 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 					Ordering::Greater => (),
 					// depth should match.
 					Ordering::Less => {
-						// TODO other error
-						return Err(VerifyError::ExtraneousNode)
+						// skip query plan
+						return Ok(true)
 					},
-					Ordering::Equal => return Ok(()),
+					Ordering::Equal => return Ok(false),
 				}
 				// one by one
 				let _ = self.pop(expected_root)?;
@@ -899,7 +915,7 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 
 			if let Some(old) = restore.take() {
 				*self = old;
-				return Ok(())
+				return Ok(false)
 			}
 		}
 		loop {
@@ -907,17 +923,20 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 				match last.depth.cmp(&target) {
 					Ordering::Greater => (),
 					// depth should match.
-					Ordering::Less => break,
+					Ordering::Less => {
+						// skip
+						return Ok(true)
+					},
 					Ordering::Equal => {
 						self.prefix.drop_lasts(self.prefix.len() - last.depth);
-						return Ok(())
+						return Ok(false)
 					},
 				}
 			} else {
 				if target == 0 {
-					return Ok(())
+					return Ok(false)
 				} else {
-					break
+					return Ok(true)
 				}
 			}
 			let _ = self.items.pop();

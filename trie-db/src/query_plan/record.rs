@@ -695,7 +695,7 @@ pub fn record_query_plan<
 	let mut prev_query: Option<QueryPlanItem> = None;
 	let from_query = from.currently_query_item.take();
 	let mut from_query_ref = from_query.as_ref().map(|f| f.as_ref());
-	let mut prev_stacked_into = true;
+	//	let mut prev_stacked = true;
 	while let Some(query) = from_query_ref.clone().or_else(|| query_plan.items.next()) {
 		if stateless {
 			// advance query plan
@@ -716,8 +716,7 @@ pub fn record_query_plan<
 				from.stack.seek = None;
 			}
 		}
-		let _common_nibbles = if let Some(slice_at) = statefull.take() {
-			slice_at
+		if let Some(slice_at) = statefull.take() {
 		} else {
 			let (ordered, common_nibbles) =
 				prev_query.as_ref().map(|p| p.before(&query)).unwrap_or((true, 0));
@@ -732,30 +731,41 @@ pub fn record_query_plan<
 			// TODO this could also be passed around from try stack result then
 			// slice_query_len
 			let common_from = query_slice.common_prefix(&from.stack.prefix.as_leftnibbleslice());
-			let last_start_at = if from.stack.items.len() > 1 {
-				from.stack.items[from.stack.items.len() - 2].depth +
-					if prev_stacked_into { 0 } else { 1 }
-			} else {
-				0
-			};
-			if common_from > last_start_at {
-				//				if common_from <= common_nibbles && common_from != 0 {
-				/*if query.as_prefix {
-					let halt =
-							from.iter_prefix(Some(&query), Some(db), query.hash_only, true)?;
-						if halt {
-							return Ok(())
-						}
-				}*/
-				from_query_ref = None;
-				prev_query = Some(query);
-				continue
-			}
-			//	let common_nibbles = min(common_nibbles, common_from);
-			loop {
+			/*
+				let last_start_at = if from.stack.items.len() > 1 {
+					from.stack.items[from.stack.items.len() - 2].depth +
+						if prev_stacked { 0 } else { 1 }
+				} else {
+					0
+				};
+				if common_from > last_start_at {
+					//				if common_from <= common_nibbles && common_from != 0 {
+					/*if query.as_prefix {
+						let halt =
+								from.iter_prefix(Some(&query), Some(db), query.hash_only, true)?;
+							if halt {
+								return Ok(())
+							}
+					}*/
+					from_query_ref = None;
+					prev_query = Some(query);
+					continue
+				}
+			*/
+			//let pop_to = min(common_nibbles, common_from);
+			let skip_query = loop {
+				let last_next_at = if from.stack.items.len() > 1 {
+					from.stack.items[from.stack.items.len() - 2].depth
+				} else {
+					0
+				};
+
 				match from.stack.prefix.len().cmp(&common_nibbles) {
-					Ordering::Equal | Ordering::Less => break common_nibbles,
+					Ordering::Equal => break false,
+					Ordering::Less => break true,
 					Ordering::Greater => {
+						//						if !prev_stacked && common_nibbles > common_nibbles {
+						//						}
 						/* TODO these seems redundant with pop try_stack call
 						if query_plan.kind.record_inline() {
 							if from.stack.items.len() > 0 {
@@ -763,15 +773,22 @@ pub fn record_query_plan<
 							}
 						}
 						*/
+						//prev_stacked = true;
 						if !from.pop() {
 							from.finalize();
 							return Ok(())
 						}
 					},
 				}
+			};
+			if skip_query {
+				// will go down in same branch, skip query_plan
+				from_query_ref = None;
+				prev_query = Some(query);
+				continue
 			}
 		};
-		prev_stacked_into = true;
+		//prev_stacked = true;
 		if let Some((_, hash_only)) = from.stack.iter_prefix.clone() {
 			// statefull halted during iteration.
 			let halt = from.iter_prefix(Some(&query), Some(db), hash_only, false)?;
@@ -821,13 +838,10 @@ pub fn record_query_plan<
 			)? {
 				TryStackChildResult::StackedFull => {},
 				TryStackChildResult::NotStackedBranch | TryStackChildResult::NotStacked => {
-					prev_stacked_into = false;
+					//prev_stacked = false;
 					break false
 				},
-				TryStackChildResult::StackedAfter => {
-					prev_stacked_into = true;
-					break false
-				},
+				TryStackChildResult::StackedAfter => break false,
 				TryStackChildResult::StackedInto => {
 					if query.as_prefix {
 						let halt =
@@ -892,7 +906,6 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		let child_handle = if let Some(item) = self.items.last_mut() {
 			//if inline_only && item.accessed_children_node.at(child_index as usize) {
 			if item.accessed_children_node.at(child_index as usize) {
-				// TODO may be unreachable (or remove some pre checks).
 				// No reason to go twice in a same branch
 				return Ok(TryStackChildResult::NotStackedBranch)
 			}

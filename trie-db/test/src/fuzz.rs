@@ -745,6 +745,10 @@ pub mod query_plan {
 		use reference_trie::{RefHasher, SubstrateV1};
 		let plans = [
 			ArbitraryQueryPlan(vec![
+				(false, ArbitraryKey::Indexed(9137484785696899328)),
+				(false, ArbitraryKey::Indexed(393082)),
+			]),
+			ArbitraryQueryPlan(vec![
 				(false, ArbitraryKey::Indexed(17942346408707227648)),
 				(false, ArbitraryKey::Indexed(37833)),
 			]),
