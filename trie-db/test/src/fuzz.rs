@@ -740,6 +740,30 @@ pub mod query_plan {
 		proof_spawn_with_persistence: false,
 	};
 
+	/// Fuzzing conf 2.
+	pub const CONF2: Conf = Conf {
+		seed: 0u64,
+		kind: ProofKind::CompactNodes,
+		nb_key_value: 300,
+		nb_small_value_set: 5,
+		nb_big_value_set: 5,
+		hash_only: false,
+		limit: 0, // no limit
+		proof_spawn_with_persistence: false,
+	};
+
+	/// Fuzzing conf 3.
+	pub const CONF3: Conf = Conf {
+		seed: 0u64,
+		kind: ProofKind::CompactContent,
+		nb_key_value: 300,
+		nb_small_value_set: 5,
+		nb_big_value_set: 5,
+		hash_only: false,
+		limit: 0, // no limit
+		proof_spawn_with_persistence: false,
+	};
+
 	#[test]
 	fn fuzz_query_plan_1() {
 		use reference_trie::{RefHasher, SubstrateV1};
@@ -804,6 +828,33 @@ pub mod query_plan {
 		];
 		let mut conf = CONF1.clone();
 		let context: FuzzContext<SubstrateV1<RefHasher>> = build_state(CONF1);
+		for plan in plans {
+			conf.limit = 2;
+			conf.proof_spawn_with_persistence = true;
+			fuzz_query_plan_conf::<SubstrateV1<RefHasher>>(&context, conf, plan.clone());
+		}
+	}
+
+	#[test]
+	fn fuzz_query_plan_3() {
+		use reference_trie::{RefHasher, SubstrateV1};
+		let plans = [
+			ArbitraryQueryPlan(vec![]),
+		];
+		let context: FuzzContext<SubstrateV1<RefHasher>> = build_state(CONF2);
+		for plan in plans {
+			fuzz_query_plan::<SubstrateV1<RefHasher>>(&context, plan.clone());
+		}
+	}
+
+	#[test]
+	fn fuzz_query_plan_4() {
+		use reference_trie::{RefHasher, SubstrateV1};
+		let plans = [
+			ArbitraryQueryPlan(vec![]),
+		];
+		let mut conf = CONF2.clone();
+		let context: FuzzContext<SubstrateV1<RefHasher>> = build_state(CONF2);
 		for plan in plans {
 			conf.limit = 2;
 			conf.proof_spawn_with_persistence = true;
