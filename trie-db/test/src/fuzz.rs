@@ -838,9 +838,7 @@ pub mod query_plan {
 	#[test]
 	fn fuzz_query_plan_3() {
 		use reference_trie::{RefHasher, SubstrateV1};
-		let plans = [
-			ArbitraryQueryPlan(vec![]),
-		];
+		let plans = [ArbitraryQueryPlan(vec![])];
 		let context: FuzzContext<SubstrateV1<RefHasher>> = build_state(CONF2);
 		for plan in plans {
 			fuzz_query_plan::<SubstrateV1<RefHasher>>(&context, plan.clone());
@@ -850,14 +848,13 @@ pub mod query_plan {
 	#[test]
 	fn fuzz_query_plan_4() {
 		use reference_trie::{RefHasher, SubstrateV1};
-		let plans = [
-			ArbitraryQueryPlan(vec![]),
-		];
+		let plans =
+			[(ArbitraryQueryPlan(vec![(false, ArbitraryKey::Random(vec![115]))]), 1, false)];
 		let mut conf = CONF2.clone();
 		let context: FuzzContext<SubstrateV1<RefHasher>> = build_state(CONF2);
-		for plan in plans {
-			conf.limit = 2;
-			conf.proof_spawn_with_persistence = true;
+		for (plan, nb, statefull) in plans {
+			conf.limit = nb;
+			conf.proof_spawn_with_persistence = statefull;
 			fuzz_query_plan_conf::<SubstrateV1<RefHasher>>(&context, conf, plan.clone());
 		}
 	}
