@@ -2,6 +2,7 @@
 use lazy_static::lazy_static;
 use libfuzzer_sys::fuzz_target;
 use reference_trie::{RefHasher, SubstrateV1};
+use trie_db::query_plan::ProofKind;
 use trie_db_test::fuzz::query_plan::{
 	build_state, fuzz_query_plan_conf, ArbitraryQueryPlan, FuzzContext, CONF1,
 };
@@ -30,6 +31,7 @@ enum SplitKind {
 fuzz_target!(|input: (ArbitraryQueryPlan, SplitSize, SplitKind)| {
 	let (plan, split_size, split_kind) = input;
 	let mut conf = CONTEXT.conf.clone();
+	conf.kind = ProofKind::CompactNodes;
 	conf.limit = split_size as usize;
 	conf.proof_spawn_with_persistence = split_kind == SplitKind::Stateful;
 	fuzz_query_plan_conf::<SubstrateV1<RefHasher>>(&CONTEXT, conf, plan);

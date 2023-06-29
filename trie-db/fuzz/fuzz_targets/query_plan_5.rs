@@ -2,8 +2,9 @@
 use lazy_static::lazy_static;
 use libfuzzer_sys::fuzz_target;
 use reference_trie::{RefHasher, SubstrateV1};
+use trie_db::query_plan::ProofKind;
 use trie_db_test::fuzz::query_plan::{
-	build_state, fuzz_query_plan, ArbitraryQueryPlan, FuzzContext, CONF1,
+	build_state, fuzz_query_plan_conf, ArbitraryQueryPlan, FuzzContext, CONF1,
 };
 
 lazy_static! {
@@ -11,5 +12,7 @@ lazy_static! {
 }
 
 fuzz_target!(|plan: ArbitraryQueryPlan| {
-	fuzz_query_plan::<SubstrateV1<RefHasher>>(&CONTEXT, plan);
+	let mut conf = CONTEXT.conf.clone();
+	conf.kind = ProofKind::CompactContent;
+	fuzz_query_plan_conf::<SubstrateV1<RefHasher>>(&CONTEXT, conf, plan);
 });

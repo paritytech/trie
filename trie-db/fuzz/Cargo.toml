@@ -79,3 +79,19 @@ path = "fuzz_targets/query_plan_1.rs"
 [[bin]]
 name = "query_plan_2"
 path = "fuzz_targets/query_plan_2.rs"
+
+[[bin]]
+name = "query_plan_3"
+path = "fuzz_targets/query_plan_3.rs"
+
+[[bin]]
+name = "query_plan_4"
+path = "fuzz_targets/query_plan_4.rs"
+
+[[bin]]
+name = "query_plan_5"
+path = "fuzz_targets/query_plan_5.rs"
+
+[[bin]]
+name = "query_plan_6"
+path = "fuzz_targets/query_plan_6.rs"

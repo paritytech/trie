@@ -857,10 +857,11 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		let mut from_branch = None;
 		let child_handle = if let Some(item) = self.items.last_mut() {
 			//if inline_only && item.accessed_children_node.at(child_index as usize) {
-			if item.accessed_children_node.at(child_index as usize) {
+			debug_assert!(!item.accessed_children_node.at(child_index as usize));
+			/*			if item.accessed_children_node.at(child_index as usize) {
 				// No reason to go twice in a same branch
 				return Ok(TryStackChildResult::NotStackedBranch)
-			}
+			}*/
 
 			let node_data = item.node.data();
 
