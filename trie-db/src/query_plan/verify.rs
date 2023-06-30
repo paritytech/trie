@@ -929,6 +929,9 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 				}
 			}
 			let _ = self.items.pop();
+			if self.items.len() < self.start_items {
+				self.start_items = self.items.len();
+			}
 		}
 	}
 }
