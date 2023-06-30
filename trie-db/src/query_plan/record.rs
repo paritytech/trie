@@ -927,7 +927,6 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 			slice_query.as_mut().map(|s| s.advance(1));
 			prefix.push(child_index);
 		}
-		// TODO handle cache first
 		let child_node = if let Some(db) = db {
 			db.get_raw_or_lookup_with_cache(parent_hash, child_handle, prefix.as_prefix(), false)
 				.map_err(|_| VerifyError::IncompleteProof)?
