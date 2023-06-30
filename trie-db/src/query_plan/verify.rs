@@ -128,8 +128,7 @@ where
 		&mut self,
 	) -> Option<Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>> {
 		if self.is_compact {
-			let stack_to = 0;
-			let r = self.stack.pop_until(stack_to, &self.expected_root, true);
+			let r = self.stack.pop_until(None, &self.expected_root, true);
 			if let Err(e) = r {
 				self.state = ReadProofState::Finished;
 				return Some(Err(e))
@@ -139,7 +138,8 @@ where
 		let query_plan = crate::rstd::mem::replace(&mut self.query_plan, None);
 		let query_plan = query_plan.expect("Init with state");
 		let current = crate::rstd::mem::take(&mut self.current);
-		let mut stack = crate::rstd::mem::replace( // TODO impl default and use take
+		let mut stack = crate::rstd::mem::replace(
+			// TODO impl default and use take
 			&mut self.stack,
 			ReadStack {
 				items: Default::default(),
@@ -253,7 +253,7 @@ where
 						}
 					}
 
-					match self.stack.pop_until(common_nibbles, &self.expected_root, false) {
+					match self.stack.pop_until(Some(common_nibbles), &self.expected_root, false) {
 						Ok(true) => {
 							self.current = Some(next);
 							let current = self.current.as_ref().expect("current is set");
@@ -449,9 +449,7 @@ where
 
 		debug_assert!(self.state == ReadProofState::PlanConsumed);
 		if self.is_compact {
-			let stack_to = 0; // TODO restart is different
-				  //					let r = self.stack.pop_until(common_nibbles, &self.expected_root);
-			let r = self.stack.pop_until(stack_to, &self.expected_root, false);
+			let r = self.stack.pop_until(None, &self.expected_root, false);
 			if let Err(e) = r {
 				self.state = ReadProofState::Finished;
 				return Some(Err(e))
@@ -602,7 +600,7 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 				if self.is_compact && items_len > self.start_items {
 					let mut error_hash = TrieHash::<L>::default();
 					error_hash.as_mut().copy_from_slice(hash);
-					return Err(VerifyError::ExtraneousHashReference(error_hash));
+					return Err(VerifyError::ExtraneousHashReference(error_hash))
 				}
 				if self.is_compact &&
 					encoded_node.borrow().len() > 0 &&
@@ -869,7 +867,7 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 
 	fn pop_until(
 		&mut self,
-		target: usize,
+		target: Option<usize>,
 		expected_root: &Option<TrieHash<L>>,
 		check_only: bool,
 	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
@@ -883,19 +881,21 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 			}
 			// one by one
 			while let Some(last) = self.items.last() {
-				match last.depth.cmp(&target) {
-					Ordering::Greater => (),
-					// depth should match.
-					Ordering::Less => {
-						// skip query plan
-						return Ok(true)
-					},
-					Ordering::Equal => return Ok(false),
+				if let Some(target) = target.as_ref() {
+					match last.depth.cmp(&target) {
+						Ordering::Greater => (),
+						// depth should match.
+						Ordering::Less => {
+							// skip query plan
+							return Ok(true)
+						},
+						Ordering::Equal => return Ok(false),
+					}
 				}
 				// one by one
 				let _ = self.pop(expected_root)?;
 				if self.items.len() == self.start_items {
-					break;
+					break
 				}
 			}
 
@@ -904,22 +904,25 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 				return Ok(false)
 			}
 		}
+		//		let target = target.unwrap_or(0);
 		loop {
 			if let Some(last) = self.items.last() {
-				match last.depth.cmp(&target) {
-					Ordering::Greater => (),
-					// depth should match.
-					Ordering::Less => {
-						// skip
-						return Ok(true)
-					},
-					Ordering::Equal => {
-						self.prefix.drop_lasts(self.prefix.len() - last.depth);
-						return Ok(false)
-					},
+				if let Some(target) = target.as_ref() {
+					match last.depth.cmp(&target) {
+						Ordering::Greater => (),
+						// depth should match.
+						Ordering::Less => {
+							// skip
+							return Ok(true)
+						},
+						Ordering::Equal => {
+							self.prefix.drop_lasts(self.prefix.len() - last.depth);
+							return Ok(false)
+						},
+					}
 				}
 			} else {
-				if target == 0 {
+				if target.unwrap_or(0) == 0 {
 					return Ok(false)
 				} else {
 					return Ok(true)
