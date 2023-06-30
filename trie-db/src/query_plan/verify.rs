@@ -128,7 +128,7 @@ where
 		&mut self,
 	) -> Option<Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>> {
 		if self.is_compact {
-			let stack_to = 0; // TODO restart is different
+			let stack_to = 0;
 			let r = self.stack.pop_until(stack_to, &self.expected_root, true);
 			if let Err(e) = r {
 				self.state = ReadProofState::Finished;
@@ -139,7 +139,7 @@ where
 		let query_plan = crate::rstd::mem::replace(&mut self.query_plan, None);
 		let query_plan = query_plan.expect("Init with state");
 		let current = crate::rstd::mem::take(&mut self.current);
-		let mut stack = crate::rstd::mem::replace(
+		let mut stack = crate::rstd::mem::replace( // TODO impl default and use take
 			&mut self.stack,
 			ReadStack {
 				items: Default::default(),
@@ -534,6 +534,7 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 		mut slice_query: Option<&mut NibbleSlice>,
 	) -> Result<TryStackChildResult, VerifyError<TrieHash<L>, CError<L>>> {
 		let check_hash = expected_root.is_some();
+		let items_len = self.items.len();
 		let child_handle = if let Some(node) = self.items.last_mut() {
 			let node_data = node.data();
 
@@ -595,11 +596,14 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 						.into()
 				},
 			NodeHandle::Hash(hash) => {
-				// TODO if is_compact allow only if restart bellow depth (otherwhise should be
-				// inline(0)) or means halted (if something in proof it is extraneous node)
 				let Some(mut encoded_node) = proof.next() else {
 					return Ok(TryStackChildResult::Halted);
 				};
+				if self.is_compact && items_len > self.start_items {
+					let mut error_hash = TrieHash::<L>::default();
+					error_hash.as_mut().copy_from_slice(hash);
+					return Err(VerifyError::ExtraneousHashReference(error_hash));
+				}
 				if self.is_compact &&
 					encoded_node.borrow().len() > 0 &&
 					Some(encoded_node.borrow()[0]) ==
@@ -890,6 +894,9 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 				}
 				// one by one
 				let _ = self.pop(expected_root)?;
+				if self.items.len() == self.start_items {
+					break;
+				}
 			}
 
 			if let Some(old) = restore.take() {
