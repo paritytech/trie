@@ -44,6 +44,7 @@ where
 	state: ReadProofState,
 	stack: Stack<L>,
 	buf_op: Option<Op<TrieHash<L>, Vec<u8>>>,
+	in_prefix_depth: Option<usize>,
 	send_enter_prefix: Option<Vec<u8>>,
 	send_exit_prefix: bool,
 	buffed_result: Option<Option<VerifyIteratorResult<'a, L, C>>>,
@@ -105,6 +106,7 @@ where
 		state,
 		stack,
 		buf_op: None,
+		in_prefix_depth: None,
 		send_enter_prefix: None,
 		send_exit_prefix: false,
 		buffed_result: None,
@@ -188,8 +190,9 @@ where
 						}
 					}
 					match self.stack.stack_pop(Some(common_nibbles), &self.expected_root) {
-//					match self.stack.pop_until(Some(common_nibbles), &self.expected_root, false) {
-/*						Ok(true) => {
+						//					match self.stack.pop_until(Some(common_nibbles), &self.expected_root,
+						// false) {
+						/*						Ok(true) => {
 							self.current = Some(next);
 							let current = self.current.as_ref().expect("current is set");
 							return self.missing_switch_next(current.as_prefix, current.key, false)
@@ -218,11 +221,13 @@ where
 			{
 				println!("read: {:?}", op);
 				let Some(op) = op else {
-					let r = self.stack.stack_pop(None, &self.expected_root);
-					// TODO handle halt!!
-					self.state = ReadProofState::Finished;
-					if let Err(e) = r {
-						return Some(Err(e))
+					if !self.stack.items.is_empty() {
+						let r = self.stack.stack_pop(None, &self.expected_root);
+						// TODO handle halt!!
+						self.state = ReadProofState::Finished;
+						if let Err(e) = r {
+							return Some(Err(e))
+						}
 					}
 					if let Some(c) = self.current.as_ref() {
 						if c.as_prefix {
@@ -326,20 +331,33 @@ where
 					if let Some(current) = self.current.as_ref() {
 						let query_slice = LeftNibbleSlice::new(&current.key);
 						match self.stack.prefix.as_leftnibbleslice().cmp(&query_slice) {
-							Ordering::Equal =>
+							Ordering::Equal => {
+								if current.as_prefix {
+									self.in_prefix_depth = Some(query_slice.len());
+									self.send_enter_prefix = Some(current.key.to_vec());
+								}
 								if !self.stack.items.is_empty() {
 									at_value = true;
+								}
+							},
+							Ordering::Less =>
+								if !self.stack.prefix.as_leftnibbleslice().starts_with(&query_slice)
+								{
+									self.state = ReadProofState::Finished;
+									return Some(Err(VerifyError::ExtraneousNode)) // TODO error backward pushed key
 								},
-							Ordering::Less => (),
 							Ordering::Greater =>
 								if current.as_prefix {
-									let query_slice = LeftNibbleSlice::new(&current.key);
 									if self
 										.stack
 										.prefix
 										.as_leftnibbleslice()
 										.starts_with(&query_slice)
 									{
+										if self.in_prefix_depth.is_none() {
+											self.in_prefix_depth = Some(query_slice.len());
+											self.send_enter_prefix = Some(current.key.to_vec());
+										}
 										at_value = true;
 									} else {
 										next_query = true;
@@ -352,7 +370,10 @@ where
 							self.buf_op = Some(op);
 							self.state = ReadProofState::SwitchQueryPlan;
 							if current.as_prefix {
-								break
+								if self.in_prefix_depth.take().is_none() {
+									self.send_enter_prefix = Some(current.key.to_vec());
+								}
+								return Some(Ok(ReadProofItem::EndPrefix))
 							} else {
 								return Some(Ok(ReadProofItem::NoValue(&current.key)))
 							}
@@ -369,13 +390,24 @@ where
 								))
 							},
 							Op::HashValue(hash) => {
+								if let Some(current) = self.current.as_ref() {
+									if !current.as_prefix {
+										self.state = ReadProofState::Finished;
+										return Some(Err(VerifyError::ExtraneousHashReference(
+											hash.clone(),
+										)))
+									}
+								}
 								// TODO could get content from op with no clone.
 								Some(ReadProofItem::Hash(
 									self.stack.prefix.inner().to_vec().into(),
 									hash.clone(),
 								))
 							},
-							_ => unreachable!(),
+							_ => {
+								self.state = ReadProofState::Finished;
+								return Some(Err(VerifyError::ExtraneousNode)) // TODO error unexpected op
+							},
 						}
 					} else {
 						match &op {
@@ -401,49 +433,8 @@ where
 				let r = match op {
 					Op::KeyPush(partial, mask) => {
 						let slice = LeftNibbleSlice::new_with_mask(partial.as_slice(), mask);
-						self.stack
-							.prefix
-							.append_slice(slice);
+						self.stack.prefix.append_slice(slice);
 						self.stack.stack_empty(self.stack.prefix.len());
-						let Some(to_check_slice) = to_check_slice.as_mut() else {
-							self.state = ReadProofState::Finished;
-							return Some(Err(VerifyError::ExtraneousNode))
-						};
-						let slice = if mask == 255 {
-							NibbleSlice::new(&partial.as_slice()[..])
-						} else {
-							NibbleSlice::new(&partial.as_slice()[..partial.as_slice().len() - 1])
-						};
-						let mut common = slice.common_prefix(to_check_slice);
-						to_check_slice.advance(common);
-						if common == slice.len() && mask != 255 && to_check_slice.len() > 0 {
-							if mask != 240 {
-								self.state = ReadProofState::Finished;
-								// TODO invalid key push
-								return Some(Err(VerifyError::ExtraneousNode))
-							}
-							let nibble_key = nibble_ops::at_left(partial[partial.len() - 1], 0);
-							let nibble_plan = to_check_slice.at(0);
-							if nibble_key == nibble_plan {
-								to_check_slice.advance(1);
-								common += 1;
-							}
-						}
-
-						match common.cmp(&slice.len()) {
-							Ordering::Less => {
-							},
-							Ordering::Greater => {
-								unreachable!()
-							},
-							Ordering::Equal => {
-								// setting at_value is not very useful as we expect a next value
-								// op and fail if it is not.
-								at_value = true;
-							},
-						}
-
-
 						Ok(())
 					},
 					Op::KeyPop(nb_nibble) => {
@@ -457,7 +448,27 @@ where
 						r
 					},
 					Op::EndProof => break,
-					Op::HashChild(hash, child_ix) => self.stack.set_branch_change(hash, child_ix),
+					Op::HashChild(hash, child_ix) => {
+						if self.in_prefix_depth.is_some() {
+							self.state = ReadProofState::Finished;
+							return Some(Err(VerifyError::ExtraneousNode)) // TODO better error missing query plan proof
+						} else {
+							// we did pop item before (see op sequence check), so we have
+							// stack prefix matching current plan. TODO debug assert plan starts
+							// with prefix TODO we could drop this check as we won t have the
+							// expected no value item in this case, but looks better to error here.
+							// TODO check, same for other proof: do a test.
+							if let Some(current) = self.current.as_ref() {
+								let query_slice = LeftNibbleSlice::new(&current.key);
+								let at = self.stack.prefix.len();
+								if query_slice.at(at) == Some(child_ix) {
+									self.state = ReadProofState::Finished;
+									return Some(Err(VerifyError::ExtraneousNode)) // TODO better error missing query plan proof
+								}
+							}
+						}
+						self.stack.set_branch_change(hash, child_ix)
+					},
 					op => {
 						self.stack.set_value_change(op.into());
 						Ok(())

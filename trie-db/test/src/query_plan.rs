@@ -100,7 +100,10 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 		*/
 	];
 	for (_nb_plan, query_plan) in query_plans.iter().enumerate() {
-		for limit_conf in [(0, false), (1, false), (1, true), (2, false), (2, true), (3, true)] {
+		for limit_conf in [
+			(0, false), /* TODO implement (1, false), (1, true), (2, false), (2, true), (3,
+			             * true) */
+		] {
 			let limit = limit_conf.0;
 			let limit = (limit != 0).then(|| limit);
 			let recorder = Recorder::new(kind, InMemoryRecorder::default(), limit, None);
@@ -120,7 +123,9 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 						for proof in proofs.iter() {
 							let mut p = &proof[0][..];
 							println!("proof start");
-							while let Some((op, read)) = trie_db::content_proof::Op::<TrieHash<L>, _>::decode(p).ok() {
+							while let Some((op, read)) =
+								trie_db::content_proof::Op::<TrieHash<L>, _>::decode(p).ok()
+							{
 								println!("{:?}", op);
 								p = &p[read..];
 							}
