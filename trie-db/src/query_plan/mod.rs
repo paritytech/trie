@@ -404,7 +404,7 @@ enum ReadProofState {
 	/// Switch next item.
 	SwitchQueryPlan,
 	/// Switch next item, previous access was into the child node.
-	SwitchQueryPlanInto,
+	SwitchQueryPlanInto, // TODO check if still use
 	/// Proof read.
 	PlanConsumed,
 	/// Proof read.

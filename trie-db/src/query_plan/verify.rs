@@ -25,9 +25,9 @@ use crate::{
 };
 pub use record::{record_query_plan, HaltedStateRecord, Recorder};
 
-
 /// Result of verify iterator.
-type VerifyIteratorResult<'a, L, C, D> = Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>;
+type VerifyIteratorResult<'a, L, C, D> =
+	Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>;
 
 /// Proof reading iterator.
 pub struct ReadProofIterator<'a, L, C, D, P>
@@ -167,7 +167,8 @@ where
 
 	fn enter_prefix_iter(&mut self, hash_only: bool, key: &[u8]) {
 		self.send_enter_prefix = Some(key.to_vec());
-		self.stack.iter_prefix = Some(InPrefix {start: self.stack.items.len(), send_value: false, hash_only});
+		self.stack.iter_prefix =
+			Some(InPrefix { start: self.stack.items.len(), send_value: false, hash_only });
 	}
 
 	fn exit_prefix_iter(&mut self) {
@@ -183,7 +184,7 @@ where
 	P: Iterator<Item = D>,
 	D: SplitFirst,
 {
-	type Item = Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>;
+	type Item = VerifyIteratorResult<'a, L, C, D>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		debug_assert!(self.send_enter_prefix.is_none());
@@ -213,9 +214,7 @@ where
 	P: Iterator<Item = D>,
 	D: SplitFirst,
 {
-	fn next_inner(
-		&mut self,
-	) -> Option<Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>> {
+	fn next_inner(&mut self) -> Option<VerifyIteratorResult<'a, L, C, D>> {
 		if self.state == ReadProofState::Finished {
 			return None
 		}
@@ -283,7 +282,8 @@ where
 			};
 			let did_prefix = self.stack.iter_prefix.is_some();
 
-			while let Some(InPrefix {send_value, hash_only, ..}) = self.stack.iter_prefix.clone() {
+			while let Some(InPrefix { send_value, hash_only, .. }) = self.stack.iter_prefix.clone()
+			{
 				// prefix iteration
 				if !send_value {
 					self.stack.iter_prefix.as_mut().map(|s| {
@@ -473,7 +473,7 @@ where
 		as_prefix: bool,
 		key: &'a [u8],
 		into: bool,
-	) -> Option<Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>> {
+	) -> Option<VerifyIteratorResult<'a, L, C, D>> {
 		self.state = if into {
 			ReadProofState::SwitchQueryPlanInto
 		} else {
