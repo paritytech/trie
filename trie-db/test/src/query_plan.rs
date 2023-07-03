@@ -117,6 +117,15 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 				if !from.is_halted() {
 					if kind == ProofKind::CompactContent {
 						proofs.push(vec![from.finish().buffer]);
+						for proof in proofs.iter() {
+							let mut p = &proof[0][..];
+							println!("proof start");
+							while let Some((op, read)) = trie_db::content_proof::Op::<TrieHash<L>, _>::decode(p).ok() {
+								println!("{:?}", op);
+								p = &p[read..];
+							}
+							println!("proof end\n");
+						}
 					} else {
 						proofs.push(from.finish().nodes);
 					}
@@ -130,7 +139,6 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 				};
 				if kind == ProofKind::CompactContent {
 					proofs.push(vec![rec.buffer]);
-					break // TODO remove
 				} else {
 					proofs.push(rec.nodes);
 				}
