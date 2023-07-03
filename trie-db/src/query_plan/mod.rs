@@ -619,3 +619,10 @@ pub enum ReadProofItem<'a, L: TrieLayout, C, D: SplitFirst> {
 	/// TODO unused implement
 	EndPrefix,
 }
+
+#[derive(Clone)]
+struct InPrefix {
+	start: usize,
+	send_value: bool,
+	hash_only: bool,
+}

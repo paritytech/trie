@@ -23,6 +23,9 @@ use crate::{
 };
 pub use record::{record_query_plan, HaltedStateRecord, Recorder};
 
+/// Result of verify iterator.
+type VerifyIteratorResult<'a, L, C> = Result<ReadProofItem<'a, L, C, Vec<u8>>, VerifyError<TrieHash<L>, CError<L>>>;
+
 /// Proof reading iterator.
 pub struct ReadProofContentIterator<'a, L, C, P>
 where
@@ -36,17 +39,20 @@ where
 	proof: P,
 	expected_root: Option<TrieHash<L>>,
 	current: Option<QueryPlanItem<'a>>,
+	current_offset: usize,
 	state: ReadProofState,
-	stack: ReadContentStack<L>,
+	stack: Stack<L>,
 	buf_op: Option<Op<TrieHash<L>, Vec<u8>>>,
+	send_enter_prefix: Option<Vec<u8>>,
+	send_exit_prefix: bool,
+	buffed_result: Option<Option<VerifyIteratorResult<'a, L, C>>>,
 }
 
-struct ReadContentStack<L: TrieLayout> {
+struct Stack<L: TrieLayout> {
 	items: Vec<ItemContentStack<L>>,
 	prefix: NibbleVec,
 	// limit and wether we return value and if hash only iteration.
-	// TODO should be removable (just check current).
-	iter_prefix: Option<(usize, bool, bool)>,
+	iter_prefix: Option<InPrefix>,
 	start_items: usize,
 	is_prev_hash_child: Option<u8>,
 	expect_value: bool,
@@ -56,13 +62,13 @@ struct ReadContentStack<L: TrieLayout> {
 	_ph: PhantomData<L>,
 }
 
-impl<L: TrieLayout> Clone for ReadContentStack<L> {
+impl<L: TrieLayout> Clone for Stack<L> {
 	fn clone(&self) -> Self {
-		ReadContentStack {
+		Stack {
 			items: self.items.clone(),
 			prefix: self.prefix.clone(),
 			start_items: self.start_items.clone(),
-			iter_prefix: self.iter_prefix,
+			iter_prefix: self.iter_prefix.clone(),
 			expect_value: self.expect_value,
 			is_prev_push_key: self.is_prev_push_key,
 			is_prev_pop_key: self.is_prev_pop_key,
@@ -90,7 +96,7 @@ where
 		return Err(VerifyError::IncompleteProof) // TODO not kind as param if keeping CompactContent
 	};
 
-	let HaltedStateCheckContent { query_plan, current, stack, state } = state;
+	let HaltedStateCheckContent { query_plan, current, restore_offset, stack, state } = state;
 
 	match query_plan.kind {
 		ProofKind::CompactContent => (),
@@ -104,9 +110,13 @@ where
 		proof,
 		expected_root,
 		current,
+		current_offset: restore_offset,
 		state,
 		stack,
 		buf_op: None,
+		send_enter_prefix: None,
+		send_exit_prefix: false,
+		buffed_result: None,
 	})
 }
 
@@ -406,14 +416,15 @@ where
 pub struct HaltedStateCheckContent<'a, L: TrieLayout, C> {
 	query_plan: QueryPlan<'a, C>,
 	current: Option<QueryPlanItem<'a>>,
-	stack: ReadContentStack<L>,
+	restore_offset: usize,
+	stack: Stack<L>,
 	state: ReadProofState,
 }
 
 impl<'a, L: TrieLayout, C> From<QueryPlan<'a, C>> for HaltedStateCheckContent<'a, L, C> {
 	fn from(query_plan: QueryPlan<'a, C>) -> Self {
 		HaltedStateCheckContent {
-			stack: ReadContentStack {
+			stack: Stack {
 				items: Default::default(),
 				start_items: 0,
 				prefix: Default::default(),
@@ -427,12 +438,13 @@ impl<'a, L: TrieLayout, C> From<QueryPlan<'a, C>> for HaltedStateCheckContent<'a
 			},
 			state: ReadProofState::NotStarted,
 			current: None,
+			restore_offset: 0,
 			query_plan,
 		}
 	}
 }
 
-impl<L: TrieLayout> ReadContentStack<L> {
+impl<L: TrieLayout> Stack<L> {
 	fn pop_until(
 		&mut self,
 		target: usize,

@@ -25,6 +25,10 @@ use crate::{
 };
 pub use record::{record_query_plan, HaltedStateRecord, Recorder};
 
+
+/// Result of verify iterator.
+type VerifyIteratorResult<'a, L, C, D> = Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>;
+
 /// Proof reading iterator.
 pub struct ReadProofIterator<'a, L, C, D, P>
 where
@@ -42,18 +46,17 @@ where
 	current: Option<QueryPlanItem<'a>>,
 	current_offset: usize,
 	state: ReadProofState,
-	stack: ReadStack<L, D>,
+	stack: Stack<L, D>,
 	send_enter_prefix: Option<Vec<u8>>,
 	send_exit_prefix: bool,
-	buffed_result:
-		Option<Option<Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>>>,
+	buffed_result: Option<Option<VerifyIteratorResult<'a, L, C, D>>>,
 }
 
-struct ReadStack<L: TrieLayout, D: SplitFirst> {
+struct Stack<L: TrieLayout, D: SplitFirst> {
 	items: Vec<StackedNodeCheck<L, D>>,
 	prefix: NibbleVec,
 	// limit and wether we return value and if hash only iteration.
-	iter_prefix: Option<(usize, bool, bool)>,
+	iter_prefix: Option<InPrefix>,
 	start_items: usize,
 	is_compact: bool,
 	expect_value: bool,
@@ -61,13 +64,13 @@ struct ReadStack<L: TrieLayout, D: SplitFirst> {
 	_ph: PhantomData<L>,
 }
 
-impl<L: TrieLayout, D: SplitFirst> Clone for ReadStack<L, D> {
+impl<L: TrieLayout, D: SplitFirst> Clone for Stack<L, D> {
 	fn clone(&self) -> Self {
-		ReadStack {
+		Stack {
 			items: self.items.clone(),
 			prefix: self.prefix.clone(),
 			start_items: self.start_items.clone(),
-			iter_prefix: self.iter_prefix,
+			iter_prefix: self.iter_prefix.clone(),
 			is_compact: self.is_compact,
 			expect_value: self.expect_value,
 			accessed_root: self.accessed_root,
@@ -141,7 +144,7 @@ where
 		let mut stack = crate::rstd::mem::replace(
 			// TODO impl default and use take
 			&mut self.stack,
-			ReadStack {
+			Stack {
 				items: Default::default(),
 				start_items: 0,
 				prefix: Default::default(),
@@ -164,7 +167,7 @@ where
 
 	fn enter_prefix_iter(&mut self, hash_only: bool, key: &[u8]) {
 		self.send_enter_prefix = Some(key.to_vec());
-		self.stack.iter_prefix = Some((self.stack.items.len(), false, hash_only));
+		self.stack.iter_prefix = Some(InPrefix {start: self.stack.items.len(), send_value: false, hash_only});
 	}
 
 	fn exit_prefix_iter(&mut self) {
@@ -279,11 +282,12 @@ where
 				}
 			};
 			let did_prefix = self.stack.iter_prefix.is_some();
-			while let Some((_, accessed_value_node, hash_only)) = self.stack.iter_prefix.clone() {
+
+			while let Some(InPrefix {send_value, hash_only, ..}) = self.stack.iter_prefix.clone() {
 				// prefix iteration
-				if !accessed_value_node {
+				if !send_value {
 					self.stack.iter_prefix.as_mut().map(|s| {
-						s.1 = true;
+						s.send_value = true;
 					});
 					match self.stack.access_value(&mut self.proof, check_hash, hash_only) {
 						Ok((Some(value), None)) =>
@@ -329,7 +333,7 @@ where
 					match r {
 						TryStackChildResult::StackedFull => {
 							self.stack.iter_prefix.as_mut().map(|p| {
-								p.1 = false;
+								p.send_value = false;
 							});
 							break
 						},
@@ -346,7 +350,7 @@ where
 						},
 					}
 				}
-				if self.stack.iter_prefix.as_ref().map(|p| p.1).unwrap_or_default() {
+				if self.stack.iter_prefix.as_ref().map(|p| p.send_value).unwrap_or_default() {
 					if !match self.stack.pop(&self.expected_root) {
 						Ok(r) => r,
 						Err(e) => {
@@ -489,7 +493,7 @@ where
 pub struct HaltedStateCheckNode<'a, L: TrieLayout, C, D: SplitFirst> {
 	query_plan: QueryPlan<'a, C>,
 	current: Option<QueryPlanItem<'a>>,
-	stack: ReadStack<L, D>,
+	stack: Stack<L, D>,
 	state: ReadProofState,
 	restore_offset: usize,
 }
@@ -505,7 +509,7 @@ impl<'a, L: TrieLayout, C, D: SplitFirst> From<QueryPlan<'a, C>>
 		};
 
 		HaltedStateCheckNode {
-			stack: ReadStack {
+			stack: Stack {
 				items: Default::default(),
 				start_items: 0,
 				prefix: Default::default(),
@@ -523,7 +527,7 @@ impl<'a, L: TrieLayout, C, D: SplitFirst> From<QueryPlan<'a, C>>
 	}
 }
 
-impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
+impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 	fn try_stack_child(
 		&mut self,
 		child_index: u8,
@@ -789,7 +793,7 @@ impl<L: TrieLayout, D: SplitFirst> ReadStack<L, D> {
 		&mut self,
 		expected_root: &Option<TrieHash<L>>,
 	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
-		if self.iter_prefix.as_ref().map(|p| p.0 == self.items.len()).unwrap_or(false) {
+		if self.iter_prefix.as_ref().map(|p| p.start == self.items.len()).unwrap_or(false) {
 			return Ok(false)
 		}
 		if let Some(last) = self.items.pop() {
