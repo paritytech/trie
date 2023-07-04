@@ -524,6 +524,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 			return Ok(res);
 		};
 		for i in 0..NIBBLE_LENGTH as u8 {
+			// TODO avoid the two consecutive iter on all children
 			if !item.accessed_children_node.at(i as usize) {
 				let node_data = item.node.data();
 

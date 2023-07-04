@@ -210,7 +210,7 @@ impl<H: AsRef<[u8]> + AsMut<[u8]> + Default> Op<H, Vec<u8>> {
 			3 => {
 				let mut hash = H::default();
 				let end = i + 1 + hash.as_ref().len();
-				if end >= encoded.len() {
+				if end > encoded.len() {
 					return Err(())
 				}
 				hash.as_mut().copy_from_slice(&encoded[i + 1..end]);

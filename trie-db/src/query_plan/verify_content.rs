@@ -383,15 +383,39 @@ where
 					if at_value {
 						match &op {
 							Op::Value(value) => {
-								// TODO could get content from op with no clone.
-								Some(ReadProofItem::Value(
-									self.stack.prefix.inner().to_vec().into(),
-									value.clone(),
-								))
+								let mut hashed = None;
+								if let Some(current) = self.current.as_ref() {
+									if current.hash_only {
+										if L::MAX_INLINE_VALUE
+											.map(|max| max as usize <= value.len())
+											.unwrap_or(false)
+										{
+											self.state = ReadProofState::Finished;
+											return Some(Err(VerifyError::ExtraneousValue(
+												value.clone(),
+											)))
+										} else {
+											let hash = <L::Hash as Hasher>::hash(value.as_slice());
+											hashed = Some(ReadProofItem::Hash(
+												self.stack.prefix.inner().to_vec().into(),
+												hash,
+											))
+										}
+									}
+								}
+								if hashed.is_some() {
+									hashed
+								} else {
+									// TODO could get content from op with no clone.
+									Some(ReadProofItem::Value(
+										self.stack.prefix.inner().to_vec().into(),
+										value.clone(),
+									))
+								}
 							},
 							Op::HashValue(hash) => {
 								if let Some(current) = self.current.as_ref() {
-									if !current.as_prefix {
+									if !current.hash_only {
 										self.state = ReadProofState::Finished;
 										return Some(Err(VerifyError::ExtraneousHashReference(
 											hash.clone(),
