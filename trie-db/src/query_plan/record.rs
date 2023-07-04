@@ -75,7 +75,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 	#[must_use]
 	fn flush_pop_content(&mut self, items: &Vec<StackedNodeRecord>) -> bool {
 		match &mut self.output {
-			RecorderStateInner::Content { output, stacked_push, stacked_pop } =>
+			RecorderStateInner::Content { output, stacked_pop, .. } =>
 				flush_compact_content_pop::<O, L>(
 					output,
 					stacked_pop,
@@ -475,7 +475,6 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 		}
 
 		let items = &self.stack.items[..at + 1];
-		let mut staked_inline_last = false;
 		match &mut self.stack.recorder.output {
 			RecorderStateInner::Content { output, stacked_pop, .. } => {
 				//let item = &self.stack.items.get(at).expect("bounded iter");
@@ -499,7 +498,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 			_ => (),
 		}
 		match &mut self.stack.recorder.output {
-			RecorderStateInner::Content { output, stacked_pop, .. } => {
+			RecorderStateInner::Content { stacked_pop, .. } => {
 				let item = &self.stack.items.get(at).expect("bounded iter");
 				if stacked_pop.is_none() {
 					*stacked_pop = Some(item.depth);
@@ -560,7 +559,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 							match child.build(node_data) {
 								NodeHandle::Hash(hash) => {
 									// may need to flush an inline node
-									self.stack.recorder.flush_pop_content(&self.stack.items);
+									res |= self.stack.recorder.flush_pop_content(&self.stack.items);
 									res |= self.stack.recorder.touched_child_hash(&hash, i);
 								},
 								_ => (),

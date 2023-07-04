@@ -155,15 +155,9 @@ where
 		if self.state == ReadProofState::Finished {
 			return None
 		}
-		let check_hash = self.expected_root.is_some();
 		if self.state == ReadProofState::Halted {
 			self.state = ReadProofState::Running;
 		}
-		let mut to_check_slice = self
-			.current
-			.as_ref()
-			.map(|n| NibbleSlice::new_offset(n.key, self.current_offset));
-
 		// read proof
 		loop {
 			if self.send_exit_prefix {
@@ -209,16 +203,11 @@ where
 
 					self.state = ReadProofState::Running;
 					self.current = Some(next);
-					to_check_slice = self
-						.current
-						.as_ref()
-						.map(|n| NibbleSlice::new_offset(n.key, common_nibbles));
 				} else {
 					self.state = ReadProofState::PlanConsumed;
 					self.current = None;
 				}
 			};
-			let mut in_iter = false;
 			while let Some(op) = self.buf_op.take().map(Option::Some).or_else(|| self.proof.next())
 			{
 				println!("read: {:?}", op);
@@ -331,8 +320,9 @@ where
 					let mut at_value = false;
 					let mut next_query = false;
 					if let Some(current) = self.current.as_ref() {
-						let query_slice = LeftNibbleSlice::new(&current.key);
-						match self.stack.prefix.as_leftnibbleslice().cmp(&query_slice) {
+						let left_query_slice = LeftNibbleSlice::new(&current.key);
+						let query_slice = NibbleSlice::new(&current.key);
+						match self.stack.prefix.as_leftnibbleslice().cmp(&left_query_slice) {
 							Ordering::Equal => {
 								if current.as_prefix {
 									self.in_prefix_depth = Some(query_slice.len());
@@ -343,8 +333,7 @@ where
 								}
 							},
 							Ordering::Less =>
-								if !self.stack.prefix.as_leftnibbleslice().starts_with(&query_slice)
-								{
+								if !query_slice.starts_with_vec(&self.stack.prefix) {
 									self.stack.expect_inline_child = true;
 									//									self.state = ReadProofState::Finished;
 									//									return Some(Err(VerifyError::ExtraneousNode)) // TODO error
@@ -356,7 +345,7 @@ where
 										.stack
 										.prefix
 										.as_leftnibbleslice()
-										.starts_with(&query_slice)
+										.starts_with(&left_query_slice)
 									{
 										if self.in_prefix_depth.is_none() {
 											self.in_prefix_depth = Some(query_slice.len());
@@ -474,6 +463,17 @@ where
 						let target_depth = self.stack.prefix.len() - nb_nibble as usize;
 						let r = self.stack.stack_pop(Some(target_depth), &self.expected_root);
 						self.stack.prefix.drop_lasts(nb_nibble.into());
+						if let Some(iter_depth) = self.in_prefix_depth.as_ref() {
+							if self
+								.stack
+								.items
+								.last()
+								.map(|i| iter_depth > &i.depth)
+								.unwrap_or(true)
+							{
+								self.in_prefix_depth = None;
+							}
+						}
 						r
 					},
 					Op::EndProof => break,
@@ -530,25 +530,6 @@ where
 		}
 			*/
 	}
-
-	fn missing_switch_next(
-		&mut self,
-		as_prefix: bool,
-		key: &'a [u8],
-		into: bool,
-	) -> Option<VerifyIteratorResult<'a, L, C>> {
-		self.state = if into {
-			ReadProofState::SwitchQueryPlanInto
-		} else {
-			ReadProofState::SwitchQueryPlan
-		};
-		if as_prefix {
-			self.send_enter_prefix = Some(key.to_vec());
-			return Some(Ok(ReadProofItem::EndPrefix))
-		} else {
-			return Some(Ok(ReadProofItem::NoValue(key)))
-		}
-	}
 }
 
 /// When process is halted keep execution state
@@ -585,76 +566,6 @@ impl<'a, L: TrieLayout, C> From<QueryPlan<'a, C>> for HaltedStateCheckContent<'a
 }
 
 impl<L: TrieLayout> Stack<L> {
-	fn pop_until(
-		&mut self,
-		target: Option<usize>,
-		expected_root: &Option<TrieHash<L>>,
-		check_only: bool, // TODO used?
-	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
-		if expected_root.is_some() {
-			// TODO pop with check only, here unefficient implementation where we just restore
-
-			let mut restore = None;
-			if check_only {
-				restore = Some(self.clone());
-			}
-			// one by one
-			while let Some(last) = self.items.last() {
-				if let Some(target) = target.as_ref() {
-					match last.depth.cmp(&target) {
-						Ordering::Greater => (),
-						// depth should match.
-						Ordering::Less => {
-							// skip query plan
-							return Ok(true)
-						},
-						Ordering::Equal => return Ok(false),
-					}
-				}
-				// one by one
-				let target = self.items.get(self.items.len() - 2).map(|i| i.depth);
-				let _ = self.stack_pop(target, expected_root)?;
-				if self.items.len() == self.start_items {
-					break
-				}
-			}
-
-			if let Some(old) = restore.take() {
-				*self = old;
-				return Ok(false)
-			}
-		}
-		//		let target = target.unwrap_or(0);
-		loop {
-			if let Some(last) = self.items.last() {
-				if let Some(target) = target.as_ref() {
-					match last.depth.cmp(&target) {
-						Ordering::Greater => (),
-						// depth should match.
-						Ordering::Less => {
-							// skip
-							return Ok(true)
-						},
-						Ordering::Equal => {
-							self.prefix.drop_lasts(self.prefix.len() - last.depth);
-							return Ok(false)
-						},
-					}
-				}
-			} else {
-				if target.unwrap_or(0) == 0 {
-					return Ok(false)
-				} else {
-					return Ok(true)
-				}
-			}
-			let _ = self.items.pop();
-			if self.items.len() < self.start_items {
-				self.start_items = self.items.len();
-			}
-		}
-	}
-
 	#[inline(always)]
 	fn stack_empty(&mut self, depth: usize) {
 		/*
