@@ -88,16 +88,16 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 			ignore_unordered: false,
 			kind,
 		},
+		*/
 		InMemQueryPlan {
 			items: vec![
 				InMemQueryPlanItem::new(b"bravo".to_vec(), hash_only, false),
-				InMemQueryPlanItem::new(b"doge".to_vec(), hash_only, false),
-				InMemQueryPlanItem::new(b"horsey".to_vec(), hash_only, false),
+				//		InMemQueryPlanItem::new(b"doge".to_vec(), hash_only, false),
+				//		InMemQueryPlanItem::new(b"horsey".to_vec(), hash_only, false),
 			],
 			ignore_unordered: false,
 			kind,
 		},
-		*/
 	];
 	for (_nb_plan, query_plan) in query_plans.iter().enumerate() {
 		for limit_conf in [

@@ -73,6 +73,21 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 	}
 
 	#[must_use]
+	fn flush_pop_content(&mut self, items: &Vec<StackedNodeRecord>) -> bool {
+		match &mut self.output {
+			RecorderStateInner::Content { output, stacked_push, stacked_pop } =>
+				flush_compact_content_pop::<O, L>(
+					output,
+					stacked_pop,
+					items,
+					None,
+					&mut self.limits,
+				),
+			_ => false,
+		}
+	}
+
+	#[must_use]
 	fn record_stacked_node(
 		&mut self,
 		item: &StackedNodeRecord,
@@ -116,6 +131,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 					*stacked_push = Some(NibbleVec::new());
 				}
 				if let Some(buff) = stacked_push.as_mut() {
+					// TODO should be doable to use the stack prefix.
 					if !is_root {
 						buff.push(parent_index);
 					}
@@ -402,8 +418,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 			RecorderStateInner::Content { output: _, stacked_push, stacked_pop: _ } => {
 				// TODO protect existing stack as for compact
 				assert!(stacked_push.is_none());
-				// TODO could use function with &item and &[item] as param
-				// to skip this clone.
+
 				for i in (0..items.len()).rev() {
 					let _ = self.record_popped_node(i);
 				}
@@ -459,7 +474,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 			},
 		}
 
-		let items = &self.stack.items[..at];
+		let items = &self.stack.items[..at + 1];
 		match &mut self.stack.recorder.output {
 			RecorderStateInner::Content { output, stacked_pop, .. } => {
 				let item = &self.stack.items.get(at).expect("bounded iter");
@@ -492,6 +507,30 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 		at: usize,
 		//upper: u8,
 	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
+		if self.stack.items.is_empty() {
+			return Ok(false)
+		}
+		if at < self.stack.items.len() - 1 {
+			// work on a copy of the stack
+			let saved_items = self.stack.items.clone();
+			let saved_prefix = self.stack.prefix.clone();
+			let saved_iter_prefix = self.stack.iter_prefix.clone();
+
+			while self.stack.items.len() != at + 1 {
+				self.stack.items.pop();
+			}
+			let at = self.stack.items.last().map(|i| i.depth).unwrap_or(0);
+			self.stack.prefix.drop_lasts(self.stack.prefix.len() - at);
+			let result = self.try_stack_content_child(self.stack.items.len() - 1);
+			// restore state
+			self.stack.items = saved_items;
+			self.stack.prefix = saved_prefix;
+			self.stack.iter_prefix = saved_iter_prefix;
+			return result
+		}
+
+		debug_assert!(at == self.stack.items.len() - 1);
+
 		let mut res = false;
 		let dummy_parent_hash = TrieHash::<L>::default();
 		for i in 0..NIBBLE_LENGTH as u8 {
@@ -512,6 +551,8 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 							unreachable!()
 						} else {
 							self.pop();
+							self.stack.halt |=
+								self.stack.recorder.flush_pop_content(&self.stack.items);
 						}
 					},
 					TryStackChildResult::NotStackedBranch => (),
@@ -908,10 +949,12 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 					}
 					*/
 					if self.recorder.record_inline() {
+						/* TODO bad
 						// ignore hash in inline call, but mark as accessed.
 						if let Some(accessed_children_node) = from_branch {
 							accessed_children_node.set(child_index as usize, true);
 						}
+						*/
 					}
 					return Ok(TryStackChildResult::NotStackedBranch)
 				} else if self.halt && from_branch.is_some() {
