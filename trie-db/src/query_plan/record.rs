@@ -475,12 +475,13 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 		}
 
 		let items = &self.stack.items[..at + 1];
+		let mut staked_inline_last = false;
 		match &mut self.stack.recorder.output {
 			RecorderStateInner::Content { output, stacked_pop, .. } => {
-				let item = &self.stack.items.get(at).expect("bounded iter");
-				if stacked_pop.is_none() {
+				//let item = &self.stack.items.get(at).expect("bounded iter");
+				/*if stacked_pop.is_none() {
 					*stacked_pop = Some(item.depth);
-				}
+				}*/
 
 				if has_hash_to_write {
 					res |= flush_compact_content_pop::<O, L>(
@@ -493,6 +494,15 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 				}
 				if process_children {
 					res |= self.try_stack_content_child(at).expect("stack inline do not fetch");
+				}
+			},
+			_ => (),
+		}
+		match &mut self.stack.recorder.output {
+			RecorderStateInner::Content { output, stacked_pop, .. } => {
+				let item = &self.stack.items.get(at).expect("bounded iter");
+				if stacked_pop.is_none() {
+					*stacked_pop = Some(item.depth);
 				}
 			},
 			_ => (),
@@ -532,36 +542,8 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 		debug_assert!(at == self.stack.items.len() - 1);
 
 		let mut res = false;
-		let dummy_parent_hash = TrieHash::<L>::default();
-		for i in 0..NIBBLE_LENGTH as u8 {
-			let Some(item) = self.stack.items.get(at) else {
-				return Ok(res);
-			};
-			if !item.accessed_children_node.at(i as usize) {
-				match self.stack.try_stack_child(i, None, dummy_parent_hash, None)? {
-					// only expect a stacked full prefix or not stacked here
-					TryStackChildResult::StackedFull => {
-						let Some(item) = self.stack.items.get_mut(at) else {
-							return Ok(res);
-						};
-						item.accessed_children_node.set(i as usize, true);
-						let halt = self.iter_prefix(None, None, false, true)?;
-						if halt {
-							// no halt on inline.
-							unreachable!()
-						} else {
-							self.pop();
-							self.stack.halt |=
-								self.stack.recorder.flush_pop_content(&self.stack.items);
-						}
-					},
-					TryStackChildResult::NotStackedBranch => (),
-					TryStackChildResult::NotStacked => break,
-					_ => unreachable!(),
-				}
-			}
-		}
-		let Some(item) = self.stack.items.get(at) else {
+		self.try_stack_content_inline_children(NIBBLE_LENGTH as u8)?;
+		let Some(item) = self.stack.items.last() else {
 			return Ok(res);
 		};
 		for i in 0..NIBBLE_LENGTH as u8 {
@@ -577,6 +559,8 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 						if let Some(child) = &children[i as usize] {
 							match child.build(node_data) {
 								NodeHandle::Hash(hash) => {
+									// may need to flush an inline node
+									self.stack.recorder.flush_pop_content(&self.stack.items);
 									res |= self.stack.recorder.touched_child_hash(&hash, i);
 								},
 								_ => (),
@@ -592,6 +576,43 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 			.map(|i| i.next_descended_child = NIBBLE_LENGTH as u8);
 		Ok(res)
 	}
+
+	fn try_stack_content_inline_children(
+		&mut self,
+		child_ix_bound: u8,
+	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
+		let Some(item) = self.stack.items.last_mut() else {
+			return Ok(())
+		};
+		let dummy_parent_hash = TrieHash::<L>::default();
+		for i in item.next_descended_child..child_ix_bound {
+			let Some(item) = self.stack.items.last_mut() else {
+				return Ok(())
+			};
+			if !item.accessed_children_node.at(i as usize) {
+				match self.stack.try_stack_child(i, None, dummy_parent_hash, None)? {
+					// only expect a stacked full prefix or not stacked here
+					TryStackChildResult::StackedFull => {
+						let halt = self.iter_prefix(None, None, false, true)?;
+						let Some(item) = self.stack.items.last_mut() else {
+							return Ok(())
+						};
+						item.accessed_children_node.set(i as usize, true);
+						// no halt on inline.
+						debug_assert!(!halt);
+						self.pop();
+			//			self.stack.halt |=
+			//				self.stack.recorder.flush_pop_content(&self.stack.items);
+					},
+					TryStackChildResult::NotStackedBranch => (),
+					TryStackChildResult::NotStacked => break,
+					_ => unreachable!(),
+				}
+			}
+		}
+		Ok(())
+	}
+
 
 	fn pop(&mut self) -> bool {
 		if self
@@ -819,9 +840,9 @@ pub fn record_query_plan<
 			}
 
 			let child_index = if from.stack.items.is_empty() { 0 } else { slice_query.at(0) };
-			/*if query_plan.kind.record_inline() {
-				from.try_stack_content_child(child_index)?;
-			}*/
+			if query_plan.kind == ProofKind::CompactContent {
+				from.try_stack_content_inline_children(child_index)?;
+			}
 			from.stack.items.last_mut().map(|i| {
 				// TODO only needed for content but could be better to be always aligned
 				i.next_descended_child = child_index + 1;
@@ -1116,6 +1137,9 @@ fn flush_compact_content_pop<O: RecorderOutput, L: TrieLayout>(
 		return false
 	};
 	let pop_to = add_depth.unwrap_or_else(|| items.last().map(|i| i.depth).unwrap_or(0));
+	if from == pop_to {
+		return false
+	}
 	debug_assert!(from > pop_to);
 
 	debug_assert!(from - pop_to <= u16::max_value() as usize);
