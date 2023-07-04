@@ -601,8 +601,8 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 						// no halt on inline.
 						debug_assert!(!halt);
 						self.pop();
-			//			self.stack.halt |=
-			//				self.stack.recorder.flush_pop_content(&self.stack.items);
+						//			self.stack.halt |=
+						//				self.stack.recorder.flush_pop_content(&self.stack.items);
 					},
 					TryStackChildResult::NotStackedBranch => (),
 					TryStackChildResult::NotStacked => break,
@@ -612,7 +612,6 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 		}
 		Ok(())
 	}
-
 
 	fn pop(&mut self) -> bool {
 		if self

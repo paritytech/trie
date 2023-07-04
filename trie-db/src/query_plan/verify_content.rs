@@ -59,6 +59,7 @@ struct Stack<L: TrieLayout> {
 	is_prev_push_key: bool,
 	is_prev_pop_key: bool,
 	first: bool,
+	expect_inline_child: bool,
 	_ph: PhantomData<L>,
 }
 
@@ -72,6 +73,7 @@ impl<L: TrieLayout> Clone for Stack<L> {
 			is_prev_push_key: self.is_prev_push_key,
 			is_prev_pop_key: self.is_prev_pop_key,
 			is_prev_hash_child: self.is_prev_hash_child,
+			expect_inline_child: self.expect_inline_child,
 			first: self.first,
 			_ph: PhantomData,
 		}
@@ -286,7 +288,7 @@ where
 						self.stack.is_prev_pop_key = false;
 						self.stack.is_prev_hash_child = Some(*ix);
 					},
-					Op::Value(_) => {
+					Op::HashValue(_) | Op::Value(_) => {
 						//	| Op::ValueForceInline(_) | Op::ValueForceHashed(_) => {
 						if !(self.stack.is_prev_push_key || self.stack.first) {
 							self.state = ReadProofState::Finished;
@@ -343,8 +345,10 @@ where
 							Ordering::Less =>
 								if !self.stack.prefix.as_leftnibbleslice().starts_with(&query_slice)
 								{
-									self.state = ReadProofState::Finished;
-									return Some(Err(VerifyError::ExtraneousNode)) // TODO error backward pushed key
+									self.stack.expect_inline_child = true;
+									//									self.state = ReadProofState::Finished;
+									//									return Some(Err(VerifyError::ExtraneousNode)) // TODO error
+									// backward pushed key
 								},
 							Ordering::Greater =>
 								if current.as_prefix {
@@ -368,6 +372,7 @@ where
 						}
 						if next_query {
 							self.buf_op = Some(op);
+							self.stack.is_prev_push_key = true;
 							self.state = ReadProofState::SwitchQueryPlan;
 							if current.as_prefix {
 								if self.in_prefix_depth.take().is_none() {
@@ -567,6 +572,7 @@ impl<'a, L: TrieLayout, C> From<QueryPlan<'a, C>> for HaltedStateCheckContent<'a
 				is_prev_push_key: false,
 				is_prev_pop_key: false,
 				is_prev_hash_child: None,
+				expect_inline_child: false,
 				first: true,
 				_ph: PhantomData,
 			},
@@ -729,6 +735,13 @@ impl<L: TrieLayout> Stack<L> {
 
 			if self.items.is_empty() && !is_root {
 				self.stack_empty(from_depth);
+			}
+
+			if self.expect_inline_child {
+				if !matches!(child_reference, ChildReference::Inline(..)) {
+					return Err(VerifyError::ExtraneousNode)
+				}
+				self.expect_inline_child = false;
 			}
 
 			let items_len = self.items.len();
@@ -923,6 +936,7 @@ impl<L: TrieLayout> Stack<L> {
 			return Err(VerifyError::ExtraneousHashReference(*hash.disp_hash()))
 			//return Err(CompactDecoderError::HashChildNotOmitted.into()) TODO
 		}
+
 		item.children[i] = Some(ChildReference::Hash(branch_hash));
 		Ok(())
 	}
