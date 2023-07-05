@@ -82,6 +82,20 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 		Self { output, limits, start_at: None, _ph: PhantomData }
 	}
 
+	fn record_halt(&mut self) {
+		let mut written = 0;
+		match &mut self.output {
+			RecorderStateInner::Content { output, stacked_pop, .. } => {
+				let op = Op::<TrieHash<L>, Vec<u8>>::SuspendProof;
+				let init_len = output.buf_len();
+				op.encode_into(output);
+				let written = output.buf_len() - init_len;
+			},
+			_ => return,
+		}
+		self.limits.add_node(written, 0, false);
+	}
+
 	#[must_use]
 	fn flush_pop_content(&mut self, items: &Vec<StackedNodeRecord>) -> bool {
 		match &mut self.output {
@@ -432,6 +446,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 				if halt {
 					// next is a key push, do the pop
 					let _ = stack.recorder.flush_pop_content(items);
+					stack.recorder.record_halt();
 					//					let saved_iter_prefix = stack.iter_prefix.clone();
 				}
 

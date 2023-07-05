@@ -45,6 +45,13 @@ pub enum Op<H, V> {
 	// This is not strictly necessary, only if the proof is not sized, otherwhise if we know
 	// the stream will end it can be skipped.
 	EndProof,
+	// Indicate the proof is incomplete and next elements from the proof are
+	// only needed to check the validity.
+	// This is needed for query plan where the inline content cannot be distinguished
+	// from sequenced content until seing child hashes.
+	// If no inline or more sequenced proof this would not be necessary.
+	// Nevertheless makes things less error prone.
+	SuspendProof,
 }
 
 // Limiting size to u32 (could also just use a terminal character).
@@ -133,6 +140,7 @@ impl<H: AsRef<[u8]>, V: AsRef<[u8]>> Op<H, V> {
 				len += value.as_ref().len();
 			},
 			Op::EndProof => (),
+			Op::SuspendProof => (),
 		}
 		len
 	}
@@ -167,6 +175,9 @@ impl<H: AsRef<[u8]>, V: AsRef<[u8]>> Op<H, V> {
 			},
 			Op::EndProof => {
 				out.write_bytes(&[5]);
+			},
+			Op::SuspendProof => {
+				out.write_bytes(&[6]);
 			},
 		}
 	}
@@ -226,6 +237,7 @@ impl<H: AsRef<[u8]> + AsMut<[u8]> + Default> Op<H, Vec<u8>> {
 				(Op::Value(value.to_vec()), i + len.0 as usize)
 			},
 			5 => (Op::EndProof, 1),
+			6 => (Op::SuspendProof, 1),
 			_ => return Err(()),
 		})
 	}
