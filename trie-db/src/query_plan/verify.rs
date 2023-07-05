@@ -127,14 +127,12 @@ where
 	P: Iterator<Item = D>,
 	D: SplitFirst,
 {
-	fn halt(
-		&mut self,
-	) -> Option<Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>> {
+	fn halt(&mut self) -> VerifyIteratorResult<'a, L, C, D> {
 		if self.is_compact {
 			let r = self.stack.pop_until(None, &self.expected_root, true);
 			if let Err(e) = r {
 				self.state = ReadProofState::Finished;
-				return Some(Err(e))
+				return Err(e)
 			}
 		}
 		self.state = ReadProofState::Finished;
@@ -156,13 +154,13 @@ where
 			},
 		);
 		stack.start_items = stack.items.len();
-		Some(Ok(ReadProofItem::Halted(Box::new(HaltedStateCheck::Node(HaltedStateCheckNode {
+		Ok(ReadProofItem::Halted(Box::new(HaltedStateCheck::Node(HaltedStateCheckNode {
 			query_plan,
 			current,
 			restore_offset: self.current_offset,
 			stack,
 			state: ReadProofState::Halted,
-		})))))
+		}))))
 	}
 
 	fn enter_prefix_iter(&mut self, hash_only: bool, key: &[u8]) {
@@ -346,7 +344,7 @@ where
 							if let Some(last) = self.stack.items.last_mut() {
 								last.next_descended_child -= 1;
 							}
-							return self.halt()
+							return Some(self.halt())
 						},
 					}
 				}
@@ -447,7 +445,7 @@ where
 					return self.missing_switch_next(as_prefix, to_check.key, false),
 				TryStackChildResult::StackedAfter =>
 					return self.missing_switch_next(as_prefix, to_check.key, true),
-				TryStackChildResult::Halted => return self.halt(),
+				TryStackChildResult::Halted => return Some(self.halt()),
 			}
 		}
 

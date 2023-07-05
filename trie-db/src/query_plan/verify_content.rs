@@ -59,6 +59,7 @@ struct Stack<L: TrieLayout> {
 	is_prev_push_key: bool,
 	is_prev_pop_key: bool,
 	first: bool,
+	halting: bool,
 	expect_inline_child: bool,
 	_ph: PhantomData<L>,
 }
@@ -75,6 +76,7 @@ impl<L: TrieLayout> Clone for Stack<L> {
 			is_prev_hash_child: self.is_prev_hash_child,
 			expect_inline_child: self.expect_inline_child,
 			first: self.first,
+			halting: self.halting,
 			_ph: PhantomData,
 		}
 	}
@@ -220,6 +222,9 @@ where
 							return Some(Err(e))
 						}
 					}
+					if self.stack.halting {
+						return Some(self.halt());
+					}
 					if let Some(c) = self.current.as_ref() {
 						if c.as_prefix {
 							// end prefix switch to next
@@ -239,7 +244,9 @@ where
 				// TODO wrap in an error and put bools in a struct TODO put in its own function
 				match &op {
 					Op::KeyPush(..) => {
-						if self.stack.is_prev_push_key {
+						if self.stack.is_prev_push_key ||
+							(self.stack.halting && self.in_prefix_depth.is_none())
+						{
 							self.state = ReadProofState::Finished;
 							return Some(Err(VerifyError::ExtraneousNode)) // TODO a decode op error
 							                  // TODO return
@@ -252,7 +259,9 @@ where
 						self.stack.first = false;
 					},
 					Op::KeyPop(..) => {
-						if self.stack.is_prev_pop_key {
+						if self.stack.is_prev_pop_key ||
+							(self.stack.halting && self.in_prefix_depth.is_none())
+						{
 							self.state = ReadProofState::Finished;
 							return Some(Err(VerifyError::ExtraneousNode)) // TODO a decode op error
 							                  // return Err(CompactDecoderError::ConsecutivePopKeys.
@@ -479,8 +488,11 @@ where
 					Op::EndProof => break,
 					Op::HashChild(hash, child_ix) => {
 						if self.in_prefix_depth.is_some() {
-							self.state = ReadProofState::Finished;
-							return Some(Err(VerifyError::ExtraneousNode)) // TODO better error missing query plan proof
+							// consider it halted.
+							self.stack.halting = true;
+						//self.state = ReadProofState::Finished;
+						//return Some(Err(VerifyError::ExtraneousNode)) // TODO better error
+						// missing query plan proof
 						} else {
 							// we did pop item before (see op sequence check), so we have
 							// stack prefix matching current plan. TODO debug assert plan starts
@@ -530,6 +542,45 @@ where
 		}
 			*/
 	}
+
+	fn halt(&mut self) -> VerifyIteratorResult<'a, L, C> {
+		// check proof
+		let r = self.stack.stack_pop(None, &self.expected_root);
+		if let Err(e) = r {
+			self.state = ReadProofState::Finished;
+			return Err(e)
+		}
+		self.state = ReadProofState::Finished;
+		let query_plan = crate::rstd::mem::replace(&mut self.query_plan, None);
+		let query_plan = query_plan.expect("Init with state");
+		let current = crate::rstd::mem::take(&mut self.current);
+		let mut stack = crate::rstd::mem::replace(
+			// TODO impl default and use take
+			&mut self.stack,
+			Stack {
+				items: Default::default(),
+				start_items: 0,
+				prefix: Default::default(),
+				first: false,
+				is_prev_hash_child: None,
+				expect_inline_child: false,
+				is_prev_push_key: false,
+				is_prev_pop_key: false,
+				expect_value: false,
+				halting: false,
+				_ph: PhantomData,
+			},
+		);
+		stack.start_items = stack.items.len();
+		stack.halting = false;
+		Ok(ReadProofItem::Halted(Box::new(HaltedStateCheck::Content(HaltedStateCheckContent {
+			query_plan,
+			current,
+			restore_offset: self.current_offset,
+			stack,
+			state: ReadProofState::Halted,
+		}))))
+	}
 }
 
 /// When process is halted keep execution state
@@ -555,6 +606,7 @@ impl<'a, L: TrieLayout, C> From<QueryPlan<'a, C>> for HaltedStateCheckContent<'a
 				is_prev_hash_child: None,
 				expect_inline_child: false,
 				first: true,
+				halting: false,
 				_ph: PhantomData,
 			},
 			state: ReadProofState::NotStarted,
@@ -589,6 +641,7 @@ impl<L: TrieLayout> Stack<L> {
 		target_depth: Option<usize>,
 		expected_root: &Option<TrieHash<L>>,
 	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
+		let mut halting = if self.halting { Some((Vec::new(), self.prefix.clone())) } else { None };
 		let mut first = true;
 		let mut checked = false;
 		while self
@@ -617,20 +670,18 @@ impl<L: TrieLayout> Stack<L> {
 					let extension_only = first &&
 						matches!(&item.value, &ValueSet::None) &&
 						item.children.iter().filter(|child| child.is_some()).count() == 1;
-					self.items.push(item); // TODO this looks bad (pop then push, branch or leaf function should or should
-					   // not pop instead)
-					   // encode branch
+					// not pop instead)
+					// encode branch
 					if expected_root.is_some() {
-						self.standard_extension(depth, is_root, nkey, extension_only)
+						self.standard_extension(&item, depth, is_root, nkey, extension_only)
 					} else {
 						ChildReference::Hash(TrieHash::<L>::default())
 					}
 				} else {
-					self.items.push(item); // TODO this looks bad (pop then push, branch or leaf function should or should
-					   // not pop instead)
-					   // encode branch
+					// not pop instead)
+					// encode branch
 					if expected_root.is_some() {
-						self.no_extension(depth, is_root, nkey)
+						self.no_extension(&item, depth, is_root, nkey)
 					} else {
 						ChildReference::Hash(TrieHash::<L>::default())
 					}
@@ -681,10 +732,17 @@ impl<L: TrieLayout> Stack<L> {
 				}
 			}
 			first = false;
+			halting.as_mut().map(|(pop_items, _)| {
+				pop_items.push(item);
+			});
 			// TODO can skip hash checks when above start_items.
 			self.start_items = core::cmp::min(self.start_items, self.items.len());
 		}
 		debug_assert!(target_depth.is_some() || expected_root.is_none() || checked);
+		halting.map(|(pop_items, saved_prefix)| {
+			self.items.extend(pop_items.into_iter().rev());
+			self.prefix = saved_prefix;
+		});
 		Ok(())
 	}
 
@@ -702,7 +760,8 @@ impl<L: TrieLayout> Stack<L> {
 	// TODO factor with iter_build (reuse cacheaccum here).
 	#[inline(always)]
 	fn standard_extension(
-		&mut self,
+		&self,
+		item: &ItemContentStack<L>,
 		branch_d: usize,
 		is_root: bool,
 		nkey: Option<(usize, usize)>,
@@ -712,9 +771,9 @@ impl<L: TrieLayout> Stack<L> {
 		let last = self.items.len() - 1;
 		assert_eq!(self.items[last].depth, branch_d);
 
-		let ItemContentStack { children, value: v, depth, .. } = self.items.pop().expect("checked");
+		let ItemContentStack { children, value: v, depth, .. } = item;
 
-		debug_assert!(branch_d == depth);
+		debug_assert!(&branch_d == depth);
 
 		let hashed;
 		let value = if let Some(v) = v.as_ref() {
@@ -752,15 +811,16 @@ impl<L: TrieLayout> Stack<L> {
 
 	#[inline(always)]
 	fn no_extension(
-		&mut self,
+		&self,
+		item: &ItemContentStack<L>,
 		branch_d: usize,
 		is_root: bool,
 		nkey: Option<(usize, usize)>,
 	) -> ChildReference<TrieHash<L>> {
 		let key_branch = &self.prefix.inner().as_ref()[..];
-		let ItemContentStack { children, value: v, depth, .. } = self.items.pop().expect("checked");
+		let ItemContentStack { children, value: v, depth, .. } = item;
 
-		debug_assert!(branch_d == depth);
+		debug_assert!(&branch_d == depth);
 		// encode branch
 		let nkeyix = nkey.unwrap_or((branch_d, 0));
 		let pr = NibbleSlice::new_offset(&key_branch, nkeyix.0);
@@ -792,7 +852,7 @@ impl<L: TrieLayout> Stack<L> {
 	}
 
 	fn flush_value_change<'a>(
-		&mut self,
+		&self,
 		from_depth: usize,
 		to_depth: usize,
 		value: &ValueSet<TrieHash<L>, Vec<u8>>,
