@@ -43,8 +43,8 @@ fn test_query_plan_compact_internal<L: TrieLayout>() {
 
 test_layouts!(test_query_plan_content, test_query_plan_content_internal);
 fn test_query_plan_content_internal<L: TrieLayout>() {
-	test_query_plan_internal::<L>(ProofKind::CompactContent, true);
 	test_query_plan_internal::<L>(ProofKind::CompactContent, false);
+	test_query_plan_internal::<L>(ProofKind::CompactContent, true);
 }
 
 fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
@@ -99,8 +99,8 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 	];
 	for (_nb_plan, query_plan) in query_plans.iter().enumerate() {
 		for limit_conf in [
-			(0, false), /* TODO implement (1, false), (1, true), (2, false), (2, true), (3,
-			             * true) */
+			(1, true), /* TODO uncomment	(0, false), (1, false), (1, true), (2, false), (2,
+			            * true), (3, true) */
 		] {
 			let limit = limit_conf.0;
 			let limit = (limit != 0).then(|| limit);

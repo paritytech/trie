@@ -36,8 +36,18 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 	/// Check and update start at record.
 	/// When return true, do record.
 	/// Else already was.
-	fn check_start_at(&mut self, depth: usize) -> bool {
-		if self.start_at.map(|s| s > depth).unwrap_or(false) {
+	fn check_start_at(&mut self, depth: usize, pop: bool) -> bool {
+		if matches!(self.output, RecorderStateInner::Content { .. }) {
+			if let Some(s) = self.start_at.as_mut() {
+				if &depth <= s {
+					if pop {
+						*s = depth;
+					}
+					return false
+				}
+			}
+			true
+		} else if self.start_at.map(|s| s >= depth).unwrap_or(false) {
 			false
 		} else {
 			self.start_at = None;
@@ -95,7 +105,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 		parent_index: u8,
 		items: &Vec<StackedNodeRecord>,
 	) -> bool {
-		if !self.check_start_at(item.depth) {
+		if !self.check_start_at(item.depth, false) {
 			return false
 		}
 		let mut res = false;
@@ -156,7 +166,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 	#[must_use]
 	fn flush_compact_content_pushes(&mut self, depth: usize) -> bool {
 		let mut res = false;
-		if !self.check_start_at(depth) {
+		if !self.check_start_at(depth, false) {
 			// TODO actually should be unreachable
 			return res
 		}
@@ -175,7 +185,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 
 	#[must_use]
 	fn record_value_node(&mut self, value: Vec<u8>, depth: usize) -> bool {
-		if !self.check_start_at(depth) {
+		if !self.check_start_at(depth, false) {
 			return false
 		}
 
@@ -206,7 +216,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 	#[must_use]
 	fn record_value_inline(&mut self, value: &[u8], depth: usize) -> bool {
 		let mut res = false;
-		if !self.check_start_at(depth) {
+		if !self.check_start_at(depth, false) {
 			return res
 		}
 		if let RecorderStateInner::Content { .. } = &self.output {
@@ -239,7 +249,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 					return res
 				}
 				item.accessed_value_node = true;
-				if !self.check_start_at(item.depth) {
+				if !self.check_start_at(item.depth, false) {
 					return res
 				}
 				let node_data = item.node.data();
@@ -383,7 +393,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 		self.stack.recorder.output()
 	}
 
-	fn finalize(&mut self) {
+	fn finalize(&mut self, halt: bool) {
 		let stack = &mut self.stack;
 		let items = &stack.items;
 		match &mut stack.recorder.output {
@@ -419,8 +429,15 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 				// TODO protect existing stack as for compact
 				assert!(stacked_push.is_none());
 
+				if halt {
+					// next is a key push, do the pop
+					let _ = stack.recorder.flush_pop_content(items);
+					//					let saved_iter_prefix = stack.iter_prefix.clone();
+				}
+
 				for i in (0..items.len()).rev() {
-					let _ = self.record_popped_node(i);
+					// TODO if i > restart height
+					let _ = self.record_popped_node(i, halt);
 				}
 			},
 		}
@@ -431,10 +448,10 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 	/// the stack and will not pop the node).
 	/// Return true if should halt.
 	#[must_use]
-	fn record_popped_node(&mut self, at: usize) -> bool {
+	fn record_popped_node(&mut self, at: usize, halt: bool) -> bool {
 		let item = self.stack.items.get(at).expect("bounded check call");
 		let mut res = false;
-		if !self.stack.recorder.check_start_at(item.depth) {
+		if !self.stack.recorder.check_start_at(item.depth, true) {
 			return res
 		}
 		/* TODO rem Incorrect, if first child is inline, we would push more: push
@@ -492,7 +509,8 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 					);
 				}
 				if process_children {
-					res |= self.try_stack_content_child(at).expect("stack inline do not fetch");
+					res |=
+						self.try_stack_content_child(at, halt).expect("stack inline do not fetch");
 				}
 			},
 			_ => (),
@@ -500,7 +518,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 		match &mut self.stack.recorder.output {
 			RecorderStateInner::Content { stacked_pop, .. } => {
 				let item = &self.stack.items.get(at).expect("bounded iter");
-				if stacked_pop.is_none() {
+				if !halt && stacked_pop.is_none() {
 					*stacked_pop = Some(item.depth);
 				}
 			},
@@ -514,12 +532,12 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 	fn try_stack_content_child(
 		&mut self,
 		at: usize,
-		//upper: u8,
+		halt: bool,
 	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
 		if self.stack.items.is_empty() {
 			return Ok(false)
 		}
-		if at < self.stack.items.len() - 1 {
+		if halt || at < self.stack.items.len() - 1 {
 			// work on a copy of the stack
 			let saved_items = self.stack.items.clone();
 			let saved_prefix = self.stack.prefix.clone();
@@ -530,7 +548,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 			}
 			let at = self.stack.items.last().map(|i| i.depth).unwrap_or(0);
 			self.stack.prefix.drop_lasts(self.stack.prefix.len() - at);
-			let result = self.try_stack_content_child(self.stack.items.len() - 1);
+			let result = self.try_stack_content_child(self.stack.items.len() - 1, false);
 			// restore state
 			self.stack.items = saved_items;
 			self.stack.prefix = saved_prefix;
@@ -623,7 +641,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 		}
 		let at = self.stack.items.len();
 		if at > 0 {
-			self.stack.halt |= self.record_popped_node(at - 1);
+			self.stack.halt |= self.record_popped_node(at - 1, false);
 		}
 		if let Some(item) = self.stack.items.pop() {
 			let depth = self.stack.items.last().map(|i| i.depth).unwrap_or(0);
@@ -690,7 +708,8 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 							(self.stack.prefix.len() % nibble_ops::NIBBLE_PER_BYTE) != 0,
 						));
 						self.stack.prefix.pop();
-						self.finalize();
+						self.finalize(true);
+						self.stack.halt = false;
 						self.from = dest_from;
 						self.currently_query_item = prev_query.map(|q| q.to_owned());
 						return Ok(true)
@@ -743,12 +762,13 @@ pub fn record_query_plan<
 			if lower_bound.1 {
 				bound.pop();
 			}
-			from.stack.recorder.start_at = Some(bound.len());
+			from.stack.recorder.start_at = Some(bound.len() - 1);
 			from.stack.seek = Some(bound);
 		} else {
 			// statefull case
 			let bound_len = lower_bound.0.len() * nibble_ops::NIBBLE_PER_BYTE -
 				if lower_bound.1 { 2 } else { 1 };
+			from.stack.recorder.start_at = Some(bound_len);
 			statefull = Some(bound_len);
 		}
 	}
@@ -792,7 +812,7 @@ pub fn record_query_plan<
 					Ordering::Less => break true,
 					Ordering::Greater =>
 						if !from.pop() {
-							from.finalize();
+							from.finalize(false);
 							return Ok(())
 						},
 				}
@@ -874,7 +894,7 @@ pub fn record_query_plan<
 					));
 					from.stack.prefix.pop();
 					from.currently_query_item = Some(query.to_owned());
-					from.finalize();
+					from.finalize(true);
 					return Ok(())
 				},
 			}
@@ -899,7 +919,7 @@ pub fn record_query_plan<
 		}
 	}
 	*/
-	from.finalize();
+	from.finalize(false);
 	Ok(())
 }
 
@@ -916,7 +936,9 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		let prefix = &mut self.prefix;
 		let mut stack_extension = false;
 		let mut from_branch = None;
+		let mut item_depth = 0;
 		let child_handle = if let Some(item) = self.items.last_mut() {
+			item_depth = item.depth;
 			//if inline_only && item.accessed_children_node.at(child_index as usize) {
 			debug_assert!(!item.accessed_children_node.at(child_index as usize));
 			/*			if item.accessed_children_node.at(child_index as usize) {
@@ -958,6 +980,12 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 			NodeHandle::Inline(_) => {
 				// TODO consider not going into inline for all proof but content.
 				// Returning NotStacked here sounds safe, then the is_inline field is not needed.
+				if self.recorder.record_inline() {
+					if !self.recorder.check_start_at(item_depth, false) {
+						// inline in a previous proof
+						return Ok(TryStackChildResult::NotStackedBranch)
+					}
+				}
 				is_inline = true;
 			},
 			NodeHandle::Hash(_) => {
@@ -1098,18 +1126,13 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 					let Some(value) = db.expect("non inline").db().get(&hash, self.prefix.as_prefix()) else {
 						return Err(VerifyError::IncompleteProof);
 					};
-					if self.recorder.record_value_node(value, self.prefix.len()) {
-						self.halt = true;
-					}
+					self.halt |= self.recorder.record_value_node(value, self.prefix.len());
 				} else {
-					if self.recorder.record_skip_value(&mut self.items) {
-						self.halt = true;
-					}
+					self.halt |= self.recorder.record_skip_value(&mut self.items);
 				},
-			Value::Inline(value) =>
-				if self.recorder.record_value_inline(value, self.prefix.len()) {
-					self.halt = true;
-				},
+			Value::Inline(value) => {
+				self.halt |= self.recorder.record_value_inline(value, self.prefix.len());
+			},
 		}
 		Ok(true)
 	}
