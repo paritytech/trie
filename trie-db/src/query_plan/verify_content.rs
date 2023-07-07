@@ -130,6 +130,9 @@ where
 	type Item = VerifyIteratorResult<'a, L, C>;
 
 	fn next(&mut self) -> Option<Self::Item> {
+		if self.stack.process_inline_children.is_some() {
+			return Some(self.do_process_inline_children())
+		}
 		debug_assert!(self.send_enter_prefix.is_none());
 		debug_assert!(!self.send_exit_prefix);
 		if let Some(r) = self.buffed_result.take() {
@@ -137,11 +140,8 @@ where
 		}
 		let r = self.next_inner();
 		if self.stack.process_inline_children.is_some() {
-			unimplemented!();
-			// TODO process all
-			// TODO reset prefix to last process depth and with actual prefix
-			// TODO test against send_exit prefix, potentially can send exit in middle,
-			// so just set to false and test during iteration.
+			self.send_exit_prefix = false;
+			return Some(self.do_process_inline_children())
 		}
 		if let Some(k) = self.send_enter_prefix.take() {
 			self.buffed_result = Some(r);
@@ -157,12 +157,53 @@ where
 	}
 }
 
+struct DummyDB;
+
+impl<H: hash_db::Hasher, T> hash_db::HashDBRef<H, T> for DummyDB {
+	fn get(&self, _key: &H::Out, _prefix: hash_db::Prefix) -> Option<T> {
+		None
+	}
+
+	fn contains(&self, _key: &H::Out, _prefix: hash_db::Prefix) -> bool {
+		false
+	}
+}
+
 impl<'a, L, C, P> ReadProofContentIterator<'a, L, C, P>
 where
 	L: TrieLayout,
 	C: Iterator<Item = QueryPlanItem<'a>>,
 	P: Iterator<Item = Option<Op<TrieHash<L>, Vec<u8>>>>,
 {
+	fn do_process_inline_children(&mut self) -> VerifyIteratorResult<'a, L, C> {
+		let (prefix, inlines) = self.stack.process_inline_children.as_mut().expect("checked call");
+		// TODO process all
+		// TODO reset prefix to last process depth and with actual prefix
+		// TODO test against send_exit prefix, potentially can send exit in middle,
+		// so just set to false and test during iteration.
+
+		let (child_ix, depth, inline, inline_len) = inlines.pop().expect("checked");
+		let dummy_root = TrieHash::<L>::default();
+		let dummy_db = DummyDB;
+		let dummy_trie_db = crate::TrieDBBuilder::new(&dummy_db, &dummy_root).build();
+		let mut raw_iter = crate::iterator::TrieDBRawIterator::<L> {
+			trail: Vec::new(),
+			key_nibbles: prefix.clone(),
+		};
+
+		raw_iter.init_from_inline(&inline.as_ref()[..inline_len], &dummy_trie_db);
+		if let Some(item) = raw_iter.next_item(&dummy_trie_db) {
+			println!("accessing");
+		}
+
+		unimplemented!();
+
+		/*
+		if inlines.is_empty() {
+			self.stack.process_inline_children = None;
+		}
+		*/
+	}
 	// TODO useless next_inner???
 	fn next_inner(&mut self) -> Option<VerifyIteratorResult<'a, L, C>> {
 		if self.state == ReadProofState::Finished {

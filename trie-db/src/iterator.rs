@@ -34,7 +34,7 @@ enum Status {
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Eq, PartialEq)]
-struct Crumb<H: Hasher> {
+pub(crate) struct Crumb<H: Hasher> { // TODO rem pub(crate) by having builder over nibllevec
 	hash: Option<H::Out>,
 	node: Arc<OwnedNode<DBValue>>,
 	status: Status,
@@ -60,8 +60,8 @@ impl<H: Hasher> Crumb<H> {
 
 /// Iterator for going through all nodes in the trie in pre-order traversal order.
 pub struct TrieDBRawIterator<L: TrieLayout> {
-	trail: Vec<Crumb<L::Hash>>,
-	key_nibbles: NibbleVec,
+	pub(crate) trail: Vec<Crumb<L::Hash>>,
+	pub(crate) key_nibbles: NibbleVec,
 }
 
 impl<L: TrieLayout> TrieDBRawIterator<L> {
@@ -103,6 +103,16 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 		let mut iter = TrieDBRawIterator::new(db)?;
 		iter.prefix_then_seek(db, prefix, start_at)?;
 		Ok(iter)
+	}
+
+	pub(crate) fn init_from_inline(&mut self, node: &[u8], db: &TrieDB<L>) {
+		let node = db.get_raw_or_lookup(
+			<TrieHash<L>>::default(),
+			NodeHandle::Inline(node),
+			EMPTY_PREFIX,
+			false,
+		).expect("inline node is always in db; qed").0;
+		self.descend(node, None);
 	}
 
 	/// Descend into a payload.
