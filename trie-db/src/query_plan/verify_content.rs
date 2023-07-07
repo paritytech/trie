@@ -40,11 +40,10 @@ where
 	proof: P,
 	expected_root: Option<TrieHash<L>>,
 	current: Option<QueryPlanItem<'a>>,
-	current_offset: usize,
+	current_offset: usize, // TODO remove seems unused
 	state: ReadProofState,
 	stack: Stack<L>,
 	buf_op: Option<Op<TrieHash<L>, Vec<u8>>>,
-	in_prefix_depth: Option<usize>,
 	send_enter_prefix: Option<Vec<u8>>,
 	send_exit_prefix: bool,
 	buffed_result: Option<Option<VerifyIteratorResult<'a, L, C>>>,
@@ -59,8 +58,12 @@ struct Stack<L: TrieLayout> {
 	is_prev_push_key: bool,
 	is_prev_pop_key: bool,
 	first: bool,
-	halting: bool,
-	expect_inline_child: bool,
+	in_prefix_depth: Option<usize>,
+	// when exititng keep nibble vec and items to restore and current prefix iter.
+	halting: Option<(Vec<ItemContentStack<L>>, NibbleVec, usize, Option<usize>)>,
+	// depth of node containing inline hash
+	expect_inline_child: Option<usize>,
+	process_inline_children: Option<(NibbleVec, Vec<(u8, usize, TrieHash<L>, usize)>)>,
 	_ph: PhantomData<L>,
 }
 
@@ -76,7 +79,9 @@ impl<L: TrieLayout> Clone for Stack<L> {
 			is_prev_hash_child: self.is_prev_hash_child,
 			expect_inline_child: self.expect_inline_child,
 			first: self.first,
-			halting: self.halting,
+			halting: self.halting.clone(),
+			process_inline_children: self.process_inline_children.clone(),
+			in_prefix_depth: self.in_prefix_depth.clone(),
 			_ph: PhantomData,
 		}
 	}
@@ -110,7 +115,6 @@ where
 		state,
 		stack,
 		buf_op: None,
-		in_prefix_depth: None,
 		send_enter_prefix: None,
 		send_exit_prefix: false,
 		buffed_result: None,
@@ -222,7 +226,7 @@ where
 							return Some(Err(e))
 						}
 					}
-					if self.stack.halting {
+					if self.stack.halting.is_some() {
 						return Some(self.halt());
 					}
 					if let Some(c) = self.current.as_ref() {
@@ -244,14 +248,17 @@ where
 				// TODO wrap in an error and put bools in a struct TODO put in its own function
 				match &op {
 					Op::KeyPush(..) => {
-						if self.stack.is_prev_push_key ||
-							(self.stack.halting && self.in_prefix_depth.is_none())
-						{
+						if self.stack.is_prev_push_key {
 							self.state = ReadProofState::Finished;
 							return Some(Err(VerifyError::ExtraneousNode)) // TODO a decode op error
 							                  // TODO return
 							                  // Err(CompactDecoderError::ConsecutivePushKeys.
 							                  // into())
+						}
+						if self.stack.halting.is_some() {
+							if self.stack.expect_inline_child.is_none() {
+								self.stack.expect_inline_child = Some(self.stack.prefix.len());
+							}
 						}
 						self.stack.is_prev_push_key = true;
 						self.stack.is_prev_pop_key = false;
@@ -260,7 +267,8 @@ where
 					},
 					Op::KeyPop(..) => {
 						if self.stack.is_prev_pop_key ||
-							(self.stack.halting && self.in_prefix_depth.is_none())
+							(self.stack.halting.is_some() &&
+								self.stack.in_prefix_depth.is_none())
 						{
 							self.state = ReadProofState::Finished;
 							return Some(Err(VerifyError::ExtraneousNode)) // TODO a decode op error
@@ -299,6 +307,7 @@ where
 						self.stack.is_prev_hash_child = None;
 						self.stack.first = false;
 					},
+					Op::SuspendProof => {},
 					_ => {
 						self.stack.is_prev_push_key = false;
 						self.stack.is_prev_pop_key = false;
@@ -334,7 +343,7 @@ where
 						match self.stack.prefix.as_leftnibbleslice().cmp(&left_query_slice) {
 							Ordering::Equal => {
 								if current.as_prefix {
-									self.in_prefix_depth = Some(query_slice.len());
+									self.stack.in_prefix_depth = Some(query_slice.len());
 									self.send_enter_prefix = Some(current.key.to_vec());
 								}
 								if !self.stack.items.is_empty() {
@@ -343,10 +352,13 @@ where
 							},
 							Ordering::Less =>
 								if !query_slice.starts_with_vec(&self.stack.prefix) {
-									self.stack.expect_inline_child = true;
-									//									self.state = ReadProofState::Finished;
-									//									return Some(Err(VerifyError::ExtraneousNode)) // TODO error
-									// backward pushed key
+									if self.stack.expect_inline_child.is_none() {
+										self.stack.expect_inline_child =
+											Some(self.stack.prefix.len());
+									} // TODO else debug assert prefix len > expect inline child
+									 //									self.state = ReadProofState::Finished;
+									 //									return Some(Err(VerifyError::ExtraneousNode)) // TODO error
+									 // backward pushed key
 								},
 							Ordering::Greater =>
 								if current.as_prefix {
@@ -356,8 +368,8 @@ where
 										.as_leftnibbleslice()
 										.starts_with(&left_query_slice)
 									{
-										if self.in_prefix_depth.is_none() {
-											self.in_prefix_depth = Some(query_slice.len());
+										if self.stack.in_prefix_depth.is_none() {
+											self.stack.in_prefix_depth = Some(query_slice.len());
 											self.send_enter_prefix = Some(current.key.to_vec());
 										}
 										at_value = true;
@@ -368,12 +380,23 @@ where
 									next_query = true;
 								},
 						}
+						if current.hash_only || !at_value || self.stack.halting.is_some() {
+							if let Op::Value(value) = &op {
+								if L::MAX_INLINE_VALUE
+									.map(|max| max as usize <= value.len())
+									.unwrap_or(false)
+								{
+									self.state = ReadProofState::Finished;
+									return Some(Err(VerifyError::ExtraneousValue(value.clone())))
+								}
+							}
+						}
 						if next_query {
 							self.buf_op = Some(op);
 							self.stack.is_prev_push_key = true;
 							self.state = ReadProofState::SwitchQueryPlan;
 							if current.as_prefix {
-								if self.in_prefix_depth.take().is_none() {
+								if self.stack.in_prefix_depth.take().is_none() {
 									self.send_enter_prefix = Some(current.key.to_vec());
 								}
 								return Some(Ok(ReadProofItem::EndPrefix))
@@ -389,31 +412,25 @@ where
 								let mut hashed = None;
 								if let Some(current) = self.current.as_ref() {
 									if current.hash_only {
-										if L::MAX_INLINE_VALUE
-											.map(|max| max as usize <= value.len())
-											.unwrap_or(false)
-										{
-											self.state = ReadProofState::Finished;
-											return Some(Err(VerifyError::ExtraneousValue(
-												value.clone(),
-											)))
-										} else {
-											let hash = <L::Hash as Hasher>::hash(value.as_slice());
-											hashed = Some(ReadProofItem::Hash(
-												self.stack.prefix.inner().to_vec().into(),
-												hash,
-											))
-										}
+										let hash = <L::Hash as Hasher>::hash(value.as_slice());
+										hashed = Some(ReadProofItem::Hash(
+											self.stack.prefix.inner().to_vec().into(),
+											hash,
+										))
 									}
 								}
 								if hashed.is_some() {
 									hashed
 								} else {
-									// TODO could get content from op with no clone.
-									Some(ReadProofItem::Value(
-										self.stack.prefix.inner().to_vec().into(),
-										value.clone(),
-									))
+									if self.stack.halting.is_some() {
+										None
+									} else {
+										// TODO could get content from op with no clone.
+										Some(ReadProofItem::Value(
+											self.stack.prefix.inner().to_vec().into(),
+											value.clone(),
+										))
+									}
 								}
 							},
 							Op::HashValue(hash) => {
@@ -425,11 +442,15 @@ where
 										)))
 									}
 								}
-								// TODO could get content from op with no clone.
-								Some(ReadProofItem::Hash(
-									self.stack.prefix.inner().to_vec().into(),
-									hash.clone(),
-								))
+								if self.stack.halting.is_some() {
+									None
+								} else {
+									// TODO could get content from op with no clone.
+									Some(ReadProofItem::Hash(
+										self.stack.prefix.inner().to_vec().into(),
+										hash.clone(),
+									))
+								}
 							},
 							_ => {
 								self.state = ReadProofState::Finished;
@@ -437,19 +458,6 @@ where
 							},
 						}
 					} else {
-						match &op {
-							Op::Value(value) => {
-								// hash value here not value
-								if L::MAX_INLINE_VALUE
-									.map(|max| max as usize <= value.len())
-									.unwrap_or(false)
-								{
-									self.state = ReadProofState::Finished;
-									return Some(Err(VerifyError::ExtraneousValue(value.clone())))
-								}
-							},
-							_ => (),
-						}
 						None
 					}
 				} else {
@@ -472,7 +480,7 @@ where
 						let target_depth = self.stack.prefix.len() - nb_nibble as usize;
 						let r = self.stack.stack_pop(Some(target_depth), &self.expected_root);
 						self.stack.prefix.drop_lasts(nb_nibble.into());
-						if let Some(iter_depth) = self.in_prefix_depth.as_ref() {
+						if let Some(iter_depth) = self.stack.in_prefix_depth.as_ref() {
 							if self
 								.stack
 								.items
@@ -480,19 +488,33 @@ where
 								.map(|i| iter_depth > &i.depth)
 								.unwrap_or(true)
 							{
-								self.in_prefix_depth = None;
+								self.stack.in_prefix_depth = None;
 							}
 						}
 						r
 					},
+					Op::SuspendProof => {
+						if self.stack.halting.is_some() {
+							self.state = ReadProofState::Finished;
+							return Some(Err(VerifyError::ExtraneousNode)) // TODO better error
+							                  // duplicate halting
+						}
+						self.stack.halting = Some((
+							Vec::with_capacity(self.stack.items.len()),
+							self.stack.prefix.clone(),
+							self.current_offset,
+							self.stack.in_prefix_depth.clone(),
+						));
+						continue
+					},
 					Op::EndProof => break,
 					Op::HashChild(hash, child_ix) => {
-						if self.in_prefix_depth.is_some() {
-							// consider it halted.
-							self.stack.halting = true;
-						//self.state = ReadProofState::Finished;
-						//return Some(Err(VerifyError::ExtraneousNode)) // TODO better error
-						// missing query plan proof
+						if self.stack.in_prefix_depth.is_some() {
+							if self.stack.halting.is_none() {
+								self.state = ReadProofState::Finished;
+								return Some(Err(VerifyError::ExtraneousNode)) // TODO better error
+								              // missing query plan proof
+							}
 						} else {
 							// we did pop item before (see op sequence check), so we have
 							// stack prefix matching current plan. TODO debug assert plan starts
@@ -544,12 +566,14 @@ where
 	}
 
 	fn halt(&mut self) -> VerifyIteratorResult<'a, L, C> {
-		// check proof
+		// proof already checked
+		/*
 		let r = self.stack.stack_pop(None, &self.expected_root);
 		if let Err(e) = r {
 			self.state = ReadProofState::Finished;
 			return Err(e)
 		}
+		*/
 		self.state = ReadProofState::Finished;
 		let query_plan = crate::rstd::mem::replace(&mut self.query_plan, None);
 		let query_plan = query_plan.expect("Init with state");
@@ -563,20 +587,30 @@ where
 				prefix: Default::default(),
 				first: false,
 				is_prev_hash_child: None,
-				expect_inline_child: false,
+				expect_inline_child: None,
 				is_prev_push_key: false,
 				is_prev_pop_key: false,
 				expect_value: false,
-				halting: false,
+				halting: None,
+				process_inline_children: None,
+				in_prefix_depth: None,
 				_ph: PhantomData,
 			},
 		);
+		let Some((items, prefix, restore_offset, in_prefix_depth)) = stack.halting.take() else {
+			unreachable!("Halt called without halting state")
+		};
+		stack.items.extend(items.into_iter().rev());
+		stack.prefix = prefix;
 		stack.start_items = stack.items.len();
-		stack.halting = false;
+		stack.in_prefix_depth = in_prefix_depth;
+		// following proof start at key push (we halt on key push), forcing
+		// precondition check.
+		stack.is_prev_push_key = false;
 		Ok(ReadProofItem::Halted(Box::new(HaltedStateCheck::Content(HaltedStateCheckContent {
 			query_plan,
 			current,
-			restore_offset: self.current_offset,
+			restore_offset,
 			stack,
 			state: ReadProofState::Halted,
 		}))))
@@ -604,9 +638,11 @@ impl<'a, L: TrieLayout, C> From<QueryPlan<'a, C>> for HaltedStateCheckContent<'a
 				is_prev_push_key: false,
 				is_prev_pop_key: false,
 				is_prev_hash_child: None,
-				expect_inline_child: false,
+				expect_inline_child: None,
 				first: true,
-				halting: false,
+				halting: None,
+				process_inline_children: None,
+				in_prefix_depth: None,
 				_ph: PhantomData,
 			},
 			state: ReadProofState::NotStarted,
@@ -641,9 +677,9 @@ impl<L: TrieLayout> Stack<L> {
 		target_depth: Option<usize>,
 		expected_root: &Option<TrieHash<L>>,
 	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
-		let mut halting = if self.halting { Some((Vec::new(), self.prefix.clone())) } else { None };
 		let mut first = true;
-		let mut checked = false;
+		let mut no_inline = false;
+		let mut checked = expected_root.is_none();
 		while self
 			.items
 			.last()
@@ -672,7 +708,7 @@ impl<L: TrieLayout> Stack<L> {
 						item.children.iter().filter(|child| child.is_some()).count() == 1;
 					// not pop instead)
 					// encode branch
-					if expected_root.is_some() {
+					if !checked {
 						self.standard_extension(&item, depth, is_root, nkey, extension_only)
 					} else {
 						ChildReference::Hash(TrieHash::<L>::default())
@@ -680,14 +716,14 @@ impl<L: TrieLayout> Stack<L> {
 				} else {
 					// not pop instead)
 					// encode branch
-					if expected_root.is_some() {
+					if !checked {
 						self.no_extension(&item, depth, is_root, nkey)
 					} else {
 						ChildReference::Hash(TrieHash::<L>::default())
 					}
 				}
 			} else {
-				if expected_root.is_some() {
+				if !checked {
 					// leaf with value
 					self.flush_value_change(from_depth + inc, item.depth, &item.value, is_root)
 				} else {
@@ -699,50 +735,91 @@ impl<L: TrieLayout> Stack<L> {
 				self.stack_empty(from_depth);
 			}
 
-			if self.expect_inline_child {
+			if self.expect_inline_child.is_some() {
 				if !matches!(child_reference, ChildReference::Inline(..)) {
 					return Err(VerifyError::ExtraneousNode)
 				}
-				self.expect_inline_child = false;
 			}
 
 			let items_len = self.items.len();
-			if let Some(item) = self.items.last_mut() {
-				let child_ix = self.prefix.at(item.depth);
-				if let Some(hash) = item.children[child_ix as usize].as_ref() {
-					if items_len == self.start_items + 1 {
-						if expected_root.is_some() && hash != &child_reference {
-							return Err(VerifyError::HashMismatch(*child_reference.disp_hash()))
-						}
-					} else {
-						return Err(VerifyError::ExtraneousHashReference(*hash.disp_hash()))
-						// return Err(CompactDecoderError::HashChildNotOmitted.into())
-					}
-					checked = true;
-				}
-				item.children[child_ix as usize] = Some(child_reference);
-			} else {
-				if let Some(root) = expected_root.as_ref() {
-					if target_depth.is_none() {
-						if root != child_reference.disp_hash() {
-							return Err(VerifyError::RootMismatch(*child_reference.disp_hash()))
+			if !checked {
+				if let Some(item) = self.items.last_mut() {
+					let child_ix = self.prefix.at(item.depth);
+					if let Some(hash) = item.children[child_ix as usize].as_ref() {
+						if items_len == self.start_items {
+							if hash != &child_reference {
+								return Err(VerifyError::HashMismatch(*child_reference.disp_hash()))
+							}
+						} else {
+							return Err(VerifyError::ExtraneousHashReference(*hash.disp_hash()))
+							// return Err(CompactDecoderError::HashChildNotOmitted.into())
 						}
 						checked = true;
+					}
+					item.children[child_ix as usize] = Some(child_reference);
+				} else {
+					if let Some(root) = expected_root.as_ref() {
+						if target_depth.is_none() {
+							if root != child_reference.disp_hash() {
+								return Err(VerifyError::RootMismatch(*child_reference.disp_hash()))
+							}
+							checked = true;
+						}
 					}
 				}
 			}
 			first = false;
-			halting.as_mut().map(|(pop_items, _)| {
-				pop_items.push(item);
-			});
 			// TODO can skip hash checks when above start_items.
-			self.start_items = core::cmp::min(self.start_items, self.items.len());
+			if self.items.len() <= self.start_items {
+				self.start_items = core::cmp::min(self.start_items, self.items.len());
+
+				// if doing iteration, iterate on all next inline content.
+				if let Some(d) = self.in_prefix_depth.as_ref() {
+					if let Some(last) = self.items.last_mut() {
+						if &last.depth >= d && !no_inline {
+							let child_ix = self.prefix.at(last.depth);
+							for i in (child_ix + 1)..NIBBLE_LENGTH as u8 {
+								if let Some(hash) = last.children[i as usize].as_ref() {
+									match hash {
+										ChildReference::Inline(hash, len) => {
+											if self.process_inline_children.is_none() {
+												self.process_inline_children =
+													Some((self.prefix.clone(), Vec::new()));
+											}
+											if let Some((_, inlines)) =
+												self.process_inline_children.as_mut()
+											{
+												inlines.push((i, *d, hash.clone(), *len));
+											}
+										},
+										// will get content for this in next proofs.
+										ChildReference::Hash(..) => {
+											no_inline = true;
+											break
+										},
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+			if let Some((pop_items, ..)) = self.halting.as_mut() {
+				if !self.expect_inline_child.is_some() {
+					pop_items.push(item)
+				};
+			}
+			if let Some(inline_depth) = self.expect_inline_child.clone() {
+				if self.items.last().map(|i| inline_depth >= i.depth).unwrap_or(true) {
+					self.expect_inline_child = None;
+				}
+			}
+		}
+		if let Some((_, inlines)) = self.process_inline_children.as_mut() {
+			inlines.reverse();
 		}
 		debug_assert!(target_depth.is_some() || expected_root.is_none() || checked);
-		halting.map(|(pop_items, saved_prefix)| {
-			self.items.extend(pop_items.into_iter().rev());
-			self.prefix = saved_prefix;
-		});
 		Ok(())
 	}
 
