@@ -631,4 +631,5 @@ pub fn check_proofs<L: TrieLayout>(
 	if !has_run_full {
 		panic!("did not run full proof")
 	}
+	assert!(!in_prefix);
 }

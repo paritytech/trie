@@ -136,6 +136,13 @@ where
 			return r
 		}
 		let r = self.next_inner();
+		if self.stack.process_inline_children.is_some() {
+			unimplemented!();
+			// TODO process all
+			// TODO reset prefix to last process depth and with actual prefix
+			// TODO test against send_exit prefix, potentially can send exit in middle,
+			// so just set to false and test during iteration.
+		}
 		if let Some(k) = self.send_enter_prefix.take() {
 			self.buffed_result = Some(r);
 			return Some(Ok(ReadProofItem::StartPrefix(k)))
@@ -209,6 +216,10 @@ where
 
 					self.state = ReadProofState::Running;
 					self.current = Some(next);
+					if self.stack.process_inline_children.is_some() {
+						// iterate children first.
+						return None
+					}
 				} else {
 					self.state = ReadProofState::PlanConsumed;
 					self.current = None;
@@ -220,6 +231,11 @@ where
 				let Some(op) = op else {
 					if !self.stack.items.is_empty() {
 						let r = self.stack.stack_pop(None, &self.expected_root);
+						if self.stack.process_inline_children.is_some() {
+							// iterate children first.
+							return None
+						}
+
 						// TODO handle halt!!
 						self.state = ReadProofState::Finished;
 						if let Err(e) = r {
@@ -488,6 +504,7 @@ where
 								.map(|i| iter_depth > &i.depth)
 								.unwrap_or(true)
 							{
+								self.send_exit_prefix = true;
 								self.stack.in_prefix_depth = None;
 							}
 						}
@@ -540,6 +557,11 @@ where
 				if let Err(e) = r {
 					self.state = ReadProofState::Finished;
 					return Some(Err(e))
+				}
+				if self.stack.process_inline_children.is_some() {
+					debug_assert!(item.is_none());
+					// iterate children first.
+					return None
 				}
 				if let Some(r) = item {
 					if self.current.as_ref().map(|c| !c.as_prefix).unwrap_or(true) {
