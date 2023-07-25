@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use hash_db::{HashDB, Hasher};
+use hash_db::Hasher;
 use hex_literal::hex;
 use reference_trie::test_layouts;
 use trie_db::{
 	node::{Node, Value},
 	DBValue, NibbleSlice, NibbleVec, TrieDBBuilder, TrieDBNodeIterator, TrieError, TrieIterator,
-	TrieLayout, TrieMut,
+	TrieLayout,
 };
 
 type MemoryDB<T> = memory_db::MemoryDB<
@@ -31,14 +31,15 @@ fn build_trie_db<T: TrieLayout>(
 	pairs: &[(Vec<u8>, Vec<u8>)],
 ) -> (MemoryDB<T>, <T::Hash as Hasher>::Out) {
 	let mut memdb = MemoryDB::<T>::default();
-	let mut root = Default::default();
-	{
-		let mut t = trie_db::TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+	let changeset = {
+		let mut t = trie_db::TrieDBMutBuilder::<T>::new(&mut memdb).build();
 		for (x, y) in pairs.iter() {
 			t.insert(x, y).unwrap();
 		}
-	}
-	(memdb, root)
+		t.commit()
+	};
+	changeset.apply_to(&mut memdb);
+	(memdb, *changeset.root.hash())
 }
 
 fn nibble_vec<T: AsRef<[u8]>>(bytes: T, len: usize) -> NibbleVec {
@@ -266,7 +267,9 @@ fn seek_over_empty_works_internal<T: TrieLayout>() {
 }
 
 test_layouts!(iterate_over_incomplete_db, iterate_over_incomplete_db_internal);
-fn iterate_over_incomplete_db_internal<T: TrieLayout>() {
+fn iterate_over_incomplete_db_internal<T: TrieLayout>() 
+	where T::Location: std::fmt::Debug,
+{
 	let pairs = vec![
 		(hex!("01").to_vec(), b"aaaa".to_vec()),
 		(hex!("0123").to_vec(), b"bbbb".to_vec()),

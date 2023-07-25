@@ -254,7 +254,6 @@ fn trie_mut_ref_root(c: &mut Criterion) {
 
 fn trie_mut(c: &mut Criterion) {
 	use memory_db::HashKey;
-	use trie_db::TrieMut;
 
 	let params = vec![(29, 204800 / 2, 512 * 2), (29, 204800, 32)];
 
@@ -265,10 +264,9 @@ fn trie_mut(c: &mut Criterion) {
 		let param = format!("seed({}), len({}), value_length({})", seed, len, value_length);
 		group.bench_with_input(BenchmarkId::new("trie_mut", param), &input, |b, i| {
 			b.iter(|| {
-				let mut root = Default::default();
 				let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
 				let mut trie =
-					trie_db::TrieDBMutBuilder::<Layout>::new(&mut mdb, &mut root).build();
+					trie_db::TrieDBMutBuilder::<Layout>::new(&mut mdb).build();
 				for (key, value) in i {
 					trie.insert(&key, &value).expect(
 						"changes trie: insertion to trie is not allowed to fail within runtime",

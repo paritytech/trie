@@ -117,6 +117,12 @@ impl NibbleVec {
 		}
 	}
 
+	/// Get `Prefix` representation of this `NibbleVec`.
+	pub fn as_owned_prefix(&self) -> (BackingByteVec, Option<u8>) {
+		let (inner, pad) = self.as_prefix();
+		(inner.into(), pad)
+	}
+
 	/// Append another `NibbleVec`. Can be slow (alignement of second vec).
 	pub fn append(&mut self, v: &NibbleVec) {
 		if v.len == 0 {

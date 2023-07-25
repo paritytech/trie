@@ -15,9 +15,8 @@
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
 	test_layouts, ExtensionLayout, HashedValueNoExt, HashedValueNoExtThreshold, NoExtensionLayout,
-	RefHasher,
 };
-use trie_db::{DBValue, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieLayout, TrieMut};
+use trie_db::{DBValue, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieLayout};
 
 #[test]
 fn trie_root_empty() {
@@ -39,16 +38,17 @@ fn root_extension_one() {
 
 fn test_iter<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) {
 	let mut db = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
-	let mut root = Default::default();
-	{
-		let mut t = TrieDBMutBuilder::<T>::new(&mut db, &mut root).build();
+	let changeset = {
+		let mut t = TrieDBMutBuilder::<T>::new(&mut db).build();
 		for i in 0..data.len() {
 			let key: &[u8] = &data[i].0;
 			let value: &[u8] = &data[i].1;
 			t.insert(key, value).unwrap();
 		}
-	}
-	let t = TrieDBBuilder::<T>::new(&db, &root).build();
+		t.commit()
+	};
+	changeset.apply_to(&mut db);
+	let t = TrieDBBuilder::<T>::new(&db, changeset.root.hash()).build();
 	for (i, kv) in t.iter().unwrap().enumerate() {
 		let (k, v) = kv.unwrap();
 		let key: &[u8] = &data[i].0;
@@ -76,10 +76,10 @@ fn compare_implementations_prefixed(data: Vec<(Vec<u8>, Vec<u8>)>) {
 	compare_implementations_prefixed_internal::<NoExtensionLayout>(data.clone());
 	compare_implementations_prefixed_internal::<ExtensionLayout>(data.clone());
 }
-fn compare_implementations_prefixed_internal<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) {
-	let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
-	let hashdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
-	reference_trie::compare_implementations::<T, _>(data, memdb, hashdb);
+fn compare_implementations_prefixed_internal<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) 
+	where T::Location: std::fmt::Debug,
+{
+	reference_trie::compare_implementations::<T, PrefixedKey<_>>(data);
 }
 fn compare_implementations_h(data: Vec<(Vec<u8>, Vec<u8>)>) {
 	compare_implementations_h_internal::<HashedValueNoExtThreshold<1>>(data.clone());
@@ -87,19 +87,16 @@ fn compare_implementations_h(data: Vec<(Vec<u8>, Vec<u8>)>) {
 	compare_implementations_h_internal::<NoExtensionLayout>(data.clone());
 	compare_implementations_h_internal::<ExtensionLayout>(data.clone());
 }
-fn compare_implementations_h_internal<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) {
-	let memdb = MemoryDB::<_, HashKey<_>, _>::default();
-	let hashdb = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
-	reference_trie::compare_implementations::<T, _>(data.clone(), memdb, hashdb);
+fn compare_implementations_h_internal<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) 
+	where T::Location: std::fmt::Debug,
+{
+	reference_trie::compare_implementations::<T, HashKey<_>>(data.clone());
 }
 fn compare_implementations_no_extension_unordered(data: Vec<(Vec<u8>, Vec<u8>)>) {
-	let memdb = MemoryDB::<_, HashKey<_>, _>::default();
-	let hashdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
-	reference_trie::compare_implementations_unordered::<NoExtensionLayout, _>(data, memdb, hashdb);
+	reference_trie::compare_implementations_unordered::<NoExtensionLayout, HashKey<_>>(data);
 }
 fn compare_insert_remove<T: TrieLayout>(data: Vec<(bool, Vec<u8>, Vec<u8>)>) {
-	let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
-	reference_trie::compare_insert_remove::<T, _>(data, memdb);
+	reference_trie::compare_insert_remove::<T, PrefixedKey<_>>(data);
 }
 fn compare_root<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) {
 	let memdb = MemoryDB::<T::Hash, HashKey<_>, _>::default();

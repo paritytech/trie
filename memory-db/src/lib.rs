@@ -20,12 +20,12 @@
 extern crate alloc;
 
 use hash_db::{
-	AsHashDB, AsPlainDB, HashDB, HashDBRef, Hasher as KeyHasher, MaybeDebug, PlainDB, PlainDBRef,
+	HashDB, Hasher as KeyHasher, MaybeDebug,
 	Prefix,
 };
 #[cfg(feature = "std")]
 use std::{
-	borrow::Borrow, cmp::Eq, collections::hash_map::Entry, collections::HashMap as Map, hash,
+	cmp::Eq, collections::hash_map::Entry, collections::HashMap as Map, hash,
 	marker::PhantomData, mem,
 };
 
@@ -33,7 +33,7 @@ use std::{
 use alloc::collections::btree_map::{BTreeMap as Map, Entry};
 
 #[cfg(not(feature = "std"))]
-use core::{borrow::Borrow, cmp::Eq, hash, marker::PhantomData, mem};
+use core::{cmp::Eq, hash, marker::PhantomData, mem};
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
@@ -47,7 +47,7 @@ use alloc::vec::Vec;
 ///
 /// # Example
 /// ```rust
-///   use hash_db::{Hasher, HashDB, EMPTY_PREFIX};
+///   use hash_db::{Hasher, EMPTY_PREFIX};
 ///   use keccak_hasher::KeccakHasher;
 ///   use memory_db::{MemoryDB, HashKey};
 ///
@@ -114,7 +114,7 @@ where
 	T: Eq + MaybeDebug,
 {
 	fn eq(&self, other: &MemoryDB<H, KF, T>) -> bool {
-		for a in self.data.iter() {
+		for a in self.data.iter().filter(|(_, (_, rc))| *rc > 0) {
 			match other.data.get(a.0) {
 				Some(v) if v != a.1 => return false,
 				None => return false,
@@ -196,43 +196,6 @@ pub fn prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8> {
 	prefixed_key.extend_from_slice(prefix.0);
 	if let Some(last) = prefix.1 {
 		prefixed_key.push(last);
-	}
-	prefixed_key.extend_from_slice(key.as_ref());
-	prefixed_key
-}
-
-/// Key function that concatenates prefix and hash.
-/// This is doing useless computation and should only be
-/// used for legacy purpose.
-/// It shall be remove in the future.
-#[derive(Clone, Debug)]
-#[deprecated(since = "0.22.0")]
-pub struct LegacyPrefixedKey<H: KeyHasher>(PhantomData<H>);
-
-#[allow(deprecated)]
-impl<H: KeyHasher> KeyFunction<H> for LegacyPrefixedKey<H> {
-	type Key = Vec<u8>;
-
-	fn key(hash: &H::Out, prefix: Prefix) -> Vec<u8> {
-		legacy_prefixed_key::<H>(hash, prefix)
-	}
-}
-
-/// Legacy method for db using previous version of prefix encoding.
-/// Only for trie radix 16 trie.
-#[deprecated(since = "0.22.0")]
-pub fn legacy_prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8> {
-	let mut prefixed_key = Vec::with_capacity(key.as_ref().len() + prefix.0.len() + 1);
-	if let Some(last) = prefix.1 {
-		let mut prev = 0x01u8;
-		for i in prefix.0.iter() {
-			prefixed_key.push((prev << 4) + (*i >> 4));
-			prev = *i;
-		}
-		prefixed_key.push((prev << 4) + (last >> 4));
-	} else {
-		prefixed_key.push(0);
-		prefixed_key.extend_from_slice(prefix.0);
 	}
 	prefixed_key.extend_from_slice(key.as_ref());
 	prefixed_key
@@ -396,78 +359,28 @@ where
 	}
 }
 
-impl<H, KF, T> PlainDB<H::Out, T> for MemoryDB<H, KF, T>
-where
-	H: KeyHasher,
-	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
-	KF: Send + Sync + KeyFunction<H>,
-	KF::Key: Borrow<[u8]> + for<'a> From<&'a [u8]>,
-{
-	fn get(&self, key: &H::Out) -> Option<T> {
-		match self.data.get(key.as_ref()) {
-			Some(&(ref d, rc)) if rc > 0 => Some(d.clone()),
-			_ => None,
-		}
-	}
-
-	fn contains(&self, key: &H::Out) -> bool {
-		match self.data.get(key.as_ref()) {
-			Some(&(_, x)) if x > 0 => true,
-			_ => false,
-		}
-	}
-
-	fn emplace(&mut self, key: H::Out, value: T) {
-		match self.data.entry(key.as_ref().into()) {
-			Entry::Occupied(mut entry) => {
-				let &mut (ref mut old_value, ref mut rc) = entry.get_mut();
-				if *rc <= 0 {
-					*old_value = value;
-				}
-				*rc += 1;
-			},
-			Entry::Vacant(entry) => {
-				entry.insert((value, 1));
-			},
-		}
-	}
-
-	fn remove(&mut self, key: &H::Out) {
-		match self.data.entry(key.as_ref().into()) {
-			Entry::Occupied(mut entry) => {
-				let &mut (_, ref mut rc) = entry.get_mut();
-				*rc -= 1;
-			},
-			Entry::Vacant(entry) => {
-				let value = T::default();
-				entry.insert((value, -1));
-			},
-		}
-	}
-}
-
-impl<H, KF, T> PlainDBRef<H::Out, T> for MemoryDB<H, KF, T>
-where
-	H: KeyHasher,
-	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
-	KF: Send + Sync + KeyFunction<H>,
-	KF::Key: Borrow<[u8]> + for<'a> From<&'a [u8]>,
-{
-	fn get(&self, key: &H::Out) -> Option<T> {
-		PlainDB::get(self, key)
-	}
-	fn contains(&self, key: &H::Out) -> bool {
-		PlainDB::contains(self, key)
-	}
-}
-
-impl<H, KF, T> HashDB<H, T> for MemoryDB<H, KF, T>
+impl<H, KF, T, L> HashDB<H, T, L> for MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: KeyFunction<H> + Send + Sync,
 {
-	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
+	fn get(&self, key: &H::Out, prefix: Prefix, _location: L) -> Option<(T, Vec<L>)> {
+		MemoryDB::get(self, key, prefix).map(|d| (d, Default::default()))
+	}
+
+	fn contains(&self, key: &H::Out, prefix: Prefix, _location: L) -> bool {
+		MemoryDB::contains(self, key, prefix)
+	}
+}
+
+impl<H, KF, T> MemoryDB<H, KF, T>
+where
+	H: KeyHasher,
+	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
+	KF: KeyFunction<H> + Send + Sync,
+{
+	pub fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
 		if key == &self.hashed_null_node {
 			return Some(self.null_node_data.clone())
 		}
@@ -479,7 +392,7 @@ where
 		}
 	}
 
-	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
+	pub fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
 		if key == &self.hashed_null_node {
 			return true
 		}
@@ -491,7 +404,7 @@ where
 		}
 	}
 
-	fn emplace(&mut self, key: H::Out, prefix: Prefix, value: T) {
+	pub fn emplace(&mut self, key: H::Out, prefix: Prefix, value: T) {
 		if value == self.null_node_data {
 			return
 		}
@@ -511,17 +424,17 @@ where
 		}
 	}
 
-	fn insert(&mut self, prefix: Prefix, value: &[u8]) -> H::Out {
+	pub fn insert(&mut self, prefix: Prefix, value: &[u8]) -> H::Out {
 		if T::from(value) == self.null_node_data {
 			return self.hashed_null_node
 		}
 
 		let key = H::hash(value);
-		HashDB::emplace(self, key, prefix, value.into());
+		self.emplace(key, prefix, value.into());
 		key
 	}
 
-	fn remove(&mut self, key: &H::Out, prefix: Prefix) {
+	pub fn remove(&mut self, key: &H::Out, prefix: Prefix) {
 		if key == &self.hashed_null_node {
 			return
 		}
@@ -538,54 +451,12 @@ where
 			},
 		}
 	}
-}
 
-impl<H, KF, T> HashDBRef<H, T> for MemoryDB<H, KF, T>
-where
-	H: KeyHasher,
-	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
-	KF: KeyFunction<H> + Send + Sync,
-{
-	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
-		HashDB::get(self, key, prefix)
-	}
-	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
-		HashDB::contains(self, key, prefix)
-	}
-}
-
-impl<H, KF, T> AsPlainDB<H::Out, T> for MemoryDB<H, KF, T>
-where
-	H: KeyHasher,
-	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
-	KF: KeyFunction<H> + Send + Sync,
-	KF::Key: Borrow<[u8]> + for<'a> From<&'a [u8]>,
-{
-	fn as_plain_db(&self) -> &dyn PlainDB<H::Out, T> {
-		self
-	}
-	fn as_plain_db_mut(&mut self) -> &mut dyn PlainDB<H::Out, T> {
-		self
-	}
-}
-
-impl<H, KF, T> AsHashDB<H, T> for MemoryDB<H, KF, T>
-where
-	H: KeyHasher,
-	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
-	KF: KeyFunction<H> + Send + Sync,
-{
-	fn as_hash_db(&self) -> &dyn HashDB<H, T> {
-		self
-	}
-	fn as_hash_db_mut(&mut self) -> &mut dyn HashDB<H, T> {
-		self
-	}
 }
 
 #[cfg(test)]
 mod tests {
-	use super::{HashDB, HashKey, KeyHasher, MemoryDB};
+	use super::{HashKey, KeyHasher, MemoryDB};
 	use hash_db::EMPTY_PREFIX;
 	use keccak_hasher::KeccakHasher;
 

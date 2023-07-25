@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
+use hash_db::{Hasher, EMPTY_PREFIX};
 use reference_trie::{test_layouts, ExtensionLayout};
 use trie_db::{
 	decode_compact, encode_compact, DBValue, NodeCodec, Recorder, Trie, TrieDBBuilder,
-	TrieDBMutBuilder, TrieError, TrieLayout, TrieMut,
+	TrieDBMutBuilder, TrieError, TrieLayout,
 };
 
 type MemoryDB<T> = memory_db::MemoryDB<
@@ -32,14 +32,13 @@ fn test_encode_compact<L: TrieLayout>(
 	// Populate DB with full trie from entries.
 	let (db, root) = {
 		let mut db = <MemoryDB<L>>::default();
-		let mut root = Default::default();
-		{
-			let mut trie = <TrieDBMutBuilder<L>>::new(&mut db, &mut root).build();
-			for (key, value) in entries.iter() {
-				trie.insert(key, value).unwrap();
-			}
+		let mut trie = <TrieDBMutBuilder<L>>::new(&mut db).build();
+		for (key, value) in entries.iter() {
+			trie.insert(key, value).unwrap();
 		}
-		(db, root)
+		let commit = trie.commit();
+		commit.apply_to(&mut db);
+		(db, commit.root_hash())
 	};
 
 	// Lookup items in trie while recording traversed nodes.
@@ -77,7 +76,7 @@ fn test_decode_compact<L: TrieLayout>(
 ) {
 	// Reconstruct the partial DB from the compact encoding.
 	let mut db = MemoryDB::<L>::default();
-	let (root, used) = decode_compact::<L, _>(&mut db, encoded).unwrap();
+	let (root, used) = decode_compact::<L>(&mut db, encoded).unwrap();
 	assert_eq!(root, expected_root);
 	assert_eq!(used, expected_used);
 
@@ -130,7 +129,7 @@ fn trie_decoding_fails_with_incomplete_database_internal<T: TrieLayout>() {
 
 	// Reconstruct the partial DB from the compact encoding.
 	let mut db = MemoryDB::<T>::default();
-	match decode_compact::<T, _>(&mut db, &encoded[..encoded.len() - 1]) {
+	match decode_compact::<T>(&mut db, &encoded[..encoded.len() - 1]) {
 		Err(err) => match *err {
 			TrieError::IncompleteDatabase(_) => {},
 			_ => panic!("got unexpected TrieError"),
@@ -160,14 +159,14 @@ fn encoding_node_owned_and_decoding_node_works() {
 	// Populate DB with full trie from entries.
 	let mut recorder = {
 		let mut db = <MemoryDB<ExtensionLayout>>::default();
-		let mut root = Default::default();
 		let mut recorder = Recorder::<ExtensionLayout>::new();
-		{
-			let mut trie = <TrieDBMutBuilder<ExtensionLayout>>::new(&mut db, &mut root).build();
-			for (key, value) in entries.iter() {
-				trie.insert(key, value).unwrap();
-			}
+		let mut trie = <TrieDBMutBuilder<ExtensionLayout>>::new(&mut db).build();
+		for (key, value) in entries.iter() {
+			trie.insert(key, value).unwrap();
 		}
+		let commit = trie.commit();
+		commit.apply_to(&mut db);
+		let root = commit.root_hash();
 
 		let trie = TrieDBBuilder::<ExtensionLayout>::new(&db, &root)
 			.with_recorder(&mut recorder)
@@ -181,7 +180,7 @@ fn encoding_node_owned_and_decoding_node_works() {
 
 	for record in recorder.drain() {
 		let node =
-			<<ExtensionLayout as TrieLayout>::Codec as NodeCodec>::decode(&record.data).unwrap();
+			<<ExtensionLayout as TrieLayout>::Codec as NodeCodec>::decode(&record.data, &[(); 0]).unwrap();
 		let node_owned = node.to_owned_node::<ExtensionLayout>().unwrap();
 
 		assert_eq!(record.data, node_owned.to_encoded::<<ExtensionLayout as TrieLayout>::Codec>());

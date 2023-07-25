@@ -32,15 +32,16 @@ use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result, TrieDB, TrieDBRawIterator,
 	TrieError, TrieHash, TrieLayout,
 };
-use hash_db::{HashDB, Prefix};
+use hash_db::Prefix;
+use memory_db::MemoryDB;
 
-const OMIT_VALUE_HASH: crate::node::Value<'static> = crate::node::Value::Inline(&[]);
+const OMIT_VALUE_HASH: crate::node::Value<'static, ()> = crate::node::Value::Inline(&[]);
 
-struct EncoderStackEntry<C: NodeCodec> {
+struct EncoderStackEntry<C: NodeCodec, L> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: NibbleVec,
 	/// Node in memory content.
-	node: Arc<OwnedNode<DBValue>>,
+	node: Arc<OwnedNode<DBValue, L>>,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
@@ -54,7 +55,7 @@ struct EncoderStackEntry<C: NodeCodec> {
 	_marker: PhantomData<C>,
 }
 
-impl<C: NodeCodec> EncoderStackEntry<C> {
+impl<C: NodeCodec, L: Copy + Default> EncoderStackEntry<C, L> {
 	/// Given the prefix of the next child node, identify its index and advance `child_index` to
 	/// that. For a given entry, this must be called sequentially only with strictly increasing
 	/// child prefixes. Returns an error if the child prefix is not a child of this entry or if
@@ -116,14 +117,14 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 					node_data.to_vec()
 				} else {
 					let partial = partial.build(node_data);
-					let empty_child = ChildReference::Inline(C::HashOut::default(), 0);
+					let empty_child = ChildReference::<_, ()>::Inline(C::HashOut::default(), 0);
 					C::extension_node(partial.right_iter(), partial.len(), empty_child)
 				},
 			NodePlan::Branch { value, children } => {
 				let value = if self.omit_value {
 					value.is_some().then_some(OMIT_VALUE_HASH)
 				} else {
-					value.as_ref().map(|v| v.build(node_data))
+					value.as_ref().map(|v| v.build(node_data, ()))
 				};
 				C::branch_node(
 					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
@@ -135,7 +136,7 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 				let value = if self.omit_value {
 					value.is_some().then_some(OMIT_VALUE_HASH)
 				} else {
-					value.as_ref().map(|v| v.build(node_data))
+					value.as_ref().map(|v| v.build(node_data, ()))
 				};
 				C::branch_node_nibbled(
 					partial.right_iter(),
@@ -165,14 +166,14 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 		node_data: &[u8],
 		child_handles: &[Option<NodeHandlePlan>; NIBBLE_LENGTH],
 		omit_children: &[bool],
-	) -> Result<[Option<ChildReference<C::HashOut>>; NIBBLE_LENGTH], C::HashOut, C::Error> {
+	) -> Result<[Option<ChildReference<C::HashOut, ()>>; NIBBLE_LENGTH], C::HashOut, C::Error> {
 		let empty_child = ChildReference::Inline(C::HashOut::default(), 0);
 		let mut children = [None; NIBBLE_LENGTH];
 		for i in 0..NIBBLE_LENGTH {
 			children[i] = if omit_children[i] {
 				Some(empty_child)
 			} else if let Some(child_plan) = &child_handles[i] {
-				let child_ref = child_plan.build(node_data).try_into().map_err(|hash| {
+				let child_ref = child_plan.build(node_data, ()).try_into().map_err(|hash| {
 					Box::new(TrieError::InvalidHash(C::HashOut::default(), hash))
 				})?;
 				Some(child_ref)
@@ -192,12 +193,13 @@ fn detached_value<L: TrieLayout>(
 	value: &ValuePlan,
 	node_data: &[u8],
 	node_prefix: Prefix,
+	location: L::Location,
 ) -> Option<Vec<u8>> {
 	let fetched;
 	match value {
 		ValuePlan::Node(hash_plan) => {
 			if let Ok(value) =
-				TrieDBRawIterator::fetch_value(db, &node_data[hash_plan.clone()], node_prefix)
+				TrieDBRawIterator::fetch_value(db, &node_data[hash_plan.clone()], node_prefix, location)
 			{
 				fetched = value;
 			} else {
@@ -224,7 +226,7 @@ where
 
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
-	let mut stack: Vec<EncoderStackEntry<L::Codec>> = Vec::new();
+	let mut stack: Vec<EncoderStackEntry<L::Codec, L::Location>> = Vec::new();
 
 	// TrieDBRawIterator guarantees that:
 	// - It yields at least one node.
@@ -269,11 +271,11 @@ where
 				let (children_len, detached_value) = match node.node_plan() {
 					NodePlan::Empty => (0, None),
 					NodePlan::Leaf { value, .. } =>
-						(0, detached_value(db, value, node.data(), prefix.as_prefix())),
+						(0, detached_value(db, &value, node.data(), prefix.as_prefix(), node.locations().first().copied().unwrap_or_default())),
 					NodePlan::Extension { .. } => (1, None),
 					NodePlan::NibbledBranch { value: Some(value), .. } |
 					NodePlan::Branch { value: Some(value), .. } =>
-						(NIBBLE_LENGTH, detached_value(db, value, node.data(), prefix.as_prefix())),
+						(NIBBLE_LENGTH, detached_value(db, &value, node.data(), prefix.as_prefix(), node.locations().last().copied().unwrap_or_default())),
 					NodePlan::NibbledBranch { value: None, .. } |
 					NodePlan::Branch { value: None, .. } => (NIBBLE_LENGTH, None),
 				};
@@ -311,19 +313,19 @@ where
 	Ok(output)
 }
 
-struct DecoderStackEntry<'a, C: NodeCodec> {
-	node: Node<'a>,
+struct DecoderStackEntry<'a, C: NodeCodec, L> {
+	node: Node<'a, L>,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
 	/// The reconstructed child references.
-	children: Vec<Option<ChildReference<C::HashOut>>>,
+	children: Vec<Option<ChildReference<C::HashOut, L>>>,
 	/// A value attached as a node. The node will need to use its hash as value.
 	attached_value: Option<&'a [u8]>,
 	_marker: PhantomData<C>,
 }
 
-impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
+impl<'a, C: NodeCodec, L: Copy + Default> DecoderStackEntry<'a, C, L> {
 	/// Advance the child index until either it exceeds the number of children or the child is
 	/// marked as omitted. Omitted children are indicated by an empty inline reference. For each
 	/// child that is passed over and not omitted, copy over the child reference from the node to
@@ -407,7 +409,7 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	/// Preconditions:
 	/// - if node is an extension node, then `children[0]` is Some.
 	fn encode_node(self, attached_hash: Option<&[u8]>) -> Vec<u8> {
-		let attached_hash = attached_hash.map(|h| crate::node::Value::Node(h));
+		let attached_hash = attached_hash.map(|h| crate::node::Value::Node(h, Default::default()));
 		match self.node {
 			Node::Empty => C::empty_node().to_vec(),
 			Node::Leaf(partial, value) =>
@@ -433,7 +435,7 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 
 /// Reconstructs a partial trie DB from a compact representation. The encoding is a vector of
 /// mutated trie nodes with those child references omitted. The decode function reads them in order
-/// from the given slice, reconstructing the full nodes and inserting them into the given `HashDB`.
+/// from the given slice, reconstructing the full nodes and inserting them into the given `MemoryDB`.
 /// It stops after fully constructing one partial trie and returns the root hash and the number of
 /// nodes read. If an error occurs during decoding, there are no guarantees about which entries
 /// were or were not added to the DB.
@@ -443,30 +445,28 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 //
 /// This function makes the assumption that all child references in an inline trie node are inline
 /// references.
-pub fn decode_compact<L, DB>(
-	db: &mut DB,
+pub fn decode_compact<L>(
+	db: &mut MemoryDB<L::Hash, memory_db::HashKey<L::Hash>, DBValue>,
 	encoded: &[Vec<u8>],
 ) -> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 where
 	L: TrieLayout,
-	DB: HashDB<L::Hash, DBValue>,
 {
-	decode_compact_from_iter::<L, DB, _>(db, encoded.iter().map(Vec::as_slice))
+	decode_compact_from_iter::<L, _>(db, encoded.iter().map(Vec::as_slice))
 }
 
 /// Variant of 'decode_compact' that accept an iterator of encoded nodes as input.
-pub fn decode_compact_from_iter<'a, L, DB, I>(
-	db: &mut DB,
+pub fn decode_compact_from_iter<'a, L, I>(
+	db: &mut MemoryDB<L::Hash, memory_db::HashKey<L::Hash>, DBValue>,
 	encoded: I,
 ) -> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 where
 	L: TrieLayout,
-	DB: HashDB<L::Hash, DBValue>,
 	I: IntoIterator<Item = &'a [u8]>,
 {
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
-	let mut stack: Vec<DecoderStackEntry<L::Codec>> = Vec::new();
+	let mut stack: Vec<DecoderStackEntry<L::Codec, L::Location>> = Vec::new();
 
 	// The prefix of the next item to be read from the slice of encoded items.
 	let mut prefix = NibbleVec::new();
@@ -479,7 +479,7 @@ where
 				attached_node = 1;
 			}
 		}
-		let node = L::Codec::decode(&encoded_node[attached_node..])
+		let node = L::Codec::decode(&encoded_node[attached_node..], &[])
 			.map_err(|err| Box::new(TrieError::DecoderError(<TrieHash<L>>::default(), err)))?;
 
 		let children_len = match node {
@@ -523,7 +523,7 @@ where
 			if let Some(entry) = stack.pop() {
 				last_entry = entry;
 				last_entry.pop_from_prefix(&mut prefix);
-				last_entry.children[last_entry.child_index] = Some(ChildReference::Hash(node_hash));
+				last_entry.children[last_entry.child_index] = Some(ChildReference::Hash(node_hash, Default::default()));
 				last_entry.child_index += 1;
 			} else {
 				return Ok((node_hash, i + 1))

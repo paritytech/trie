@@ -16,24 +16,24 @@
 
 use memory_db::{HashKey, MemoryDB};
 use reference_trie::{NoExtensionLayout, RefHasher, RefTrieDBBuilder, RefTrieDBMutBuilder};
-use trie_db::{Recorder, Trie, TrieMut};
+use trie_db::{Recorder, Trie};
 
 #[test]
 fn trie_record() {
 	let mut db = MemoryDB::<RefHasher, HashKey<_>, _>::default();
-	let mut root = Default::default();
-	{
-		let mut x = RefTrieDBMutBuilder::new(&mut db, &mut root).build();
+	let mut x = RefTrieDBMutBuilder::new(&mut db).build();
 
-		x.insert(b"dog", b"cat").unwrap();
-		x.insert(b"lunch", b"time").unwrap();
-		x.insert(b"notdog", b"notcat").unwrap();
-		x.insert(b"hotdog", b"hotcat").unwrap();
-		x.insert(b"letter", b"confusion").unwrap();
-		x.insert(b"insert", b"remove").unwrap();
-		x.insert(b"pirate", b"aargh!").unwrap();
-		x.insert(b"yo ho ho", b"and a bottle of rum").unwrap();
-	}
+	x.insert(b"dog", b"cat").unwrap();
+	x.insert(b"lunch", b"time").unwrap();
+	x.insert(b"notdog", b"notcat").unwrap();
+	x.insert(b"hotdog", b"hotcat").unwrap();
+	x.insert(b"letter", b"confusion").unwrap();
+	x.insert(b"insert", b"remove").unwrap();
+	x.insert(b"pirate", b"aargh!").unwrap();
+	x.insert(b"yo ho ho", b"and a bottle of rum").unwrap();
+	let commit = x.commit();
+	let root = *commit.root.hash();
+	commit.apply_to(&mut db);
 
 	{
 		let mut recorder = Recorder::<NoExtensionLayout>::new();
