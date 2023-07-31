@@ -79,7 +79,6 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 			ignore_unordered: false,
 			kind,
 		},
-		/*
 		InMemQueryPlan {
 			items: vec![
 				InMemQueryPlanItem::new(b"bravo".to_vec(), hash_only, false),
@@ -96,12 +95,12 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 			],
 			ignore_unordered: false,
 			kind,
-		},*/
+		},
 	];
 	for (_nb_plan, query_plan) in query_plans.iter().enumerate() {
 		for limit_conf in [
-			(1, false), /* TODO uncomment	(0, false), (1, false), (1, true), (2, false), (2,
-			             * true), (3, true) */
+			(0, false), /* TODO uncomment	(0, false), (1, false), (1, true), (2, false), (2,
+			            * true), (3, true) */
 		] {
 			let limit = limit_conf.0;
 			let limit = (limit != 0).then(|| limit);
@@ -580,6 +579,7 @@ pub fn check_proofs<L: TrieLayout>(
 					current_plan = query_plan_iter.items.next();
 				},
 				ReadProofItem::StartPrefix(prefix) => {
+					assert!(!in_prefix);
 					in_prefix = true;
 					if hash_only {
 						assert_eq!(

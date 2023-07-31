@@ -1921,7 +1921,6 @@ where
 				cache_child_values::<L>(&node, &mut values_to_cache, full_key.clone());
 			}
 
-			drop(node);
 			values_to_cache.into_iter().for_each(|(k, v)| cache.cache_value_for_key(&k, v));
 		}
 	}

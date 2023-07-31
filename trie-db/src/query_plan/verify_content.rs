@@ -360,10 +360,7 @@ where
 						self.stack.first = false;
 					},
 					Op::KeyPop(..) => {
-						if self.stack.is_prev_pop_key ||
-							(self.stack.halting.is_some() &&
-								self.stack.in_prefix_depth.is_none())
-						{
+						if self.stack.is_prev_pop_key {
 							self.state = ReadProofState::Finished;
 							return Some(Err(VerifyError::ExtraneousNode)) // TODO a decode op error
 							                  // return Err(CompactDecoderError::ConsecutivePopKeys.
@@ -434,45 +431,53 @@ where
 					if let Some(current) = self.current.as_ref() {
 						let left_query_slice = LeftNibbleSlice::new(&current.key);
 						let query_slice = NibbleSlice::new(&current.key);
-						match self.stack.prefix.as_leftnibbleslice().cmp(&left_query_slice) {
-							Ordering::Equal => {
-								if current.as_prefix {
-									self.stack.in_prefix_depth = Some(query_slice.len());
-									self.send_enter_prefix = Some(current.key.to_vec());
-								}
-								if !self.stack.items.is_empty() {
-									at_value = true;
-								}
-							},
-							Ordering::Less =>
-								if !query_slice.starts_with_vec(&self.stack.prefix) {
-									if self.stack.expect_inline_child.is_none() {
+						if self.stack.expect_inline_child.is_some() {
+							// TODO could check ordering of key on push, but we do not have current
+							// generally there is way to create proof with lot of inline content
+							// child so need to count current inline content size (or at least an
+							// approximate).
+							at_value = true;
+						} else {
+							match self.stack.prefix.as_leftnibbleslice().cmp(&left_query_slice) {
+								Ordering::Equal => {
+									if current.as_prefix {
+										self.stack.in_prefix_depth = Some(query_slice.len());
+										self.send_enter_prefix = Some(current.key.to_vec());
+									}
+									if !self.stack.items.is_empty() {
+										at_value = true;
+									}
+								},
+								Ordering::Less =>
+									if !query_slice.starts_with_vec(&self.stack.prefix) {
 										self.stack.expect_inline_child =
 											Some(self.stack.prefix.len());
-									} // TODO else debug assert prefix len > expect inline child
-									 //									self.state = ReadProofState::Finished;
-									 //									return Some(Err(VerifyError::ExtraneousNode)) // TODO error
-									 // backward pushed key
-								},
-							Ordering::Greater =>
-								if current.as_prefix {
-									if self
-										.stack
-										.prefix
-										.as_leftnibbleslice()
-										.starts_with(&left_query_slice)
-									{
-										if self.stack.in_prefix_depth.is_none() {
-											self.stack.in_prefix_depth = Some(query_slice.len());
-											self.send_enter_prefix = Some(current.key.to_vec());
+										// TODO else debug assert prefix len > expect inline child
+										//									self.state = ReadProofState::Finished;
+										//									return Some(Err(VerifyError::ExtraneousNode)) // TODO
+										// error backward pushed key
+									},
+								Ordering::Greater =>
+									if current.as_prefix {
+										if self
+											.stack
+											.prefix
+											.as_leftnibbleslice()
+											.starts_with(&left_query_slice)
+										{
+											if self.stack.in_prefix_depth.is_none() {
+												self.stack.in_prefix_depth =
+													Some(query_slice.len());
+												self.send_enter_prefix = Some(current.key.to_vec());
+											}
+											at_value = true;
+										} else {
+											next_query = true;
 										}
-										at_value = true;
 									} else {
 										next_query = true;
-									}
-								} else {
-									next_query = true;
-								},
+									},
+							}
 						}
 						if current.hash_only || !at_value || self.stack.halting.is_some() {
 							if let Op::Value(value) = &op {
@@ -490,9 +495,11 @@ where
 							self.stack.is_prev_push_key = true;
 							self.state = ReadProofState::SwitchQueryPlan;
 							if current.as_prefix {
-								if self.stack.in_prefix_depth.take().is_none() {
+								// empty prefix carse
+								if self.stack.in_prefix_depth.take().is_none() && !self.send_exit_prefix {
 									self.send_enter_prefix = Some(current.key.to_vec());
 								}
+								self.send_exit_prefix = false;
 								return Some(Ok(ReadProofItem::EndPrefix))
 							} else {
 								return Some(Ok(ReadProofItem::NoValue(&current.key)))
@@ -503,21 +510,21 @@ where
 					if at_value {
 						match &op {
 							Op::Value(value) => {
-								let mut hashed = None;
-								if let Some(current) = self.current.as_ref() {
-									if current.hash_only {
-										let hash = <L::Hash as Hasher>::hash(value.as_slice());
-										hashed = Some(ReadProofItem::Hash(
-											self.stack.prefix.inner().to_vec().into(),
-											hash,
-										))
-									}
-								}
-								if hashed.is_some() {
-									hashed
+								if self.stack.halting.is_some() {
+									None
 								} else {
-									if self.stack.halting.is_some() {
-										None
+									let mut hashed = None;
+									if let Some(current) = self.current.as_ref() {
+										if current.hash_only {
+											let hash = <L::Hash as Hasher>::hash(value.as_slice());
+											hashed = Some(ReadProofItem::Hash(
+												self.stack.prefix.inner().to_vec().into(),
+												hash,
+											))
+										}
+									}
+									if hashed.is_some() {
+										hashed
 									} else {
 										// TODO could get content from op with no clone.
 										Some(ReadProofItem::Value(
@@ -582,7 +589,7 @@ where
 							&self.expected_root,
 							hash_only,
 						);
-						self.stack.prefix.drop_lasts(nb_nibble.into());
+						self.stack.prefix.drop_lasts(nb_nibble.into()); // TODO should drop only until exit prefix...
 						if let Some(iter_depth) = self.stack.in_prefix_depth.as_ref() {
 							if self
 								.stack
@@ -613,24 +620,24 @@ where
 					},
 					Op::EndProof => break,
 					Op::HashChild(hash, child_ix) => {
-						if self.stack.in_prefix_depth.is_some() {
-							if self.stack.halting.is_none() {
+						if self.stack.halting.is_none() {
+							if self.stack.in_prefix_depth.is_some() {
 								self.state = ReadProofState::Finished;
 								return Some(Err(VerifyError::ExtraneousNode)) // TODO better error
 								              // missing query plan proof
-							}
-						} else {
-							// we did pop item before (see op sequence check), so we have
-							// stack prefix matching current plan. TODO debug assert plan starts
-							// with prefix TODO we could drop this check as we won t have the
-							// expected no value item in this case, but looks better to error here.
-							// TODO check, same for other proof: do a test.
-							if let Some(current) = self.current.as_ref() {
-								let query_slice = LeftNibbleSlice::new(&current.key);
-								let at = self.stack.prefix.len();
-								if query_slice.at(at) == Some(child_ix) {
-									self.state = ReadProofState::Finished;
-									return Some(Err(VerifyError::ExtraneousNode)) // TODO better error missing query plan proof
+							} else {
+								// we did pop item before (see op sequence check), so we have
+								// stack prefix matching current plan. TODO debug assert plan starts
+								// with prefix TODO we could drop this check as we won t have the
+								// expected no value item in this case, but looks better to error
+								// here. TODO check, same for other proof: do a test.
+								if let Some(current) = self.current.as_ref() {
+									let query_slice = LeftNibbleSlice::new(&current.key);
+									let at = self.stack.prefix.len();
+									if query_slice.at(at) == Some(child_ix) {
+										self.state = ReadProofState::Finished;
+										return Some(Err(VerifyError::ExtraneousNode)) // TODO better error missing query plan proof
+									}
 								}
 							}
 						}
@@ -879,6 +886,7 @@ impl<L: TrieLayout> Stack<L> {
 				}
 			}
 			first = false;
+
 			if !checked && self.items.len() <= self.start_items {
 				self.start_items = core::cmp::min(self.start_items, self.items.len());
 

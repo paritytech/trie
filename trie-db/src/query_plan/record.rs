@@ -83,17 +83,17 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 	}
 
 	fn record_halt(&mut self) {
-		let mut written = 0;
+		let written;
 		match &mut self.output {
-			RecorderStateInner::Content { output, stacked_pop, .. } => {
+			RecorderStateInner::Content { output, .. } => {
 				let op = Op::<TrieHash<L>, Vec<u8>>::SuspendProof;
 				let init_len = output.buf_len();
 				op.encode_into(output);
-				let written = output.buf_len() - init_len;
+				written = output.buf_len() - init_len;
 			},
 			_ => return,
 		}
-		self.limits.add_node(written, 0, false);
+		let _ = self.limits.add_node(written, 0, false);
 	}
 
 	#[must_use]
@@ -686,7 +686,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 					stacked = false;
 				}
 
-				let child_index = if let Some(mut item) = self.stack.items.last_mut() {
+				let child_index = if let Some(item) = self.stack.items.last_mut() {
 					if item.next_descended_child as usize >= NIBBLE_LENGTH {
 						break
 					}
@@ -705,7 +705,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 					TryStackChildResult::NotStackedBranch => (),
 					TryStackChildResult::NotStacked => break,
 					TryStackChildResult::Halted => {
-						if let Some(mut item) = self.stack.items.last_mut() {
+						if let Some(item) = self.stack.items.last_mut() {
 							item.next_descended_child -= 1;
 						}
 						self.stack.halt = false;
