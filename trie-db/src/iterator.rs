@@ -34,10 +34,17 @@ enum Status {
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Eq, PartialEq)]
-pub(crate) struct Crumb<H: Hasher> { // TODO rem pub(crate) by having builder over nibllevec
+pub(crate) struct Crumb<H: Hasher> {
+	// TODO rem pub(crate) by having builder over nibllevec
 	hash: Option<H::Out>,
 	node: Arc<OwnedNode<DBValue>>,
 	status: Status,
+}
+
+impl<H: Hasher> Clone for Crumb<H> {
+	fn clone(&self) -> Self {
+		Self { hash: self.hash.clone(), node: self.node.clone(), status: self.status.clone() }
+	}
 }
 
 impl<H: Hasher> Crumb<H> {
@@ -62,6 +69,12 @@ impl<H: Hasher> Crumb<H> {
 pub struct TrieDBRawIterator<L: TrieLayout> {
 	pub(crate) trail: Vec<Crumb<L::Hash>>,
 	pub(crate) key_nibbles: NibbleVec,
+}
+
+impl<L: TrieLayout> Clone for TrieDBRawIterator<L> {
+	fn clone(&self) -> Self {
+		Self { trail: self.trail.clone(), key_nibbles: self.key_nibbles.clone() }
+	}
 }
 
 impl<L: TrieLayout> TrieDBRawIterator<L> {
@@ -106,12 +119,15 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	}
 
 	pub(crate) fn init_from_inline(&mut self, node: &[u8], db: &TrieDB<L>) {
-		let node = db.get_raw_or_lookup(
-			<TrieHash<L>>::default(),
-			NodeHandle::Inline(node),
-			EMPTY_PREFIX,
-			false,
-		).expect("inline node is always in db; qed").0;
+		let node = db
+			.get_raw_or_lookup(
+				<TrieHash<L>>::default(),
+				NodeHandle::Inline(node),
+				EMPTY_PREFIX,
+				false,
+			)
+			.expect("inline node is always in db; qed")
+			.0;
 		self.descend(node, None);
 	}
 

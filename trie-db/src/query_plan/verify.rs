@@ -567,7 +567,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 					// ommitted hash
 					let Some(mut encoded_node) = proof.next() else {
 						// halt happens with a hash, this is not.
-						return Err(VerifyError::IncompleteProof);
+						return Err(VerifyError::IncompleteProof)
 					};
 					if self.is_compact &&
 						encoded_node.borrow().len() > 0 &&
@@ -597,7 +597,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 				},
 			NodeHandle::Hash(hash) => {
 				let Some(mut encoded_node) = proof.next() else {
-					return Ok(TryStackChildResult::Halted);
+					return Ok(TryStackChildResult::Halted)
 				};
 				if self.is_compact && items_len > self.start_items {
 					let mut error_hash = TrieHash::<L>::default();
@@ -665,7 +665,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 				NodeHandle::Hash(hash) => {
 					let Some(encoded_branch) = proof.next() else {
 						// No halt on extension node (restart over a child index).
-						return Err(VerifyError::IncompleteProof);
+						return Err(VerifyError::IncompleteProof)
 					};
 					if self.is_compact {
 						let mut error_hash = TrieHash::<L>::default();
@@ -741,7 +741,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 							}
 
 							let Some(value) = proof.next() else {
-								return Err(VerifyError::IncompleteProof);
+								return Err(VerifyError::IncompleteProof)
 							};
 							if check_hash {
 								let hash = L::Hash::hash(value.borrow());
@@ -771,7 +771,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 							return Ok((None, Some(result_hash)))
 						}
 						let Some(value) = proof.next() else {
-							return Err(VerifyError::IncompleteProof);
+							return Err(VerifyError::IncompleteProof)
 						};
 						if check_hash {
 							verify_hash::<L>(value.borrow(), hash)?;

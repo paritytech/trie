@@ -63,7 +63,12 @@ struct Stack<L: TrieLayout> {
 	halting: Option<(Vec<ItemContentStack<L>>, NibbleVec, usize, Option<usize>)>,
 	// depth of node containing inline hash
 	expect_inline_child: Option<usize>,
-	process_inline_children: Option<(NibbleVec, Vec<(u8, usize, TrieHash<L>, usize)>)>,
+	process_inline_children: Option<(
+		NibbleVec,
+		Vec<(u8, usize, TrieHash<L>, usize)>,
+		Option<crate::iterator::TrieDBRawIterator<L>>,
+		bool,
+	)>,
 	_ph: PhantomData<L>,
 }
 
@@ -131,7 +136,9 @@ where
 
 	fn next(&mut self) -> Option<Self::Item> {
 		if self.stack.process_inline_children.is_some() {
-			return Some(self.do_process_inline_children())
+			if let Some(r) = self.do_process_inline_children() {
+				return Some(r)
+			}
 		}
 		debug_assert!(self.send_enter_prefix.is_none());
 		debug_assert!(!self.send_exit_prefix);
@@ -141,7 +148,9 @@ where
 		let r = self.next_inner();
 		if self.stack.process_inline_children.is_some() {
 			self.send_exit_prefix = false;
-			return Some(self.do_process_inline_children())
+			if let Some(r) = self.do_process_inline_children() {
+				return Some(r)
+			}
 		}
 		if let Some(k) = self.send_enter_prefix.take() {
 			self.buffed_result = Some(r);
@@ -175,35 +184,56 @@ where
 	C: Iterator<Item = QueryPlanItem<'a>>,
 	P: Iterator<Item = Option<Op<TrieHash<L>, Vec<u8>>>>,
 {
-	fn do_process_inline_children(&mut self) -> VerifyIteratorResult<'a, L, C> {
-		let (prefix, inlines) = self.stack.process_inline_children.as_mut().expect("checked call");
+	// this is strictly prefix iteration processing
+	fn do_process_inline_children(&mut self) -> Option<VerifyIteratorResult<'a, L, C>> {
+		let (prefix, inlines, current, hash_only) =
+			self.stack.process_inline_children.as_mut().expect("checked call");
+		debug_assert!(current.is_none());
 		// TODO process all
 		// TODO reset prefix to last process depth and with actual prefix
 		// TODO test against send_exit prefix, potentially can send exit in middle,
 		// so just set to false and test during iteration.
 
-		let (child_ix, depth, inline, inline_len) = inlines.pop().expect("checked");
-		let dummy_root = TrieHash::<L>::default();
-		let dummy_db = DummyDB;
-		let dummy_trie_db = crate::TrieDBBuilder::new(&dummy_db, &dummy_root).build();
-		let mut raw_iter = crate::iterator::TrieDBRawIterator::<L> {
-			trail: Vec::new(),
-			key_nibbles: prefix.clone(),
-		};
+		loop {
+			let dummy_root = TrieHash::<L>::default();
+			let dummy_db = DummyDB;
+			let dummy_trie_db = crate::TrieDBBuilder::new(&dummy_db, &dummy_root).build();
+			if current.is_none() {
+				if inlines.is_empty() {
+					self.stack.process_inline_children = None;
+					return None
+				}
+				let (child_ix, depth, inline, inline_len) = inlines.pop().expect("checked");
+				let mut raw_iter = crate::iterator::TrieDBRawIterator::<L> {
+					trail: Vec::new(),
+					key_nibbles: prefix.clone(),
+				};
 
-		raw_iter.init_from_inline(&inline.as_ref()[..inline_len], &dummy_trie_db);
-		if let Some(item) = raw_iter.next_item(&dummy_trie_db) {
-			println!("accessing");
+				raw_iter.init_from_inline(&inline.as_ref()[..inline_len], &dummy_trie_db);
+				*current = Some(raw_iter);
+			}
+
+			let iter = current.as_mut().expect("init above");
+			if let Some(r) = iter.next_item(&dummy_trie_db) {
+				match r {
+					Ok((key, value)) =>
+						if *hash_only {
+							let hash = <L::Hash as Hasher>::hash(value.as_slice());
+							return Some(Ok(ReadProofItem::Hash(key.to_vec().into(), hash)))
+						} else {
+							return Some(Ok(ReadProofItem::Value(
+								key.to_vec().into(),
+								value.clone(),
+							)))
+						},
+					// TODO unreachable for inline?
+					Err(e) => return Some(Err(VerifyError::IncompleteProof)), /* TODO right error
+					                                                           * return */
+				}
+			}
 		}
-
-		unimplemented!();
-
-		/*
-		if inlines.is_empty() {
-			self.stack.process_inline_children = None;
-		}
-		*/
 	}
+
 	// TODO useless next_inner???
 	fn next_inner(&mut self) -> Option<VerifyIteratorResult<'a, L, C>> {
 		if self.state == ReadProofState::Finished {
@@ -226,11 +256,12 @@ where
 			{
 				let query_plan = self.query_plan.as_mut().expect("Removed with state");
 				if let Some(next) = query_plan.items.next() {
-					let (ordered, common_nibbles) = if let Some(old) = self.current.as_ref() {
-						old.before(&next)
-					} else {
-						(true, 0)
-					};
+					let ((ordered, common_nibbles), hash_only) =
+						if let Some(old) = self.current.as_ref() {
+							(old.before(&next), old.hash_only)
+						} else {
+							((true, 0), false)
+						};
 					if !ordered {
 						if query_plan.ignore_unordered {
 							continue
@@ -239,7 +270,8 @@ where
 							return Some(Err(VerifyError::UnorderedKey(next.key.to_vec())))
 						}
 					}
-					match self.stack.stack_pop(Some(common_nibbles), &self.expected_root) {
+					match self.stack.stack_pop(Some(common_nibbles), &self.expected_root, hash_only)
+					{
 						//					match self.stack.pop_until(Some(common_nibbles), &self.expected_root,
 						// false) {
 						/*						Ok(true) => {
@@ -271,7 +303,12 @@ where
 				println!("read: {:?}", op);
 				let Some(op) = op else {
 					if !self.stack.items.is_empty() {
-						let r = self.stack.stack_pop(None, &self.expected_root);
+						let hash_only = if let Some(old) = self.current.as_ref() {
+							old.hash_only
+						} else {
+							false
+						};
+						let r = self.stack.stack_pop(None, &self.expected_root, hash_only);
 						if self.stack.process_inline_children.is_some() {
 							// iterate children first.
 							return None
@@ -284,7 +321,7 @@ where
 						}
 					}
 					if self.stack.halting.is_some() {
-						return Some(self.halt());
+						return Some(self.halt())
 					}
 					if let Some(c) = self.current.as_ref() {
 						if c.as_prefix {
@@ -294,10 +331,10 @@ where
 						} else {
 							// missing value
 							self.state = ReadProofState::SwitchQueryPlan;
-							return Some(Ok(ReadProofItem::NoValue(&c.key)));
+							return Some(Ok(ReadProofItem::NoValue(&c.key)))
 						}
 					} else {
-						return None; // finished
+						return None // finished
 					}
 				};
 
@@ -535,7 +572,16 @@ where
 							return Some(Err(VerifyError::ExtraneousNode)) // TODO better error
 						}
 						let target_depth = self.stack.prefix.len() - nb_nibble as usize;
-						let r = self.stack.stack_pop(Some(target_depth), &self.expected_root);
+						let hash_only = if let Some(old) = self.current.as_ref() {
+							old.hash_only
+						} else {
+							false
+						};
+						let r = self.stack.stack_pop(
+							Some(target_depth),
+							&self.expected_root,
+							hash_only,
+						);
 						self.stack.prefix.drop_lasts(nb_nibble.into());
 						if let Some(iter_depth) = self.stack.in_prefix_depth.as_ref() {
 							if self
@@ -739,6 +785,7 @@ impl<L: TrieLayout> Stack<L> {
 		&mut self,
 		target_depth: Option<usize>,
 		expected_root: &Option<TrieHash<L>>,
+		hash_only: bool,
 	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
 		let mut first = true;
 		let mut no_inline = false;
@@ -832,8 +879,7 @@ impl<L: TrieLayout> Stack<L> {
 				}
 			}
 			first = false;
-			// TODO can skip hash checks when above start_items.
-			if self.items.len() <= self.start_items {
+			if !checked && self.items.len() <= self.start_items {
 				self.start_items = core::cmp::min(self.start_items, self.items.len());
 
 				// if doing iteration, iterate on all next inline content.
@@ -846,10 +892,14 @@ impl<L: TrieLayout> Stack<L> {
 									match hash {
 										ChildReference::Inline(hash, len) => {
 											if self.process_inline_children.is_none() {
-												self.process_inline_children =
-													Some((self.prefix.clone(), Vec::new()));
+												self.process_inline_children = Some((
+													self.prefix.clone(),
+													Vec::new(),
+													None,
+													hash_only,
+												));
 											}
-											if let Some((_, inlines)) =
+											if let Some((_, inlines, _, _)) =
 												self.process_inline_children.as_mut()
 											{
 												inlines.push((i, *d, hash.clone(), *len));
@@ -879,7 +929,7 @@ impl<L: TrieLayout> Stack<L> {
 				}
 			}
 		}
-		if let Some((_, inlines)) = self.process_inline_children.as_mut() {
+		if let Some((_, inlines, _, _)) = self.process_inline_children.as_mut() {
 			inlines.reverse();
 		}
 		debug_assert!(target_depth.is_some() || expected_root.is_none() || checked);

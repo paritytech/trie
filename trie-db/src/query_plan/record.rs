@@ -575,9 +575,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 
 		let mut res = false;
 		self.try_stack_content_inline_children(NIBBLE_LENGTH as u8)?;
-		let Some(item) = self.stack.items.last() else {
-			return Ok(res);
-		};
+		let Some(item) = self.stack.items.last() else { return Ok(res) };
 		for i in 0..NIBBLE_LENGTH as u8 {
 			// TODO avoid the two consecutive iter on all children
 			if !item.accessed_children_node.at(i as usize) {
@@ -613,22 +611,16 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 		&mut self,
 		child_ix_bound: u8,
 	) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
-		let Some(item) = self.stack.items.last_mut() else {
-			return Ok(())
-		};
+		let Some(item) = self.stack.items.last_mut() else { return Ok(()) };
 		let dummy_parent_hash = TrieHash::<L>::default();
 		for i in item.next_descended_child..child_ix_bound {
-			let Some(item) = self.stack.items.last_mut() else {
-				return Ok(())
-			};
+			let Some(item) = self.stack.items.last_mut() else { return Ok(()) };
 			if !item.accessed_children_node.at(i as usize) {
 				match self.stack.try_stack_child(i, None, dummy_parent_hash, None)? {
 					// only expect a stacked full prefix or not stacked here
 					TryStackChildResult::StackedFull => {
 						let halt = self.iter_prefix(None, None, false, true)?;
-						let Some(item) = self.stack.items.last_mut() else {
-							return Ok(())
-						};
+						let Some(item) = self.stack.items.last_mut() else { return Ok(()) };
 						item.accessed_children_node.set(i as usize, true);
 						// no halt on inline.
 						debug_assert!(!halt);
@@ -1104,7 +1096,9 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		if stack_extension {
 			let sbranch = self.try_stack_child(0, db, parent_hash, slice_query)?;
 			let TryStackChildResult::StackedFull = sbranch else {
-				return Err(VerifyError::InvalidChildReference(b"branch in db should follow extension".to_vec()));
+				return Err(VerifyError::InvalidChildReference(
+					b"branch in db should follow extension".to_vec(),
+				))
 			};
 		}
 
@@ -1116,9 +1110,7 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		db: Option<&TrieDB<L>>,
 		hash_only: bool,
 	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
-		let Some(item) = self.items.last_mut() else {
-			return Ok(false)
-		};
+		let Some(item) = self.items.last_mut() else { return Ok(false) };
 		let node_data = item.node.data();
 
 		let value = match item.node.node_plan() {
@@ -1138,8 +1130,10 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 					item.accessed_value_node = true;
 					let mut hash = TrieHash::<L>::default();
 					hash.as_mut().copy_from_slice(hash_slice);
-					let Some(value) = db.expect("non inline").db().get(&hash, self.prefix.as_prefix()) else {
-						return Err(VerifyError::IncompleteProof);
+					let Some(value) =
+						db.expect("non inline").db().get(&hash, self.prefix.as_prefix())
+					else {
+						return Err(VerifyError::IncompleteProof)
 					};
 					self.halt |= self.recorder.record_value_node(value, self.prefix.len());
 				} else {
@@ -1169,9 +1163,7 @@ fn flush_compact_content_pop<O: RecorderOutput, L: TrieLayout>(
 	add_depth: Option<usize>,
 	limits: &mut Limits,
 ) -> bool {
-	let Some(from) = stacked_from.take() else {
-		return false
-	};
+	let Some(from) = stacked_from.take() else { return false };
 	let pop_to = add_depth.unwrap_or_else(|| items.last().map(|i| i.depth).unwrap_or(0));
 	if from == pop_to {
 		return false
