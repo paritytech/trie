@@ -484,7 +484,6 @@ pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItem<'a>
 
 			let child_index = if from.stack.items.is_empty() { 0 } else { slice_query.at(0) };
 			from.stack.items.last_mut().map(|i| {
-				// TODO only needed for content but could be better to be always aligned
 				i.next_descended_child = child_index + 1;
 			});
 			match from.stack.try_stack_child(
@@ -529,18 +528,6 @@ pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItem<'a>
 		from_query_ref = None;
 		prev_query = Some(query);
 	}
-	/*
-	// TODO loop redundant with finalize??
-	loop {
-		if query_plan.kind.record_inline() {
-			from.try_stack_content_child()?;
-		}
-
-		if !from.pop() {
-			break
-		}
-	}
-	*/
 	from.finalize()?;
 	Ok(())
 }
