@@ -102,6 +102,9 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 	/// Generates the encoding of the subtrie rooted at this entry.
 	fn encode_node(&mut self) -> Result<Vec<u8>, C::HashOut, C::Error> {
 		encode_node_internal::<C>(&*self.node, self.omit_value, self.omit_children.as_slice())
+			.map_err(|err| {
+				Box::new(TrieError::InvalidHash(C::HashOut::default(), err.unwrap_or_default()))
+			})
 	}
 }
 
@@ -114,17 +117,14 @@ fn branch_children<C: NodeCodec>(
 	node_data: &[u8],
 	child_handles: &[Option<NodeHandlePlan>; NIBBLE_LENGTH],
 	omit_children: impl BitmapAccess,
-) -> Result<[Option<ChildReference<C::HashOut>>; NIBBLE_LENGTH], C::HashOut, C::Error> {
+) -> crate::rstd::result::Result<[Option<ChildReference<C::HashOut>>; NIBBLE_LENGTH], Vec<u8>> {
 	let empty_child = ChildReference::Inline(C::HashOut::default(), 0);
 	let mut children = [None; NIBBLE_LENGTH];
 	for i in 0..NIBBLE_LENGTH {
 		children[i] = if omit_children.at(i) {
 			Some(empty_child)
 		} else if let Some(child_plan) = &child_handles[i] {
-			let child_ref = child_plan
-				.build(node_data)
-				.try_into()
-				.map_err(|hash| Box::new(TrieError::InvalidHash(C::HashOut::default(), hash)))?;
+			let child_ref = child_plan.build(node_data).try_into()?;
 			Some(child_ref)
 		} else {
 			None
@@ -137,7 +137,7 @@ pub(crate) fn encode_node_internal<C: NodeCodec>(
 	node: &OwnedNode<DBValue>,
 	omit_value: bool,
 	omit_children: impl BitmapAccess,
-) -> Result<Vec<u8>, C::HashOut, C::Error> {
+) -> crate::rstd::result::Result<Vec<u8>, Option<Vec<u8>>> {
 	let node_data = node.data();
 	let node_plan = node.node_plan();
 	let mut encoded = match node_plan {
@@ -185,7 +185,7 @@ pub(crate) fn encode_node_internal<C: NodeCodec>(
 		if let Some(header) = C::ESCAPE_HEADER {
 			encoded.insert(0, header);
 		} else {
-			return Err(Box::new(TrieError::InvalidStateRoot(Default::default())))
+			return Err(None)
 		}
 	}
 	Ok(encoded)

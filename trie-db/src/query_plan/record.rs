@@ -190,7 +190,7 @@ impl<L: TrieLayout> HaltedStateRecord<L> {
 		self.stack.recorder.output()
 	}
 
-	fn finalize(&mut self) {
+	fn finalize(&mut self) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
 		let stack = &mut self.stack;
 		let items = &stack.items;
 		match &mut stack.recorder.output {
@@ -209,7 +209,15 @@ impl<L: TrieLayout> HaltedStateRecord<L> {
 									item.accessed_value_node,
 									item.accessed_children_node,
 								)
-								.expect("TODO error handling, can it actually fail?");
+								.map_err(|e| {
+									if let Some(data) = e {
+										// invalid node handle conversion for data
+										VerifyError::InvalidNodeHandle(data)
+									} else {
+										// unexpected node in proof
+										VerifyError::ExtraneousNode
+									}
+								})?;
 								break
 							}
 						}
@@ -223,6 +231,7 @@ impl<L: TrieLayout> HaltedStateRecord<L> {
 				// all written on access
 			},
 		}
+		Ok(())
 	}
 
 	/// Callback on node before a node in the stack.
@@ -335,7 +344,7 @@ impl<L: TrieLayout> HaltedStateRecord<L> {
 							(self.stack.prefix.len() % nibble_ops::NIBBLE_PER_BYTE) != 0,
 						));
 						self.stack.prefix.pop();
-						self.finalize();
+						self.finalize()?;
 						self.stack.halt = false;
 						self.from = dest_from;
 						self.currently_query_item = prev_query.map(|q| q.to_owned());
@@ -430,7 +439,7 @@ pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItem<'a>
 					Ordering::Less => break true,
 					Ordering::Greater =>
 						if !from.pop() {
-							from.finalize();
+							from.finalize()?;
 							return Ok(())
 						},
 				}
@@ -505,7 +514,7 @@ pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItem<'a>
 					));
 					from.stack.prefix.pop();
 					from.currently_query_item = Some(query.to_owned());
-					from.finalize();
+					from.finalize()?;
 					return Ok(())
 				},
 			}
@@ -530,7 +539,7 @@ pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItem<'a>
 		}
 	}
 	*/
-	from.finalize();
+	from.finalize()?;
 	Ok(())
 }
 
