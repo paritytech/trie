@@ -649,7 +649,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 						Err(e) => return Err(Error::DecodeError(e)),
 					};
 				},
-				NodeHandle::Inline(data) => {
+				NodeHandle::Inline(data) =>
 					if self.kind.is_compact() && data.len() == 0 {
 						unimplemented!("This will requires to put extension in stack");
 					} else {
@@ -657,8 +657,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 							Ok(node) => (ItemStackNode::Inline(node), self.kind).try_into()?,
 							Err(e) => return Err(Error::DecodeError(e)),
 						};
-					}
-				},
+					},
 			}
 			let NodePlan::Branch { .. } = node.node_plan() else {
 				return Err(Error::UnexpectedNodeType)
@@ -805,8 +804,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 											Some(ChildReference::Hash(hash));
 									},
 									// non null inline, only non inline are stacked.
-									_ =>
-										return Err(Error::RootMismatch(Default::default())),
+									_ => return Err(Error::RootMismatch(Default::default())),
 								}
 							} else {
 								if &Some(hash) != expected_root {
