@@ -26,11 +26,6 @@ pub struct Recorder<O: RecorderOutput, L: TrieLayout> {
 }
 
 impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
-	// TODO rem
-	fn record_inline(&self) -> bool {
-		false
-	}
-
 	/// Check and update start at record.
 	/// When return true, do record.
 	/// Else already was.
@@ -561,9 +556,7 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 		let prefix = &mut self.prefix;
 		let mut stack_extension = false;
 		let mut from_branch = None;
-		let mut item_depth = 0;
 		let child_handle = if let Some(item) = self.items.last_mut() {
-			item_depth = item.depth;
 			//if inline_only && item.accessed_children_node.at(child_index as usize) {
 			debug_assert!(!item.accessed_children_node.at(child_index as usize));
 			/*			if item.accessed_children_node.at(child_index as usize) {
@@ -605,12 +598,6 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 			NodeHandle::Inline(_) => {
 				// TODO consider not going into inline for all proof but content.
 				// Returning NotStacked here sounds safe, then the is_inline field is not needed.
-				if self.recorder.record_inline() {
-					if !self.recorder.check_start_at(item_depth) {
-						// inline in a previous proof
-						return Ok(TryStackChildResult::NotStackedBranch)
-					}
-				}
 				is_inline = true;
 			},
 			NodeHandle::Hash(_) => {
@@ -620,14 +607,6 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 						self.halt = true;
 					}
 					*/
-					if self.recorder.record_inline() {
-						/* TODO bad
-						// ignore hash in inline call, but mark as accessed.
-						if let Some(accessed_children_node) = from_branch {
-							accessed_children_node.set(child_index as usize, true);
-						}
-						*/
-					}
 					return Ok(TryStackChildResult::NotStackedBranch)
 				} else if self.halt && from_branch.is_some() {
 					// halt condition
@@ -636,7 +615,7 @@ impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
 			},
 		}
 		if let Some(accessed_children_node) = from_branch {
-			if !is_inline || self.recorder.record_inline() {
+			if !is_inline {
 				accessed_children_node.set(child_index as usize, true);
 			}
 
