@@ -40,7 +40,7 @@ where
 	// to avoid unsafe code when halting.
 	query_plan: Option<QueryPlan<'a, C>>,
 	proof: P,
-	is_compact: bool,
+	kind: ProofKind,
 	expected_root: Option<TrieHash<L>>,
 	current: Option<QueryPlanItem<'a>>,
 	current_offset: usize,
@@ -57,20 +57,35 @@ struct Stack<L: TrieLayout, D: SplitFirst> {
 	// limit and wether we return value and if hash only iteration.
 	iter_prefix: Option<InPrefix>,
 	start_items: usize,
-	is_compact: bool,
+	kind: ProofKind,
 	expect_value: bool,
 	accessed_root: bool,
 	_ph: PhantomData<L>,
 }
 
+impl<L: TrieLayout, D: SplitFirst> From<ProofKind> for Stack<L, D> {
+	fn from(kind: ProofKind) -> Self {
+		Self {
+			items: Default::default(),
+			start_items: 0,
+			prefix: Default::default(),
+			kind,
+			expect_value: false,
+			iter_prefix: None,
+			accessed_root: false,
+			_ph: PhantomData,
+		}
+	}
+}
+
 impl<L: TrieLayout, D: SplitFirst> Clone for Stack<L, D> {
 	fn clone(&self) -> Self {
-		Stack {
+		Self {
 			items: self.items.clone(),
 			prefix: self.prefix.clone(),
 			start_items: self.start_items.clone(),
 			iter_prefix: self.iter_prefix.clone(),
-			is_compact: self.is_compact,
+			kind: self.kind,
 			expect_value: self.expect_value,
 			accessed_root: self.accessed_root,
 			_ph: PhantomData,
@@ -97,7 +112,7 @@ where
 	Ok(ReadProofIterator {
 		query_plan: Some(query_plan),
 		proof,
-		is_compact: stack.is_compact,
+		kind: stack.kind,
 		expected_root,
 		current,
 		state,
@@ -117,7 +132,8 @@ where
 	D: SplitFirst,
 {
 	fn halt(&mut self) -> VerifyIteratorResult<'a, L, C, D> {
-		if self.is_compact {
+		// TODO also non compact to check hash of node in parent.
+		if self.kind.is_compact() {
 			let r = self.stack.pop_until(None, &self.expected_root, true);
 			if let Err(e) = r {
 				self.state = ReadProofState::Finished;
@@ -135,7 +151,7 @@ where
 				items: Default::default(),
 				start_items: 0,
 				prefix: Default::default(),
-				is_compact: self.is_compact,
+				kind: self.kind,
 				expect_value: false,
 				iter_prefix: None,
 				accessed_root: false,
@@ -434,7 +450,7 @@ where
 		}
 
 		debug_assert!(self.state == ReadProofState::PlanConsumed);
-		if self.is_compact {
+		if self.kind.is_compact() {
 			let r = self.stack.pop_until(None, &self.expected_root, false);
 			if let Err(e) = r {
 				self.state = ReadProofState::Finished;
@@ -477,18 +493,12 @@ pub struct HaltedStateCheck<'a, L: TrieLayout, C, D: SplitFirst> {
 
 impl<'a, L: TrieLayout, C, D: SplitFirst> From<QueryPlan<'a, C>> for HaltedStateCheck<'a, L, C, D> {
 	fn from(query_plan: QueryPlan<'a, C>) -> Self {
-		// TODO a method in kind
-		let is_compact = match query_plan.kind {
-			ProofKind::FullNodes => false,
-			ProofKind::CompactNodes => true,
-		};
-
 		HaltedStateCheck {
 			stack: Stack {
 				items: Default::default(),
 				start_items: 0,
 				prefix: Default::default(),
-				is_compact,
+				kind: query_plan.kind,
 				expect_value: false,
 				iter_prefix: None,
 				accessed_root: false,
@@ -532,7 +542,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 			if self.accessed_root {
 				return Ok(TryStackChildResult::NotStacked)
 			}
-			if self.is_compact {
+			if self.kind.is_compact() {
 				NodeHandle::Inline(&[])
 			} else {
 				NodeHandle::Hash(expected_root.as_ref().map(AsRef::as_ref).unwrap_or(&[]))
@@ -540,13 +550,13 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 		};
 		let mut node: StackedNodeCheck<_, _> = match child_handle {
 			NodeHandle::Inline(data) =>
-				if self.is_compact && data.len() == 0 {
+				if self.kind.is_compact() && data.len() == 0 {
 					// ommitted hash
 					let Some(mut encoded_node) = proof.next() else {
 						// halt happens with a hash, this is not.
 						return Err(Error::IncompleteProof)
 					};
-					if self.is_compact &&
+					if self.kind.is_compact() &&
 						encoded_node.borrow().len() > 0 &&
 						Some(encoded_node.borrow()[0]) ==
 							<L::Codec as crate::node_codec::NodeCodec>::ESCAPE_HEADER
@@ -560,7 +570,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 						Ok(node) => node,
 						Err(e) => return Err(Error::DecodeError(e)),
 					};
-					(ItemStackNode::Node(node), self.is_compact).try_into()?
+					(ItemStackNode::Node(node), self.kind).try_into()?
 				} else {
 					// try access in inline then return
 					(
@@ -568,7 +578,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 							Ok(node) => node,
 							Err(e) => return Err(Error::DecodeError(e)),
 						}),
-						self.is_compact,
+						self.kind,
 					)
 						.try_into()?
 				},
@@ -576,12 +586,12 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 				let Some(mut encoded_node) = proof.next() else {
 					return Ok(TryStackChildResult::Halted)
 				};
-				if self.is_compact && items_len > self.start_items {
+				if self.kind.is_compact() && items_len > self.start_items {
 					let mut error_hash = TrieHash::<L>::default();
 					error_hash.as_mut().copy_from_slice(hash);
 					return Err(Error::ExtraneousHashReference(error_hash))
 				}
-				if self.is_compact &&
+				if self.kind.is_compact() &&
 					encoded_node.borrow().len() > 0 &&
 					Some(encoded_node.borrow()[0]) ==
 						<L::Codec as crate::node_codec::NodeCodec>::ESCAPE_HEADER
@@ -595,10 +605,10 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 					Ok(node) => node,
 					Err(e) => return Err(Error::DecodeError(e)),
 				};
-				if !self.is_compact && check_hash {
+				if !self.kind.is_compact() && check_hash {
 					verify_hash::<L>(node.data(), hash)?;
 				}
-				(ItemStackNode::Node(node), self.is_compact).try_into()?
+				(ItemStackNode::Node(node), self.kind).try_into()?
 			},
 		};
 		let node_data = node.data();
@@ -644,7 +654,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 						// No halt on extension node (restart over a child index).
 						return Err(Error::IncompleteProof)
 					};
-					if self.is_compact {
+					if self.kind.is_compact() {
 						let mut error_hash = TrieHash::<L>::default();
 						error_hash.as_mut().copy_from_slice(hash);
 						return Err(Error::ExtraneousHashReference(error_hash))
@@ -653,12 +663,12 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 						verify_hash::<L>(encoded_branch.borrow(), hash)?;
 					}
 					node = match OwnedNode::new::<L::Codec>(encoded_branch) {
-						Ok(node) => (ItemStackNode::Node(node), self.is_compact).try_into()?,
+						Ok(node) => (ItemStackNode::Node(node), self.kind).try_into()?,
 						Err(e) => return Err(Error::DecodeError(e)),
 					};
 				},
 				NodeHandle::Inline(data) => {
-					if self.is_compact && data.len() == 0 {
+					if self.kind.is_compact() && data.len() == 0 {
 						unimplemented!("This requires to put extension in stack");
 					/*
 					// ommitted hash
@@ -673,8 +683,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 					*/
 					} else {
 						node = match OwnedNode::new::<L::Codec>(data.to_vec()) {
-							Ok(node) =>
-								(ItemStackNode::Inline(node), self.is_compact).try_into()?,
+							Ok(node) => (ItemStackNode::Inline(node), self.kind).try_into()?,
 							Err(e) => return Err(Error::DecodeError(e)),
 						};
 					}
@@ -712,7 +721,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 				match value {
 					Value::Inline(value) =>
 						if self.expect_value {
-							assert!(self.is_compact);
+							assert!(self.kind.is_compact());
 							self.expect_value = false;
 							if hash_only {
 								return Err(Error::ExtraneousValue(Default::default()))
@@ -773,7 +782,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 		if let Some(last) = self.items.pop() {
 			let depth = self.items.last().map(|i| i.depth).unwrap_or(0);
 			self.prefix.drop_lasts(self.prefix.len() - depth);
-			if self.is_compact && expected_root.is_some() {
+			if self.kind.is_compact() && expected_root.is_some() {
 				match last.node {
 					ItemStackNode::Inline(_) => (),
 					ItemStackNode::Node(node) => {
@@ -849,7 +858,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 		expected_root: &Option<TrieHash<L>>,
 		check_only: bool,
 	) -> Result<bool, Error<TrieHash<L>, CError<L>>> {
-		if self.is_compact && expected_root.is_some() {
+		if self.kind.is_compact() && expected_root.is_some() {
 			// TODO pop with check only, here unefficient implementation where we just restore
 
 			let mut restore = None;

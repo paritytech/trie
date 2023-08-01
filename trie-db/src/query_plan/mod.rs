@@ -68,6 +68,8 @@ pub enum Error<HO, CE> {
 	InvalidChildReference(Vec<u8>),
 	/// The proof is missing trie nodes required to verify.
 	IncompleteProof,
+	/// Item missing in backend when recording.
+	IncompleteDB(HO),
 	/// The root hash computed from the proof is incorrect.
 	RootMismatch(HO),
 	/// The hash computed from a node is incorrect.
@@ -98,6 +100,7 @@ impl<HO: std::fmt::Debug, CE: std::error::Error> std::fmt::Display for Error<HO,
 			Error::InvalidChildReference(data) =>
 				write!(f, "Invalid child reference exceeds hash length: {:?}", data),
 			Error::IncompleteProof => write!(f, "Proof is incomplete -- expected more nodes"),
+			Error::IncompleteDB(hash) => write!(f, "Missing node in db: {:?}", hash),
 			Error::RootMismatch(hash) => write!(f, "Computed incorrect root {:?} from proof", hash),
 			Error::HashMismatch(hash) => write!(f, "Computed incorrect hash {:?} from node", hash),
 			Error::DecodeError(err) => write!(f, "Unable to decode proof node: {}", err),
@@ -225,6 +228,13 @@ pub enum ProofKind {
 	/// contains hashes that would not be needed if creating the
 	/// proof at once.
 	CompactNodes,
+}
+
+impl ProofKind {
+	/// Check if compact variant of proof.
+	pub fn is_compact(self) -> bool {
+		matches!(self, ProofKind::CompactNodes)
+	}
 }
 
 #[derive(Default, Clone, Copy)]
@@ -408,13 +418,15 @@ enum ItemStackNode<D: SplitFirst> {
 	Node(OwnedNode<D>),
 }
 
-impl<L: TrieLayout, D: SplitFirst> TryFrom<(ItemStackNode<D>, bool)> for StackedNodeCheck<L, D> {
+impl<L: TrieLayout, D: SplitFirst> TryFrom<(ItemStackNode<D>, ProofKind)>
+	for StackedNodeCheck<L, D>
+{
 	type Error = Error<TrieHash<L>, CError<L>>;
 
 	fn try_from(
-		(node, is_compact): (ItemStackNode<D>, bool),
+		(node, kind): (ItemStackNode<D>, ProofKind),
 	) -> crate::rstd::result::Result<Self, Self::Error> {
-		let children = if !is_compact {
+		let children = if !kind.is_compact() {
 			Vec::new()
 		} else {
 			match &node {

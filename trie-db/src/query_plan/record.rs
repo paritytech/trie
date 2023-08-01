@@ -375,9 +375,6 @@ struct RecordStack<L: TrieLayout> {
 }
 
 /// Run query plan on a full db and record it.
-///
-/// TODO output and restart are mutually exclusive. -> enum
-/// or remove output from halted state.
 pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItem<'a>>>(
 	db: &TrieDB<L>,
 	query_plan: &mut QueryPlan<'a, I>,
@@ -578,8 +575,6 @@ impl<L: TrieLayout> RecordStack<L> {
 		};
 		match &child_handle {
 			NodeHandle::Inline(_) => {
-				// TODO consider not going into inline for all proof but content.
-				// Returning NotStacked here sounds safe, then the is_inline field is not needed.
 				is_inline = true;
 			},
 			NodeHandle::Hash(_) => {
@@ -599,8 +594,15 @@ impl<L: TrieLayout> RecordStack<L> {
 		}
 		let child_node = db
 			.get_raw_or_lookup_with_cache(parent_hash, child_handle, prefix.as_prefix(), false)
-			.map_err(|_| Error::IncompleteProof)?
-			.0; // actually incomplete db: TODO consider switching error
+			.map_err(|_| {
+				let mut hash = TrieHash::<L>::default();
+				if let NodeHandle::Hash(h) = &child_handle {
+					let bound = crate::rstd::cmp::min(h.as_ref().len(), h.len());
+					hash.as_mut()[..bound].copy_from_slice(&h[..bound]);
+				}
+				Error::IncompleteDB(hash)
+			})?
+			.0;
 
 		let node_data = child_node.data();
 		//println!("r: {:?}", &node_data);
