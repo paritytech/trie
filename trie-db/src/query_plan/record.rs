@@ -297,7 +297,7 @@ impl<L: TrieLayout> HaltedStateRecord<L> {
 	fn iter_prefix(
 		&mut self,
 		prev_query: Option<&QueryPlanItem>,
-		db: Option<&TrieDB<L>>,
+		db: &TrieDB<L>,
 		hash_only: bool,
 		first_iter: bool,
 	) -> Result<bool, Error<TrieHash<L>, CError<L>>> {
@@ -455,7 +455,7 @@ pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItem<'a>
 		};
 		if let Some((_, hash_only)) = from.stack.iter_prefix.clone() {
 			// statefull halted during iteration.
-			let halt = from.iter_prefix(Some(&query), Some(db), hash_only, false)?;
+			let halt = from.iter_prefix(Some(&query), db, hash_only, false)?;
 			if halt {
 				return Ok(())
 			}
@@ -470,8 +470,7 @@ pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItem<'a>
 			if !from.stack.items.is_empty() {
 				if slice_query.is_empty() {
 					if query.as_prefix {
-						let halt =
-							from.iter_prefix(Some(&query), Some(db), query.hash_only, true)?;
+						let halt = from.iter_prefix(Some(&query), db, query.hash_only, true)?;
 						if halt {
 							return Ok(())
 						}
@@ -488,7 +487,7 @@ pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItem<'a>
 			});
 			match from.stack.try_stack_child(
 				child_index,
-				Some(db),
+				db,
 				dummy_parent_hash,
 				Some(&mut slice_query),
 			)? {
@@ -498,8 +497,7 @@ pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItem<'a>
 				TryStackChildResult::StackedAfter => break false,
 				TryStackChildResult::StackedInto => {
 					if query.as_prefix {
-						let halt =
-							from.iter_prefix(Some(&query), Some(db), query.hash_only, true)?;
+						let halt = from.iter_prefix(Some(&query), db, query.hash_only, true)?;
 						if halt {
 							return Ok(())
 						}
@@ -523,7 +521,7 @@ pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItem<'a>
 
 		if touched {
 			// try access value
-			from.stack.access_value(Some(db), query.hash_only)?;
+			from.stack.access_value(db, query.hash_only)?;
 		}
 		from_query_ref = None;
 		prev_query = Some(query);
@@ -536,11 +534,10 @@ impl<L: TrieLayout> RecordStack<L> {
 	fn try_stack_child<'a>(
 		&mut self,
 		child_index: u8,
-		db: Option<&TrieDB<L>>,
+		db: &TrieDB<L>,
 		parent_hash: TrieHash<L>,
 		mut slice_query: Option<&mut NibbleSlice>,
 	) -> Result<TryStackChildResult, Error<TrieHash<L>, CError<L>>> {
-		let inline_only = db.is_none();
 		let mut is_inline = false;
 		let prefix = &mut self.prefix;
 		let mut stack_extension = false;
@@ -564,10 +561,6 @@ impl<L: TrieLayout> RecordStack<L> {
 						if let &NodeHandle::Hash(_) = &child_handle {
 							item.accessed_children_node.set(child_index as usize, true);
 						}
-						if inline_only {
-							// mark all accesses (
-							item.accessed_children_node.set(child_index as usize, true);
-						}
 						child_handle
 					} else {
 						return Ok(TryStackChildResult::NotStacked)
@@ -581,7 +574,7 @@ impl<L: TrieLayout> RecordStack<L> {
 					},
 			}
 		} else {
-			NodeHandle::Hash(db.expect("Inline call on non empty stack only").root().as_ref())
+			NodeHandle::Hash(db.root().as_ref())
 		};
 		match &child_handle {
 			NodeHandle::Inline(_) => {
@@ -590,14 +583,7 @@ impl<L: TrieLayout> RecordStack<L> {
 				is_inline = true;
 			},
 			NodeHandle::Hash(_) => {
-				if inline_only {
-					/* TODO this should write on pop not on stack...
-					if self.recorder.touched_child_hash(hash, child_index) {
-						self.halt = true;
-					}
-					*/
-					return Ok(TryStackChildResult::NotStackedBranch)
-				} else if self.halt && from_branch.is_some() {
+				if self.halt && from_branch.is_some() {
 					// halt condition
 					return Ok(TryStackChildResult::Halted)
 				}
@@ -611,16 +597,10 @@ impl<L: TrieLayout> RecordStack<L> {
 			slice_query.as_mut().map(|s| s.advance(1));
 			prefix.push(child_index);
 		}
-		let child_node = if let Some(db) = db {
-			db.get_raw_or_lookup_with_cache(parent_hash, child_handle, prefix.as_prefix(), false)
-				.map_err(|_| Error::IncompleteProof)?
-				.0 // actually incomplete db: TODO consider switching error
-		} else {
-			let NodeHandle::Inline(node_data) = child_handle else {
-				unreachable!("call on non inline node when db is None");
-			};
-			OwnedNode::new::<L::Codec>(node_data.to_vec()).map_err(|_| Error::IncompleteProof)?
-		};
+		let child_node = db
+			.get_raw_or_lookup_with_cache(parent_hash, child_handle, prefix.as_prefix(), false)
+			.map_err(|_| Error::IncompleteProof)?
+			.0; // actually incomplete db: TODO consider switching error
 
 		let node_data = child_node.data();
 		//println!("r: {:?}", &node_data);
@@ -687,7 +667,7 @@ impl<L: TrieLayout> RecordStack<L> {
 
 	fn access_value<'a>(
 		&mut self,
-		db: Option<&TrieDB<L>>,
+		db: &TrieDB<L>,
 		hash_only: bool,
 	) -> Result<bool, Error<TrieHash<L>, CError<L>>> {
 		let Some(item) = self.items.last_mut() else { return Ok(false) };
@@ -710,9 +690,7 @@ impl<L: TrieLayout> RecordStack<L> {
 					item.accessed_value_node = true;
 					let mut hash = TrieHash::<L>::default();
 					hash.as_mut().copy_from_slice(hash_slice);
-					let Some(value) =
-						db.expect("non inline").db().get(&hash, self.prefix.as_prefix())
-					else {
+					let Some(value) = db.db().get(&hash, self.prefix.as_prefix()) else {
 						return Err(Error::IncompleteProof)
 					};
 					self.halt |= self.recorder.record_value_node(value, self.prefix.len());
