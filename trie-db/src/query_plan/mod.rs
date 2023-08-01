@@ -352,7 +352,7 @@ impl<L: TrieLayout, D: SplitFirst> From<(ItemStackNode<D>, bool)> for StackedNod
 						match child.build(node_data) {
 							NodeHandle::Inline(data) if data.is_empty() => (),
 							child => {
-								use std::convert::TryInto;
+								use crate::rstd::convert::TryInto;
 								let child_ref =
 									child.try_into().expect("TODO proper error and not using From");
 
@@ -371,7 +371,7 @@ impl<L: TrieLayout, D: SplitFirst> From<(ItemStackNode<D>, bool)> for StackedNod
 							match children[i].as_ref().map(|c| c.build(node_data)) {
 								Some(NodeHandle::Inline(data)) if data.is_empty() => (),
 								Some(child) => {
-									use std::convert::TryInto;
+									use crate::rstd::convert::TryInto;
 									let child_ref = child
 										.try_into()
 										.expect("TODO proper error and not using From");
