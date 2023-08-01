@@ -698,11 +698,7 @@ pub mod query_plan {
 				assert!(!from.is_halted());
 			}
 			if !from.is_halted() {
-				if kind == ProofKind::CompactContent {
-					proofs.push(vec![from.finish().buffer]);
-				} else {
-					proofs.push(from.finish().nodes);
-				}
+				proofs.push(from.finish().nodes);
 				break
 			}
 			let rec = if conf.proof_spawn_with_persistence {
@@ -711,11 +707,7 @@ pub mod query_plan {
 				query_plan_iter = query_plan.as_ref();
 				from.stateless(Recorder::new(kind, InMemoryRecorder::default(), limit, None))
 			};
-			if kind == ProofKind::CompactContent {
-				proofs.push(vec![rec.buffer]);
-			} else {
-				proofs.push(rec.nodes);
-			}
+			proofs.push(rec.nodes);
 		}
 
 		crate::query_plan::check_proofs::<L>(
@@ -744,18 +736,6 @@ pub mod query_plan {
 	pub const CONF2: Conf = Conf {
 		seed: 0u64,
 		kind: ProofKind::CompactNodes,
-		nb_key_value: 300,
-		nb_small_value_set: 5,
-		nb_big_value_set: 5,
-		hash_only: false,
-		limit: 0, // no limit
-		proof_spawn_with_persistence: false,
-	};
-
-	/// Fuzzing conf 3.
-	pub const CONF3: Conf = Conf {
-		seed: 0u64,
-		kind: ProofKind::CompactContent,
 		nb_key_value: 300,
 		nb_small_value_set: 5,
 		nb_big_value_set: 5,
@@ -863,16 +843,6 @@ pub mod query_plan {
 			conf.limit = nb;
 			conf.proof_spawn_with_persistence = statefull;
 			fuzz_query_plan_conf::<SubstrateV1<RefHasher>>(&context, conf, plan.clone());
-		}
-	}
-
-	#[test]
-	fn fuzz_query_plan_5() {
-		use reference_trie::{RefHasher, SubstrateV1};
-		let plans = [ArbitraryQueryPlan(vec![(true, ArbitraryKey::Random(vec![]))])];
-		let context: FuzzContext<SubstrateV1<RefHasher>> = build_state(CONF3);
-		for plan in plans {
-			fuzz_query_plan::<SubstrateV1<RefHasher>>(&context, plan.clone());
 		}
 	}
 }

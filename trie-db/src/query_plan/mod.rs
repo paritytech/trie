@@ -24,7 +24,6 @@
 use core::marker::PhantomData;
 
 use crate::{
-	content_proof::Op,
 	nibble::{nibble_ops, nibble_ops::NIBBLE_LENGTH, LeftNibbleSlice, NibbleSlice},
 	node::{NodeHandle, NodePlan, OwnedNode, Value},
 	node_codec::NodeCodec,
@@ -39,21 +38,16 @@ use crate::{
 };
 use hash_db::Hasher;
 pub use record::{record_query_plan, HaltedStateRecord, Recorder};
-pub use verify::verify_query_plan_iter;
-use verify::HaltedStateCheckNode;
-pub use verify_content::verify_query_plan_iter_content;
-use verify_content::HaltedStateCheckContent;
+pub use verify::{verify_query_plan_iter, HaltedStateCheck};
 
 mod record;
 mod verify;
-mod verify_content;
 
 /// Item to query, in memory.
 #[derive(Default, Clone, Debug)]
 pub struct InMemQueryPlanItem {
 	key: Vec<u8>,
 	hash_only: bool,
-	//	hash_only: bool, TODO implement
 	as_prefix: bool,
 }
 
@@ -166,26 +160,7 @@ pub enum ProofKind {
 	/// contains hashes that would not be needed if creating the
 	/// proof at once.
 	CompactNodes,
-
-	/// Content oriented proof, no nodes are written, just a
-	/// sequence of accessed by lexicographical order as described
-	/// in content_proof::Op.
-	/// As with compact node, checking validity of proof need to
-	/// load the full proof or up to the halt point.
-	CompactContent,
 }
-
-/*
-impl ProofKind {
-	// Do we need to record child hash and inline value individually.
-	fn record_inline(&self) -> bool {
-		match self {
-			ProofKind::FullNodes | ProofKind::CompactNodes => false,
-			ProofKind::CompactContent => true,
-		}
-	}
-}
-*/
 
 #[derive(Default, Clone, Copy)]
 struct Bitmap(u16);
@@ -234,14 +209,9 @@ struct StackedNodeRecord {
 	is_inline: bool,
 }
 
+// TODO try rem
 /// Allows sending proof recording as it is produced.
 pub trait RecorderOutput {
-	/// Append bytes.
-	fn write_bytes(&mut self, bytes: &[u8]);
-
-	/// Bytes buf len.
-	fn buf_len(&self) -> usize;
-
 	/// Append a delimited sequence of bytes (usually a node).
 	fn write_entry(&mut self, bytes: Cow<[u8]>);
 }
@@ -258,14 +228,6 @@ pub struct InMemoryRecorder {
 }
 
 impl RecorderOutput for InMemoryRecorder {
-	fn write_bytes(&mut self, bytes: &[u8]) {
-		self.buffer.extend_from_slice(bytes)
-	}
-
-	fn buf_len(&self) -> usize {
-		self.buffer.len()
-	}
-
 	fn write_entry(&mut self, bytes: Cow<[u8]>) {
 		if !self.buffer.is_empty() {
 			self.nodes.push(core::mem::take(&mut self.buffer));
@@ -294,25 +256,6 @@ impl Limits {
 							*rem_size += hash_size;
 						}
 					}
-					if *rem_size >= size {
-						*rem_size -= size;
-					} else {
-						*rem_size = 0;
-						res = true;
-					}
-				}
-				if let Some(rem_node) = self.remaining_node.as_mut() {
-					if *rem_node > 1 {
-						*rem_node -= 1;
-					} else {
-						*rem_node = 0;
-						res = true;
-					}
-				}
-			},
-			ProofKind::CompactContent => {
-				// everything is counted as a node.
-				if let Some(rem_size) = self.remaining_size.as_mut() {
 					if *rem_size >= size {
 						*rem_size -= size;
 					} else {
@@ -359,19 +302,9 @@ impl Limits {
 					}
 				}
 			},
-			ProofKind::CompactContent => {
-				unreachable!()
-			},
 		}
 		res
 	}
-}
-
-/// When process is halted keep execution state
-/// to restore later.
-pub enum HaltedStateCheck<'a, L: TrieLayout, C, D: SplitFirst> {
-	Node(HaltedStateCheckNode<'a, L, C, D>),
-	Content(HaltedStateCheckContent<'a, L, C>),
 }
 
 #[derive(Eq, PartialEq)]
@@ -421,43 +354,6 @@ struct StackedNodeCheck<L: TrieLayout, D: SplitFirst> {
 	next_descended_child: u8,
 }
 
-#[derive(Clone)]
-enum ValueSet<H, V> {
-	None,
-	Standard(V),
-	HashOnly(H),
-	//	ForceInline(V),
-	//	ForceHashed(V),
-}
-
-impl<H, V> ValueSet<H, V> {
-	fn as_ref(&self) -> Option<&V> {
-		match self {
-			ValueSet::Standard(v) => Some(v),
-			//ValueSet::ForceInline(v) | ValueSet::ForceHashed(v) => Some(v),
-			ValueSet::HashOnly(..) | ValueSet::None => None,
-		}
-	}
-}
-
-impl<H, V> From<Op<H, V>> for ValueSet<H, V> {
-	fn from(op: Op<H, V>) -> Self {
-		match op {
-			Op::HashValue(hash) => ValueSet::HashOnly(hash),
-			Op::Value(value) => ValueSet::Standard(value),
-			//Op::ValueForceInline(value) => ValueSet::ForceInline(value),
-			//Op::ValueForceHashed(value) => ValueSet::ForceHashed(value),
-			_ => ValueSet::None,
-		}
-	}
-}
-
-struct ItemContentStack<L: TrieLayout> {
-	children: Vec<Option<ChildReference<TrieHash<L>>>>,
-	value: ValueSet<TrieHash<L>, Vec<u8>>,
-	depth: usize,
-}
-
 impl<L: TrieLayout, D: SplitFirst> Clone for StackedNodeCheck<L, D> {
 	fn clone(&self) -> Self {
 		StackedNodeCheck {
@@ -466,16 +362,6 @@ impl<L: TrieLayout, D: SplitFirst> Clone for StackedNodeCheck<L, D> {
 			attached_value_hash: self.attached_value_hash,
 			depth: self.depth,
 			next_descended_child: self.next_descended_child,
-		}
-	}
-}
-
-impl<L: TrieLayout> Clone for ItemContentStack<L> {
-	fn clone(&self) -> Self {
-		ItemContentStack {
-			children: self.children.clone(),
-			value: self.value.clone(),
-			depth: self.depth,
 		}
 	}
 }

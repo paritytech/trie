@@ -118,19 +118,6 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 		Ok(iter)
 	}
 
-	pub(crate) fn init_from_inline(&mut self, node: &[u8], db: &TrieDB<L>) {
-		let node = db
-			.get_raw_or_lookup(
-				<TrieHash<L>>::default(),
-				NodeHandle::Inline(node),
-				EMPTY_PREFIX,
-				false,
-			)
-			.expect("inline node is always in db; qed")
-			.0;
-		self.descend(node, None);
-	}
-
 	/// Descend into a payload.
 	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<TrieHash<L>>) {
 		self.trail

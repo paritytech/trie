@@ -41,7 +41,6 @@ use self::rstd::{boxed::Box, vec::Vec};
 use hash_db::MaybeDebug;
 use node::NodeOwned;
 
-pub mod content_proof;
 pub mod node;
 pub mod proof;
 pub mod query_plan;

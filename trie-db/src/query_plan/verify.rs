@@ -93,17 +93,7 @@ where
 	P: Iterator<Item = D>,
 	D: SplitFirst,
 {
-	let HaltedStateCheck::Node(state) = state else {
-		return Err(VerifyError::IncompleteProof) // TODO not kind as param if keeping CompactContent
-	};
-	let HaltedStateCheckNode { query_plan, current, stack, state, restore_offset } = state;
-
-	match query_plan.kind {
-		ProofKind::CompactContent => {
-			return Err(VerifyError::IncompleteProof) // TODO not kind as param if keeping CompactContent
-		},
-		_ => (),
-	};
+	let HaltedStateCheck { query_plan, current, stack, state, restore_offset } = state;
 
 	Ok(ReadProofIterator {
 		query_plan: Some(query_plan),
@@ -154,13 +144,13 @@ where
 			},
 		);
 		stack.start_items = stack.items.len();
-		Ok(ReadProofItem::Halted(Box::new(HaltedStateCheck::Node(HaltedStateCheckNode {
+		Ok(ReadProofItem::Halted(Box::new(HaltedStateCheck {
 			query_plan,
 			current,
 			restore_offset: self.current_offset,
 			stack,
 			state: ReadProofState::Halted,
-		}))))
+		})))
 	}
 
 	fn enter_prefix_iter(&mut self, hash_only: bool, key: &[u8]) {
@@ -488,7 +478,7 @@ where
 
 /// When process is halted keep execution state
 /// to restore later.
-pub struct HaltedStateCheckNode<'a, L: TrieLayout, C, D: SplitFirst> {
+pub struct HaltedStateCheck<'a, L: TrieLayout, C, D: SplitFirst> {
 	query_plan: QueryPlan<'a, C>,
 	current: Option<QueryPlanItem<'a>>,
 	stack: Stack<L, D>,
@@ -496,17 +486,15 @@ pub struct HaltedStateCheckNode<'a, L: TrieLayout, C, D: SplitFirst> {
 	restore_offset: usize,
 }
 
-impl<'a, L: TrieLayout, C, D: SplitFirst> From<QueryPlan<'a, C>>
-	for HaltedStateCheckNode<'a, L, C, D>
-{
+impl<'a, L: TrieLayout, C, D: SplitFirst> From<QueryPlan<'a, C>> for HaltedStateCheck<'a, L, C, D> {
 	fn from(query_plan: QueryPlan<'a, C>) -> Self {
+		// TODO a method in kind
 		let is_compact = match query_plan.kind {
 			ProofKind::FullNodes => false,
 			ProofKind::CompactNodes => true,
-			_ => false,
 		};
 
-		HaltedStateCheckNode {
+		HaltedStateCheck {
 			stack: Stack {
 				items: Default::default(),
 				start_items: 0,

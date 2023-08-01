@@ -20,11 +20,10 @@ use reference_trie::{test_layouts, TestTrieCache};
 
 use std::collections::BTreeMap;
 use trie_db::{
-	content_proof::IterOpProof,
 	query_plan::{
-		record_query_plan, verify_query_plan_iter, verify_query_plan_iter_content,
-		HaltedStateCheck, HaltedStateRecord, InMemQueryPlan, InMemQueryPlanItem, InMemoryRecorder,
-		ProofKind, QueryPlan, QueryPlanItem, ReadProofItem, Recorder,
+		record_query_plan, verify_query_plan_iter, HaltedStateCheck, HaltedStateRecord,
+		InMemQueryPlan, InMemQueryPlanItem, InMemoryRecorder, ProofKind, QueryPlan, QueryPlanItem,
+		ReadProofItem, Recorder,
 	},
 	TrieDBBuilder, TrieDBMutBuilder, TrieHash, TrieLayout, TrieMut,
 };
@@ -39,12 +38,6 @@ test_layouts!(test_query_plan_compact, test_query_plan_compact_internal);
 fn test_query_plan_compact_internal<L: TrieLayout>() {
 	test_query_plan_internal::<L>(ProofKind::CompactNodes, false);
 	test_query_plan_internal::<L>(ProofKind::CompactNodes, true);
-}
-
-test_layouts!(test_query_plan_content, test_query_plan_content_internal);
-fn test_query_plan_content_internal<L: TrieLayout>() {
-	test_query_plan_internal::<L>(ProofKind::CompactContent, false);
-	test_query_plan_internal::<L>(ProofKind::CompactContent, true);
 }
 
 fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
@@ -65,7 +58,7 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 	};
 	let db = <TrieDBBuilder<L>>::new(&db, &root).with_cache(&mut cache).build();
 
-	if (kind == ProofKind::CompactContent || kind == ProofKind::CompactNodes) && L::USE_EXTENSION {
+	if kind == ProofKind::CompactNodes && L::USE_EXTENSION {
 		// Compact proofs are not supported with extensions.
 		// Requires changing the way extension are handled
 		// when decoding (putting on stack).
@@ -100,7 +93,7 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 	for (_nb_plan, query_plan) in query_plans.iter().enumerate() {
 		for limit_conf in [
 			(0, false), /* TODO uncomment	(0, false), (1, false), (1, true), (2, false), (2,
-			            * true), (3, true) */
+			             * true), (3, true) */
 		] {
 			let limit = limit_conf.0;
 			let limit = (limit != 0).then(|| limit);
@@ -116,22 +109,7 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 					assert!(!from.is_halted());
 				}
 				if !from.is_halted() {
-					if kind == ProofKind::CompactContent {
-						proofs.push(vec![from.finish().buffer]);
-						for proof in proofs.iter() {
-							let mut p = &proof[0][..];
-							println!("proof start");
-							while let Some((op, read)) =
-								trie_db::content_proof::Op::<TrieHash<L>, _>::decode(p).ok()
-							{
-								println!("{:?}", op);
-								p = &p[read..];
-							}
-							println!("proof end\n");
-						}
-					} else {
-						proofs.push(from.finish().nodes);
-					}
+					proofs.push(from.finish().nodes);
 					break
 				}
 				let rec = if limit_conf.1 {
@@ -140,11 +118,7 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 				} else {
 					from.statefull(Recorder::new(kind, InMemoryRecorder::default(), limit, None))
 				};
-				if kind == ProofKind::CompactContent {
-					proofs.push(vec![rec.buffer]);
-				} else {
-					proofs.push(rec.nodes);
-				}
+				proofs.push(rec.nodes);
 			}
 			let content: BTreeMap<_, _> =
 				set.iter().map(|(k, v)| (k.to_vec(), v.to_vec())).collect();
@@ -469,13 +443,8 @@ pub fn check_proofs<L: TrieLayout>(
 	let mut full_proof: Vec<Vec<u8>> = Default::default();
 	proofs.reverse();
 
-	let is_content_proof = kind == ProofKind::CompactContent;
 	let query_plan: QueryPlan<_> = query_plan_in_mem.as_ref();
-	let mut run_state: Option<HaltedStateCheck<_, _, _>> = Some(if is_content_proof {
-		HaltedStateCheck::Content(query_plan.into())
-	} else {
-		HaltedStateCheck::Node(query_plan.into())
-	});
+	let mut run_state: Option<HaltedStateCheck<_, _, _>> = Some(query_plan.into());
 	let mut query_plan_iter: QueryPlan<_> = query_plan_in_mem.as_ref();
 	let mut current_plan = query_plan_iter.items.next();
 	let mut has_run_full = false;
@@ -491,43 +460,10 @@ pub fn check_proofs<L: TrieLayout>(
 			proofs.clear();
 			std::mem::take(&mut full_proof)
 		};
-		let (mut verify_iter, mut verify_iter_content) = if is_content_proof {
-			let proof_iter: IterOpProof<_, _> = (&proof[0]).into();
-			(
-				None,
-				Some(
-					verify_query_plan_iter_content::<L, _, IterOpProof<_, _>>(
-						state,
-						proof_iter,
-						Some(root.clone()),
-					)
-					.unwrap(),
-				),
-			)
-		} else {
-			(
-				Some(
-					verify_query_plan_iter::<L, _, _, _>(
-						state,
-						proof.into_iter(),
-						Some(root.clone()),
-					)
-					.unwrap(),
-				),
-				None,
-			)
-		};
-		let mut next_item = || {
-			if let Some(verify_iter) = verify_iter.as_mut() {
-				verify_iter.next()
-			} else if let Some(verify_iter_content) = verify_iter_content.as_mut() {
-				verify_iter_content.next()
-			} else {
-				None
-			}
-		};
-
-		while let Some(item) = next_item() {
+		let mut verify_iter =
+			verify_query_plan_iter::<L, _, _, _>(state, proof.into_iter(), Some(root.clone()))
+				.unwrap();
+		while let Some(item) = verify_iter.next() {
 			match item.unwrap() {
 				ReadProofItem::Hash(key, hash) => {
 					assert!(hash_only);
@@ -619,11 +555,7 @@ pub fn check_proofs<L: TrieLayout>(
 				current_plan = query_plan_iter.items.next();
 
 				let query_plan_iter_2 = query_plan_in_mem.as_ref();
-				run_state = Some(if is_content_proof {
-					HaltedStateCheck::Content(query_plan_iter_2.into())
-				} else {
-					HaltedStateCheck::Node(query_plan_iter_2.into())
-				});
+				run_state = Some(query_plan_iter_2.into());
 			}
 		} else {
 			has_run_full = true;
