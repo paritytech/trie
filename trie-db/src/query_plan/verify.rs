@@ -132,7 +132,6 @@ where
 	D: SplitFirst,
 {
 	fn halt(&mut self) -> VerifyIteratorResult<'a, L, C, D> {
-		// TODO also non compact to check hash of node in parent.
 		if self.kind.is_compact() {
 			let r = self.stack.pop_until(None, &self.expected_root, true);
 			if let Err(e) = r {

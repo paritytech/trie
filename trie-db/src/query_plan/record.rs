@@ -195,9 +195,7 @@ impl<L: TrieLayout> HaltedStateRecord<L> {
 		let items = &stack.items;
 		match &mut stack.recorder.output {
 			RecorderStateInner::Compact { output, proof, stacked_pos } => {
-				// TODO apply same as content : record popped node calls??
-				let restarted_from = 0;
-				if stacked_pos.len() > restarted_from {
+				if stacked_pos.len() > 0 {
 					// halted: complete up to 0 and write all nodes keeping stack.
 					let mut items = items.iter().rev();
 					while let Some(pos) = stacked_pos.pop() {
