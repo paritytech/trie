@@ -16,8 +16,6 @@
 
 use crate::{node::NodeKey, rstd::cmp};
 
-pub use self::leftnibbleslice::LeftNibbleSlice;
-
 mod leftnibbleslice;
 mod nibbleslice;
 mod nibblevec;
@@ -206,6 +204,15 @@ pub struct NibbleVec {
 pub struct NibbleSlice<'a> {
 	data: &'a [u8],
 	offset: usize,
+}
+
+/// A representation of a nibble slice which is left-aligned. The regular `NibbleSlice` is
+/// right-aligned, meaning it does not support efficient truncation from the right side.
+///
+/// This is an immutable struct. No operations actually change it.
+pub struct LeftNibbleSlice<'a> {
+	bytes: &'a [u8],
+	len: usize,
 }
 
 /// Iterator type for a nibble slice.

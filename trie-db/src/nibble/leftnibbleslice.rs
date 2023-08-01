@@ -16,17 +16,8 @@ use crate::rstd::cmp::{self, Ordering};
 
 use crate::nibble::{
 	nibble_ops::{self, NIBBLE_PER_BYTE},
-	NibbleSlice, NibbleVec,
+	LeftNibbleSlice, NibbleSlice, NibbleVec,
 };
-
-/// A representation of a nibble slice which is left-aligned. The regular `NibbleSlice` is
-/// right-aligned, meaning it does not support efficient truncation from the right side.
-///
-/// This is an immutable struct. No operations actually change it.
-pub struct LeftNibbleSlice<'a> {
-	pub(crate) bytes: &'a [u8],
-	len: usize,
-}
 
 impl<'a> From<&'a NibbleVec> for LeftNibbleSlice<'a> {
 	fn from(v: &'a NibbleVec) -> Self {
@@ -38,16 +29,6 @@ impl<'a> LeftNibbleSlice<'a> {
 	/// Constructs a byte-aligned nibble slice from a byte slice.
 	pub fn new(bytes: &'a [u8]) -> Self {
 		LeftNibbleSlice { bytes, len: bytes.len() * NIBBLE_PER_BYTE }
-	}
-
-	/// Constructs a byte-aligned nibble slice from a byte slice.
-	pub fn new_with_mask(bytes: &'a [u8], mask: u8) -> Self {
-		let mut len = bytes.len() * NIBBLE_PER_BYTE;
-		// warn this is only working with hex trie
-		if mask != 255 {
-			len = len.saturating_sub(1);
-		}
-		LeftNibbleSlice { bytes, len }
 	}
 
 	/// Returns the length of the slice in nibbles.
@@ -80,28 +61,6 @@ impl<'a> LeftNibbleSlice<'a> {
 	/// the given offset.
 	pub fn contains(&self, partial: &NibbleSlice, offset: usize) -> bool {
 		(0..partial.len()).all(|i| self.at(offset + i) == Some(partial.at(i)))
-	}
-
-	/// How many of the same nibbles at the beginning do we match with `them`?
-	pub fn common_prefix(&self, them: &Self) -> usize {
-		let max = cmp::min(self.len, them.len);
-		let mut nb = 0;
-		for i in 0..(max / NIBBLE_PER_BYTE) {
-			if self.bytes[i] == them.bytes[i] {
-				nb += NIBBLE_PER_BYTE;
-			} else {
-				break
-			}
-		}
-		for i in 0..NIBBLE_PER_BYTE {
-			let s_at = self.at(nb + 1);
-			if s_at.is_some() && self.at(nb + i) == them.at(nb + i) {
-				nb += 1;
-			} else {
-				break
-			}
-		}
-		nb
 	}
 
 	fn cmp(&self, other: &Self) -> Ordering {

@@ -34,8 +34,7 @@ enum Status {
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Eq, PartialEq)]
-pub(crate) struct Crumb<H: Hasher> {
-	// TODO rem pub(crate) by having builder over nibllevec
+pub struct Crumb<H: Hasher> {
 	hash: Option<H::Out>,
 	node: Arc<OwnedNode<DBValue>>,
 	status: Status,
@@ -67,8 +66,8 @@ impl<H: Hasher> Crumb<H> {
 
 /// Iterator for going through all nodes in the trie in pre-order traversal order.
 pub struct TrieDBRawIterator<L: TrieLayout> {
-	pub(crate) trail: Vec<Crumb<L::Hash>>,
-	pub(crate) key_nibbles: NibbleVec,
+	trail: Vec<Crumb<L::Hash>>,
+	key_nibbles: NibbleVec,
 }
 
 impl<L: TrieLayout> Clone for TrieDBRawIterator<L> {

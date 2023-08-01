@@ -32,8 +32,6 @@ pub enum Error<HO, CE> {
 	/// The statement being verified contains multiple key-value pairs with the same key. The
 	/// parameter is the duplicated key.
 	DuplicateKey(Vec<u8>),
-	/// The statement being verified contains key not ordered properly.
-	UnorderedKey(Vec<u8>),
 	/// The proof contains at least one extraneous node.
 	ExtraneousNode,
 	/// The proof contains at least one extraneous value which should have been omitted from the
@@ -49,8 +47,6 @@ pub enum Error<HO, CE> {
 	IncompleteProof,
 	/// The root hash computed from the proof is incorrect.
 	RootMismatch(HO),
-	/// The hash computed from a node is incorrect.
-	HashMismatch(HO),
 	/// One of the proof nodes could not be decoded.
 	DecodeError(CE),
 }
@@ -61,8 +57,6 @@ impl<HO: std::fmt::Debug, CE: std::error::Error> std::fmt::Display for Error<HO,
 		match self {
 			Error::DuplicateKey(key) =>
 				write!(f, "Duplicate key in input statement: key={:?}", key),
-			Error::UnorderedKey(key) =>
-				write!(f, "Unordered key in input statement: key={:?}", key),
 			Error::ExtraneousNode => write!(f, "Extraneous node found in proof"),
 			Error::ExtraneousValue(key) =>
 				write!(f, "Extraneous value found in proof should have been omitted: key={:?}", key),
@@ -77,7 +71,6 @@ impl<HO: std::fmt::Debug, CE: std::error::Error> std::fmt::Display for Error<HO,
 				write!(f, "Expected value was not found in the trie: key={:?}", key),
 			Error::IncompleteProof => write!(f, "Proof is incomplete -- expected more nodes"),
 			Error::RootMismatch(hash) => write!(f, "Computed incorrect root {:?} from proof", hash),
-			Error::HashMismatch(hash) => write!(f, "Computed incorrect hash {:?} from node", hash),
 			Error::DecodeError(err) => write!(f, "Unable to decode proof node: {}", err),
 		}
 	}

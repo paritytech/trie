@@ -108,31 +108,6 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 	}
 }
 
-/// Generate the list of child references for a branch node with certain children omitted.
-///
-/// Preconditions:
-/// - omit_children has size NIBBLE_LENGTH.
-/// - omit_children[i] is only true if child_handles[i] is Some
-fn branch_children<C: NodeCodec>(
-	node_data: &[u8],
-	child_handles: &[Option<NodeHandlePlan>; NIBBLE_LENGTH],
-	omit_children: impl BitmapAccess,
-) -> crate::rstd::result::Result<[Option<ChildReference<C::HashOut>>; NIBBLE_LENGTH], Vec<u8>> {
-	let empty_child = ChildReference::Inline(C::HashOut::default(), 0);
-	let mut children = [None; NIBBLE_LENGTH];
-	for i in 0..NIBBLE_LENGTH {
-		children[i] = if omit_children.at(i) {
-			Some(empty_child)
-		} else if let Some(child_plan) = &child_handles[i] {
-			let child_ref = child_plan.build(node_data).try_into()?;
-			Some(child_ref)
-		} else {
-			None
-		};
-	}
-	Ok(children)
-}
-
 pub(crate) fn encode_node_internal<C: NodeCodec>(
 	node: &OwnedNode<DBValue>,
 	omit_value: bool,
@@ -190,6 +165,32 @@ pub(crate) fn encode_node_internal<C: NodeCodec>(
 	}
 	Ok(encoded)
 }
+
+/// Generate the list of child references for a branch node with certain children omitted.
+///
+/// Preconditions:
+/// - omit_children has size NIBBLE_LENGTH.
+/// - omit_children[i] is only true if child_handles[i] is Some
+fn branch_children<C: NodeCodec>(
+	node_data: &[u8],
+	child_handles: &[Option<NodeHandlePlan>; NIBBLE_LENGTH],
+	omit_children: impl BitmapAccess,
+) -> crate::rstd::result::Result<[Option<ChildReference<C::HashOut>>; NIBBLE_LENGTH], Vec<u8>> {
+	let empty_child = ChildReference::Inline(C::HashOut::default(), 0);
+	let mut children = [None; NIBBLE_LENGTH];
+	for i in 0..NIBBLE_LENGTH {
+		children[i] = if omit_children.at(i) {
+			Some(empty_child)
+		} else if let Some(child_plan) = &child_handles[i] {
+			let child_ref = child_plan.build(node_data).try_into()?;
+			Some(child_ref)
+		} else {
+			None
+		};
+	}
+	Ok(children)
+}
+
 
 /// Detached value if included does write a reserved header,
 /// followed by node encoded with 0 length value and the value

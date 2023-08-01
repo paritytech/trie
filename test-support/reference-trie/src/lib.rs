@@ -603,7 +603,6 @@ impl<'a> Input for ByteSliceInput<'a> {
 impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 	const DELTA_COMPACT_OMITTED_NODE: usize = 32;
 	const DELTA_COMPACT_OMITTED_VALUE: usize = 30;
-
 	type Error = CodecError;
 	type HashOut = H::Out;
 
