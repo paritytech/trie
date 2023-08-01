@@ -647,7 +647,6 @@ pub mod query_plan {
 		let mut query_plan = InMemQueryPlan {
 			items: Vec::with_capacity(set.len()),
 			kind: conf.kind,
-			ignore_unordered: false,
 		};
 		for (key, not_prefix) in set.into_iter() {
 			if let Some(pref) = prev_pref.as_ref() {

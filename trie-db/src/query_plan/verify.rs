@@ -235,12 +235,8 @@ where
 						(true, 0)
 					};
 					if !ordered {
-						if query_plan.ignore_unordered {
-							continue
-						} else {
-							self.state = ReadProofState::Finished;
-							return Some(Err(VerifyError::UnorderedKey(next.key.to_vec())))
-						}
+						self.state = ReadProofState::Finished;
+						return Some(Err(VerifyError::UnorderedKey(next.key.to_vec())))
 					}
 
 					match self.stack.pop_until(Some(common_nibbles), &self.expected_root, false) {

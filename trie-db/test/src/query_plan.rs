@@ -69,7 +69,6 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 	let query_plans = [
 		InMemQueryPlan {
 			items: vec![InMemQueryPlanItem::new(b"".to_vec(), hash_only, true)],
-			ignore_unordered: false,
 			kind,
 		},
 		InMemQueryPlan {
@@ -77,7 +76,6 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 				InMemQueryPlanItem::new(b"bravo".to_vec(), hash_only, false),
 				InMemQueryPlanItem::new(b"do".to_vec(), hash_only, true),
 			],
-			ignore_unordered: false,
 			kind,
 		},
 		InMemQueryPlan {
@@ -86,7 +84,6 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 				InMemQueryPlanItem::new(b"doge".to_vec(), hash_only, false),
 				InMemQueryPlanItem::new(b"horsey".to_vec(), hash_only, false),
 			],
-			ignore_unordered: false,
 			kind,
 		},
 	];

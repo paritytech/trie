@@ -104,8 +104,6 @@ impl<'a> QueryPlanItem<'a> {
 pub struct InMemQueryPlan {
 	pub items: Vec<InMemQueryPlanItem>,
 	pub kind: ProofKind,
-	// TODO rem
-	pub ignore_unordered: bool,
 }
 
 /// Iterator as type of mapped slice iter is very noisy.
@@ -126,19 +124,13 @@ impl<'a> Iterator for QueryPlanItemIter<'a> {
 impl InMemQueryPlan {
 	/// Get ref.
 	pub fn as_ref(&self) -> QueryPlan<QueryPlanItemIter> {
-		QueryPlan {
-			items: QueryPlanItemIter(&self.items, 0),
-			kind: self.kind,
-			ignore_unordered: self.ignore_unordered,
-			_ph: PhantomData,
-		}
+		QueryPlan { items: QueryPlanItemIter(&self.items, 0), kind: self.kind, _ph: PhantomData }
 	}
 }
 
 /// Query plan.
 pub struct QueryPlan<'a, I> {
 	pub items: I,
-	pub ignore_unordered: bool,
 	pub kind: ProofKind,
 	pub _ph: PhantomData<&'a ()>,
 }

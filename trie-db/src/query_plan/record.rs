@@ -427,11 +427,7 @@ pub fn record_query_plan<
 			let (ordered, common_nibbles) =
 				prev_query.as_ref().map(|p| p.before(&query)).unwrap_or((true, 0));
 			if !ordered {
-				if query_plan.ignore_unordered {
-					continue
-				} else {
-					return Err(VerifyError::UnorderedKey(query.key.to_vec()))
-				}
+				return Err(VerifyError::UnorderedKey(query.key.to_vec()))
 			}
 			let skip_query = loop {
 				match from.stack.prefix.len().cmp(&common_nibbles) {
