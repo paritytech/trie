@@ -32,7 +32,7 @@ type VerifyIteratorResult<'a, L, C, D> =
 pub struct ReadProofIterator<'a, L, C, D, P>
 where
 	L: TrieLayout,
-	C: Iterator<Item = QueryPlanItem<'a>>,
+	C: Iterator<Item = QueryPlanItemRef<'a>>,
 	P: Iterator<Item = D>,
 	D: SplitFirst,
 {
@@ -42,7 +42,7 @@ where
 	proof: P,
 	kind: ProofKind,
 	expected_root: Option<TrieHash<L>>,
-	current: Option<QueryPlanItem<'a>>,
+	current: Option<QueryPlanItemRef<'a>>,
 	current_offset: usize,
 	state: ReadProofState,
 	stack: Stack<L, D>,
@@ -103,7 +103,7 @@ pub fn verify_query_plan_iter<'a, L, C, D, P>(
 ) -> Result<ReadProofIterator<'a, L, C, D, P>, Error<TrieHash<L>, CError<L>>>
 where
 	L: TrieLayout,
-	C: Iterator<Item = QueryPlanItem<'a>>,
+	C: Iterator<Item = QueryPlanItemRef<'a>>,
 	P: Iterator<Item = D>,
 	D: SplitFirst,
 {
@@ -127,7 +127,7 @@ where
 impl<'a, L, C, D, P> ReadProofIterator<'a, L, C, D, P>
 where
 	L: TrieLayout,
-	C: Iterator<Item = QueryPlanItem<'a>>,
+	C: Iterator<Item = QueryPlanItemRef<'a>>,
 	P: Iterator<Item = D>,
 	D: SplitFirst,
 {
@@ -169,7 +169,7 @@ where
 impl<'a, L, C, D, P> Iterator for ReadProofIterator<'a, L, C, D, P>
 where
 	L: TrieLayout,
-	C: Iterator<Item = QueryPlanItem<'a>>,
+	C: Iterator<Item = QueryPlanItemRef<'a>>,
 	P: Iterator<Item = D>,
 	D: SplitFirst,
 {
@@ -199,7 +199,7 @@ where
 impl<'a, L, C, D, P> ReadProofIterator<'a, L, C, D, P>
 where
 	L: TrieLayout,
-	C: Iterator<Item = QueryPlanItem<'a>>,
+	C: Iterator<Item = QueryPlanItemRef<'a>>,
 	P: Iterator<Item = D>,
 	D: SplitFirst,
 {
@@ -471,7 +471,7 @@ where
 /// to restore later.
 pub struct HaltedStateCheck<'a, L: TrieLayout, C, D: SplitFirst> {
 	query_plan: QueryPlan<'a, C>,
-	current: Option<QueryPlanItem<'a>>,
+	current: Option<QueryPlanItemRef<'a>>,
 	stack: Stack<L, D>,
 	state: ReadProofState,
 	restore_offset: usize,

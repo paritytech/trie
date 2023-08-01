@@ -482,7 +482,7 @@ pub mod query_plan {
 	use std::collections::{BTreeMap, BTreeSet};
 	use trie_db::{
 		query_plan::{
-			record_query_plan, HaltedStateRecord, InMemQueryPlan, InMemQueryPlanItem, ProofKind,
+			record_query_plan, HaltedStateRecord, InMemQueryPlan, ProofKind, QueryPlanItem,
 			Recorder,
 		},
 		TrieHash, TrieLayout,
@@ -658,7 +658,7 @@ pub mod query_plan {
 				prev_pref = Some(key.clone());
 			}
 
-			query_plan.items.push(InMemQueryPlanItem::new(key, conf.hash_only, !not_prefix));
+			query_plan.items.push(QueryPlanItem::new(key, conf.hash_only, !not_prefix));
 		}
 		query_plan
 	}

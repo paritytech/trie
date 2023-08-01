@@ -20,8 +20,8 @@ use reference_trie::test_layouts;
 use std::collections::BTreeMap;
 use trie_db::{
 	query_plan::{
-		verify_query_plan_iter, HaltedStateCheck,
-		InMemQueryPlan, ProofKind, QueryPlan, QueryPlanItem, ReadProofItem,
+		verify_query_plan_iter, HaltedStateCheck, InMemQueryPlan, ProofKind, QueryPlan,
+		QueryPlanItemRef, ReadProofItem,
 	},
 	TrieHash, TrieLayout,
 };
@@ -42,8 +42,10 @@ fn test_query_plan_compact_internal<L: TrieLayout>() {
 
 #[cfg(test)]
 fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
-	use trie_db::query_plan::{Recorder, InMemQueryPlanItem};
-	use trie_db::{TrieDBBuilder, TrieDBMutBuilder,  TrieMut};
+	use trie_db::{
+		query_plan::{QueryPlanItem, Recorder},
+		TrieDBBuilder, TrieDBMutBuilder, TrieMut,
+	};
 	let set = crate::test_entries();
 
 	let mut cache = reference_trie::TestTrieCache::<L>::default();
@@ -70,22 +72,19 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 		return
 	}
 	let query_plans = [
-		InMemQueryPlan {
-			items: vec![InMemQueryPlanItem::new(b"".to_vec(), hash_only, true)],
-			kind,
-		},
+		InMemQueryPlan { items: vec![QueryPlanItem::new(b"".to_vec(), hash_only, true)], kind },
 		InMemQueryPlan {
 			items: vec![
-				InMemQueryPlanItem::new(b"bravo".to_vec(), hash_only, false),
-				InMemQueryPlanItem::new(b"do".to_vec(), hash_only, true),
+				QueryPlanItem::new(b"bravo".to_vec(), hash_only, false),
+				QueryPlanItem::new(b"do".to_vec(), hash_only, true),
 			],
 			kind,
 		},
 		InMemQueryPlan {
 			items: vec![
-				InMemQueryPlanItem::new(b"bravo".to_vec(), hash_only, false),
-				InMemQueryPlanItem::new(b"doge".to_vec(), hash_only, false),
-				InMemQueryPlanItem::new(b"horsey".to_vec(), hash_only, false),
+				QueryPlanItem::new(b"bravo".to_vec(), hash_only, false),
+				QueryPlanItem::new(b"doge".to_vec(), hash_only, false),
+				QueryPlanItem::new(b"horsey".to_vec(), hash_only, false),
 			],
 			kind,
 		},
@@ -103,7 +102,12 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 			let mut proofs: Vec<Vec<Vec<u8>>> = Default::default();
 			let mut query_plan_iter = query_plan.as_ref();
 			loop {
-				trie_db::query_plan::record_query_plan::<L, _>(&db, &mut query_plan_iter, &mut from).unwrap();
+				trie_db::query_plan::record_query_plan::<L, _>(
+					&db,
+					&mut query_plan_iter,
+					&mut from,
+				)
+				.unwrap();
 
 				if limit.is_none() {
 					assert!(!from.is_halted());
@@ -173,7 +177,11 @@ pub fn check_proofs<L: TrieLayout>(
 					} else {
 						assert_eq!(
 							current_plan.as_ref(),
-							Some(&QueryPlanItem { key: &key, hash_only: true, as_prefix: false })
+							Some(&QueryPlanItemRef {
+								key: &key,
+								hash_only: true,
+								as_prefix: false
+							})
 						);
 						current_plan = query_plan_iter.items.next();
 					}
@@ -189,7 +197,11 @@ pub fn check_proofs<L: TrieLayout>(
 					} else {
 						assert_eq!(
 							current_plan.as_ref(),
-							Some(&QueryPlanItem { key: &key, hash_only: false, as_prefix: false })
+							Some(&QueryPlanItemRef {
+								key: &key,
+								hash_only: false,
+								as_prefix: false
+							})
 						);
 						current_plan = query_plan_iter.items.next();
 					}
@@ -200,12 +212,20 @@ pub fn check_proofs<L: TrieLayout>(
 					if hash_only {
 						assert_eq!(
 							current_plan.as_ref(),
-							Some(&QueryPlanItem { key: &key, hash_only: true, as_prefix: false })
+							Some(&QueryPlanItemRef {
+								key: &key,
+								hash_only: true,
+								as_prefix: false
+							})
 						);
 					} else {
 						assert_eq!(
 							current_plan.as_ref(),
-							Some(&QueryPlanItem { key: &key, hash_only: false, as_prefix: false })
+							Some(&QueryPlanItemRef {
+								key: &key,
+								hash_only: false,
+								as_prefix: false
+							})
 						);
 					}
 					current_plan = query_plan_iter.items.next();
@@ -216,12 +236,16 @@ pub fn check_proofs<L: TrieLayout>(
 					if hash_only {
 						assert_eq!(
 							current_plan.as_ref(),
-							Some(&QueryPlanItem { key: &prefix, hash_only: true, as_prefix: true })
+							Some(&QueryPlanItemRef {
+								key: &prefix,
+								hash_only: true,
+								as_prefix: true
+							})
 						);
 					} else {
 						assert_eq!(
 							current_plan.as_ref(),
-							Some(&QueryPlanItem {
+							Some(&QueryPlanItemRef {
 								key: &prefix,
 								hash_only: false,
 								as_prefix: true

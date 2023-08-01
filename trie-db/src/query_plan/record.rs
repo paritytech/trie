@@ -129,7 +129,7 @@ enum RecorderStateInner {
 /// When process is halted keep execution state
 /// to restore later.
 pub struct HaltedStateRecord<L: TrieLayout> {
-	currently_query_item: Option<InMemQueryPlanItem>,
+	currently_query_item: Option<QueryPlanItem>,
 	stack: RecordStack<L>,
 	// This indicate a restore point, it takes precedence over
 	// stack and currently_query_item.
@@ -294,7 +294,7 @@ impl<L: TrieLayout> HaltedStateRecord<L> {
 
 	fn iter_prefix(
 		&mut self,
-		prev_query: Option<&QueryPlanItem>,
+		prev_query: Option<&QueryPlanItemRef>,
 		db: &TrieDB<L>,
 		hash_only: bool,
 		first_iter: bool,
@@ -373,7 +373,7 @@ struct RecordStack<L: TrieLayout> {
 }
 
 /// Run query plan on a full db and record it.
-pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItem<'a>>>(
+pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItemRef<'a>>>(
 	db: &TrieDB<L>,
 	query_plan: &mut QueryPlan<'a, I>,
 	from: &mut HaltedStateRecord<L>,
@@ -401,7 +401,7 @@ pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItem<'a>
 		}
 	}
 
-	let mut prev_query: Option<QueryPlanItem> = None;
+	let mut prev_query: Option<QueryPlanItemRef> = None;
 	let from_query = from.currently_query_item.take();
 	let mut from_query_ref = from_query.as_ref().map(|f| f.as_ref());
 	while let Some(query) = from_query_ref.clone().or_else(|| query_plan.items.next()) {

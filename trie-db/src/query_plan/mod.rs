@@ -125,32 +125,32 @@ impl<HO: std::fmt::Debug, CE: std::error::Error + 'static> std::error::Error for
 
 /// Item to query, in memory.
 #[derive(Default, Clone, Debug)]
-pub struct InMemQueryPlanItem {
+pub struct QueryPlanItem {
 	key: Vec<u8>,
 	hash_only: bool,
 	as_prefix: bool,
 }
 
-impl InMemQueryPlanItem {
+impl QueryPlanItem {
 	/// Create new item.
 	pub fn new(key: Vec<u8>, hash_only: bool, as_prefix: bool) -> Self {
 		Self { key, hash_only, as_prefix }
 	}
 	/// Get ref.
-	pub fn as_ref(&self) -> QueryPlanItem {
-		QueryPlanItem { key: &self.key, hash_only: self.hash_only, as_prefix: self.as_prefix }
+	pub fn as_ref(&self) -> QueryPlanItemRef {
+		QueryPlanItemRef { key: &self.key, hash_only: self.hash_only, as_prefix: self.as_prefix }
 	}
 }
 
 /// Item to query.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct QueryPlanItem<'a> {
+pub struct QueryPlanItemRef<'a> {
 	pub key: &'a [u8],
 	pub hash_only: bool,
 	pub as_prefix: bool,
 }
 
-impl<'a> QueryPlanItem<'a> {
+impl<'a> QueryPlanItemRef<'a> {
 	fn before(&self, other: &Self) -> (bool, usize) {
 		let (common_depth, ordering) = nibble_ops::biggest_depth_and_order(&self.key, &other.key);
 
@@ -170,8 +170,8 @@ impl<'a> QueryPlanItem<'a> {
 		)
 	}
 
-	fn to_owned(&self) -> InMemQueryPlanItem {
-		InMemQueryPlanItem {
+	fn to_owned(&self) -> QueryPlanItem {
+		QueryPlanItem {
 			key: self.key.to_vec(),
 			hash_only: self.hash_only,
 			as_prefix: self.as_prefix,
@@ -182,15 +182,15 @@ impl<'a> QueryPlanItem<'a> {
 /// Query plan in memory.
 #[derive(Clone, Debug)]
 pub struct InMemQueryPlan {
-	pub items: Vec<InMemQueryPlanItem>,
+	pub items: Vec<QueryPlanItem>,
 	pub kind: ProofKind,
 }
 
 /// Iterator as type of mapped slice iter is very noisy.
-pub struct QueryPlanItemIter<'a>(&'a Vec<InMemQueryPlanItem>, usize);
+pub struct QueryPlanItemIter<'a>(&'a Vec<QueryPlanItem>, usize);
 
 impl<'a> Iterator for QueryPlanItemIter<'a> {
-	type Item = QueryPlanItem<'a>;
+	type Item = QueryPlanItemRef<'a>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		if self.1 >= self.0.len() {
