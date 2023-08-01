@@ -14,39 +14,42 @@
 
 //! Query plan tests.
 
-use crate::proof::{test_entries, MemoryDB};
 use hash_db::Hasher;
-use reference_trie::{test_layouts, TestTrieCache};
+use reference_trie::test_layouts;
 
 use std::collections::BTreeMap;
 use trie_db::{
 	query_plan::{
-		record_query_plan, verify_query_plan_iter, HaltedStateCheck, HaltedStateRecord,
-		InMemQueryPlan, InMemQueryPlanItem, ProofKind, QueryPlan, QueryPlanItem, ReadProofItem,
-		Recorder,
+		verify_query_plan_iter, HaltedStateCheck,
+		InMemQueryPlan, ProofKind, QueryPlan, QueryPlanItem, ReadProofItem,
 	},
-	TrieDBBuilder, TrieDBMutBuilder, TrieHash, TrieLayout, TrieMut,
+	TrieHash, TrieLayout,
 };
 
 test_layouts!(test_query_plan_full, test_query_plan_full_internal);
+#[cfg(test)]
 fn test_query_plan_full_internal<L: TrieLayout>() {
 	test_query_plan_internal::<L>(ProofKind::FullNodes, false);
 	test_query_plan_internal::<L>(ProofKind::FullNodes, true);
 }
 
 test_layouts!(test_query_plan_compact, test_query_plan_compact_internal);
+#[cfg(test)]
 fn test_query_plan_compact_internal<L: TrieLayout>() {
 	test_query_plan_internal::<L>(ProofKind::CompactNodes, false);
 	test_query_plan_internal::<L>(ProofKind::CompactNodes, true);
 }
 
+#[cfg(test)]
 fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
-	let set = test_entries();
+	use trie_db::query_plan::{Recorder, InMemQueryPlanItem};
+	use trie_db::{TrieDBBuilder, TrieDBMutBuilder,  TrieMut};
+	let set = crate::test_entries();
 
-	let mut cache = TestTrieCache::<L>::default();
+	let mut cache = reference_trie::TestTrieCache::<L>::default();
 
 	let (db, root) = {
-		let mut db = <MemoryDB<L>>::default();
+		let mut db = <crate::MemoryDB<L>>::default();
 		let mut root = Default::default();
 		{
 			let mut trie = <TrieDBMutBuilder<L>>::new(&mut db, &mut root).build();
@@ -95,12 +98,12 @@ fn test_query_plan_internal<L: TrieLayout>(kind: ProofKind, hash_only: bool) {
 			let limit = limit_conf.0;
 			let limit = (limit != 0).then(|| limit);
 			let recorder = Recorder::new(kind, Default::default(), limit, None);
-			let mut from = HaltedStateRecord::from_start(recorder);
+			let mut from = trie_db::query_plan::HaltedStateRecord::from_start(recorder);
 			// no limit
 			let mut proofs: Vec<Vec<Vec<u8>>> = Default::default();
 			let mut query_plan_iter = query_plan.as_ref();
 			loop {
-				record_query_plan::<L, _>(&db, &mut query_plan_iter, &mut from).unwrap();
+				trie_db::query_plan::record_query_plan::<L, _>(&db, &mut query_plan_iter, &mut from).unwrap();
 
 				if limit.is_none() {
 					assert!(!from.is_halted());

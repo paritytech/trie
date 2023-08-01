@@ -475,7 +475,7 @@ fn test_trie_codec_proof<L: TrieLayout>(entries: Vec<(Vec<u8>, Vec<u8>)>, keys: 
 /// Query plan proof fuzzing.
 pub mod query_plan {
 	use super::*;
-	use crate::proof::{test_entries, MemoryDB};
+	use crate::{test_entries, MemoryDB};
 	use arbitrary::Arbitrary;
 	use rand::{rngs::SmallRng, RngCore, SeedableRng};
 	use reference_trie::TestTrieCache;

@@ -563,16 +563,6 @@ pub enum ChildReference<HO> {
 	Inline(HO, usize), // usize is the length of the node data we store in the `H::Out`
 }
 
-impl<HO> ChildReference<HO> {
-	// Representation of hash, may contain filler bytes.
-	pub fn disp_hash(&self) -> &HO {
-		match self {
-			ChildReference::Hash(h) => h,
-			ChildReference::Inline(h, _) => h,
-		}
-	}
-}
-
 impl<'a, HO> TryFrom<EncodedNodeHandle<'a>> for ChildReference<HO>
 where
 	HO: AsRef<[u8]> + AsMut<[u8]> + Default + Clone + Copy,

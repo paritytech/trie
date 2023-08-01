@@ -12,39 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::{test_entries, MemoryDB};
 use hash_db::Hasher;
 use reference_trie::{test_layouts, NoExtensionLayout};
-
 use trie_db::{
 	proof::{generate_proof, verify_proof, VerifyError},
 	DBValue, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieLayout, TrieMut,
 };
-
-/// Testing memory db type.
-pub type MemoryDB<T> = memory_db::MemoryDB<
-	<T as TrieLayout>::Hash,
-	memory_db::HashKey<<T as TrieLayout>::Hash>,
-	DBValue,
->;
-
-/// Set of entries for base testing.
-pub fn test_entries() -> Vec<(&'static [u8], &'static [u8])> {
-	vec![
-		// "alfa" is at a hash-referenced leaf node.
-		(b"alfa", &[0; 32]),
-		// "bravo" is at an inline leaf node.
-		(b"bravo", b"bravo"),
-		// "do" is at a hash-referenced branch node.
-		(b"do", b"verb"),
-		// "dog" is at a hash-referenced branch node.
-		(b"dog", b"puppy"),
-		// "doge" is at a hash-referenced leaf node.
-		(b"doge", &[0; 32]),
-		// extension node "o" (plus nibble) to next branch.
-		(b"horse", b"stallion"),
-		(b"house", b"building"),
-	]
-}
 
 fn test_generate_proof<L: TrieLayout>(
 	entries: Vec<(&'static [u8], &'static [u8])>,
