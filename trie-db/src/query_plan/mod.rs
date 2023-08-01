@@ -27,7 +27,6 @@ use crate::{
 	nibble::{nibble_ops, nibble_ops::NIBBLE_LENGTH, LeftNibbleSlice, NibbleSlice},
 	node::{NodeHandle, NodePlan, OwnedNode, Value},
 	node_codec::NodeCodec,
-	proof::VerifyError,
 	rstd::{
 		borrow::{Borrow, Cow},
 		boxed::Box,
@@ -41,7 +40,7 @@ use crate::{
 };
 use hash_db::Hasher;
 pub use record::{record_query_plan, HaltedStateRecord, Recorder};
-pub use verify::{verify_query_plan_iter, HaltedStateCheck};
+pub use verify::{verify_query_plan_iter, Error as VerifyError, HaltedStateCheck};
 
 mod record;
 mod verify;
@@ -357,9 +356,9 @@ impl<L: TrieLayout, D: SplitFirst> TryFrom<(ItemStackNode<D>, bool)> for Stacked
 						match child.build(node_data) {
 							NodeHandle::Inline(data) if data.is_empty() => (),
 							child => {
-								// TODO better error
-								let child_ref =
-									child.try_into().map_err(|_| VerifyError::ExtraneousNode)?;
+								let child_ref = child
+									.try_into()
+									.map_err(|d| VerifyError::InvalidNodeHandle(d))?;
 
 								result[0] = Some(child_ref);
 							},
@@ -376,10 +375,9 @@ impl<L: TrieLayout, D: SplitFirst> TryFrom<(ItemStackNode<D>, bool)> for Stacked
 							match children[i].as_ref().map(|c| c.build(node_data)) {
 								Some(NodeHandle::Inline(data)) if data.is_empty() => (),
 								Some(child) => {
-									// TODO better error
 									let child_ref = child
 										.try_into()
-										.map_err(|_| VerifyError::ExtraneousNode)?;
+										.map_err(|d| VerifyError::InvalidNodeHandle(d))?;
 
 									result[i] = Some(child_ref);
 								},

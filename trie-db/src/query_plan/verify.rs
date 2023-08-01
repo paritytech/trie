@@ -19,15 +19,85 @@ use core::marker::PhantomData;
 
 use crate::{
 	nibble::{nibble_ops, nibble_ops::NIBBLE_LENGTH, NibbleSlice},
-	proof::VerifyError,
 	rstd::{boxed::Box, convert::TryInto, result::Result},
 	CError, TrieHash, TrieLayout,
 };
 pub use record::{record_query_plan, HaltedStateRecord, Recorder};
 
+/// Errors that may occur during proof verification. Most of the errors types simply indicate that
+/// the proof is invalid with respect to the statement being verified, and the exact error type can
+/// be used for debugging.
+#[derive(PartialEq, Eq)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub enum Error<HO, CE> {
+	/// The statement being verified contains multiple key-value pairs with the same key. The
+	/// parameter is the duplicated key.
+	DuplicateKey(Vec<u8>),
+	/// The statement being verified contains key not ordered properly.
+	UnorderedKey(Vec<u8>),
+	/// The proof contains at least one extraneous node.
+	ExtraneousNode,
+	/// The proof contains at least one extraneous value which should have been omitted from the
+	/// proof.
+	ExtraneousValue(Vec<u8>),
+	/// The proof contains at least one extraneous hash reference the should have been omitted.
+	ExtraneousHashReference(HO),
+	/// The proof contains an invalid child reference that exceeds the hash length.
+	/// TODO extension only?
+	InvalidChildReference(Vec<u8>),
+	/// The proof is missing trie nodes required to verify.
+	IncompleteProof,
+	/// The root hash computed from the proof is incorrect.
+	RootMismatch(HO),
+	/// The hash computed from a node is incorrect.
+	HashMismatch(HO),
+	/// One of the proof nodes could not be decoded.
+	DecodeError(CE),
+	/// Node does not match existing handle.
+	/// This should not happen.
+	InvalidNodeHandle(Vec<u8>),
+}
+
+#[cfg(feature = "std")]
+impl<HO: std::fmt::Debug, CE: std::error::Error> std::fmt::Display for Error<HO, CE> {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+		match self {
+			Error::DuplicateKey(key) =>
+				write!(f, "Duplicate key in input statement: key={:?}", key),
+			Error::UnorderedKey(key) =>
+				write!(f, "Unordered key in input statement: key={:?}", key),
+			Error::ExtraneousNode => write!(f, "Extraneous node found in proof"),
+			Error::ExtraneousValue(key) =>
+				write!(f, "Extraneous value found in proof should have been omitted: key={:?}", key),
+			Error::ExtraneousHashReference(hash) => write!(
+				f,
+				"Extraneous hash reference found in proof should have been omitted: hash={:?}",
+				hash
+			),
+			Error::InvalidChildReference(data) =>
+				write!(f, "Invalid child reference exceeds hash length: {:?}", data),
+			Error::IncompleteProof => write!(f, "Proof is incomplete -- expected more nodes"),
+			Error::RootMismatch(hash) => write!(f, "Computed incorrect root {:?} from proof", hash),
+			Error::HashMismatch(hash) => write!(f, "Computed incorrect hash {:?} from node", hash),
+			Error::DecodeError(err) => write!(f, "Unable to decode proof node: {}", err),
+			Error::InvalidNodeHandle(node) => write!(f, "Invalid node handle: {:?}", node),
+		}
+	}
+}
+
+#[cfg(feature = "std")]
+impl<HO: std::fmt::Debug, CE: std::error::Error + 'static> std::error::Error for Error<HO, CE> {
+	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+		match self {
+			Error::DecodeError(err) => Some(err),
+			_ => None,
+		}
+	}
+}
+
 /// Result of verify iterator.
 type VerifyIteratorResult<'a, L, C, D> =
-	Result<ReadProofItem<'a, L, C, D>, VerifyError<TrieHash<L>, CError<L>>>;
+	Result<ReadProofItem<'a, L, C, D>, Error<TrieHash<L>, CError<L>>>;
 
 /// Proof reading iterator.
 pub struct ReadProofIterator<'a, L, C, D, P>
@@ -86,7 +156,7 @@ pub fn verify_query_plan_iter<'a, L, C, D, P>(
 	state: HaltedStateCheck<'a, L, C, D>,
 	proof: P,
 	expected_root: Option<TrieHash<L>>,
-) -> Result<ReadProofIterator<'a, L, C, D, P>, VerifyError<TrieHash<L>, CError<L>>>
+) -> Result<ReadProofIterator<'a, L, C, D, P>, Error<TrieHash<L>, CError<L>>>
 where
 	L: TrieLayout,
 	C: Iterator<Item = QueryPlanItem<'a>>,
@@ -235,7 +305,7 @@ where
 					};
 					if !ordered {
 						self.state = ReadProofState::Finished;
-						return Some(Err(VerifyError::UnorderedKey(next.key.to_vec())))
+						return Some(Err(Error::UnorderedKey(next.key.to_vec())))
 					}
 
 					match self.stack.pop_until(Some(common_nibbles), &self.expected_root, false) {
@@ -444,7 +514,7 @@ where
 		} else {
 			if self.proof.next().is_some() {
 				self.state = ReadProofState::Finished;
-				return Some(Err(VerifyError::ExtraneousNode))
+				return Some(Err(Error::ExtraneousNode))
 			}
 		}
 		self.state = ReadProofState::Finished;
@@ -510,7 +580,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 		proof: &mut impl Iterator<Item = D>,
 		expected_root: &Option<TrieHash<L>>,
 		mut slice_query: Option<&mut NibbleSlice>,
-	) -> Result<TryStackChildResult, VerifyError<TrieHash<L>, CError<L>>> {
+	) -> Result<TryStackChildResult, Error<TrieHash<L>, CError<L>>> {
 		let check_hash = expected_root.is_some();
 		let items_len = self.items.len();
 		let child_handle = if let Some(node) = self.items.last_mut() {
@@ -545,7 +615,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 					// ommitted hash
 					let Some(mut encoded_node) = proof.next() else {
 						// halt happens with a hash, this is not.
-						return Err(VerifyError::IncompleteProof)
+						return Err(Error::IncompleteProof)
 					};
 					if self.is_compact &&
 						encoded_node.borrow().len() > 0 &&
@@ -559,7 +629,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 					}
 					let node = match OwnedNode::new::<L::Codec>(encoded_node) {
 						Ok(node) => node,
-						Err(e) => return Err(VerifyError::DecodeError(e)),
+						Err(e) => return Err(Error::DecodeError(e)),
 					};
 					(ItemStackNode::Node(node), self.is_compact).try_into()?
 				} else {
@@ -567,7 +637,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 					(
 						ItemStackNode::Inline(match OwnedNode::new::<L::Codec>(data.to_vec()) {
 							Ok(node) => node,
-							Err(e) => return Err(VerifyError::DecodeError(e)),
+							Err(e) => return Err(Error::DecodeError(e)),
 						}),
 						self.is_compact,
 					)
@@ -580,7 +650,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 				if self.is_compact && items_len > self.start_items {
 					let mut error_hash = TrieHash::<L>::default();
 					error_hash.as_mut().copy_from_slice(hash);
-					return Err(VerifyError::ExtraneousHashReference(error_hash))
+					return Err(Error::ExtraneousHashReference(error_hash))
 				}
 				if self.is_compact &&
 					encoded_node.borrow().len() > 0 &&
@@ -594,7 +664,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 				}
 				let node = match OwnedNode::new::<L::Codec>(encoded_node) {
 					Ok(node) => node,
-					Err(e) => return Err(VerifyError::DecodeError(e)),
+					Err(e) => return Err(Error::DecodeError(e)),
 				};
 				if !self.is_compact && check_hash {
 					verify_hash::<L>(node.data(), hash)?;
@@ -643,19 +713,19 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 				NodeHandle::Hash(hash) => {
 					let Some(encoded_branch) = proof.next() else {
 						// No halt on extension node (restart over a child index).
-						return Err(VerifyError::IncompleteProof)
+						return Err(Error::IncompleteProof)
 					};
 					if self.is_compact {
 						let mut error_hash = TrieHash::<L>::default();
 						error_hash.as_mut().copy_from_slice(hash);
-						return Err(VerifyError::ExtraneousHashReference(error_hash))
+						return Err(Error::ExtraneousHashReference(error_hash))
 					}
 					if check_hash {
 						verify_hash::<L>(encoded_branch.borrow(), hash)?;
 					}
 					node = match OwnedNode::new::<L::Codec>(encoded_branch) {
 						Ok(node) => (ItemStackNode::Node(node), self.is_compact).try_into()?,
-						Err(e) => return Err(VerifyError::DecodeError(e)),
+						Err(e) => return Err(Error::DecodeError(e)),
 					};
 				},
 				NodeHandle::Inline(data) => {
@@ -665,24 +735,24 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 					// ommitted hash
 					let Some(encoded_node) = proof.next() else {
 						// halt happens with a hash, this is not.
-						return Err(VerifyError::IncompleteProof);
+						return Err(Error::IncompleteProof);
 					};
 					node = match OwnedNode::new::<L::Codec>(encoded_node) {
 						Ok(node) => (ItemStackNode::Node(node), self.is_compact).into(),
-						Err(e) => return Err(VerifyError::DecodeError(e)),
+						Err(e) => return Err(Error::DecodeError(e)),
 					};
 					*/
 					} else {
 						node = match OwnedNode::new::<L::Codec>(data.to_vec()) {
 							Ok(node) =>
 								(ItemStackNode::Inline(node), self.is_compact).try_into()?,
-							Err(e) => return Err(VerifyError::DecodeError(e)),
+							Err(e) => return Err(Error::DecodeError(e)),
 						};
 					}
 				},
 			}
 			let NodePlan::Branch { .. } = node.node_plan() else {
-				return Err(VerifyError::IncompleteProof) // TODO make error type??
+				return Err(Error::IncompleteProof) // TODO make error type??
 			};
 		}
 		node.depth = self.prefix.len();
@@ -699,7 +769,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 		proof: &mut impl Iterator<Item = D>,
 		check_hash: bool,
 		hash_only: bool,
-	) -> Result<(Option<Vec<u8>>, Option<TrieHash<L>>), VerifyError<TrieHash<L>, CError<L>>> {
+	) -> Result<(Option<Vec<u8>>, Option<TrieHash<L>>), Error<TrieHash<L>, CError<L>>> {
 		if let Some(node) = self.items.last() {
 			let node_data = node.data();
 
@@ -716,11 +786,11 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 							assert!(self.is_compact);
 							self.expect_value = false;
 							if hash_only {
-								return Err(VerifyError::ExtraneousValue(Default::default()))
+								return Err(Error::ExtraneousValue(Default::default()))
 							}
 
 							let Some(value) = proof.next() else {
-								return Err(VerifyError::IncompleteProof)
+								return Err(Error::IncompleteProof)
 							};
 							if check_hash {
 								let hash = L::Hash::hash(value.borrow());
@@ -737,21 +807,19 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 					Value::Node(hash) => {
 						if self.expect_value {
 							if hash_only {
-								return Err(VerifyError::ExtraneousValue(Default::default()))
+								return Err(Error::ExtraneousValue(Default::default()))
 							}
 							self.expect_value = false;
 							let mut error_hash = TrieHash::<L>::default();
 							error_hash.as_mut().copy_from_slice(hash);
-							return Err(VerifyError::ExtraneousHashReference(error_hash))
+							return Err(Error::ExtraneousHashReference(error_hash))
 						}
 						if hash_only {
 							let mut result_hash = TrieHash::<L>::default();
 							result_hash.as_mut().copy_from_slice(hash);
 							return Ok((None, Some(result_hash)))
 						}
-						let Some(value) = proof.next() else {
-							return Err(VerifyError::IncompleteProof)
-						};
+						let Some(value) = proof.next() else { return Err(Error::IncompleteProof) };
 						if check_hash {
 							verify_hash::<L>(value.borrow(), hash)?;
 						}
@@ -760,7 +828,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 				}
 			}
 		} else {
-			return Err(VerifyError::IncompleteProof)
+			return Err(Error::IncompleteProof)
 		}
 
 		Ok((None, None))
@@ -769,7 +837,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 	fn pop(
 		&mut self,
 		expected_root: &Option<TrieHash<L>>,
-	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
+	) -> Result<bool, Error<TrieHash<L>, CError<L>>> {
 		if self.iter_prefix.as_ref().map(|p| p.start == self.items.len()).unwrap_or(false) {
 			return Ok(false)
 		}
@@ -798,7 +866,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 								{
 									verify_hash::<L>(&encoded_node, expected.as_ref())?;
 								} else {
-									return Err(VerifyError::RootMismatch(Default::default()))
+									return Err(Error::RootMismatch(Default::default()))
 								}
 							} else {
 								let expected = expected_root.as_ref().expect("checked above");
@@ -829,11 +897,11 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 									},
 									_ =>
 									// only non inline are stacked
-										return Err(VerifyError::RootMismatch(Default::default())),
+										return Err(Error::RootMismatch(Default::default())),
 								}
 							} else {
 								if &Some(hash) != expected_root {
-									return Err(VerifyError::RootMismatch(hash))
+									return Err(Error::RootMismatch(hash))
 								}
 							}
 						}
@@ -851,7 +919,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 		target: Option<usize>,
 		expected_root: &Option<TrieHash<L>>,
 		check_only: bool,
-	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
+	) -> Result<bool, Error<TrieHash<L>, CError<L>>> {
 		if self.is_compact && expected_root.is_some() {
 			// TODO pop with check only, here unefficient implementation where we just restore
 
