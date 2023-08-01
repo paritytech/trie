@@ -459,7 +459,6 @@ pub enum ReadProofItem<'a, L: TrieLayout, C, D: SplitFirst> {
 	Halted(Box<HaltedStateCheck<'a, L, C, D>>),
 	/// Seen value and key in proof.
 	/// We only return content matching the query plan.
-	/// TODO should be possible to return &Vec<u8>
 	Value(Cow<'a, [u8]>, Vec<u8>),
 	/// Seen hash of value and key in proof.
 	/// We only return content matching the query plan.
@@ -469,10 +468,8 @@ pub enum ReadProofItem<'a, L: TrieLayout, C, D: SplitFirst> {
 	/// Seen fully covered prefix in proof, this is only
 	/// return when we read the proof with the query input (otherwhise
 	/// we would need to indicate every child without a hash as a prefix).
-	/// TODO unused implement
 	StartPrefix(Vec<u8>),
 	/// End of a previously start prefix.
-	/// TODO unused implement
 	EndPrefix,
 }
 
