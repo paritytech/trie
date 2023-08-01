@@ -32,7 +32,10 @@ use crate::{
 		borrow::{Borrow, Cow},
 		boxed::Box,
 		cmp::*,
+		convert::{TryFrom, TryInto},
 		result::Result,
+		vec,
+		vec::Vec,
 	},
 	CError, ChildReference, DBValue, NibbleVec, Trie, TrieDB, TrieHash, TrieLayout,
 };
@@ -335,8 +338,12 @@ enum ItemStackNode<D: SplitFirst> {
 	Node(OwnedNode<D>),
 }
 
-impl<L: TrieLayout, D: SplitFirst> From<(ItemStackNode<D>, bool)> for StackedNodeCheck<L, D> {
-	fn from((node, is_compact): (ItemStackNode<D>, bool)) -> Self {
+impl<L: TrieLayout, D: SplitFirst> TryFrom<(ItemStackNode<D>, bool)> for StackedNodeCheck<L, D> {
+	type Error = VerifyError<TrieHash<L>, CError<L>>;
+
+	fn try_from(
+		(node, is_compact): (ItemStackNode<D>, bool),
+	) -> crate::rstd::result::Result<Self, Self::Error> {
 		let children = if !is_compact {
 			Vec::new()
 		} else {
@@ -350,9 +357,9 @@ impl<L: TrieLayout, D: SplitFirst> From<(ItemStackNode<D>, bool)> for StackedNod
 						match child.build(node_data) {
 							NodeHandle::Inline(data) if data.is_empty() => (),
 							child => {
-								use crate::rstd::convert::TryInto;
+								// TODO better error
 								let child_ref =
-									child.try_into().expect("TODO proper error and not using From");
+									child.try_into().map_err(|_| VerifyError::ExtraneousNode)?;
 
 								result[0] = Some(child_ref);
 							},
@@ -369,10 +376,10 @@ impl<L: TrieLayout, D: SplitFirst> From<(ItemStackNode<D>, bool)> for StackedNod
 							match children[i].as_ref().map(|c| c.build(node_data)) {
 								Some(NodeHandle::Inline(data)) if data.is_empty() => (),
 								Some(child) => {
-									use crate::rstd::convert::TryInto;
+									// TODO better error
 									let child_ref = child
 										.try_into()
-										.expect("TODO proper error and not using From");
+										.map_err(|_| VerifyError::ExtraneousNode)?;
 
 									result[i] = Some(child_ref);
 								},
@@ -386,13 +393,13 @@ impl<L: TrieLayout, D: SplitFirst> From<(ItemStackNode<D>, bool)> for StackedNod
 			}
 		};
 
-		StackedNodeCheck {
+		Ok(StackedNodeCheck {
 			node,
 			depth: 0,
 			next_descended_child: 0,
 			children,
 			attached_value_hash: None,
-		}
+		})
 	}
 }
 

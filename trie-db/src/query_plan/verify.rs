@@ -20,7 +20,7 @@ use core::marker::PhantomData;
 use crate::{
 	nibble::{nibble_ops, nibble_ops::NIBBLE_LENGTH, NibbleSlice},
 	proof::VerifyError,
-	rstd::{boxed::Box, result::Result},
+	rstd::{boxed::Box, convert::TryInto, result::Result},
 	CError, TrieHash, TrieLayout,
 };
 pub use record::{record_query_plan, HaltedStateRecord, Recorder};
@@ -561,7 +561,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 						Ok(node) => node,
 						Err(e) => return Err(VerifyError::DecodeError(e)),
 					};
-					(ItemStackNode::Node(node), self.is_compact).into()
+					(ItemStackNode::Node(node), self.is_compact).try_into()?
 				} else {
 					// try access in inline then return
 					(
@@ -571,7 +571,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 						}),
 						self.is_compact,
 					)
-						.into()
+						.try_into()?
 				},
 			NodeHandle::Hash(hash) => {
 				let Some(mut encoded_node) = proof.next() else {
@@ -599,7 +599,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 				if !self.is_compact && check_hash {
 					verify_hash::<L>(node.data(), hash)?;
 				}
-				(ItemStackNode::Node(node), self.is_compact).into()
+				(ItemStackNode::Node(node), self.is_compact).try_into()?
 			},
 		};
 		let node_data = node.data();
@@ -654,7 +654,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 						verify_hash::<L>(encoded_branch.borrow(), hash)?;
 					}
 					node = match OwnedNode::new::<L::Codec>(encoded_branch) {
-						Ok(node) => (ItemStackNode::Node(node), self.is_compact).into(),
+						Ok(node) => (ItemStackNode::Node(node), self.is_compact).try_into()?,
 						Err(e) => return Err(VerifyError::DecodeError(e)),
 					};
 				},
@@ -674,7 +674,8 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 					*/
 					} else {
 						node = match OwnedNode::new::<L::Codec>(data.to_vec()) {
-							Ok(node) => (ItemStackNode::Inline(node), self.is_compact).into(),
+							Ok(node) =>
+								(ItemStackNode::Inline(node), self.is_compact).try_into()?,
 							Err(e) => return Err(VerifyError::DecodeError(e)),
 						};
 					}
