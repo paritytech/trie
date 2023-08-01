@@ -224,7 +224,6 @@ where
 				return Some(Ok(ReadProofItem::EndPrefix))
 			}
 			if self.state == ReadProofState::SwitchQueryPlan ||
-				self.state == ReadProofState::SwitchQueryPlanInto ||
 				self.state == ReadProofState::NotStarted
 			{
 				let query_plan = self.query_plan.as_mut().expect("Removed with state");
@@ -243,7 +242,7 @@ where
 						Ok(true) => {
 							self.current = Some(next);
 							let current = self.current.as_ref().expect("current is set");
-							return self.missing_switch_next(current.as_prefix, current.key, false)
+							return self.missing_switch_next(current.as_prefix, current.key)
 						},
 						Err(e) => {
 							self.state = ReadProofState::Finished;
@@ -368,7 +367,7 @@ where
 				Ordering::Greater => {
 					// two consecutive query in a node that hide them (two miss in a same proof
 					// node).
-					return self.missing_switch_next(as_prefix, to_check.key, false)
+					return self.missing_switch_next(as_prefix, to_check.key)
 				},
 			}
 
@@ -380,7 +379,7 @@ where
 					);
 					continue
 				}
-				self.state = ReadProofState::SwitchQueryPlanInto;
+				self.state = ReadProofState::SwitchQueryPlan;
 				match self.stack.access_value(&mut self.proof, check_hash, hash_only) {
 					Ok((Some(value), None)) =>
 						return Some(Ok(ReadProofItem::Value(to_check.key.into(), value))),
@@ -424,13 +423,13 @@ where
 						);
 						continue
 					}
-					self.state = ReadProofState::SwitchQueryPlanInto;
+					self.state = ReadProofState::SwitchQueryPlan;
 					return Some(Ok(ReadProofItem::NoValue(to_check.key)))
 				},
 				TryStackChildResult::NotStackedBranch | TryStackChildResult::NotStacked =>
-					return self.missing_switch_next(as_prefix, to_check.key, false),
+					return self.missing_switch_next(as_prefix, to_check.key),
 				TryStackChildResult::StackedAfter =>
-					return self.missing_switch_next(as_prefix, to_check.key, true),
+					return self.missing_switch_next(as_prefix, to_check.key),
 				TryStackChildResult::Halted => return Some(self.halt()),
 			}
 		}
@@ -456,13 +455,8 @@ where
 		&mut self,
 		as_prefix: bool,
 		key: &'a [u8],
-		into: bool,
 	) -> Option<VerifyIteratorResult<'a, L, C, D>> {
-		self.state = if into {
-			ReadProofState::SwitchQueryPlanInto
-		} else {
-			ReadProofState::SwitchQueryPlan
-		};
+		self.state = ReadProofState::SwitchQueryPlan;
 		if as_prefix {
 			self.send_enter_prefix = Some(key.to_vec());
 			return Some(Ok(ReadProofItem::EndPrefix))
