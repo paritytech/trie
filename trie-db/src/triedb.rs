@@ -154,7 +154,13 @@ where
 		partial_key: Prefix,
 		record_access: bool,
 	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
-		self.get_raw_or_lookup_with_cache(parent_hash, node_handle, partial_key, record_access)
+		self.get_raw_or_lookup_with_cache(
+			parent_hash,
+			node_handle,
+			partial_key,
+			record_access,
+			false,
+		)
 	}
 
 	/// Same as get_raw_or_lookup but with optionally use of the node cache.
@@ -167,12 +173,14 @@ where
 		node_handle: NodeHandle,
 		partial_key: Prefix,
 		record_access: bool,
+		use_cache: bool,
 	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
 		let (node_hash, node_data) = match node_handle {
 			NodeHandle::Hash(data) => {
 				let node_hash = decode_hash::<L::Hash>(data)
 					.ok_or_else(|| Box::new(TrieError::InvalidHash(parent_hash, data.to_vec())))?;
-				if let Some(c) = self.cache.as_ref() {
+				if use_cache && self.cache.as_ref().is_some() {
+					let c = self.cache.as_ref().expect("checked above");
 					let mut cache = c.borrow_mut();
 					let node = cache.get_or_insert_node(node_hash, &mut || {
 						let node_data = self.db.get(&node_hash, partial_key).ok_or_else(|| {

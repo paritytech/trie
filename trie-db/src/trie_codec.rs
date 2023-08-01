@@ -191,7 +191,6 @@ fn branch_children<C: NodeCodec>(
 	Ok(children)
 }
 
-
 /// Detached value if included does write a reserved header,
 /// followed by node encoded with 0 length value and the value
 /// as a standalone vec.

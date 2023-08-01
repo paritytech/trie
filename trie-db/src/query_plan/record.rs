@@ -591,7 +591,13 @@ impl<L: TrieLayout> RecordStack<L> {
 			prefix.push(child_index);
 		}
 		let child_node = db
-			.get_raw_or_lookup_with_cache(parent_hash, child_handle, prefix.as_prefix(), false)
+			.get_raw_or_lookup_with_cache(
+				parent_hash,
+				child_handle,
+				prefix.as_prefix(),
+				false,
+				true,
+			)
 			.map_err(|_| {
 				let mut hash = TrieHash::<L>::default();
 				if let NodeHandle::Hash(h) = &child_handle {
