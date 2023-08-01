@@ -201,33 +201,6 @@ struct StackedNodeRecord {
 	is_inline: bool,
 }
 
-// TODO try rem
-/// Allows sending proof recording as it is produced.
-pub trait RecorderOutput {
-	/// Append a delimited sequence of bytes (usually a node).
-	fn write_entry(&mut self, bytes: Cow<[u8]>);
-}
-
-/// Simple in memory recorder.
-/// Depending on type of proof, nodes or buffer should
-/// be used.
-/// Sequence is guaranteed by pushing buffer in nodes
-/// every time a node is written.
-#[derive(Default)]
-pub struct InMemoryRecorder {
-	pub nodes: Vec<DBValue>,
-	pub buffer: Vec<u8>,
-}
-
-impl RecorderOutput for InMemoryRecorder {
-	fn write_entry(&mut self, bytes: Cow<[u8]>) {
-		if !self.buffer.is_empty() {
-			self.nodes.push(core::mem::take(&mut self.buffer));
-		}
-		self.nodes.push(bytes.into_owned());
-	}
-}
-
 /// Limits to size proof to record.
 struct Limits {
 	remaining_node: Option<usize>,

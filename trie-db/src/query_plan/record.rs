@@ -17,15 +17,15 @@
 use super::*;
 
 /// Simplified recorder.
-pub struct Recorder<O: RecorderOutput, L: TrieLayout> {
-	output: RecorderStateInner<O>,
+pub struct Recorder<L: TrieLayout> {
+	output: RecorderStateInner,
 	limits: Limits,
 	// on restore only record content AFTER this position.
 	start_at: Option<usize>,
 	_ph: PhantomData<L>,
 }
 
-impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
+impl<L: TrieLayout> Recorder<L> {
 	/// Check and update start at record.
 	/// When return true, do record.
 	/// Else already was.
@@ -39,7 +39,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 	}
 
 	/// Get back output handle from a recorder.
-	pub fn output(self) -> O {
+	pub fn output(self) -> Vec<DBValue> {
 		match self.output {
 			RecorderStateInner::Stream(output) | RecorderStateInner::Compact { output, .. } =>
 				output,
@@ -49,7 +49,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 	/// Instantiate a new recorder.
 	pub fn new(
 		kind: ProofKind,
-		output: O,
+		output: Vec<DBValue>,
 		limit_node: Option<usize>,
 		limit_size: Option<usize>,
 	) -> Self {
@@ -76,7 +76,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 						L::Codec::DELTA_COMPACT_OMITTED_NODE,
 						is_root,
 					);
-					output.write_entry(item.node.data().into());
+					output.push(item.node.data().into());
 				},
 			RecorderStateInner::Compact { output: _, proof, stacked_pos } =>
 				if !item.is_inline {
@@ -102,7 +102,7 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 		match &mut self.output {
 			RecorderStateInner::Stream(output) => {
 				res |= self.limits.add_value(value.len(), L::Codec::DELTA_COMPACT_OMITTED_VALUE);
-				output.write_entry(value.into());
+				output.push(value.into());
 			},
 			RecorderStateInner::Compact { output: _, proof, stacked_pos: _ } => {
 				res |= self.limits.add_value(value.len(), L::Codec::DELTA_COMPACT_OMITTED_VALUE);
@@ -113,12 +113,12 @@ impl<O: RecorderOutput, L: TrieLayout> Recorder<O, L> {
 	}
 }
 
-enum RecorderStateInner<O: RecorderOutput> {
+enum RecorderStateInner {
 	/// For FullNodes proofs, just send node to this stream.
-	Stream(O),
+	Stream(Vec<DBValue>),
 	/// For FullNodes proofs, Requires keeping all proof before sending it.
 	Compact {
-		output: O,
+		output: Vec<DBValue>,
 		proof: Vec<Vec<u8>>,
 		/// Stacked position in proof to modify proof as needed
 		/// when information got accessed.
@@ -128,25 +128,25 @@ enum RecorderStateInner<O: RecorderOutput> {
 
 /// When process is halted keep execution state
 /// to restore later.
-pub struct HaltedStateRecord<O: RecorderOutput, L: TrieLayout> {
+pub struct HaltedStateRecord<L: TrieLayout> {
 	currently_query_item: Option<InMemQueryPlanItem>,
-	stack: RecordStack<O, L>,
+	stack: RecordStack<L>,
 	// This indicate a restore point, it takes precedence over
 	// stack and currently_query_item.
 	from: Option<(Vec<u8>, bool)>,
 }
 
-impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
+impl<L: TrieLayout> HaltedStateRecord<L> {
 	/// Indicate we reuse the query plan iterator
 	/// and stack.
-	pub fn statefull(&mut self, recorder: Recorder<O, L>) -> O {
+	pub fn statefull(&mut self, recorder: Recorder<L>) -> Vec<DBValue> {
 		let result = core::mem::replace(&mut self.stack.recorder, recorder);
 		result.output()
 	}
 
 	/// Indicate to use stateless (on a fresh proof
 	/// and a fresh query plan iterator).
-	pub fn stateless(&mut self, recorder: Recorder<O, L>) -> O {
+	pub fn stateless(&mut self, recorder: Recorder<L>) -> Vec<DBValue> {
 		let new_start = Self::from_start(recorder);
 		let old = core::mem::replace(self, new_start);
 		self.from = old.from;
@@ -155,12 +155,12 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 	}
 
 	/// Init from start.
-	pub fn from_start(recorder: Recorder<O, L>) -> Self {
+	pub fn from_start(recorder: Recorder<L>) -> Self {
 		Self::from_at(recorder, None)
 	}
 
 	/// Init from position or start.
-	pub fn from_at(recorder: Recorder<O, L>, at: Option<(Vec<u8>, bool)>) -> Self {
+	pub fn from_at(recorder: Recorder<L>, at: Option<(Vec<u8>, bool)>) -> Self {
 		HaltedStateRecord {
 			currently_query_item: None,
 			stack: RecordStack {
@@ -186,7 +186,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 	}
 
 	/// Finalize state, and return the proof output.
-	pub fn finish(self) -> O {
+	pub fn finish(self) -> Vec<DBValue> {
 		self.stack.recorder.output()
 	}
 
@@ -216,7 +216,7 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 					}
 				}
 				for entry in core::mem::take(proof) {
-					output.write_entry(entry.into());
+					output.push(entry.into());
 				}
 			},
 			RecorderStateInner::Stream(_output) => {
@@ -354,8 +354,8 @@ impl<O: RecorderOutput, L: TrieLayout> HaltedStateRecord<O, L> {
 	}
 }
 
-struct RecordStack<O: RecorderOutput, L: TrieLayout> {
-	recorder: Recorder<O, L>,
+struct RecordStack<L: TrieLayout> {
+	recorder: Recorder<L>,
 	items: Vec<StackedNodeRecord>,
 	prefix: NibbleVec,
 	iter_prefix: Option<(usize, bool)>,
@@ -367,15 +367,10 @@ struct RecordStack<O: RecorderOutput, L: TrieLayout> {
 ///
 /// TODO output and restart are mutually exclusive. -> enum
 /// or remove output from halted state.
-pub fn record_query_plan<
-	'a,
-	L: TrieLayout,
-	I: Iterator<Item = QueryPlanItem<'a>>,
-	O: RecorderOutput,
->(
+pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItem<'a>>>(
 	db: &TrieDB<L>,
 	query_plan: &mut QueryPlan<'a, I>,
-	from: &mut HaltedStateRecord<O, L>,
+	from: &mut HaltedStateRecord<L>,
 ) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
 	let dummy_parent_hash = TrieHash::<L>::default();
 	let mut stateless = false;
@@ -539,7 +534,7 @@ pub fn record_query_plan<
 	Ok(())
 }
 
-impl<O: RecorderOutput, L: TrieLayout> RecordStack<O, L> {
+impl<L: TrieLayout> RecordStack<L> {
 	fn try_stack_child<'a>(
 		&mut self,
 		child_index: u8,

@@ -482,8 +482,8 @@ pub mod query_plan {
 	use std::collections::{BTreeMap, BTreeSet};
 	use trie_db::{
 		query_plan::{
-			record_query_plan, HaltedStateRecord, InMemQueryPlan, InMemQueryPlanItem,
-			InMemoryRecorder, ProofKind, Recorder,
+			record_query_plan, HaltedStateRecord, InMemQueryPlan, InMemQueryPlanItem, ProofKind,
+			Recorder,
 		},
 		TrieHash, TrieLayout,
 	};
@@ -644,10 +644,8 @@ pub mod query_plan {
 			}
 		}
 		let mut prev_pref: Option<Vec<u8>> = None;
-		let mut query_plan = InMemQueryPlan {
-			items: Vec::with_capacity(set.len()),
-			kind: conf.kind,
-		};
+		let mut query_plan =
+			InMemQueryPlan { items: Vec::with_capacity(set.len()), kind: conf.kind };
 		for (key, not_prefix) in set.into_iter() {
 			if let Some(pref) = prev_pref.as_ref() {
 				if key.starts_with(pref) {
@@ -682,7 +680,7 @@ pub mod query_plan {
 		let kind = conf.kind;
 		let limit = conf.limit;
 		let limit = (limit != 0).then(|| limit);
-		let recorder = Recorder::new(conf.kind, InMemoryRecorder::default(), limit, None);
+		let recorder = Recorder::new(conf.kind, Default::default(), limit, None);
 		let mut from = HaltedStateRecord::from_start(recorder);
 		let mut proofs: Vec<Vec<Vec<u8>>> = Default::default();
 		let mut query_plan_iter = query_plan.as_ref();
@@ -691,22 +689,22 @@ pub mod query_plan {
 			.with_cache(&mut cache)
 			.build();
 		loop {
-			record_query_plan::<L, _, _>(&db, &mut query_plan_iter, &mut from).unwrap();
+			record_query_plan::<L, _>(&db, &mut query_plan_iter, &mut from).unwrap();
 
 			if limit.is_none() {
 				assert!(!from.is_halted());
 			}
 			if !from.is_halted() {
-				proofs.push(from.finish().nodes);
+				proofs.push(from.finish());
 				break
 			}
 			let rec = if conf.proof_spawn_with_persistence {
-				from.statefull(Recorder::new(kind, InMemoryRecorder::default(), limit, None))
+				from.statefull(Recorder::new(kind, Default::default(), limit, None))
 			} else {
 				query_plan_iter = query_plan.as_ref();
-				from.stateless(Recorder::new(kind, InMemoryRecorder::default(), limit, None))
+				from.stateless(Recorder::new(kind, Default::default(), limit, None))
 			};
-			proofs.push(rec.nodes);
+			proofs.push(rec);
 		}
 
 		crate::query_plan::check_proofs::<L>(
