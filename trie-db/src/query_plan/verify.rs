@@ -651,18 +651,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 				},
 				NodeHandle::Inline(data) => {
 					if self.kind.is_compact() && data.len() == 0 {
-						unimplemented!("This requires to put extension in stack");
-					/*
-					// ommitted hash
-					let Some(encoded_node) = proof.next() else {
-						// halt happens with a hash, this is not.
-						return Err(Error::IncompleteProof);
-					};
-					node = match OwnedNode::new::<L::Codec>(encoded_node) {
-						Ok(node) => (ItemStackNode::Node(node), self.is_compact).into(),
-						Err(e) => return Err(Error::DecodeError(e)),
-					};
-					*/
+						unimplemented!("This will requires to put extension in stack");
 					} else {
 						node = match OwnedNode::new::<L::Codec>(data.to_vec()) {
 							Ok(node) => (ItemStackNode::Inline(node), self.kind).try_into()?,
@@ -811,12 +800,12 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 											Some(ChildReference::Hash(hash));
 									},
 									Some(ChildReference::Inline(_h, size)) if size == 0 => {
-										// Complete
+										// Remove hash from compact, complete it.
 										parent.children[at as usize] =
 											Some(ChildReference::Hash(hash));
 									},
+									// non null inline, only non inline are stacked.
 									_ =>
-									// only non inline are stacked
 										return Err(Error::RootMismatch(Default::default())),
 								}
 							} else {
