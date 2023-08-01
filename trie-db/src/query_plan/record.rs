@@ -237,18 +237,11 @@ impl<L: TrieLayout> HaltedStateRecord<L> {
 	/// Callback on node before a node in the stack.
 	/// `at` is the the position in the stack (in some case we keep
 	/// the stack and will not pop the node).
-	fn record_popped_node(&mut self, at: usize) {
+	fn record_popped_node(&mut self, at: usize) -> Result<(), Error<TrieHash<L>, CError<L>>> {
 		let item = self.stack.items.get(at).expect("bounded check call");
 		if !self.stack.recorder.check_start_at(item.depth) {
-			return
+			return Ok(())
 		}
-		/* TODO rem Incorrect, if first child is inline, we would push more: push
-		 * should only be flushed on first pop flush here.
-		if let RecorderStateInner::Content { .. } = &self.stack.recorder.output {
-			// if no value accessed, then we can have push then stack pop.
-			res |= self.stack.recorder.flush_compact_content_pushes(item.depth);
-		}
-		*/
 
 		match &mut self.stack.recorder.output {
 			RecorderStateInner::Stream(_) => (),
@@ -260,36 +253,45 @@ impl<L: TrieLayout> HaltedStateRecord<L> {
 							item.accessed_value_node,
 							item.accessed_children_node,
 						)
-						.expect("TODO error handling, can it actually fail?");
+						.map_err(|e| {
+							if let Some(data) = e {
+								// invalid node handle conversion for data
+								Error::InvalidNodeHandle(data)
+							} else {
+								// unexpected node in proof
+								Error::ExtraneousNode
+							}
+						})?;
 					} // else when restarting record, this is not to be recorded
 				},
 		}
+		Ok(())
 	}
 
-	fn pop(&mut self) -> bool {
+	fn pop(&mut self) -> Result<bool, Error<TrieHash<L>, CError<L>>> {
 		if self
 			.stack
 			.iter_prefix
 			.map(|(l, _)| l == self.stack.items.len())
 			.unwrap_or(false)
 		{
-			return false
+			return Ok(false)
 		}
 		let at = self.stack.items.len();
 		if at > 0 {
-			self.record_popped_node(at - 1);
+			self.record_popped_node(at - 1)?;
 		}
-		if let Some(item) = self.stack.items.pop() {
+		Ok(if let Some(item) = self.stack.items.pop() {
 			let depth = self.stack.items.last().map(|i| i.depth).unwrap_or(0);
 			self.stack.prefix.drop_lasts(self.stack.prefix.len() - depth);
 			if depth == item.depth {
 				// Two consecutive identical depth is an extension
-				self.pop();
+				self.pop()?;
 			}
 			true
 		} else {
 			false
-		}
+		})
 	}
 
 	fn iter_prefix(
@@ -354,7 +356,7 @@ impl<L: TrieLayout> HaltedStateRecord<L> {
 			}
 
 			// pop
-			if !self.pop() {
+			if !self.pop()? {
 				break
 			}
 		}
@@ -438,7 +440,7 @@ pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItem<'a>
 					Ordering::Equal => break false,
 					Ordering::Less => break true,
 					Ordering::Greater =>
-						if !from.pop() {
+						if !from.pop()? {
 							from.finalize()?;
 							return Ok(())
 						},
