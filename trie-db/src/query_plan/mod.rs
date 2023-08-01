@@ -40,10 +40,81 @@ use crate::{
 };
 use hash_db::Hasher;
 pub use record::{record_query_plan, HaltedStateRecord, Recorder};
-pub use verify::{verify_query_plan_iter, Error as VerifyError, HaltedStateCheck};
+pub use verify::{verify_query_plan_iter, HaltedStateCheck};
 
 mod record;
 mod verify;
+
+/// Errors that may occur during proof verification. Most of the errors types simply indicate that
+/// the proof is invalid with respect to the statement being verified, and the exact error type can
+/// be used for debugging.
+#[derive(PartialEq, Eq)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub enum Error<HO, CE> {
+	/// The statement being verified contains multiple key-value pairs with the same key. The
+	/// parameter is the duplicated key.
+	DuplicateKey(Vec<u8>),
+	/// The statement being verified contains key not ordered properly.
+	UnorderedKey(Vec<u8>),
+	/// The proof contains at least one extraneous node.
+	ExtraneousNode,
+	/// The proof contains at least one extraneous value which should have been omitted from the
+	/// proof.
+	ExtraneousValue(Vec<u8>),
+	/// The proof contains at least one extraneous hash reference the should have been omitted.
+	ExtraneousHashReference(HO),
+	/// The proof contains an invalid child reference that exceeds the hash length.
+	/// TODO extension only?
+	InvalidChildReference(Vec<u8>),
+	/// The proof is missing trie nodes required to verify.
+	IncompleteProof,
+	/// The root hash computed from the proof is incorrect.
+	RootMismatch(HO),
+	/// The hash computed from a node is incorrect.
+	HashMismatch(HO),
+	/// One of the proof nodes could not be decoded.
+	DecodeError(CE),
+	/// Node does not match existing handle.
+	/// This should not happen.
+	InvalidNodeHandle(Vec<u8>),
+}
+
+#[cfg(feature = "std")]
+impl<HO: std::fmt::Debug, CE: std::error::Error> std::fmt::Display for Error<HO, CE> {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+		match self {
+			Error::DuplicateKey(key) =>
+				write!(f, "Duplicate key in input statement: key={:?}", key),
+			Error::UnorderedKey(key) =>
+				write!(f, "Unordered key in input statement: key={:?}", key),
+			Error::ExtraneousNode => write!(f, "Extraneous node found in proof"),
+			Error::ExtraneousValue(key) =>
+				write!(f, "Extraneous value found in proof should have been omitted: key={:?}", key),
+			Error::ExtraneousHashReference(hash) => write!(
+				f,
+				"Extraneous hash reference found in proof should have been omitted: hash={:?}",
+				hash
+			),
+			Error::InvalidChildReference(data) =>
+				write!(f, "Invalid child reference exceeds hash length: {:?}", data),
+			Error::IncompleteProof => write!(f, "Proof is incomplete -- expected more nodes"),
+			Error::RootMismatch(hash) => write!(f, "Computed incorrect root {:?} from proof", hash),
+			Error::HashMismatch(hash) => write!(f, "Computed incorrect hash {:?} from node", hash),
+			Error::DecodeError(err) => write!(f, "Unable to decode proof node: {}", err),
+			Error::InvalidNodeHandle(node) => write!(f, "Invalid node handle: {:?}", node),
+		}
+	}
+}
+
+#[cfg(feature = "std")]
+impl<HO: std::fmt::Debug, CE: std::error::Error + 'static> std::error::Error for Error<HO, CE> {
+	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+		match self {
+			Error::DecodeError(err) => Some(err),
+			_ => None,
+		}
+	}
+}
 
 /// Item to query, in memory.
 #[derive(Default, Clone, Debug)]
@@ -338,7 +409,7 @@ enum ItemStackNode<D: SplitFirst> {
 }
 
 impl<L: TrieLayout, D: SplitFirst> TryFrom<(ItemStackNode<D>, bool)> for StackedNodeCheck<L, D> {
-	type Error = VerifyError<TrieHash<L>, CError<L>>;
+	type Error = Error<TrieHash<L>, CError<L>>;
 
 	fn try_from(
 		(node, is_compact): (ItemStackNode<D>, bool),
@@ -356,10 +427,8 @@ impl<L: TrieLayout, D: SplitFirst> TryFrom<(ItemStackNode<D>, bool)> for Stacked
 						match child.build(node_data) {
 							NodeHandle::Inline(data) if data.is_empty() => (),
 							child => {
-								let child_ref = child
-									.try_into()
-									.map_err(|d| VerifyError::InvalidNodeHandle(d))?;
-
+								let child_ref =
+									child.try_into().map_err(|d| Error::InvalidNodeHandle(d))?;
 								result[0] = Some(child_ref);
 							},
 						}
@@ -377,7 +446,7 @@ impl<L: TrieLayout, D: SplitFirst> TryFrom<(ItemStackNode<D>, bool)> for Stacked
 								Some(child) => {
 									let child_ref = child
 										.try_into()
-										.map_err(|d| VerifyError::InvalidNodeHandle(d))?;
+										.map_err(|d| Error::InvalidNodeHandle(d))?;
 
 									result[i] = Some(child_ref);
 								},
@@ -420,12 +489,12 @@ impl<L: TrieLayout, D: SplitFirst> StackedNodeCheck<L, D> {
 fn verify_hash<L: TrieLayout>(
 	data: &[u8],
 	expected: &[u8],
-) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
+) -> Result<(), Error<TrieHash<L>, CError<L>>> {
 	let checked_hash = L::Hash::hash(data);
 	if checked_hash.as_ref() != expected {
 		let mut error_hash = TrieHash::<L>::default();
 		error_hash.as_mut().copy_from_slice(expected);
-		Err(VerifyError::HashMismatch(error_hash))
+		Err(Error::HashMismatch(error_hash))
 	} else {
 		Ok(())
 	}

@@ -190,7 +190,7 @@ impl<L: TrieLayout> HaltedStateRecord<L> {
 		self.stack.recorder.output()
 	}
 
-	fn finalize(&mut self) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
+	fn finalize(&mut self) -> Result<(), Error<TrieHash<L>, CError<L>>> {
 		let stack = &mut self.stack;
 		let items = &stack.items;
 		match &mut stack.recorder.output {
@@ -212,10 +212,10 @@ impl<L: TrieLayout> HaltedStateRecord<L> {
 								.map_err(|e| {
 									if let Some(data) = e {
 										// invalid node handle conversion for data
-										VerifyError::InvalidNodeHandle(data)
+										Error::InvalidNodeHandle(data)
 									} else {
 										// unexpected node in proof
-										VerifyError::ExtraneousNode
+										Error::ExtraneousNode
 									}
 								})?;
 								break
@@ -298,7 +298,7 @@ impl<L: TrieLayout> HaltedStateRecord<L> {
 		db: Option<&TrieDB<L>>,
 		hash_only: bool,
 		first_iter: bool,
-	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
+	) -> Result<bool, Error<TrieHash<L>, CError<L>>> {
 		let dummy_parent_hash = TrieHash::<L>::default();
 		if first_iter {
 			self.stack.enter_prefix_iter(hash_only);
@@ -380,7 +380,7 @@ pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItem<'a>
 	db: &TrieDB<L>,
 	query_plan: &mut QueryPlan<'a, I>,
 	from: &mut HaltedStateRecord<L>,
-) -> Result<(), VerifyError<TrieHash<L>, CError<L>>> {
+) -> Result<(), Error<TrieHash<L>, CError<L>>> {
 	let dummy_parent_hash = TrieHash::<L>::default();
 	let mut stateless = false;
 	let mut statefull = None;
@@ -431,7 +431,7 @@ pub fn record_query_plan<'a, L: TrieLayout, I: Iterator<Item = QueryPlanItem<'a>
 			let (ordered, common_nibbles) =
 				prev_query.as_ref().map(|p| p.before(&query)).unwrap_or((true, 0));
 			if !ordered {
-				return Err(VerifyError::UnorderedKey(query.key.to_vec()))
+				return Err(Error::UnorderedKey(query.key.to_vec()))
 			}
 			let skip_query = loop {
 				match from.stack.prefix.len().cmp(&common_nibbles) {
@@ -550,7 +550,7 @@ impl<L: TrieLayout> RecordStack<L> {
 		db: Option<&TrieDB<L>>,
 		parent_hash: TrieHash<L>,
 		mut slice_query: Option<&mut NibbleSlice>,
-	) -> Result<TryStackChildResult, VerifyError<TrieHash<L>, CError<L>>> {
+	) -> Result<TryStackChildResult, Error<TrieHash<L>, CError<L>>> {
 		let inline_only = db.is_none();
 		let mut is_inline = false;
 		let prefix = &mut self.prefix;
@@ -624,14 +624,13 @@ impl<L: TrieLayout> RecordStack<L> {
 		}
 		let child_node = if let Some(db) = db {
 			db.get_raw_or_lookup_with_cache(parent_hash, child_handle, prefix.as_prefix(), false)
-				.map_err(|_| VerifyError::IncompleteProof)?
+				.map_err(|_| Error::IncompleteProof)?
 				.0 // actually incomplete db: TODO consider switching error
 		} else {
 			let NodeHandle::Inline(node_data) = child_handle else {
 				unreachable!("call on non inline node when db is None");
 			};
-			OwnedNode::new::<L::Codec>(node_data.to_vec())
-				.map_err(|_| VerifyError::IncompleteProof)?
+			OwnedNode::new::<L::Codec>(node_data.to_vec()).map_err(|_| Error::IncompleteProof)?
 		};
 
 		let node_data = child_node.data();
@@ -688,7 +687,7 @@ impl<L: TrieLayout> RecordStack<L> {
 		if stack_extension {
 			let sbranch = self.try_stack_child(0, db, parent_hash, slice_query)?;
 			let TryStackChildResult::StackedFull = sbranch else {
-				return Err(VerifyError::InvalidChildReference(
+				return Err(Error::InvalidChildReference(
 					b"branch in db should follow extension".to_vec(),
 				))
 			};
@@ -701,7 +700,7 @@ impl<L: TrieLayout> RecordStack<L> {
 		&mut self,
 		db: Option<&TrieDB<L>>,
 		hash_only: bool,
-	) -> Result<bool, VerifyError<TrieHash<L>, CError<L>>> {
+	) -> Result<bool, Error<TrieHash<L>, CError<L>>> {
 		let Some(item) = self.items.last_mut() else { return Ok(false) };
 		let node_data = item.node.data();
 
@@ -725,7 +724,7 @@ impl<L: TrieLayout> RecordStack<L> {
 					let Some(value) =
 						db.expect("non inline").db().get(&hash, self.prefix.as_prefix())
 					else {
-						return Err(VerifyError::IncompleteProof)
+						return Err(Error::IncompleteProof)
 					};
 					self.halt |= self.recorder.record_value_node(value, self.prefix.len());
 				},
