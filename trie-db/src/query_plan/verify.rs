@@ -144,20 +144,7 @@ where
 		let query_plan = crate::rstd::mem::replace(&mut self.query_plan, None);
 		let query_plan = query_plan.expect("Init with state");
 		let current = crate::rstd::mem::take(&mut self.current);
-		let mut stack = crate::rstd::mem::replace(
-			// TODO impl default and use take
-			&mut self.stack,
-			Stack {
-				items: Default::default(),
-				start_items: 0,
-				prefix: Default::default(),
-				kind: self.kind,
-				expect_value: false,
-				iter_prefix: None,
-				accessed_root: false,
-				_ph: PhantomData,
-			},
-		);
+		let mut stack = crate::rstd::mem::replace(&mut self.stack, self.kind.into());
 		stack.start_items = stack.items.len();
 		Ok(ReadProofItem::Halted(Box::new(HaltedStateCheck {
 			query_plan,
@@ -370,8 +357,8 @@ where
 			let to_check = self.current.as_ref().expect("Init above");
 			let to_check_len = to_check.key.len() * nibble_ops::NIBBLE_PER_BYTE;
 			let mut to_check_slice = to_check_slice.as_mut().expect("Init above");
-			let as_prefix = to_check.as_prefix; // TODO useless?
-			let hash_only = to_check.hash_only; // TODO useless?
+			let as_prefix = to_check.as_prefix;
+			let hash_only = to_check.hash_only;
 			let mut at_value = false;
 			match self.stack.prefix.len().cmp(&to_check_len) {
 				Ordering::Equal =>
@@ -562,8 +549,6 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 							<L::Codec as crate::node_codec::NodeCodec>::ESCAPE_HEADER
 					{
 						self.expect_value = true;
-						// no value to visit TODO set a boolean to ensure we got a hash and don
-						// t expect reanding a node value
 						encoded_node.split_first();
 					}
 					let node = match OwnedNode::new::<L::Codec>(encoded_node) {
@@ -597,8 +582,6 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 						<L::Codec as crate::node_codec::NodeCodec>::ESCAPE_HEADER
 				{
 					self.expect_value = true;
-					// no value to visit TODO set a boolean to ensure we got a hash and don
-					// t expect reanding a node value
 					encoded_node.split_first();
 				}
 				let node = match OwnedNode::new::<L::Codec>(encoded_node) {
@@ -690,7 +673,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 				},
 			}
 			let NodePlan::Branch { .. } = node.node_plan() else {
-				return Err(Error::IncompleteProof) // TODO make error type??
+				return Err(Error::UnexpectedNodeType)
 			};
 		}
 		node.depth = self.prefix.len();
@@ -737,7 +720,7 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 							return Ok((Some(value.borrow().to_vec()), None))
 						} else {
 							if hash_only {
-								let hash = L::Hash::hash(value.borrow());
+								let hash = L::Hash::hash(value);
 								return Ok((None, Some(hash)))
 							}
 							return Ok((Some(value.to_vec()), None))
@@ -859,8 +842,6 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 		check_only: bool,
 	) -> Result<bool, Error<TrieHash<L>, CError<L>>> {
 		if self.kind.is_compact() && expected_root.is_some() {
-			// TODO pop with check only, here unefficient implementation where we just restore
-
 			let mut restore = None;
 			if check_only {
 				restore = Some(self.clone());
@@ -891,7 +872,6 @@ impl<L: TrieLayout, D: SplitFirst> Stack<L, D> {
 				return Ok(false)
 			}
 		}
-		//		let target = target.unwrap_or(0);
 		loop {
 			if let Some(last) = self.items.last() {
 				if let Some(target) = target.as_ref() {

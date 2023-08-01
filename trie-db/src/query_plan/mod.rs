@@ -79,6 +79,8 @@ pub enum Error<HO, CE> {
 	/// Node does not match existing handle.
 	/// This should not happen.
 	InvalidNodeHandle(Vec<u8>),
+	/// Node type in proof inconsistent with node ordering.
+	UnexpectedNodeType,
 }
 
 #[cfg(feature = "std")]
@@ -105,6 +107,8 @@ impl<HO: std::fmt::Debug, CE: std::error::Error> std::fmt::Display for Error<HO,
 			Error::HashMismatch(hash) => write!(f, "Computed incorrect hash {:?} from node", hash),
 			Error::DecodeError(err) => write!(f, "Unable to decode proof node: {}", err),
 			Error::InvalidNodeHandle(node) => write!(f, "Invalid node handle: {:?}", node),
+			Error::UnexpectedNodeType =>
+				write!(f, "Node type in proof inconsistent with node ordering."),
 		}
 	}
 }
