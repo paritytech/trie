@@ -920,7 +920,7 @@ where
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
-		*t.commit().root.hash()
+		t.commit().apply_to(&mut mem_db2)
 	};
 	if root_new != root {
 		{
@@ -943,7 +943,7 @@ where
 
 	assert_eq!(root, root_new);
 	// compare db content for key fuzzing
-	assert!(mem_db2 == mem_db2);
+	assert!(mem_db1 == mem_db2);
 }
 
 /// Compare trie builder and trie root implementations.
