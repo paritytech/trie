@@ -30,9 +30,6 @@ use crate::{
 use hash_db::{HashDB, Hasher, Prefix};
 use hashbrown::HashSet;
 
-#[cfg(not(feature = "std"))]
-use alloc::vec;
-
 #[cfg(feature = "std")]
 use log::trace;
 use memory_db::MemoryDB;
@@ -750,7 +747,7 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 		for (hash, prefix) in &self.removed {
 			mem_db.remove(hash, (prefix.0.as_slice(), prefix.1));
 		}
-		fn apply_node<H, DL, MH, K>(node: &ChangesetNodeRef<H, DL>, mem_db: &mut MemoryDB<MH, K, DBValue>) 
+		fn apply_node<H, DL, MH, K>(node: &ChangesetNodeRef<H, DL>, mem_db: &mut MemoryDB<MH, K, DBValue>)
 			where
 			K: memory_db::KeyFunction<MH> + Send + Sync,
 			MH: Hasher<Out=H> + Send + Sync,
@@ -1925,9 +1922,9 @@ where
 		let handle = match self.root_handle() {
 			NodeHandle::Hash(hash, location) => return Changeset {
 				root: ChangesetNodeRef::Existing(ExistingChangesetNode {
-					hash, 
+					hash,
 					prefix: Default::default(),
-					location, 
+					location,
 				}),
 				removed,
 			}, // no changes necessary.
@@ -1973,10 +1970,10 @@ where
 				self.root_handle = NodeHandle::Hash(self.root, Default::default());
 				Changeset {
 					root: ChangesetNodeRef::New(NewChangesetNode {
-						hash: self.root.clone(), 
+						hash: self.root.clone(),
 						prefix: Default::default(),
 						data: encoded_root,
-						children, 
+						children,
 					}),
 					removed,
 				}
@@ -1988,9 +1985,9 @@ where
 					NodeHandle::InMemory(self.storage.alloc(Stored::Cached(node, hash, Default::default())));
 				Changeset {
 					root: ChangesetNodeRef::Existing(ExistingChangesetNode {
-						hash, 
+						hash,
 						prefix: Default::default(),
-						location, 
+						location,
 					}),
 					removed,
 				}

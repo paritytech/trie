@@ -18,10 +18,10 @@ use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
 	calc_root, compare_insert_remove, reference_trie_root_iter_build as reference_trie_root,
 };
-use std::convert::TryInto;
+use std::{convert::TryInto, fmt::Debug};
 use trie_db::{
 	proof::{generate_proof, verify_proof},
-	DBValue, Trie, TrieDBBuilder, TrieDBIterator, TrieDBMutBuilder, TrieLayout, TrieMut,
+	DBValue, Trie, TrieDBBuilder, TrieDBIterator, TrieDBMutBuilder, TrieLayout,
 };
 
 fn fuzz_to_data(input: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
@@ -92,23 +92,21 @@ fn fuzz_removal(data: Vec<(Vec<u8>, Vec<u8>)>) -> Vec<(bool, Vec<u8>, Vec<u8>)> 
 pub fn fuzz_that_reference_trie_root<T: TrieLayout>(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data(input));
 	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
-	let mut root = Default::default();
-	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+	let mut t = TrieDBMutBuilder::<T>::new(&memdb).build();
 	for a in 0..data.len() {
 		t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
 	}
-	assert_eq!(*t.root(), reference_trie_root::<T, _, _, _>(data));
+	assert_eq!(t.commit().root_hash(), reference_trie_root::<T, _, _, _>(data));
 }
 
 pub fn fuzz_that_reference_trie_root_fix_length<T: TrieLayout>(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data_fix_length(input));
 	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
-	let mut root = Default::default();
-	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+	let mut t = TrieDBMutBuilder::<T>::new(&memdb).build();
 	for a in 0..data.len() {
 		t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
 	}
-	assert_eq!(*t.root(), reference_trie_root::<T, _, _, _>(data));
+	assert_eq!(t.commit().root_hash(), reference_trie_root::<T, _, _, _>(data));
 }
 
 fn fuzz_to_data_fix_length(input: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
@@ -132,20 +130,18 @@ fn data_sorted_unique(input: Vec<(Vec<u8>, Vec<u8>)>) -> Vec<(Vec<u8>, Vec<u8>)>
 	m.into_iter().collect()
 }
 
-pub fn fuzz_that_compare_implementations<T: TrieLayout>(input: &[u8]) {
+pub fn fuzz_that_compare_implementations<T: TrieLayout>(input: &[u8]) 
+	where T::Location: Debug,
+{
 	let data = data_sorted_unique(fuzz_to_data(input));
-	//println!("data:{:?}", &data);
-	let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
-	let hashdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
-	reference_trie::compare_implementations::<T, _>(data, memdb, hashdb);
+	reference_trie::compare_implementations::<T, PrefixedKey<_>>(data);
 }
 
 pub fn fuzz_that_no_extension_insert<T: TrieLayout>(input: &[u8]) {
 	let data = fuzz_to_data(input);
 	//println!("data{:?}", data);
 	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
-	let mut root = Default::default();
-	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+	let mut t = TrieDBMutBuilder::<T>::new(&memdb).build();
 	for a in 0..data.len() {
 		t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
 	}
@@ -153,7 +149,7 @@ pub fn fuzz_that_no_extension_insert<T: TrieLayout>(input: &[u8]) {
 	// before.
 	let data = data_sorted_unique(fuzz_to_data(input));
 	//println!("data{:?}", data);
-	assert_eq!(*t.root(), calc_root::<T, _, _, _>(data));
+	assert_eq!(t.commit().root_hash(), calc_root::<T, _, _, _>(data));
 }
 
 pub fn fuzz_that_no_extension_insert_remove<T: TrieLayout>(input: &[u8]) {
