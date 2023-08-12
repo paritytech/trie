@@ -267,8 +267,9 @@ fn seek_over_empty_works_internal<T: TrieLayout>() {
 }
 
 test_layouts!(iterate_over_incomplete_db, iterate_over_incomplete_db_internal);
-fn iterate_over_incomplete_db_internal<T: TrieLayout>() 
-	where T::Location: std::fmt::Debug,
+fn iterate_over_incomplete_db_internal<T: TrieLayout>()
+where
+	T::Location: std::fmt::Debug,
 {
 	let pairs = vec![
 		(hex!("01").to_vec(), b"aaaa".to_vec()),

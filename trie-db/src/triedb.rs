@@ -67,7 +67,10 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 
 	/// Use the given `recorder` to record trie accesses.
 	#[inline]
-	pub fn with_recorder(mut self, recorder: &'cache mut dyn TrieRecorder<TrieHash<L>, L::Location>) -> Self {
+	pub fn with_recorder(
+		mut self,
+		recorder: &'cache mut dyn TrieRecorder<TrieHash<L>, L::Location>,
+	) -> Self {
 		self.recorder = Some(recorder);
 		self
 	}
@@ -158,13 +161,14 @@ where
 			NodeHandle::Hash(data, location) => {
 				let node_hash = decode_hash::<L::Hash>(data)
 					.ok_or_else(|| Box::new(TrieError::InvalidHash(parent_hash, data.to_vec())))?;
-				let node_data = self.db.get(&node_hash, partial_key, location).ok_or_else(|| {
-					if partial_key == EMPTY_PREFIX {
-						Box::new(TrieError::InvalidStateRoot(node_hash))
-					} else {
-						Box::new(TrieError::IncompleteDatabase(node_hash))
-					}
-				})?;
+				let node_data =
+					self.db.get(&node_hash, partial_key, location).ok_or_else(|| {
+						if partial_key == EMPTY_PREFIX {
+							Box::new(TrieError::InvalidStateRoot(node_hash))
+						} else {
+							Box::new(TrieError::IncompleteDatabase(node_hash))
+						}
+					})?;
 
 				(Some(node_hash), node_data)
 			},
@@ -230,7 +234,9 @@ where
 			query: |_: &[u8]| (),
 			hash: *self.root,
 			cache: cache.as_mut().map(|c| &mut ***c as &mut dyn TrieCache<L::Codec, L::Location>),
-			recorder: recorder.as_mut().map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>, L::Location>),
+			recorder: recorder
+				.as_mut()
+				.map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>, L::Location>),
 		}
 		.look_up_hash(key, NibbleSlice::new(key), Default::default())
 	}
@@ -248,7 +254,9 @@ where
 			query,
 			hash: *self.root,
 			cache: cache.as_mut().map(|c| &mut ***c as &mut dyn TrieCache<L::Codec, L::Location>),
-			recorder: recorder.as_mut().map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>, L::Location>),
+			recorder: recorder
+				.as_mut()
+				.map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>, L::Location>),
 		}
 		.look_up(key, NibbleSlice::new(key), Default::default())
 	}

@@ -299,8 +299,9 @@ fn get_length_with_extension_internal<T: TrieLayout>() {
 }
 
 test_layouts!(debug_output_supports_pretty_print, debug_output_supports_pretty_print_internal);
-fn debug_output_supports_pretty_print_internal<T: TrieLayout>() 
-	where T::Location: std::fmt::Debug,
+fn debug_output_supports_pretty_print_internal<T: TrieLayout>()
+where
+	T::Location: std::fmt::Debug,
 {
 	let d = vec![b"A".to_vec(), b"AA".to_vec(), b"AB".to_vec(), b"B".to_vec()];
 
@@ -540,7 +541,6 @@ fn test_recorder_with_cache_get_hash_internal<T: TrieLayout>() {
 		t.insert(key, value).unwrap();
 	}
 	let root = t.commit().apply_to(&mut memdb);
-	
 
 	let mut cache = TestTrieCache::<T>::default();
 
@@ -678,8 +678,7 @@ fn test_cache_internal<T: TrieLayout>() {
 	let mut cache = TestTrieCache::<T>::default();
 
 	let changeset = {
-		let mut t =
-			TrieDBMutBuilder::<T>::new(&memdb).with_cache(&mut cache).build();
+		let mut t = TrieDBMutBuilder::<T>::new(&memdb).with_cache(&mut cache).build();
 		for (key, value) in &key_value {
 			t.insert(key, value).unwrap();
 		}
@@ -707,8 +706,7 @@ fn test_cache_internal<T: TrieLayout>() {
 	let cached_value = cache.lookup_value_for_key(&b"AB"[..]).unwrap().clone();
 	assert_eq!(cached_value.data().flatten().unwrap(), vec![3u8; 4]);
 
-	let mut t =
-		TrieDBMutBuilder::<T>::new(&memdb).with_cache(&mut cache).build();
+	let mut t = TrieDBMutBuilder::<T>::new(&memdb).with_cache(&mut cache).build();
 	for (key, value) in &key_value {
 		t.insert(key, value).unwrap();
 	}

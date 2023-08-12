@@ -679,7 +679,11 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodec<H> {
 		&[EMPTY_TRIE]
 	}
 
-	fn leaf_node<L>(partial: impl Iterator<Item = u8>, number_nibble: usize, value: Value<L>) -> Vec<u8> {
+	fn leaf_node<L>(
+		partial: impl Iterator<Item = u8>,
+		number_nibble: usize,
+		value: Value<L>,
+	) -> Vec<u8> {
 		let mut output =
 			partial_from_iterator_to_key(partial, number_nibble, LEAF_NODE_OFFSET, LEAF_NODE_OVER);
 		match value {
@@ -835,7 +839,11 @@ impl<H: Hasher> NodeCodec for ReferenceNodeCodecNoExt<H> {
 		&[EMPTY_TRIE_NO_EXT]
 	}
 
-	fn leaf_node<L>(partial: impl Iterator<Item = u8>, number_nibble: usize, value: Value<L>) -> Vec<u8> {
+	fn leaf_node<L>(
+		partial: impl Iterator<Item = u8>,
+		number_nibble: usize,
+		value: Value<L>,
+	) -> Vec<u8> {
 		let mut output = partial_from_iterator_encode(partial, number_nibble, NodeKindNoExt::Leaf);
 		match value {
 			Value::Inline(value) => {
@@ -1002,7 +1010,10 @@ where
 }
 
 /// Trie builder trie building utility.
-pub fn calc_root_build<T, I, A, B, K>(data: I, memdb: &mut memory_db::MemoryDB<T::Hash, K, DBValue>) -> TrieHash<T>
+pub fn calc_root_build<T, I, A, B, K>(
+	data: I,
+	memdb: &mut memory_db::MemoryDB<T::Hash, K, DBValue>,
+) -> TrieHash<T>
 where
 	T: TrieLayout,
 	I: IntoIterator<Item = (A, B)>,
@@ -1065,9 +1076,8 @@ where
 
 /// Testing utility that uses some periodic removal over
 /// its input test data.
-pub fn compare_insert_remove<T, K>(
-	data: Vec<(bool, Vec<u8>, Vec<u8>)>,
-) where
+pub fn compare_insert_remove<T, K>(data: Vec<(bool, Vec<u8>, Vec<u8>)>)
+where
 	T: TrieLayout,
 	K: memory_db::KeyFunction<T::Hash> + Send + Sync,
 {
@@ -1134,11 +1144,18 @@ impl<L: TrieLayout> Default for TestTrieCache<L> {
 }
 
 impl<L: TrieLayout> trie_db::TrieCache<L::Codec, L::Location> for TestTrieCache<L> {
-	fn lookup_value_for_key(&mut self, key: &[u8]) -> Option<&trie_db::CachedValue<TrieHash<L>, L::Location>> {
+	fn lookup_value_for_key(
+		&mut self,
+		key: &[u8],
+	) -> Option<&trie_db::CachedValue<TrieHash<L>, L::Location>> {
 		self.value_cache.get(key)
 	}
 
-	fn cache_value_for_key(&mut self, key: &[u8], value: trie_db::CachedValue<TrieHash<L>, L::Location>) {
+	fn cache_value_for_key(
+		&mut self,
+		key: &[u8],
+		value: trie_db::CachedValue<TrieHash<L>, L::Location>,
+	) {
 		self.value_cache.insert(key.to_vec(), value);
 	}
 
@@ -1161,12 +1178,15 @@ impl<L: TrieLayout> trie_db::TrieCache<L::Codec, L::Location> for TestTrieCache<
 		}
 	}
 
-	fn get_node(&mut self, hash: &TrieHash<L>, _location: L::Location) -> Option<&NodeOwned<TrieHash<L>, L::Location>> {
+	fn get_node(
+		&mut self,
+		hash: &TrieHash<L>,
+		_location: L::Location,
+	) -> Option<&NodeOwned<TrieHash<L>, L::Location>> {
 		self.node_cache.get(hash)
 	}
 
-	fn insert_new_node(&mut self, _hash: &TrieHash<L>) {
-	}
+	fn insert_new_node(&mut self, _hash: &TrieHash<L>) {}
 }
 
 #[cfg(test)]
@@ -1206,7 +1226,8 @@ mod tests {
 			input.len() * NIBBLE_PER_BYTE,
 			Value::<()>::Inline(&[1]),
 		);
-		let dec = <ReferenceNodeCodecNoExt<RefHasher> as NodeCodec>::decode(&enc, &[] as &[()]).unwrap();
+		let dec =
+			<ReferenceNodeCodecNoExt<RefHasher> as NodeCodec>::decode(&enc, &[] as &[()]).unwrap();
 		let o_sl = if let Node::Leaf(sl, _) = dec { Some(sl) } else { None };
 		assert!(o_sl.is_some());
 	}

@@ -369,7 +369,8 @@ impl<'a, T: TrieLayout, K: memory_db::KeyFunction<T::Hash> + Send + Sync> TrieBu
 	}
 }
 
-impl<'a, T, K: memory_db::KeyFunction<T::Hash> + Send + Sync> ProcessEncodedNode<TrieHash<T>> for TrieBuilder<'a, T, K>
+impl<'a, T, K: memory_db::KeyFunction<T::Hash> + Send + Sync> ProcessEncodedNode<TrieHash<T>>
+	for TrieBuilder<'a, T, K>
 where
 	T: TrieLayout,
 {

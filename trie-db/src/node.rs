@@ -38,8 +38,9 @@ impl<'a, L: Copy + Default> NodeHandle<'a, L> {
 	/// Converts this node handle into a [`NodeHandleOwned`].
 	pub fn to_owned_handle<TL: TrieLayout>(
 		&self,
-	) -> Result<NodeHandleOwned<TrieHash<TL>, TL::Location>, TrieHash<TL>, CError<TL>> 
-		where TL::Location: From<L>,
+	) -> Result<NodeHandleOwned<TrieHash<TL>, TL::Location>, TrieHash<TL>, CError<TL>>
+	where
+		TL::Location: From<L>,
 	{
 		match self {
 			Self::Hash(h, l) => decode_hash::<TL::Hash>(h)
@@ -140,8 +141,9 @@ impl<'a, L: Copy + Default> Value<'a, L> {
 		}
 	}
 
-	pub fn to_owned_value<TL: TrieLayout>(&self) -> ValueOwned<TrieHash<TL>, TL::Location> 
-		where TL::Location: From<L>,
+	pub fn to_owned_value<TL: TrieLayout>(&self) -> ValueOwned<TrieHash<TL>, TL::Location>
+	where
+		TL::Location: From<L>,
 	{
 		match self {
 			Self::Inline(data) => ValueOwned::Inline(Bytes::from(*data), TL::Hash::hash(data)),
@@ -219,8 +221,9 @@ impl<Location> Node<'_, Location> {
 	pub fn to_owned_node<L: TrieLayout>(
 		&self,
 	) -> Result<NodeOwned<TrieHash<L>, L::Location>, TrieHash<L>, CError<L>>
-	where L::Location: From<Location>,
-	Location: Copy + Default,
+	where
+		L::Location: From<Location>,
+		Location: Copy + Default,
 	{
 		match self {
 			Self::Empty => Ok(NodeOwned::Empty),
@@ -386,10 +389,10 @@ impl<H, L: Copy + Default + Eq + PartialEq> NodeOwned<H, L> {
 		match self {
 			Self::Leaf(_, _) | Self::Empty | Self::Value(_, _) => false,
 			Self::Extension(_, h) => h.missing_location(),
-			Self::Branch(c, ..) | Self::NibbledBranch(_, c, ..) => c.iter().any(|c| c.as_ref().map_or(false, |c| c.missing_location())),
+			Self::Branch(c, ..) | Self::NibbledBranch(_, c, ..) =>
+				c.iter().any(|c| c.as_ref().map_or(false, |c| c.missing_location())),
 		}
 	}
-
 }
 
 impl<H, L> NodeOwned<H, L> {
@@ -572,15 +575,24 @@ pub enum NodePlan {
 }
 
 impl NodePlan {
-	/// Build a node by decoding a byte slice according to the node plan and attaching location dats.
-	/// It is the responsibility of the caller to ensure that the node plan was created for the 
-	/// argument data, otherwise the call may decode incorrectly or panic.
-	pub fn build<'a, 'b, L: Copy + Default>(&'a self, data: &'b [u8], locations: &[L]) -> Node<'b, L> {
+	/// Build a node by decoding a byte slice according to the node plan and attaching location
+	/// dats. It is the responsibility of the caller to ensure that the node plan was created for
+	/// the argument data, otherwise the call may decode incorrectly or panic.
+	pub fn build<'a, 'b, L: Copy + Default>(
+		&'a self,
+		data: &'b [u8],
+		locations: &[L],
+	) -> Node<'b, L> {
 		match self {
 			NodePlan::Empty => Node::Empty,
-			NodePlan::Leaf { partial, value } => Node::Leaf(partial.build(data), value.build(data, locations.first().copied().unwrap_or_default())),
-			NodePlan::Extension { partial, child } =>
-				Node::Extension(partial.build(data), child.build(data, locations.first().copied().unwrap_or_default())),
+			NodePlan::Leaf { partial, value } => Node::Leaf(
+				partial.build(data),
+				value.build(data, locations.first().copied().unwrap_or_default()),
+			),
+			NodePlan::Extension { partial, child } => Node::Extension(
+				partial.build(data),
+				child.build(data, locations.first().copied().unwrap_or_default()),
+			),
 			NodePlan::Branch { value, children } => {
 				let mut child_slices = [None; nibble_ops::NIBBLE_LENGTH];
 				let mut nc = 0;
@@ -596,7 +608,12 @@ impl NodePlan {
 						child_slices[i] = Some(child.build(data, location));
 					}
 				}
-				Node::Branch(child_slices, value.as_ref().map(|v| v.build(data, locations.last().copied().unwrap_or_default())))
+				Node::Branch(
+					child_slices,
+					value
+						.as_ref()
+						.map(|v| v.build(data, locations.last().copied().unwrap_or_default())),
+				)
 			},
 			NodePlan::NibbledBranch { partial, value, children } => {
 				let mut child_slices = [None; nibble_ops::NIBBLE_LENGTH];
@@ -616,7 +633,9 @@ impl NodePlan {
 				Node::NibbledBranch(
 					partial.build(data),
 					child_slices,
-					value.as_ref().map(|v| v.build(data, locations.last().copied().unwrap_or_default())),
+					value
+						.as_ref()
+						.map(|v| v.build(data, locations.last().copied().unwrap_or_default())),
 				)
 			},
 		}

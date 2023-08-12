@@ -76,8 +76,9 @@ fn compare_implementations_prefixed(data: Vec<(Vec<u8>, Vec<u8>)>) {
 	compare_implementations_prefixed_internal::<NoExtensionLayout>(data.clone());
 	compare_implementations_prefixed_internal::<ExtensionLayout>(data.clone());
 }
-fn compare_implementations_prefixed_internal<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) 
-	where T::Location: std::fmt::Debug,
+fn compare_implementations_prefixed_internal<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>)
+where
+	T::Location: std::fmt::Debug,
 {
 	reference_trie::compare_implementations::<T, PrefixedKey<_>>(data);
 }
@@ -87,8 +88,9 @@ fn compare_implementations_h(data: Vec<(Vec<u8>, Vec<u8>)>) {
 	compare_implementations_h_internal::<NoExtensionLayout>(data.clone());
 	compare_implementations_h_internal::<ExtensionLayout>(data.clone());
 }
-fn compare_implementations_h_internal<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) 
-	where T::Location: std::fmt::Debug,
+fn compare_implementations_h_internal<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>)
+where
+	T::Location: std::fmt::Debug,
 {
 	reference_trie::compare_implementations::<T, HashKey<_>>(data.clone());
 }

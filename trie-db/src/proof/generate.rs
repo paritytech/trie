@@ -21,7 +21,7 @@ use hash_db::{HashDB, Hasher};
 use crate::{
 	nibble::LeftNibbleSlice,
 	nibble_ops::NIBBLE_LENGTH,
-	node::{NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, Node, Value, ValuePlan},
+	node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, Value, ValuePlan},
 	recorder::Record,
 	CError, ChildReference, DBValue, NibbleSlice, NodeCodec, Recorder, Result as TrieResult, Trie,
 	TrieDBBuilder, TrieError, TrieHash, TrieLayout,
@@ -285,8 +285,10 @@ where
 					&mut recorded_nodes,
 				)?,
 				// If stack is empty, descend into the root node.
-				None =>
-					Step::Descend { child_prefix_len: 0, child: NodeHandle::Hash(root.as_ref(), Default::default()) },
+				None => Step::Descend {
+					child_prefix_len: 0,
+					child: NodeHandle::Hash(root.as_ref(), Default::default()),
+				},
 			};
 
 			match step {
@@ -405,7 +407,7 @@ fn match_key_to_node<'a, C: NodeCodec, L: Copy + Default>(
 		Node::Empty => Step::FoundValue(None),
 		Node::Leaf(partial, value) => {
 			if key.contains(&partial, prefix_len) && key.len() == prefix_len + partial.len() {
-				match value{
+				match value {
 					Value::Inline(data) => {
 						*omit_value = true;
 						Step::FoundValue(Some(data))
@@ -419,15 +421,14 @@ fn match_key_to_node<'a, C: NodeCodec, L: Copy + Default>(
 				Step::FoundValue(None)
 			}
 		},
-		Node::Extension(partial, child) => {
+		Node::Extension(partial, child) =>
 			if key.contains(&partial, prefix_len) {
 				assert_eq!(*child_index, 0);
 				let child_prefix_len = prefix_len + partial.len();
 				Step::Descend { child_prefix_len, child }
 			} else {
 				Step::FoundValue(None)
-			}
-		},
+			},
 		Node::Branch(child_handles, value) => match_key_to_branch_node::<C, L>(
 			value.clone(),
 			&child_handles,
@@ -439,18 +440,17 @@ fn match_key_to_node<'a, C: NodeCodec, L: Copy + Default>(
 			NibbleSlice::new(&[]),
 			recorded_nodes,
 		)?,
-		Node::NibbledBranch(partial, child_handles, value) =>
-			match_key_to_branch_node::<C, L>(
-				value.clone(),
-				&child_handles,
-				omit_value,
-				child_index,
-				children,
-				key,
-				prefix_len,
-				partial,
-				recorded_nodes,
-			)?,
+		Node::NibbledBranch(partial, child_handles, value) => match_key_to_branch_node::<C, L>(
+			value.clone(),
+			&child_handles,
+			omit_value,
+			child_index,
+			children,
+			key,
+			prefix_len,
+			partial,
+			recorded_nodes,
+		)?,
 	})
 }
 
@@ -504,10 +504,7 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec, L: Copy + Default>(
 		*child_index += 1;
 	}
 	if let Some(child) = &child_handles[*child_index] {
-		Ok(Step::Descend {
-			child_prefix_len: prefix_len + partial.len() + 1,
-			child: child.clone(),
-		})
+		Ok(Step::Descend { child_prefix_len: prefix_len + partial.len() + 1, child: child.clone() })
 	} else {
 		Ok(Step::FoundValue(None))
 	}

@@ -265,8 +265,7 @@ fn trie_mut(c: &mut Criterion) {
 		group.bench_with_input(BenchmarkId::new("trie_mut", param), &input, |b, i| {
 			b.iter(|| {
 				let mut mdb = memory_db::MemoryDB::<_, HashKey<_>, _>::default();
-				let mut trie =
-					trie_db::TrieDBMutBuilder::<Layout>::new(&mut mdb).build();
+				let mut trie = trie_db::TrieDBMutBuilder::<Layout>::new(&mut mdb).build();
 				for (key, value) in i {
 					trie.insert(&key, &value).expect(
 						"changes trie: insertion to trie is not allowed to fail within runtime",

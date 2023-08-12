@@ -60,8 +60,8 @@ pub use self::{
 	recorder::Recorder,
 	triedb::{TrieDB, TrieDBBuilder, TrieDBIterator, TrieDBKeyIterator},
 	triedbmut::{
-		ChildReference, TrieDBMut, TrieDBMutBuilder, Value, 
-		Changeset, ChangesetNodeRef, NewChangesetNode, ExistingChangesetNode
+		Changeset, ChangesetNodeRef, ChildReference, ExistingChangesetNode, NewChangesetNode,
+		TrieDBMut, TrieDBMutBuilder, Value,
 	},
 };
 pub use crate::{
@@ -329,7 +329,7 @@ pub trait TrieLayout {
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
 	type Codec: NodeCodec<HashOut = <Self::Hash as Hasher>::Out>;
-	type Location: Copy + Default + Eq + PartialEq; 
+	type Location: Copy + Default + Eq + PartialEq;
 }
 
 /// This trait associates a trie definition with preferred methods.
@@ -337,7 +337,10 @@ pub trait TrieLayout {
 /// used to allow switching implementation.
 pub trait TrieConfiguration: Sized + TrieLayout {
 	/// Operation to build a trie db from its ordered iterator over its key/values.
-	fn trie_build<I, A, B>(db: &mut memory_db::MemoryDB<Self::Hash, memory_db::HashKey<Self::Hash>, DBValue>, input: I) -> <Self::Hash as Hasher>::Out
+	fn trie_build<I, A, B>(
+		db: &mut memory_db::MemoryDB<Self::Hash, memory_db::HashKey<Self::Hash>, DBValue>,
+		input: I,
+	) -> <Self::Hash as Hasher>::Out
 	where
 		I: IntoIterator<Item = (A, B)>,
 		A: AsRef<[u8]> + Ord,

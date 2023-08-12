@@ -180,7 +180,8 @@ fn encoding_node_owned_and_decoding_node_works() {
 
 	for record in recorder.drain() {
 		let node =
-			<<ExtensionLayout as TrieLayout>::Codec as NodeCodec>::decode(&record.data, &[(); 0]).unwrap();
+			<<ExtensionLayout as TrieLayout>::Codec as NodeCodec>::decode(&record.data, &[(); 0])
+				.unwrap();
 		let node_owned = node.to_owned_node::<ExtensionLayout>().unwrap();
 
 		assert_eq!(record.data, node_owned.to_encoded::<<ExtensionLayout as TrieLayout>::Codec>());

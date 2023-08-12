@@ -24,8 +24,8 @@ use reference_trie::{
 	ReferenceNodeCodecNoExt, TestTrieCache,
 };
 use trie_db::{
-	DBValue, NodeCodec, Recorder, Trie, TrieCache, TrieDBBuilder, TrieDBMut, TrieDBMutBuilder,
-	TrieError, TrieLayout, Value, CachedValue,
+	CachedValue, DBValue, NodeCodec, Recorder, Trie, TrieCache, TrieDBBuilder, TrieDBMut,
+	TrieDBMutBuilder, TrieError, TrieLayout, Value,
 };
 use trie_standardmap::*;
 
@@ -105,7 +105,7 @@ fn playpen_internal<T: TrieLayout>() {
 			}
 		}
 		assert_eq!(root, real);
-		
+
 		let mut memtrie = TrieDBMutBuilder::<T>::from_existing(&memdb, root).build();
 		assert!(unpopulate_trie(&mut memtrie, &x), "{:?}", (test_i, initial_seed));
 		let root = memtrie.commit().apply_to(&mut memdb);
@@ -191,7 +191,7 @@ fn remove_to_empty_no_extension_internal<T: TrieLayout>() {
 	t.insert(&[0x01], big_value2).unwrap();
 	t.insert(&[0x01, 0x34], big_value).unwrap();
 	t.remove(&[0x01]).unwrap();
-	
+
 	let root = t.commit().apply_to(&mut memdb);
 	assert_eq!(
 		&root,
@@ -551,14 +551,24 @@ fn register_proof_without_value() {
 	unsafe impl Sync for ProofRecorder {}
 
 	impl HashDB<RefHasher, DBValue, ()> for ProofRecorder {
-		fn get(&self, key: &<RefHasher as Hasher>::Out, prefix: Prefix, _location: ()) -> Option<(DBValue, Vec<()>)> {
+		fn get(
+			&self,
+			key: &<RefHasher as Hasher>::Out,
+			prefix: Prefix,
+			_location: (),
+		) -> Option<(DBValue, Vec<()>)> {
 			let v = HashDB::get(&self.db, key, prefix, ());
 			if let Some((v, _)) = v.as_ref() {
 				self.record.borrow_mut().entry(key[..].to_vec()).or_insert_with(|| v.clone());
 			}
 			v
 		}
-		fn contains(&self, key: &<RefHasher as Hasher>::Out, prefix: Prefix, _locatoin: ()) -> bool {
+		fn contains(
+			&self,
+			key: &<RefHasher as Hasher>::Out,
+			prefix: Prefix,
+			_locatoin: (),
+		) -> bool {
 			self.get(key, prefix, ()).is_some()
 		}
 	}
@@ -588,8 +598,7 @@ fn register_proof_without_value() {
 	let root_proof = root_unpacked.clone();
 	{
 		let mut trie =
-			TrieDBMutBuilder::<Layout>::from_existing(&mut memdb_from_proof, root_proof)
-				.build();
+			TrieDBMutBuilder::<Layout>::from_existing(&mut memdb_from_proof, root_proof).build();
 		trie.get(b"te").unwrap();
 		trie.insert(b"test12", &[2u8; 36][..]).unwrap();
 		trie.remove(b"test1234").unwrap();
@@ -609,8 +618,7 @@ fn register_proof_without_value() {
 
 	{
 		let trie =
-			TrieDBMutBuilder::<Layout>::from_existing(&mut memdb_from_proof, root_proof)
-				.build();
+			TrieDBMutBuilder::<Layout>::from_existing(&mut memdb_from_proof, root_proof).build();
 		assert!(trie.get(b"te").unwrap().is_some());
 		assert!(matches!(
 			trie.get(b"test1").map_err(|e| *e),
@@ -635,7 +643,7 @@ fn test_recorder_internal<T: TrieLayout>() {
 		t.insert(key, value).unwrap();
 	}
 	let root = t.commit().apply_to(&mut memdb);
-	
+
 	// Add more data, but this time only to the overlay.
 	// While doing that we record all trie accesses to replay this operation.
 	let mut recorder = Recorder::<T>::new();
@@ -687,7 +695,7 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	}
 	let root = t.commit().apply_to(&mut memdb);
 	let mut validated_root = root;
-	
+
 	let mut cache = TestTrieCache::<T>::default();
 
 	{
@@ -733,8 +741,7 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 
 	// Replay the it, but this time we use the proof.
 	{
-		let mut trie =
-			TrieDBMutBuilder::<T>::from_existing(&partial_db, validated_root).build();
+		let mut trie = TrieDBMutBuilder::<T>::from_existing(&partial_db, validated_root).build();
 
 		for (key, value) in key_value.iter().skip(1) {
 			trie.insert(key, value).unwrap();

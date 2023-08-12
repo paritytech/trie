@@ -171,7 +171,11 @@ where
 		&[trie_constants::EMPTY_TRIE]
 	}
 
-	fn leaf_node<L>(partial: impl Iterator<Item = u8>, number_nibble: usize, value: Value<L>) -> Vec<u8> {
+	fn leaf_node<L>(
+		partial: impl Iterator<Item = u8>,
+		number_nibble: usize,
+		value: Value<L>,
+	) -> Vec<u8> {
 		let contains_hash = matches!(&value, Value::Node(..));
 		let mut output = if contains_hash {
 			partial_from_iterator_encode(partial, number_nibble, NodeKind::HashedValueLeaf)

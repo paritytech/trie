@@ -480,10 +480,11 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 			}
 
 			let value = match value {
-				Value::Node(hash, location) => match Self::fetch_value(db, &hash, (key_slice, None), location) {
-					Ok(value) => value,
-					Err(err) => return Some(Err(err)),
-				},
+				Value::Node(hash, location) =>
+					match Self::fetch_value(db, &hash, (key_slice, None), location) {
+						Ok(value) => value,
+						Err(err) => return Some(Err(err)),
+					},
 				Value::Inline(value) => value.to_vec(),
 			};
 
@@ -504,7 +505,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 
 			let mut prefix = prefix.clone();
 			match node.node() {
-				Node::Leaf(partial,  _) => {
+				Node::Leaf(partial, _) => {
 					prefix.append_partial(partial.right());
 				},
 				Node::Branch(_, value) =>
@@ -593,8 +594,11 @@ impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, 'cach
 }
 
 impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, 'cache, L> {
-	type Item =
-		Result<(NibbleVec, Option<TrieHash<L>>, Arc<OwnedNode<DBValue, L::Location>>), TrieHash<L>, CError<L>>;
+	type Item = Result<
+		(NibbleVec, Option<TrieHash<L>>, Arc<OwnedNode<DBValue, L::Location>>),
+		TrieHash<L>,
+		CError<L>,
+	>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.raw_iter.next_raw_item(self.db).map(|result| {

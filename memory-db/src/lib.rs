@@ -19,14 +19,11 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-use hash_db::{
-	HashDB, Hasher as KeyHasher, MaybeDebug,
-	Prefix,
-};
+use hash_db::{HashDB, Hasher as KeyHasher, MaybeDebug, Prefix};
 #[cfg(feature = "std")]
 use std::{
-	cmp::Eq, collections::hash_map::Entry, collections::HashMap as Map, hash,
-	marker::PhantomData, mem,
+	cmp::Eq, collections::hash_map::Entry, collections::HashMap as Map, hash, marker::PhantomData,
+	mem,
 };
 
 #[cfg(not(feature = "std"))]
@@ -451,7 +448,6 @@ where
 			},
 		}
 	}
-
 }
 
 #[cfg(test)]

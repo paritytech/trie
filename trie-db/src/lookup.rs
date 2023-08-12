@@ -217,7 +217,8 @@ where
 				full_key,
 				cache,
 				|value, _, full_key, _, _, recorder| match value {
-					ValueOwned::Inline(value, hash) => Ok((hash, Some(value.clone()), Default::default())),
+					ValueOwned::Inline(value, hash) =>
+						Ok((hash, Some(value.clone()), Default::default())),
 					ValueOwned::Node(hash, location) => {
 						if let Some(recoder) = recorder.as_mut() {
 							recoder.record(TrieAccess::Hash { full_key });
@@ -231,7 +232,8 @@ where
 			match &hash_and_value {
 				Some((hash, Some(value), _location)) =>
 					cache.cache_value_for_key(full_key, (value.clone(), *hash).into()),
-				Some((hash, None, location)) => cache.cache_value_for_key(full_key, CachedValue::ExistingHash(*hash, *location)),
+				Some((hash, None, location)) =>
+					cache.cache_value_for_key(full_key, CachedValue::ExistingHash(*hash, *location)),
 				None => cache.cache_value_for_key(full_key, CachedValue::NonExisting),
 			}
 
@@ -285,7 +287,7 @@ where
 		let res = match value_cache_allowed.then(|| cache.lookup_value_for_key(full_key)).flatten()
 		{
 			Some(CachedValue::NonExisting) => None,
-			Some(CachedValue::ExistingHash(hash, location))  => {
+			Some(CachedValue::ExistingHash(hash, location)) => {
 				let data = Self::load_owned_value(
 					// If we only have the hash cached, this can only be a value node.
 					// For inline nodes we cache them directly as `CachedValue::Existing`.
@@ -352,14 +354,15 @@ where
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
 			let mut node = cache.get_or_insert_node(hash, location, &mut || {
-				let (node_data, locations) = match self.db.get(&hash, nibble_key.mid(key_nibbles).left(), location) {
-					Some(value) => value,
-					None =>
-						return Err(Box::new(match depth {
-							0 => TrieError::InvalidStateRoot(hash),
-							_ => TrieError::IncompleteDatabase(hash),
-						})),
-				};
+				let (node_data, locations) =
+					match self.db.get(&hash, nibble_key.mid(key_nibbles).left(), location) {
+						Some(value) => value,
+						None =>
+							return Err(Box::new(match depth {
+								0 => TrieError::InvalidStateRoot(hash),
+								_ => TrieError::IncompleteDatabase(hash),
+							})),
+					};
 
 				let decoded = match L::Codec::decode(&node_data[..], &locations) {
 					Ok(node) => node,
@@ -528,14 +531,15 @@ where
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
-			let (node_data, locations) = match self.db.get(&hash, nibble_key.mid(key_nibbles).left(), location) {
-				Some(value) => value,
-				None =>
-					return Err(Box::new(match depth {
-						0 => TrieError::InvalidStateRoot(hash),
-						_ => TrieError::IncompleteDatabase(hash),
-					})),
-			};
+			let (node_data, locations) =
+				match self.db.get(&hash, nibble_key.mid(key_nibbles).left(), location) {
+					Some(value) => value,
+					None =>
+						return Err(Box::new(match depth {
+							0 => TrieError::InvalidStateRoot(hash),
+							_ => TrieError::IncompleteDatabase(hash),
+						})),
+				};
 
 			self.record(|| TrieAccess::EncodedNode {
 				hash,
@@ -596,7 +600,7 @@ where
 								Ok(None)
 							}
 						} else {
-							let i = partial.at(0) as usize; 
+							let i = partial.at(0) as usize;
 							match children[i] {
 								Some(x) => {
 									partial = partial.mid(1);
@@ -634,7 +638,7 @@ where
 								Ok(None)
 							}
 						} else {
-							let i = partial.at(slice.len()) as usize; 
+							let i = partial.at(slice.len()) as usize;
 							match children[i] {
 								Some(x) => {
 									partial = partial.mid(slice.len() + 1);

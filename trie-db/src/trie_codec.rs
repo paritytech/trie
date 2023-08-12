@@ -198,9 +198,12 @@ fn detached_value<L: TrieLayout>(
 	let fetched;
 	match value {
 		ValuePlan::Node(hash_plan) => {
-			if let Ok(value) =
-				TrieDBRawIterator::fetch_value(db, &node_data[hash_plan.clone()], node_prefix, location)
-			{
+			if let Ok(value) = TrieDBRawIterator::fetch_value(
+				db,
+				&node_data[hash_plan.clone()],
+				node_prefix,
+				location,
+			) {
 				fetched = value;
 			} else {
 				return None
@@ -270,12 +273,28 @@ where
 
 				let (children_len, detached_value) = match node.node_plan() {
 					NodePlan::Empty => (0, None),
-					NodePlan::Leaf { value, .. } =>
-						(0, detached_value(db, &value, node.data(), prefix.as_prefix(), node.locations().first().copied().unwrap_or_default())),
+					NodePlan::Leaf { value, .. } => (
+						0,
+						detached_value(
+							db,
+							&value,
+							node.data(),
+							prefix.as_prefix(),
+							node.locations().first().copied().unwrap_or_default(),
+						),
+					),
 					NodePlan::Extension { .. } => (1, None),
 					NodePlan::NibbledBranch { value: Some(value), .. } |
-					NodePlan::Branch { value: Some(value), .. } =>
-						(NIBBLE_LENGTH, detached_value(db, &value, node.data(), prefix.as_prefix(), node.locations().last().copied().unwrap_or_default())),
+					NodePlan::Branch { value: Some(value), .. } => (
+						NIBBLE_LENGTH,
+						detached_value(
+							db,
+							&value,
+							node.data(),
+							prefix.as_prefix(),
+							node.locations().last().copied().unwrap_or_default(),
+						),
+					),
 					NodePlan::NibbledBranch { value: None, .. } |
 					NodePlan::Branch { value: None, .. } => (NIBBLE_LENGTH, None),
 				};
@@ -435,10 +454,10 @@ impl<'a, C: NodeCodec, L: Copy + Default> DecoderStackEntry<'a, C, L> {
 
 /// Reconstructs a partial trie DB from a compact representation. The encoding is a vector of
 /// mutated trie nodes with those child references omitted. The decode function reads them in order
-/// from the given slice, reconstructing the full nodes and inserting them into the given `MemoryDB`.
-/// It stops after fully constructing one partial trie and returns the root hash and the number of
-/// nodes read. If an error occurs during decoding, there are no guarantees about which entries
-/// were or were not added to the DB.
+/// from the given slice, reconstructing the full nodes and inserting them into the given
+/// `MemoryDB`. It stops after fully constructing one partial trie and returns the root hash and the
+/// number of nodes read. If an error occurs during decoding, there are no guarantees about which
+/// entries were or were not added to the DB.
 ///
 /// The number of nodes read may be fewer than the total number of items in `encoded`. This allows
 /// one to concatenate multiple compact encodings together and still reconstruct them all.
@@ -523,7 +542,8 @@ where
 			if let Some(entry) = stack.pop() {
 				last_entry = entry;
 				last_entry.pop_from_prefix(&mut prefix);
-				last_entry.children[last_entry.child_index] = Some(ChildReference::Hash(node_hash, Default::default()));
+				last_entry.children[last_entry.child_index] =
+					Some(ChildReference::Hash(node_hash, Default::default()));
 				last_entry.child_index += 1;
 			} else {
 				return Ok((node_hash, i + 1))
