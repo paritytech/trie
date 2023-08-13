@@ -975,6 +975,7 @@ where
 		handle: &NodeHandle<TrieHash<L>, L::Location>,
 	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
 		let mut handle = handle;
+		// prefix only use for value node access, so this is always correct.
 		let prefix = (full_key, None);
 		loop {
 			let (mid, child) = match handle {
@@ -994,8 +995,8 @@ where
 				},
 				NodeHandle::InMemory(handle) => match &self.storage[handle] {
 					Node::Empty => return Ok(None),
-					Node::Leaf(key, value) =>
-						if NibbleSlice::from_stored(key) == partial {
+					Node::Leaf(slice, value) =>
+						if NibbleSlice::from_stored(slice) == partial {
 							return Ok(value.in_memory_fetched_value(
 								prefix,
 								self.db,
@@ -1046,7 +1047,7 @@ where
 								None
 							})
 						} else if partial.starts_with(&slice) {
-							let idx = partial.at(0);
+							let idx = partial.at(slice.len());
 							match children[idx as usize].as_ref() {
 								Some(child) => (1 + slice.len(), child),
 								None => return Ok(None),
@@ -2016,7 +2017,7 @@ where
 
 	/// Cache the given `encoded` node.
 	fn cache_node(&mut self, hash: TrieHash<L>) {
-		// If we have a cache, cache our node directly.
+		// Mark the node as new so that it is removed from the shared cache.
 		if let Some(cache) = self.cache.as_mut() {
 			cache.insert_new_node(&hash);
 		}
