@@ -91,7 +91,7 @@ fn fuzz_removal(data: Vec<(Vec<u8>, Vec<u8>)>) -> Vec<(bool, Vec<u8>, Vec<u8>)> 
 
 pub fn fuzz_that_reference_trie_root<T: TrieLayout>(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data(input));
-	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
+	let memdb = MemoryDB::<_, HashKey<_>, _>::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&memdb).build();
 	for a in 0..data.len() {
 		t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
@@ -101,7 +101,7 @@ pub fn fuzz_that_reference_trie_root<T: TrieLayout>(input: &[u8]) {
 
 pub fn fuzz_that_reference_trie_root_fix_length<T: TrieLayout>(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data_fix_length(input));
-	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
+	let memdb = MemoryDB::<_, HashKey<_>, _>::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&memdb).build();
 	for a in 0..data.len() {
 		t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
@@ -140,7 +140,7 @@ pub fn fuzz_that_compare_implementations<T: TrieLayout>(input: &[u8])
 pub fn fuzz_that_no_extension_insert<T: TrieLayout>(input: &[u8]) {
 	let data = fuzz_to_data(input);
 	//println!("data{:?}", data);
-	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
+	let memdb = MemoryDB::<_, HashKey<_>, _>::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&memdb).build();
 	for a in 0..data.len() {
 		t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
@@ -156,21 +156,18 @@ pub fn fuzz_that_no_extension_insert_remove<T: TrieLayout>(input: &[u8]) {
 	let data = fuzz_to_data(input);
 	let data = fuzz_removal(data);
 
-	let memdb = MemoryDB::<_, PrefixedKey<_>, _>::default();
-	compare_insert_remove::<T, _>(data, memdb);
+	compare_insert_remove::<T, PrefixedKey<_>>(data);
 }
 
 pub fn fuzz_seek_iter<T: TrieLayout>(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data_fix_length(input));
 
 	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
-	let mut root = Default::default();
-	{
-		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
-		for a in 0..data.len() {
-			t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
-		}
+	let mut t = TrieDBMutBuilder::<T>::new(&memdb).build();
+	for a in 0..data.len() {
+		t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
 	}
+	let root = t.commit().apply_to(&mut memdb);
 
 	// fuzzing around a fix prefix of 6 nibble.
 	let prefix = &b"012"[..];
@@ -213,13 +210,11 @@ pub fn fuzz_prefix_iter<T: TrieLayout>(input: &[u8]) {
 	let data = data_sorted_unique(fuzz_to_data_fix_length(input));
 
 	let mut memdb = MemoryDB::<_, HashKey<_>, _>::default();
-	let mut root = Default::default();
-	{
-		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
-		for a in 0..data.len() {
-			t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
-		}
+	let mut t = TrieDBMutBuilder::<T>::new(&memdb).build();
+	for a in 0..data.len() {
+		t.insert(&data[a].0[..], &data[a].1[..]).unwrap();
 	}
+	let root = t.commit().apply_to(&mut memdb);
 
 	// fuzzing around a fix prefix of 6 nibble.
 	let prefix = &b"012"[..];
@@ -279,13 +274,11 @@ pub fn fuzz_prefix_seek_iter<T: TrieLayout>(mut input: PrefixSeekTestInput) {
 	input.keys.dedup();
 
 	let mut memdb = PrefixedMemoryDB::<T>::default();
-	let mut root = Default::default();
-	{
-		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
-		for (index, key) in input.keys.iter().enumerate() {
-			t.insert(&key, &[index as u8]).unwrap();
-		}
+	let mut t = TrieDBMutBuilder::<T>::new(&memdb).build();
+	for (index, key) in input.keys.iter().enumerate() {
+		t.insert(&key, &[index as u8]).unwrap();
 	}
+	let root = t.commit().apply_to(&mut memdb);
 
 	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
 	let iter =
@@ -389,13 +382,11 @@ fn test_generate_proof<L: TrieLayout>(
 	// Populate DB with full trie from entries.
 	let (db, root) = {
 		let mut db = <MemoryDB<L::Hash, HashKey<_>, _>>::default();
-		let mut root = Default::default();
-		{
-			let mut trie = TrieDBMutBuilder::<L>::new(&mut db, &mut root).build();
-			for (key, value) in entries {
-				trie.insert(&key, &value).unwrap();
-			}
+		let mut trie = TrieDBMutBuilder::<L>::new(&mut db).build();
+		for (key, value) in entries {
+			trie.insert(&key, &value).unwrap();
 		}
+		let root = trie.commit().apply_to(&mut db);
 		(db, root)
 	};
 
@@ -414,19 +405,17 @@ fn test_generate_proof<L: TrieLayout>(
 }
 
 fn test_trie_codec_proof<L: TrieLayout>(entries: Vec<(Vec<u8>, Vec<u8>)>, keys: Vec<Vec<u8>>) {
-	use hash_db::{HashDB, EMPTY_PREFIX};
+	use hash_db::EMPTY_PREFIX;
 	use trie_db::{decode_compact, encode_compact, Recorder};
 
 	// Populate DB with full trie from entries.
 	let (db, root) = {
 		let mut db = <MemoryDB<L::Hash, HashKey<_>, _>>::default();
-		let mut root = Default::default();
-		{
-			let mut trie = TrieDBMutBuilder::<L>::new(&mut db, &mut root).build();
-			for (key, value) in entries {
-				trie.insert(&key, &value).unwrap();
-			}
+		let mut trie = TrieDBMutBuilder::<L>::new(&db).build();
+		for (key, value) in entries {
+			trie.insert(&key, &value).unwrap();
 		}
+		let root = trie.commit().apply_to(&mut db);
 		(db, root)
 	};
 	let expected_root = root;
@@ -457,7 +446,7 @@ fn test_trie_codec_proof<L: TrieLayout>(entries: Vec<(Vec<u8>, Vec<u8>)>, keys: 
 	let expected_used = compact_trie.len();
 	// Reconstruct the partial DB from the compact encoding.
 	let mut db = <MemoryDB<L::Hash, HashKey<_>, _>>::default();
-	let (root, used) = decode_compact::<L, _>(&mut db, &compact_trie).unwrap();
+	let (root, used) = decode_compact::<L>(&mut db, &compact_trie).unwrap();
 	assert_eq!(root, expected_root);
 	assert_eq!(used, expected_used);
 
