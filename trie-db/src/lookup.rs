@@ -367,7 +367,6 @@ where
 					NodeOwned::Leaf(slice, value) =>
 						return if partial == *slice {
 							let value = (*value).clone();
-							drop(node);
 							load_value_owned(
 								value,
 								nibble_key.original_data_as_prefix(),
@@ -395,7 +394,6 @@ where
 					NodeOwned::Branch(children, value) =>
 						if partial.is_empty() {
 							return if let Some(value) = value.clone() {
-								drop(node);
 								load_value_owned(
 									value,
 									nibble_key.original_data_as_prefix(),
@@ -433,7 +431,6 @@ where
 
 						if partial.len() == slice.len() {
 							return if let Some(value) = value.clone() {
-								drop(node);
 								load_value_owned(
 									value,
 									nibble_key.original_data_as_prefix(),

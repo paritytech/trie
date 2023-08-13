@@ -99,6 +99,13 @@ fn playpen_internal<T: TrieLayout>() {
 		let mut root = Default::default();
 		let mut memtrie = populate_trie::<T>(&mut memdb, &mut root, &x);
 
+		// avoid duplicate
+		let value_set: std::collections::BTreeMap<&[u8], &[u8]> =
+			x.iter().map(|(k, v)| (k.as_slice(), v.as_slice())).collect();
+		for (k, v) in value_set {
+			assert_eq!(memtrie.get(k).unwrap().unwrap(), v);
+		}
+
 		memtrie.commit();
 		if *memtrie.root() != real {
 			println!("TRIE MISMATCH");
@@ -835,4 +842,51 @@ fn test_insert_remove_data_with_cache_internal<T: TrieLayout>() {
 	for (key, _) in key_value.iter().skip(3) {
 		assert!(cache.lookup_value_for_key(key).is_none());
 	}
+}
+
+#[test]
+fn test_two_assets_memory_db() {
+	test_two_assets_memory_db_inner_1::<HashedValueNoExtThreshold<1>>();
+	test_two_assets_memory_db_inner_2::<HashedValueNoExtThreshold<1>>();
+}
+fn test_two_assets_memory_db_inner_1<T: TrieLayout>() {
+	let mut memdb = PrefixedMemoryDB::<T>::new(&[0u8]);
+	let mut root = Default::default();
+	let mut state = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+
+	let key1 = [1u8; 3];
+	let data1 = [1u8; 2];
+	state.insert(key1.as_ref(), &data1).unwrap();
+	assert_eq!(state.get(key1.as_ref()).unwrap().unwrap(), data1); //PASSING
+	let key2 = [2u8; 3];
+	let data2 = [2u8; 2];
+	state.insert(key2.as_ref(), &data2).unwrap();
+	assert_eq!(state.get(key1.as_ref()).unwrap().unwrap(), data1);
+
+	state.commit();
+}
+
+fn test_two_assets_memory_db_inner_2<T: TrieLayout>() {
+	let mut memdb = PrefixedMemoryDB::<T>::new(&[0u8]);
+	let mut root = Default::default();
+	let mut state = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+
+	let key1 = [1u8];
+	let data1 = [1u8; 2];
+	state.insert(key1.as_ref(), &data1).unwrap();
+	assert_eq!(state.get(key1.as_ref()).unwrap().unwrap(), data1);
+	let key2 = [1u8, 2];
+	let data2 = [2u8; 2];
+	state.insert(key2.as_ref(), &data2).unwrap();
+	assert_eq!(state.get(key1.as_ref()).unwrap().unwrap(), data1);
+	assert_eq!(state.get(key2.as_ref()).unwrap().unwrap(), data2);
+
+	state.commit();
+
+	let key3 = [1u8, 3];
+	let data3 = [3u8; 2];
+	state.insert(key3.as_ref(), &data3).unwrap();
+	assert_eq!(state.get(key1.as_ref()).unwrap().unwrap(), data1);
+	assert_eq!(state.get(key2.as_ref()).unwrap().unwrap(), data2);
+	assert_eq!(state.get(key3.as_ref()).unwrap().unwrap(), data3);
 }
