@@ -72,6 +72,13 @@ where
 		self.raw.get_with(L::Hash::hash(key).as_ref(), query)
 	}
 
+	fn get_closest_merkle_value(
+		&self,
+		_key: &[u8],
+	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
+		Ok(None)
+	}
+
 	fn iter<'a>(
 		&'a self,
 	) -> Result<

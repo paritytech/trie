@@ -252,6 +252,13 @@ where
 		.look_up(key, NibbleSlice::new(key))
 	}
 
+	fn get_closest_merkle_value(
+		&self,
+		_key: &[u8],
+	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
+		Ok(None)
+	}
+
 	fn iter<'a>(
 		&'a self,
 	) -> Result<

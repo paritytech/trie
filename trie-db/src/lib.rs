@@ -277,6 +277,12 @@ pub trait Trie<L: TrieLayout> {
 		query: Q,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>;
 
+	/// Returns the merkle value of the closest descendant node of the key.
+	fn get_closest_merkle_value(
+		&self,
+		key: &[u8],
+	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>>;
+
 	/// Returns a depth-first iterator over the elements of trie.
 	fn iter<'a>(
 		&'a self,
@@ -402,6 +408,13 @@ impl<'db, 'cache, L: TrieLayout> Trie<L> for TrieKinds<'db, 'cache, L> {
 		query: Q,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		wrapper!(self, get_with, key, query)
+	}
+
+	fn get_closest_merkle_value(
+		&self,
+		key: &[u8],
+	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
+		wrapper!(self, get_closest_merkle_value, key)
 	}
 
 	fn iter<'a>(
