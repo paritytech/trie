@@ -254,9 +254,19 @@ where
 
 	fn get_closest_merkle_value(
 		&self,
-		_key: &[u8],
+		key: &[u8],
 	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
-		Ok(None)
+		let mut cache = self.cache.as_ref().map(|c| c.borrow_mut());
+		let mut recorder = self.recorder.as_ref().map(|r| r.borrow_mut());
+
+		Lookup::<L, _> {
+			db: self.db,
+			query: |_: &[u8]| (),
+			hash: *self.root,
+			cache: cache.as_mut().map(|c| &mut ***c as &mut dyn TrieCache<L::Codec>),
+			recorder: recorder.as_mut().map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>>),
+		}
+		.look_up_merkle(key, NibbleSlice::new(key))
 	}
 
 	fn iter<'a>(

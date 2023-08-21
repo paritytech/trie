@@ -134,6 +134,19 @@ where
 		}
 	}
 
+	/// Look up the closest merkle value.
+	///
+	/// When the provided key leads to a node, then the merkle value of that node
+	/// is returned. However, if the key does not lead to a node, then the closest
+	/// merkle value is returned.
+	pub fn look_up_merkle(
+		self,
+		full_key: &[u8],
+		nibble_key: NibbleSlice,
+	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
+		self.look_up_merkle_without_cache(nibble_key, full_key)
+	}
+
 	/// Look up the given `nibble_key`.
 	///
 	/// If the value is found, it will be passed to the given function to decode or copy.
@@ -637,6 +650,135 @@ where
 						self.record(|| TrieAccess::NonExisting { full_key });
 
 						return Ok(None)
+					},
+				};
+
+				// check if new node data is inline or hash.
+				match next_node {
+					NodeHandle::Hash(data) => {
+						hash = decode_hash::<L::Hash>(data)
+							.ok_or_else(|| Box::new(TrieError::InvalidHash(hash, data.to_vec())))?;
+						break
+					},
+					NodeHandle::Inline(data) => {
+						node_data = data;
+					},
+				}
+			}
+		}
+		Ok(None)
+	}
+
+	/// Look up the closest merkle value of the provided key.
+	///
+	/// When the provided key leads to a node, then the merkle value of that node
+	/// is returned. However, if the key does not lead to a node, then the closest
+	/// merkle value is returned.
+	fn look_up_merkle_without_cache(
+		mut self,
+		nibble_key: NibbleSlice,
+		full_key: &[u8],
+	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
+		let mut partial = nibble_key;
+		let mut hash = self.hash;
+		let mut key_nibbles = 0;
+
+		// this loop iterates through non-inline nodes.
+		for depth in 0.. {
+			let node_data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
+				Some(value) => value,
+				None =>
+					return Err(Box::new(match depth {
+						0 => TrieError::InvalidStateRoot(hash),
+						_ => TrieError::IncompleteDatabase(hash),
+					})),
+			};
+
+			self.record(|| TrieAccess::EncodedNode {
+				hash,
+				encoded_node: node_data.as_slice().into(),
+			});
+
+			// this loop iterates through all inline children (usually max 1)
+			// without incrementing the depth.
+			let mut node_data = &node_data[..];
+			loop {
+				let decoded = match L::Codec::decode(node_data) {
+					Ok(node) => node,
+					Err(e) => return Err(Box::new(TrieError::DecoderError(hash, e))),
+				};
+
+				let next_node = match decoded {
+					Node::Leaf(slice, _) => {
+						if slice != partial {
+							self.record(|| TrieAccess::NonExisting { full_key });
+						}
+
+						return Ok(Some(hash))
+					},
+					Node::Extension(slice, item) =>
+						if partial.starts_with(&slice) {
+							partial = partial.mid(slice.len());
+							key_nibbles += slice.len();
+							item
+						} else {
+							self.record(|| TrieAccess::NonExisting { full_key });
+
+							return Ok(Some(hash))
+						},
+					Node::Branch(children, value) =>
+						if partial.is_empty() {
+							if value.is_none() {
+								self.record(|| TrieAccess::NonExisting { full_key });
+							}
+
+							return Ok(Some(hash))
+						} else {
+							match children[partial.at(0) as usize] {
+								Some(x) => {
+									partial = partial.mid(1);
+									key_nibbles += 1;
+									x
+								},
+								None => {
+									self.record(|| TrieAccess::NonExisting { full_key });
+
+									return Ok(Some(hash))
+								},
+							}
+						},
+					Node::NibbledBranch(slice, children, value) => {
+						if !partial.starts_with(&slice) {
+							self.record(|| TrieAccess::NonExisting { full_key });
+
+							return Ok(Some(hash))
+						}
+
+						if partial.len() == slice.len() {
+							if value.is_none() {
+								self.record(|| TrieAccess::NonExisting { full_key });
+							}
+
+							return Ok(Some(hash))
+						} else {
+							match children[partial.at(slice.len()) as usize] {
+								Some(x) => {
+									partial = partial.mid(slice.len() + 1);
+									key_nibbles += slice.len() + 1;
+									x
+								},
+								None => {
+									self.record(|| TrieAccess::NonExisting { full_key });
+
+									return Ok(Some(hash))
+								},
+							}
+						}
+					},
+					Node::Empty => {
+						self.record(|| TrieAccess::NonExisting { full_key });
+
+						return Ok(Some(hash))
 					},
 				};
 
