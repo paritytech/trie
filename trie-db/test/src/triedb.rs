@@ -644,6 +644,80 @@ fn test_recorder_with_cache_get_hash_internal<T: TrieLayout>() {
 	}
 }
 
+#[test]
+fn test_merkle_value() {
+	// Use `HashedValueNoExtThreshold` to create a consistent trie with
+	// a smaller dataset for the `key_value`.
+	let mut memdb = MemoryDB::<
+		<HashedValueNoExtThreshold<1> as TrieLayout>::Hash,
+		HashKey<_>,
+		DBValue,
+	>::default();
+	let mut root = Default::default();
+
+	// Data set.
+	let mut key_value = vec![
+		(b"A".to_vec(), vec![1; 64]),
+		(b"AA".to_vec(), vec![2; 64]),
+		(b"AAA".to_vec(), vec![3; 64]),
+		(b"AB".to_vec(), vec![4; 4]),
+		(b"B".to_vec(), vec![5; 64]),
+	];
+
+	{
+		let mut t =
+			TrieDBMutBuilder::<HashedValueNoExtThreshold<1>>::new(&mut memdb, &mut root).build();
+		for (key, value) in &key_value {
+			t.insert(key, value).unwrap();
+		}
+	}
+
+	let mut merkle_values = Vec::new();
+	let prev_root = root.clone();
+
+	// Fetch merkle values.
+	{
+		let trie = TrieDBBuilder::<HashedValueNoExtThreshold<1>>::new(&memdb, &root).build();
+		for (key, _) in &key_value {
+			let merkle = trie.get_closest_merkle_value(key).unwrap().unwrap();
+			merkle_values.push(merkle);
+		}
+	}
+
+	// Make a change to AA and expect the change to propagate only to AA and A.
+	{
+		let mut t =
+			TrieDBMutBuilder::<HashedValueNoExtThreshold<1>>::from_existing(&mut memdb, &mut root)
+				.build();
+		key_value[1].1 = vec![6; 64];
+		t.insert(&key_value[1].0, &key_value[1].1).unwrap();
+	}
+
+	// The root should always change.
+	assert_ne!(prev_root, root);
+
+	let mut modified_merkle_values = Vec::new();
+	{
+		let trie = TrieDBBuilder::<HashedValueNoExtThreshold<1>>::new(&memdb, &root).build();
+		for (key, _) in &key_value {
+			let merkle = trie.get_closest_merkle_value(key).unwrap().unwrap();
+			modified_merkle_values.push(merkle);
+		}
+	}
+
+	// A differs.
+	assert_ne!(merkle_values[0], modified_merkle_values[0]);
+	// AA differs.
+	assert_ne!(merkle_values[1], modified_merkle_values[1]);
+
+	// AAA remains the same.
+	assert_eq!(merkle_values[2], modified_merkle_values[2]);
+	// AB remains the same.
+	assert_eq!(merkle_values[3], modified_merkle_values[3]);
+	// B remains the same.
+	assert_eq!(merkle_values[4], modified_merkle_values[4]);
+}
+
 test_layouts!(iterator_seek_with_recorder, iterator_seek_with_recorder_internal);
 fn iterator_seek_with_recorder_internal<T: TrieLayout>() {
 	let d = vec![b"A".to_vec(), b"AA".to_vec(), b"AB".to_vec(), b"B".to_vec()];
