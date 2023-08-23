@@ -711,7 +711,9 @@ where
 
 				let next_node = match decoded {
 					Node::Leaf(slice, _) => {
-						if !partial.starts_with(&slice) {
+						// The leaf slice can be longer than remainder of the provided key
+						// (descendent), but not the other way around.
+						if !slice.starts_with(&partial) {
 							self.record(|| TrieAccess::NonExisting { full_key });
 							return Ok(None)
 						}
@@ -722,16 +724,35 @@ where
 
 						return Ok(Some(hash))
 					},
-					Node::Extension(slice, item) =>
-						if partial.starts_with(&slice) {
-							partial = partial.mid(slice.len());
-							key_nibbles += slice.len();
+					Node::Extension(slice, item) => {
+						let common_prefix_len = partial.common_prefix(&slice);
+
+						let start_matches = if partial.len() <= slice.len() {
+							// Extension slice can be longer than remainder of the provided key
+							// (descendent), ensure the extension slice starts with the remainder
+							// of the provided key.
+							//
+							// This effectively returns the hash of the `Node::Branch` at the next
+							// iteration.
+							common_prefix_len == partial.len()
+						} else {
+							// Remainder of the provided key is longer than the extension slice,
+							// must advance the node iteration if and only if keys share
+							// a common prefix.
+							common_prefix_len == slice.len()
+						};
+
+						if start_matches {
+							// Empties the partial key if the extension slice is longer.
+							partial = partial.mid(common_prefix_len);
+							key_nibbles += common_prefix_len;
 							item
 						} else {
 							self.record(|| TrieAccess::NonExisting { full_key });
 
 							return Ok(None)
-						},
+						}
+					},
 					Node::Branch(children, value) =>
 						if partial.is_empty() {
 							if value.is_none() {
@@ -749,14 +770,29 @@ where
 								None => {
 									self.record(|| TrieAccess::NonExisting { full_key });
 
-									return Ok(Some(hash))
+									return Ok(None)
 								},
 							}
 						},
 					Node::NibbledBranch(slice, children, value) => {
-						if !partial.starts_with(&slice) {
+						let common_prefix_len = partial.common_prefix(&slice);
+						// Not enough remainder key to continue the search.
+						if partial.len() < slice.len() {
 							self.record(|| TrieAccess::NonExisting { full_key });
 
+							// Branch slice starts with the remainder key, there's nothing to
+							// advance.
+							if common_prefix_len == partial.len() {
+								return Ok(Some(hash))
+							} else {
+								return Ok(None)
+							}
+						}
+
+						// Partial key is longer or equal than the branch slice.
+						// Ensure partial key starts with the branch slice.
+						if common_prefix_len != slice.len() {
+							self.record(|| TrieAccess::NonExisting { full_key });
 							return Ok(None)
 						}
 
@@ -776,7 +812,7 @@ where
 								None => {
 									self.record(|| TrieAccess::NonExisting { full_key });
 
-									return Ok(Some(hash))
+									return Ok(None)
 								},
 							}
 						}
