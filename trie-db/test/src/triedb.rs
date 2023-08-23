@@ -680,6 +680,20 @@ fn test_merkle_value_internal<T: TrieLayout>() {
 	let hash = trie.get_closest_merkle_value(b"ABA").unwrap().unwrap();
 	let expected = trie.get_closest_merkle_value(b"AB").unwrap().unwrap();
 	assert_eq!(hash, expected);
+
+	// Key is not present in the tire.
+	// At the nibble level (4 bits), b"A" is represented by number 65 in binary: 0100 0001.
+	// The key 0000 01000 shares no common prefix in the trie.
+	let not_present = trie.get_closest_merkle_value(&[0b_0000_0100]).unwrap();
+	assert!(not_present.is_none());
+
+	// b"D" should exist since it shares a prefix with b"A" and it returns the branch node
+	// when the layout is `ExtensionLayout` or a nibble branch otherwise.
+	let d_key = trie.get_closest_merkle_value(&[0b_0100_0100]).unwrap().unwrap();
+	// The same is true for b"C".
+	let c_key = trie.get_closest_merkle_value(&[0b_0100_0011]).unwrap().unwrap();
+	// Check the same branch is returned.
+	assert_eq!(d_key, c_key);
 }
 
 test_layouts!(iterator_seek_with_recorder, iterator_seek_with_recorder_internal);
