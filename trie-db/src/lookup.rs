@@ -669,7 +669,7 @@ where
 		Ok(None)
 	}
 
-	/// Look up the closest merkle value of the provided key.
+	/// Look up the merkle value (hash) of the node that is the closest descendant for the provided key.
 	///
 	/// When the provided key leads to a node, then the merkle value of that node
 	/// is returned. However, if the key does not lead to a node, then the closest
