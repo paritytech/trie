@@ -653,8 +653,9 @@ fn test_merkle_value_internal<T: TrieLayout>() {
 	let key_value = vec![
 		(b"A".to_vec(), vec![1; 64]),
 		(b"AA".to_vec(), vec![2; 64]),
-		(b"AAA".to_vec(), vec![3; 64]),
+		(b"AAAA".to_vec(), vec![3; 64]),
 		(b"AAB".to_vec(), vec![4; 64]),
+		(b"AABBBB".to_vec(), vec![4; 64]),
 		(b"AB".to_vec(), vec![5; 4]),
 		(b"B".to_vec(), vec![6; 64]),
 	];
@@ -671,29 +672,83 @@ fn test_merkle_value_internal<T: TrieLayout>() {
 		trie.get_closest_merkle_value(key).unwrap().unwrap();
 	}
 
-	// Key is not present in the trie, but the closest descendant is AAA.
-	let hash = trie.get_closest_merkle_value(b"AAAA").unwrap().unwrap();
+	// Key is not present and has no descedant, but shares a prefix.
+	let hash = trie.get_closest_merkle_value(b"AAAAX").unwrap();
+	assert!(hash.is_none());
+	let hash = trie.get_closest_merkle_value(b"AABX").unwrap();
+	assert!(hash.is_none());
+	let hash = trie.get_closest_merkle_value(b"ABX").unwrap();
+	assert!(hash.is_none());
+	let hash = trie.get_closest_merkle_value(b"AABBBBX").unwrap();
+	assert!(hash.is_none());
+	let hash = trie.get_closest_merkle_value(b"BX").unwrap();
+	assert!(hash.is_none());
+	let hash = trie.get_closest_merkle_value(b"AAAAX").unwrap();
+	assert!(hash.is_none());
+	// Key shares the first nibble with b"A".
+	let hash = trie.get_closest_merkle_value(b"C").unwrap();
+	assert!(hash.is_none());
+
+	// Key not present, but has a descendent.
+	let hash = trie.get_closest_merkle_value(b"AAA").unwrap().unwrap();
+	let expected = trie.get_closest_merkle_value(b"AAAA").unwrap().unwrap();
+	assert_eq!(hash, expected);
+	let hash = trie.get_closest_merkle_value(b"AABB").unwrap().unwrap();
+	let expected = trie.get_closest_merkle_value(b"AABBBB").unwrap().unwrap();
+	assert_eq!(hash, expected);
+	let hash = trie.get_closest_merkle_value(b"AABBB").unwrap().unwrap();
+	let expected = trie.get_closest_merkle_value(b"AABBBB").unwrap().unwrap();
+	assert_eq!(hash, expected);
+
+	// Prefix AABB in between AAB and AABBBB, but has different ending char.
+	let hash = trie.get_closest_merkle_value(b"AABBX").unwrap();
+	assert!(hash.is_none());
+}
+
+test_layouts!(test_merkle_value_single_key, test_merkle_value_single_key_internal);
+fn test_merkle_value_single_key_internal<T: TrieLayout>() {
+	let mut memdb = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
+	let mut root = Default::default();
+
+	// Data set.
+	let key_value = vec![(b"AAA".to_vec(), vec![1; 64])];
+	{
+		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+		for (key, value) in &key_value {
+			t.insert(key, value).unwrap();
+		}
+	}
+
+	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+
+	let hash = trie.get_closest_merkle_value(b"AA").unwrap().unwrap();
 	let expected = trie.get_closest_merkle_value(b"AAA").unwrap().unwrap();
 	assert_eq!(hash, expected);
+}
 
-	// Key is not present in the trie, but the closest descendant is AB.
-	let hash = trie.get_closest_merkle_value(b"ABA").unwrap().unwrap();
-	let expected = trie.get_closest_merkle_value(b"AB").unwrap().unwrap();
-	assert_eq!(hash, expected);
+test_layouts!(test_merkle_value_branches, test_merkle_value_branches_internals);
+fn test_merkle_value_branches_internals<T: TrieLayout>() {
+	let mut memdb = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
+	let mut root = Default::default();
 
-	// Key is not present in the tire.
-	// At the nibble level (4 bits), b"A" is represented by number 65 in binary: 0100 0001.
-	// The key 0000 01000 shares no common prefix in the trie.
-	let not_present = trie.get_closest_merkle_value(&[0b_0000_0100]).unwrap();
-	assert!(not_present.is_none());
+	// Data set.
+	let key_value = vec![(b"AAAA".to_vec(), vec![1; 64]), (b"AABA".to_vec(), vec![2; 64])];
+	{
+		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+		for (key, value) in &key_value {
+			t.insert(key, value).unwrap();
+		}
+	}
 
-	// b"D" should exist since it shares a prefix with b"A" and it returns the branch node
-	// when the layout is `ExtensionLayout` or a nibble branch otherwise.
-	let d_key = trie.get_closest_merkle_value(&[0b_0100_0100]).unwrap().unwrap();
-	// The same is true for b"C".
-	let c_key = trie.get_closest_merkle_value(&[0b_0100_0011]).unwrap().unwrap();
-	// Check the same branch is returned.
-	assert_eq!(d_key, c_key);
+	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+
+	// The hash is returned from the branch node.
+	let hash = trie.get_closest_merkle_value(b"A").unwrap().unwrap();
+	let aaaa_hash = trie.get_closest_merkle_value(b"AAAA").unwrap().unwrap();
+	let aaba_hash = trie.get_closest_merkle_value(b"AABA").unwrap().unwrap();
+	// Ensure the hash is not from any leaf.
+	assert_ne!(hash, aaaa_hash);
+	assert_ne!(hash, aaba_hash);
 }
 
 test_layouts!(iterator_seek_with_recorder, iterator_seek_with_recorder_internal);
