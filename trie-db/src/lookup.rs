@@ -144,7 +144,7 @@ where
 		full_key: &[u8],
 		nibble_key: NibbleSlice,
 	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
-		self.look_up_merkle_without_cache(nibble_key, full_key)
+		self.lookup_first_descendent_without_cache(nibble_key, full_key)
 	}
 
 	/// Look up the given `nibble_key`.
@@ -669,12 +669,13 @@ where
 		Ok(None)
 	}
 
-	/// Look up the merkle value (hash) of the node that is the closest descendant for the provided key.
+	/// Look up the merkle value (hash) of the node that is the closest descendant for the provided
+	/// key.
 	///
 	/// When the provided key leads to a node, then the merkle value of that node
 	/// is returned. However, if the key does not lead to a node, then the merkle value
 	/// of the closest descendant is returned. `None` if no such descendant exists.
-	fn look_up_merkle_without_cache(
+	fn lookup_first_descendent_without_cache(
 		mut self,
 		nibble_key: NibbleSlice,
 		full_key: &[u8],
