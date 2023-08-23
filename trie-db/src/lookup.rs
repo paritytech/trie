@@ -711,11 +711,15 @@ where
 
 				let next_node = match decoded {
 					Node::Leaf(slice, _) => {
-						if slice != partial {
+						if partial.starts_with(&slice) {
+							return Ok(Some(hash))
+						}
+
+						if partial.len() != slice.len() {
 							self.record(|| TrieAccess::NonExisting { full_key });
 						}
 
-						return Ok(Some(hash))
+						return Ok(None)
 					},
 					Node::Extension(slice, item) =>
 						if partial.starts_with(&slice) {
@@ -725,7 +729,7 @@ where
 						} else {
 							self.record(|| TrieAccess::NonExisting { full_key });
 
-							return Ok(Some(hash))
+							return Ok(None)
 						},
 					Node::Branch(children, value) =>
 						if partial.is_empty() {
@@ -752,7 +756,7 @@ where
 						if !partial.starts_with(&slice) {
 							self.record(|| TrieAccess::NonExisting { full_key });
 
-							return Ok(Some(hash))
+							return Ok(None)
 						}
 
 						if partial.len() == slice.len() {
