@@ -672,8 +672,8 @@ where
 	/// Look up the merkle value (hash) of the node that is the closest descendant for the provided key.
 	///
 	/// When the provided key leads to a node, then the merkle value of that node
-	/// is returned. However, if the key does not lead to a node, then the closest
-	/// merkle value is returned.
+	/// is returned. However, if the key does not lead to a node, then the merkle value
+	/// of the closest descendant is returned. `None` if no such descendant exists.
 	fn look_up_merkle_without_cache(
 		mut self,
 		nibble_key: NibbleSlice,
