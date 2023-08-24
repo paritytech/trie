@@ -724,10 +724,14 @@ fn test_merkle_value_single_key_internal<T: TrieLayout>() {
 	let hash = trie.get_closest_merkle_value(b"AA").unwrap().unwrap();
 	let expected = trie.get_closest_merkle_value(b"AAA").unwrap().unwrap();
 	assert_eq!(hash, expected);
+
+	// Trie does not contain AAAA.
+	let hash = trie.get_closest_merkle_value(b"AAAA").unwrap();
+	assert!(hash.is_none());
 }
 
-test_layouts!(test_merkle_value_branches, test_merkle_value_branches_internals);
-fn test_merkle_value_branches_internals<T: TrieLayout>() {
+test_layouts!(test_merkle_value_branches, test_merkle_value_branches_internal);
+fn test_merkle_value_branches_internal<T: TrieLayout>() {
 	let mut memdb = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
 	let mut root = Default::default();
 
@@ -749,6 +753,62 @@ fn test_merkle_value_branches_internals<T: TrieLayout>() {
 	// Ensure the hash is not from any leaf.
 	assert_ne!(hash, aaaa_hash);
 	assert_ne!(hash, aaba_hash);
+}
+
+test_layouts!(test_merkle_value_modification, test_merkle_value_modification_internal);
+fn test_merkle_value_modification_internal<T: TrieLayout>() {
+	let mut memdb = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
+	let mut root = Default::default();
+
+	let key_value = vec![(b"AAAA".to_vec(), vec![1; 64]), (b"AABA".to_vec(), vec![2; 64])];
+	{
+		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+		for (key, value) in &key_value {
+			t.insert(key, value).unwrap();
+		}
+	}
+
+	let (a_hash_lhs, aaaa_hash_lhs, aaba_hash_lhs) = {
+		let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+
+		// The hash is returned from the branch node.
+		let hash = trie.get_closest_merkle_value(b"A").unwrap().unwrap();
+		let aaaa_hash = trie.get_closest_merkle_value(b"AAAA").unwrap().unwrap();
+		let aaba_hash = trie.get_closest_merkle_value(b"AABA").unwrap().unwrap();
+
+		// Ensure the hash is not from any leaf.
+		assert_ne!(hash, aaaa_hash);
+		assert_ne!(hash, aaba_hash);
+
+		(hash, aaaa_hash, aaba_hash)
+	};
+
+	// Modify AABA and expect AAAA to return the same merkle value.
+	{
+		let mut t = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root).build();
+		t.insert(b"AABA", &vec![3; 64]).unwrap();
+	}
+
+	let (a_hash_rhs, aaaa_hash_rhs, aaba_hash_rhs) = {
+		let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+
+		// The hash is returned from the branch node.
+		let hash = trie.get_closest_merkle_value(b"A").unwrap().unwrap();
+		let aaaa_hash = trie.get_closest_merkle_value(b"AAAA").unwrap().unwrap();
+		let aaba_hash = trie.get_closest_merkle_value(b"AABA").unwrap().unwrap();
+
+		// Ensure the hash is not from any leaf.
+		assert_ne!(hash, aaaa_hash);
+		assert_ne!(hash, aaba_hash);
+
+		(hash, aaaa_hash, aaba_hash)
+	};
+
+	// AAAA was not modified.
+	assert_eq!(aaaa_hash_lhs, aaaa_hash_rhs);
+	// Changes to AABA must propagate to the root.
+	assert_ne!(aaba_hash_lhs, aaba_hash_rhs);
+	assert_ne!(a_hash_lhs, a_hash_rhs);
 }
 
 test_layouts!(iterator_seek_with_recorder, iterator_seek_with_recorder_internal);
