@@ -775,27 +775,27 @@ where
 							}
 						},
 					Node::NibbledBranch(slice, children, value) => {
-						let common_prefix_len = partial.common_prefix(&slice);
 						// Not enough remainder key to continue the search.
 						if partial.len() < slice.len() {
 							self.record(|| TrieAccess::NonExisting { full_key });
 
 							// Branch slice starts with the remainder key, there's nothing to
 							// advance.
-							if common_prefix_len == partial.len() {
-								return Ok(Some(hash))
+							return if slice.starts_with(&partial) {
+								Ok(Some(hash))
 							} else {
-								return Ok(None)
+								Ok(None)
 							}
 						}
 
 						// Partial key is longer or equal than the branch slice.
 						// Ensure partial key starts with the branch slice.
-						if common_prefix_len != slice.len() {
+						if !partial.starts_with(&slice) {
 							self.record(|| TrieAccess::NonExisting { full_key });
 							return Ok(None)
 						}
 
+						// Partial key starts with the branch slice.
 						if partial.len() == slice.len() {
 							if value.is_none() {
 								self.record(|| TrieAccess::NonExisting { full_key });
