@@ -820,7 +820,7 @@ where
 					Node::Empty => {
 						self.record(|| TrieAccess::NonExisting { full_key });
 
-						return Ok(Some(hash))
+						return Ok(None)
 					},
 				};
 
