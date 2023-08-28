@@ -685,6 +685,8 @@ fn test_merkle_value_internal<T: TrieLayout>() {
 	assert!(hash.is_none());
 	let hash = trie.get_closest_merkle_value(b"BX").unwrap();
 	assert!(hash.is_none());
+	let hash = trie.get_closest_merkle_value(b"AC").unwrap();
+	assert!(hash.is_none());
 	let hash = trie.get_closest_merkle_value(b"BC").unwrap();
 	assert!(hash.is_none());
 	let hash = trie.get_closest_merkle_value(b"AAAAX").unwrap();
@@ -729,7 +731,9 @@ fn test_merkle_value_single_key_internal<T: TrieLayout>() {
 	let expected = trie.get_closest_merkle_value(b"AAA").unwrap().unwrap();
 	assert_eq!(hash, expected);
 
-	// Trie does not contain AAAA.
+	// Trie does not contain AAC or AAAA.
+	let hash = trie.get_closest_merkle_value(b"AAC").unwrap();
+	assert!(hash.is_none());
 	let hash = trie.get_closest_merkle_value(b"AAAA").unwrap();
 	assert!(hash.is_none());
 }
