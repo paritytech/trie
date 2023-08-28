@@ -677,11 +677,15 @@ fn test_merkle_value_internal<T: TrieLayout>() {
 	assert!(hash.is_none());
 	let hash = trie.get_closest_merkle_value(b"AABX").unwrap();
 	assert!(hash.is_none());
+	let hash = trie.get_closest_merkle_value(b"AABC").unwrap();
+	assert!(hash.is_none());
 	let hash = trie.get_closest_merkle_value(b"ABX").unwrap();
 	assert!(hash.is_none());
 	let hash = trie.get_closest_merkle_value(b"AABBBBX").unwrap();
 	assert!(hash.is_none());
 	let hash = trie.get_closest_merkle_value(b"BX").unwrap();
+	assert!(hash.is_none());
+	let hash = trie.get_closest_merkle_value(b"BC").unwrap();
 	assert!(hash.is_none());
 	let hash = trie.get_closest_merkle_value(b"AAAAX").unwrap();
 	assert!(hash.is_none());
