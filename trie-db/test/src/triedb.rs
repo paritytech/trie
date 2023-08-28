@@ -759,6 +759,36 @@ fn test_merkle_value_branches_internal<T: TrieLayout>() {
 	assert_ne!(hash, aaba_hash);
 }
 
+test_layouts!(test_merkle_value_empty_trie, test_merkle_value_empty_trie_internal);
+fn test_merkle_value_empty_trie_internal<T: TrieLayout>() {
+	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
+	let mut root = Default::default();
+
+	{
+		// Valid state root.
+		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+		t.insert(&[], &[]).unwrap();
+	}
+
+	// Data set is empty.
+	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+
+	let hash = trie.get_closest_merkle_value(b"").unwrap();
+	assert!(hash.is_none());
+
+	let hash = trie.get_closest_merkle_value(b"A").unwrap();
+	assert!(hash.is_none());
+
+	let hash = trie.get_closest_merkle_value(b"AA").unwrap();
+	assert!(hash.is_none());
+
+	let hash = trie.get_closest_merkle_value(b"AAA").unwrap();
+	assert!(hash.is_none());
+
+	let hash = trie.get_closest_merkle_value(b"AAAA").unwrap();
+	assert!(hash.is_none());
+}
+
 test_layouts!(test_merkle_value_modification, test_merkle_value_modification_internal);
 fn test_merkle_value_modification_internal<T: TrieLayout>() {
 	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
