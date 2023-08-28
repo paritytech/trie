@@ -725,27 +725,26 @@ where
 						return Ok(Some(hash))
 					},
 					Node::Extension(slice, item) => {
-						let common_prefix_len = partial.common_prefix(&slice);
-
 						if partial.len() < slice.len() {
+							self.record(|| TrieAccess::NonExisting { full_key });
+
 							// Extension slice can be longer than remainder of the provided key
 							// (descendent), ensure the extension slice starts with the remainder
 							// of the provided key.
-							if common_prefix_len == partial.len() {
-								return Ok(Some(hash))
+							return if slice.starts_with(&partial) {
+								Ok(Some(hash))
 							} else {
-								self.record(|| TrieAccess::NonExisting { full_key });
-								return Ok(None)
+								Ok(None)
 							}
 						}
 
 						// Remainder of the provided key is longer than the extension slice,
 						// must advance the node iteration if and only if keys share
 						// a common prefix.
-						if common_prefix_len == slice.len() {
+						if partial.starts_with(&slice) {
 							// Empties the partial key if the extension slice is longer.
-							partial = partial.mid(common_prefix_len);
-							key_nibbles += common_prefix_len;
+							partial = partial.mid(slice.len());
+							key_nibbles += slice.len();
 							item
 						} else {
 							self.record(|| TrieAccess::NonExisting { full_key });
