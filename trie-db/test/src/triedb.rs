@@ -655,9 +655,9 @@ fn test_merkle_value_internal<T: TrieLayout>() {
 		(b"AA".to_vec(), vec![2; 64]),
 		(b"AAAA".to_vec(), vec![3; 64]),
 		(b"AAB".to_vec(), vec![4; 64]),
-		(b"AABBBB".to_vec(), vec![4; 64]),
-		(b"AB".to_vec(), vec![5; 4]),
-		(b"B".to_vec(), vec![6; 64]),
+		(b"AABBBB".to_vec(), vec![4; 1]),
+		(b"AB".to_vec(), vec![5; 1]),
+		(b"B".to_vec(), vec![6; 1]),
 	];
 	{
 		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
