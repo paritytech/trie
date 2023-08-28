@@ -646,7 +646,7 @@ fn test_recorder_with_cache_get_hash_internal<T: TrieLayout>() {
 
 test_layouts!(test_merkle_value, test_merkle_value_internal);
 fn test_merkle_value_internal<T: TrieLayout>() {
-	let mut memdb = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
+	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
 
 	// Data set.
@@ -707,7 +707,7 @@ fn test_merkle_value_internal<T: TrieLayout>() {
 
 test_layouts!(test_merkle_value_single_key, test_merkle_value_single_key_internal);
 fn test_merkle_value_single_key_internal<T: TrieLayout>() {
-	let mut memdb = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
+	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
 
 	// Data set.
@@ -732,7 +732,7 @@ fn test_merkle_value_single_key_internal<T: TrieLayout>() {
 
 test_layouts!(test_merkle_value_branches, test_merkle_value_branches_internal);
 fn test_merkle_value_branches_internal<T: TrieLayout>() {
-	let mut memdb = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
+	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
 
 	// Data set.
@@ -757,7 +757,7 @@ fn test_merkle_value_branches_internal<T: TrieLayout>() {
 
 test_layouts!(test_merkle_value_modification, test_merkle_value_modification_internal);
 fn test_merkle_value_modification_internal<T: TrieLayout>() {
-	let mut memdb = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
+	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
 	let mut root = Default::default();
 
 	let key_value = vec![(b"AAAA".to_vec(), vec![1; 64]), (b"AABA".to_vec(), vec![2; 64])];
