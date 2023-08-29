@@ -266,7 +266,7 @@ where
 			cache: cache.as_mut().map(|c| &mut ***c as &mut dyn TrieCache<L::Codec>),
 			recorder: recorder.as_mut().map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>>),
 		}
-		.look_up_merkle(key, NibbleSlice::new(key))
+		.lookup_first_descendant(key, NibbleSlice::new(key))
 	}
 
 	fn iter<'a>(

@@ -134,12 +134,12 @@ where
 		}
 	}
 
-	/// Look up the closest merkle value.
+	/// Look up the closest descendant node.
 	///
-	/// When the provided key leads to a node, then the merkle value of that node
-	/// is returned. However, if the key does not lead to a node, then the closest
-	/// merkle value is returned.
-	pub fn look_up_merkle(
+	/// When the provided key leads to a node, then the hash of the node
+	/// is returned (the merkle value). However, if the key does not lead to a node, then the
+	/// hash of the closest node is returned.
+	pub fn lookup_first_descendant(
 		self,
 		full_key: &[u8],
 		nibble_key: NibbleSlice,
