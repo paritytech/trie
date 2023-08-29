@@ -703,6 +703,7 @@ where
 			// this loop iterates through all inline children (usually max 1)
 			// without incrementing the depth.
 			let mut node_data = &node_data[..];
+			let mut is_inline = false;
 			loop {
 				let decoded = match L::Codec::decode(node_data) {
 					Ok(node) => node,
@@ -722,7 +723,8 @@ where
 							self.record(|| TrieAccess::NonExisting { full_key });
 						}
 
-						return Ok(Some(hash))
+						let res = is_inline.then(|| L::Hash::hash(node_data)).unwrap_or(hash);
+						return Ok(Some(res))
 					},
 					Node::Extension(slice, item) => {
 						if partial.len() < slice.len() {
@@ -732,7 +734,9 @@ where
 							// (descendent), ensure the extension slice starts with the remainder
 							// of the provided key.
 							return if slice.starts_with(&partial) {
-								Ok(Some(hash))
+								let res =
+									is_inline.then(|| L::Hash::hash(node_data)).unwrap_or(hash);
+								Ok(Some(res))
 							} else {
 								Ok(None)
 							}
@@ -757,8 +761,8 @@ where
 							if value.is_none() {
 								self.record(|| TrieAccess::NonExisting { full_key });
 							}
-
-							return Ok(Some(hash))
+							let res = is_inline.then(|| L::Hash::hash(node_data)).unwrap_or(hash);
+							return Ok(Some(res))
 						} else {
 							match children[partial.at(0) as usize] {
 								Some(x) => {
@@ -781,7 +785,9 @@ where
 							// Branch slice starts with the remainder key, there's nothing to
 							// advance.
 							return if slice.starts_with(&partial) {
-								Ok(Some(hash))
+								let res =
+									is_inline.then(|| L::Hash::hash(node_data)).unwrap_or(hash);
+								Ok(Some(res))
 							} else {
 								Ok(None)
 							}
@@ -800,7 +806,8 @@ where
 								self.record(|| TrieAccess::NonExisting { full_key });
 							}
 
-							return Ok(Some(hash))
+							let res = is_inline.then(|| L::Hash::hash(node_data)).unwrap_or(hash);
+							return Ok(Some(res))
 						} else {
 							match children[partial.at(slice.len()) as usize] {
 								Some(x) => {
@@ -832,6 +839,7 @@ where
 					},
 					NodeHandle::Inline(data) => {
 						node_data = data;
+						is_inline = true;
 					},
 				}
 			}
