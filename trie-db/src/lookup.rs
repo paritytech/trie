@@ -18,7 +18,7 @@ use crate::{
 	nibble::NibbleSlice,
 	node::{decode_hash, Node, NodeHandle, NodeHandleOwned, NodeOwned, Value, ValueOwned},
 	node_codec::NodeCodec,
-	rstd::boxed::Box,
+	rstd::{boxed::Box, vec::Vec},
 	Bytes, CError, CachedValue, DBValue, Query, RecordedForKey, Result, TrieAccess, TrieCache,
 	TrieError, TrieHash, TrieLayout, TrieRecorder,
 };
