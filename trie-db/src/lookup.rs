@@ -133,18 +133,18 @@ where
 			recorder.record(get_access());
 		}
 	}
-
-	/// Look up the closest descendant node.
+	/// Look up the merkle value (hash) of the node that is the closest descendant for the provided
+	/// key.
 	///
-	/// When the provided key leads to a node, then the hash of the node
-	/// is returned (the merkle value). However, if the key does not lead to a node, then the
-	/// hash of the closest node is returned.
+	/// When the provided key leads to a node, then the merkle value (hash) of that node
+	/// is returned. However, if the key does not lead to a node, then the merkle value
+	/// of the closest descendant is returned. `None` if no such descendant exists.
 	pub fn lookup_first_descendant(
 		self,
 		full_key: &[u8],
 		nibble_key: NibbleSlice,
 	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
-		self.lookup_first_descendent_without_cache(nibble_key, full_key)
+		self.inner_lookup_first_descendent(nibble_key, full_key)
 	}
 
 	/// Look up the given `nibble_key`.
@@ -675,7 +675,7 @@ where
 	/// When the provided key leads to a node, then the merkle value of that node
 	/// is returned. However, if the key does not lead to a node, then the merkle value
 	/// of the closest descendant is returned. `None` if no such descendant exists.
-	fn lookup_first_descendent_without_cache(
+	fn inner_lookup_first_descendent(
 		mut self,
 		nibble_key: NibbleSlice,
 		full_key: &[u8],
@@ -689,9 +689,19 @@ where
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
+			// Ensure the owned node reference lives long enough.
+			// Value is never read, but the reference is.
+			let mut _owned_node = NodeOwned::Empty;
+
+			// The binary encoded data of the node fetched from the database.
+			//
+			// Populated by `get_owned_node` to avoid one extra allocation by not
+			// calling `NodeOwned::to_encoded` when computing the hash of inlined nodes.
+			let mut node_data = Vec::new();
+
 			// Get the owned node representation from the database.
-			let get_owned_node = |depth: i32| {
-				let node_data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
+			let mut get_owned_node = |depth: i32| {
+				let data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
 					Some(value) => value,
 					None =>
 						return Err(Box::new(match depth {
@@ -700,38 +710,30 @@ where
 						})),
 				};
 
-				let decoded = match L::Codec::decode(&node_data[..]) {
+				let decoded = match L::Codec::decode(&data[..]) {
 					Ok(node) => node,
 					Err(e) => return Err(Box::new(TrieError::DecoderError(hash, e))),
 				};
 
 				let owned = decoded.to_owned_node::<L>()?;
-
-				Ok((node_data, owned))
+				node_data = data;
+				Ok(owned)
 			};
 
-			// Ensure the owned node reference lives long enough.
-			// Value is never read, but the reference is.
-			let mut _owned_node = NodeOwned::Empty;
-
 			let mut node = if let Some(cache) = &mut cache {
-				let node = cache.get_or_insert_node(hash, &mut || {
-					let value = get_owned_node(depth)?;
-					Ok(value.1)
-				})?;
+				let node = cache.get_or_insert_node(hash, &mut || get_owned_node(depth))?;
 
 				self.record(|| TrieAccess::NodeOwned { hash, node_owned: node });
 
 				node
 			} else {
-				let (node_data, node) = get_owned_node(depth)?;
+				_owned_node = get_owned_node(depth)?;
 
 				self.record(|| TrieAccess::EncodedNode {
 					hash,
 					encoded_node: node_data.as_slice().into(),
 				});
 
-				_owned_node = node;
 				&_owned_node
 			};
 
@@ -752,9 +754,7 @@ where
 							self.record(|| TrieAccess::NonExisting { full_key });
 						}
 
-						let res = is_inline
-							.then(|| L::Hash::hash(&node.to_encoded::<L::Codec>()))
-							.unwrap_or(hash);
+						let res = is_inline.then(|| L::Hash::hash(&node_data)).unwrap_or(hash);
 						return Ok(Some(res))
 					},
 					NodeOwned::Extension(slice, item) => {
@@ -765,9 +765,8 @@ where
 							// (descendent), ensure the extension slice starts with the remainder
 							// of the provided key.
 							return if slice.starts_with_slice(&partial) {
-								let res = is_inline
-									.then(|| L::Hash::hash(&node.to_encoded::<L::Codec>()))
-									.unwrap_or(hash);
+								let res =
+									is_inline.then(|| L::Hash::hash(&node_data)).unwrap_or(hash);
 								Ok(Some(res))
 							} else {
 								Ok(None)
@@ -793,9 +792,7 @@ where
 							if value.is_none() {
 								self.record(|| TrieAccess::NonExisting { full_key });
 							}
-							let res = is_inline
-								.then(|| L::Hash::hash(&node.to_encoded::<L::Codec>()))
-								.unwrap_or(hash);
+							let res = is_inline.then(|| L::Hash::hash(&node_data)).unwrap_or(hash);
 							return Ok(Some(res))
 						} else {
 							match &children[partial.at(0) as usize] {
@@ -819,9 +816,8 @@ where
 							// Branch slice starts with the remainder key, there's nothing to
 							// advance.
 							return if slice.starts_with_slice(&partial) {
-								let res = is_inline
-									.then(|| L::Hash::hash(&node.to_encoded::<L::Codec>()))
-									.unwrap_or(hash);
+								let res =
+									is_inline.then(|| L::Hash::hash(&node_data)).unwrap_or(hash);
 								Ok(Some(res))
 							} else {
 								Ok(None)
@@ -841,9 +837,7 @@ where
 								self.record(|| TrieAccess::NonExisting { full_key });
 							}
 
-							let res = is_inline
-								.then(|| L::Hash::hash(&node.to_encoded::<L::Codec>()))
-								.unwrap_or(hash);
+							let res = is_inline.then(|| L::Hash::hash(&node_data)).unwrap_or(hash);
 							return Ok(Some(res))
 						} else {
 							match &children[partial.at(slice.len()) as usize] {
