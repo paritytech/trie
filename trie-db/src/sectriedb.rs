@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::{
-	rstd::boxed::Box, triedb::TrieDB, CError, DBValue, Query, Result, Trie, TrieDBBuilder,
-	TrieHash, TrieItem, TrieIterator, TrieKeyItem, TrieLayout,
+	rstd::boxed::Box, triedb::TrieDB, CError, DBValue, MerkleValue, Query, Result, Trie,
+	TrieDBBuilder, TrieHash, TrieItem, TrieIterator, TrieKeyItem, TrieLayout,
 };
 use hash_db::{HashDBRef, Hasher};
 
@@ -78,7 +78,7 @@ where
 	fn lookup_first_descendant(
 		&self,
 		key: &[u8],
-	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
+	) -> Result<Option<MerkleValue<TrieHash<L>>>, TrieHash<L>, CError<L>> {
 		self.raw.lookup_first_descendant(key)
 	}
 

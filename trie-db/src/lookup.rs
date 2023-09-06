@@ -19,8 +19,8 @@ use crate::{
 	node::{decode_hash, Node, NodeHandle, NodeHandleOwned, NodeOwned, Value, ValueOwned},
 	node_codec::NodeCodec,
 	rstd::{boxed::Box, vec::Vec},
-	Bytes, CError, CachedValue, DBValue, Query, RecordedForKey, Result, TrieAccess, TrieCache,
-	TrieError, TrieHash, TrieLayout, TrieRecorder,
+	Bytes, CError, CachedValue, DBValue, MerkleValue, Query, RecordedForKey, Result, TrieAccess,
+	TrieCache, TrieError, TrieHash, TrieLayout, TrieRecorder,
 };
 use hash_db::{HashDBRef, Hasher, Prefix};
 
@@ -143,7 +143,7 @@ where
 		self,
 		full_key: &[u8],
 		nibble_key: NibbleSlice,
-	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
+	) -> Result<Option<MerkleValue<TrieHash<L>>>, TrieHash<L>, CError<L>> {
 		self.inner_lookup_first_descendent(nibble_key, full_key)
 	}
 
@@ -679,7 +679,7 @@ where
 		mut self,
 		nibble_key: NibbleSlice,
 		full_key: &[u8],
-	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
+	) -> Result<Option<MerkleValue<TrieHash<L>>>, TrieHash<L>, CError<L>> {
 		let mut partial = nibble_key;
 		let mut hash = self.hash;
 		let mut key_nibbles = 0;
@@ -754,7 +754,9 @@ where
 							self.record(|| TrieAccess::NonExisting { full_key });
 						}
 
-						let res = is_inline.then(|| L::Hash::hash(&node_data)).unwrap_or(hash);
+						let res = is_inline
+							.then(|| MerkleValue::Node(node_data))
+							.unwrap_or_else(|| MerkleValue::Hash(hash));
 						return Ok(Some(res))
 					},
 					NodeOwned::Extension(slice, item) => {
@@ -765,8 +767,9 @@ where
 							// (descendent), ensure the extension slice starts with the remainder
 							// of the provided key.
 							return if slice.starts_with_slice(&partial) {
-								let res =
-									is_inline.then(|| L::Hash::hash(&node_data)).unwrap_or(hash);
+								let res = is_inline
+									.then(|| MerkleValue::Node(node_data))
+									.unwrap_or_else(|| MerkleValue::Hash(hash));
 								Ok(Some(res))
 							} else {
 								Ok(None)
@@ -792,7 +795,9 @@ where
 							if value.is_none() {
 								self.record(|| TrieAccess::NonExisting { full_key });
 							}
-							let res = is_inline.then(|| L::Hash::hash(&node_data)).unwrap_or(hash);
+							let res = is_inline
+								.then(|| MerkleValue::Node(node_data))
+								.unwrap_or_else(|| MerkleValue::Hash(hash));
 							return Ok(Some(res))
 						} else {
 							match &children[partial.at(0) as usize] {
@@ -816,8 +821,9 @@ where
 							// Branch slice starts with the remainder key, there's nothing to
 							// advance.
 							return if slice.starts_with_slice(&partial) {
-								let res =
-									is_inline.then(|| L::Hash::hash(&node_data)).unwrap_or(hash);
+								let res = is_inline
+									.then(|| MerkleValue::Node(node_data))
+									.unwrap_or_else(|| MerkleValue::Hash(hash));
 								Ok(Some(res))
 							} else {
 								Ok(None)
@@ -837,7 +843,9 @@ where
 								self.record(|| TrieAccess::NonExisting { full_key });
 							}
 
-							let res = is_inline.then(|| L::Hash::hash(&node_data)).unwrap_or(hash);
+							let res = is_inline
+								.then(|| MerkleValue::Node(node_data))
+								.unwrap_or_else(|| MerkleValue::Hash(hash));
 							return Ok(Some(res))
 						} else {
 							match &children[partial.at(slice.len()) as usize] {

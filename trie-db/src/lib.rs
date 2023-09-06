@@ -286,7 +286,7 @@ pub trait Trie<L: TrieLayout> {
 	fn lookup_first_descendant(
 		&self,
 		key: &[u8],
-	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>>;
+	) -> Result<Option<MerkleValue<TrieHash<L>>>, TrieHash<L>, CError<L>>;
 
 	/// Returns a depth-first iterator over the elements of trie.
 	fn iter<'a>(
@@ -418,7 +418,7 @@ impl<'db, 'cache, L: TrieLayout> Trie<L> for TrieKinds<'db, 'cache, L> {
 	fn lookup_first_descendant(
 		&self,
 		key: &[u8],
-	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
+	) -> Result<Option<MerkleValue<TrieHash<L>>>, TrieHash<L>, CError<L>> {
 		wrapper!(self, lookup_first_descendant, key)
 	}
 
@@ -755,4 +755,16 @@ impl From<Bytes> for BytesWeak {
 	fn from(bytes: Bytes) -> Self {
 		Self(rstd::sync::Arc::downgrade(&bytes.0))
 	}
+}
+
+/// A value returned by [`Trie::lookup_first_descendant`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MerkleValue<H> {
+	/// The merkle value is the node data itself when the
+	/// node data is smaller than `MAX_INLINE_VALUE`.
+	///
+	/// Note: The case of inline nodes.
+	Node(Vec<u8>),
+	/// The merkle value is the hash of the node.
+	Hash(H),
 }

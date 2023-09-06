@@ -18,7 +18,7 @@ use super::{
 };
 use hash_db::{HashDBRef, Hasher};
 
-use crate::{rstd::boxed::Box, TrieDBBuilder};
+use crate::{rstd::boxed::Box, MerkleValue, TrieDBBuilder};
 
 /// A `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 /// Additionaly it stores inserted hash-key mappings for later retrieval.
@@ -75,7 +75,7 @@ where
 	fn lookup_first_descendant(
 		&self,
 		key: &[u8],
-	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
+	) -> Result<Option<MerkleValue<TrieHash<L>>>, TrieHash<L>, CError<L>> {
 		self.raw.lookup_first_descendant(key)
 	}
 
