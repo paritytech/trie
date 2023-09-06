@@ -74,9 +74,9 @@ where
 
 	fn get_closest_merkle_value(
 		&self,
-		_key: &[u8],
+		key: &[u8],
 	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
-		Ok(None)
+		self.raw.get_closest_merkle_value(key)
 	}
 
 	fn iter<'a>(
