@@ -140,11 +140,219 @@ where
 	/// is returned. However, if the key does not lead to a node, then the merkle value
 	/// of the closest descendant is returned. `None` if no such descendant exists.
 	pub fn lookup_first_descendant(
-		self,
+		mut self,
 		full_key: &[u8],
 		nibble_key: NibbleSlice,
 	) -> Result<Option<MerkleValue<TrieHash<L>>>, TrieHash<L>, CError<L>> {
-		self.inner_lookup_first_descendent(nibble_key, full_key)
+		let mut partial = nibble_key;
+		let mut hash = self.hash;
+		let mut key_nibbles = 0;
+
+		let mut cache = self.cache.take();
+
+		// this loop iterates through non-inline nodes.
+		for depth in 0.. {
+			// Ensure the owned node reference lives long enough.
+			// Value is never read, but the reference is.
+			let mut _owned_node = NodeOwned::Empty;
+
+			// The binary encoded data of the node fetched from the database.
+			//
+			// Populated by `get_owned_node` to avoid one extra allocation by not
+			// calling `NodeOwned::to_encoded` when computing the hash of inlined nodes.
+			let mut node_data = Vec::new();
+
+			// Get the owned node representation from the database.
+			let mut get_owned_node = |depth: i32| {
+				let data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
+					Some(value) => value,
+					None =>
+						return Err(Box::new(match depth {
+							0 => TrieError::InvalidStateRoot(hash),
+							_ => TrieError::IncompleteDatabase(hash),
+						})),
+				};
+
+				let decoded = match L::Codec::decode(&data[..]) {
+					Ok(node) => node,
+					Err(e) => return Err(Box::new(TrieError::DecoderError(hash, e))),
+				};
+
+				let owned = decoded.to_owned_node::<L>()?;
+				node_data = data;
+				Ok(owned)
+			};
+
+			let mut node = if let Some(cache) = &mut cache {
+				let node = cache.get_or_insert_node(hash, &mut || get_owned_node(depth))?;
+
+				self.record(|| TrieAccess::NodeOwned { hash, node_owned: node });
+
+				node
+			} else {
+				_owned_node = get_owned_node(depth)?;
+
+				self.record(|| TrieAccess::EncodedNode {
+					hash,
+					encoded_node: node_data.as_slice().into(),
+				});
+
+				&_owned_node
+			};
+
+			// this loop iterates through all inline children (usually max 1)
+			// without incrementing the depth.
+			let mut is_inline = false;
+			loop {
+				let next_node = match node {
+					NodeOwned::Leaf(slice, _) => {
+						// The leaf slice can be longer than remainder of the provided key
+						// (descendent), but not the other way around.
+						if !slice.starts_with_slice(&partial) {
+							self.record(|| TrieAccess::NonExisting { full_key });
+							return Ok(None)
+						}
+
+						if partial.len() != slice.len() {
+							self.record(|| TrieAccess::NonExisting { full_key });
+						}
+
+						let res = is_inline
+							.then(|| MerkleValue::Node(node_data))
+							.unwrap_or_else(|| MerkleValue::Hash(hash));
+						return Ok(Some(res))
+					},
+					NodeOwned::Extension(slice, item) => {
+						if partial.len() < slice.len() {
+							self.record(|| TrieAccess::NonExisting { full_key });
+
+							// Extension slice can be longer than remainder of the provided key
+							// (descendent), ensure the extension slice starts with the remainder
+							// of the provided key.
+							return if slice.starts_with_slice(&partial) {
+								let res = is_inline
+									.then(|| MerkleValue::Node(node_data))
+									.unwrap_or_else(|| MerkleValue::Hash(hash));
+								Ok(Some(res))
+							} else {
+								Ok(None)
+							}
+						}
+
+						// Remainder of the provided key is longer than the extension slice,
+						// must advance the node iteration if and only if keys share
+						// a common prefix.
+						if partial.starts_with_vec(&slice) {
+							// Empties the partial key if the extension slice is longer.
+							partial = partial.mid(slice.len());
+							key_nibbles += slice.len();
+							item
+						} else {
+							self.record(|| TrieAccess::NonExisting { full_key });
+
+							return Ok(None)
+						}
+					},
+					NodeOwned::Branch(children, value) =>
+						if partial.is_empty() {
+							if value.is_none() {
+								self.record(|| TrieAccess::NonExisting { full_key });
+							}
+							let res = is_inline
+								.then(|| MerkleValue::Node(node_data))
+								.unwrap_or_else(|| MerkleValue::Hash(hash));
+							return Ok(Some(res))
+						} else {
+							match &children[partial.at(0) as usize] {
+								Some(x) => {
+									partial = partial.mid(1);
+									key_nibbles += 1;
+									x
+								},
+								None => {
+									self.record(|| TrieAccess::NonExisting { full_key });
+
+									return Ok(None)
+								},
+							}
+						},
+					NodeOwned::NibbledBranch(slice, children, value) => {
+						// Not enough remainder key to continue the search.
+						if partial.len() < slice.len() {
+							self.record(|| TrieAccess::NonExisting { full_key });
+
+							// Branch slice starts with the remainder key, there's nothing to
+							// advance.
+							return if slice.starts_with_slice(&partial) {
+								let res = is_inline
+									.then(|| MerkleValue::Node(node_data))
+									.unwrap_or_else(|| MerkleValue::Hash(hash));
+								Ok(Some(res))
+							} else {
+								Ok(None)
+							}
+						}
+
+						// Partial key is longer or equal than the branch slice.
+						// Ensure partial key starts with the branch slice.
+						if !partial.starts_with_vec(&slice) {
+							self.record(|| TrieAccess::NonExisting { full_key });
+							return Ok(None)
+						}
+
+						// Partial key starts with the branch slice.
+						if partial.len() == slice.len() {
+							if value.is_none() {
+								self.record(|| TrieAccess::NonExisting { full_key });
+							}
+
+							let res = is_inline
+								.then(|| MerkleValue::Node(node_data))
+								.unwrap_or_else(|| MerkleValue::Hash(hash));
+							return Ok(Some(res))
+						} else {
+							match &children[partial.at(slice.len()) as usize] {
+								Some(x) => {
+									partial = partial.mid(slice.len() + 1);
+									key_nibbles += slice.len() + 1;
+									x
+								},
+								None => {
+									self.record(|| TrieAccess::NonExisting { full_key });
+
+									return Ok(None)
+								},
+							}
+						}
+					},
+					NodeOwned::Empty => {
+						self.record(|| TrieAccess::NonExisting { full_key });
+
+						return Ok(None)
+					},
+					NodeOwned::Value(_, _) => {
+						unreachable!(
+							"`NodeOwned::Value` can not be reached by using the hash of a node. \
+							 `NodeOwned::Value` is only constructed when loading a value into memory, \
+							 which needs to have a different hash than any node; qed",
+						)
+					},
+				};
+
+				// check if new node data is inline or hash.
+				match next_node {
+					NodeHandleOwned::Hash(new_hash) => {
+						hash = *new_hash;
+						break
+					},
+					NodeHandleOwned::Inline(inline_node) => {
+						node = &inline_node;
+						is_inline = true;
+					},
+				}
+			}
+		}
+		Ok(None)
 	}
 
 	/// Look up the given `nibble_key`.
@@ -662,229 +870,6 @@ where
 					},
 					NodeHandle::Inline(data) => {
 						node_data = data;
-					},
-				}
-			}
-		}
-		Ok(None)
-	}
-
-	/// Look up the merkle value (hash) of the node that is the closest descendant for the provided
-	/// key.
-	///
-	/// When the provided key leads to a node, then the merkle value of that node
-	/// is returned. However, if the key does not lead to a node, then the merkle value
-	/// of the closest descendant is returned. `None` if no such descendant exists.
-	fn inner_lookup_first_descendent(
-		mut self,
-		nibble_key: NibbleSlice,
-		full_key: &[u8],
-	) -> Result<Option<MerkleValue<TrieHash<L>>>, TrieHash<L>, CError<L>> {
-		let mut partial = nibble_key;
-		let mut hash = self.hash;
-		let mut key_nibbles = 0;
-
-		// Consume the cache similar to `Self::look_up`.
-		let mut cache = self.cache.take();
-
-		// this loop iterates through non-inline nodes.
-		for depth in 0.. {
-			// Ensure the owned node reference lives long enough.
-			// Value is never read, but the reference is.
-			let mut _owned_node = NodeOwned::Empty;
-
-			// The binary encoded data of the node fetched from the database.
-			//
-			// Populated by `get_owned_node` to avoid one extra allocation by not
-			// calling `NodeOwned::to_encoded` when computing the hash of inlined nodes.
-			let mut node_data = Vec::new();
-
-			// Get the owned node representation from the database.
-			let mut get_owned_node = |depth: i32| {
-				let data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
-					Some(value) => value,
-					None =>
-						return Err(Box::new(match depth {
-							0 => TrieError::InvalidStateRoot(hash),
-							_ => TrieError::IncompleteDatabase(hash),
-						})),
-				};
-
-				let decoded = match L::Codec::decode(&data[..]) {
-					Ok(node) => node,
-					Err(e) => return Err(Box::new(TrieError::DecoderError(hash, e))),
-				};
-
-				let owned = decoded.to_owned_node::<L>()?;
-				node_data = data;
-				Ok(owned)
-			};
-
-			let mut node = if let Some(cache) = &mut cache {
-				let node = cache.get_or_insert_node(hash, &mut || get_owned_node(depth))?;
-
-				self.record(|| TrieAccess::NodeOwned { hash, node_owned: node });
-
-				node
-			} else {
-				_owned_node = get_owned_node(depth)?;
-
-				self.record(|| TrieAccess::EncodedNode {
-					hash,
-					encoded_node: node_data.as_slice().into(),
-				});
-
-				&_owned_node
-			};
-
-			// this loop iterates through all inline children (usually max 1)
-			// without incrementing the depth.
-			let mut is_inline = false;
-			loop {
-				let next_node = match node {
-					NodeOwned::Leaf(slice, _) => {
-						// The leaf slice can be longer than remainder of the provided key
-						// (descendent), but not the other way around.
-						if !slice.starts_with_slice(&partial) {
-							self.record(|| TrieAccess::NonExisting { full_key });
-							return Ok(None)
-						}
-
-						if partial.len() != slice.len() {
-							self.record(|| TrieAccess::NonExisting { full_key });
-						}
-
-						let res = is_inline
-							.then(|| MerkleValue::Node(node_data))
-							.unwrap_or_else(|| MerkleValue::Hash(hash));
-						return Ok(Some(res))
-					},
-					NodeOwned::Extension(slice, item) => {
-						if partial.len() < slice.len() {
-							self.record(|| TrieAccess::NonExisting { full_key });
-
-							// Extension slice can be longer than remainder of the provided key
-							// (descendent), ensure the extension slice starts with the remainder
-							// of the provided key.
-							return if slice.starts_with_slice(&partial) {
-								let res = is_inline
-									.then(|| MerkleValue::Node(node_data))
-									.unwrap_or_else(|| MerkleValue::Hash(hash));
-								Ok(Some(res))
-							} else {
-								Ok(None)
-							}
-						}
-
-						// Remainder of the provided key is longer than the extension slice,
-						// must advance the node iteration if and only if keys share
-						// a common prefix.
-						if partial.starts_with_vec(&slice) {
-							// Empties the partial key if the extension slice is longer.
-							partial = partial.mid(slice.len());
-							key_nibbles += slice.len();
-							item
-						} else {
-							self.record(|| TrieAccess::NonExisting { full_key });
-
-							return Ok(None)
-						}
-					},
-					NodeOwned::Branch(children, value) =>
-						if partial.is_empty() {
-							if value.is_none() {
-								self.record(|| TrieAccess::NonExisting { full_key });
-							}
-							let res = is_inline
-								.then(|| MerkleValue::Node(node_data))
-								.unwrap_or_else(|| MerkleValue::Hash(hash));
-							return Ok(Some(res))
-						} else {
-							match &children[partial.at(0) as usize] {
-								Some(x) => {
-									partial = partial.mid(1);
-									key_nibbles += 1;
-									x
-								},
-								None => {
-									self.record(|| TrieAccess::NonExisting { full_key });
-
-									return Ok(None)
-								},
-							}
-						},
-					NodeOwned::NibbledBranch(slice, children, value) => {
-						// Not enough remainder key to continue the search.
-						if partial.len() < slice.len() {
-							self.record(|| TrieAccess::NonExisting { full_key });
-
-							// Branch slice starts with the remainder key, there's nothing to
-							// advance.
-							return if slice.starts_with_slice(&partial) {
-								let res = is_inline
-									.then(|| MerkleValue::Node(node_data))
-									.unwrap_or_else(|| MerkleValue::Hash(hash));
-								Ok(Some(res))
-							} else {
-								Ok(None)
-							}
-						}
-
-						// Partial key is longer or equal than the branch slice.
-						// Ensure partial key starts with the branch slice.
-						if !partial.starts_with_vec(&slice) {
-							self.record(|| TrieAccess::NonExisting { full_key });
-							return Ok(None)
-						}
-
-						// Partial key starts with the branch slice.
-						if partial.len() == slice.len() {
-							if value.is_none() {
-								self.record(|| TrieAccess::NonExisting { full_key });
-							}
-
-							let res = is_inline
-								.then(|| MerkleValue::Node(node_data))
-								.unwrap_or_else(|| MerkleValue::Hash(hash));
-							return Ok(Some(res))
-						} else {
-							match &children[partial.at(slice.len()) as usize] {
-								Some(x) => {
-									partial = partial.mid(slice.len() + 1);
-									key_nibbles += slice.len() + 1;
-									x
-								},
-								None => {
-									self.record(|| TrieAccess::NonExisting { full_key });
-
-									return Ok(None)
-								},
-							}
-						}
-					},
-					NodeOwned::Empty => {
-						self.record(|| TrieAccess::NonExisting { full_key });
-
-						return Ok(None)
-					},
-					NodeOwned::Value(_, _) => {
-						unreachable!(
-							"`NodeOwned::Value` can not be reached by using the hash of a node. \
-							 `NodeOwned::Value` is only constructed when loading a value into memory, \
-							 which needs to have a different hash than any node; qed",
-						)
-					},
-				};
-
-				// check if new node data is inline or hash.
-				match next_node {
-					NodeHandleOwned::Hash(new_hash) => {
-						hash = *new_hash;
-						break
-					},
-					NodeHandleOwned::Inline(inline_node) => {
-						node = &inline_node;
-						is_inline = true;
 					},
 				}
 			}
