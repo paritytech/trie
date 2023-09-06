@@ -88,16 +88,6 @@ where
 	}
 }
 
-impl<H, L: Copy + Default + Eq + PartialEq> NodeHandleOwned<H, L> {
-	/// Check if location hint is missing
-	fn missing_location(&self) -> bool {
-		match self {
-			NodeHandleOwned::Hash(_, l) => *l == Default::default(),
-			NodeHandleOwned::Inline(_) => false,
-		}
-	}
-}
-
 impl<H, L> NodeHandleOwned<H, L> {
 	/// Returns `self` as inline node.
 	pub fn as_inline(&self) -> Option<&NodeOwned<H, L>> {
@@ -379,18 +369,6 @@ where
 			Self::Branch(_, value) => value.as_ref().and_then(|v| v.data_hash()),
 			Self::NibbledBranch(_, _, value) => value.as_ref().and_then(|v| v.data_hash()),
 			Self::Value(_, hash) => Some(*hash),
-		}
-	}
-}
-
-impl<H, L: Copy + Default + Eq + PartialEq> NodeOwned<H, L> {
-	/// Return true if the node may have at least one child node.
-	pub fn has_missing_children_locations(&self) -> bool {
-		match self {
-			Self::Leaf(_, _) | Self::Empty | Self::Value(_, _) => false,
-			Self::Extension(_, h) => h.missing_location(),
-			Self::Branch(c, ..) | Self::NibbledBranch(_, c, ..) =>
-				c.iter().any(|c| c.as_ref().map_or(false, |c| c.missing_location())),
 		}
 	}
 }
