@@ -669,45 +669,45 @@ fn test_merkle_value_internal<T: TrieLayout>() {
 	// Ensure we can fetch the merkle values for all present keys.
 	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
 	for (key, _) in &key_value {
-		trie.get_closest_merkle_value(key).unwrap().unwrap();
+		trie.lookup_first_descendant(key).unwrap().unwrap();
 	}
 
 	// Key is not present and has no descedant, but shares a prefix.
-	let hash = trie.get_closest_merkle_value(b"AAAAX").unwrap();
+	let hash = trie.lookup_first_descendant(b"AAAAX").unwrap();
 	assert!(hash.is_none());
-	let hash = trie.get_closest_merkle_value(b"AABX").unwrap();
+	let hash = trie.lookup_first_descendant(b"AABX").unwrap();
 	assert!(hash.is_none());
-	let hash = trie.get_closest_merkle_value(b"AABC").unwrap();
+	let hash = trie.lookup_first_descendant(b"AABC").unwrap();
 	assert!(hash.is_none());
-	let hash = trie.get_closest_merkle_value(b"ABX").unwrap();
+	let hash = trie.lookup_first_descendant(b"ABX").unwrap();
 	assert!(hash.is_none());
-	let hash = trie.get_closest_merkle_value(b"AABBBBX").unwrap();
+	let hash = trie.lookup_first_descendant(b"AABBBBX").unwrap();
 	assert!(hash.is_none());
-	let hash = trie.get_closest_merkle_value(b"BX").unwrap();
+	let hash = trie.lookup_first_descendant(b"BX").unwrap();
 	assert!(hash.is_none());
-	let hash = trie.get_closest_merkle_value(b"AC").unwrap();
+	let hash = trie.lookup_first_descendant(b"AC").unwrap();
 	assert!(hash.is_none());
-	let hash = trie.get_closest_merkle_value(b"BC").unwrap();
+	let hash = trie.lookup_first_descendant(b"BC").unwrap();
 	assert!(hash.is_none());
-	let hash = trie.get_closest_merkle_value(b"AAAAX").unwrap();
+	let hash = trie.lookup_first_descendant(b"AAAAX").unwrap();
 	assert!(hash.is_none());
 	// Key shares the first nibble with b"A".
-	let hash = trie.get_closest_merkle_value(b"C").unwrap();
+	let hash = trie.lookup_first_descendant(b"C").unwrap();
 	assert!(hash.is_none());
 
 	// Key not present, but has a descendent.
-	let hash = trie.get_closest_merkle_value(b"AAA").unwrap().unwrap();
-	let expected = trie.get_closest_merkle_value(b"AAAA").unwrap().unwrap();
+	let hash = trie.lookup_first_descendant(b"AAA").unwrap().unwrap();
+	let expected = trie.lookup_first_descendant(b"AAAA").unwrap().unwrap();
 	assert_eq!(hash, expected);
-	let hash = trie.get_closest_merkle_value(b"AABB").unwrap().unwrap();
-	let expected = trie.get_closest_merkle_value(b"AABBBB").unwrap().unwrap();
+	let hash = trie.lookup_first_descendant(b"AABB").unwrap().unwrap();
+	let expected = trie.lookup_first_descendant(b"AABBBB").unwrap().unwrap();
 	assert_eq!(hash, expected);
-	let hash = trie.get_closest_merkle_value(b"AABBB").unwrap().unwrap();
-	let expected = trie.get_closest_merkle_value(b"AABBBB").unwrap().unwrap();
+	let hash = trie.lookup_first_descendant(b"AABBB").unwrap().unwrap();
+	let expected = trie.lookup_first_descendant(b"AABBBB").unwrap().unwrap();
 	assert_eq!(hash, expected);
 
 	// Prefix AABB in between AAB and AABBBB, but has different ending char.
-	let hash = trie.get_closest_merkle_value(b"AABBX").unwrap();
+	let hash = trie.lookup_first_descendant(b"AABBX").unwrap();
 	assert!(hash.is_none());
 }
 
@@ -727,14 +727,14 @@ fn test_merkle_value_single_key_internal<T: TrieLayout>() {
 
 	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
 
-	let hash = trie.get_closest_merkle_value(b"AA").unwrap().unwrap();
-	let expected = trie.get_closest_merkle_value(b"AAA").unwrap().unwrap();
+	let hash = trie.lookup_first_descendant(b"AA").unwrap().unwrap();
+	let expected = trie.lookup_first_descendant(b"AAA").unwrap().unwrap();
 	assert_eq!(hash, expected);
 
 	// Trie does not contain AAC or AAAA.
-	let hash = trie.get_closest_merkle_value(b"AAC").unwrap();
+	let hash = trie.lookup_first_descendant(b"AAC").unwrap();
 	assert!(hash.is_none());
-	let hash = trie.get_closest_merkle_value(b"AAAA").unwrap();
+	let hash = trie.lookup_first_descendant(b"AAAA").unwrap();
 	assert!(hash.is_none());
 }
 
@@ -755,9 +755,9 @@ fn test_merkle_value_branches_internal<T: TrieLayout>() {
 	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
 
 	// The hash is returned from the branch node.
-	let hash = trie.get_closest_merkle_value(b"A").unwrap().unwrap();
-	let aaaa_hash = trie.get_closest_merkle_value(b"AAAA").unwrap().unwrap();
-	let aaba_hash = trie.get_closest_merkle_value(b"AABA").unwrap().unwrap();
+	let hash = trie.lookup_first_descendant(b"A").unwrap().unwrap();
+	let aaaa_hash = trie.lookup_first_descendant(b"AAAA").unwrap().unwrap();
+	let aaba_hash = trie.lookup_first_descendant(b"AABA").unwrap().unwrap();
 	// Ensure the hash is not from any leaf.
 	assert_ne!(hash, aaaa_hash);
 	assert_ne!(hash, aaba_hash);
@@ -777,19 +777,19 @@ fn test_merkle_value_empty_trie_internal<T: TrieLayout>() {
 	// Data set is empty.
 	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
 
-	let hash = trie.get_closest_merkle_value(b"").unwrap();
+	let hash = trie.lookup_first_descendant(b"").unwrap();
 	assert!(hash.is_none());
 
-	let hash = trie.get_closest_merkle_value(b"A").unwrap();
+	let hash = trie.lookup_first_descendant(b"A").unwrap();
 	assert!(hash.is_none());
 
-	let hash = trie.get_closest_merkle_value(b"AA").unwrap();
+	let hash = trie.lookup_first_descendant(b"AA").unwrap();
 	assert!(hash.is_none());
 
-	let hash = trie.get_closest_merkle_value(b"AAA").unwrap();
+	let hash = trie.lookup_first_descendant(b"AAA").unwrap();
 	assert!(hash.is_none());
 
-	let hash = trie.get_closest_merkle_value(b"AAAA").unwrap();
+	let hash = trie.lookup_first_descendant(b"AAAA").unwrap();
 	assert!(hash.is_none());
 }
 
@@ -810,9 +810,9 @@ fn test_merkle_value_modification_internal<T: TrieLayout>() {
 		let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
 
 		// The hash is returned from the branch node.
-		let hash = trie.get_closest_merkle_value(b"A").unwrap().unwrap();
-		let aaaa_hash = trie.get_closest_merkle_value(b"AAAA").unwrap().unwrap();
-		let aaba_hash = trie.get_closest_merkle_value(b"AABA").unwrap().unwrap();
+		let hash = trie.lookup_first_descendant(b"A").unwrap().unwrap();
+		let aaaa_hash = trie.lookup_first_descendant(b"AAAA").unwrap().unwrap();
+		let aaba_hash = trie.lookup_first_descendant(b"AABA").unwrap().unwrap();
 
 		// Ensure the hash is not from any leaf.
 		assert_ne!(hash, aaaa_hash);
@@ -831,9 +831,9 @@ fn test_merkle_value_modification_internal<T: TrieLayout>() {
 		let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
 
 		// The hash is returned from the branch node.
-		let hash = trie.get_closest_merkle_value(b"A").unwrap().unwrap();
-		let aaaa_hash = trie.get_closest_merkle_value(b"AAAA").unwrap().unwrap();
-		let aaba_hash = trie.get_closest_merkle_value(b"AABA").unwrap().unwrap();
+		let hash = trie.lookup_first_descendant(b"A").unwrap().unwrap();
+		let aaaa_hash = trie.lookup_first_descendant(b"AAAA").unwrap().unwrap();
+		let aaba_hash = trie.lookup_first_descendant(b"AABA").unwrap().unwrap();
 
 		// Ensure the hash is not from any leaf.
 		assert_ne!(hash, aaaa_hash);

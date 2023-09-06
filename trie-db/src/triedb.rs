@@ -252,7 +252,7 @@ where
 		.look_up(key, NibbleSlice::new(key))
 	}
 
-	fn get_closest_merkle_value(
+	fn lookup_first_descendant(
 		&self,
 		key: &[u8],
 	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {

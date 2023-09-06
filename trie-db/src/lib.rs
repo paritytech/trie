@@ -277,8 +277,13 @@ pub trait Trie<L: TrieLayout> {
 		query: Q,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>;
 
-	/// Returns the merkle value of the closest descendant node of the key.
-	fn get_closest_merkle_value(
+	/// Look up the merkle value of the node that is the closest descendant for the provided
+	/// key.
+	///
+	/// When the provided key leads to a node, then the merkle value of that node
+	/// is returned. However, if the key does not lead to a node, then the merkle value
+	/// of the closest descendant is returned. `None` if no such descendant exists.
+	fn lookup_first_descendant(
 		&self,
 		key: &[u8],
 	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>>;
@@ -410,11 +415,11 @@ impl<'db, 'cache, L: TrieLayout> Trie<L> for TrieKinds<'db, 'cache, L> {
 		wrapper!(self, get_with, key, query)
 	}
 
-	fn get_closest_merkle_value(
+	fn lookup_first_descendant(
 		&self,
 		key: &[u8],
 	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
-		wrapper!(self, get_closest_merkle_value, key)
+		wrapper!(self, lookup_first_descendant, key)
 	}
 
 	fn iter<'a>(
