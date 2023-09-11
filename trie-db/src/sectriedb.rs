@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::{
-	rstd::boxed::Box, triedb::TrieDB, CError, DBValue, Query, Result, Trie, TrieDBBuilder,
-	TrieHash, TrieItem, TrieIterator, TrieKeyItem, TrieLayout,
+	rstd::boxed::Box, triedb::TrieDB, CError, DBValue, MerkleValue, Query, Result, Trie,
+	TrieDBBuilder, TrieHash, TrieItem, TrieIterator, TrieKeyItem, TrieLayout,
 };
 use hash_db::{HashDBRef, Hasher};
 
@@ -73,6 +73,13 @@ where
 		query: Q,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		self.raw.get_with(L::Hash::hash(key).as_ref(), query)
+	}
+
+	fn lookup_first_descendant(
+		&self,
+		key: &[u8],
+	) -> Result<Option<MerkleValue<TrieHash<L>>>, TrieHash<L>, CError<L>> {
+		self.raw.lookup_first_descendant(key)
 	}
 
 	fn iter<'a>(

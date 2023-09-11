@@ -852,6 +852,7 @@ where
 		handle: &NodeHandle<TrieHash<L>>,
 	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
 		let mut handle = handle;
+		// prefix only use for value node access, so this is always correct.
 		let prefix = (full_key, None);
 		loop {
 			let (mid, child) = match handle {
@@ -871,8 +872,8 @@ where
 				},
 				NodeHandle::InMemory(handle) => match &self.storage[handle] {
 					Node::Empty => return Ok(None),
-					Node::Leaf(key, value) =>
-						if NibbleSlice::from_stored(key) == partial {
+					Node::Leaf(slice, value) =>
+						if NibbleSlice::from_stored(slice) == partial {
 							return Ok(value.in_memory_fetched_value(
 								prefix,
 								self.db,
@@ -923,7 +924,7 @@ where
 								None
 							})
 						} else if partial.starts_with(&slice) {
-							let idx = partial.at(0);
+							let idx = partial.at(slice.len());
 							match children[idx as usize].as_ref() {
 								Some(child) => (1 + slice.len(), child),
 								None => return Ok(None),
@@ -1911,7 +1912,6 @@ where
 				cache_child_values::<L>(&node, &mut values_to_cache, full_key.clone());
 			}
 
-			drop(node);
 			values_to_cache.into_iter().for_each(|(k, v)| cache.cache_value_for_key(&k, v));
 		}
 	}
