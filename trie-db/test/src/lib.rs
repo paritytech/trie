@@ -18,12 +18,14 @@
 mod fatdb;
 #[cfg(test)]
 mod fatdbmut;
+pub mod fuzz;
 #[cfg(test)]
 mod iter_build;
 #[cfg(test)]
 mod iterator;
 #[cfg(test)]
 mod proof;
+mod query_plan;
 #[cfg(test)]
 mod recorder;
 #[cfg(test)]
@@ -36,3 +38,31 @@ mod trie_codec;
 mod triedb;
 #[cfg(test)]
 mod triedbmut;
+
+use trie_db::{DBValue, TrieLayout};
+
+/// Testing memory db type.
+pub type MemoryDB<T> = memory_db::MemoryDB<
+	<T as TrieLayout>::Hash,
+	memory_db::HashKey<<T as TrieLayout>::Hash>,
+	DBValue,
+>;
+
+/// Set of entries for base testing.
+pub fn test_entries() -> Vec<(&'static [u8], &'static [u8])> {
+	vec![
+		// "alfa" is at a hash-referenced leaf node.
+		(b"alfa", &[0; 32]),
+		// "bravo" is at an inline leaf node.
+		(b"bravo", b"bravo"),
+		// "do" is at a hash-referenced branch node.
+		(b"do", b"verb"),
+		// "dog" is at a hash-referenced branch node.
+		(b"dog", b"puppy"),
+		// "doge" is at a hash-referenced leaf node.
+		(b"doge", &[0; 32]),
+		// extension node "o" (plus nibble) to next branch.
+		(b"horse", b"stallion"),
+		(b"house", b"building"),
+	]
+}

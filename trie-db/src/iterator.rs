@@ -34,10 +34,16 @@ enum Status {
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Eq, PartialEq)]
-struct Crumb<H: Hasher> {
+pub struct Crumb<H: Hasher> {
 	hash: Option<H::Out>,
 	node: Arc<OwnedNode<DBValue>>,
 	status: Status,
+}
+
+impl<H: Hasher> Clone for Crumb<H> {
+	fn clone(&self) -> Self {
+		Self { hash: self.hash.clone(), node: self.node.clone(), status: self.status.clone() }
+	}
 }
 
 impl<H: Hasher> Crumb<H> {
@@ -62,6 +68,12 @@ impl<H: Hasher> Crumb<H> {
 pub struct TrieDBRawIterator<L: TrieLayout> {
 	trail: Vec<Crumb<L::Hash>>,
 	key_nibbles: NibbleVec,
+}
+
+impl<L: TrieLayout> Clone for TrieDBRawIterator<L> {
+	fn clone(&self) -> Self {
+		Self { trail: self.trail.clone(), key_nibbles: self.key_nibbles.clone() }
+	}
 }
 
 impl<L: TrieLayout> TrieDBRawIterator<L> {

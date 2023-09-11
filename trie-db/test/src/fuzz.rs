@@ -471,3 +471,375 @@ fn test_trie_codec_proof<L: TrieLayout>(entries: Vec<(Vec<u8>, Vec<u8>)>, keys: 
 		assert_eq!(trie.get(key.as_slice()).unwrap(), expected_value);
 	}
 }
+
+/// Query plan proof fuzzing.
+pub mod query_plan {
+	use super::*;
+	use crate::{test_entries, MemoryDB};
+	use arbitrary::Arbitrary;
+	use rand::{rngs::SmallRng, RngCore, SeedableRng};
+	use reference_trie::TestTrieCache;
+	use std::collections::{BTreeMap, BTreeSet};
+	use trie_db::{
+		query_plan::{
+			record_query_plan, HaltedStateRecord, InMemQueryPlan, ProofKind, QueryPlanItem,
+			Recorder,
+		},
+		TrieHash, TrieLayout,
+	};
+
+	const KEY_SIZES: [usize; 7] = [1, 2, 3, 4, 5, 29, 300];
+
+	// deterministic generator.
+	type Rng = SmallRng;
+
+	/// Config for fuzzing.
+	#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+	pub struct Conf {
+		/// Seed.
+		pub seed: u64,
+		/// proof kind.
+		pub kind: ProofKind,
+		/// number of items in state.
+		pub nb_key_value: usize,
+		/// number of different small value.
+		pub nb_small_value_set: usize,
+		/// number of different small value.
+		pub nb_big_value_set: usize,
+		/// Test querying hash only
+		pub hash_only: bool,
+		/// Limit the number of non inline value per proof
+		/// TODO could be arbitrary.
+		pub limit: usize,
+		/// Do we create proof on same memory.
+		pub proof_spawn_with_persistence: bool,
+		/*
+		/// number of query existing.
+		pub nb_existing_value_query: usize,
+		/// number of query existing.
+		pub nb_missing_value_query: usize,
+		/// prefix query (can reduce `nb_existing_value_query`).
+		pub nb_prefix_query: usize,
+		*/
+	}
+
+	#[derive(Clone)]
+	pub struct FuzzContext<L: TrieLayout> {
+		pub reference: BTreeMap<Vec<u8>, Vec<u8>>,
+		pub db: MemoryDB<L>,
+		pub root: TrieHash<L>,
+		pub conf: Conf,
+		pub small_values: BTreeSet<Vec<u8>>,
+		pub big_values: BTreeSet<Vec<u8>>,
+		pub values: Vec<Vec<u8>>,
+	}
+
+	fn bytes_set(
+		rng: &mut Rng,
+		nb: usize,
+		sizes: &[usize],
+		max_byte_value: Option<usize>,
+	) -> BTreeSet<Vec<u8>> {
+		if let Some(max_byte_value) = max_byte_value {
+			let max_nb_value = sizes.len() * max_byte_value;
+			if nb > (max_nb_value / 2) {
+				panic!("too many value {}, max is {}", nb, max_nb_value / 2);
+			}
+		}
+		let mut set = BTreeSet::new();
+		let mut buff = vec![0u8; nb * 2];
+		while set.len() < nb {
+			rng.fill_bytes(&mut buff);
+			for i in 0..buff.len() / 2 {
+				let size = buff[i * 2] as usize % sizes.len();
+				let value = if let Some(max_byte_value) = max_byte_value {
+					let byte = buff[(i * 2) + 1] % max_byte_value as u8;
+					vec![byte; sizes[size]]
+				} else {
+					let mut value = vec![0u8; sizes[size]];
+					rng.fill_bytes(&mut value);
+					value
+				};
+				set.insert(value);
+			}
+		}
+		set
+	}
+
+	fn small_value_set(rng: &mut Rng, nb: usize) -> BTreeSet<Vec<u8>> {
+		let sizes = [1, 2, 30, 31, 32];
+		let max_byte_value = 4; // avoid to many different values.
+		bytes_set(rng, nb, &sizes, Some(max_byte_value))
+	}
+
+	fn big_value_set(rng: &mut Rng, nb: usize) -> BTreeSet<Vec<u8>> {
+		let sizes = [33, 34, 301, 302];
+		let max_byte_value = 4; // avoid to many different values.
+		bytes_set(rng, nb, &sizes, Some(max_byte_value))
+	}
+
+	fn key_set(rng: &mut Rng, nb: usize) -> BTreeSet<Vec<u8>> {
+		bytes_set(rng, nb, &KEY_SIZES[..], None)
+	}
+
+	/// State building (out of fuzzing loop).
+	pub fn build_state<L: TrieLayout>(conf: Conf) -> FuzzContext<L> {
+		let mut rng = Rng::seed_from_u64(conf.seed);
+		let mut reference = BTreeMap::<Vec<u8>, Vec<u8>>::new();
+		let small_values = small_value_set(&mut rng, conf.nb_small_value_set);
+		let big_values = big_value_set(&mut rng, conf.nb_big_value_set);
+		let mut values: Vec<Vec<u8>> = small_values.iter().cloned().collect();
+		values.extend(big_values.iter().cloned());
+		let values = values;
+		let keys = key_set(&mut rng, conf.nb_key_value);
+		for k in keys.into_iter() {
+			let value_index = rng.next_u32() as usize % values.len();
+			reference.insert(k, values[value_index].clone());
+		}
+
+		// add the test entries
+		for (key, value) in test_entries() {
+			reference.insert(key.to_vec(), value.to_vec());
+		}
+
+		let (db, root) = {
+			let mut db = <MemoryDB<L>>::default();
+			let mut root = Default::default();
+			{
+				let mut trie = <TrieDBMutBuilder<L>>::new(&mut db, &mut root).build();
+				for (key, value) in reference.iter() {
+					trie.insert(key, value).unwrap();
+				}
+			}
+			(db, root)
+		};
+		FuzzContext { reference, db, root, conf, small_values, big_values, values }
+	}
+
+	#[derive(Arbitrary, Clone, Debug)]
+	enum ArbitraryKey {
+		Indexed(usize),
+		Random(Vec<u8>),
+	}
+
+	/// Base arbitrary for fuzzing.
+	#[derive(Arbitrary, Clone, Debug)]
+	pub struct ArbitraryQueryPlan(Vec<(bool, ArbitraryKey)>);
+
+	fn arbitrary_query_plan<L: TrieLayout>(
+		context: &FuzzContext<L>,
+		plan: ArbitraryQueryPlan,
+	) -> InMemQueryPlan {
+		let conf = &context.conf;
+		let mut set = BTreeSet::new();
+		for (prefix, k) in plan.0.iter() {
+			// TODO Rc to avoid clone
+			match k {
+				ArbitraryKey::Indexed(at) => {
+					set.insert((context.values[at % context.values.len()].clone(), !prefix));
+				},
+				ArbitraryKey::Random(k) => {
+					set.insert((k.clone(), !prefix));
+				},
+			}
+		}
+		let mut prev_pref: Option<Vec<u8>> = None;
+		let mut query_plan =
+			InMemQueryPlan { items: Vec::with_capacity(set.len()), kind: conf.kind };
+		for (key, not_prefix) in set.into_iter() {
+			if let Some(pref) = prev_pref.as_ref() {
+				if key.starts_with(pref) {
+					continue
+				}
+				prev_pref = None;
+			}
+
+			if !not_prefix {
+				prev_pref = Some(key.clone());
+			}
+
+			query_plan.items.push(QueryPlanItem::new(key, conf.hash_only, !not_prefix));
+		}
+		query_plan
+	}
+
+	/// Main entry point for query plan fuzzing.
+	pub fn fuzz_query_plan<L: TrieLayout>(context: &FuzzContext<L>, plan: ArbitraryQueryPlan) {
+		let conf = context.conf.clone();
+		fuzz_query_plan_conf(context, conf, plan);
+	}
+
+	/// Main entry point for query plan fuzzing.
+	pub fn fuzz_query_plan_conf<L: TrieLayout>(
+		context: &FuzzContext<L>,
+		conf: Conf,
+		plan: ArbitraryQueryPlan,
+	) {
+		let query_plan = arbitrary_query_plan(context, plan);
+
+		let kind = conf.kind;
+		let limit = conf.limit;
+		let limit = (limit != 0).then(|| limit);
+		let recorder = Recorder::new(conf.kind, Default::default(), limit, None);
+		let mut from = HaltedStateRecord::from_start(recorder);
+		let mut proofs: Vec<Vec<Vec<u8>>> = Default::default();
+		let mut query_plan_iter = query_plan.as_ref();
+		let mut cache = TestTrieCache::<L>::default();
+		let db = <TrieDBBuilder<L>>::new(&context.db, &context.root)
+			.with_cache(&mut cache)
+			.build();
+		loop {
+			record_query_plan::<L, _>(&db, &mut query_plan_iter, &mut from).unwrap();
+
+			if limit.is_none() {
+				assert!(!from.is_halted());
+			}
+			if !from.is_halted() {
+				proofs.push(from.finish());
+				break
+			}
+			let rec = if conf.proof_spawn_with_persistence {
+				from.statefull(Recorder::new(kind, Default::default(), limit, None))
+			} else {
+				query_plan_iter = query_plan.as_ref();
+				from.stateless(Recorder::new(kind, Default::default(), limit, None))
+			};
+			proofs.push(rec);
+		}
+
+		crate::query_plan::check_proofs::<L>(
+			proofs,
+			&query_plan,
+			conf.kind,
+			context.root,
+			&context.reference,
+			conf.hash_only,
+		);
+	}
+
+	/// Fuzzing conf 1.
+	pub const CONF1: Conf = Conf {
+		seed: 0u64,
+		kind: ProofKind::FullNodes,
+		nb_key_value: 300,
+		nb_small_value_set: 5,
+		nb_big_value_set: 5,
+		hash_only: false,
+		limit: 0, // no limit
+		proof_spawn_with_persistence: false,
+	};
+
+	/// Fuzzing conf 2.
+	pub const CONF2: Conf = Conf {
+		seed: 0u64,
+		kind: ProofKind::CompactNodes,
+		nb_key_value: 300,
+		nb_small_value_set: 5,
+		nb_big_value_set: 5,
+		hash_only: false,
+		limit: 0, // no limit
+		proof_spawn_with_persistence: false,
+	};
+
+	#[test]
+	fn fuzz_query_plan_1() {
+		use reference_trie::{RefHasher, SubstrateV1};
+		let plans = [
+			ArbitraryQueryPlan(vec![
+				(false, ArbitraryKey::Indexed(9137484785696899328)),
+				(false, ArbitraryKey::Indexed(393082)),
+			]),
+			ArbitraryQueryPlan(vec![
+				(false, ArbitraryKey::Indexed(17942346408707227648)),
+				(false, ArbitraryKey::Indexed(37833)),
+			]),
+			ArbitraryQueryPlan(vec![
+				(true, ArbitraryKey::Random(vec![131, 1, 11, 234, 137, 233, 233, 233, 180])),
+				(false, ArbitraryKey::Random(vec![137])),
+			]),
+			ArbitraryQueryPlan(vec![
+				(true, ArbitraryKey::Random(vec![76])),
+				(true, ArbitraryKey::Random(vec![198, 198, 234, 35, 76, 76, 1])),
+			]),
+			ArbitraryQueryPlan(vec![
+				(false, ArbitraryKey::Random(vec![225])),
+				(true, ArbitraryKey::Random(vec![225, 225, 225, 142])),
+			]),
+			ArbitraryQueryPlan(vec![
+				(false, ArbitraryKey::Indexed(18446475631341993995)),
+				(true, ArbitraryKey::Indexed(254)),
+			]),
+			ArbitraryQueryPlan(vec![(
+				true,
+				ArbitraryKey::Random(vec![252, 63, 149, 166, 164, 38]),
+			)]),
+			ArbitraryQueryPlan(vec![(false, ArbitraryKey::Indexed(459829968682))]),
+			ArbitraryQueryPlan(vec![(true, ArbitraryKey::Indexed(43218140957))]),
+			ArbitraryQueryPlan(vec![]),
+		];
+		let context: FuzzContext<SubstrateV1<RefHasher>> = build_state(CONF1);
+		for plan in plans {
+			fuzz_query_plan::<SubstrateV1<RefHasher>>(&context, plan.clone());
+		}
+	}
+
+	#[test]
+	fn fuzz_query_plan_2() {
+		use reference_trie::{RefHasher, SubstrateV1};
+		let plans = [
+			ArbitraryQueryPlan(vec![
+				(false, ArbitraryKey::Indexed(18446475631341993995)),
+				(true, ArbitraryKey::Indexed(254)),
+			]),
+			ArbitraryQueryPlan(vec![(
+				true,
+				ArbitraryKey::Random(vec![252, 63, 149, 166, 164, 38]),
+			)]),
+			ArbitraryQueryPlan(vec![(false, ArbitraryKey::Indexed(459829968682))]),
+			ArbitraryQueryPlan(vec![
+				(false, ArbitraryKey::Indexed(17942346408707227648)),
+				(false, ArbitraryKey::Indexed(37833)),
+			]),
+			ArbitraryQueryPlan(vec![(true, ArbitraryKey::Indexed(43218140957))]),
+			ArbitraryQueryPlan(vec![]),
+		];
+		let mut conf = CONF1.clone();
+		let context: FuzzContext<SubstrateV1<RefHasher>> = build_state(CONF1);
+		for plan in plans {
+			conf.limit = 2;
+			conf.proof_spawn_with_persistence = true;
+			fuzz_query_plan_conf::<SubstrateV1<RefHasher>>(&context, conf, plan.clone());
+		}
+	}
+
+	#[test]
+	fn fuzz_query_plan_3() {
+		use reference_trie::{RefHasher, SubstrateV1};
+		let plans = [ArbitraryQueryPlan(vec![])];
+		let context: FuzzContext<SubstrateV1<RefHasher>> = build_state(CONF2);
+		for plan in plans {
+			fuzz_query_plan::<SubstrateV1<RefHasher>>(&context, plan.clone());
+		}
+	}
+
+	#[test]
+	fn fuzz_query_plan_4() {
+		use reference_trie::{RefHasher, SubstrateV1};
+		let plans = [(
+			ArbitraryQueryPlan(vec![
+				(true, ArbitraryKey::Random(vec![86])),
+				(false, ArbitraryKey::Random(vec![232])),
+			]),
+			3,
+			true, // TODO false
+		)];
+		[(ArbitraryQueryPlan(vec![(false, ArbitraryKey::Random(vec![115]))]), 1, false)];
+		let mut conf = CONF2.clone();
+		let context: FuzzContext<SubstrateV1<RefHasher>> = build_state(CONF2);
+		for (plan, nb, statefull) in plans {
+			conf.limit = nb;
+			conf.proof_spawn_with_persistence = statefull;
+			fuzz_query_plan_conf::<SubstrateV1<RefHasher>>(&context, conf, plan.clone());
+		}
+	}
+}

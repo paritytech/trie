@@ -16,16 +16,13 @@ use crate::rstd::cmp::{self, Ordering};
 
 use crate::nibble::{
 	nibble_ops::{self, NIBBLE_PER_BYTE},
-	NibbleSlice,
+	LeftNibbleSlice, NibbleSlice, NibbleVec,
 };
 
-/// A representation of a nibble slice which is left-aligned. The regular `NibbleSlice` is
-/// right-aligned, meaning it does not support efficient truncation from the right side.
-///
-/// This is an immutable struct. No operations actually change it.
-pub struct LeftNibbleSlice<'a> {
-	bytes: &'a [u8],
-	len: usize,
+impl<'a> From<&'a NibbleVec> for LeftNibbleSlice<'a> {
+	fn from(v: &'a NibbleVec) -> Self {
+		LeftNibbleSlice { bytes: v.inner.as_slice(), len: v.len }
+	}
 }
 
 impl<'a> LeftNibbleSlice<'a> {

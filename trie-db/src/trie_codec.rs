@@ -28,6 +28,7 @@
 use crate::{
 	nibble_ops::NIBBLE_LENGTH,
 	node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, ValuePlan},
+	query_plan::BitmapAccess,
 	rstd::{boxed::Box, convert::TryInto, marker::PhantomData, result, sync::Arc, vec, vec::Vec},
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result, TrieDB, TrieDBRawIterator,
 	TrieError, TrieHash, TrieLayout,
@@ -100,88 +101,94 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 
 	/// Generates the encoding of the subtrie rooted at this entry.
 	fn encode_node(&mut self) -> Result<Vec<u8>, C::HashOut, C::Error> {
-		let node_data = self.node.data();
-		let node_plan = self.node.node_plan();
-		let mut encoded = match node_plan {
-			NodePlan::Empty => node_data.to_vec(),
-			NodePlan::Leaf { partial, value: _ } =>
-				if self.omit_value {
-					let partial = partial.build(node_data);
-					C::leaf_node(partial.right_iter(), partial.len(), OMIT_VALUE_HASH)
-				} else {
-					node_data.to_vec()
-				},
-			NodePlan::Extension { partial, child: _ } =>
-				if !self.omit_children[0] {
-					node_data.to_vec()
-				} else {
-					let partial = partial.build(node_data);
-					let empty_child = ChildReference::Inline(C::HashOut::default(), 0);
-					C::extension_node(partial.right_iter(), partial.len(), empty_child)
-				},
-			NodePlan::Branch { value, children } => {
-				let value = if self.omit_value {
-					value.is_some().then_some(OMIT_VALUE_HASH)
-				} else {
-					value.as_ref().map(|v| v.build(node_data))
-				};
-				C::branch_node(
-					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
-					value,
-				)
-			},
-			NodePlan::NibbledBranch { partial, value, children } => {
+		encode_node_internal::<C>(&*self.node, self.omit_value, self.omit_children.as_slice())
+			.map_err(|err| {
+				Box::new(TrieError::InvalidHash(C::HashOut::default(), err.unwrap_or_default()))
+			})
+	}
+}
+
+pub(crate) fn encode_node_internal<C: NodeCodec>(
+	node: &OwnedNode<DBValue>,
+	omit_value: bool,
+	omit_children: impl BitmapAccess,
+) -> crate::rstd::result::Result<Vec<u8>, Option<Vec<u8>>> {
+	let node_data = node.data();
+	let node_plan = node.node_plan();
+	let mut encoded = match node_plan {
+		NodePlan::Empty => node_data.to_vec(),
+		NodePlan::Leaf { partial, value: _ } =>
+			if omit_value {
 				let partial = partial.build(node_data);
-				let value = if self.omit_value {
-					value.is_some().then_some(OMIT_VALUE_HASH)
-				} else {
-					value.as_ref().map(|v| v.build(node_data))
-				};
-				C::branch_node_nibbled(
-					partial.right_iter(),
-					partial.len(),
-					Self::branch_children(node_data, &children, &self.omit_children)?.iter(),
-					value,
-				)
+				C::leaf_node(partial.right_iter(), partial.len(), OMIT_VALUE_HASH)
+			} else {
+				node_data.to_vec()
 			},
-		};
-
-		if self.omit_value {
-			if let Some(header) = C::ESCAPE_HEADER {
-				encoded.insert(0, header);
+		NodePlan::Extension { partial, child: _ } =>
+			if !omit_children.at(0) {
+				node_data.to_vec()
 			} else {
-				return Err(Box::new(TrieError::InvalidStateRoot(Default::default())))
-			}
-		}
-		Ok(encoded)
-	}
-
-	/// Generate the list of child references for a branch node with certain children omitted.
-	///
-	/// Preconditions:
-	/// - omit_children has size NIBBLE_LENGTH.
-	/// - omit_children[i] is only true if child_handles[i] is Some
-	fn branch_children(
-		node_data: &[u8],
-		child_handles: &[Option<NodeHandlePlan>; NIBBLE_LENGTH],
-		omit_children: &[bool],
-	) -> Result<[Option<ChildReference<C::HashOut>>; NIBBLE_LENGTH], C::HashOut, C::Error> {
-		let empty_child = ChildReference::Inline(C::HashOut::default(), 0);
-		let mut children = [None; NIBBLE_LENGTH];
-		for i in 0..NIBBLE_LENGTH {
-			children[i] = if omit_children[i] {
-				Some(empty_child)
-			} else if let Some(child_plan) = &child_handles[i] {
-				let child_ref = child_plan.build(node_data).try_into().map_err(|hash| {
-					Box::new(TrieError::InvalidHash(C::HashOut::default(), hash))
-				})?;
-				Some(child_ref)
+				let partial = partial.build(node_data);
+				let empty_child = ChildReference::Inline(C::HashOut::default(), 0);
+				C::extension_node(partial.right_iter(), partial.len(), empty_child)
+			},
+		NodePlan::Branch { value, children } => {
+			let value = if omit_value {
+				value.is_some().then_some(OMIT_VALUE_HASH)
 			} else {
-				None
+				value.as_ref().map(|v| v.build(node_data))
 			};
+			C::branch_node(branch_children::<C>(node_data, &children, omit_children)?.iter(), value)
+		},
+		NodePlan::NibbledBranch { partial, value, children } => {
+			let partial = partial.build(node_data);
+			let value = if omit_value {
+				value.is_some().then_some(OMIT_VALUE_HASH)
+			} else {
+				value.as_ref().map(|v| v.build(node_data))
+			};
+			C::branch_node_nibbled(
+				partial.right_iter(),
+				partial.len(),
+				branch_children::<C>(node_data, &children, omit_children)?.iter(),
+				value,
+			)
+		},
+	};
+
+	if omit_value {
+		if let Some(header) = C::ESCAPE_HEADER {
+			encoded.insert(0, header);
+		} else {
+			return Err(None)
 		}
-		Ok(children)
 	}
+	Ok(encoded)
+}
+
+/// Generate the list of child references for a branch node with certain children omitted.
+///
+/// Preconditions:
+/// - omit_children has size NIBBLE_LENGTH.
+/// - omit_children[i] is only true if child_handles[i] is Some
+fn branch_children<C: NodeCodec>(
+	node_data: &[u8],
+	child_handles: &[Option<NodeHandlePlan>; NIBBLE_LENGTH],
+	omit_children: impl BitmapAccess,
+) -> crate::rstd::result::Result<[Option<ChildReference<C::HashOut>>; NIBBLE_LENGTH], Vec<u8>> {
+	let empty_child = ChildReference::Inline(C::HashOut::default(), 0);
+	let mut children = [None; NIBBLE_LENGTH];
+	for i in 0..NIBBLE_LENGTH {
+		children[i] = if omit_children.at(i) {
+			Some(empty_child)
+		} else if let Some(child_plan) = &child_handles[i] {
+			let child_ref = child_plan.build(node_data).try_into()?;
+			Some(child_ref)
+		} else {
+			None
+		};
+	}
+	Ok(children)
 }
 
 /// Detached value if included does write a reserved header,
@@ -407,27 +414,35 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	/// Preconditions:
 	/// - if node is an extension node, then `children[0]` is Some.
 	fn encode_node(self, attached_hash: Option<&[u8]>) -> Vec<u8> {
-		let attached_hash = attached_hash.map(|h| crate::node::Value::Node(h));
-		match self.node {
-			Node::Empty => C::empty_node().to_vec(),
-			Node::Leaf(partial, value) =>
-				C::leaf_node(partial.right_iter(), partial.len(), attached_hash.unwrap_or(value)),
-			Node::Extension(partial, _) => C::extension_node(
-				partial.right_iter(),
-				partial.len(),
-				self.children[0].expect("required by method precondition; qed"),
-			),
-			Node::Branch(_, value) => C::branch_node(
-				self.children.into_iter(),
-				if attached_hash.is_some() { attached_hash } else { value },
-			),
-			Node::NibbledBranch(partial, _, value) => C::branch_node_nibbled(
-				partial.right_iter(),
-				partial.len(),
-				self.children.iter(),
-				if attached_hash.is_some() { attached_hash } else { value },
-			),
-		}
+		encode_read_node_internal::<C>(self.node, &self.children, attached_hash)
+	}
+}
+
+pub(crate) fn encode_read_node_internal<C: NodeCodec>(
+	node: Node,
+	children: &Vec<Option<ChildReference<C::HashOut>>>,
+	attached_hash: Option<&[u8]>,
+) -> Vec<u8> {
+	let attached_hash = attached_hash.map(|h| crate::node::Value::Node(h));
+	match node {
+		Node::Empty => C::empty_node().to_vec(),
+		Node::Leaf(partial, value) =>
+			C::leaf_node(partial.right_iter(), partial.len(), attached_hash.unwrap_or(value)),
+		Node::Extension(partial, _) => C::extension_node(
+			partial.right_iter(),
+			partial.len(),
+			children[0].expect("required by method precondition; qed"),
+		),
+		Node::Branch(_, value) => C::branch_node(
+			children.into_iter(),
+			if attached_hash.is_some() { attached_hash } else { value },
+		),
+		Node::NibbledBranch(partial, _, value) => C::branch_node_nibbled(
+			partial.right_iter(),
+			partial.len(),
+			children.iter(),
+			if attached_hash.is_some() { attached_hash } else { value },
+		),
 	}
 }
 

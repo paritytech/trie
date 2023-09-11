@@ -484,13 +484,15 @@ fn insert_empty_internal<T: TrieLayout>() {
 
 	assert_eq!(*t.root(), reference_trie_root::<T, _, _, _>(x.clone()));
 
-	for &(ref key, _) in &x {
-		t.insert(key, &[]).unwrap();
-	}
+	if T::ALLOW_EMPTY == false {
+		for &(ref key, _) in &x {
+			t.insert(key, &[]).unwrap();
+		}
 
-	assert!(t.is_empty());
-	let hashed_null_node = reference_hashed_null_node::<T>();
-	assert_eq!(*t.root(), hashed_null_node);
+		assert!(t.is_empty());
+		let hashed_null_node = reference_hashed_null_node::<T>();
+		assert_eq!(*t.root(), hashed_null_node);
+	}
 }
 
 test_layouts!(return_old_values, return_old_values_internal);

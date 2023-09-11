@@ -43,6 +43,7 @@ use node::NodeOwned;
 
 pub mod node;
 pub mod proof;
+pub mod query_plan;
 pub mod recorder;
 pub mod sectriedb;
 pub mod sectriedbmut;

@@ -154,19 +154,64 @@ where
 		partial_key: Prefix,
 		record_access: bool,
 	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
+		self.get_raw_or_lookup_with_cache(
+			parent_hash,
+			node_handle,
+			partial_key,
+			record_access,
+			false,
+		)
+	}
+
+	/// Same as get_raw_or_lookup but with optionally use of the node cache.
+	/// Warning cache usage double encode decode here so only to use for
+	/// avoiding a costy db access, generally db cache would be better.
+	/// A small switch in cache api could lift this.
+	pub(crate) fn get_raw_or_lookup_with_cache(
+		&self,
+		parent_hash: TrieHash<L>,
+		node_handle: NodeHandle,
+		partial_key: Prefix,
+		record_access: bool,
+		use_cache: bool,
+	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
 		let (node_hash, node_data) = match node_handle {
 			NodeHandle::Hash(data) => {
 				let node_hash = decode_hash::<L::Hash>(data)
 					.ok_or_else(|| Box::new(TrieError::InvalidHash(parent_hash, data.to_vec())))?;
-				let node_data = self.db.get(&node_hash, partial_key).ok_or_else(|| {
-					if partial_key == EMPTY_PREFIX {
-						Box::new(TrieError::InvalidStateRoot(node_hash))
-					} else {
-						Box::new(TrieError::IncompleteDatabase(node_hash))
-					}
-				})?;
+				if use_cache && self.cache.as_ref().is_some() {
+					let c = self.cache.as_ref().expect("checked above");
+					let mut cache = c.borrow_mut();
+					let node = cache.get_or_insert_node(node_hash, &mut || {
+						let node_data = self.db.get(&node_hash, partial_key).ok_or_else(|| {
+							if partial_key == EMPTY_PREFIX {
+								Box::new(TrieError::InvalidStateRoot(node_hash))
+							} else {
+								Box::new(TrieError::IncompleteDatabase(node_hash))
+							}
+						})?;
+						use crate::node_codec::NodeCodec;
+						let decoded = match L::Codec::decode(&node_data[..]) {
+							Ok(node) => node,
+							Err(e) => return Err(Box::new(TrieError::DecoderError(node_hash, e))),
+						};
 
-				(Some(node_hash), node_data)
+						decoded.to_owned_node::<L>()
+					})?;
+					let encoded = node.to_encoded::<L::Codec>();
+
+					(Some(node_hash), encoded)
+				} else {
+					let node_data = self.db.get(&node_hash, partial_key).ok_or_else(|| {
+						if partial_key == EMPTY_PREFIX {
+							Box::new(TrieError::InvalidStateRoot(node_hash))
+						} else {
+							Box::new(TrieError::IncompleteDatabase(node_hash))
+						}
+					})?;
+
+					(Some(node_hash), node_data)
+				}
 			},
 			NodeHandle::Inline(data) => (None, data.to_vec()),
 		};
