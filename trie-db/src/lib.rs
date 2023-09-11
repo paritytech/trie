@@ -277,7 +277,7 @@ pub trait Trie<L: TrieLayout> {
 		query: Q,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>;
 
-	/// Look up the merkle value of the node that is the closest descendant for the provided
+	/// Look up the [`MerkleValue`] of the node that is the closest descendant for the provided
 	/// key.
 	///
 	/// When the provided key leads to a node, then the merkle value of that node
