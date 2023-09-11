@@ -757,7 +757,9 @@ impl From<Bytes> for BytesWeak {
 	}
 }
 
-/// A value returned by [`Trie::lookup_first_descendant`].
+/// Either the `hash` or `value` of a node depending on its size.
+///
+/// If the size of the node `value` is bigger or equal than `MAX_INLINE_VALUE` the `hash` is returned.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MerkleValue<H> {
 	/// The merkle value is the node data itself when the
