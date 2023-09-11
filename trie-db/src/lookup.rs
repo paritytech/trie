@@ -402,6 +402,9 @@ where
 					Ok(match v {
 						Value::Inline(v) => {
 							if let Some(recoder) = recorder.as_mut() {
+								// We can record this as `InlineValue`, even we are just returning
+								// the `hash`. This is done to prevent requiring to re-record this
+								// key.
 								recoder.record(TrieAccess::InlineValue { full_key });
 							}
 
@@ -452,6 +455,9 @@ where
 				|value, _, full_key, _, _, recorder| match value {
 					ValueOwned::Inline(value, hash) => {
 						if let Some(recoder) = recorder.as_mut() {
+							// We can record this as `InlineValue`, even we are just returning
+							// the `hash`. This is done to prevent requiring to re-record this
+							// key.
 							recoder.record(TrieAccess::InlineValue { full_key });
 						}
 
