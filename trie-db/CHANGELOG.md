@@ -4,6 +4,11 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
+## [0.28.0] - 2023-09-12
+- Make `trie_nodes_recorded_for_key` work for inline values [#194](https://github.com/paritytech/trie/pull/194)
+- trie-db: Fetch the closest merkle value [#199](https://github.com/paritytech/trie/pull/199)
+- fixing triedbmut lookup, added some testing in test. [#198](https://github.com/paritytech/trie/pull/198)
+
 ## [0.27.1] - 2023-03-17
 - Fix `TrieDBRawIterator::prefix_then_seek` [#190](https://github.com/paritytech/trie/pull/190)
 
