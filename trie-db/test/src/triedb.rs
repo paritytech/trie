@@ -1167,7 +1167,7 @@ fn test_trie_nodes_recorded_internal<T: TrieLayout>() {
 			}
 
 			assert_eq!(
-				RecordedForKey::None,
+				RecordedForKey::Value,
 				recorder.trie_nodes_recorded_for_key(&NON_EXISTENT_KEY),
 			);
 		}
