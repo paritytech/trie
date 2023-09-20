@@ -78,17 +78,18 @@ pub trait Hasher: Sync + Send {
 	fn hash(x: &[u8]) -> Self::Out;
 }
 
-/// Trait modelling datastore keyed by a hash defined by the `Hasher`.
-pub trait HashDB<H: Hasher, T, C>: Send + Sync {
-	/// Look up a given hash into the bytes that hash to it, returning None if the
-	/// hash is not known.
-	fn get(&self, key: &H::Out, prefix: Prefix, location: C) -> Option<(T, Vec<C>)>;
+/// Trait modelling datastore keyed by a hash defined by the `Hasher` and optional location tag.
+pub trait HashDB<H: Hasher, T, L>: Send + Sync {
+	/// Look up a trie node by hash and location.
+	/// Returns the node bytes and the list of children node locations if any.
+	fn get(&self, key: &H::Out, prefix: Prefix, location: L) -> Option<(T, Vec<L>)>;
 
-	/// Check for the existence of a hash-key.
-	fn contains(&self, key: &H::Out, prefix: Prefix, location: C) -> bool {
+	/// Check for the existence of a hash-key at the location.
+	fn contains(&self, key: &H::Out, prefix: Prefix, location: L) -> bool {
 		self.get(key, prefix, location).is_some()
 	}
 
+	/// Compute value hash.
 	fn hash(&self, value: &[u8]) -> H::Out {
 		H::hash(value)
 	}
