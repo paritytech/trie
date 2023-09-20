@@ -11,7 +11,7 @@ edition = "2018"
 hash-db = { path = "../../hash-db", version = "0.16.0"}
 memory-db = { path = "../../memory-db", default-features = false, version = "0.32.0"}
 keccak-hasher = { path = "../keccak-hasher", version = "0.16.0" }
-trie-db = { path = "../../trie-db", default-features = false, version = "0.27.0" }
+trie-db = { path = "../../trie-db", default-features = false, version = "0.28.0" }
 trie-root = { path = "../../trie-root", default-features = false, version = "0.18.0" }
 parity-scale-codec = { version = "3.0.0", features = ["derive"] }
 hashbrown = { version = "0.13.2", default-features = false, features = ["ahash"] }

@@ -21,8 +21,8 @@ use reference_trie::{
 	test_layouts, test_layouts_substrate, HashedValueNoExtThreshold, TestTrieCache,
 };
 use trie_db::{
-	encode_compact, CachedValue, DBValue, Lookup, NibbleSlice, Recorder, Trie, TrieCache,
-	TrieDBBuilder, TrieDBMutBuilder, TrieLayout,
+	encode_compact, CachedValue, DBValue, Lookup, NibbleSlice, RecordedForKey, Recorder, Trie,
+	TrieCache, TrieDBBuilder, TrieDBMutBuilder, TrieLayout, TrieRecorder,
 };
 
 type PrefixedMemoryDB<T> =
@@ -629,6 +629,200 @@ fn test_recorder_with_cache_get_hash_internal<T: TrieLayout>() {
 	}
 }
 
+test_layouts!(test_merkle_value, test_merkle_value_internal);
+fn test_merkle_value_internal<T: TrieLayout>() {
+	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
+
+	// Data set.
+	let key_value = vec![
+		(b"A".to_vec(), vec![1; 64]),
+		(b"AA".to_vec(), vec![2; 64]),
+		(b"AAAA".to_vec(), vec![3; 64]),
+		(b"AAB".to_vec(), vec![4; 64]),
+		(b"AABBBB".to_vec(), vec![4; 1]),
+		(b"AB".to_vec(), vec![5; 1]),
+		(b"B".to_vec(), vec![6; 1]),
+	];
+	let mut t = TrieDBMutBuilder::<T>::new(&memdb).build();
+	for (key, value) in &key_value {
+		t.insert(key, value).unwrap();
+	}
+	let root = t.commit().apply_to(&mut memdb);
+
+	// Ensure we can fetch the merkle values for all present keys.
+	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+	for (key, _) in &key_value {
+		trie.lookup_first_descendant(key).unwrap().unwrap();
+	}
+
+	// Key is not present and has no descedant, but shares a prefix.
+	let hash = trie.lookup_first_descendant(b"AAAAX").unwrap();
+	assert!(hash.is_none());
+	let hash = trie.lookup_first_descendant(b"AABX").unwrap();
+	assert!(hash.is_none());
+	let hash = trie.lookup_first_descendant(b"AABC").unwrap();
+	assert!(hash.is_none());
+	let hash = trie.lookup_first_descendant(b"ABX").unwrap();
+	assert!(hash.is_none());
+	let hash = trie.lookup_first_descendant(b"AABBBBX").unwrap();
+	assert!(hash.is_none());
+	let hash = trie.lookup_first_descendant(b"BX").unwrap();
+	assert!(hash.is_none());
+	let hash = trie.lookup_first_descendant(b"AC").unwrap();
+	assert!(hash.is_none());
+	let hash = trie.lookup_first_descendant(b"BC").unwrap();
+	assert!(hash.is_none());
+	let hash = trie.lookup_first_descendant(b"AAAAX").unwrap();
+	assert!(hash.is_none());
+	// Key shares the first nibble with b"A".
+	let hash = trie.lookup_first_descendant(b"C").unwrap();
+	assert!(hash.is_none());
+
+	// Key not present, but has a descendent.
+	let hash = trie.lookup_first_descendant(b"AAA").unwrap().unwrap();
+	let expected = trie.lookup_first_descendant(b"AAAA").unwrap().unwrap();
+	assert_eq!(hash, expected);
+	let hash = trie.lookup_first_descendant(b"AABB").unwrap().unwrap();
+	let expected = trie.lookup_first_descendant(b"AABBBB").unwrap().unwrap();
+	assert_eq!(hash, expected);
+	let hash = trie.lookup_first_descendant(b"AABBB").unwrap().unwrap();
+	let expected = trie.lookup_first_descendant(b"AABBBB").unwrap().unwrap();
+	assert_eq!(hash, expected);
+
+	// Prefix AABB in between AAB and AABBBB, but has different ending char.
+	let hash = trie.lookup_first_descendant(b"AABBX").unwrap();
+	assert!(hash.is_none());
+}
+
+test_layouts!(test_merkle_value_single_key, test_merkle_value_single_key_internal);
+fn test_merkle_value_single_key_internal<T: TrieLayout>() {
+	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
+
+	// Data set.
+	let key_value = vec![(b"AAA".to_vec(), vec![1; 64])];
+	let mut t = TrieDBMutBuilder::<T>::new(&memdb).build();
+	for (key, value) in &key_value {
+		t.insert(key, value).unwrap();
+	}
+	let root = t.commit().apply_to(&mut memdb);
+
+	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+
+	let hash = trie.lookup_first_descendant(b"AA").unwrap().unwrap();
+	let expected = trie.lookup_first_descendant(b"AAA").unwrap().unwrap();
+	assert_eq!(hash, expected);
+
+	// Trie does not contain AAC or AAAA.
+	let hash = trie.lookup_first_descendant(b"AAC").unwrap();
+	assert!(hash.is_none());
+	let hash = trie.lookup_first_descendant(b"AAAA").unwrap();
+	assert!(hash.is_none());
+}
+
+test_layouts!(test_merkle_value_branches, test_merkle_value_branches_internal);
+fn test_merkle_value_branches_internal<T: TrieLayout>() {
+	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
+
+	// Data set.
+	let key_value = vec![(b"AAAA".to_vec(), vec![1; 64]), (b"AABA".to_vec(), vec![2; 64])];
+	let mut t = TrieDBMutBuilder::<T>::new(&memdb).build();
+	for (key, value) in &key_value {
+		t.insert(key, value).unwrap();
+	}
+	let root = t.commit().apply_to(&mut memdb);
+
+	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+
+	// The hash is returned from the branch node.
+	let hash = trie.lookup_first_descendant(b"A").unwrap().unwrap();
+	let aaaa_hash = trie.lookup_first_descendant(b"AAAA").unwrap().unwrap();
+	let aaba_hash = trie.lookup_first_descendant(b"AABA").unwrap().unwrap();
+	// Ensure the hash is not from any leaf.
+	assert_ne!(hash, aaaa_hash);
+	assert_ne!(hash, aaba_hash);
+}
+
+test_layouts!(test_merkle_value_empty_trie, test_merkle_value_empty_trie_internal);
+fn test_merkle_value_empty_trie_internal<T: TrieLayout>() {
+	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
+
+	// Valid state root.
+	let mut t = TrieDBMutBuilder::<T>::new(&memdb).build();
+	t.insert(&[], &[]).unwrap();
+	let root = t.commit().apply_to(&mut memdb);
+
+	// Data set is empty.
+	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+
+	let hash = trie.lookup_first_descendant(b"").unwrap();
+	assert!(hash.is_none());
+
+	let hash = trie.lookup_first_descendant(b"A").unwrap();
+	assert!(hash.is_none());
+
+	let hash = trie.lookup_first_descendant(b"AA").unwrap();
+	assert!(hash.is_none());
+
+	let hash = trie.lookup_first_descendant(b"AAA").unwrap();
+	assert!(hash.is_none());
+
+	let hash = trie.lookup_first_descendant(b"AAAA").unwrap();
+	assert!(hash.is_none());
+}
+
+test_layouts!(test_merkle_value_modification, test_merkle_value_modification_internal);
+fn test_merkle_value_modification_internal<T: TrieLayout>() {
+	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
+
+	let key_value = vec![(b"AAAA".to_vec(), vec![1; 64]), (b"AABA".to_vec(), vec![2; 64])];
+	let mut t = TrieDBMutBuilder::<T>::new(&memdb).build();
+	for (key, value) in &key_value {
+		t.insert(key, value).unwrap();
+	}
+	let root = t.commit().apply_to(&mut memdb);
+
+	let (a_hash_lhs, aaaa_hash_lhs, aaba_hash_lhs) = {
+		let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+
+		// The hash is returned from the branch node.
+		let hash = trie.lookup_first_descendant(b"A").unwrap().unwrap();
+		let aaaa_hash = trie.lookup_first_descendant(b"AAAA").unwrap().unwrap();
+		let aaba_hash = trie.lookup_first_descendant(b"AABA").unwrap().unwrap();
+
+		// Ensure the hash is not from any leaf.
+		assert_ne!(hash, aaaa_hash);
+		assert_ne!(hash, aaba_hash);
+
+		(hash, aaaa_hash, aaba_hash)
+	};
+
+	// Modify AABA and expect AAAA to return the same merkle value.
+	let mut t = TrieDBMutBuilder::<T>::from_existing(&memdb, root).build();
+	t.insert(b"AABA", &vec![3; 64]).unwrap();
+let root = t.commit().apply_to(&mut memdb);
+
+	let (a_hash_rhs, aaaa_hash_rhs, aaba_hash_rhs) = {
+		let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+
+		// The hash is returned from the branch node.
+		let hash = trie.lookup_first_descendant(b"A").unwrap().unwrap();
+		let aaaa_hash = trie.lookup_first_descendant(b"AAAA").unwrap().unwrap();
+		let aaba_hash = trie.lookup_first_descendant(b"AABA").unwrap().unwrap();
+
+		// Ensure the hash is not from any leaf.
+		assert_ne!(hash, aaaa_hash);
+		assert_ne!(hash, aaba_hash);
+
+		(hash, aaaa_hash, aaba_hash)
+	};
+
+	// AAAA was not modified.
+	assert_eq!(aaaa_hash_lhs, aaaa_hash_rhs);
+	// Changes to AABA must propagate to the root.
+	assert_ne!(aaba_hash_lhs, aaba_hash_rhs);
+	assert_ne!(a_hash_lhs, a_hash_rhs);
+}
+
 test_layouts!(iterator_seek_with_recorder, iterator_seek_with_recorder_internal);
 fn iterator_seek_with_recorder_internal<T: TrieLayout>() {
 	let d = vec![b"A".to_vec(), b"AA".to_vec(), b"AB".to_vec(), b"B".to_vec()];
@@ -878,4 +1072,74 @@ fn test_record_value() {
 	assert_eq!(compact_proof[0].len(), 38);
 	// leaf with value hash only.
 	assert_eq!(compact_proof[1].len(), 33);
+}
+
+test_layouts!(test_trie_nodes_recorded, test_trie_nodes_recorded_internal);
+fn test_trie_nodes_recorded_internal<T: TrieLayout>() {
+	let key_value = vec![
+		(b"A".to_vec(), vec![1; 64]),
+		(b"AA".to_vec(), vec![2; 64]),
+		(b"AB".to_vec(), vec![3; 4]),
+		(b"B".to_vec(), vec![4; 64]),
+		(b"BC".to_vec(), vec![4; 64]),
+	];
+	const NON_EXISTENT_KEY: &[u8] = &*b"NOT";
+
+	let mut memdb = MemoryDB::<T::Hash, HashKey<_>, DBValue>::default();
+
+	let mut t = TrieDBMutBuilder::<T>::new(&memdb).build();
+	for (key, value) in &key_value {
+		t.insert(key, value).unwrap();
+	}
+	let root = t.commit().apply_to(&mut memdb);
+
+	for mut cache in [Some(TestTrieCache::<T>::default()), None] {
+		for get_hash in [true, false] {
+			let mut recorder = Recorder::<T>::default();
+			{
+				let trie = TrieDBBuilder::<T>::new(&memdb, &root)
+					.with_recorder(&mut recorder)
+					.with_optional_cache(cache.as_mut().map(|c| c as &mut _))
+					.build();
+				for (key, _) in &key_value {
+					if get_hash {
+						assert!(trie.get_hash(key).unwrap().is_some());
+					} else {
+						assert!(trie.get(key).unwrap().is_some());
+					}
+				}
+
+				if get_hash {
+					assert!(trie.get_hash(&NON_EXISTENT_KEY).unwrap().is_none());
+				} else {
+					assert!(trie.get(&NON_EXISTENT_KEY).unwrap().is_none());
+				}
+			}
+
+			for (key, value) in &key_value {
+				let recorded = recorder.trie_nodes_recorded_for_key(&key);
+
+				let is_inline = T::MAX_INLINE_VALUE.map_or(true, |m| value.len() < m as usize);
+
+				let expected = if get_hash && !is_inline {
+					RecordedForKey::Hash
+				} else {
+					RecordedForKey::Value
+				};
+
+				assert_eq!(
+					expected,
+					recorded,
+					"{:?} max_inline: {:?} get_hash: {get_hash}",
+					String::from_utf8(key.to_vec()),
+					T::MAX_INLINE_VALUE
+				);
+			}
+
+			assert_eq!(
+				RecordedForKey::Value,
+				recorder.trie_nodes_recorded_for_key(&NON_EXISTENT_KEY),
+			);
+		}
+	}
 }

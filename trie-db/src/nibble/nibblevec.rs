@@ -241,6 +241,25 @@ impl NibbleVec {
 		true
 	}
 
+	/// Same as [`Self::starts_with`] but using [`NibbleSlice`].
+	pub fn starts_with_slice(&self, other: &NibbleSlice) -> bool {
+		if self.len() < other.len() {
+			return false
+		}
+
+		match self.as_nibbleslice() {
+			Some(slice) => slice.starts_with(&other),
+			None => {
+				for i in 0..other.len() {
+					if self.at(i) != other.at(i) {
+						return false
+					}
+				}
+				true
+			},
+		}
+	}
+
 	/// Return an iterator over `Partial` bytes representation.
 	pub fn right_iter<'a>(&'a self) -> impl Iterator<Item = u8> + 'a {
 		let require_padding = self.len % nibble_ops::NIBBLE_PER_BYTE != 0;

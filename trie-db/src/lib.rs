@@ -168,6 +168,13 @@ pub enum TrieAccess<'a, H, L> {
 	///
 	/// Should map to [`RecordedForKey::Value`] when checking the recorder.
 	Value { hash: H, value: rstd::borrow::Cow<'a, [u8]>, full_key: &'a [u8] },
+	/// A value was accessed that is stored inline a node.
+	///
+	/// As the value is stored inline there is no need to separately record the value as it is part
+	/// of a node. The given `full_key` is the key to access this value in the trie.
+	///
+	/// Should map to [`RecordedForKey::Value`] when checking the recorder.
+	InlineValue { full_key: &'a [u8] },
 	/// The hash of the value for the given `full_key` was accessed.
 	///
 	/// Should map to [`RecordedForKey::Hash`] when checking the recorder.
@@ -179,7 +186,7 @@ pub enum TrieAccess<'a, H, L> {
 }
 
 /// Result of [`TrieRecorder::trie_nodes_recorded_for_key`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecordedForKey {
 	/// We recorded all trie nodes up to the value for a storage key.
 	///
@@ -271,6 +278,17 @@ pub trait Trie<L: TrieLayout> {
 		key: &[u8],
 		query: Q,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>>;
+
+	/// Look up the [`MerkleValue`] of the node that is the closest descendant for the provided
+	/// key.
+	///
+	/// When the provided key leads to a node, then the merkle value of that node
+	/// is returned. However, if the key does not lead to a node, then the merkle value
+	/// of the closest descendant is returned. `None` if no such descendant exists.
+	fn lookup_first_descendant(
+		&self,
+		key: &[u8],
+	) -> Result<Option<MerkleValue<TrieHash<L>>>, TrieHash<L>, CError<L>>;
 
 	/// Returns a depth-first iterator over the elements of trie.
 	fn iter<'a>(
@@ -567,4 +585,19 @@ impl From<Bytes> for BytesWeak {
 	fn from(bytes: Bytes) -> Self {
 		Self(rstd::sync::Arc::downgrade(&bytes.0))
 	}
+}
+
+/// Either the `hash` or `value` of a node depending on its size.
+///
+/// If the size of the node `value` is bigger or equal than `MAX_INLINE_VALUE` the `hash` is
+/// returned.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MerkleValue<H> {
+	/// The merkle value is the node data itself when the
+	/// node data is smaller than `MAX_INLINE_VALUE`.
+	///
+	/// Note: The case of inline nodes.
+	Node(Vec<u8>),
+	/// The merkle value is the hash of the node.
+	Hash(H),
 }

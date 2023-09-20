@@ -18,8 +18,8 @@ use crate::{
 	nibble::NibbleSlice,
 	node::{decode_hash, NodeHandle, OwnedNode},
 	rstd::boxed::Box,
-	CError, DBValue, Query, Result, Trie, TrieAccess, TrieCache, TrieError, TrieHash, TrieItem,
-	TrieIterator, TrieKeyItem, TrieLayout, TrieRecorder,
+	CError, DBValue, MerkleValue, Query, Result, Trie, TrieAccess, TrieCache, TrieError, TrieHash,
+	TrieItem, TrieIterator, TrieKeyItem, TrieLayout, TrieRecorder,
 };
 #[cfg(feature = "std")]
 use crate::{
@@ -259,6 +259,23 @@ where
 				.map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>, L::Location>),
 		}
 		.look_up(key, NibbleSlice::new(key), Default::default())
+	}
+
+	fn lookup_first_descendant(
+		&self,
+		key: &[u8],
+	) -> Result<Option<MerkleValue<TrieHash<L>>>, TrieHash<L>, CError<L>> {
+		let mut cache = self.cache.as_ref().map(|c| c.borrow_mut());
+		let mut recorder = self.recorder.as_ref().map(|r| r.borrow_mut());
+
+		Lookup::<L, _> {
+			db: self.db,
+			query: |_: &[u8]| (),
+			hash: *self.root,
+			cache: cache.as_mut().map(|c| &mut ***c as &mut dyn TrieCache<L::Codec, L::Location>),
+			recorder: recorder.as_mut().map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>, L::Location>),
+		}
+		.lookup_first_descendant(key, NibbleSlice::new(key), Default::default())
 	}
 
 	fn iter<'a>(

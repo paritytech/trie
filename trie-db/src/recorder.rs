@@ -73,6 +73,9 @@ impl<L: TrieLayout> TrieRecorder<TrieHash<L>, L::Location> for Recorder<L> {
 				// We handle the non existing value/hash like having recorded the value.
 				self.recorded_keys.entry(full_key.to_vec()).insert(RecordedForKey::Value);
 			},
+			TrieAccess::InlineValue { full_key } => {
+				self.recorded_keys.entry(full_key.to_vec()).insert(RecordedForKey::Value);
+			},
 		}
 	}
 

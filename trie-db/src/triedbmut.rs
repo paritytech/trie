@@ -121,7 +121,7 @@ impl<L: TrieLayout> From<(Bytes, Option<u32>)> for Value<L> {
 	fn from((v, threshold): (Bytes, Option<u32>)) -> Self {
 		match v {
 			value =>
-				if threshold.map(|threshold| value.len() >= threshold as usize).unwrap_or(false) {
+				if threshold.map_or(false, |threshold| value.len() >= threshold as usize) {
 					Value::NewNode(None, value)
 				} else {
 					Value::Inline(value)
