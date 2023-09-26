@@ -33,7 +33,7 @@ use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use std::collections::HashSet as Set;
 
 #[cfg(not(feature = "std"))]
-use core::alloc::collections::btree_set::BTreeSet as Set;
+use alloc::collections::btree_set::BTreeSet as Set;
 
 #[cfg(feature = "std")]
 use log::trace;
