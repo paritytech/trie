@@ -21,14 +21,21 @@ extern crate alloc;
 #[cfg(feature = "std")]
 mod rstd {
 	pub use std::{
-		borrow, boxed, cmp, collections::VecDeque, convert, error::Error, fmt, hash, iter, marker,
-		mem, ops, rc, result, sync, vec,
+		borrow, boxed, cmp,
+		collections::{BTreeMap, VecDeque},
+		convert,
+		error::Error,
+		fmt, hash, iter, marker, mem, ops, rc, result, sync, vec,
 	};
 }
 
 #[cfg(not(feature = "std"))]
 mod rstd {
-	pub use alloc::{borrow, boxed, collections::VecDeque, rc, sync, vec};
+	pub use alloc::{
+		borrow, boxed,
+		collections::{btree_map::BTreeMap, VecDeque},
+		rc, sync, vec,
+	};
 	pub use core::{cmp, convert, fmt, hash, iter, marker, mem, ops, result};
 	pub trait Error {}
 	impl<T> Error for T {}

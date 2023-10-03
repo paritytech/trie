@@ -14,8 +14,10 @@
 
 //! Trie query recorder.
 
-use crate::{rstd::vec::Vec, RecordedForKey, TrieAccess, TrieHash, TrieLayout, TrieRecorder};
-use hashbrown::HashMap;
+use crate::{
+	rstd::{vec::Vec, BTreeMap},
+	RecordedForKey, TrieAccess, TrieHash, TrieLayout, TrieRecorder,
+};
 
 /// The record of a visited node.
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -31,7 +33,7 @@ pub struct Record<HO> {
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct Recorder<L: TrieLayout> {
 	nodes: Vec<Record<TrieHash<L>>>,
-	recorded_keys: HashMap<Vec<u8>, RecordedForKey>,
+	recorded_keys: BTreeMap<Vec<u8>, RecordedForKey>,
 }
 
 impl<L: TrieLayout> Default for Recorder<L> {
@@ -64,17 +66,17 @@ impl<L: TrieLayout> TrieRecorder<TrieHash<L>, L::Location> for Recorder<L> {
 			},
 			TrieAccess::Value { hash, value, full_key } => {
 				self.nodes.push(Record { hash, data: value.to_vec() });
-				self.recorded_keys.entry(full_key.to_vec()).insert(RecordedForKey::Value);
+				self.recorded_keys.insert(full_key.to_vec(), RecordedForKey::Value);
 			},
 			TrieAccess::Hash { full_key } => {
 				self.recorded_keys.entry(full_key.to_vec()).or_insert(RecordedForKey::Hash);
 			},
 			TrieAccess::NonExisting { full_key } => {
 				// We handle the non existing value/hash like having recorded the value.
-				self.recorded_keys.entry(full_key.to_vec()).insert(RecordedForKey::Value);
+				self.recorded_keys.insert(full_key.to_vec(), RecordedForKey::Value);
 			},
 			TrieAccess::InlineValue { full_key } => {
-				self.recorded_keys.entry(full_key.to_vec()).insert(RecordedForKey::Value);
+				self.recorded_keys.insert(full_key.to_vec(), RecordedForKey::Value);
 			},
 		}
 	}

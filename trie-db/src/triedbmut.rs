@@ -28,7 +28,12 @@ use crate::{
 };
 
 use hash_db::{HashDB, Hasher, Prefix};
-use hashbrown::HashSet;
+
+#[cfg(feature = "std")]
+use std::collections::HashSet as Set;
+
+#[cfg(not(feature = "std"))]
+use alloc::collections::btree_set::BTreeSet as Set;
 
 #[cfg(feature = "std")]
 use log::trace;
@@ -873,7 +878,7 @@ where
 	db: &'a dyn HashDB<L::Hash, DBValue, L::Location>,
 	root: TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>, L::Location>,
-	death_row: HashSet<(TrieHash<L>, OwnedPrefix)>,
+	death_row: Set<(TrieHash<L>, OwnedPrefix)>,
 	/// The number of hash operations this trie has performed.
 	/// Note that none are performed until changes are committed.
 	hash_count: usize,
@@ -1928,9 +1933,9 @@ where
 		trace!(target: "trie", "Committing trie changes to db.");
 
 		// always kill all the nodes on death row.
-		#[cfg(feature = "std")]
 		trace!(target: "trie", "{:?} nodes to remove from db", self.death_row.len());
 		let mut removed = Vec::with_capacity(self.death_row.len());
+
 		for (hash, prefix) in self.death_row.drain() {
 			removed.push((hash, prefix));
 		}
