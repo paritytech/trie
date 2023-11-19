@@ -174,20 +174,21 @@ impl Bitmap {
 	}
 }
 
-pub type RefTrieDB<'a, 'cache> = trie_db::TrieDB<'a, 'cache, ExtensionLayout>;
-pub type RefTrieDBBuilder<'a, 'cache> = trie_db::TrieDBBuilder<'a, 'cache, ExtensionLayout>;
-pub type RefTrieDBMut<'a> = trie_db::TrieDBMut<'a, ExtensionLayout>;
-pub type RefTrieDBMutBuilder<'a> = trie_db::TrieDBMutBuilder<'a, ExtensionLayout>;
-pub type RefTrieDBMutNoExt<'a> = trie_db::TrieDBMut<'a, NoExtensionLayout>;
-pub type RefTrieDBMutNoExtBuilder<'a> = trie_db::TrieDBMutBuilder<'a, NoExtensionLayout>;
-pub type RefTrieDBMutAllowEmpty<'a> = trie_db::TrieDBMut<'a, AllowEmptyLayout>;
-pub type RefTrieDBMutAllowEmptyBuilder<'a> = trie_db::TrieDBMutBuilder<'a, AllowEmptyLayout>;
+pub type RefTrieDB<'a, 'cache, DB> = trie_db::TrieDB<'a, 'cache, ExtensionLayout, DB>;
+pub type RefTrieDBBuilder<'a, 'cache, DB> = trie_db::TrieDBBuilder<'a, 'cache, ExtensionLayout, DB>;
+pub type RefTrieDBMut<'a, DB> = trie_db::TrieDBMut<'a, ExtensionLayout, DB>;
+pub type RefTrieDBMutBuilder<'a, DB> = trie_db::TrieDBMutBuilder<'a, ExtensionLayout, DB>;
+pub type RefTrieDBMutNoExt<'a, DB> = trie_db::TrieDBMut<'a, NoExtensionLayout, DB>;
+pub type RefTrieDBMutNoExtBuilder<'a, DB> = trie_db::TrieDBMutBuilder<'a, NoExtensionLayout, DB>;
+pub type RefTrieDBMutAllowEmpty<'a, DB> = trie_db::TrieDBMut<'a, AllowEmptyLayout, DB>;
+pub type RefTrieDBMutAllowEmptyBuilder<'a, DB> =
+	trie_db::TrieDBMutBuilder<'a, AllowEmptyLayout, DB>;
 pub type RefTestTrieDBCache = TestTrieCache<ExtensionLayout>;
 pub type RefTestTrieDBCacheNoExt = TestTrieCache<NoExtensionLayout>;
-pub type RefFatDB<'a, 'cache> = trie_db::FatDB<'a, 'cache, ExtensionLayout>;
-pub type RefFatDBMut<'a> = trie_db::FatDBMut<'a, ExtensionLayout>;
-pub type RefSecTrieDB<'a, 'cache> = trie_db::SecTrieDB<'a, 'cache, ExtensionLayout>;
-pub type RefSecTrieDBMut<'a> = trie_db::SecTrieDBMut<'a, ExtensionLayout>;
+pub type RefFatDB<'a, 'cache, DB> = trie_db::FatDB<'a, 'cache, ExtensionLayout, DB>;
+pub type RefFatDBMut<'a, DB> = trie_db::FatDBMut<'a, ExtensionLayout, DB>;
+pub type RefSecTrieDB<'a, 'cache, DB> = trie_db::SecTrieDB<'a, 'cache, ExtensionLayout, DB>;
+pub type RefSecTrieDBMut<'a, DB> = trie_db::SecTrieDBMut<'a, ExtensionLayout, DB>;
 pub type RefLookup<'a, 'cache, Q> = trie_db::Lookup<'a, 'cache, ExtensionLayout, Q>;
 pub type RefLookupNoExt<'a, 'cache, Q> = trie_db::Lookup<'a, 'cache, NoExtensionLayout, Q>;
 
@@ -914,7 +915,7 @@ where
 	let root_new = calc_root_build::<T, _, _, _, _>(data.clone(), &mut hashdb);
 	let root = {
 		let mut root = Default::default();
-		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+		let mut t = TrieDBMutBuilder::<T, DB>::new(&mut memdb, &mut root).build();
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
@@ -923,16 +924,16 @@ where
 	};
 	if root_new != root {
 		{
-			let db: &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = TrieDBBuilder::<T>::new(&db, &root_new).build();
+			let db: &DB = &hashdb;
+			let t = TrieDBBuilder::<T, _>::new(&db, &root_new).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:x?}", a);
 			}
 		}
 		{
-			let db: &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = TrieDBBuilder::<T>::new(&db, &root).build();
+			let db: &DB = &memdb;
+			let t = TrieDBBuilder::<T, _>::new(&db, &root).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:x?}", a);
@@ -953,7 +954,7 @@ pub fn compare_root<T: TrieLayout, DB: hash_db::HashDB<T::Hash, DBValue>>(
 	let root_new = reference_trie_root_iter_build::<T, _, _, _>(data.clone());
 	let root = {
 		let mut root = Default::default();
-		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+		let mut t = TrieDBMutBuilder::<T, DB>::new(&mut memdb, &mut root).build();
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
@@ -1028,7 +1029,7 @@ pub fn compare_implementations_unordered<T, DB>(
 	let mut b_map = std::collections::btree_map::BTreeMap::new();
 	let root = {
 		let mut root = Default::default();
-		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+		let mut t = TrieDBMutBuilder::<T, DB>::new(&mut memdb, &mut root).build();
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 			b_map.insert(data[i].0.clone(), data[i].1.clone());
@@ -1043,16 +1044,16 @@ pub fn compare_implementations_unordered<T, DB>(
 
 	if root != root_new {
 		{
-			let db: &dyn hash_db::HashDB<_, _> = &memdb;
-			let t = TrieDBBuilder::<T>::new(&db, &root).build();
+			let db: &DB = &memdb;
+			let t: trie_db::TrieDB<'_, '_, T, &DB> = TrieDBBuilder::<T, _>::new(&db, &root).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
 			}
 		}
 		{
-			let db: &dyn hash_db::HashDB<_, _> = &hashdb;
-			let t = TrieDBBuilder::<T>::new(&db, &root_new).build();
+			let db: &DB = &hashdb;
+			let t = TrieDBBuilder::<T, _>::new(&db, &root_new).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
 				println!("a:{:?}", a);
@@ -1076,13 +1077,13 @@ pub fn compare_insert_remove<T, DB: hash_db::HashDB<T::Hash, DBValue>>(
 	let mut root = Default::default();
 	let mut a = 0;
 	{
-		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+		let mut t = TrieDBMutBuilder::<T, DB>::new(&mut memdb, &mut root).build();
 		t.commit();
 	}
 	while a < data.len() {
 		// new triemut every 3 element
 		root = {
-			let mut t = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root).build();
+			let mut t = TrieDBMutBuilder::<T, DB>::from_existing(&mut memdb, &mut root).build();
 			for _ in 0..3 {
 				if data[a].0 {
 					// remove
@@ -1103,7 +1104,7 @@ pub fn compare_insert_remove<T, DB: hash_db::HashDB<T::Hash, DBValue>>(
 			*t.root()
 		};
 	}
-	let mut t = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root).build();
+	let mut t = TrieDBMutBuilder::<T, DB>::from_existing(&mut memdb, &mut root).build();
 	// we are testing the RefTrie code here so we do not sort or check uniqueness
 	// before.
 	assert_eq!(*t.root(), calc_root::<T, _, _, _>(data2));

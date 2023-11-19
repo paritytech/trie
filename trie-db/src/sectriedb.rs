@@ -21,39 +21,42 @@ use hash_db::{HashDBRef, Hasher};
 /// A `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 ///
 /// Use it as a `Trie` trait object. You can use `raw()` to get the backing `TrieDB` object.
-pub struct SecTrieDB<'db, 'cache, L>
+pub struct SecTrieDB<'db, 'cache, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDBRef<L::Hash, DBValue>,
 {
-	raw: TrieDB<'db, 'cache, L>,
+	raw: TrieDB<'db, 'cache, L, DB>,
 }
 
-impl<'db, 'cache, L> SecTrieDB<'db, 'cache, L>
+impl<'db, 'cache, L, DB> SecTrieDB<'db, 'cache, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDBRef<L::Hash, DBValue>,
 {
 	/// Create a new trie with the backing database `db` and `root`.
 	///
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
-	pub fn new(db: &'db dyn HashDBRef<L::Hash, DBValue>, root: &'db TrieHash<L>) -> Self {
+	pub fn new(db: &'db DB, root: &'db TrieHash<L>) -> Self {
 		SecTrieDB { raw: TrieDBBuilder::new(db, root).build() }
 	}
 
 	/// Get a reference to the underlying raw `TrieDB` struct.
-	pub fn raw(&self) -> &TrieDB<'db, 'cache, L> {
+	pub fn raw(&self) -> &TrieDB<'db, 'cache, L, DB> {
 		&self.raw
 	}
 
 	/// Get a mutable reference to the underlying raw `TrieDB` struct.
-	pub fn raw_mut(&mut self) -> &mut TrieDB<'db, 'cache, L> {
+	pub fn raw_mut(&mut self) -> &mut TrieDB<'db, 'cache, L, DB> {
 		&mut self.raw
 	}
 }
 
-impl<'db, 'cache, L> Trie<L> for SecTrieDB<'db, 'cache, L>
+impl<'db, 'cache, L, DB> Trie<L> for SecTrieDB<'db, 'cache, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDBRef<L::Hash, DBValue>,
 {
 	fn root(&self) -> &TrieHash<L> {
 		self.raw.root()

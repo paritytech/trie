@@ -32,7 +32,7 @@ use crate::{
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result, TrieDB, TrieDBRawIterator,
 	TrieError, TrieHash, TrieLayout,
 };
-use hash_db::{HashDB, Prefix};
+use hash_db::{HashDB, HashDBRef, Prefix};
 
 const OMIT_VALUE_HASH: crate::node::Value<'static> = crate::node::Value::Inline(&[]);
 
@@ -187,8 +187,8 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 /// Detached value if included does write a reserved header,
 /// followed by node encoded with 0 length value and the value
 /// as a standalone vec.
-fn detached_value<L: TrieLayout>(
-	db: &TrieDB<L>,
+fn detached_value<L: TrieLayout, DB: HashDBRef<L::Hash, DBValue>>(
+	db: &TrieDB<L, DB>,
 	value: &ValuePlan,
 	node_data: &[u8],
 	node_prefix: Prefix,
@@ -216,9 +216,10 @@ fn detached_value<L: TrieLayout>(
 ///
 /// This function makes the assumption that all child references in an inline trie node are inline
 /// references.
-pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+pub fn encode_compact<L, DB>(db: &TrieDB<L, DB>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 where
 	L: TrieLayout,
+	DB: HashDBRef<L::Hash, DBValue>,
 {
 	let mut output = Vec::new();
 

@@ -27,7 +27,7 @@ use crate::{
 	TrieLayout, TrieMut, TrieRecorder,
 };
 
-use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
+use hash_db::{HashDB, HashDBRef, Hasher, Prefix, EMPTY_PREFIX};
 
 #[cfg(feature = "std")]
 use std::collections::HashSet as Set;
@@ -173,8 +173,9 @@ impl<L: TrieLayout> Value<L> {
 			Value::Inline(value) => EncodedValue::Inline(&value),
 			Value::Node(hash) => EncodedValue::Node(hash.as_ref()),
 			Value::NewNode(Some(hash), _value) => EncodedValue::Node(hash.as_ref()),
-			Value::NewNode(None, _value) =>
-				unreachable!("New external value are always added before encoding anode"),
+			Value::NewNode(None, _value) => {
+				unreachable!("New external value are always added before encoding anode")
+			},
 		};
 		value
 	}
@@ -190,7 +191,7 @@ impl<L: TrieLayout> Value<L> {
 			Value::Inline(value) => value.to_vec(),
 			Value::NewNode(_, value) => value.to_vec(),
 			Value::Node(hash) =>
-				if let Some(value) = db.get(hash, prefix) {
+				if let Some(value) = HashDB::get(db, hash, prefix) {
 					recorder.as_ref().map(|r| {
 						r.borrow_mut().record(TrieAccess::Value {
 							hash: *hash,
@@ -263,13 +264,16 @@ where
 	fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
 		match *self {
 			Self::Empty => write!(fmt, "Empty"),
-			Self::Leaf((ref a, ref b), ref c) =>
-				write!(fmt, "Leaf({:?}, {:?})", (a, ToHex(&*b)), c),
-			Self::Extension((ref a, ref b), ref c) =>
-				write!(fmt, "Extension({:?}, {:?})", (a, ToHex(&*b)), c),
+			Self::Leaf((ref a, ref b), ref c) => {
+				write!(fmt, "Leaf({:?}, {:?})", (a, ToHex(&*b)), c)
+			},
+			Self::Extension((ref a, ref b), ref c) => {
+				write!(fmt, "Extension({:?}, {:?})", (a, ToHex(&*b)), c)
+			},
 			Self::Branch(ref a, ref b) => write!(fmt, "Branch({:?}, {:?}", a, b),
-			Self::NibbledBranch((ref a, ref b), ref c, ref d) =>
-				write!(fmt, "NibbledBranch({:?}, {:?}, {:?})", (a, ToHex(&*b)), c, d),
+			Self::NibbledBranch((ref a, ref b), ref c, ref d) => {
+				write!(fmt, "NibbledBranch({:?}, {:?}, {:?})", (a, ToHex(&*b)), c, d)
+			},
 		}
 	}
 }
@@ -443,8 +447,9 @@ impl<L: TrieLayout> Node<L> {
 
 				Node::NibbledBranch(k.into(), children, val.as_ref().map(Into::into))
 			},
-			NodeOwned::Value(_, _) =>
-				unreachable!("`NodeOwned::Value` can only be returned for the hash of a value."),
+			NodeOwned::Value(_, _) => {
+				unreachable!("`NodeOwned::Value` can only be returned for the hash of a value.")
+			},
 		}
 	}
 
@@ -640,17 +645,17 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for NodeStorage<L> {
 }
 
 /// A builder for creating a [`TrieDBMut`].
-pub struct TrieDBMutBuilder<'db, L: TrieLayout> {
-	db: &'db mut dyn HashDB<L::Hash, DBValue>,
+pub struct TrieDBMutBuilder<'db, L: TrieLayout, DB: HashDB<L::Hash, DBValue>> {
+	db: &'db mut DB,
 	root: &'db mut TrieHash<L>,
 	cache: Option<&'db mut dyn TrieCache<L::Codec>>,
 	recorder: Option<&'db mut dyn TrieRecorder<TrieHash<L>>>,
 }
 
-impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
+impl<'db, L: TrieLayout, DB: HashDB<L::Hash, DBValue>> TrieDBMutBuilder<'db, L, DB> {
 	/// Create a builder for constructing a new trie with the backing database `db` and empty
 	/// `root`.
-	pub fn new(db: &'db mut dyn HashDB<L::Hash, DBValue>, root: &'db mut TrieHash<L>) -> Self {
+	pub fn new(db: &'db mut DB, root: &'db mut TrieHash<L>) -> Self {
 		*root = L::Codec::hashed_null_node();
 
 		Self { root, db, cache: None, recorder: None }
@@ -660,10 +665,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 	///
 	/// This doesn't check if `root` exists in the given `db`. If `root` doesn't exist it will fail
 	/// when trying to lookup any key.
-	pub fn from_existing(
-		db: &'db mut dyn HashDB<L::Hash, DBValue>,
-		root: &'db mut TrieHash<L>,
-	) -> Self {
+	pub fn from_existing(db: &'db mut DB, root: &'db mut TrieHash<L>) -> Self {
 		Self { db, root, cache: None, recorder: None }
 	}
 
@@ -700,7 +702,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 	}
 
 	/// Build the [`TrieDBMut`].
-	pub fn build(self) -> TrieDBMut<'db, L> {
+	pub fn build(self) -> TrieDBMut<'db, L, DB> {
 		let root_handle = NodeHandle::Hash(*self.root);
 
 		TrieDBMut {
@@ -743,12 +745,13 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 /// t.remove(b"foo").unwrap();
 /// assert!(!t.contains(b"foo").unwrap());
 /// ```
-pub struct TrieDBMut<'a, L>
+pub struct TrieDBMut<'a, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDB<L::Hash, DBValue>,
 {
 	storage: NodeStorage<L>,
-	db: &'a mut dyn HashDB<L::Hash, DBValue>,
+	db: &'a mut DB,
 	root: &'a mut TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
 	death_row: Set<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
@@ -761,17 +764,18 @@ where
 	recorder: Option<core::cell::RefCell<&'a mut dyn TrieRecorder<TrieHash<L>>>>,
 }
 
-impl<'a, L> TrieDBMut<'a, L>
+impl<'a, L, DB> TrieDBMut<'a, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDB<L::Hash, DBValue>,
 {
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue> {
+	pub fn db(&self) -> &DB {
 		self.db
 	}
 
 	/// Get the backing database mutably.
-	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue> {
+	pub fn db_mut(&mut self) -> &mut DB {
 		self.db
 	}
 
@@ -2030,9 +2034,10 @@ where
 	}
 }
 
-impl<'a, L> TrieMut<L> for TrieDBMut<'a, L>
+impl<'a, L, DB> TrieMut<L> for TrieDBMut<'a, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDB<L::Hash, DBValue>,
 {
 	fn root(&mut self) -> &TrieHash<L> {
 		self.commit();
@@ -2108,9 +2113,10 @@ where
 	}
 }
 
-impl<'a, L> Drop for TrieDBMut<'a, L>
+impl<'a, L, DB> Drop for TrieDBMut<'a, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDB<L::Hash, DBValue>,
 {
 	fn drop(&mut self) {
 		self.commit();

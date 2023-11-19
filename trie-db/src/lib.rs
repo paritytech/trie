@@ -119,10 +119,12 @@ where
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		match *self {
 			TrieError::InvalidStateRoot(ref root) => write!(f, "Invalid state root: {:?}", root),
-			TrieError::IncompleteDatabase(ref missing) =>
-				write!(f, "Database missing expected key: {:?}", missing),
-			TrieError::ValueAtIncompleteKey(ref bytes, ref extra) =>
-				write!(f, "Value found in trie at incomplete key {:?} + {:?}", bytes, extra),
+			TrieError::IncompleteDatabase(ref missing) => {
+				write!(f, "Database missing expected key: {:?}", missing)
+			},
+			TrieError::ValueAtIncompleteKey(ref bytes, ref extra) => {
+				write!(f, "Value found in trie at incomplete key {:?} + {:?}", bytes, extra)
+			},
 			TrieError::DecoderError(ref hash, ref decoder_err) => {
 				write!(f, "Decoding failed for hash {:?}; err: {:?}", hash, decoder_err)
 			},
@@ -384,13 +386,13 @@ pub struct TrieFactory {
 
 /// All different kinds of tries.
 /// This is used to prevent a heap allocation for every created trie.
-pub enum TrieKinds<'db, 'cache, L: TrieLayout> {
+pub enum TrieKinds<'db, 'cache, L: TrieLayout, DB: HashDBRef<L::Hash, DBValue>> {
 	/// A generic trie db.
-	Generic(TrieDB<'db, 'cache, L>),
+	Generic(TrieDB<'db, 'cache, L, DB>),
 	/// A secure trie db.
-	Secure(SecTrieDB<'db, 'cache, L>),
+	Secure(SecTrieDB<'db, 'cache, L, DB>),
 	/// A fat trie db.
-	Fat(FatDB<'db, 'cache, L>),
+	Fat(FatDB<'db, 'cache, L, DB>),
 }
 
 // wrapper macro for making the match easier to deal with.
@@ -404,7 +406,9 @@ macro_rules! wrapper {
 	}
 }
 
-impl<'db, 'cache, L: TrieLayout> Trie<L> for TrieKinds<'db, 'cache, L> {
+impl<'db, 'cache, L: TrieLayout, DB: HashDBRef<L::Hash, DBValue>> Trie<L>
+	for TrieKinds<'db, 'cache, L, DB>
+{
 	fn root(&self) -> &TrieHash<L> {
 		wrapper!(self, root,)
 	}
@@ -464,11 +468,11 @@ impl TrieFactory {
 	}
 
 	/// Create new immutable instance of Trie.
-	pub fn readonly<'db, 'cache, L: TrieLayout>(
+	pub fn readonly<'db, 'cache, L: TrieLayout, DB: HashDBRef<L::Hash, DBValue>>(
 		&self,
-		db: &'db dyn HashDBRef<L::Hash, DBValue>,
+		db: &'db DB,
 		root: &'db TrieHash<L>,
-	) -> TrieKinds<'db, 'cache, L> {
+	) -> TrieKinds<'db, 'cache, L, DB> {
 		match self.spec {
 			TrieSpec::Generic => TrieKinds::Generic(TrieDBBuilder::new(db, root).build()),
 			TrieSpec::Secure => TrieKinds::Secure(SecTrieDB::new(db, root)),
@@ -477,28 +481,29 @@ impl TrieFactory {
 	}
 
 	/// Create new mutable instance of Trie.
-	pub fn create<'db, L: TrieLayout + 'db>(
+	pub fn create<'db, L: TrieLayout + 'db, DB: HashDB<L::Hash, DBValue> + 'db>(
 		&self,
-		db: &'db mut dyn HashDB<L::Hash, DBValue>,
+		db: &'db mut DB,
 		root: &'db mut TrieHash<L>,
 	) -> Box<dyn TrieMut<L> + 'db> {
 		match self.spec {
-			TrieSpec::Generic => Box::new(TrieDBMutBuilder::<L>::new(db, root).build()),
-			TrieSpec::Secure => Box::new(SecTrieDBMut::<L>::new(db, root)),
-			TrieSpec::Fat => Box::new(FatDBMut::<L>::new(db, root)),
+			TrieSpec::Generic => Box::new(TrieDBMutBuilder::<L, DB>::new(db, root).build()),
+			TrieSpec::Secure => Box::new(SecTrieDBMut::<L, DB>::new(db, root)),
+			TrieSpec::Fat => Box::new(FatDBMut::<L, DB>::new(db, root)),
 		}
 	}
 
 	/// Create new mutable instance of trie and check for errors.
-	pub fn from_existing<'db, L: TrieLayout + 'db>(
+	pub fn from_existing<'db, L: TrieLayout + 'db, DB: HashDB<L::Hash, DBValue> + 'db>(
 		&self,
-		db: &'db mut dyn HashDB<L::Hash, DBValue>,
+		db: &'db mut DB,
 		root: &'db mut TrieHash<L>,
 	) -> Box<dyn TrieMut<L> + 'db> {
 		match self.spec {
-			TrieSpec::Generic => Box::new(TrieDBMutBuilder::<L>::from_existing(db, root).build()),
-			TrieSpec::Secure => Box::new(SecTrieDBMut::<L>::from_existing(db, root)),
-			TrieSpec::Fat => Box::new(FatDBMut::<L>::from_existing(db, root)),
+			TrieSpec::Generic =>
+				Box::new(TrieDBMutBuilder::<L, DB>::from_existing(db, root).build()),
+			TrieSpec::Secure => Box::new(SecTrieDBMut::<L, DB>::from_existing(db, root)),
+			TrieSpec::Fat => Box::new(FatDBMut::<L, DB>::from_existing(db, root)),
 		}
 	}
 

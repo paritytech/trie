@@ -8,18 +8,19 @@ use trie_db::{
 };
 
 /// Generate an eip-1186 compatible proof for key-value pairs in a trie given a key.
-pub fn generate_proof<L>(
-	db: &dyn HashDBRef<L::Hash, DBValue>,
+pub fn generate_proof<L, DB>(
+	db: &DB,
 	root: &TrieHash<L>,
 	key: &[u8],
 ) -> TrieResult<(Vec<Vec<u8>>, Option<Vec<u8>>), TrieHash<L>, CError<L>>
 where
 	L: TrieLayout,
+	DB: HashDBRef<L::Hash, DBValue>,
 {
 	let mut recorder = Recorder::<L>::new();
 
 	let item = {
-		let trie = TrieDBBuilder::<L>::new(db, root).with_recorder(&mut recorder).build();
+		let trie = TrieDBBuilder::<L, DB>::new(db, root).with_recorder(&mut recorder).build();
 		trie.get(key)?
 	};
 

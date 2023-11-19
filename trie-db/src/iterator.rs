@@ -19,7 +19,7 @@ use crate::{
 	triedb::TrieDB,
 	TrieError, TrieItem, TrieKeyItem,
 };
-use hash_db::{Hasher, Prefix, EMPTY_PREFIX};
+use hash_db::{HashDBRef, Hasher, Prefix, EMPTY_PREFIX};
 
 use crate::rstd::{boxed::Box, sync::Arc, vec::Vec};
 
@@ -71,7 +71,9 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	}
 
 	/// Create a new iterator.
-	pub fn new(db: &TrieDB<L>) -> Result<Self, TrieHash<L>, CError<L>> {
+	pub fn new(
+		db: &TrieDB<L, impl HashDBRef<L::Hash, DBValue>>,
+	) -> Result<Self, TrieHash<L>, CError<L>> {
 		let mut r =
 			TrieDBRawIterator { trail: Vec::with_capacity(8), key_nibbles: NibbleVec::new() };
 		let (root_node, root_hash) = db.get_raw_or_lookup(
@@ -85,7 +87,10 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	}
 
 	/// Create a new iterator, but limited to a given prefix.
-	pub fn new_prefixed(db: &TrieDB<L>, prefix: &[u8]) -> Result<Self, TrieHash<L>, CError<L>> {
+	pub fn new_prefixed(
+		db: &TrieDB<L, impl HashDBRef<L::Hash, DBValue>>,
+		prefix: &[u8],
+	) -> Result<Self, TrieHash<L>, CError<L>> {
 		let mut iter = TrieDBRawIterator::new(db)?;
 		iter.prefix(db, prefix)?;
 
@@ -96,7 +101,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	/// It then do a seek operation from prefixed context (using `seek` lose
 	/// prefix context by default).
 	pub fn new_prefixed_then_seek(
-		db: &TrieDB<L>,
+		db: &TrieDB<L, impl HashDBRef<L::Hash, DBValue>>,
 		prefix: &[u8],
 		start_at: &[u8],
 	) -> Result<Self, TrieHash<L>, CError<L>> {
@@ -113,7 +118,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 
 	/// Fetch value by hash at a current node height
 	pub(crate) fn fetch_value(
-		db: &TrieDB<L>,
+		db: &TrieDB<L, impl HashDBRef<L::Hash, DBValue>>,
 		key: &[u8],
 		prefix: Prefix,
 	) -> Result<DBValue, TrieHash<L>, CError<L>> {
@@ -130,7 +135,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	/// where we limit iteration to 'key' as a prefix.
 	pub(crate) fn seek(
 		&mut self,
-		db: &TrieDB<L>,
+		db: &TrieDB<L, impl HashDBRef<L::Hash, DBValue>>,
 		key: &[u8],
 	) -> Result<bool, TrieHash<L>, CError<L>> {
 		self.trail.clear();
@@ -267,7 +272,11 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 
 	/// Advance the iterator into a prefix, no value out of the prefix will be accessed
 	/// or returned after this operation.
-	fn prefix(&mut self, db: &TrieDB<L>, prefix: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+	fn prefix(
+		&mut self,
+		db: &TrieDB<L, impl HashDBRef<L::Hash, DBValue>>,
+		prefix: &[u8],
+	) -> Result<(), TrieHash<L>, CError<L>> {
 		if self.seek(db, prefix)? {
 			if let Some(v) = self.trail.pop() {
 				self.trail.clear();
@@ -284,7 +293,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	/// or returned after this operation.
 	fn prefix_then_seek(
 		&mut self,
-		db: &TrieDB<L>,
+		db: &TrieDB<L, impl HashDBRef<L::Hash, DBValue>>,
 		prefix: &[u8],
 		seek: &[u8],
 	) -> Result<(), TrieHash<L>, CError<L>> {
@@ -351,7 +360,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	/// Must be called with the same `db` as when the iterator was created.
 	pub(crate) fn next_raw_item(
 		&mut self,
-		db: &TrieDB<L>,
+		db: &TrieDB<L, impl HashDBRef<L::Hash, DBValue>>,
 	) -> Option<
 		Result<
 			(&NibbleVec, Option<&TrieHash<L>>, &Arc<OwnedNode<DBValue>>),
@@ -450,7 +459,10 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	/// Fetches the next trie item.
 	///
 	/// Must be called with the same `db` as when the iterator was created.
-	pub fn next_item(&mut self, db: &TrieDB<L>) -> Option<TrieItem<TrieHash<L>, CError<L>>> {
+	pub fn next_item(
+		&mut self,
+		db: &TrieDB<L, impl HashDBRef<L::Hash, DBValue>>,
+	) -> Option<TrieItem<TrieHash<L>, CError<L>>> {
 		while let Some(raw_item) = self.next_raw_item(db) {
 			let (prefix, _, node) = match raw_item {
 				Ok(raw_item) => raw_item,
@@ -499,7 +511,10 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	/// Fetches the next key.
 	///
 	/// Must be called with the same `db` as when the iterator was created.
-	pub fn next_key(&mut self, db: &TrieDB<L>) -> Option<TrieKeyItem<TrieHash<L>, CError<L>>> {
+	pub fn next_key(
+		&mut self,
+		db: &TrieDB<L, impl HashDBRef<L::Hash, DBValue>>,
+	) -> Option<TrieKeyItem<TrieHash<L>, CError<L>>> {
 		while let Some(raw_item) = self.next_raw_item(db) {
 			let (prefix, _, node) = match raw_item {
 				Ok(raw_item) => raw_item,
@@ -537,19 +552,21 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 }
 
 /// Iterator for going through all nodes in the trie in pre-order traversal order.
-pub struct TrieDBNodeIterator<'a, 'cache, L: TrieLayout> {
-	db: &'a TrieDB<'a, 'cache, L>,
+pub struct TrieDBNodeIterator<'a, 'cache, L: TrieLayout, DB: HashDBRef<L::Hash, DBValue>> {
+	db: &'a TrieDB<'a, 'cache, L, DB>,
 	raw_iter: TrieDBRawIterator<L>,
 }
 
-impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
+impl<'a, 'cache, L: TrieLayout, DB: HashDBRef<L::Hash, DBValue>>
+	TrieDBNodeIterator<'a, 'cache, L, DB>
+{
 	/// Create a new iterator.
-	pub fn new(db: &'a TrieDB<'a, 'cache, L>) -> Result<Self, TrieHash<L>, CError<L>> {
+	pub fn new(db: &'a TrieDB<'a, 'cache, L, DB>) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(Self { raw_iter: TrieDBRawIterator::new(db)?, db })
 	}
 
 	/// Restore an iterator from a raw iterator.
-	pub fn from_raw(db: &'a TrieDB<'a, 'cache, L>, raw_iter: TrieDBRawIterator<L>) -> Self {
+	pub fn from_raw(db: &'a TrieDB<'a, 'cache, L, DB>, raw_iter: TrieDBRawIterator<L>) -> Self {
 		Self { db, raw_iter }
 	}
 
@@ -589,13 +606,17 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 	}
 }
 
-impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, 'cache, L> {
+impl<'a, 'cache, L: TrieLayout, DB: HashDBRef<L::Hash, DBValue>> TrieIterator<L>
+	for TrieDBNodeIterator<'a, 'cache, L, DB>
+{
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		self.raw_iter.seek(self.db, key).map(|_| ())
 	}
 }
 
-impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, 'cache, L> {
+impl<'a, 'cache, L: TrieLayout, DB: HashDBRef<L::Hash, DBValue>> Iterator
+	for TrieDBNodeIterator<'a, 'cache, L, DB>
+{
 	type Item =
 		Result<(NibbleVec, Option<TrieHash<L>>, Arc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
 

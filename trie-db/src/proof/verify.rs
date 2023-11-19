@@ -55,20 +55,24 @@ pub enum Error<HO, CE> {
 impl<HO: std::fmt::Debug, CE: std::error::Error> std::fmt::Display for Error<HO, CE> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
 		match self {
-			Error::DuplicateKey(key) =>
-				write!(f, "Duplicate key in input statement: key={:?}", key),
+			Error::DuplicateKey(key) => {
+				write!(f, "Duplicate key in input statement: key={:?}", key)
+			},
 			Error::ExtraneousNode => write!(f, "Extraneous node found in proof"),
-			Error::ExtraneousValue(key) =>
-				write!(f, "Extraneous value found in proof should have been omitted: key={:?}", key),
+			Error::ExtraneousValue(key) => {
+				write!(f, "Extraneous value found in proof should have been omitted: key={:?}", key)
+			},
 			Error::ExtraneousHashReference(hash) => write!(
 				f,
 				"Extraneous hash reference found in proof should have been omitted: hash={:?}",
 				hash
 			),
-			Error::InvalidChildReference(data) =>
-				write!(f, "Invalid child reference exceeds hash length: {:?}", data),
-			Error::ValueMismatch(key) =>
-				write!(f, "Expected value was not found in the trie: key={:?}", key),
+			Error::InvalidChildReference(data) => {
+				write!(f, "Invalid child reference exceeds hash length: {:?}", data)
+			},
+			Error::ValueMismatch(key) => {
+				write!(f, "Expected value was not found in the trie: key={:?}", key)
+			},
 			Error::IncompleteProof => write!(f, "Proof is incomplete -- expected more nodes"),
 			Error::RootMismatch(hash) => write!(f, "Computed incorrect root {:?} from proof", hash),
 			Error::DecodeError(err) => write!(f, "Unable to decode proof node: {}", err),
@@ -468,8 +472,9 @@ where
 					}
 					let computed_root = match child_ref {
 						ChildReference::Hash(hash) => hash,
-						ChildReference::Inline(_, _) =>
-							panic!("the bottom item on the stack has is_inline = false; qed"),
+						ChildReference::Inline(_, _) => {
+							panic!("the bottom item on the stack has is_inline = false; qed")
+						},
 					};
 					if computed_root != *root {
 						return Err(Error::RootMismatch(computed_root))
