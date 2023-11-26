@@ -22,7 +22,7 @@ pub struct HashedValueNoExt;
 
 /// No extension trie which stores value above a static size
 /// as external node.
-pub struct HashedValueNoExtThreshold<const C: u32>;
+pub struct HashedValueNoExtThreshold<const C: u32, L>(PhantomData<L>);
 
 impl TrieLayout for HashedValueNoExt {
 	const USE_EXTENSION: bool = false;
@@ -31,17 +31,17 @@ impl TrieLayout for HashedValueNoExt {
 
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExtMeta<RefHasher>;
-	type Location = ();
+	type Location = mem_tree_db::Location;
 }
 
-impl<const C: u32> TrieLayout for HashedValueNoExtThreshold<C> {
+impl<const C: u32, L: Copy + Default + Eq + PartialEq> TrieLayout for HashedValueNoExtThreshold<C, L> {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
 	const MAX_INLINE_VALUE: Option<u32> = Some(C);
 
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExtMeta<RefHasher>;
-	type Location = ();
+	type Location = L;
 }
 
 /// Constants specific to encoding with external value node support.

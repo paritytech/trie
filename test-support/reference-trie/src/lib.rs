@@ -42,9 +42,14 @@ pub use substrate_like::{
 
 pub use paste::paste;
 pub use substrate::{LayoutV0 as SubstrateV0, LayoutV1 as SubstrateV1};
+pub use mem_tree_db::MemTreeDB;
+pub use mem_tree_db::Location as MemLocation;
 
 /// Reference hasher is a keccak hasher.
 pub type RefHasher = keccak_hasher::KeccakHasher;
+
+pub type PrefixedMemoryDB<T> =
+	MemoryDB<<T as TrieLayout>::Hash, memory_db::PrefixedKey<<T as TrieLayout>::Hash>, DBValue>;
 
 /// Apply a test method on every test layouts.
 #[macro_export]
@@ -52,14 +57,21 @@ macro_rules! test_layouts {
 	($test:ident, $test_internal:ident) => {
 		#[test]
 		fn $test() {
-			eprintln!("Running with layout `HashedValueNoExtThreshold`");
-			$test_internal::<$crate::HashedValueNoExtThreshold<1>>();
-			eprintln!("Running with layout `HashedValueNoExt`");
-			$test_internal::<$crate::HashedValueNoExt>();
-			eprintln!("Running with layout `NoExtensionLayout`");
-			$test_internal::<$crate::NoExtensionLayout>();
-			eprintln!("Running with layout `ExtensionLayout`");
-			$test_internal::<$crate::ExtensionLayout>();
+			//eprintln!("Running with layout `HashedValueNoExtThreshold` and MemoryDB");
+			//$test_internal::<$crate::HashedValueNoExtThreshold<1, ()>, $crate::PrefixedMemoryDB<$crate::HashedValueNoExtThreshold<1, ()>>>();
+			//eprintln!("Running with layout `HashedValueNoExt` and MemoryDB");
+			//$test_internal::<$crate::HashedValueNoExt, $crate::PrefixedMemoryDB<$crate::HashedValueNoExt>>();
+			//eprintln!("Running with layout `NoExtensionLayout` and MemoryDB");
+			//$test_internal::<$crate::NoExtensionLayout, $crate::PrefixedMemoryDB<$crate::NoExtensionLayout>>();
+			//eprintln!("Running with layout `ExtensionLayout` and MemoryDB");
+			//$test_internal::<$crate::ExtensionLayout, $crate::PrefixedMemoryDB<$crate::ExtensionLayout>>();
+
+			//eprintln!("Running with layout `HashedValueNoExtThreshold` and MemTreeDB");
+			//$test_internal::<$crate::HashedValueNoExtThreshold<1, $crate::MemLocation>, $crate::MemTreeDB<$crate::RefHasher>>();
+			eprintln!("Running with layout `HashedValueNoExt` and MemTreeDB");
+			$test_internal::<$crate::HashedValueNoExt, $crate::MemTreeDB<$crate::RefHasher>>();
+			eprintln!("Running with layout `NoExtensionLayout` and MemTreeDB");
+			$test_internal::<$crate::GenericNoExtensionLayout<$crate::RefHasher, $crate::MemLocation>, $crate::MemTreeDB<$crate::RefHasher>>();
 		}
 	};
 }
@@ -109,27 +121,27 @@ impl TrieConfiguration for ExtensionLayout {}
 
 /// Trie layout without extension nodes, allowing
 /// generic hasher.
-pub struct GenericNoExtensionLayout<H>(PhantomData<H>);
+pub struct GenericNoExtensionLayout<H, L>(PhantomData<(H, L)>);
 
-impl<H> Default for GenericNoExtensionLayout<H> {
+impl<H, L> Default for GenericNoExtensionLayout<H, L> {
 	fn default() -> Self {
 		GenericNoExtensionLayout(PhantomData)
 	}
 }
 
-impl<H> Clone for GenericNoExtensionLayout<H> {
+impl<H, L> Clone for GenericNoExtensionLayout<H, L> {
 	fn clone(&self) -> Self {
 		GenericNoExtensionLayout(PhantomData)
 	}
 }
 
-impl<H: Hasher> TrieLayout for GenericNoExtensionLayout<H> {
+impl<H: Hasher, L: Copy + Default + Eq + PartialEq> TrieLayout for GenericNoExtensionLayout<H, L> {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
 	const MAX_INLINE_VALUE: Option<u32> = None;
 	type Hash = H;
 	type Codec = ReferenceNodeCodecNoExt<H>;
-	type Location = ();
+	type Location = L;
 }
 
 /// Trie that allows empty values.
@@ -145,10 +157,10 @@ impl TrieLayout for AllowEmptyLayout {
 	type Location = ();
 }
 
-impl<H: Hasher> TrieConfiguration for GenericNoExtensionLayout<H> {}
+impl<H: Hasher, L: Copy + Default + Eq + PartialEq> TrieConfiguration for GenericNoExtensionLayout<H, L> {}
 
 /// Trie layout without extension nodes.
-pub type NoExtensionLayout = GenericNoExtensionLayout<RefHasher>;
+pub type NoExtensionLayout = GenericNoExtensionLayout<RefHasher, ()>;
 
 /// Children bitmap codec for radix 16 trie.
 pub struct Bitmap(u16);

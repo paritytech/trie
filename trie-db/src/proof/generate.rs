@@ -473,7 +473,7 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec, L: Copy + Default>(
 		let value = match value {
 			Some(Value::Inline(data)) => {
 				*omit_value = true;
-				Some(data.clone())
+				Some(data)
 			},
 			Some(Value::Node(_, _)) => {
 				*omit_value = true;

@@ -1,0 +1,17 @@
+[package]
+name = "mem-tree-db"
+version = "0.0.1"
+authors = ["Parity Technologies <admin@parity.io>"]
+description = "Simple reference trie format"
+repository = "https://github.com/paritytech/trie/"
+license = "Apache-2.0"
+edition = "2018"
+
+[dependencies]
+hash-db = { path = "../../hash-db", version = "0.16.0"}
+keccak-hasher = { path = "../keccak-hasher", version = "0.16.0" }
+trie-db = { path = "../../trie-db", version = "0.28.0" }
+trie-root = { path = "../../trie-root", version = "0.18.0" }
+parity-scale-codec = { version = "3.0.0", features = ["derive"] }
+
+[dev-dependencies]

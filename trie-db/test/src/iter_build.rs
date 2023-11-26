@@ -18,6 +18,8 @@ use reference_trie::{
 };
 use trie_db::{DBValue, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieLayout};
 
+use crate::TestDB;
+
 #[test]
 fn trie_root_empty() {
 	compare_implementations(vec![])
@@ -62,7 +64,7 @@ fn test_iter<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) {
 }
 
 fn compare_implementations(data: Vec<(Vec<u8>, Vec<u8>)>) {
-	test_iter::<HashedValueNoExtThreshold<1>>(data.clone());
+	test_iter::<HashedValueNoExtThreshold<1, ()>>(data.clone());
 	test_iter::<HashedValueNoExt>(data.clone());
 	test_iter::<ExtensionLayout>(data.clone());
 	test_iter::<NoExtensionLayout>(data.clone());
@@ -71,7 +73,7 @@ fn compare_implementations(data: Vec<(Vec<u8>, Vec<u8>)>) {
 }
 
 fn compare_implementations_prefixed(data: Vec<(Vec<u8>, Vec<u8>)>) {
-	compare_implementations_prefixed_internal::<HashedValueNoExtThreshold<1>>(data.clone());
+	compare_implementations_prefixed_internal::<HashedValueNoExtThreshold<1, ()>>(data.clone());
 	compare_implementations_prefixed_internal::<HashedValueNoExt>(data.clone());
 	compare_implementations_prefixed_internal::<NoExtensionLayout>(data.clone());
 	compare_implementations_prefixed_internal::<ExtensionLayout>(data.clone());
@@ -83,7 +85,7 @@ where
 	reference_trie::compare_implementations::<T, PrefixedKey<_>>(data);
 }
 fn compare_implementations_h(data: Vec<(Vec<u8>, Vec<u8>)>) {
-	compare_implementations_h_internal::<HashedValueNoExtThreshold<1>>(data.clone());
+	compare_implementations_h_internal::<HashedValueNoExtThreshold<1, ()>>(data.clone());
 	compare_implementations_h_internal::<HashedValueNoExt>(data.clone());
 	compare_implementations_h_internal::<NoExtensionLayout>(data.clone());
 	compare_implementations_h_internal::<ExtensionLayout>(data.clone());
@@ -100,8 +102,8 @@ fn compare_implementations_no_extension_unordered(data: Vec<(Vec<u8>, Vec<u8>)>)
 fn compare_insert_remove<T: TrieLayout>(data: Vec<(bool, Vec<u8>, Vec<u8>)>) {
 	reference_trie::compare_insert_remove::<T, PrefixedKey<_>>(data);
 }
-fn compare_root<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) {
-	let memdb = MemoryDB::<T::Hash, HashKey<_>, _>::default();
+fn compare_root<T: TrieLayout, DB: TestDB<T>>(data: Vec<(Vec<u8>, Vec<u8>)>) {
+	let memdb = DB::default();
 	reference_trie::compare_root::<T, _>(data, memdb);
 }
 fn compare_unhashed(data: Vec<(Vec<u8>, Vec<u8>)>) {
@@ -131,8 +133,8 @@ fn trie_middle_node2() {
 	]);
 }
 test_layouts!(root_extension_bis, root_extension_bis_internal);
-fn root_extension_bis_internal<T: TrieLayout>() {
-	compare_root::<T>(vec![
+fn root_extension_bis_internal<T: TrieLayout, DB: TestDB<T>>() {
+	compare_root::<T, DB>(vec![
 		(vec![1u8, 2u8, 3u8, 3u8], vec![8u8; 32]),
 		(vec![1u8, 2u8, 3u8, 4u8], vec![7u8; 32]),
 	]);
@@ -238,7 +240,7 @@ fn fuzz_no_extension4() {
 	]);
 }
 test_layouts!(fuzz_no_extension_insert_remove_1, fuzz_no_extension_insert_remove_1_internal);
-fn fuzz_no_extension_insert_remove_1_internal<T: TrieLayout>() {
+fn fuzz_no_extension_insert_remove_1_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let data = vec![
 		(false, vec![0], vec![251, 255]),
 		(false, vec![0, 1], vec![251, 255]),
@@ -248,7 +250,7 @@ fn fuzz_no_extension_insert_remove_1_internal<T: TrieLayout>() {
 	compare_insert_remove::<T>(data);
 }
 test_layouts!(fuzz_no_extension_insert_remove_2, fuzz_no_extension_insert_remove_2_internal);
-fn fuzz_no_extension_insert_remove_2_internal<T: TrieLayout>() {
+fn fuzz_no_extension_insert_remove_2_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let data = vec![
 		(false, vec![0x00], vec![0xfd, 0xff]),
 		(false, vec![0x10, 0x00], vec![1; 32]),

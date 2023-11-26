@@ -17,20 +17,16 @@ use hex_literal::hex;
 use reference_trie::test_layouts;
 use trie_db::{
 	node::{Node, Value},
-	DBValue, NibbleSlice, NibbleVec, TrieDBBuilder, TrieDBNodeIterator, TrieError, TrieIterator,
+	NibbleSlice, NibbleVec, TrieDBBuilder, TrieDBNodeIterator, TrieError, TrieIterator,
 	TrieLayout,
 };
 
-type MemoryDB<T> = memory_db::MemoryDB<
-	<T as TrieLayout>::Hash,
-	memory_db::PrefixedKey<<T as TrieLayout>::Hash>,
-	DBValue,
->;
+use crate::TestDB;
 
-fn build_trie_db<T: TrieLayout>(
+fn build_trie_db<T: TrieLayout, DB: TestDB<T>>(
 	pairs: &[(Vec<u8>, Vec<u8>)],
-) -> (MemoryDB<T>, <T::Hash as Hasher>::Out) {
-	let mut memdb = MemoryDB::<T>::default();
+) -> (DB, <T::Hash as Hasher>::Out) {
+	let mut memdb = DB::default();
 	let changeset = {
 		let mut t = trie_db::TrieDBMutBuilder::<T>::new(&mut memdb).build();
 		for (x, y) in pairs.iter() {
@@ -38,8 +34,8 @@ fn build_trie_db<T: TrieLayout>(
 		}
 		t.commit()
 	};
-	changeset.apply_to(&mut memdb);
-	(memdb, *changeset.root.hash())
+	let root = memdb.commit(changeset);
+	(memdb, root)
 }
 
 fn nibble_vec<T: AsRef<[u8]>>(bytes: T, len: usize) -> NibbleVec {
@@ -53,14 +49,14 @@ fn nibble_vec<T: AsRef<[u8]>>(bytes: T, len: usize) -> NibbleVec {
 }
 
 test_layouts!(iterator_works, iterator_works_internal);
-fn iterator_works_internal<T: TrieLayout>() {
+fn iterator_works_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let pairs = vec![
 		(hex!("01").to_vec(), b"aaaa".to_vec()),
 		(hex!("0123").to_vec(), b"bbbb".to_vec()),
 		(hex!("02").to_vec(), vec![1; 32]),
 	];
 
-	let (memdb, root) = build_trie_db::<T>(&pairs);
+	let (memdb, root) = build_trie_db::<T, DB>(&pairs);
 	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
 	let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 
@@ -185,8 +181,8 @@ fn iterator_works_internal<T: TrieLayout>() {
 }
 
 test_layouts!(iterator_over_empty_works, iterator_over_empty_works_internal);
-fn iterator_over_empty_works_internal<T: TrieLayout>() {
-	let (memdb, root) = build_trie_db::<T>(&[]);
+fn iterator_over_empty_works_internal<T: TrieLayout, DB: TestDB<T>>() {
+	let (memdb, root) = build_trie_db::<T, DB>(&[]);
 	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
 	let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 
@@ -205,14 +201,14 @@ fn iterator_over_empty_works_internal<T: TrieLayout>() {
 }
 
 test_layouts!(seek_works, seek_works_internal);
-fn seek_works_internal<T: TrieLayout>() {
+fn seek_works_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let pairs = vec![
 		(hex!("01").to_vec(), b"aaaa".to_vec()),
 		(hex!("0123").to_vec(), b"bbbb".to_vec()),
 		(hex!("02").to_vec(), vec![1; 32]),
 	];
 
-	let (memdb, root) = build_trie_db::<T>(&pairs);
+	let (memdb, root) = build_trie_db::<T, DB>(&pairs);
 	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
 	let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 
@@ -245,8 +241,8 @@ fn seek_works_internal<T: TrieLayout>() {
 }
 
 test_layouts!(seek_over_empty_works, seek_over_empty_works_internal);
-fn seek_over_empty_works_internal<T: TrieLayout>() {
-	let (memdb, root) = build_trie_db::<T>(&[]);
+fn seek_over_empty_works_internal<T: TrieLayout, DB: TestDB<T>>() {
+	let (memdb, root) = build_trie_db::<T, DB>(&[]);
 	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
 	let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 
@@ -267,7 +263,7 @@ fn seek_over_empty_works_internal<T: TrieLayout>() {
 }
 
 test_layouts!(iterate_over_incomplete_db, iterate_over_incomplete_db_internal);
-fn iterate_over_incomplete_db_internal<T: TrieLayout>()
+fn iterate_over_incomplete_db_internal<T: TrieLayout, DB: TestDB<T>>()
 where
 	T::Location: std::fmt::Debug,
 {
@@ -278,7 +274,7 @@ where
 		(hex!("03").to_vec(), vec![2; 32]),
 	];
 
-	let (mut memdb, root) = build_trie_db::<T>(&pairs);
+	let (mut memdb, root) = build_trie_db::<T, DB>(&pairs);
 
 	// Look up the leaf node with prefix "02".
 	let leaf_hash = {
@@ -342,7 +338,7 @@ where
 }
 
 test_layouts!(prefix_works, prefix_works_internal);
-fn prefix_works_internal<T: TrieLayout>() {
+fn prefix_works_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let can_expand = T::MAX_INLINE_VALUE.unwrap_or(T::Hash::LENGTH as u32) < T::Hash::LENGTH as u32;
 	let pairs = vec![
 		(hex!("01").to_vec(), b"aaaa".to_vec()),
@@ -350,7 +346,7 @@ fn prefix_works_internal<T: TrieLayout>() {
 		(hex!("02").to_vec(), vec![1; 32]),
 	];
 
-	let (memdb, root) = build_trie_db::<T>(&pairs);
+	let (memdb, root) = build_trie_db::<T, DB>(&pairs);
 	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
 	let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 
@@ -411,8 +407,8 @@ fn prefix_works_internal<T: TrieLayout>() {
 }
 
 test_layouts!(prefix_over_empty_works, prefix_over_empty_works_internal);
-fn prefix_over_empty_works_internal<T: TrieLayout>() {
-	let (memdb, root) = build_trie_db::<T>(&[]);
+fn prefix_over_empty_works_internal<T: TrieLayout, DB: TestDB<T>>() {
+	let (memdb, root) = build_trie_db::<T, DB>(&[]);
 	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
 	let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
 	iter.prefix(&hex!("")[..]).unwrap();

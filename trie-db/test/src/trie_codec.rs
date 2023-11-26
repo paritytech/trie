@@ -19,26 +19,28 @@ use trie_db::{
 	TrieDBMutBuilder, TrieError, TrieLayout,
 };
 
+use crate::TestDB;
+
 type MemoryDB<T> = memory_db::MemoryDB<
 	<T as TrieLayout>::Hash,
 	memory_db::HashKey<<T as TrieLayout>::Hash>,
 	DBValue,
 >;
 
-fn test_encode_compact<L: TrieLayout>(
+fn test_encode_compact<L: TrieLayout, DB: TestDB<L>>(
 	entries: Vec<(&'static [u8], &'static [u8])>,
 	keys: Vec<&'static [u8]>,
 ) -> (<L::Hash as Hasher>::Out, Vec<Vec<u8>>, Vec<(&'static [u8], Option<DBValue>)>) {
 	// Populate DB with full trie from entries.
 	let (db, root) = {
-		let mut db = <MemoryDB<L>>::default();
+		let mut db = DB::default();
 		let mut trie = <TrieDBMutBuilder<L>>::new(&mut db).build();
 		for (key, value) in entries.iter() {
 			trie.insert(key, value).unwrap();
 		}
 		let commit = trie.commit();
-		commit.apply_to(&mut db);
-		(db, commit.root_hash())
+		let root = db.commit(commit);
+		(db, root)
 	};
 
 	// Lookup items in trie while recording traversed nodes.
@@ -88,8 +90,8 @@ fn test_decode_compact<L: TrieLayout>(
 }
 
 test_layouts!(trie_compact_encoding_works, trie_compact_encoding_works_internal);
-fn trie_compact_encoding_works_internal<T: TrieLayout>() {
-	let (root, mut encoded, items) = test_encode_compact::<T>(
+fn trie_compact_encoding_works_internal<T: TrieLayout, DB: TestDB<T>>() {
+	let (root, mut encoded, items) = test_encode_compact::<T, DB>(
 		vec![
 			// "alfa" is at a hash-referenced leaf node.
 			(b"alfa", &[0; 32]),
@@ -121,9 +123,9 @@ test_layouts!(
 	trie_decoding_fails_with_incomplete_database,
 	trie_decoding_fails_with_incomplete_database_internal
 );
-fn trie_decoding_fails_with_incomplete_database_internal<T: TrieLayout>() {
+fn trie_decoding_fails_with_incomplete_database_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let (_, encoded, _) =
-		test_encode_compact::<T>(vec![(b"alfa", &[0; 32]), (b"bravo", b"bravo")], vec![b"alfa"]);
+		test_encode_compact::<T, DB>(vec![(b"alfa", &[0; 32]), (b"bravo", b"bravo")], vec![b"alfa"]);
 
 	assert!(encoded.len() > 1);
 

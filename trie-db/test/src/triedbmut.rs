@@ -21,7 +21,7 @@ use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
 	reference_trie_root, test_layouts, ExtensionLayout, HashedValueNoExt,
 	HashedValueNoExtThreshold, NoExtensionLayout, RefHasher, ReferenceNodeCodec,
-	ReferenceNodeCodecNoExt, TestTrieCache,
+	ReferenceNodeCodecNoExt, TestTrieCache, PrefixedMemoryDB,
 };
 use trie_db::{
 	CachedValue, DBValue, NodeCodec, Recorder, Trie, TrieCache, TrieDBBuilder, TrieDBMut,
@@ -29,8 +29,8 @@ use trie_db::{
 };
 use trie_standardmap::*;
 
-type PrefixedMemoryDB<T> =
-	MemoryDB<<T as TrieLayout>::Hash, PrefixedKey<<T as TrieLayout>::Hash>, DBValue>;
+use crate::{TestDB, TestCommit};
+
 type MemoryDBProof<T> =
 	MemoryDB<<T as TrieLayout>::Hash, HashKey<<T as TrieLayout>::Hash>, DBValue>;
 
@@ -71,7 +71,7 @@ fn reference_hashed_null_node<T: TrieLayout>() -> <T::Hash as Hasher>::Out {
 #[test]
 fn playpen() {
 	env_logger::init();
-	playpen_internal::<HashedValueNoExtThreshold<1>>();
+	playpen_internal::<HashedValueNoExtThreshold<1, ()>>();
 	playpen_internal::<HashedValueNoExt>();
 	playpen_internal::<NoExtensionLayout>();
 	playpen_internal::<ExtensionLayout>();
@@ -131,16 +131,16 @@ fn playpen_internal<T: TrieLayout>() {
 }
 
 test_layouts!(init, init_internal);
-fn init_internal<T: TrieLayout>() {
-	let memdb = PrefixedMemoryDB::<T>::default();
+fn init_internal<T: TrieLayout, DB: TestDB<T>>() {
+	let memdb = DB::default();
 	let t = TrieDBMutBuilder::<T>::new(&memdb).build();
 	let hashed_null_node = reference_hashed_null_node::<T>();
 	assert_eq!(t.commit().root_hash(), hashed_null_node);
 }
 
 test_layouts!(insert_on_empty, insert_on_empty_internal);
-fn insert_on_empty_internal<T: TrieLayout>() {
-	let memdb = PrefixedMemoryDB::<T>::default();
+fn insert_on_empty_internal<T: TrieLayout, DB: TestDB<T>>() {
+	let memdb = DB::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&memdb).build();
 	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	assert_eq!(
@@ -150,10 +150,10 @@ fn insert_on_empty_internal<T: TrieLayout>() {
 }
 
 test_layouts!(remove_to_empty, remove_to_empty_internal);
-fn remove_to_empty_internal<T: TrieLayout>() {
+fn remove_to_empty_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let big_value = b"00000000000000000000000000000000";
 
-	let mut memdb = PrefixedMemoryDB::<T>::default();
+	let mut memdb = DB::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb).build();
 
 	t.insert(&[0x01], big_value).unwrap();
@@ -162,37 +162,37 @@ fn remove_to_empty_internal<T: TrieLayout>() {
 	t.remove(&[0x01]).unwrap();
 	t.remove(&[0x01, 0x23]).unwrap();
 	t.remove(&[0x01, 0x34]).unwrap();
-	t.commit().apply_to(&mut memdb);
-	assert_eq!(memdb.keys().len(), 0);
+	t.commit().commit_to(&mut memdb);
+	assert!(memdb.is_empty());
 }
 
 test_layouts!(remove_to_empty_checked, remove_to_empty_checked_internal);
-fn remove_to_empty_checked_internal<T: TrieLayout>() {
+fn remove_to_empty_checked_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let big_value = b"00000000000000000000000000000000";
 
-	let mut memdb = PrefixedMemoryDB::<T>::default();
+	let mut memdb = DB::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb).build();
 	t.insert(&[0x01], big_value).unwrap();
 	t.insert(&[0x01, 0x23], big_value).unwrap();
 	t.insert(&[0x01, 0x34], big_value).unwrap();
-	let root = t.commit().apply_to(&mut memdb);
+	let root = t.commit().commit_to(&mut memdb);
 	let mut t = TrieDBMutBuilder::<T>::from_existing(&mut memdb, root).build();
 	assert_eq!(t.get(&[0x01]).unwrap(), Some(big_value.to_vec()),);
 	assert_eq!(t.get(&[0x01, 0x34]).unwrap(), Some(big_value.to_vec()),);
 	t.remove(&[0x01]).unwrap();
 	t.remove(&[0x01, 0x23]).unwrap();
 	t.remove(&[0x01, 0x34]).unwrap();
-	t.commit().apply_to(&mut memdb);
-	assert_eq!(memdb.keys().len(), 0);
+	t.commit().commit_to(&mut memdb);
+	assert!(memdb.is_empty());
 }
 
 test_layouts!(remove_to_empty_no_extension, remove_to_empty_no_extension_internal);
-fn remove_to_empty_no_extension_internal<T: TrieLayout>() {
+fn remove_to_empty_no_extension_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let big_value = b"00000000000000000000000000000000";
 	let big_value2 = b"00000000000000000000000000000002";
 	let big_value3 = b"00000000000000000000000000000004";
 
-	let mut memdb = PrefixedMemoryDB::<T>::default();
+	let mut memdb = DB::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb).build();
 
 	t.insert(&[0x01, 0x23], big_value3).unwrap();
@@ -200,7 +200,7 @@ fn remove_to_empty_no_extension_internal<T: TrieLayout>() {
 	t.insert(&[0x01, 0x34], big_value).unwrap();
 	t.remove(&[0x01]).unwrap();
 
-	let root = t.commit().apply_to(&mut memdb);
+	let root = t.commit().commit_to(&mut memdb);
 	assert_eq!(
 		&root,
 		&reference_trie::calc_root::<T, _, _, _>(vec![
@@ -211,12 +211,12 @@ fn remove_to_empty_no_extension_internal<T: TrieLayout>() {
 }
 
 test_layouts!(insert_replace_root, insert_replace_root_internal);
-fn insert_replace_root_internal<T: TrieLayout>() {
-	let mut memdb = PrefixedMemoryDB::<T>::default();
+fn insert_replace_root_internal<T: TrieLayout, DB: TestDB<T>>() {
+	let mut memdb = DB::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb).build();
 	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	t.insert(&[0x01u8, 0x23], &[0x23u8, 0x45]).unwrap();
-	let root = t.commit().apply_to(&mut memdb);
+	let root = t.commit().commit_to(&mut memdb);
 	assert_eq!(
 		root,
 		reference_trie_root::<T, _, _, _>(vec![(vec![0x01u8, 0x23], vec![0x23u8, 0x45])]),
@@ -224,12 +224,12 @@ fn insert_replace_root_internal<T: TrieLayout>() {
 }
 
 test_layouts!(insert_make_branch_root, insert_make_branch_root_internal);
-fn insert_make_branch_root_internal<T: TrieLayout>() {
-	let mut memdb = PrefixedMemoryDB::<T>::default();
+fn insert_make_branch_root_internal<T: TrieLayout, DB: TestDB<T>>() {
+	let mut memdb = DB::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb).build();
 	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	t.insert(&[0x11u8, 0x23], &[0x11u8, 0x23]).unwrap();
-	let root = t.commit().apply_to(&mut memdb);
+	let root = t.commit().commit_to(&mut memdb);
 	assert_eq!(
 		root,
 		reference_trie_root::<T, _, _, _>(vec![
@@ -240,13 +240,13 @@ fn insert_make_branch_root_internal<T: TrieLayout>() {
 }
 
 test_layouts!(insert_into_branch_root, insert_into_branch_root_internal);
-fn insert_into_branch_root_internal<T: TrieLayout>() {
-	let mut memdb = PrefixedMemoryDB::<T>::default();
+fn insert_into_branch_root_internal<T: TrieLayout, DB: TestDB<T>>() {
+	let mut memdb = DB::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb).build();
 	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	t.insert(&[0xf1u8, 0x23], &[0xf1u8, 0x23]).unwrap();
 	t.insert(&[0x81u8, 0x23], &[0x81u8, 0x23]).unwrap();
-	let root = t.commit().apply_to(&mut memdb);
+	let root = t.commit().commit_to(&mut memdb);
 	assert_eq!(
 		root,
 		reference_trie_root::<T, _, _, _>(vec![
@@ -258,12 +258,12 @@ fn insert_into_branch_root_internal<T: TrieLayout>() {
 }
 
 test_layouts!(insert_value_into_branch_root, insert_value_into_branch_root_internal);
-fn insert_value_into_branch_root_internal<T: TrieLayout>() {
-	let mut memdb = PrefixedMemoryDB::<T>::default();
+fn insert_value_into_branch_root_internal<T: TrieLayout, DB: TestDB<T>>() {
+	let mut memdb = DB::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb).build();
 	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	t.insert(&[], &[0x0]).unwrap();
-	let root = t.commit().apply_to(&mut memdb);
+	let root = t.commit().commit_to(&mut memdb);
 	assert_eq!(
 		root,
 		reference_trie_root::<T, _, _, _>(vec![
@@ -274,12 +274,12 @@ fn insert_value_into_branch_root_internal<T: TrieLayout>() {
 }
 
 test_layouts!(insert_split_leaf, insert_split_leaf_internal);
-fn insert_split_leaf_internal<T: TrieLayout>() {
-	let mut memdb = PrefixedMemoryDB::<T>::default();
+fn insert_split_leaf_internal<T: TrieLayout, DB: TestDB<T>>() {
+	let mut memdb = DB::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb).build();
 	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	t.insert(&[0x01u8, 0x34], &[0x01u8, 0x34]).unwrap();
-	let root = t.commit().apply_to(&mut memdb);
+	let root = t.commit().commit_to(&mut memdb);
 	assert_eq!(
 		root,
 		reference_trie_root::<T, _, _, _>(vec![
@@ -290,13 +290,13 @@ fn insert_split_leaf_internal<T: TrieLayout>() {
 }
 
 test_layouts!(insert_split_extenstion, insert_split_extenstion_internal);
-fn insert_split_extenstion_internal<T: TrieLayout>() {
-	let mut memdb = PrefixedMemoryDB::<T>::default();
+fn insert_split_extenstion_internal<T: TrieLayout, DB: TestDB<T>>() {
+	let mut memdb = DB::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb).build();
 	t.insert(&[0x01, 0x23, 0x45], &[0x01]).unwrap();
 	t.insert(&[0x01, 0xf3, 0x45], &[0x02]).unwrap();
 	t.insert(&[0x01, 0xf3, 0xf5], &[0x03]).unwrap();
-	let root = t.commit().apply_to(&mut memdb);
+	let root = t.commit().commit_to(&mut memdb);
 	assert_eq!(
 		root,
 		reference_trie_root::<T, _, _, _>(vec![
@@ -308,15 +308,15 @@ fn insert_split_extenstion_internal<T: TrieLayout>() {
 }
 
 test_layouts!(insert_big_value, insert_big_value_internal);
-fn insert_big_value_internal<T: TrieLayout>() {
+fn insert_big_value_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let big_value0 = b"00000000000000000000000000000000";
 	let big_value1 = b"11111111111111111111111111111111";
 
-	let mut memdb = PrefixedMemoryDB::<T>::default();
+	let mut memdb = DB::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb).build();
 	t.insert(&[0x01u8, 0x23], big_value0).unwrap();
 	t.insert(&[0x11u8, 0x23], big_value1).unwrap();
-	let root = t.commit().apply_to(&mut memdb);
+	let root = t.commit().commit_to(&mut memdb);
 	assert_eq!(
 		root,
 		reference_trie_root::<T, _, _, _>(vec![
@@ -327,14 +327,14 @@ fn insert_big_value_internal<T: TrieLayout>() {
 }
 
 test_layouts!(insert_duplicate_value, insert_duplicate_value_internal);
-fn insert_duplicate_value_internal<T: TrieLayout>() {
+fn insert_duplicate_value_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let big_value = b"00000000000000000000000000000000";
 
-	let mut memdb = PrefixedMemoryDB::<T>::default();
+	let mut memdb = DB::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb).build();
 	t.insert(&[0x01u8, 0x23], big_value).unwrap();
 	t.insert(&[0x11u8, 0x23], big_value).unwrap();
-	let root = t.commit().apply_to(&mut memdb);
+	let root = t.commit().commit_to(&mut memdb);
 	assert_eq!(
 		root,
 		reference_trie_root::<T, _, _, _>(vec![
@@ -345,23 +345,23 @@ fn insert_duplicate_value_internal<T: TrieLayout>() {
 }
 
 test_layouts!(test_at_empty, test_at_empty_internal);
-fn test_at_empty_internal<T: TrieLayout>() {
-	let mut memdb = PrefixedMemoryDB::<T>::default();
+fn test_at_empty_internal<T: TrieLayout, DB: TestDB<T>>() {
+	let mut memdb = DB::default();
 	let t = TrieDBMutBuilder::<T>::new(&mut memdb).build();
 	assert_eq!(t.get(&[0x5]).unwrap(), None);
 }
 
 test_layouts!(test_at_one_and_two, test_at_one_and_two_internal);
-fn test_at_one_and_two_internal<T: TrieLayout>() {
-	let mut memdb = PrefixedMemoryDB::<T>::default();
+fn test_at_one_and_two_internal<T: TrieLayout, DB: TestDB<T>>() {
+	let mut memdb = DB::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb).build();
 	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), vec![0x1u8, 0x23]);
-	let root = t.commit().apply_to(&mut memdb);
+	let root = t.commit().commit_to(&mut memdb);
 	let mut t = TrieDBMutBuilder::<T>::from_existing(&mut memdb, root).build();
 	assert_eq!(t.get(&[0x1, 0x23]).unwrap().unwrap(), vec![0x1u8, 0x23]);
 	t.insert(&[0x01u8, 0x23, 0x00], &[0x01u8, 0x24]).unwrap();
-	let root = t.commit().apply_to(&mut memdb);
+	let root = t.commit().commit_to(&mut memdb);
 	let mut t = TrieDBMutBuilder::<T>::from_existing(&mut memdb, root).build();
 	t.insert(&[0x01u8, 0x23, 0x00], &[0x01u8, 0x25]).unwrap();
 	// This test that middle node get resolved correctly (modified
@@ -370,8 +370,8 @@ fn test_at_one_and_two_internal<T: TrieLayout>() {
 }
 
 test_layouts!(test_at_three, test_at_three_internal);
-fn test_at_three_internal<T: TrieLayout>() {
-	let mut memdb = PrefixedMemoryDB::<T>::default();
+fn test_at_three_internal<T: TrieLayout, DB: TestDB<T>>() {
+	let mut memdb = DB::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&memdb).build();
 	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
 	t.insert(&[0xf1u8, 0x23], &[0xf1u8, 0x23]).unwrap();
@@ -380,7 +380,7 @@ fn test_at_three_internal<T: TrieLayout>() {
 	assert_eq!(t.get(&[0xf1, 0x23]).unwrap().unwrap(), vec![0xf1u8, 0x23]);
 	assert_eq!(t.get(&[0x81, 0x23]).unwrap().unwrap(), vec![0x81u8, 0x23]);
 	assert_eq!(t.get(&[0x82, 0x23]).unwrap(), None);
-	let root = t.commit().apply_to(&mut memdb);
+	let root = memdb.commit(t.commit());
 	let t = TrieDBMutBuilder::<T>::from_existing(&memdb, root).build();
 	assert_eq!(t.get(&[0x01, 0x23]).unwrap().unwrap(), vec![0x01u8, 0x23]);
 	assert_eq!(t.get(&[0xf1, 0x23]).unwrap().unwrap(), vec![0xf1u8, 0x23]);
@@ -398,7 +398,7 @@ fn test_nibbled_branch_changed_value() {
 }
 
 test_layouts!(stress, stress_internal);
-fn stress_internal<T: TrieLayout>() {
+fn stress_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let mut seed = Default::default();
 	for _ in 0..1000 {
 		let x = StandardMap {
@@ -411,14 +411,14 @@ fn stress_internal<T: TrieLayout>() {
 		.make_with(&mut seed);
 
 		let real = reference_trie_root::<T, _, _, _>(x.clone());
-		let mut memdb = PrefixedMemoryDB::<T>::default();
+		let mut memdb = DB::default();
 		let memtrie = populate_trie::<T>(&mut memdb, &x);
 		let mut y = x.clone();
 		y.sort_by(|ref a, ref b| a.0.cmp(&b.0));
-		let mut memdb2 = PrefixedMemoryDB::<T>::default();
+		let mut memdb2 = DB::default();
 		let memtrie_sorted = populate_trie::<T>(&mut memdb2, &y);
-		let root = memtrie.commit().apply_to(&mut memdb);
-		let root2 = memtrie_sorted.commit().apply_to(&mut memdb2);
+		let root = memtrie.commit().commit_to(&mut memdb);
+		let root2 = memtrie_sorted.commit().commit_to(&mut memdb2);
 		if root != real || root2 != real {
 			println!("TRIE MISMATCH");
 			println!();
@@ -437,16 +437,16 @@ fn stress_internal<T: TrieLayout>() {
 }
 
 test_layouts!(test_trie_existing, test_trie_existing_internal);
-fn test_trie_existing_internal<T: TrieLayout>() {
-	let mut db = PrefixedMemoryDB::<T>::default();
-	let mut t = TrieDBMutBuilder::<T>::new(&mut db).build();
+fn test_trie_existing_internal<T: TrieLayout, DB: TestDB<T>>() {
+	let mut memdb = DB::default();
+	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb).build();
 	t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
-	let root = t.commit().apply_to(&mut db);
-	let _ = TrieDBMutBuilder::<T>::from_existing(&db, root);
+	let root = t.commit().commit_to(&mut memdb);
+	let _ = TrieDBMutBuilder::<T>::from_existing(&memdb, root);
 }
 
 test_layouts!(insert_empty, insert_empty_internal);
-fn insert_empty_internal<T: TrieLayout>() {
+fn insert_empty_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let mut seed = Default::default();
 	let x = StandardMap {
 		alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
@@ -457,12 +457,13 @@ fn insert_empty_internal<T: TrieLayout>() {
 	}
 	.make_with(&mut seed);
 
-	let mut db = PrefixedMemoryDB::<T>::default();
+	let mut db = DB::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&db).build();
 	for &(ref key, ref value) in &x {
 		t.insert(key, value).unwrap();
 	}
-	let root = t.commit().apply_to(&mut db);
+	let root = db.commit(t.commit());
+
 
 	assert_eq!(root, reference_trie_root::<T, _, _, _>(x.clone()));
 
@@ -471,14 +472,14 @@ fn insert_empty_internal<T: TrieLayout>() {
 		t.insert(key, &[]).unwrap();
 	}
 	assert!(t.is_empty());
-	let root = t.commit().apply_to(&mut db);
+	let root = db.commit(t.commit());
 
 	let hashed_null_node = reference_hashed_null_node::<T>();
 	assert_eq!(root, hashed_null_node);
 }
 
 test_layouts!(return_old_values, return_old_values_internal);
-fn return_old_values_internal<T: TrieLayout>() {
+fn return_old_values_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let threshold = T::MAX_INLINE_VALUE;
 	let mut seed = Default::default();
 	let x = StandardMap {
@@ -490,7 +491,7 @@ fn return_old_values_internal<T: TrieLayout>() {
 	}
 	.make_with(&mut seed);
 
-	let mut db = PrefixedMemoryDB::<T>::default();
+	let mut db = DB::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&mut db).build();
 	for &(ref key, ref value) in &x {
 		assert!(t.insert(key, value).unwrap() == None);
@@ -534,7 +535,7 @@ fn register_proof_without_value() {
 	use reference_trie::HashedValueNoExtThreshold;
 	use std::{cell::RefCell, collections::HashMap};
 
-	type Layout = HashedValueNoExtThreshold<1>;
+	type Layout = HashedValueNoExtThreshold<1, ()>;
 	type MemoryDB = memory_db::MemoryDB<RefHasher, PrefixedKey<RefHasher>, DBValue>;
 	let x = [
 		(b"test1".to_vec(), vec![1; 32]), // inline
@@ -636,7 +637,7 @@ fn register_proof_without_value() {
 }
 
 test_layouts!(test_recorder, test_recorder_internal);
-fn test_recorder_internal<T: TrieLayout>() {
+fn test_recorder_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let key_value = vec![
 		(b"A".to_vec(), vec![1; 64]),
 		(b"AA".to_vec(), vec![2; 64]),
@@ -645,12 +646,12 @@ fn test_recorder_internal<T: TrieLayout>() {
 	];
 
 	// Add some initial data to the trie
-	let mut memdb = PrefixedMemoryDB::<T>::default();
+	let mut memdb = DB::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb).build();
 	for (key, value) in key_value.iter().take(1) {
 		t.insert(key, value).unwrap();
 	}
-	let root = t.commit().apply_to(&mut memdb);
+	let root = t.commit().commit_to(&mut memdb);
 
 	// Add more data, but this time only to the overlay.
 	// While doing that we record all trie accesses to replay this operation.
@@ -687,7 +688,7 @@ fn test_recorder_internal<T: TrieLayout>() {
 }
 
 test_layouts!(test_recorder_witch_cache, test_recorder_with_cache_internal);
-fn test_recorder_with_cache_internal<T: TrieLayout>() {
+fn test_recorder_with_cache_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let key_value = vec![
 		(b"A".to_vec(), vec![1; 64]),
 		(b"AA".to_vec(), vec![2; 64]),
@@ -696,12 +697,12 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	];
 
 	// Add some initial data to the trie
-	let mut memdb = PrefixedMemoryDB::<T>::default();
+	let mut memdb = DB::default();
 	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb).build();
 	for (key, value) in key_value.iter().take(1) {
 		t.insert(key, value).unwrap();
 	}
-	let root = t.commit().apply_to(&mut memdb);
+	let root = t.commit().commit_to(&mut memdb);
 	let mut validated_root = root;
 
 	let mut cache = TestTrieCache::<T>::default();
@@ -728,7 +729,7 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 	for (key, value) in key_value.iter().skip(1) {
 		trie.insert(key, value).unwrap();
 	}
-	let new_root = trie.commit().apply_to(&mut overlay);
+	let new_root = trie.commit().commit_to(&mut overlay);
 
 	let t = TrieDBBuilder::<T>::new(&overlay, &new_root).with_cache(&mut cache).build();
 	for (key, _) in key_value.iter().skip(1) {
@@ -761,7 +762,7 @@ fn test_recorder_with_cache_internal<T: TrieLayout>() {
 }
 
 test_layouts!(test_insert_remove_data_with_cache, test_insert_remove_data_with_cache_internal);
-fn test_insert_remove_data_with_cache_internal<T: TrieLayout>() {
+fn test_insert_remove_data_with_cache_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let key_value = vec![
 		(b"A".to_vec(), vec![1; 64]),
 		(b"AA".to_vec(), vec![2; 64]),
@@ -773,7 +774,7 @@ fn test_insert_remove_data_with_cache_internal<T: TrieLayout>() {
 
 	let mut cache = TestTrieCache::<T>::default();
 	let mut recorder = Recorder::<T>::new();
-	let mut memdb = PrefixedMemoryDB::<T>::default();
+	let mut memdb = DB::default();
 	let mut trie = TrieDBMutBuilder::<T>::new(&mut memdb)
 		.with_recorder(&mut recorder)
 		.with_cache(&mut cache)
@@ -815,8 +816,8 @@ fn test_insert_remove_data_with_cache_internal<T: TrieLayout>() {
 
 #[test]
 fn test_two_assets_memory_db() {
-	test_two_assets_memory_db_inner_1::<HashedValueNoExtThreshold<1>>();
-	test_two_assets_memory_db_inner_2::<HashedValueNoExtThreshold<1>>();
+	test_two_assets_memory_db_inner_1::<HashedValueNoExtThreshold<1, ()>>();
+	test_two_assets_memory_db_inner_2::<HashedValueNoExtThreshold<1, ()>>();
 }
 fn test_two_assets_memory_db_inner_1<T: TrieLayout>() {
 	let memdb = PrefixedMemoryDB::<T>::new(&[0u8]);

@@ -574,6 +574,16 @@ impl NodePlan {
 			NodePlan::Branch { value, children } => {
 				let mut child_slices = [None; nibble_ops::NIBBLE_LENGTH];
 				let mut nc = 0;
+				let value = if let Some(v) = value {
+					if v.is_inline() {
+						Some(v.build(data, locations.first().copied().unwrap_or_default()))
+					} else {
+						nc += 1;
+						Some(v.build(data, Default::default()))
+					}
+				} else {
+					None
+				};
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
 					if let Some(child) = &children[i] {
 						let location = if child.is_inline() {
@@ -588,14 +598,22 @@ impl NodePlan {
 				}
 				Node::Branch(
 					child_slices,
-					value
-						.as_ref()
-						.map(|v| v.build(data, locations.last().copied().unwrap_or_default())),
+					value,
 				)
 			},
 			NodePlan::NibbledBranch { partial, value, children } => {
 				let mut child_slices = [None; nibble_ops::NIBBLE_LENGTH];
 				let mut nc = 0;
+				let value = if let Some(v) = value {
+					if v.is_inline() {
+						Some(v.build(data, locations.first().copied().unwrap_or_default()))
+					} else {
+						nc += 1;
+						Some(v.build(data, Default::default()))
+					}
+				} else {
+					None
+				};
 				for i in 0..nibble_ops::NIBBLE_LENGTH {
 					if let Some(child) = &children[i] {
 						let location = if child.is_inline() {
@@ -611,9 +629,7 @@ impl NodePlan {
 				Node::NibbledBranch(
 					partial.build(data),
 					child_slices,
-					value
-						.as_ref()
-						.map(|v| v.build(data, locations.last().copied().unwrap_or_default())),
+					value,
 				)
 			},
 		}
