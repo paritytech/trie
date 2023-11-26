@@ -124,8 +124,10 @@ test_layouts!(
 	trie_decoding_fails_with_incomplete_database_internal
 );
 fn trie_decoding_fails_with_incomplete_database_internal<T: TrieLayout, DB: TestDB<T>>() {
-	let (_, encoded, _) =
-		test_encode_compact::<T, DB>(vec![(b"alfa", &[0; 32]), (b"bravo", b"bravo")], vec![b"alfa"]);
+	let (_, encoded, _) = test_encode_compact::<T, DB>(
+		vec![(b"alfa", &[0; 32]), (b"bravo", b"bravo")],
+		vec![b"alfa"],
+	);
 
 	assert!(encoded.len() > 1);
 

@@ -173,7 +173,7 @@ impl<L: TrieLayout> Value<L> {
 		} else if let Value::Node(hash, location) = self {
 			f(NodeToEncode::TrieNode(NodeHandle::Hash(*hash, *location)), partial, None);
 		}
- 		let value = match &*self {
+		let value = match &*self {
 			Value::Inline(value) => EncodedValue::Inline(&value),
 			Value::Node(hash, location) => EncodedValue::Node(hash.as_ref(), *location),
 			Value::NewNode(Some(hash), _value) =>

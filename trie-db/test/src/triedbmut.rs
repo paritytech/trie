@@ -20,8 +20,8 @@ use log::debug;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
 	reference_trie_root, test_layouts, ExtensionLayout, HashedValueNoExt,
-	HashedValueNoExtThreshold, NoExtensionLayout, RefHasher, ReferenceNodeCodec,
-	ReferenceNodeCodecNoExt, TestTrieCache, PrefixedMemoryDB,
+	HashedValueNoExtThreshold, NoExtensionLayout, PrefixedMemoryDB, RefHasher, ReferenceNodeCodec,
+	ReferenceNodeCodecNoExt, TestTrieCache,
 };
 use trie_db::{
 	CachedValue, DBValue, NodeCodec, Recorder, Trie, TrieCache, TrieDBBuilder, TrieDBMut,
@@ -29,7 +29,7 @@ use trie_db::{
 };
 use trie_standardmap::*;
 
-use crate::{TestDB, TestCommit};
+use crate::{TestCommit, TestDB};
 
 type MemoryDBProof<T> =
 	MemoryDB<<T as TrieLayout>::Hash, HashKey<<T as TrieLayout>::Hash>, DBValue>;
@@ -463,7 +463,6 @@ fn insert_empty_internal<T: TrieLayout, DB: TestDB<T>>() {
 		t.insert(key, value).unwrap();
 	}
 	let root = db.commit(t.commit());
-
 
 	assert_eq!(root, reference_trie_root::<T, _, _, _>(x.clone()));
 

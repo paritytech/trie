@@ -273,7 +273,9 @@ where
 			query: |_: &[u8]| (),
 			hash: *self.root,
 			cache: cache.as_mut().map(|c| &mut ***c as &mut dyn TrieCache<L::Codec, L::Location>),
-			recorder: recorder.as_mut().map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>, L::Location>),
+			recorder: recorder
+				.as_mut()
+				.map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>, L::Location>),
 		}
 		.lookup_first_descendant(key, NibbleSlice::new(key), Default::default())
 	}

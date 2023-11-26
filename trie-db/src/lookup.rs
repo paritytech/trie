@@ -178,14 +178,15 @@ where
 
 			// Get the owned node representation from the database.
 			let mut get_owned_node = |depth: i32| {
-				let (data, locations) = match self.db.get(&hash, nibble_key.mid(key_nibbles).left(), location) {
-					Some(value) => value,
-					None =>
-						return Err(Box::new(match depth {
-							0 => TrieError::InvalidStateRoot(hash),
-							_ => TrieError::IncompleteDatabase(hash),
-						})),
-				};
+				let (data, locations) =
+					match self.db.get(&hash, nibble_key.mid(key_nibbles).left(), location) {
+						Some(value) => value,
+						None =>
+							return Err(Box::new(match depth {
+								0 => TrieError::InvalidStateRoot(hash),
+								_ => TrieError::IncompleteDatabase(hash),
+							})),
+					};
 
 				let decoded = match L::Codec::decode(&data[..], &locations) {
 					Ok(node) => node,
@@ -198,7 +199,8 @@ where
 			};
 
 			let mut node = if let Some(cache) = &mut cache {
-				let node = cache.get_or_insert_node(hash, location, &mut || get_owned_node(depth))?;
+				let node =
+					cache.get_or_insert_node(hash, location, &mut || get_owned_node(depth))?;
 
 				self.record(|| TrieAccess::NodeOwned { hash, node_owned: node });
 

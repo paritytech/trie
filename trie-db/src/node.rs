@@ -596,10 +596,7 @@ impl NodePlan {
 						child_slices[i] = Some(child.build(data, location));
 					}
 				}
-				Node::Branch(
-					child_slices,
-					value,
-				)
+				Node::Branch(child_slices, value)
 			},
 			NodePlan::NibbledBranch { partial, value, children } => {
 				let mut child_slices = [None; nibble_ops::NIBBLE_LENGTH];
@@ -626,11 +623,7 @@ impl NodePlan {
 						child_slices[i] = Some(child.build(data, location));
 					}
 				}
-				Node::NibbledBranch(
-					partial.build(data),
-					child_slices,
-					value,
-				)
+				Node::NibbledBranch(partial.build(data), child_slices, value)
 			},
 		}
 	}

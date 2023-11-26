@@ -18,14 +18,15 @@ use hash_db::{Hasher, EMPTY_PREFIX};
 use hex_literal::hex;
 use memory_db::{HashKey, MemoryDB};
 use reference_trie::{
-	test_layouts, test_layouts_substrate, HashedValueNoExtThreshold, TestTrieCache, PrefixedMemoryDB,
+	test_layouts, test_layouts_substrate, HashedValueNoExtThreshold, PrefixedMemoryDB,
+	TestTrieCache,
 };
 use trie_db::{
 	encode_compact, CachedValue, DBValue, Lookup, NibbleSlice, RecordedForKey, Recorder, Trie,
 	TrieCache, TrieDBBuilder, TrieDBMutBuilder, TrieLayout, TrieRecorder,
 };
 
-use crate::{TestDB, TestCommit};
+use crate::{TestCommit, TestDB};
 
 type MemoryDBProof<T> =
 	MemoryDB<<T as TrieLayout>::Hash, HashKey<<T as TrieLayout>::Hash>, DBValue>;
@@ -164,8 +165,10 @@ fn iterator_seek_internal<T: TrieLayout, DB: TestDB<T>>() {
 	assert_eq!(&vals[5..], &iter.map(|x| x.unwrap().1).collect::<Vec<_>>()[..]);
 }
 
-fn trie_from_hex_keys<T, DB: TestDB<T>>(keys: &[&str], callback: impl FnOnce(&mut trie_db::TrieDB<T>))
-where
+fn trie_from_hex_keys<T, DB: TestDB<T>>(
+	keys: &[&str],
+	callback: impl FnOnce(&mut trie_db::TrieDB<T>),
+) where
 	T: TrieLayout,
 {
 	let mut memdb = DB::default();

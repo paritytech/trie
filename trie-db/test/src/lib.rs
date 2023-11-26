@@ -32,61 +32,67 @@ mod triedb;
 mod triedbmut;
 
 use hash_db::{Hasher, Prefix};
-use trie_db::{DBValue, TrieLayout, TrieHash, Changeset};
 use mem_tree_db::MemTreeDB;
+use trie_db::{Changeset, DBValue, TrieHash, TrieLayout};
 
 trait TestDB<T: TrieLayout>: hash_db::HashDB<T::Hash, DBValue, T::Location> + Clone + Default {
-    fn commit(&mut self, commit: trie_db::Changeset<<<T as TrieLayout>::Hash as Hasher>::Out, T::Location>) -> TrieHash<T>;
-    fn remove(&mut self, hash: &<T::Hash as Hasher>::Out, prefix: Prefix);
-    fn is_empty(&self) -> bool;
+	fn commit(
+		&mut self,
+		commit: trie_db::Changeset<<<T as TrieLayout>::Hash as Hasher>::Out, T::Location>,
+	) -> TrieHash<T>;
+	fn remove(&mut self, hash: &<T::Hash as Hasher>::Out, prefix: Prefix);
+	fn is_empty(&self) -> bool;
 }
 
-impl<T: TrieLayout<Hash = H>, H, KF> TestDB<T> for MemoryDB<H, KF, DBValue> 
-    where
-        H: Hasher,
-        KF: memory_db::KeyFunction<H> + Send + Sync,
+impl<T: TrieLayout<Hash = H>, H, KF> TestDB<T> for MemoryDB<H, KF, DBValue>
+where
+	H: Hasher,
+	KF: memory_db::KeyFunction<H> + Send + Sync,
 {
-    fn commit(&mut self, commit: trie_db::Changeset<H::Out, <T as TrieLayout>::Location>) -> H::Out {
-        commit.apply_to(self)
-    }
+	fn commit(
+		&mut self,
+		commit: trie_db::Changeset<H::Out, <T as TrieLayout>::Location>,
+	) -> H::Out {
+		commit.apply_to(self)
+	}
 
-    fn remove(&mut self, hash: &<T::Hash as Hasher>::Out, prefix: Prefix) {
-        MemoryDB::remove(self, hash, prefix);
-    }
+	fn remove(&mut self, hash: &<T::Hash as Hasher>::Out, prefix: Prefix) {
+		MemoryDB::remove(self, hash, prefix);
+	}
 
-    fn is_empty(&self) -> bool {
-        self.keys().is_empty()
-    }
+	fn is_empty(&self) -> bool {
+		self.keys().is_empty()
+	}
 }
 
 impl<T: TrieLayout<Hash = H, Location = mem_tree_db::Location>, H> TestDB<T> for MemTreeDB<H>
-    where
-        H: Hasher + Clone,
+where
+	H: Hasher + Clone,
 {
-    fn commit(&mut self, commit: trie_db::Changeset<H::Out, mem_tree_db::Location>) -> H::Out {
-        let root = commit.root_hash();
-        self.apply_commit(commit);
-        root
-    }
+	fn commit(&mut self, commit: trie_db::Changeset<H::Out, mem_tree_db::Location>) -> H::Out {
+		let root = commit.root_hash();
+		self.apply_commit(commit);
+		root
+	}
 
-    fn remove(&mut self, hash: &H::Out, _prefix: Prefix) {
-        MemTreeDB::remove(self, hash);
-    }
+	fn remove(&mut self, hash: &H::Out, _prefix: Prefix) {
+		MemTreeDB::remove(self, hash);
+	}
 
-    fn is_empty(&self) -> bool {
-        MemTreeDB::is_empty(self)
-    }
+	fn is_empty(&self) -> bool {
+		MemTreeDB::is_empty(self)
+	}
 }
 
 trait TestCommit<T: TrieLayout> {
-    fn commit_to<DB: TestDB<T>>(self, db: &mut DB) -> TrieHash<T>;
+	fn commit_to<DB: TestDB<T>>(self, db: &mut DB) -> TrieHash<T>;
 }
 
-impl<H, DL, T: TrieLayout<Location = DL>> TestCommit<T> for Changeset<H, DL> 
-where 
-T::Hash: Hasher<Out=H>,
+impl<H, DL, T: TrieLayout<Location = DL>> TestCommit<T> for Changeset<H, DL>
+where
+	T::Hash: Hasher<Out = H>,
 {
-    fn commit_to<DB: TestDB<T>>(self, db: &mut DB) -> TrieHash<T> {
-        db.commit(self)
-    }
+	fn commit_to<DB: TestDB<T>>(self, db: &mut DB) -> TrieHash<T> {
+		db.commit(self)
+	}
 }

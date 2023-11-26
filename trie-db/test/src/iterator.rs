@@ -17,8 +17,7 @@ use hex_literal::hex;
 use reference_trie::test_layouts;
 use trie_db::{
 	node::{Node, Value},
-	NibbleSlice, NibbleVec, TrieDBBuilder, TrieDBNodeIterator, TrieError, TrieIterator,
-	TrieLayout,
+	NibbleSlice, NibbleVec, TrieDBBuilder, TrieDBNodeIterator, TrieError, TrieIterator, TrieLayout,
 };
 
 use crate::TestDB;

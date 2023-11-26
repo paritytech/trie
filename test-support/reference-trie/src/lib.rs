@@ -40,10 +40,9 @@ pub use substrate_like::{
 	NodeCodec as ReferenceNodeCodecNoExtMeta, ReferenceTrieStreamNoExt,
 };
 
+pub use mem_tree_db::{Location as MemLocation, MemTreeDB};
 pub use paste::paste;
 pub use substrate::{LayoutV0 as SubstrateV0, LayoutV1 as SubstrateV1};
-pub use mem_tree_db::MemTreeDB;
-pub use mem_tree_db::Location as MemLocation;
 
 /// Reference hasher is a keccak hasher.
 pub type RefHasher = keccak_hasher::KeccakHasher;
@@ -67,11 +66,16 @@ macro_rules! test_layouts {
 			//$test_internal::<$crate::ExtensionLayout, $crate::PrefixedMemoryDB<$crate::ExtensionLayout>>();
 
 			//eprintln!("Running with layout `HashedValueNoExtThreshold` and MemTreeDB");
-			//$test_internal::<$crate::HashedValueNoExtThreshold<1, $crate::MemLocation>, $crate::MemTreeDB<$crate::RefHasher>>();
+			//$test_internal::<$crate::HashedValueNoExtThreshold<1, $crate::MemLocation>,
+			//$test_internal::<$crate::HashedValueNoExtThreshold<1, $crate::MemTreeDB<$crate::RefHasher>>();
+			//$test_internal::<$crate::HashedValueNoExtThreshold<1,
 			eprintln!("Running with layout `HashedValueNoExt` and MemTreeDB");
 			$test_internal::<$crate::HashedValueNoExt, $crate::MemTreeDB<$crate::RefHasher>>();
 			eprintln!("Running with layout `NoExtensionLayout` and MemTreeDB");
-			$test_internal::<$crate::GenericNoExtensionLayout<$crate::RefHasher, $crate::MemLocation>, $crate::MemTreeDB<$crate::RefHasher>>();
+			$test_internal::<
+				$crate::GenericNoExtensionLayout<$crate::RefHasher, $crate::MemLocation>,
+				$crate::MemTreeDB<$crate::RefHasher>,
+			>();
 		}
 	};
 }
@@ -157,7 +161,10 @@ impl TrieLayout for AllowEmptyLayout {
 	type Location = ();
 }
 
-impl<H: Hasher, L: Copy + Default + Eq + PartialEq> TrieConfiguration for GenericNoExtensionLayout<H, L> {}
+impl<H: Hasher, L: Copy + Default + Eq + PartialEq> TrieConfiguration
+	for GenericNoExtensionLayout<H, L>
+{
+}
 
 /// Trie layout without extension nodes.
 pub type NoExtensionLayout = GenericNoExtensionLayout<RefHasher, ()>;

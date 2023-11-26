@@ -149,7 +149,10 @@ fn test_verify_extraneaous_value_internal<T: TrieLayout, DB: TestDB<T>>() {
 
 #[test]
 fn test_verify_extraneous_hash_reference() {
-	let (root, proof, _) = test_generate_proof::<NoExtensionLayout, MemoryDB<NoExtensionLayout>>(test_entries(), vec![b"do"]);
+	let (root, proof, _) = test_generate_proof::<NoExtensionLayout, MemoryDB<NoExtensionLayout>>(
+		test_entries(),
+		vec![b"do"],
+	);
 
 	let items = vec![(&b"alfa"[..], Some(&[0; 32][..])), (&b"do"[..], Some(&b"verb"[..]))];
 	match verify_proof::<NoExtensionLayout, _, _, _>(&root, &proof, items.iter()) {
