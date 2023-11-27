@@ -76,7 +76,7 @@ where
 	}
 
 	fn remove(&mut self, hash: &H::Out, _prefix: Prefix) {
-		MemTreeDB::remove(self, hash);
+		MemTreeDB::remove_node(self, hash);
 	}
 
 	fn is_empty(&self) -> bool {

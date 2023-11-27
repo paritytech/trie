@@ -73,17 +73,26 @@ where
 		self.roots.clear();
 	}
 
-	pub fn remove(&mut self, key: &H::Out) {
+	pub fn remove_root(&mut self, key: &H::Out) {
 		let Some(location) = self.roots.get(key) else {
 			return;
 		};
 
-		if self.remove_node(*location) {
+		if self.remove_tree(*location) {
 			self.roots.remove(key);
 		}
 	}
 
-	fn remove_node(&mut self, location: usize) -> bool {
+	pub fn remove_node(&mut self, k: &H::Out) {
+		self.roots.remove(k);
+		for node in self.nodes.iter_mut() {
+			if matches!(node, NodeEntry::Live { key, .. } if key == k) {
+				*node = NodeEntry::Removed;
+			}
+		}
+	}
+
+	fn remove_tree(&mut self, location: usize) -> bool {
 		let entry = self.nodes.get_mut(location).unwrap();
 		match entry {
 			NodeEntry::Live { rc, children, .. } =>
@@ -91,7 +100,7 @@ where
 					let children = std::mem::take(children);
 					*entry = NodeEntry::Removed;
 					for c in children {
-						self.remove_node(c);
+						self.remove_tree(c);
 					}
 					true
 				} else {
@@ -143,7 +152,7 @@ where
 			self.roots.insert(*key, root);
 		}
 		for (k, _) in commit.removed {
-			self.remove(&k);
+			self.remove_root(&k);
 		}
 	}
 }

@@ -56,19 +56,32 @@ macro_rules! test_layouts {
 	($test:ident, $test_internal:ident) => {
 		#[test]
 		fn $test() {
-			//eprintln!("Running with layout `HashedValueNoExtThreshold` and MemoryDB");
-			//$test_internal::<$crate::HashedValueNoExtThreshold<1, ()>, $crate::PrefixedMemoryDB<$crate::HashedValueNoExtThreshold<1, ()>>>();
-			//eprintln!("Running with layout `HashedValueNoExt` and MemoryDB");
-			//$test_internal::<$crate::HashedValueNoExt, $crate::PrefixedMemoryDB<$crate::HashedValueNoExt>>();
-			//eprintln!("Running with layout `NoExtensionLayout` and MemoryDB");
-			//$test_internal::<$crate::NoExtensionLayout, $crate::PrefixedMemoryDB<$crate::NoExtensionLayout>>();
-			//eprintln!("Running with layout `ExtensionLayout` and MemoryDB");
-			//$test_internal::<$crate::ExtensionLayout, $crate::PrefixedMemoryDB<$crate::ExtensionLayout>>();
+			eprintln!("Running with layout `HashedValueNoExtThreshold` and MemoryDB");
+			$test_internal::<
+				$crate::HashedValueNoExtThreshold<1, ()>,
+				$crate::PrefixedMemoryDB<$crate::HashedValueNoExtThreshold<1, ()>>,
+			>();
+			eprintln!("Running with layout `HashedValueNoExt` and MemoryDB");
+			$test_internal::<
+				$crate::HashedValueNoExt,
+				$crate::PrefixedMemoryDB<$crate::HashedValueNoExt>,
+			>();
+			eprintln!("Running with layout `NoExtensionLayout` and MemoryDB");
+			$test_internal::<
+				$crate::NoExtensionLayout,
+				$crate::PrefixedMemoryDB<$crate::NoExtensionLayout>,
+			>();
+			eprintln!("Running with layout `ExtensionLayout` and MemoryDB");
+			$test_internal::<
+				$crate::ExtensionLayout,
+				$crate::PrefixedMemoryDB<$crate::ExtensionLayout>,
+			>();
 
-			//eprintln!("Running with layout `HashedValueNoExtThreshold` and MemTreeDB");
-			//$test_internal::<$crate::HashedValueNoExtThreshold<1, $crate::MemLocation>,
-			//$test_internal::<$crate::HashedValueNoExtThreshold<1, $crate::MemTreeDB<$crate::RefHasher>>();
-			//$test_internal::<$crate::HashedValueNoExtThreshold<1,
+			eprintln!("Running with layout `HashedValueNoExtThreshold` and MemTreeDB");
+			$test_internal::<
+				$crate::HashedValueNoExtThreshold<1, $crate::MemLocation>,
+				$crate::MemTreeDB<$crate::RefHasher>,
+			>();
 			eprintln!("Running with layout `HashedValueNoExt` and MemTreeDB");
 			$test_internal::<$crate::HashedValueNoExt, $crate::MemTreeDB<$crate::RefHasher>>();
 			eprintln!("Running with layout `NoExtensionLayout` and MemTreeDB");

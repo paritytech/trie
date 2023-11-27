@@ -576,10 +576,10 @@ impl NodePlan {
 				let mut nc = 0;
 				let value = if let Some(v) = value {
 					if v.is_inline() {
-						Some(v.build(data, locations.first().copied().unwrap_or_default()))
+						Some(v.build(data, Default::default()))
 					} else {
 						nc += 1;
-						Some(v.build(data, Default::default()))
+						Some(v.build(data, locations.first().copied().unwrap_or_default()))
 					}
 				} else {
 					None
@@ -603,10 +603,10 @@ impl NodePlan {
 				let mut nc = 0;
 				let value = if let Some(v) = value {
 					if v.is_inline() {
-						Some(v.build(data, locations.first().copied().unwrap_or_default()))
+						Some(v.build(data, Default::default()))
 					} else {
 						nc += 1;
-						Some(v.build(data, Default::default()))
+						Some(v.build(data, locations.first().copied().unwrap_or_default()))
 					}
 				} else {
 					None
