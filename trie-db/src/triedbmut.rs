@@ -1987,7 +1987,7 @@ where
 								let mov = prefix.append_optional_slice_and_nibble(o_slice, o_index);
 								match node {
 									NodeToEncode::Node(value) => {
-										let value_hash = self.db.insert(prefix.as_prefix(), value);
+										let value_hash = L::Hash::hash(value);
 
 										self.cache_value(prefix.inner(), value, value_hash);
 
