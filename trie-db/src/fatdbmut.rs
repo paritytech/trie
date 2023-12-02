@@ -22,48 +22,48 @@ use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 /// Additionaly it stores inserted hash-key mappings for later retrieval.
 ///
 /// Use it as a `Trie` or `TrieMut` trait object.
-pub struct FatDBMut<'db, L>
+pub struct FatDBMut<'db, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDB<L::Hash, DBValue>,
 {
-	raw: TrieDBMut<'db, L>,
+	raw: TrieDBMut<'db, L, DB>,
 }
 
-impl<'db, L> FatDBMut<'db, L>
+impl<'db, L, DB> FatDBMut<'db, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDB<L::Hash, DBValue>,
 {
 	/// Create a new trie with the backing database `db` and empty `root`
 	/// Initialise to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
-	pub fn new(db: &'db mut dyn HashDB<L::Hash, DBValue>, root: &'db mut TrieHash<L>) -> Self {
+	pub fn new(db: &'db mut DB, root: &'db mut TrieHash<L>) -> Self {
 		FatDBMut { raw: TrieDBMutBuilder::new(db, root).build() }
 	}
 
 	/// Create a new trie with the backing database `db` and `root`.
 	///
 	/// Returns an error if root does not exist.
-	pub fn from_existing(
-		db: &'db mut dyn HashDB<L::Hash, DBValue>,
-		root: &'db mut TrieHash<L>,
-	) -> Self {
+	pub fn from_existing(db: &'db mut DB, root: &'db mut TrieHash<L>) -> Self {
 		FatDBMut { raw: TrieDBMutBuilder::from_existing(db, root).build() }
 	}
 
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue> {
+	pub fn db(&self) -> &DB {
 		self.raw.db()
 	}
 
 	/// Get the backing database.
-	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue> {
+	pub fn db_mut(&mut self) -> &mut DB {
 		self.raw.db_mut()
 	}
 }
 
-impl<'db, L> TrieMut<L> for FatDBMut<'db, L>
+impl<'db, L, DB> TrieMut<L> for FatDBMut<'db, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDB<L::Hash, DBValue>,
 {
 	fn root(&mut self) -> &TrieHash<L> {
 		self.raw.root()

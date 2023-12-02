@@ -30,20 +30,22 @@ use crate::{
 use hash_db::{HashDBRef, Prefix, EMPTY_PREFIX};
 
 /// A builder for creating a [`TrieDB`].
-pub struct TrieDBBuilder<'db, 'cache, L: TrieLayout> {
-	db: &'db dyn HashDBRef<L::Hash, DBValue>,
+pub struct TrieDBBuilder<'db, 'cache, L: TrieLayout, DB: HashDBRef<L::Hash, DBValue>> {
+	db: &'db DB,
 	root: &'db TrieHash<L>,
 	cache: Option<&'cache mut dyn TrieCache<L::Codec>>,
 	recorder: Option<&'cache mut dyn TrieRecorder<TrieHash<L>>>,
 }
 
-impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
+impl<'db, 'cache, L: TrieLayout, DB: HashDBRef<L::Hash, DBValue>>
+	TrieDBBuilder<'db, 'cache, L, DB>
+{
 	/// Create a new trie-db builder with the backing database `db` and `root`.
 	///
 	/// This doesn't check if `root` exists in the given `db`. If `root` doesn't exist it will fail
 	/// when trying to lookup any key.
 	#[inline]
-	pub fn new(db: &'db dyn HashDBRef<L::Hash, DBValue>, root: &'db TrieHash<L>) -> Self {
+	pub fn new(db: &'db DB, root: &'db TrieHash<L>) -> Self {
 		Self { db, root, cache: None, recorder: None }
 	}
 
@@ -85,7 +87,7 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 
 	/// Build the [`TrieDB`].
 	#[inline]
-	pub fn build(self) -> TrieDB<'db, 'cache, L> {
+	pub fn build(self) -> TrieDB<'db, 'cache, L, DB> {
 		TrieDB {
 			db: self.db,
 			root: self.root,
@@ -117,19 +119,21 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 /// assert!(t.contains(b"foo").unwrap());
 /// assert_eq!(t.get(b"foo").unwrap().unwrap(), b"bar".to_vec());
 /// ```
-pub struct TrieDB<'db, 'cache, L>
+pub struct TrieDB<'db, 'cache, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDBRef<L::Hash, DBValue>,
 {
-	db: &'db dyn HashDBRef<L::Hash, DBValue>,
+	db: &'db DB,
 	root: &'db TrieHash<L>,
 	cache: Option<core::cell::RefCell<&'cache mut dyn TrieCache<L::Codec>>>,
 	recorder: Option<core::cell::RefCell<&'cache mut dyn TrieRecorder<TrieHash<L>>>>,
 }
 
-impl<'db, 'cache, L> TrieDB<'db, 'cache, L>
+impl<'db, 'cache, L, DB> TrieDB<'db, 'cache, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDBRef<L::Hash, DBValue>,
 {
 	/// Get the backing database.
 	pub fn db(&'db self) -> &'db dyn HashDBRef<L::Hash, DBValue> {
@@ -212,9 +216,10 @@ where
 	}
 }
 
-impl<'db, 'cache, L> Trie<L> for TrieDB<'db, 'cache, L>
+impl<'db, 'cache, L, DB> Trie<L> for TrieDB<'db, 'cache, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDBRef<L::Hash, DBValue>,
 {
 	fn root(&self) -> &TrieHash<L> {
 		self.root
@@ -292,20 +297,22 @@ where
 
 // This is for pretty debug output only
 #[cfg(feature = "std")]
-struct TrieAwareDebugNode<'db, 'cache, 'a, L>
+struct TrieAwareDebugNode<'db, 'cache, 'a, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDBRef<L::Hash, DBValue>,
 {
-	trie: &'db TrieDB<'db, 'cache, L>,
+	trie: &'db TrieDB<'db, 'cache, L, DB>,
 	node_key: NodeHandle<'a>,
 	partial_key: NibbleVec,
 	index: Option<u8>,
 }
 
 #[cfg(feature = "std")]
-impl<'db, 'cache, 'a, L> fmt::Debug for TrieAwareDebugNode<'db, 'cache, 'a, L>
+impl<'db, 'cache, 'a, L, DB> fmt::Debug for TrieAwareDebugNode<'db, 'cache, 'a, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDBRef<L::Hash, DBValue>,
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		match self.trie.get_raw_or_lookup(
@@ -342,7 +349,7 @@ where
 					disp.finish()
 				},
 				Node::Branch(ref nodes, ref value) => {
-					let nodes: Vec<TrieAwareDebugNode<L>> = nodes
+					let nodes: Vec<TrieAwareDebugNode<L, DB>> = nodes
 						.into_iter()
 						.enumerate()
 						.filter_map(|(i, n)| n.map(|n| (i, n)))
@@ -363,7 +370,7 @@ where
 					disp.finish()
 				},
 				Node::NibbledBranch(slice, nodes, value) => {
-					let nodes: Vec<TrieAwareDebugNode<L>> = nodes
+					let nodes: Vec<TrieAwareDebugNode<L, DB>> = nodes
 						.iter()
 						.enumerate()
 						.filter_map(|(i, n)| n.map(|n| (i, n)))
@@ -400,9 +407,10 @@ where
 }
 
 #[cfg(feature = "std")]
-impl<'db, 'cache, L> fmt::Debug for TrieDB<'db, 'cache, L>
+impl<'db, 'cache, L, DB> fmt::Debug for TrieDB<'db, 'cache, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDBRef<L::Hash, DBValue>,
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		f.debug_struct("TrieDB")
@@ -420,26 +428,26 @@ where
 }
 
 /// Iterator for going through all values in the trie in pre-order traversal order.
-pub struct TrieDBIterator<'a, 'cache, L: TrieLayout> {
-	db: &'a TrieDB<'a, 'cache, L>,
+pub struct TrieDBIterator<'a, 'cache, L: TrieLayout, DB: HashDBRef<L::Hash, DBValue>> {
+	db: &'a TrieDB<'a, 'cache, L, DB>,
 	raw_iter: TrieDBRawIterator<L>,
 }
 
 /// Iterator for going through all of key with values in the trie in pre-order traversal order.
-pub struct TrieDBKeyIterator<'a, 'cache, L: TrieLayout> {
-	db: &'a TrieDB<'a, 'cache, L>,
+pub struct TrieDBKeyIterator<'a, 'cache, L: TrieLayout, DB: HashDBRef<L::Hash, DBValue>> {
+	db: &'a TrieDB<'a, 'cache, L, DB>,
 	raw_iter: TrieDBRawIterator<L>,
 }
 
-impl<'a, 'cache, L: TrieLayout> TrieDBIterator<'a, 'cache, L> {
+impl<'a, 'cache, L: TrieLayout, DB: HashDBRef<L::Hash, DBValue>> TrieDBIterator<'a, 'cache, L, DB> {
 	/// Create a new iterator.
-	pub fn new(db: &'a TrieDB<'a, 'cache, L>) -> Result<Self, TrieHash<L>, CError<L>> {
+	pub fn new(db: &'a TrieDB<'a, 'cache, L, DB>) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(Self { db, raw_iter: TrieDBRawIterator::new(db)? })
 	}
 
 	/// Create a new iterator, but limited to a given prefix.
 	pub fn new_prefixed(
-		db: &'a TrieDB<'a, 'cache, L>,
+		db: &'a TrieDB<'a, 'cache, L, DB>,
 		prefix: &[u8],
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(Self { db, raw_iter: TrieDBRawIterator::new_prefixed(db, prefix)? })
@@ -449,7 +457,7 @@ impl<'a, 'cache, L: TrieLayout> TrieDBIterator<'a, 'cache, L> {
 	/// It then do a seek operation from prefixed context (using `seek` lose
 	/// prefix context by default).
 	pub fn new_prefixed_then_seek(
-		db: &'a TrieDB<'a, 'cache, L>,
+		db: &'a TrieDB<'a, 'cache, L, DB>,
 		prefix: &[u8],
 		start_at: &[u8],
 	) -> Result<Self, TrieHash<L>, CError<L>> {
@@ -457,7 +465,7 @@ impl<'a, 'cache, L: TrieLayout> TrieDBIterator<'a, 'cache, L> {
 	}
 
 	/// Restore an iterator from a raw iterator.
-	pub fn from_raw(db: &'a TrieDB<'a, 'cache, L>, raw_iter: TrieDBRawIterator<L>) -> Self {
+	pub fn from_raw(db: &'a TrieDB<'a, 'cache, L, DB>, raw_iter: TrieDBRawIterator<L>) -> Self {
 		Self { db, raw_iter }
 	}
 
@@ -467,22 +475,26 @@ impl<'a, 'cache, L: TrieLayout> TrieDBIterator<'a, 'cache, L> {
 	}
 }
 
-impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBIterator<'a, 'cache, L> {
+impl<'a, 'cache, L: TrieLayout, DB: HashDBRef<L::Hash, DBValue>> TrieIterator<L>
+	for TrieDBIterator<'a, 'cache, L, DB>
+{
 	/// Position the iterator on the first element with key >= `key`
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		self.raw_iter.seek(self.db, key).map(|_| ())
 	}
 }
 
-impl<'a, 'cache, L: TrieLayout> TrieDBKeyIterator<'a, 'cache, L> {
+impl<'a, 'cache, L: TrieLayout, DB: HashDBRef<L::Hash, DBValue>>
+	TrieDBKeyIterator<'a, 'cache, L, DB>
+{
 	/// Create a new iterator.
-	pub fn new(db: &'a TrieDB<'a, 'cache, L>) -> Result<Self, TrieHash<L>, CError<L>> {
+	pub fn new(db: &'a TrieDB<'a, 'cache, L, DB>) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(Self { db, raw_iter: TrieDBRawIterator::new(db)? })
 	}
 
 	/// Create a new iterator, but limited to a given prefix.
 	pub fn new_prefixed(
-		db: &'a TrieDB<'a, 'cache, L>,
+		db: &'a TrieDB<'a, 'cache, L, DB>,
 		prefix: &[u8],
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		Ok(Self { db, raw_iter: TrieDBRawIterator::new_prefixed(db, prefix)? })
@@ -492,15 +504,15 @@ impl<'a, 'cache, L: TrieLayout> TrieDBKeyIterator<'a, 'cache, L> {
 	/// It then do a seek operation from prefixed context (using `seek` lose
 	/// prefix context by default).
 	pub fn new_prefixed_then_seek(
-		db: &'a TrieDB<'a, 'cache, L>,
+		db: &'a TrieDB<'a, 'cache, L, DB>,
 		prefix: &[u8],
 		start_at: &[u8],
-	) -> Result<TrieDBKeyIterator<'a, 'cache, L>, TrieHash<L>, CError<L>> {
+	) -> Result<TrieDBKeyIterator<'a, 'cache, L, DB>, TrieHash<L>, CError<L>> {
 		Ok(Self { db, raw_iter: TrieDBRawIterator::new_prefixed_then_seek(db, prefix, start_at)? })
 	}
 
 	/// Restore an iterator from a raw iterator.
-	pub fn from_raw(db: &'a TrieDB<'a, 'cache, L>, raw_iter: TrieDBRawIterator<L>) -> Self {
+	pub fn from_raw(db: &'a TrieDB<'a, 'cache, L, DB>, raw_iter: TrieDBRawIterator<L>) -> Self {
 		Self { db, raw_iter }
 	}
 
@@ -510,14 +522,18 @@ impl<'a, 'cache, L: TrieLayout> TrieDBKeyIterator<'a, 'cache, L> {
 	}
 }
 
-impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBKeyIterator<'a, 'cache, L> {
+impl<'a, 'cache, L: TrieLayout, DB: HashDBRef<L::Hash, DBValue>> TrieIterator<L>
+	for TrieDBKeyIterator<'a, 'cache, L, DB>
+{
 	/// Position the iterator on the first element with key >= `key`
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
 		self.raw_iter.seek(self.db, key).map(|_| ())
 	}
 }
 
-impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBIterator<'a, 'cache, L> {
+impl<'a, 'cache, L: TrieLayout, DB: HashDBRef<L::Hash, DBValue>> Iterator
+	for TrieDBIterator<'a, 'cache, L, DB>
+{
 	type Item = TrieItem<TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
@@ -525,7 +541,9 @@ impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBIterator<'a, 'cache, L> {
 	}
 }
 
-impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBKeyIterator<'a, 'cache, L> {
+impl<'a, 'cache, L: TrieLayout, DB: HashDBRef<L::Hash, DBValue>> Iterator
+	for TrieDBKeyIterator<'a, 'cache, L, DB>
+{
 	type Item = TrieKeyItem<TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {

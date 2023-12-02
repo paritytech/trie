@@ -157,8 +157,8 @@ pub trait HashDBRef<H: Hasher, T> {
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool;
 }
 
-impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a dyn HashDB<H, T> {
-	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
+impl<'a, H: Hasher, V, T: HashDB<H, V>> HashDBRef<H, V> for &T {
+	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<V> {
 		HashDB::get(*self, key, prefix)
 	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
@@ -166,8 +166,8 @@ impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a dyn HashDB<H, T> {
 	}
 }
 
-impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a mut dyn HashDB<H, T> {
-	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
+impl<'a, H: Hasher, V, T: HashDB<H, V>> HashDBRef<H, V> for &mut T {
+	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<V> {
 		HashDB::get(*self, key, prefix)
 	}
 	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {

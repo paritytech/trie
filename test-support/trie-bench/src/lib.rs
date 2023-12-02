@@ -59,9 +59,12 @@ fn benchmark<L: TrieLayout, S: TrieStream>(
 		bench_list,
 		|b, d: &TrieInsertionList| {
 			b.iter(&mut || {
-				let mut memdb = MemoryDB::<_, HashKey<L::Hash>, _>::new(L::Codec::empty_node());
+				let mut memdb = MemoryDB::new(L::Codec::empty_node());
 				let mut root = <TrieHash<L>>::default();
-				let mut t = TrieDBMutBuilder::<L>::new(&mut memdb, &mut root).build();
+				let mut t = TrieDBMutBuilder::<L, MemoryDB<_, HashKey<L::Hash>, _>>::new(
+					&mut memdb, &mut root,
+				)
+				.build();
 				for i in d.0.iter() {
 					t.insert(&i.0, &i.1).unwrap();
 				}
@@ -72,16 +75,20 @@ fn benchmark<L: TrieLayout, S: TrieStream>(
 		BenchmarkId::new("Iter", bench_size),
 		bench_list,
 		|b, d: &TrieInsertionList| {
-			let mut memdb = MemoryDB::<_, HashKey<_>, _>::new(L::Codec::empty_node());
+			let mut memdb = MemoryDB::new(L::Codec::empty_node());
 			let mut root = <TrieHash<L>>::default();
 			{
-				let mut t = TrieDBMutBuilder::<L>::new(&mut memdb, &mut root).build();
+				let mut t = TrieDBMutBuilder::<L, MemoryDB<_, HashKey<L::Hash>, _>>::new(
+					&mut memdb, &mut root,
+				)
+				.build();
 				for i in d.0.iter() {
 					t.insert(&i.0, &i.1).unwrap();
 				}
 			}
 			b.iter(&mut || {
-				let t = TrieDBBuilder::<L>::new(&memdb, &root).build();
+				let t = TrieDBBuilder::<L, MemoryDB<_, HashKey<L::Hash>, _>>::new(&memdb, &root)
+					.build();
 				for n in t.iter().unwrap() {
 					black_box(n).unwrap();
 				}

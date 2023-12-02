@@ -22,29 +22,28 @@ use hash_db::{HashDB, Hasher};
 ///
 /// Use it as a `Trie` or `TrieMut` trait object. You can use `raw()` to get the backing `TrieDBMut`
 /// object.
-pub struct SecTrieDBMut<'db, L>
+pub struct SecTrieDBMut<'db, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDB<L::Hash, DBValue>,
 {
-	raw: TrieDBMut<'db, L>,
+	raw: TrieDBMut<'db, L, DB>,
 }
 
-impl<'db, L> SecTrieDBMut<'db, L>
+impl<'db, L, DB> SecTrieDBMut<'db, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDB<L::Hash, DBValue>,
 {
 	/// Create a new trie with the backing database `db` and empty `root`
 	/// Initialize to the state entailed by the genesis block.
 	/// This guarantees the trie is built correctly.
-	pub fn new(db: &'db mut dyn HashDB<L::Hash, DBValue>, root: &'db mut TrieHash<L>) -> Self {
+	pub fn new(db: &'db mut DB, root: &'db mut TrieHash<L>) -> Self {
 		SecTrieDBMut { raw: TrieDBMutBuilder::new(db, root).build() }
 	}
 
 	/// Create a new trie with the backing database `db` and `root`.
-	pub fn from_existing(
-		db: &'db mut dyn HashDB<L::Hash, DBValue>,
-		root: &'db mut TrieHash<L>,
-	) -> Self {
+	pub fn from_existing(db: &'db mut DB, root: &'db mut TrieHash<L>) -> Self {
 		SecTrieDBMut { raw: TrieDBMutBuilder::from_existing(db, root).build() }
 	}
 
@@ -59,9 +58,10 @@ where
 	}
 }
 
-impl<'db, L> TrieMut<L> for SecTrieDBMut<'db, L>
+impl<'db, L, DB> TrieMut<L> for SecTrieDBMut<'db, L, DB>
 where
 	L: TrieLayout,
+	DB: HashDB<L::Hash, DBValue>,
 {
 	fn root(&mut self) -> &TrieHash<L> {
 		self.raw.root()

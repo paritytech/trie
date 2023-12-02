@@ -325,7 +325,7 @@ where
 								*returned = true;
 								Some((None, child))
 							},
-						Self::Array(childs, index) =>
+						Self::Array(childs, index) => {
 							if *index >= childs.len() {
 								break None
 							} else {
@@ -335,7 +335,8 @@ where
 								if let Some(ref child) = childs[*index - 1] {
 									break Some((Some(*index as u8 - 1), child))
 								}
-							},
+							}
+						},
 					}
 				}
 			}

@@ -544,7 +544,7 @@ where
 
 				Some(data.0)
 			},
-			Some(CachedValue::Existing { data, hash, .. }) =>
+			Some(CachedValue::Existing { data, hash, .. }) => {
 				if let Some(data) = data.upgrade() {
 					// inline is either when no limit defined or when content
 					// is less than the limit.
@@ -562,7 +562,8 @@ where
 					Some(data)
 				} else {
 					lookup_data(&mut self, cache)?
-				},
+				}
+			},
 			None => lookup_data(&mut self, cache)?,
 		};
 
