@@ -94,6 +94,30 @@ fn iterator_seek_works_internal<T: TrieLayout>() {
 	);
 }
 
+test_layouts!(double_ended_iterator, double_ended_iterator_internal);
+fn double_ended_iterator_internal<T: TrieLayout>() {
+	let pairs = vec![
+		(hex!("00").to_vec(), hex!("00").to_vec()),
+		(hex!("01").to_vec(), hex!("01").to_vec()),
+	];
+
+	let mut memdb = MemoryDB::<T::Hash, PrefixedKey<_>, DBValue>::default();
+	let mut root = Default::default();
+	{
+		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+		for (x, y) in &pairs {
+			t.insert(x, y).unwrap();
+		}
+	}
+
+	let t = TrieDBBuilder::<T>::new(&memdb, &root).build();
+
+	let mut iter = t.iter().unwrap();
+
+	assert_eq!(iter.next().unwrap().unwrap(), (hex!("00").to_vec(), hex!("00").to_vec(),));
+	assert_eq!(iter.next_back().unwrap().unwrap(), (hex!("01").to_vec(), hex!("01").to_vec(),));
+}
+
 test_layouts!(iterator, iterator_internal);
 fn iterator_internal<T: TrieLayout>() {
 	let d = vec![b"A".to_vec(), b"AA".to_vec(), b"AB".to_vec(), b"B".to_vec()];

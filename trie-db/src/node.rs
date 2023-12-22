@@ -582,7 +582,7 @@ impl NodePlan {
 /// An `OwnedNode` is an owned type from which a `Node` can be constructed which borrows data from
 /// the `OwnedNode`. This is useful for trie iterators.
 #[cfg_attr(feature = "std", derive(Debug))]
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct OwnedNode<D: Borrow<[u8]>> {
 	data: D,
 	plan: NodePlan,

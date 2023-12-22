@@ -148,6 +148,23 @@ where
 	}
 }
 
+impl<'db, 'cache, L> DoubleEndedIterator for FatDBIterator<'db, 'cache, L>
+where
+	L: TrieLayout,
+{
+	fn next_back(&mut self) -> Option<Self::Item> {
+		self.trie_iterator.next_back().map(|res| {
+			res.map(|(hash, value)| {
+				let aux_hash = L::Hash::hash(&hash);
+				(
+					self.trie.db().get(&aux_hash, Default::default()).expect("Missing fatdb hash"),
+					value,
+				)
+			})
+		})
+	}
+}
+
 /// Iterator over inserted keys.
 pub struct FatDBKeyIterator<'db, 'cache, L>
 where
@@ -185,6 +202,20 @@ where
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.trie_iterator.next().map(|res| {
+			res.map(|hash| {
+				let aux_hash = L::Hash::hash(&hash);
+				self.trie.db().get(&aux_hash, Default::default()).expect("Missing fatdb hash")
+			})
+		})
+	}
+}
+
+impl<'db, 'cache, L> DoubleEndedIterator for FatDBKeyIterator<'db, 'cache, L>
+where
+	L: TrieLayout,
+{
+	fn next_back(&mut self) -> Option<Self::Item> {
+		self.trie_iterator.next_back().map(|res| {
 			res.map(|hash| {
 				let aux_hash = L::Hash::hash(&hash);
 				self.trie.db().get(&aux_hash, Default::default()).expect("Missing fatdb hash")

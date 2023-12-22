@@ -525,10 +525,22 @@ impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBIterator<'a, 'cache, L> {
 	}
 }
 
+impl<'a, 'cache, L: TrieLayout> DoubleEndedIterator for TrieDBIterator<'a, 'cache, L> {
+	fn next_back(&mut self) -> Option<Self::Item> {
+		self.raw_iter.next_back_item(self.db)
+	}
+}
+
 impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBKeyIterator<'a, 'cache, L> {
 	type Item = TrieKeyItem<TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.raw_iter.next_key(self.db)
+	}
+}
+
+impl<'a, 'cache, L: TrieLayout> DoubleEndedIterator for TrieDBKeyIterator<'a, 'cache, L> {
+	fn next_back(&mut self) -> Option<Self::Item> {
+		self.raw_iter.next_back_key(self.db)
 	}
 }

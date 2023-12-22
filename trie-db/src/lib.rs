@@ -353,7 +353,7 @@ pub trait TrieMut<L: TrieLayout> {
 }
 
 /// A trie iterator that also supports random access (`seek()`).
-pub trait TrieIterator<L: TrieLayout>: Iterator {
+pub trait TrieIterator<L: TrieLayout>: Iterator + DoubleEndedIterator {
 	/// Position the iterator on the first element with key >= `key`
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>>;
 }
