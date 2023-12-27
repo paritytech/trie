@@ -67,7 +67,7 @@ impl<H: Hasher> Crumb<H> {
 			(Status::At, NodePlan::NibbledBranch { .. }) => Status::AtChild(15),
 			(Status::AtChild(x), NodePlan::Branch { .. }) |
 			(Status::AtChild(x), NodePlan::NibbledBranch { .. })
-				if x <= (nibble_ops::NIBBLE_LENGTH - 1) =>
+				if x > 0 =>
 				Status::AtChild(x - 1),
 			_ => Status::Exiting,
 		}
@@ -553,9 +553,6 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						self.key_nibbles.pop();
 						self.key_nibbles.push(i as u8);
 
-						println!("prefix: {:?}", self.key_nibbles);
-						println!("child: {:?}", child);
-
 						match db.get_raw_or_lookup(
 							crumb.hash.unwrap_or_default(),
 							child.build(node_data),
@@ -723,15 +720,10 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 				Err(err) => return Some(Err(err)),
 			};
 
-			println!("prefix received: {:?}", prefix);
-			println!("node received: {:?}", node);
-
 			let mut prefix = prefix.clone();
 			match node.node() {
 				Node::Leaf(partial, _) => {
 					prefix.append_partial(partial.right());
-
-					println!("prefix after append: {:?}", prefix);
 				},
 				Node::Branch(_, value) =>
 					if value.is_none() {
@@ -750,11 +742,8 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 			let key = key_slice.to_vec();
 
 			if let Some(extra_nibble) = maybe_extra_nibble {
-				println!("extra nibble: {:?}", extra_nibble);
 				return Some(Err(Box::new(TrieError::ValueAtIncompleteKey(key, extra_nibble))))
 			}
-
-			println!("key: {:?}", key);
 
 			return Some(Ok(key))
 		}
