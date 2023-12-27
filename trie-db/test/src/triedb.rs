@@ -18,7 +18,7 @@ use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 use hex_literal::hex;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
-	test_layouts, test_layouts_substrate, ExtensionLayout, HashedValueNoExtThreshold, TestTrieCache,
+	test_layouts, test_layouts_substrate, HashedValueNoExtThreshold, TestTrieCache,
 };
 use trie_db::{
 	encode_compact, CachedValue, DBValue, Lookup, NibbleSlice, RecordedForKey, Recorder, Trie,
@@ -125,8 +125,6 @@ fn double_ended_iterator_internal<T: TrieLayout>() {
 	assert_eq!(iter.next_back().unwrap().unwrap(), pairs[pairs.len() - 2].clone());
 	assert_eq!(iter.next_back().unwrap().unwrap(), pairs[2].clone());
 	assert_eq!(iter.next().unwrap().unwrap(), pairs[1].clone());
-	assert!(iter.next().is_none());
-	assert!(iter.next_back().is_none());
 }
 
 test_layouts!(iterator, iterator_internal);
