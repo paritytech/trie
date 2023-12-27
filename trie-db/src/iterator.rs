@@ -78,24 +78,32 @@ impl<H: Hasher> Crumb<H> {
 pub struct TrieDBRawIterator<L: TrieLayout> {
 	/// Forward trail of nodes to visit.
 	trail: Vec<Crumb<L::Hash>>,
+	/// Forward iteration key nibbles of the current node.
+	key_nibbles: NibbleVec,
 	/// Backward trail of nodes to visit.
 	back_trail: Vec<Crumb<L::Hash>>,
-	/// The key nibbles of the current node.
-	key_nibbles: NibbleVec,
+	/// Backward iteration key nibbles of the current node.
+	back_key_nibbles: NibbleVec,
 }
 
 impl<L: TrieLayout> TrieDBRawIterator<L> {
 	/// Create a new empty iterator.
 	pub fn empty() -> Self {
-		Self { trail: Vec::new(), back_trail: Vec::new(), key_nibbles: NibbleVec::new() }
+		Self {
+			trail: Vec::new(),
+			key_nibbles: NibbleVec::new(),
+			back_trail: Vec::new(),
+			back_key_nibbles: NibbleVec::new(),
+		}
 	}
 
 	/// Create a new iterator.
 	pub fn new(db: &TrieDB<L>) -> Result<Self, TrieHash<L>, CError<L>> {
 		let mut r = TrieDBRawIterator {
 			trail: Vec::with_capacity(8),
-			back_trail: Vec::with_capacity(8),
 			key_nibbles: NibbleVec::new(),
+			back_trail: Vec::with_capacity(8),
+			back_key_nibbles: NibbleVec::new(),
 		};
 		let (root_node, root_hash) = db.get_raw_or_lookup(
 			*db.root(),
@@ -500,19 +508,19 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 					// This is only necessary due to current borrow checker's limitation.
 					let crumb = self.back_trail.last_mut().expect("we've just fetched the last element using `last_mut` so this cannot fail; qed");
 					crumb.decrement();
-					return Some(Ok((&self.key_nibbles, crumb.hash.as_ref(), &crumb.node)))
+					return Some(Ok((&self.back_key_nibbles, crumb.hash.as_ref(), &crumb.node)))
 				},
 				(Status::Exiting, node) => {
 					match node {
 						NodePlan::Empty | NodePlan::Leaf { .. } => {},
 						NodePlan::Extension { partial, .. } => {
-							self.key_nibbles.drop_lasts(partial.len());
+							self.back_key_nibbles.drop_lasts(partial.len());
 						},
 						NodePlan::Branch { .. } => {
-							self.key_nibbles.pop();
+							self.back_key_nibbles.pop();
 						},
 						NodePlan::NibbledBranch { partial, .. } => {
-							self.key_nibbles.drop_lasts(partial.len() + 1);
+							self.back_key_nibbles.drop_lasts(partial.len() + 1);
 						},
 					}
 					self.back_trail.pop().expect("we've just fetched the last element using `last_mut` so this cannot fail; qed");
@@ -520,12 +528,12 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 				},
 				(Status::At, NodePlan::Extension { partial: partial_plan, child }) => {
 					let partial = partial_plan.build(node_data);
-					self.key_nibbles.append_partial(partial.right());
+					self.back_key_nibbles.append_partial(partial.right());
 
 					match db.get_raw_or_lookup(
 						crumb.hash.unwrap_or_default(),
 						child.build(node_data),
-						self.key_nibbles.as_prefix(),
+						self.back_key_nibbles.as_prefix(),
 						true,
 					) {
 						Ok((node, node_hash)) => {
@@ -538,25 +546,25 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 					}
 				},
 				(Status::At, NodePlan::Branch { .. }) => {
-					self.key_nibbles.push(15);
+					self.back_key_nibbles.push(15);
 					crumb.decrement();
 				},
 				(Status::At, NodePlan::NibbledBranch { partial: partial_plan, .. }) => {
 					let partial = partial_plan.build(node_data);
-					self.key_nibbles.append_partial(partial.right());
-					self.key_nibbles.push(15);
+					self.back_key_nibbles.append_partial(partial.right());
+					self.back_key_nibbles.push(15);
 					crumb.decrement();
 				},
 				(Status::AtChild(i), NodePlan::Branch { children, .. }) |
 				(Status::AtChild(i), NodePlan::NibbledBranch { children, .. }) => {
 					if let Some(child) = &children[i] {
-						self.key_nibbles.pop();
-						self.key_nibbles.push(i as u8);
+						self.back_key_nibbles.pop();
+						self.back_key_nibbles.push(i as u8);
 
 						match db.get_raw_or_lookup(
 							crumb.hash.unwrap_or_default(),
 							child.build(node_data),
-							self.key_nibbles.as_prefix(),
+							self.back_key_nibbles.as_prefix(),
 							true,
 						) {
 							Ok((node, node_hash)) => {
