@@ -352,7 +352,7 @@ pub trait TrieMut<L: TrieLayout> {
 	fn remove(&mut self, key: &[u8]) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>>;
 }
 
-/// A trie iterator that also supports random access (`seek()`).
+/// A double ended trie iterator that also supports random access (`seek()`).
 pub trait TrieIterator<L: TrieLayout>: Iterator + DoubleEndedIterator {
 	/// Position the iterator on the first element with key >= `key`
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>>;

@@ -120,11 +120,13 @@ fn double_ended_iterator_internal<T: TrieLayout>() {
 
 	let mut iter = t.iter().unwrap();
 
-	assert_eq!(iter.next_back().unwrap().unwrap(), (vec![17], hex!("11").to_vec(),));
-	assert_eq!(iter.next_back().unwrap().unwrap(), (vec![16], hex!("10").to_vec(),));
-	assert_eq!(iter.next().unwrap().unwrap(), (vec![1], hex!("01").to_vec(),));
-	assert_eq!(iter.next().unwrap().unwrap(), (vec![2], hex!("02").to_vec(),));
-	assert_eq!(iter.next_back().unwrap().unwrap(), (vec![3], hex!("03").to_vec(),));
+	assert_eq!(iter.next().unwrap().unwrap(), pairs.first().unwrap().clone());
+	assert_eq!(iter.next_back().unwrap().unwrap(), pairs.last().unwrap().clone());
+	assert_eq!(iter.next_back().unwrap().unwrap(), pairs[pairs.len() - 2].clone());
+	assert_eq!(iter.next_back().unwrap().unwrap(), pairs[2].clone());
+	assert_eq!(iter.next().unwrap().unwrap(), pairs[1].clone());
+	assert!(iter.next().is_none());
+	assert!(iter.next_back().is_none());
 }
 
 test_layouts!(iterator, iterator_internal);
