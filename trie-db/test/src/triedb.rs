@@ -116,15 +116,15 @@ fn double_ended_iterator_internal<T: TrieLayout>() {
 	let t = TrieDBBuilder::<T>::new(&memdb, &root).build();
 	assert_eq!(pairs, t.iter().unwrap().map(|x| x.unwrap()).collect::<Vec<_>>());
 
-	let t = TrieDBBuilder::<T>::new(&memdb, &root).build();
+	let mut iter = t.into_double_ended_iter().unwrap();
 
-	let mut iter = t.iter().unwrap();
+	for i in 0..pairs.len() {
+		assert_eq!(iter.next().unwrap().unwrap(), pairs[i].clone());
+		assert_eq!(iter.next_back().unwrap().unwrap(), pairs[pairs.len() - i - 1].clone());
+	}
 
-	assert_eq!(iter.next().unwrap().unwrap(), pairs.first().unwrap().clone());
-	assert_eq!(iter.next_back().unwrap().unwrap(), pairs.last().unwrap().clone());
-	assert_eq!(iter.next_back().unwrap().unwrap(), pairs[pairs.len() - 2].clone());
-	assert_eq!(iter.next_back().unwrap().unwrap(), pairs[2].clone());
-	assert_eq!(iter.next().unwrap().unwrap(), pairs[1].clone());
+	assert!(iter.next().is_none());
+	assert!(iter.next_back().is_none());
 }
 
 test_layouts!(iterator, iterator_internal);
