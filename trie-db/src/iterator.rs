@@ -599,15 +599,6 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 		self.raw_iter
 	}
 
-	/// Convert the iterator to a double ended iterator.
-	pub fn into_double_ended_iter(self) -> TrieDBNodeDoubleEndedIterator<'a, 'cache, L> {
-		TrieDBNodeDoubleEndedIterator {
-			db: self.db,
-			raw_iter: self.raw_iter,
-			back_raw_iter: TrieDBRawIterator::new(self.db).unwrap(),
-		}
-	}
-
 	/// Fetch value by hash at a current node height
 	pub fn fetch_value(
 		&self,
