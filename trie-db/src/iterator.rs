@@ -64,7 +64,7 @@ impl<H: Hasher> Crumb<H> {
 			(Status::Entering, NodePlan::Branch { .. }) |
 			(Status::Entering, NodePlan::NibbledBranch { .. }) => Status::At,
 			(Status::At, NodePlan::Branch { .. }) |
-			(Status::At, NodePlan::NibbledBranch { .. }) => Status::AtChild(15),
+			(Status::At, NodePlan::NibbledBranch { .. }) => Status::AtChild(nibble_ops::NIBBLE_LENGTH - 1),
 			(Status::AtChild(x), NodePlan::Branch { .. }) |
 			(Status::AtChild(x), NodePlan::NibbledBranch { .. })
 				if x > 0 =>
