@@ -120,10 +120,12 @@ fn double_ended_iterator_internal<T: TrieLayout>() {
 
 	for i in 0..pairs.len() {
 		assert_eq!(iter.next().unwrap().unwrap(), pairs[i].clone());
-		assert_eq!(iter.next_back().unwrap().unwrap(), pairs[pairs.len() - i - 1].clone());
 	}
-
 	assert!(iter.next().is_none());
+
+	for i in (0..pairs.len()).rev() {
+		assert_eq!(iter.next_back().unwrap().unwrap(), pairs[i].clone());
+	}
 	assert!(iter.next_back().is_none());
 }
 

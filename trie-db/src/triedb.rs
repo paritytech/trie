@@ -547,7 +547,7 @@ impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBIterator<'a, 'cache, L> {
 	type Item = TrieItem<TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		self.raw_iter.next_item(self.db, true)
+		self.raw_iter.next_item(self.db)
 	}
 }
 
@@ -561,13 +561,13 @@ impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBDoubleEndedIterator<'a, 'cach
 	type Item = TrieItem<TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		self.raw_iter.next_item(self.db, true)
+		self.raw_iter.next_item(self.db)
 	}
 }
 
 impl<'a, 'cache, L: TrieLayout> DoubleEndedIterator for TrieDBDoubleEndedIterator<'a, 'cache, L> {
 	fn next_back(&mut self) -> Option<Self::Item> {
-		self.back_raw_iter.next_item(self.db, false)
+		self.back_raw_iter.prev_item(self.db)
 	}
 }
 
@@ -618,13 +618,7 @@ impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBKeyIterator<'a, 'cache, L> {
 	type Item = TrieKeyItem<TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		self.raw_iter.next_key(self.db, true)
-	}
-}
-
-impl<'a, 'cache, L: TrieLayout> DoubleEndedIterator for TrieDBKeyIterator<'a, 'cache, L> {
-	fn next_back(&mut self) -> Option<Self::Item> {
-		self.raw_iter.next_key(self.db, false)
+		self.raw_iter.next_key(self.db)
 	}
 }
 
@@ -639,7 +633,7 @@ impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBKeyDoubleEndedIterator<'a, 'c
 	type Item = TrieKeyItem<TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		self.raw_iter.next_key(self.db, true)
+		self.raw_iter.next_key(self.db)
 	}
 }
 
@@ -647,6 +641,6 @@ impl<'a, 'cache, L: TrieLayout> DoubleEndedIterator
 	for TrieDBKeyDoubleEndedIterator<'a, 'cache, L>
 {
 	fn next_back(&mut self) -> Option<Self::Item> {
-		self.back_raw_iter.next_key(self.db, false)
+		self.back_raw_iter.prev_key(self.db)
 	}
 }

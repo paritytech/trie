@@ -27,7 +27,7 @@ type MemoryDB<T> = memory_db::MemoryDB<
 	DBValue,
 >;
 
-fn build_trie_db<T: TrieLayout>(
+pub(crate) fn build_trie_db<T: TrieLayout>(
 	pairs: &[(Vec<u8>, Vec<u8>)],
 ) -> (MemoryDB<T>, <T::Hash as Hasher>::Out) {
 	let mut memdb = MemoryDB::<T>::default();
@@ -41,7 +41,7 @@ fn build_trie_db<T: TrieLayout>(
 	(memdb, root)
 }
 
-fn nibble_vec<T: AsRef<[u8]>>(bytes: T, len: usize) -> NibbleVec {
+pub(crate) fn nibble_vec<T: AsRef<[u8]>>(bytes: T, len: usize) -> NibbleVec {
 	let slice = NibbleSlice::new(bytes.as_ref());
 
 	let mut v = NibbleVec::new();
