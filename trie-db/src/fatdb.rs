@@ -254,17 +254,3 @@ where
 		})
 	}
 }
-
-impl<'db, 'cache, L> DoubleEndedIterator for FatDBKeyIterator<'db, 'cache, L>
-where
-	L: TrieLayout,
-{
-	fn next_back(&mut self) -> Option<Self::Item> {
-		self.trie_iterator.next_back().map(|res| {
-			res.map(|hash| {
-				let aux_hash = L::Hash::hash(&hash);
-				self.trie.db().get(&aux_hash, Default::default()).expect("Missing fatdb hash")
-			})
-		})
-	}
-}
