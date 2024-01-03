@@ -553,7 +553,8 @@ impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBIterator<'a, 'cache, L> {
 
 impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBDoubleEndedIterator<'a, 'cache, L> {
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
-		self.raw_iter.seek(self.db, key).map(|_| ())
+		self.raw_iter.seek(self.db, key).map(|_| ())?;
+		self.back_raw_iter.seek(self.db, key).map(|_| ())
 	}
 }
 
@@ -625,7 +626,8 @@ impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBKeyIterator<'a, 'cache, L> {
 impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBKeyDoubleEndedIterator<'a, 'cache, L> {
 	/// Position the iterator on the first element with key >= `key`
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
-		self.raw_iter.seek(self.db, key).map(|_| ())
+		self.raw_iter.seek(self.db, key).map(|_| ())?;
+		self.back_raw_iter.seek(self.db, key).map(|_| ())
 	}
 }
 

@@ -704,7 +704,8 @@ impl<L: TrieLayout> TrieDoubleEndedIterator<L> for TrieDBNodeDoubleEndedIterator
 
 impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBNodeDoubleEndedIterator<'a, 'cache, L> {
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
-		self.raw_iter.seek(self.db, key).map(|_| ())
+		self.raw_iter.seek(self.db, key).map(|_| ())?;
+		self.back_raw_iter.seek(self.db, key).map(|_| ())
 	}
 }
 

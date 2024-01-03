@@ -15,7 +15,10 @@
 use hash_db::Hasher;
 use hex_literal::hex;
 use reference_trie::test_layouts;
-use trie_db::{node::Node, NibbleSlice, TrieDBBuilder, TrieDBNodeDoubleEndedIterator, TrieLayout};
+use trie_db::{
+	node::Node, NibbleSlice, TrieDBBuilder, TrieDBNodeDoubleEndedIterator, TrieDoubleEndedIterator,
+	TrieLayout,
+};
 
 use crate::iterator::{build_trie_db, nibble_vec};
 
@@ -148,5 +151,95 @@ fn node_double_ended_iterator<T: TrieLayout>() {
 		}
 
 		assert!(iter.next_back().is_none());
+	}
+}
+
+test_layouts!(seek_over_empty_works, seek_over_empty_works_internal);
+fn seek_over_empty_works_internal<T: TrieLayout>() {
+	let (memdb, root) = build_trie_db::<T>(&[]);
+	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+	let mut iter = TrieDBNodeDoubleEndedIterator::new(&trie).unwrap();
+
+	<dyn TrieDoubleEndedIterator<T, Item = _>>::seek(&mut iter, &hex!("")[..]).unwrap();
+	match iter.next_back() {
+		Some(Ok((prefix, _, node))) => {
+			assert_eq!(prefix, nibble_vec(hex!(""), 0));
+			match node.node() {
+				Node::Empty => {},
+				_ => panic!("unexpected node"),
+			}
+		},
+		_ => panic!("unexpected item"),
+	}
+
+	<dyn TrieDoubleEndedIterator<T, Item = _>>::seek(&mut iter, &hex!("00")[..]).unwrap();
+	assert!(iter.next_back().is_none());
+}
+
+test_layouts!(seek_works, seek_works_internal);
+fn seek_works_internal<T: TrieLayout>() {
+	let pairs = vec![
+		(hex!("01").to_vec(), b"aaaa".to_vec()),
+		(hex!("0123").to_vec(), b"bbbb".to_vec()),
+		(hex!("02").to_vec(), vec![1; 32]),
+	];
+
+	let (memdb, root) = build_trie_db::<T>(&pairs);
+	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+	let mut iter = TrieDBNodeDoubleEndedIterator::new(&trie).unwrap();
+
+	<dyn TrieDoubleEndedIterator<T, Item = _>>::seek(&mut iter, &hex!("")[..]).unwrap();
+	match iter.next_back() {
+		Some(Ok((prefix, _, _))) => assert_eq!(prefix, nibble_vec(hex!(""), 0)),
+		_ => panic!("unexpected item"),
+	}
+
+	<dyn TrieDoubleEndedIterator<T, Item = _>>::seek(&mut iter, &hex!("03")[..]).unwrap();
+	match iter.next_back() {
+		Some(Ok((prefix, _, _))) => assert_eq!(prefix, nibble_vec(hex!("02"), 2)),
+		_ => panic!("unexpected item"),
+	}
+
+	<dyn TrieDoubleEndedIterator<T, Item = _>>::seek(&mut iter, &hex!("02")[..]).unwrap();
+	match iter.next_back() {
+		Some(Ok((prefix, _, _))) => assert_eq!(prefix, nibble_vec(hex!("02"), 2)),
+		_ => panic!("unexpected item"),
+	}
+
+	match iter.next_back() {
+		Some(Ok((prefix, _, _))) => assert_eq!(prefix, nibble_vec(hex!("01"), 2)),
+		_ => panic!("unexpected item"),
+	}
+
+	match iter.next_back() {
+		Some(Ok((prefix, _, _))) => assert_eq!(prefix, nibble_vec(hex!("0120"), 3)),
+		_ => panic!("unexpected item"),
+	}
+
+	<dyn TrieDoubleEndedIterator<T, Item = _>>::seek(&mut iter, &hex!("01")[..]).unwrap();
+	match iter.next_back() {
+		Some(Ok((prefix, _, _))) => {
+			assert_eq!(prefix, nibble_vec(hex!("01"), 2));
+		},
+		_ => panic!("unexpected item"),
+	}
+
+	<dyn TrieDoubleEndedIterator<T, Item = _>>::seek(&mut iter, &hex!("0125")[..]).unwrap();
+	match iter.next_back() {
+		Some(Ok((prefix, _, _))) => {
+			assert_eq!(prefix, nibble_vec(hex!("0120"), 3));
+			// match node.node() {
+			// 	Node::Leaf(partial, _) =>
+			// 		assert_eq!(partial, NibbleSlice::new_offset(&hex!("03")[..], 1)),
+			// 	_ => panic!("unexpected node"),
+			// }
+		},
+		_ => panic!("unexpected item"),
+	}
+
+	<dyn TrieDoubleEndedIterator<T, Item = _>>::seek(&mut iter, &hex!("")[..]).unwrap();
+	match iter.next_back() {
+		Some(Ok((prefix, _, _))) => assert_eq!(prefix, nibble_vec(hex!(""), 0)),
+		_ => panic!("unexpected item"),
 	}
 }
