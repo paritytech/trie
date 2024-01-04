@@ -335,3 +335,27 @@ fn prefix_works_internal<T: TrieLayout>() {
 	iter.prefix(&hex!("10").to_vec()[..]).unwrap();
 	assert!(iter.next_back().is_none());
 }
+
+test_layouts!(prefix_over_empty_works, prefix_over_empty_works_internal);
+fn prefix_over_empty_works_internal<T: TrieLayout>() {
+	let (memdb, root) = build_trie_db::<T>(&[]);
+	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+	let mut iter = TrieDBNodeDoubleEndedIterator::new(&trie).unwrap();
+	iter.prefix(&hex!("")[..]).unwrap();
+	match iter.next_back() {
+		Some(Ok((prefix, Some(_), node))) => {
+			assert_eq!(prefix, nibble_vec(hex!(""), 0));
+			match node.node() {
+				Node::Empty => {},
+				_ => panic!("unexpected node"),
+			}
+		},
+		_ => panic!("unexpected item"),
+	}
+
+	assert!(iter.next_back().is_none());
+
+	let mut iter = TrieDBNodeDoubleEndedIterator::new(&trie).unwrap();
+	iter.prefix(&hex!("00")[..]).unwrap();
+	assert!(iter.next_back().is_none());
+}
