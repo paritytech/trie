@@ -234,8 +234,8 @@ fn seek_back_works_internal<T: TrieLayout>() {
 	assert!(iter.next_back().is_none());
 }
 
-test_layouts!(prefix_works, prefix_works_internal);
-fn prefix_works_internal<T: TrieLayout>() {
+test_layouts!(prefix_back_works, prefix_back_works_internal);
+fn prefix_back_works_internal<T: TrieLayout>() {
 	let can_expand = T::MAX_INLINE_VALUE.unwrap_or(T::Hash::LENGTH as u32) < T::Hash::LENGTH as u32;
 	let pairs = vec![
 		(hex!("01").to_vec(), b"aaaa".to_vec()),
