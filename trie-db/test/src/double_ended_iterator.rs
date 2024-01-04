@@ -240,6 +240,7 @@ fn prefix_works_internal<T: TrieLayout>() {
 	let pairs = vec![
 		(hex!("01").to_vec(), b"aaaa".to_vec()),
 		(hex!("0123").to_vec(), b"bbbb".to_vec()),
+		(hex!("0122").to_vec(), b"cccc".to_vec()),
 		(hex!("02").to_vec(), vec![1; 32]),
 	];
 
@@ -284,8 +285,40 @@ fn prefix_works_internal<T: TrieLayout>() {
 			}
 			assert_eq!(prefix, nibble_vec(hex!("0120"), 3));
 			match node.node() {
+				Node::NibbledBranch(partial, _, _) =>
+					assert_eq!(partial, NibbleSlice::new(&hex!("")[..])),
+				Node::Branch(_, _) => {},
+				_ => panic!("unexpected node"),
+			}
+		},
+		_ => panic!("unexpected item"),
+	}
+
+	match iter.next_back() {
+		Some(Ok((prefix, hash, node))) => {
+			if !can_expand {
+				debug_assert!(hash.is_none());
+			}
+			assert_eq!(prefix, nibble_vec(hex!("0123"), 4));
+			match node.node() {
 				Node::Leaf(partial, _) => {
-					assert_eq!(partial, NibbleSlice::new_offset(&hex!("03")[..], 1))
+					assert_eq!(partial, NibbleSlice::new_offset(&hex!("")[..], 0))
+				},
+				_ => panic!("unexpected node"),
+			}
+		},
+		_ => panic!("unexpected item"),
+	}
+
+	match iter.next_back() {
+		Some(Ok((prefix, hash, node))) => {
+			if !can_expand {
+				debug_assert!(hash.is_none());
+			}
+			assert_eq!(prefix, nibble_vec(hex!("0122"), 4));
+			match node.node() {
+				Node::Leaf(partial, _) => {
+					assert_eq!(partial, NibbleSlice::new_offset(&hex!("")[..], 0))
 				},
 				_ => panic!("unexpected node"),
 			}
