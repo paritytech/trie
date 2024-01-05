@@ -30,6 +30,7 @@ enum Status {
 	At,
 	AtChild(usize),
 	Exiting,
+	AftExiting,
 }
 
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -62,6 +63,7 @@ impl<H: Hasher> Crumb<H> {
 			(Status::AtChild(x), NodePlan::NibbledBranch { .. })
 				if !fwd && x > 0 =>
 				Status::AtChild(x - 1),
+			(Status::Exiting, _) => Status::AftExiting,
 			_ => Status::Exiting,
 		}
 	}
@@ -179,7 +181,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 					NodePlan::Extension { partial: partial_plan, child } => {
 						let slice = partial_plan.build(node_data);
 						if !partial.starts_with(&slice) {
-							if slice < partial {
+							if (fwd && slice < partial) || (!fwd && slice > partial) {
 								crumb.status = Status::Exiting;
 								self.key_nibbles.append_partial(slice.right());
 								return Ok(false);
@@ -227,7 +229,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 					NodePlan::NibbledBranch { partial: partial_plan, value: _, children } => {
 						let slice = partial_plan.build(node_data);
 						if !partial.starts_with(&slice) {
-							if slice < partial {
+							if (fwd && slice < partial) || (!fwd && slice > partial) {
 								crumb.status = Status::Exiting;
 								self.key_nibbles.append_partial(slice.right());
 								self.key_nibbles.push((nibble_ops::NIBBLE_LENGTH - 1) as u8);
@@ -385,11 +387,17 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 			let node_data = crumb.node.data();
 
 			match (crumb.status, crumb.node.node_plan()) {
-				(Status::Entering, _) => {
-					// This is only necessary due to current borrow checker's limitation.
-					let crumb = self.trail.last_mut().expect("we've just fetched the last element using `last_mut` so this cannot fail; qed");
-					crumb.step(fwd);
-					return Some(Ok((&self.key_nibbles, crumb.hash.as_ref(), &crumb.node)));
+				(Status::Entering, _) =>
+					if fwd {
+						let crumb = self.trail.last_mut().expect("we've just fetched the last element using `last_mut` so this cannot fail; qed");
+						crumb.step(fwd);
+						return Some(Ok((&self.key_nibbles, crumb.hash.as_ref(), &crumb.node)));
+					} else {
+						crumb.step(fwd);
+					},
+				(Status::AftExiting, _) => {
+					self.trail.pop().expect("we've just fetched the last element using `last_mut` so this cannot fail; qed");
+					self.trail.last_mut()?.step(fwd);
 				},
 				(Status::Exiting, node) => {
 					match node {
@@ -404,8 +412,11 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 							self.key_nibbles.drop_lasts(partial.len() + 1);
 						},
 					}
-					self.trail.pop().expect("we've just fetched the last element using `last_mut` so this cannot fail; qed");
 					self.trail.last_mut()?.step(fwd);
+					if !fwd {
+						let crumb = self.trail.last_mut().expect("we've just fetched the last element using `last_mut` so this cannot fail; qed");
+						return Some(Ok((&self.key_nibbles, crumb.hash.as_ref(), &crumb.node)));
+					}
 				},
 				(Status::At, NodePlan::Extension { partial: partial_plan, child }) => {
 					let partial = partial_plan.build(node_data);
