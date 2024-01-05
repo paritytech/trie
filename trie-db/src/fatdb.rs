@@ -18,7 +18,7 @@ use super::{
 };
 use hash_db::{HashDBRef, Hasher};
 
-use crate::{rstd::boxed::Box, MerkleValue, TrieDBBuilder};
+use crate::{rstd::boxed::Box, triedb::TrieDBDoubleEndedIterator, MerkleValue, TrieDBBuilder};
 
 /// A `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
 /// Additionaly it stores inserted hash-key mappings for later retrieval.
@@ -109,6 +109,22 @@ where
 	trie: &'db TrieDB<'db, 'cache, L>,
 }
 
+/// Double ended iterator over inserted pairs of key values.
+pub struct FatDBDoubleEndedIterator<'db, 'cache, L>
+where
+	L: TrieLayout,
+{
+	trie_iterator: TrieDBDoubleEndedIterator<'db, 'cache, L>,
+	trie: &'db TrieDB<'db, 'cache, L>,
+}
+
+impl<'a, 'cache, L: TrieLayout> FatDBDoubleEndedIterator<'a, 'cache, L> {
+	/// Create a new double ended iterator.
+	pub fn new(db: &'a TrieDB<'a, 'cache, L>) -> Result<Self, TrieHash<L>, CError<L>> {
+		Ok(Self { trie_iterator: TrieDBDoubleEndedIterator::new(db)?, trie: db })
+	}
+}
+
 impl<'db, 'cache, L> FatDBIterator<'db, 'cache, L>
 where
 	L: TrieLayout,
@@ -137,6 +153,52 @@ where
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.trie_iterator.next().map(|res| {
+			res.map(|(hash, value)| {
+				let aux_hash = L::Hash::hash(&hash);
+				(
+					self.trie.db().get(&aux_hash, Default::default()).expect("Missing fatdb hash"),
+					value,
+				)
+			})
+		})
+	}
+}
+
+impl<'db, 'cache, L> TrieIterator<L> for FatDBDoubleEndedIterator<'db, 'cache, L>
+where
+	L: TrieLayout,
+{
+	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>> {
+		let hashed_key = L::Hash::hash(key);
+		self.trie_iterator.seek(hashed_key.as_ref())
+	}
+}
+
+impl<'db, 'cache, L> Iterator for FatDBDoubleEndedIterator<'db, 'cache, L>
+where
+	L: TrieLayout,
+{
+	type Item = TrieItem<TrieHash<L>, CError<L>>;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		self.trie_iterator.next().map(|res| {
+			res.map(|(hash, value)| {
+				let aux_hash = L::Hash::hash(&hash);
+				(
+					self.trie.db().get(&aux_hash, Default::default()).expect("Missing fatdb hash"),
+					value,
+				)
+			})
+		})
+	}
+}
+
+impl<'db, 'cache, L> DoubleEndedIterator for FatDBDoubleEndedIterator<'db, 'cache, L>
+where
+	L: TrieLayout,
+{
+	fn next_back(&mut self) -> Option<Self::Item> {
+		self.trie_iterator.next_back().map(|res| {
 			res.map(|(hash, value)| {
 				let aux_hash = L::Hash::hash(&hash);
 				(

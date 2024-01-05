@@ -15,6 +15,8 @@
 //! Tests for trie-db crate.
 
 #[cfg(test)]
+mod double_ended_iterator;
+#[cfg(test)]
 mod fatdb;
 #[cfg(test)]
 mod fatdbmut;
