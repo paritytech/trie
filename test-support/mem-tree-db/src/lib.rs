@@ -223,6 +223,7 @@ mod tests {
 			prefix: Default::default(),
 			data: vec![1, 2, 3],
 			children: vec![],
+			key_childset: None,
 		});
 		let new_location = db.apply(&new_node);
 
@@ -245,6 +246,7 @@ mod tests {
 			prefix: Default::default(),
 			data: vec![1, 2, 3],
 			children: vec![],
+			key_childset: None,
 		});
 		let location = db.apply(&node);
 		assert_eq!(location, db.nodes.len() - 1);
@@ -259,6 +261,7 @@ mod tests {
 				prefix: Default::default(),
 				data: vec![1, 2, 3],
 				children: vec![],
+				key_childset: None,
 			}),
 			removed: Default::default(),
 		};
@@ -275,12 +278,14 @@ mod tests {
 			prefix: Default::default(),
 			data: vec![1, 2, 3],
 			children: vec![],
+			key_childset: None,
 		});
 		let child2 = ChangesetNodeRef::New(NewChangesetNode {
 			hash: hash(2),
 			prefix: Default::default(),
 			data: vec![4, 5, 6],
 			children: vec![],
+			key_childset: None,
 		});
 
 		// Create a root node that refers to the child nodes
@@ -289,6 +294,7 @@ mod tests {
 			prefix: Default::default(),
 			data: vec![7, 8, 9],
 			children: vec![child1, child2],
+			key_childset: None,
 		});
 
 		let commit = Changeset::<KeccakHash, Location> { root, removed: Default::default() };

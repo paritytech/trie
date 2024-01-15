@@ -2203,7 +2203,12 @@ where
 							};
 							node.into_encoded(commit_child)
 						};
-						child_set.map(|c| children.push(*c));
+						let child_set = child_set
+							.map(|c| {
+								children.push(*c);
+								true
+							})
+							.unwrap_or(false);
 						if encoded.len() >= L::Hash::LENGTH {
 							let hash = self.db.hash(&encoded);
 							self.cache_node(hash);
@@ -2217,7 +2222,7 @@ where
 							self.hash_count += 1;
 							ChildReference::Hash(hash, Default::default())
 						} else {
-							debug_assert!(children.len() == 0);
+							debug_assert!(!child_set);
 							// it's a small value, so we cram it into a `TrieHash<L>`
 							// and tag with length
 							let mut h = <TrieHash<L>>::default();
