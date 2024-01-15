@@ -223,7 +223,7 @@ enum Node<L: TrieLayout> {
 	/// A leaf node contains the end of a key and a value.
 	/// This key is encoded from a `NibbleSlice`, meaning it contains
 	/// a flag indicating it is a leaf.
-	Leaf(NodeKey, Value<L>),
+	Leaf(NodeKey, Value<L>, Option<ChildChangeset<L>>),
 	/// An extension contains a shared portion of a key and a child node.
 	/// The shared portion is encoded from a `NibbleSlice` meaning it contains
 	/// a flag indicating it is an extension.
@@ -233,12 +233,14 @@ enum Node<L: TrieLayout> {
 	Branch(
 		Box<[Option<NodeHandle<TrieHash<L>, L::Location>>; nibble_ops::NIBBLE_LENGTH]>,
 		Option<Value<L>>,
+		Option<ChildChangeset<L>>,
 	),
 	/// Branch node with support for a nibble (to avoid extension node).
 	NibbledBranch(
 		NodeKey,
 		Box<[Option<NodeHandle<TrieHash<L>, L::Location>>; nibble_ops::NIBBLE_LENGTH]>,
 		Option<Value<L>>,
+		Option<ChildChangeset<L>>,
 	),
 }
 
@@ -561,10 +563,8 @@ impl<L: TrieLayout> InsertAction<L> {
 enum Stored<L: TrieLayout> {
 	// A new node.
 	New(Node<L>),
-	//New(Node<L>, Option<ChildChangeset<L>>),
 	// A cached node, loaded from the DB.
 	Cached(Node<L>, TrieHash<L>, L::Location),
-	//Cached(Node<L>, TrieHash<L>, L::Location, Option<ChildChangeset<L>>),
 }
 
 /// Used to build a collection of child nodes from a collection of `NodeHandle`s
