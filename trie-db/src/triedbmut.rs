@@ -2203,13 +2203,7 @@ where
 							};
 							node.into_encoded(commit_child)
 						};
-						let child_set = child_set
-							.map(|c| {
-								children.push(*c);
-								true
-							})
-							.unwrap_or(false);
-						if encoded.len() >= L::Hash::LENGTH {
+						let result = if encoded.len() >= L::Hash::LENGTH {
 							let hash = self.db.hash(&encoded);
 							self.cache_node(hash);
 							children.push(ChangesetNodeRef::New(NewChangesetNode {
@@ -2222,7 +2216,7 @@ where
 							self.hash_count += 1;
 							ChildReference::Hash(hash, Default::default())
 						} else {
-							debug_assert!(!child_set);
+							debug_assert!(child_set.is_some());
 							// it's a small value, so we cram it into a `TrieHash<L>`
 							// and tag with length
 							let mut h = <TrieHash<L>>::default();
@@ -2230,7 +2224,9 @@ where
 							h.as_mut()[..len].copy_from_slice(&encoded[..len]);
 
 							ChildReference::Inline(h, len)
-						}
+						};
+						child_set.map(|c| children.push(*c));
+						result
 					},
 				}
 			},
