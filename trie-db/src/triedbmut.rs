@@ -749,8 +749,8 @@ pub struct NewChangesetNode<H, DL> {
 	pub prefix: OwnedPrefix,
 	pub data: Vec<u8>,
 	pub children: Vec<ChangesetNodeRef<H, DL>>,
-	// Storing the key (only needed for old trie).
-	pub key_childset: Option<Vec<u8>>,
+	// Storing the key and removed nodes (only needed for old trie).
+	pub key_childset: Option<(Vec<u8>, Vec<(H, OwnedPrefix)>)>,
 }
 
 #[derive(Debug)]
@@ -779,8 +779,6 @@ impl<H, DL> ChangesetNodeRef<H, DL> {
 pub struct Changeset<H, DL> {
 	pub root: ChangesetNodeRef<H, DL>,
 	pub removed: Vec<(H, OwnedPrefix)>,
-	// Only needed for apply ks
-	pub removed_ks: BTreeMap<Vec<u8>, Vec<(H, OwnedPrefix)>>,
 }
 
 impl<H: Copy, DL: Default> Changeset<H, DL> {
@@ -789,27 +787,47 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 		K: memory_db::KeyFunction<MH> + Send + Sync,
 		MH: Hasher<Out = H> + Send + Sync,
 	{
+		fn prefix_prefix(ks: &[u8], prefix: Prefix) -> (Vec<u8>, Option<u8>) {
+			let mut result = Vec::with_capacity(ks.len() + prefix.0.len());
+			result.extend_from_slice(ks);
+			result.extend_from_slice(prefix.0);
+			(result, prefix.1)
+		}
+
 		for (hash, prefix) in &self.removed {
 			mem_db.remove(hash, (prefix.0.as_slice(), prefix.1));
 		}
+
 		fn apply_node<H, DL, MH, K>(
 			node: &ChangesetNodeRef<H, DL>,
 			mem_db: &mut MemoryDB<MH, K, DBValue>,
+			ks: Option<&[u8]>,
 		) where
 			K: memory_db::KeyFunction<MH> + Send + Sync,
 			MH: Hasher<Out = H> + Send + Sync,
 		{
 			match node {
 				ChangesetNodeRef::New(node) => {
+					let ks = if ks.is_some() {
+						ks
+					} else if let Some((k, removed)) = node.key_childset.as_ref() {
+						for (hash, p) in removed.iter() {
+							let prefixed = prefix_prefix(k.as_slice(), (p.0.as_slice(), p.1));
+							mem_db.remove(hash, (prefixed.0.as_slice(), prefixed.1));
+						}
+						Some(k.as_slice())
+					} else {
+						None
+					};
 					for child in &node.children {
-						apply_node(child, mem_db);
+						apply_node(child, mem_db, ks);
 					}
 					mem_db.insert((node.prefix.0.as_slice(), node.prefix.1), &node.data);
 				},
 				ChangesetNodeRef::Existing(_) => {},
 			}
 		}
-		apply_node::<H, DL, MH, K>(&self.root, mem_db);
+		apply_node::<H, DL, MH, K>(&self.root, mem_db, None);
 		self.root_hash()
 	}
 
@@ -853,63 +871,6 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 		self.root_hash()
 	}
 
-	pub fn apply_with_as_prefix<K, MH>(&self, mem_db: &mut MemoryDB<MH, K, DBValue>) -> H
-	where
-		K: memory_db::KeyFunction<MH> + Send + Sync,
-		MH: Hasher<Out = H> + Send + Sync,
-	{
-		fn prefix_prefix(ks: &[u8], prefix: Prefix) -> (Vec<u8>, Option<u8>) {
-			let mut result = Vec::with_capacity(ks.len() + prefix.0.len());
-			result.extend_from_slice(ks);
-			result.extend_from_slice(prefix.0);
-			(result, prefix.1)
-		}
-
-		fn apply_node<H, DL, MH, K>(
-			node: &ChangesetNodeRef<H, DL>,
-			ks: Option<&[u8]>,
-			mem_db: &mut MemoryDB<MH, K, DBValue>,
-		) where
-			K: memory_db::KeyFunction<MH> + Send + Sync,
-			MH: Hasher<Out = H> + Send + Sync,
-		{
-			match node {
-				ChangesetNodeRef::New(node) => {
-					let ks = if ks.is_some() {
-						ks
-					} else if let Some(k) = node.key_childset.as_ref() {
-						Some(k.as_slice())
-					} else {
-						None
-					};
-					for child in &node.children {
-						apply_node(child, ks, mem_db);
-					}
-					if let Some(ks) = ks {
-						let prefixed = prefix_prefix(ks, (node.prefix.0.as_slice(), node.prefix.1));
-						mem_db.insert((prefixed.0.as_slice(), prefixed.1), &node.data);
-					} else {
-						mem_db.insert((node.prefix.0.as_slice(), node.prefix.1), &node.data);
-					}
-				},
-				ChangesetNodeRef::Existing(_) => {},
-			}
-		}
-
-		for (hash, p) in &self.removed {
-			mem_db.remove(hash, (p.0.as_slice(), p.1));
-		}
-		for (ks, removed) in &self.removed_ks {
-			for (hash, p) in removed {
-				let prefixed = prefix_prefix(ks, (p.0.as_slice(), p.1));
-				mem_db.remove(hash, (prefixed.0.as_slice(), prefixed.1));
-			}
-		}
-
-		apply_node(&self.root, None, mem_db);
-		self.root_hash()
-	}
-
 	pub fn root_hash(&self) -> H {
 		match &self.root {
 			ChangesetNodeRef::New(node) => node.hash,
@@ -925,7 +886,6 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 				location: Default::default(),
 			}),
 			removed: Default::default(),
-			removed_ks: Default::default(),
 		}
 	}
 }
@@ -2112,7 +2072,6 @@ where
 						location,
 					}),
 					removed,
-					removed_ks: Default::default(),
 				}, // no changes necessary.
 			NodeHandle::InMemory(h) => h,
 		};
@@ -2165,7 +2124,6 @@ where
 						key_childset: None,
 					}),
 					removed,
-					removed_ks: Default::default(),
 				}
 			},
 			Stored::Cached(node, hash, location) => {
@@ -2183,7 +2141,6 @@ where
 						location,
 					}),
 					removed,
-					removed_ks: Default::default(),
 				}
 			},
 		}

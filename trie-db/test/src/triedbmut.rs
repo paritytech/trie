@@ -863,7 +863,7 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 	struct ATrie<T: TrieLayout> {
 		root: TrieHash<T>,
 		data: BTreeMap<Vec<u8>, Vec<u8>>,
-		changeset: Option<Changeset<TrieHash<T>, T::Location>>,
+		changeset: Option<ChangesetNodeRef<TrieHash<T>, T::Location>>,
 	}
 	// Running a tipical child trie scenario:
 	// different trie, child trie root written all
@@ -894,19 +894,15 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		let mut memtrie = populate_trie::<T>(&mut memdb, &x);
 		let data: BTreeMap<Vec<u8>, Vec<u8>> = x.iter().cloned().collect();
 		if i == nb_child_trie {
-			let mut removed_ks: BTreeMap<Vec<u8>, Vec<(TrieHash<T>, OwnedPrefix)>> =
-				Default::default();
 			for (k, c) in child_tries.iter_mut() {
 				let key: &[u8] = &k[..];
 				let val: &[u8] = c.root.as_ref();
 				let mut changeset = c.changeset.take().unwrap();
 				memtrie
-					.insert_with_child_changes(key, val, Some(Box::new(changeset.root)))
+					.insert_with_child_changes(key, val, Some(Box::new(changeset)))
 					.unwrap();
-				removed_ks.insert(k.clone(), changeset.removed);
 			}
 			let mut change_set = memtrie.commit();
-			change_set.removed_ks = removed_ks;
 			let root = change_set.commit_to(&mut memdb);
 			main_trie.root = root;
 			main_trie.data = data;
@@ -917,12 +913,12 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 			match &mut changeset.root {
 				ChangesetNodeRef::New(node) => {
 					// needed for prefixed key.
-					node.key_childset = Some(child_trie_root_key.clone());
+					node.key_childset = Some((child_trie_root_key.clone(), changeset.removed));
 				},
 				_ => unreachable!(),
 			}
 			child_tries
-				.insert(child_trie_root_key, ATrie { root, data, changeset: Some(changeset) });
+				.insert(child_trie_root_key, ATrie { root, data, changeset: Some(changeset.root) });
 		}
 	}
 }
