@@ -25,7 +25,7 @@ use reference_trie::{
 };
 use trie_db::{
 	CachedValue, DBValue, NodeCodec, Recorder, Trie, TrieCache, TrieDBBuilder, TrieDBMut,
-	TrieDBMutBuilder, TrieError, TrieLayout, Value,
+	TrieDBMutBuilder, TrieError, TrieLayout, Value, TrieHash,
 };
 use trie_standardmap::*;
 
@@ -854,4 +854,44 @@ fn test_two_assets_memory_db_inner_2<T: TrieLayout>() {
 	assert_eq!(state.get(key1.as_ref()).unwrap().unwrap(), data1);
 	assert_eq!(state.get(key2.as_ref()).unwrap().unwrap(), data2);
 	assert_eq!(state.get(key3.as_ref()).unwrap().unwrap(), data3);
+}
+
+test_layouts!(child_trie, child_trie_internal);
+fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
+	use std::collections::BTreeMap;
+	// Running a tipical child trie scenario:
+	// different trie, child trie root written all
+	// at once with childset before parent tree commit.
+	// Direct copy if using ref counting and location in db.
+	// Pruning.
+	let mut seed = Default::default();
+	let nb_child_trie = 10;
+	let nb_child_trie_removed = 2;
+	let nb_child_trie_copied = 5;
+	let nb_child_trie_copied_half_removed = 1;
+	let nb_child_trie_copied_removed = 1;
+	let support_location = DB::support_location();
+	let mut memdb = DB::default();
+	let mut child_tree: BTreeMap<Vec<u8>, TrieHash<T>> = Default::default();
+	let mut main_root: TrieHash<T> = Default::default();
+	for i in 0..10 + 1 {
+		let x = StandardMap {
+			alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
+			min_key: 3,
+			journal_key: 0,
+			value_mode: ValueMode::Index,
+			count: 20,
+		}
+		.make_with(&mut seed);
+
+		let mut memdb = DB::default();
+		let memtrie = populate_trie::<T>(&mut memdb, &x);
+		let root = memtrie.commit().commit_to(&mut memdb);
+		if i == 0 {
+			main_root = root;
+		} else {
+			let child_trie_root_key = x[0].0.clone();
+			child_tree.insert(child_trie_root_key, root);
+		}
+	}
 }

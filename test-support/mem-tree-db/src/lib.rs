@@ -268,6 +268,7 @@ mod tests {
 		db.apply_commit(commit);
 		assert_eq!(db.roots.len(), 1);
 	}
+
 	#[test]
 	fn test_commit_changeset_with_children() {
 		let mut db = MemTreeDB::<KeccakHasher>::default();
@@ -304,6 +305,7 @@ mod tests {
 		assert_eq!(db.nodes.len(), 3);
 		assert_eq!(db.roots.len(), 1);
 	}
+
 	#[test]
 	fn test_get() {
 		let mut db = MemTreeDB::<KeccakHasher>::default();

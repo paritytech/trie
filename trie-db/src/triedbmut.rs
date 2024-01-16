@@ -2216,7 +2216,6 @@ where
 							self.hash_count += 1;
 							ChildReference::Hash(hash, Default::default())
 						} else {
-							debug_assert!(child_set.is_some());
 							// it's a small value, so we cram it into a `TrieHash<L>`
 							// and tag with length
 							let mut h = <TrieHash<L>>::default();
