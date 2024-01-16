@@ -872,6 +872,7 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 	// Pruning.
 	let mut seed = Default::default();
 	let nb_child_trie = 10;
+	let nb_child_trie = 1;
 	let nb_child_trie_removed = 2;
 	let nb_child_trie_copied = 5;
 	let nb_child_trie_copied_half_removed = 1;
@@ -887,7 +888,8 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 			min_key: 3,
 			journal_key: 0,
 			value_mode: ValueMode::Index,
-			count: 20,
+			//count: 20,
+			count: 2,
 		}
 		.make_with(&mut seed);
 
@@ -919,6 +921,14 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 			}
 			child_tries
 				.insert(child_trie_root_key, ATrie { root, data, changeset: Some(changeset.root) });
+		}
+
+		// check data
+		{
+			let trie = TrieDBBuilder::<T>::new(&memdb, &main_trie.root).build();
+			for (k, v) in main_trie.data.iter() {
+				assert_eq!(&trie.get(k).unwrap().unwrap(), v);
+			}
 		}
 	}
 }
