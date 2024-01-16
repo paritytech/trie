@@ -68,7 +68,7 @@ pub use self::{
 	triedb::{TrieDB, TrieDBBuilder, TrieDBIterator, TrieDBKeyIterator},
 	triedbmut::{
 		Changeset, ChangesetNodeRef, ChildReference, ExistingChangesetNode, NewChangesetNode,
-		TrieDBMut, TrieDBMutBuilder, Value,
+		OwnedPrefix, TrieDBMut, TrieDBMutBuilder, Value,
 	},
 };
 pub use crate::{

@@ -30,10 +30,14 @@ use crate::{
 use hash_db::{HashDB, Hasher, Prefix};
 
 #[cfg(feature = "std")]
+use std::collections::BTreeMap;
+#[cfg(feature = "std")]
 use std::collections::HashSet as Set;
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
+#[cfg(not(feature = "std"))]
+use alloc::collections::btree_set::BTreeMap;
 #[cfg(not(feature = "std"))]
 use alloc::collections::btree_set::BTreeSet as Set;
 
@@ -775,6 +779,8 @@ impl<H, DL> ChangesetNodeRef<H, DL> {
 pub struct Changeset<H, DL> {
 	pub root: ChangesetNodeRef<H, DL>,
 	pub removed: Vec<(H, OwnedPrefix)>,
+	// Only needed for apply ks
+	pub removed_ks: BTreeMap<Vec<u8>, Vec<(H, OwnedPrefix)>>,
 }
 
 impl<H: Copy, DL: Default> Changeset<H, DL> {
@@ -847,6 +853,63 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 		self.root_hash()
 	}
 
+	pub fn apply_with_as_prefix<K, MH>(&self, mem_db: &mut MemoryDB<MH, K, DBValue>) -> H
+	where
+		K: memory_db::KeyFunction<MH> + Send + Sync,
+		MH: Hasher<Out = H> + Send + Sync,
+	{
+		fn prefix_prefix(ks: &[u8], prefix: Prefix) -> (Vec<u8>, Option<u8>) {
+			let mut result = Vec::with_capacity(ks.len() + prefix.0.len());
+			result.extend_from_slice(ks);
+			result.extend_from_slice(prefix.0);
+			(result, prefix.1)
+		}
+
+		fn apply_node<H, DL, MH, K>(
+			node: &ChangesetNodeRef<H, DL>,
+			ks: Option<&[u8]>,
+			mem_db: &mut MemoryDB<MH, K, DBValue>,
+		) where
+			K: memory_db::KeyFunction<MH> + Send + Sync,
+			MH: Hasher<Out = H> + Send + Sync,
+		{
+			match node {
+				ChangesetNodeRef::New(node) => {
+					let ks = if ks.is_some() {
+						ks
+					} else if let Some(k) = node.key_childset.as_ref() {
+						Some(k.as_slice())
+					} else {
+						None
+					};
+					for child in &node.children {
+						apply_node(child, ks, mem_db);
+					}
+					if let Some(ks) = ks {
+						let prefixed = prefix_prefix(ks, (node.prefix.0.as_slice(), node.prefix.1));
+						mem_db.insert((prefixed.0.as_slice(), prefixed.1), &node.data);
+					} else {
+						mem_db.insert((node.prefix.0.as_slice(), node.prefix.1), &node.data);
+					}
+				},
+				ChangesetNodeRef::Existing(_) => {},
+			}
+		}
+
+		for (hash, p) in &self.removed {
+			mem_db.remove(hash, (p.0.as_slice(), p.1));
+		}
+		for (ks, removed) in &self.removed_ks {
+			for (hash, p) in removed {
+				let prefixed = prefix_prefix(ks, (p.0.as_slice(), p.1));
+				mem_db.remove(hash, (prefixed.0.as_slice(), prefixed.1));
+			}
+		}
+
+		apply_node(&self.root, None, mem_db);
+		self.root_hash()
+	}
+
 	pub fn root_hash(&self) -> H {
 		match &self.root {
 			ChangesetNodeRef::New(node) => node.hash,
@@ -862,11 +925,12 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 				location: Default::default(),
 			}),
 			removed: Default::default(),
+			removed_ks: Default::default(),
 		}
 	}
 }
 
-type OwnedPrefix = (BackingByteVec, Option<u8>);
+pub type OwnedPrefix = (BackingByteVec, Option<u8>);
 
 /// A `Trie` implementation using a generic `HashDB` backing database.
 ///
@@ -2048,6 +2112,7 @@ where
 						location,
 					}),
 					removed,
+					removed_ks: Default::default(),
 				}, // no changes necessary.
 			NodeHandle::InMemory(h) => h,
 		};
@@ -2100,6 +2165,7 @@ where
 						key_childset: None,
 					}),
 					removed,
+					removed_ks: Default::default(),
 				}
 			},
 			Stored::Cached(node, hash, location) => {
@@ -2117,6 +2183,7 @@ where
 						location,
 					}),
 					removed,
+					removed_ks: Default::default(),
 				}
 			},
 		}

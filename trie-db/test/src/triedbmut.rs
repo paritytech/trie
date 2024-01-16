@@ -24,8 +24,8 @@ use reference_trie::{
 	ReferenceNodeCodecNoExt, TestTrieCache,
 };
 use trie_db::{
-	CachedValue, DBValue, NodeCodec, Recorder, Trie, TrieCache, TrieDBBuilder, TrieDBMut,
-	TrieDBMutBuilder, TrieError, TrieLayout, Value, TrieHash,
+	CachedValue, Changeset, ChangesetNodeRef, DBValue, NodeCodec, Recorder, Trie, TrieCache,
+	TrieDBBuilder, TrieDBMut, TrieDBMutBuilder, TrieError, TrieHash, TrieLayout, Value,
 };
 use trie_standardmap::*;
 
@@ -859,6 +859,12 @@ fn test_two_assets_memory_db_inner_2<T: TrieLayout>() {
 test_layouts!(child_trie, child_trie_internal);
 fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 	use std::collections::BTreeMap;
+	use trie_db::OwnedPrefix;
+	struct ATrie<T: TrieLayout> {
+		root: TrieHash<T>,
+		data: BTreeMap<Vec<u8>, Vec<u8>>,
+		changeset: Option<Changeset<TrieHash<T>, T::Location>>,
+	}
 	// Running a tipical child trie scenario:
 	// different trie, child trie root written all
 	// at once with childset before parent tree commit.
@@ -872,9 +878,10 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let nb_child_trie_copied_removed = 1;
 	let support_location = DB::support_location();
 	let mut memdb = DB::default();
-	let mut child_tree: BTreeMap<Vec<u8>, TrieHash<T>> = Default::default();
-	let mut main_root: TrieHash<T> = Default::default();
-	for i in 0..10 + 1 {
+	let mut child_tries: BTreeMap<Vec<u8>, ATrie<T>> = Default::default();
+	let mut main_trie: ATrie<T> =
+		ATrie { root: Default::default(), data: Default::default(), changeset: None };
+	for i in 0..nb_child_trie + 1 {
 		let x = StandardMap {
 			alphabet: Alphabet::Custom(b"@QWERTYUIOPASDFGHJKLZXCVBNM[/]^_".to_vec()),
 			min_key: 3,
@@ -884,14 +891,38 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		}
 		.make_with(&mut seed);
 
-		let mut memdb = DB::default();
-		let memtrie = populate_trie::<T>(&mut memdb, &x);
-		let root = memtrie.commit().commit_to(&mut memdb);
-		if i == 0 {
-			main_root = root;
+		let mut memtrie = populate_trie::<T>(&mut memdb, &x);
+		let data: BTreeMap<Vec<u8>, Vec<u8>> = x.iter().cloned().collect();
+		if i == nb_child_trie {
+			let mut removed_ks: BTreeMap<Vec<u8>, Vec<(TrieHash<T>, OwnedPrefix)>> =
+				Default::default();
+			for (k, c) in child_tries.iter_mut() {
+				let key: &[u8] = &k[..];
+				let val: &[u8] = c.root.as_ref();
+				let mut changeset = c.changeset.take().unwrap();
+				memtrie
+					.insert_with_child_changes(key, val, Some(Box::new(changeset.root)))
+					.unwrap();
+				removed_ks.insert(k.clone(), changeset.removed);
+			}
+			let mut change_set = memtrie.commit();
+			change_set.removed_ks = removed_ks;
+			let root = change_set.commit_to(&mut memdb);
+			main_trie.root = root;
+			main_trie.data = data;
 		} else {
-			let child_trie_root_key = x[0].0.clone();
-			child_tree.insert(child_trie_root_key, root);
+			let child_trie_root_key = data.iter().next().unwrap().0.clone();
+			let mut changeset = memtrie.commit();
+			let root = changeset.root_hash();
+			match &mut changeset.root {
+				ChangesetNodeRef::New(node) => {
+					// needed for prefixed key.
+					node.key_childset = Some(child_trie_root_key.clone());
+				},
+				_ => unreachable!(),
+			}
+			child_tries
+				.insert(child_trie_root_key, ATrie { root, data, changeset: Some(changeset) });
 		}
 	}
 }

@@ -42,7 +42,9 @@ trait TestDB<T: TrieLayout>: hash_db::HashDB<T::Hash, DBValue, T::Location> + Cl
 	) -> TrieHash<T>;
 	fn remove(&mut self, hash: &<T::Hash as Hasher>::Out, prefix: Prefix);
 	fn is_empty(&self) -> bool;
-	fn support_location() -> bool { false }
+	fn support_location() -> bool {
+		false
+	}
 }
 
 impl<T: TrieLayout<Hash = H>, H, KF> TestDB<T> for MemoryDB<H, KF, DBValue>
@@ -84,7 +86,9 @@ where
 		MemTreeDB::is_empty(self)
 	}
 
-	fn support_location() -> bool { true }
+	fn support_location() -> bool {
+		true
+	}
 }
 
 trait TestCommit<T: TrieLayout> {
