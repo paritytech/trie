@@ -56,6 +56,14 @@ macro_rules! test_layouts {
 	($test:ident, $test_internal:ident) => {
 		#[test]
 		fn $test() {
+			eprintln!("Running with layout `HashedValueNoExtThreshold` and MemTreeDB");
+			$test_internal::<
+				$crate::HashedValueNoExtThreshold<1, $crate::MemLocation>,
+				$crate::MemTreeDB<$crate::RefHasher>,
+			>();
+
+
+
 			eprintln!("Running with layout `HashedValueNoExtThreshold` and MemoryDB");
 			$test_internal::<
 				$crate::HashedValueNoExtThreshold<1, ()>,

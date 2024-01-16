@@ -899,12 +899,12 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 			for (k, c) in child_tries.iter_mut() {
 				let key: &[u8] = &k[..];
 				let val: &[u8] = c.root.as_ref();
-				let mut changeset = c.changeset.take().unwrap();
+				let changeset = c.changeset.take().unwrap();
 				memtrie
 					.insert_with_child_changes(key, val, Some(Box::new(changeset)))
 					.unwrap();
 			}
-			let mut change_set = memtrie.commit();
+			let change_set = memtrie.commit();
 			let root = change_set.commit_to(&mut memdb);
 			main_trie.root = root;
 			main_trie.data = data;
@@ -922,13 +922,12 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 			child_tries
 				.insert(child_trie_root_key, ATrie { root, data, changeset: Some(changeset.root) });
 		}
-
-		// check data
-		{
-			let trie = TrieDBBuilder::<T>::new(&memdb, &main_trie.root).build();
-			for (k, v) in main_trie.data.iter() {
-				assert_eq!(&trie.get(k).unwrap().unwrap(), v);
-			}
+	}
+	// check data
+	{
+		let trie = TrieDBBuilder::<T>::new(&memdb, &main_trie.root).build();
+		for (k, v) in main_trie.data.iter() {
+			assert_eq!(&trie.get(k).unwrap().unwrap(), v);
 		}
 	}
 }

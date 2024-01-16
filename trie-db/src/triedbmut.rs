@@ -2105,7 +2105,9 @@ where
 						},
 					}
 				});
-				root_childset.map(|c| children.push(*c));
+				root_childset.map(|c| {
+					children.push(*c);
+				});
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "encoded root node: {:?}", ToHex(&encoded_root[..]));
 
@@ -2230,6 +2232,9 @@ where
 						let result = if encoded.len() >= L::Hash::LENGTH {
 							let hash = self.db.hash(&encoded);
 							self.cache_node(hash);
+							child_set.map(|c| {
+								sub_children.push(*c);
+							});
 							children.push(ChangesetNodeRef::New(NewChangesetNode {
 								hash,
 								prefix: prefix.as_owned_prefix(),
@@ -2248,7 +2253,6 @@ where
 
 							ChildReference::Inline(h, len)
 						};
-						child_set.map(|c| children.push(*c));
 						result
 					},
 				}
