@@ -15,7 +15,7 @@
 use std::ops::Deref;
 
 use env_logger;
-use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
+use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use log::debug;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
@@ -531,9 +531,9 @@ fn insert_empty_allowed() {
 
 #[test]
 fn register_proof_without_value() {
-	use hash_db::Prefix;
 	use reference_trie::HashedValueNoExtThreshold;
 	use std::{cell::RefCell, collections::HashMap};
+	use Prefix;
 
 	type Layout = HashedValueNoExtThreshold<1, ()>;
 	type MemoryDB = memory_db::MemoryDB<RefHasher, PrefixedKey<RefHasher>, DBValue>;
@@ -973,10 +973,37 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 				root.as_mut().copy_from_slice(root_vec.as_slice());
 				root
 			};
+
+			let memdb = KeySpacedDB::new(&memdb, &root_key[..]);
 			let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
 			for (k, v) in child_trie.data.iter() {
 				assert_eq!(&trie.get(k).unwrap().unwrap(), v);
 			}
 		}
+	}
+}
+
+pub struct KeySpacedDB<'a, H, T, DL>(&'a dyn hash_db::HashDB<H, T, DL>, &'a [u8]);
+
+impl<'a, H, T, DL> KeySpacedDB<'a, H, T, DL> {
+	#[inline]
+	pub fn new(db: &'a dyn hash_db::HashDB<H, T, DL>, ks: &'a [u8]) -> Self {
+		KeySpacedDB(db, ks)
+	}
+}
+
+impl<'a, H, T, L> hash_db::HashDB<H, T, L> for KeySpacedDB<'a, H, T, L>
+where
+	H: Hasher,
+	T: From<&'static [u8]>,
+{
+	fn get(&self, key: &H::Out, prefix: Prefix, location: L) -> Option<(T, Vec<L>)> {
+		let derived_prefix = trie_db::triedbmut::prefix_prefix(self.1, prefix);
+		self.0.get(key, (&derived_prefix.0, derived_prefix.1), location)
+	}
+
+	fn contains(&self, key: &H::Out, prefix: Prefix, location: L) -> bool {
+		let derived_prefix = trie_db::triedbmut::prefix_prefix(self.1, prefix);
+		self.0.contains(key, (&derived_prefix.0, derived_prefix.1), location)
 	}
 }

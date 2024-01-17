@@ -781,19 +781,19 @@ pub struct Changeset<H, DL> {
 	pub removed: Vec<(H, OwnedPrefix)>,
 }
 
+pub fn prefix_prefix(ks: &[u8], prefix: Prefix) -> (Vec<u8>, Option<u8>) {
+	let mut result = Vec::with_capacity(ks.len() + prefix.0.len());
+	result.extend_from_slice(ks);
+	result.extend_from_slice(prefix.0);
+	(result, prefix.1)
+}
+
 impl<H: Copy, DL: Default> Changeset<H, DL> {
 	pub fn apply_to<K, MH>(&self, mem_db: &mut MemoryDB<MH, K, DBValue>) -> H
 	where
 		K: memory_db::KeyFunction<MH> + Send + Sync,
 		MH: Hasher<Out = H> + Send + Sync,
 	{
-		fn prefix_prefix(ks: &[u8], prefix: Prefix) -> (Vec<u8>, Option<u8>) {
-			let mut result = Vec::with_capacity(ks.len() + prefix.0.len());
-			result.extend_from_slice(ks);
-			result.extend_from_slice(prefix.0);
-			(result, prefix.1)
-		}
-
 		for (hash, prefix) in &self.removed {
 			mem_db.remove(hash, (prefix.0.as_slice(), prefix.1));
 		}
@@ -841,13 +841,6 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 		K: memory_db::KeyFunction<MH> + Send + Sync,
 		MH: Hasher<Out = H> + Send + Sync,
 	{
-		fn prefix_prefix(ks: &[u8], prefix: Prefix) -> (Vec<u8>, Option<u8>) {
-			let mut result = Vec::with_capacity(ks.len() + prefix.0.len());
-			result.extend_from_slice(ks);
-			result.extend_from_slice(prefix.0);
-			(result, prefix.1)
-		}
-
 		fn apply_node<H, DL, MH, K>(
 			node: &ChangesetNodeRef<H, DL>,
 			ks: &[u8],
