@@ -873,7 +873,7 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 	// Pruning.
 	let mut seed = Default::default();
 	let nb_child_trie = 10;
-	let nb_child_trie = 1;
+	//	let nb_child_trie = 1;
 	let nb_child_trie_removed = 2;
 	let nb_child_trie_copied = 5;
 	let nb_child_trie_copied_half_removed = 1;
@@ -889,8 +889,8 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 			min_key: 3,
 			journal_key: 0,
 			value_mode: ValueMode::Index,
-			//count: 20,
-			count: 2,
+			count: 20,
+			//count: 2,
 		}
 		.make_with(&mut seed);
 
@@ -930,52 +930,49 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		}
 	}
 	for (root_key, child_trie) in child_tries {
+		let (child_trie_location, child_trie_root) = {
+			let trie = TrieDBBuilder::<T>::new(&memdb, &main_trie.root).build();
+			// TODO get root location
+			let root_loc = trie
+				.get_with(&root_key, |x: &[u8]| {
+					//				panic!("{:?}", x);
+					x.len()
+				})
+				.unwrap()
+				.unwrap();
+			// Note could have a variant of get_with here that goes into
+			// encoded node hash and locations.
+			let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
+			use trie_db::TrieIterator;
+			iter.seek(&root_key).unwrap();
+			let item = iter.next().unwrap().unwrap();
+			let node = &item.2;
+			let location = node.node_plan().attached_change_set_location(node.locations());
+			let root = iter.item_from_raw(&item).unwrap().unwrap();
+			let mut root_hash = TrieHash::<T>::default();
+			root_hash.as_mut().copy_from_slice(&root.1);
+			(location, root_hash)
+		};
 		if support_location {
-			let (child_trie_location, child_trie_root) = {
-				let trie = TrieDBBuilder::<T>::new(&memdb, &main_trie.root).build();
-				// TODO get root location
-				let root_loc = trie
-					.get_with(&root_key, |x: &[u8]| {
-						//				panic!("{:?}", x);
-						x.len()
-					})
-					.unwrap()
-					.unwrap();
-				// Note could have a variant of get_with here that goes into
-				// encoded node hash and locations.
-				let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
-				use trie_db::TrieIterator;
-				iter.seek(&root_key).unwrap();
-				let item = iter.next().unwrap().unwrap();
-				let node = &item.2;
-				let location =
-					node.node_plan().attached_change_set_location(node.locations()).unwrap();
-				let root = iter.item_from_raw(&item).unwrap().unwrap();
-				let mut root_hash = TrieHash::<T>::default();
-				root_hash.as_mut().copy_from_slice(&root.1);
-				(location, root_hash)
-			};
 			let trie = TrieDBBuilder::<T>::new_with_db_location(
 				&memdb,
 				&child_trie_root,
-				child_trie_location,
+				child_trie_location.unwrap(),
 			)
 			.build();
 			for (k, v) in child_trie.data.iter() {
 				assert_eq!(&trie.get(k).unwrap().unwrap(), v);
 			}
 		} else {
-			let root = {
-				let trie = TrieDBBuilder::<T>::new(&memdb, &main_trie.root).build();
-				let root_vec = trie.get(&root_key).unwrap().unwrap();
-				let mut root = TrieHash::<T>::default();
-				// TODO use a prefixed memorydb over ks.
-				root.as_mut().copy_from_slice(root_vec.as_slice());
-				root
-			};
-
 			let memdb = KeySpacedDB::new(&memdb, &root_key[..]);
-			let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+			assert!(child_trie_location.is_none());
+			let trie = TrieDBBuilder::<T>::new_with_db_location(
+				&memdb,
+				&child_trie_root,
+				Default::default(),
+			)
+			.build();
+
 			for (k, v) in child_trie.data.iter() {
 				assert_eq!(&trie.get(k).unwrap().unwrap(), v);
 			}
