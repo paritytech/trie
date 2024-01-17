@@ -1058,7 +1058,7 @@ where
 							.as_mut()
 							.map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>, L::Location>),
 					}
-					.look_up(full_key, partial, *location)
+					.look_up(full_key, partial)
 				},
 				NodeHandle::InMemory(handle) => match &self.storage[handle] {
 					Node::Empty => return Ok(None),

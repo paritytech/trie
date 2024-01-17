@@ -158,7 +158,6 @@ where
 		mut self,
 		full_key: &[u8],
 		nibble_key: NibbleSlice,
-		mut location: L::Location,
 	) -> Result<Option<MerkleValue<TrieHash<L>>>, TrieHash<L>, CError<L>> {
 		let mut partial = nibble_key;
 		let mut hash = self.hash;
@@ -385,11 +384,10 @@ where
 		mut self,
 		full_key: &[u8],
 		nibble_key: NibbleSlice,
-		location: L::Location,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		match self.cache.take() {
-			Some(cache) => self.look_up_with_cache(full_key, nibble_key, location, cache),
-			None => self.look_up_without_cache(nibble_key, location, full_key, Self::load_value),
+			Some(cache) => self.look_up_with_cache(full_key, nibble_key, cache),
+			None => self.look_up_without_cache(nibble_key, full_key, Self::load_value),
 		}
 	}
 
@@ -407,7 +405,6 @@ where
 			Some(cache) => self.look_up_hash_with_cache(full_key, nibble_key, location, cache),
 			None => self.look_up_without_cache(
 				nibble_key,
-				location,
 				full_key,
 				|v, _, full_key, _, recorder, _| {
 					Ok(match v {
@@ -462,7 +459,6 @@ where
 		} else {
 			let hash_and_value = self.look_up_with_cache_internal(
 				nibble_key,
-				location,
 				full_key,
 				cache,
 				|value, _, full_key, _, _, recorder| match value {
@@ -508,7 +504,6 @@ where
 		mut self,
 		full_key: &[u8],
 		nibble_key: NibbleSlice,
-		location: L::Location,
 		cache: &mut dyn crate::TrieCache<L::Codec, L::Location>,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let trie_nodes_recorded =
@@ -530,7 +525,6 @@ where
 		 -> Result<Option<Bytes>, TrieHash<L>, CError<L>> {
 			let data = lookup.look_up_with_cache_internal(
 				nibble_key,
-				location,
 				full_key,
 				cache,
 				Self::load_owned_value,
@@ -590,7 +584,6 @@ where
 	fn look_up_with_cache_internal<R>(
 		&mut self,
 		nibble_key: NibbleSlice,
-		location: L::Location,
 		full_key: &[u8],
 		cache: &mut dyn crate::TrieCache<L::Codec, L::Location>,
 		load_value_owned: impl Fn(
@@ -769,7 +762,6 @@ where
 	fn look_up_without_cache<R>(
 		mut self,
 		nibble_key: NibbleSlice,
-		location: L::Location,
 		full_key: &[u8],
 		load_value: impl Fn(
 			Value<L::Location>,

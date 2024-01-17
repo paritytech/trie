@@ -277,7 +277,7 @@ where
 				.as_mut()
 				.map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>, L::Location>),
 		}
-		.look_up(key, NibbleSlice::new(key), Default::default())
+		.look_up(key, NibbleSlice::new(key))
 	}
 
 	fn lookup_first_descendant(
@@ -297,7 +297,7 @@ where
 				.as_mut()
 				.map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>, L::Location>),
 		}
-		.lookup_first_descendant(key, NibbleSlice::new(key), Default::default())
+		.lookup_first_descendant(key, NibbleSlice::new(key))
 	}
 
 	fn iter<'a>(
