@@ -881,6 +881,7 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let support_location = DB::support_location();
 	let mut memdb = DB::default();
 	let mut child_tries: BTreeMap<Vec<u8>, ATrie<T>> = Default::default();
+	let mut keyspaced_memdb;
 	let mut main_trie: ATrie<T> =
 		ATrie { root: Default::default(), data: Default::default(), changeset: None };
 	for i in 0..nb_child_trie + 1 {
@@ -929,34 +930,99 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 			assert_eq!(&trie.get(k).unwrap().unwrap(), v);
 		}
 	}
-	for (root_key, child_trie) in child_tries {
-		let (child_trie_root, child_trie_location) = child_trie_root(&memdb, &main_trie.root, &root_key).unwrap();
-		if support_location {
-			let trie = TrieDBBuilder::<T>::new_with_db_location(
-				&memdb,
-				&child_trie_root,
-				child_trie_location.unwrap(),
-			)
-			.build();
-			for (k, v) in child_trie.data.iter() {
-				assert_eq!(&trie.get(k).unwrap().unwrap(), v);
-			}
+	for (root_key, child_trie) in &child_tries {
+		let (child_trie_root, child_trie_location) =
+			child_trie_root(&memdb, &main_trie.root, root_key).unwrap();
+
+		let child_memdb: &dyn HashDB<_, _, _> = if support_location {
+			&memdb
 		} else {
 			assert!(child_trie_location.is_none());
-			let memdb = KeySpacedDB::new(&memdb, &root_key[..]);
-			let trie = TrieDBBuilder::<T>::new_with_db_location(
-				&memdb,
-				&child_trie_root,
-				Default::default(),
-			)
-			.build();
+			keyspaced_memdb = KeySpacedDB::new(&memdb, &root_key[..]);
+			&keyspaced_memdb
+		};
 
-			for (k, v) in child_trie.data.iter() {
-				assert_eq!(&trie.get(k).unwrap().unwrap(), v);
-			}
+		let trie = TrieDBBuilder::<T>::new_with_db_location(
+			child_memdb,
+			&child_trie_root,
+			child_trie_location.unwrap_or_default(),
+		)
+		.build();
+		for (k, v) in child_trie.data.iter() {
+			assert_eq!(&trie.get(k).unwrap().unwrap(), v);
 		}
-		// Modifying an existing child trie.
 	}
+	// Modifying an existing child trie.
+	let (root_key, a_child_trie) = child_tries.iter().next().unwrap();
+	let (a_child_trie_root, child_trie_location) =
+		child_trie_root(&memdb, &main_trie.root, &root_key).unwrap();
+	let (child_changeset, child_root_hash) = {
+		assert_eq!(a_child_trie_root, a_child_trie.root);
+		let child_memdb: &dyn HashDB<_, _, _> = if support_location {
+			&memdb
+		} else {
+			keyspaced_memdb = KeySpacedDB::new(&memdb, &root_key[..]);
+			&keyspaced_memdb
+		};
+		let mut child_trie = TrieDBMutBuilder::<T>::from_existing_with_location(
+			child_memdb,
+			a_child_trie_root,
+			child_trie_location.unwrap_or_default(),
+		)
+		.build();
+		child_trie.remove(a_child_trie.data.iter().next().unwrap().0).unwrap();
+		child_trie.insert(b"make_sur_it_changes", b"value").unwrap();
+		let mut changeset = child_trie.commit();
+		let new_root = changeset.root_hash();
+		match &mut changeset.root {
+			ChangesetNodeRef::New(node) => {
+				// needed for prefixed key.
+				// Note if unchanged we don't need this actually unchange should only
+				// be a thing in case of a copy.
+				node.key_childset = Some((root_key.clone(), changeset.removed));
+			},
+			_ => unreachable!(),
+		}
+		assert!(new_root != a_child_trie_root);
+		(changeset.root, new_root)
+	};
+	let mut main_trie = TrieDBMutBuilder::<T>::from_existing(&memdb, main_trie.root).build();
+	main_trie
+		.insert_with_child_changes(
+			root_key,
+			child_root_hash.as_ref(),
+			Some(Box::new(child_changeset)),
+		)
+		.unwrap();
+	let changeset = main_trie.commit();
+	let main_root = changeset.root_hash();
+	changeset.commit_to(&mut memdb);
+	// checking modification
+	let (a_child_trie_root, child_trie_location) =
+		child_trie_root(&memdb, &main_root, root_key).unwrap();
+	let child_memdb: &dyn HashDB<_, _, _> = if support_location {
+		&memdb
+	} else {
+		keyspaced_memdb = KeySpacedDB::new(&memdb, &root_key[..]);
+		&keyspaced_memdb
+	};
+	let trie = TrieDBBuilder::<T>::new_with_db_location(
+		child_memdb,
+		&a_child_trie_root,
+		child_trie_location.unwrap_or_default(),
+	)
+	.build();
+	trie.get(b"make_sur_it_changes").unwrap().unwrap();
+	let mut first = true;
+	for (k, v) in a_child_trie.data.iter() {
+		if first {
+			assert!(&trie.get(k).unwrap().is_none());
+			first = false;
+		} else {
+			assert_eq!(&trie.get(k).unwrap().unwrap(), v);
+		}
+	}
+	trie.get(b"make_sur_it_changes").unwrap().unwrap();
 }
 
 fn child_trie_root<T: TrieLayout, DB: TestDB<T>>(
