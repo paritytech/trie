@@ -930,29 +930,7 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		}
 	}
 	for (root_key, child_trie) in child_tries {
-		let (child_trie_location, child_trie_root) = {
-			let trie = TrieDBBuilder::<T>::new(&memdb, &main_trie.root).build();
-			// TODO get root location
-			let root_loc = trie
-				.get_with(&root_key, |x: &[u8]| {
-					//				panic!("{:?}", x);
-					x.len()
-				})
-				.unwrap()
-				.unwrap();
-			// Note could have a variant of get_with here that goes into
-			// encoded node hash and locations.
-			let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
-			use trie_db::TrieIterator;
-			iter.seek(&root_key).unwrap();
-			let item = iter.next().unwrap().unwrap();
-			let node = &item.2;
-			let location = node.node_plan().attached_change_set_location(node.locations());
-			let root = iter.item_from_raw(&item).unwrap().unwrap();
-			let mut root_hash = TrieHash::<T>::default();
-			root_hash.as_mut().copy_from_slice(&root.1);
-			(location, root_hash)
-		};
+		let (child_trie_root, child_trie_location) = child_trie_root(&memdb, &main_trie.root, &root_key).unwrap();
 		if support_location {
 			let trie = TrieDBBuilder::<T>::new_with_db_location(
 				&memdb,
@@ -964,8 +942,8 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 				assert_eq!(&trie.get(k).unwrap().unwrap(), v);
 			}
 		} else {
-			let memdb = KeySpacedDB::new(&memdb, &root_key[..]);
 			assert!(child_trie_location.is_none());
+			let memdb = KeySpacedDB::new(&memdb, &root_key[..]);
 			let trie = TrieDBBuilder::<T>::new_with_db_location(
 				&memdb,
 				&child_trie_root,
@@ -977,7 +955,31 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 				assert_eq!(&trie.get(k).unwrap().unwrap(), v);
 			}
 		}
+		// Modifying an existing child trie.
 	}
+}
+
+fn child_trie_root<T: TrieLayout, DB: TestDB<T>>(
+	memdb: &DB,
+	main_root: &TrieHash<T>,
+	root_key: &[u8],
+) -> Option<(TrieHash<T>, Option<T::Location>)> {
+	let trie = TrieDBBuilder::<T>::new(memdb, main_root).build();
+	// Note could have a variant of get_with here that goes into
+	// encoded node hash and locations.
+	let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
+	use trie_db::TrieIterator;
+	iter.seek(root_key).unwrap();
+	let item = iter.next()?.unwrap();
+	let node = &item.2;
+	let location = node.node_plan().attached_change_set_location(node.locations());
+	let root = iter.item_from_raw(&item)?.unwrap();
+	if root.0.as_slice() != root_key {
+		return None;
+	}
+	let mut root_hash = TrieHash::<T>::default();
+	root_hash.as_mut().copy_from_slice(&root.1);
+	Some((root_hash, location))
 }
 
 pub struct KeySpacedDB<'a, H, T, DL>(&'a dyn hash_db::HashDB<H, T, DL>, &'a [u8]);
