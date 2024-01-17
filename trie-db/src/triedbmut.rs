@@ -822,7 +822,12 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 					for child in &node.children {
 						apply_node(child, mem_db, ks);
 					}
-					mem_db.insert((node.prefix.0.as_slice(), node.prefix.1), &node.data);
+					if let Some(ks) = ks {
+						let prefixed = prefix_prefix(ks, (node.prefix.0.as_slice(), node.prefix.1));
+						mem_db.insert((prefixed.0.as_slice(), prefixed.1), &node.data);
+					} else {
+						mem_db.insert((node.prefix.0.as_slice(), node.prefix.1), &node.data);
+					}
 				},
 				ChangesetNodeRef::Existing(_) => {},
 			}
@@ -1043,6 +1048,7 @@ where
 						db: self.db,
 						query: |v: &[u8]| v.to_vec(),
 						hash: *hash,
+						location: None, // TODO support building from location
 						cache: None,
 						recorder: recorder
 							.as_mut()

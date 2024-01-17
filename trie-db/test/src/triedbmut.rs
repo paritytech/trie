@@ -25,7 +25,8 @@ use reference_trie::{
 };
 use trie_db::{
 	CachedValue, Changeset, ChangesetNodeRef, DBValue, NodeCodec, Recorder, Trie, TrieCache,
-	TrieDBBuilder, TrieDBMut, TrieDBMutBuilder, TrieError, TrieHash, TrieLayout, Value,
+	TrieDBBuilder, TrieDBMut, TrieDBMutBuilder, TrieDBNodeIterator, TrieError, TrieHash,
+	TrieLayout, Value,
 };
 use trie_standardmap::*;
 
@@ -900,12 +901,10 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 				let key: &[u8] = &k[..];
 				let val: &[u8] = c.root.as_ref();
 				let changeset = c.changeset.take().unwrap();
-				memtrie
-					.insert_with_child_changes(key, val, Some(Box::new(changeset)))
-					.unwrap();
+				memtrie.insert_with_child_changes(key, val, Some(Box::new(changeset))).unwrap();
 			}
-			let change_set = memtrie.commit();
-			let root = change_set.commit_to(&mut memdb);
+			let changeset = memtrie.commit();
+			let root = changeset.commit_to(&mut memdb);
 			main_trie.root = root;
 			main_trie.data = data;
 		} else {
@@ -928,6 +927,56 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		let trie = TrieDBBuilder::<T>::new(&memdb, &main_trie.root).build();
 		for (k, v) in main_trie.data.iter() {
 			assert_eq!(&trie.get(k).unwrap().unwrap(), v);
+		}
+	}
+	for (root_key, child_trie) in child_tries {
+		if support_location {
+			let (child_trie_location, child_trie_root) = {
+				let trie = TrieDBBuilder::<T>::new(&memdb, &main_trie.root).build();
+				// TODO get root location
+				let root_loc = trie
+					.get_with(&root_key, |x: &[u8]| {
+						//				panic!("{:?}", x);
+						x.len()
+					})
+					.unwrap()
+					.unwrap();
+				// Note could have a variant of get_with here that goes into
+				// encoded node hash and locations.
+				let mut iter = TrieDBNodeIterator::new(&trie).unwrap();
+				use trie_db::TrieIterator;
+				iter.seek(&root_key).unwrap();
+				let item = iter.next().unwrap().unwrap();
+				let node = &item.2;
+				let location =
+					node.node_plan().attached_change_set_location(node.locations()).unwrap();
+				let root = iter.item_from_raw(&item).unwrap().unwrap();
+				let mut root_hash = TrieHash::<T>::default();
+				root_hash.as_mut().copy_from_slice(&root.1);
+				(location, root_hash)
+			};
+			let trie = TrieDBBuilder::<T>::new_with_db_location(
+				&memdb,
+				&child_trie_root,
+				child_trie_location,
+			)
+			.build();
+			for (k, v) in child_trie.data.iter() {
+				assert_eq!(&trie.get(k).unwrap().unwrap(), v);
+			}
+		} else {
+			let root = {
+				let trie = TrieDBBuilder::<T>::new(&memdb, &main_trie.root).build();
+				let root_vec = trie.get(&root_key).unwrap().unwrap();
+				let mut root = TrieHash::<T>::default();
+				// TODO use a prefixed memorydb over ks.
+				root.as_mut().copy_from_slice(root_vec.as_slice());
+				root
+			};
+			let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+			for (k, v) in child_trie.data.iter() {
+				assert_eq!(&trie.get(k).unwrap().unwrap(), v);
+			}
 		}
 	}
 }

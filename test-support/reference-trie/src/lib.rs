@@ -23,8 +23,8 @@ use trie_db::{
 	node::{NibbleSlicePlan, NodeHandlePlan, NodeOwned, NodePlan, Value, ValuePlan},
 	trie_visit,
 	triedbmut::ChildReference,
-	DBValue, NodeCodec, Trie, TrieBuilder, TrieConfiguration, TrieDBBuilder, TrieDBMutBuilder,
-	TrieHash, TrieLayout, TrieRoot,
+	DBValue, Location, NodeCodec, Trie, TrieBuilder, TrieConfiguration, TrieDBBuilder,
+	TrieDBMutBuilder, TrieHash, TrieLayout, TrieRoot,
 };
 pub use trie_root::TrieStream;
 use trie_root::{Hasher, Value as TrieStreamValue};
@@ -61,8 +61,6 @@ macro_rules! test_layouts {
 				$crate::HashedValueNoExtThreshold<1, $crate::MemLocation>,
 				$crate::MemTreeDB<$crate::RefHasher>,
 			>();
-
-
 
 			eprintln!("Running with layout `HashedValueNoExtThreshold` and MemoryDB");
 			$test_internal::<
@@ -160,7 +158,7 @@ impl<H, L> Clone for GenericNoExtensionLayout<H, L> {
 	}
 }
 
-impl<H: Hasher, L: Copy + Default + Eq + PartialEq> TrieLayout for GenericNoExtensionLayout<H, L> {
+impl<H: Hasher, L: Location> TrieLayout for GenericNoExtensionLayout<H, L> {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
 	const MAX_INLINE_VALUE: Option<u32> = None;
@@ -182,10 +180,7 @@ impl TrieLayout for AllowEmptyLayout {
 	type Location = ();
 }
 
-impl<H: Hasher, L: Copy + Default + Eq + PartialEq> TrieConfiguration
-	for GenericNoExtensionLayout<H, L>
-{
-}
+impl<H: Hasher, L: Location> TrieConfiguration for GenericNoExtensionLayout<H, L> {}
 
 /// Trie layout without extension nodes.
 pub type NoExtensionLayout = GenericNoExtensionLayout<RefHasher, ()>;

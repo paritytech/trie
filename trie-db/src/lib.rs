@@ -260,6 +260,11 @@ pub trait Trie<L: TrieLayout> {
 	/// Return the root of the trie.
 	fn root(&self) -> &TrieHash<L>;
 
+	/// Return the root location of the trie if it was set.
+	fn root_location(&self) -> Option<L::Location> {
+		None
+	}
+
 	/// Is the trie empty?
 	fn is_empty(&self) -> bool {
 		*self.root() == L::Codec::hashed_null_node()
@@ -354,8 +359,13 @@ pub trait TrieLayout {
 	type Hash: Hasher;
 	/// Codec to use (needs to match hasher and nibble ops).
 	type Codec: NodeCodec<HashOut = <Self::Hash as Hasher>::Out>;
-	type Location: Copy + Default + Eq + PartialEq;
+	type Location: Location;
 }
+
+/// Trait alias for requirement of location with `TrieLayout`.
+pub trait Location: Copy + Default + Eq + PartialEq + MaybeDebug {}
+
+impl<T: Copy + Default + Eq + PartialEq + MaybeDebug> Location for T {}
 
 /// This trait associates a trie definition with preferred methods.
 /// It also contains own default implementations and can be

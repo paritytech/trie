@@ -395,7 +395,14 @@ fn test_lookup_with_corrupt_data_returns_decoder_error_internal<T: TrieLayout, D
 
 	// query for an invalid data type to trigger an error
 	let q = |x: &[u8]| x.len() < 64;
-	let lookup = Lookup::<T, _> { db: t.db(), query: q, hash: root, cache: None, recorder: None };
+	let lookup = Lookup::<T, _> {
+		db: t.db(),
+		query: q,
+		hash: root,
+		location: None,
+		cache: None,
+		recorder: None,
+	};
 	let query_result = lookup.look_up(&b"A"[..], NibbleSlice::new(b"A"), Default::default());
 	assert_eq!(query_result.unwrap().unwrap(), true);
 }

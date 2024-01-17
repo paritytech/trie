@@ -649,6 +649,39 @@ impl NodePlan {
 				value.as_mut(),
 		}
 	}
+
+	/// Check if the node has a location for value.
+	pub fn has_location_value(&self) -> bool {
+		self.value_plan().map(|v| !v.is_inline()).unwrap_or(false)
+	}
+
+	/// Check how many children location value node has.
+	pub fn nb_location_children(&self) -> usize {
+		match self {
+			NodePlan::Extension { child: NodeHandlePlan::Hash(_), .. } => 1,
+			NodePlan::Branch { children, .. } | NodePlan::NibbledBranch { children, .. } => {
+				let mut count = 0;
+				for child in children {
+					if let Some(NodeHandlePlan::Hash(_)) = child {
+						count += 1;
+					}
+				}
+				count
+			},
+			_ => 0,
+		}
+	}
+
+	pub fn attached_change_set_location<L: Copy + Default>(&self, locations: &[L]) -> Option<L> {
+		let offset = if self.has_location_value() { 1 } else { 0 } + self.nb_location_children();
+		if locations.len() > offset {
+			// only one additional location expected with current code.
+			debug_assert!(locations.len() == offset + 1);
+			Some(locations[offset])
+		} else {
+			None
+		}
+	}
 }
 
 /// An `OwnedNode` is an owned type from which a `Node` can be constructed which borrows data from

@@ -34,9 +34,7 @@ impl TrieLayout for HashedValueNoExt {
 	type Location = mem_tree_db::Location;
 }
 
-impl<const C: u32, L: Copy + Default + Eq + PartialEq> TrieLayout
-	for HashedValueNoExtThreshold<C, L>
-{
+impl<const C: u32, L: trie_db::Location> TrieLayout for HashedValueNoExtThreshold<C, L> {
 	const USE_EXTENSION: bool = false;
 	const ALLOW_EMPTY: bool = false;
 	const MAX_INLINE_VALUE: Option<u32> = Some(C);

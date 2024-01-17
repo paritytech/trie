@@ -33,6 +33,7 @@ use hash_db::{HashDB, Prefix, EMPTY_PREFIX};
 pub struct TrieDBBuilder<'db, 'cache, L: TrieLayout> {
 	db: &'db dyn HashDB<L::Hash, DBValue, L::Location>,
 	root: &'db TrieHash<L>,
+	root_location: Option<L::Location>,
 	cache: Option<&'cache mut dyn TrieCache<L::Codec, L::Location>>,
 	recorder: Option<&'cache mut dyn TrieRecorder<TrieHash<L>, L::Location>>,
 }
@@ -44,7 +45,17 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 	/// when trying to lookup any key.
 	#[inline]
 	pub fn new(db: &'db dyn HashDB<L::Hash, DBValue, L::Location>, root: &'db TrieHash<L>) -> Self {
-		Self { db, root, cache: None, recorder: None }
+		Self { db, root, cache: None, recorder: None, root_location: None }
+	}
+
+	/// Same as `new` but indicating db location of root. Warning root hash will not be checked.
+	#[inline]
+	pub fn new_with_db_location(
+		db: &'db dyn HashDB<L::Hash, DBValue, L::Location>,
+		root: &'db TrieHash<L>,
+		root_location: L::Location,
+	) -> Self {
+		Self { db, root, cache: None, recorder: None, root_location: Some(root_location) }
 	}
 
 	/// Use the given `cache` for the db.
@@ -92,6 +103,7 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 		TrieDB {
 			db: self.db,
 			root: self.root,
+			root_location: self.root_location,
 			cache: self.cache.map(core::cell::RefCell::new),
 			recorder: self.recorder.map(core::cell::RefCell::new),
 		}
@@ -126,6 +138,7 @@ where
 {
 	db: &'db dyn HashDB<L::Hash, DBValue, L::Location>,
 	root: &'db TrieHash<L>,
+	root_location: Option<L::Location>,
 	cache: Option<core::cell::RefCell<&'cache mut dyn TrieCache<L::Codec, L::Location>>>,
 	recorder: Option<core::cell::RefCell<&'cache mut dyn TrieRecorder<TrieHash<L>, L::Location>>>,
 }
@@ -225,6 +238,10 @@ where
 		self.root
 	}
 
+	fn root_location(&self) -> Option<L::Location> {
+		self.root_location
+	}
+
 	fn get_hash(&self, key: &[u8]) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		let mut cache = self.cache.as_ref().map(|c| c.borrow_mut());
 		let mut recorder = self.recorder.as_ref().map(|r| r.borrow_mut());
@@ -233,6 +250,7 @@ where
 			db: self.db,
 			query: |_: &[u8]| (),
 			hash: *self.root,
+			location: self.root_location,
 			cache: cache.as_mut().map(|c| &mut ***c as &mut dyn TrieCache<L::Codec, L::Location>),
 			recorder: recorder
 				.as_mut()
@@ -253,6 +271,7 @@ where
 			db: self.db,
 			query,
 			hash: *self.root,
+			location: self.root_location,
 			cache: cache.as_mut().map(|c| &mut ***c as &mut dyn TrieCache<L::Codec, L::Location>),
 			recorder: recorder
 				.as_mut()
@@ -272,6 +291,7 @@ where
 			db: self.db,
 			query: |_: &[u8]| (),
 			hash: *self.root,
+			location: self.root_location,
 			cache: cache.as_mut().map(|c| &mut ***c as &mut dyn TrieCache<L::Codec, L::Location>),
 			recorder: recorder
 				.as_mut()

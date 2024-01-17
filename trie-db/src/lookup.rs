@@ -32,6 +32,8 @@ pub struct Lookup<'a, 'cache, L: TrieLayout, Q: Query<L::Hash>> {
 	pub query: Q,
 	/// Hash to start at
 	pub hash: TrieHash<L>,
+	/// Optionally location to start at.
+	pub location: Option<L::Location>,
 	/// Optional cache that should be used to speed up the lookup.
 	pub cache: Option<&'cache mut dyn TrieCache<L::Codec, L::Location>>,
 	/// Optional recorder that will be called to record all trie accesses.
@@ -160,6 +162,9 @@ where
 	) -> Result<Option<MerkleValue<TrieHash<L>>>, TrieHash<L>, CError<L>> {
 		let mut partial = nibble_key;
 		let mut hash = self.hash;
+		if let Some(location_start) = self.location {
+			location = location_start;
+		}
 		let mut key_nibbles = 0;
 
 		let mut cache = self.cache.take();
@@ -601,9 +606,8 @@ where
 	) -> Result<Option<R>, TrieHash<L>, CError<L>> {
 		let mut partial = nibble_key;
 		let mut hash = self.hash;
+		let mut location = self.location.unwrap_or(location);
 		let mut key_nibbles = 0;
-
-		let mut location = location;
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
@@ -780,8 +784,8 @@ where
 	) -> Result<Option<R>, TrieHash<L>, CError<L>> {
 		let mut partial = nibble_key;
 		let mut hash = self.hash;
+		let mut location = self.location.unwrap_or(location);
 		let mut key_nibbles = 0;
-		let mut location = location;
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
