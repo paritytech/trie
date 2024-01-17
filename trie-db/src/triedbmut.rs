@@ -667,6 +667,7 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for NodeStorage<L> {
 pub struct TrieDBMutBuilder<'db, L: TrieLayout> {
 	db: &'db dyn HashDB<L::Hash, DBValue, L::Location>,
 	root: TrieHash<L>,
+	root_location: L::Location,
 	cache: Option<&'db mut dyn TrieCache<L::Codec, L::Location>>,
 	recorder: Option<&'db mut dyn TrieRecorder<TrieHash<L>, L::Location>>,
 }
@@ -676,7 +677,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 	/// `root`.
 	pub fn new(db: &'db dyn HashDB<L::Hash, DBValue, L::Location>) -> Self {
 		let root = L::Codec::hashed_null_node();
-		Self { root, db, cache: None, recorder: None }
+		Self { root, db, cache: None, recorder: None, root_location: Default::default() }
 	}
 
 	/// Create a builder for constructing a new trie with the backing database `db` and `root`.
@@ -687,8 +688,19 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 		db: &'db dyn HashDB<L::Hash, DBValue, L::Location>,
 		root: TrieHash<L>,
 	) -> Self {
-		Self { db, root, cache: None, recorder: None }
+		Self { db, root, cache: None, recorder: None, root_location: Default::default() }
 	}
+
+	/// Same as `from_existing` but force a db location to access root.
+	/// Note root in parameter is not checked.
+	pub fn from_existing_with_db_location(
+		db: &'db dyn HashDB<L::Hash, DBValue, L::Location>,
+		root: TrieHash<L>,
+		root_location: L::Location
+	) -> Self {
+		Self { db, root, cache: None, recorder: None, root_location }
+	}
+
 
 	/// Use the given `cache` for the db.
 	pub fn with_cache(mut self, cache: &'db mut dyn TrieCache<L::Codec, L::Location>) -> Self {
@@ -727,7 +739,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 
 	/// Build the [`TrieDBMut`].
 	pub fn build(self) -> TrieDBMut<'db, L> {
-		let root_handle = NodeHandle::Hash(self.root, Default::default());
+		let root_handle = NodeHandle::Hash(self.root, self.root_location);
 
 		TrieDBMut {
 			db: self.db,
@@ -2133,6 +2145,8 @@ where
 				self.root_handle = NodeHandle::InMemory(self.storage.alloc(Stored::Cached(
 					node,
 					hash,
+					// TODO should we use location here?? likely yes TODO write a test with cache usage and location in
+					// triedbmut
 					Default::default(),
 				)));
 				Changeset {

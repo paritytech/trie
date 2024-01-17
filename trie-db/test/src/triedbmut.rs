@@ -964,7 +964,7 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 			keyspaced_memdb = KeySpacedDB::new(&memdb, &root_key[..]);
 			&keyspaced_memdb
 		};
-		let mut child_trie = TrieDBMutBuilder::<T>::from_existing_with_location(
+		let mut child_trie = TrieDBMutBuilder::<T>::from_existing_with_db_location(
 			child_memdb,
 			a_child_trie_root,
 			child_trie_location.unwrap_or_default(),
