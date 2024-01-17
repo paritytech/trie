@@ -33,7 +33,7 @@ use hash_db::{HashDB, Prefix, EMPTY_PREFIX};
 pub struct TrieDBBuilder<'db, 'cache, L: TrieLayout> {
 	db: &'db dyn HashDB<L::Hash, DBValue, L::Location>,
 	root: &'db TrieHash<L>,
-	root_location: Option<L::Location>,
+	root_location: L::Location,
 	cache: Option<&'cache mut dyn TrieCache<L::Codec, L::Location>>,
 	recorder: Option<&'cache mut dyn TrieRecorder<TrieHash<L>, L::Location>>,
 }
@@ -45,7 +45,7 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 	/// when trying to lookup any key.
 	#[inline]
 	pub fn new(db: &'db dyn HashDB<L::Hash, DBValue, L::Location>, root: &'db TrieHash<L>) -> Self {
-		Self { db, root, cache: None, recorder: None, root_location: None }
+		Self { db, root, cache: None, recorder: None, root_location: Default::default() }
 	}
 
 	/// Same as `new` but indicating db location of root. Warning root hash will not be checked.
@@ -55,7 +55,7 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 		root: &'db TrieHash<L>,
 		root_location: L::Location,
 	) -> Self {
-		Self { db, root, cache: None, recorder: None, root_location: Some(root_location) }
+		Self { db, root, cache: None, recorder: None, root_location }
 	}
 
 	/// Use the given `cache` for the db.
@@ -138,7 +138,7 @@ where
 {
 	db: &'db dyn HashDB<L::Hash, DBValue, L::Location>,
 	root: &'db TrieHash<L>,
-	root_location: Option<L::Location>,
+	root_location: L::Location,
 	cache: Option<core::cell::RefCell<&'cache mut dyn TrieCache<L::Codec, L::Location>>>,
 	recorder: Option<core::cell::RefCell<&'cache mut dyn TrieRecorder<TrieHash<L>, L::Location>>>,
 }
@@ -238,7 +238,7 @@ where
 		self.root
 	}
 
-	fn root_location(&self) -> Option<L::Location> {
+	fn root_location(&self) -> L::Location {
 		self.root_location
 	}
 

@@ -261,8 +261,8 @@ pub trait Trie<L: TrieLayout> {
 	fn root(&self) -> &TrieHash<L>;
 
 	/// Return the root location of the trie if it was set.
-	fn root_location(&self) -> Option<L::Location> {
-		None
+	fn root_location(&self) -> L::Location {
+		Default::default()
 	}
 
 	/// Is the trie empty?

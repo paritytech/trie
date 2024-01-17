@@ -76,7 +76,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 			TrieDBRawIterator { trail: Vec::with_capacity(8), key_nibbles: NibbleVec::new() };
 		let (root_node, root_hash) = db.get_raw_or_lookup(
 			*db.root(),
-			NodeHandle::Hash(db.root().as_ref(), db.root_location().unwrap_or_default()),
+			NodeHandle::Hash(db.root().as_ref(), db.root_location()),
 			EMPTY_PREFIX,
 			true,
 		)?;

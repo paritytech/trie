@@ -399,7 +399,7 @@ fn test_lookup_with_corrupt_data_returns_decoder_error_internal<T: TrieLayout, D
 		db: t.db(),
 		query: q,
 		hash: root,
-		location: None,
+		location: Default::default(),
 		cache: None,
 		recorder: None,
 	};

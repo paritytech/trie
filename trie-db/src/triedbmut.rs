@@ -696,11 +696,10 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 	pub fn from_existing_with_db_location(
 		db: &'db dyn HashDB<L::Hash, DBValue, L::Location>,
 		root: TrieHash<L>,
-		root_location: L::Location
+		root_location: L::Location,
 	) -> Self {
 		Self { db, root, cache: None, recorder: None, root_location }
 	}
-
 
 	/// Use the given `cache` for the db.
 	pub fn with_cache(mut self, cache: &'db mut dyn TrieCache<L::Codec, L::Location>) -> Self {
@@ -1053,7 +1052,7 @@ where
 						db: self.db,
 						query: |v: &[u8]| v.to_vec(),
 						hash: *hash,
-						location: None, // TODO support building from location
+						location: *location,
 						cache: None,
 						recorder: recorder
 							.as_mut()
@@ -2145,8 +2144,8 @@ where
 				self.root_handle = NodeHandle::InMemory(self.storage.alloc(Stored::Cached(
 					node,
 					hash,
-					// TODO should we use location here?? likely yes TODO write a test with cache usage and location in
-					// triedbmut
+					// TODO should we use location here?? likely yes TODO write a test with cache
+					// usage and location in triedbmut
 					Default::default(),
 				)));
 				Changeset {
