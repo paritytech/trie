@@ -33,8 +33,6 @@ use hash_db::{HashDB, Hasher, Prefix};
 use std::collections::HashSet as Set;
 
 #[cfg(not(feature = "std"))]
-use alloc::boxed::Box;
-#[cfg(not(feature = "std"))]
 use alloc::collections::btree_set::BTreeSet as Set;
 
 #[cfg(feature = "std")]
@@ -2042,9 +2040,11 @@ where
 		trace!(target: "trie", "Committing trie changes to db.");
 
 		// always kill all the nodes on death row.
+		#[cfg(feature = "std")]
 		trace!(target: "trie", "{:?} nodes to remove from db", self.death_row.len());
 		let mut removed = Vec::with_capacity(self.death_row.len());
 
+		#[cfg(feature = "std")]
 		for (hash, prefix) in self.death_row.drain() {
 			removed.push((hash, prefix));
 		}
