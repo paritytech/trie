@@ -847,39 +847,6 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 		self.root_hash()
 	}
 
-	pub fn apply_with_prefix<K, MH>(&self, mem_db: &mut MemoryDB<MH, K, DBValue>, ks: &[u8]) -> H
-	where
-		K: memory_db::KeyFunction<MH> + Send + Sync,
-		MH: Hasher<Out = H> + Send + Sync,
-	{
-		fn apply_node<H, DL, MH, K>(
-			node: &ChangesetNodeRef<H, DL>,
-			ks: &[u8],
-			mem_db: &mut MemoryDB<MH, K, DBValue>,
-		) where
-			K: memory_db::KeyFunction<MH> + Send + Sync,
-			MH: Hasher<Out = H> + Send + Sync,
-		{
-			match node {
-				ChangesetNodeRef::New(node) => {
-					for child in &node.children {
-						apply_node(child, ks, mem_db);
-					}
-					let prefixed = prefix_prefix(ks, (node.prefix.0.as_slice(), node.prefix.1));
-					mem_db.insert((prefixed.0.as_slice(), prefixed.1), &node.data);
-				},
-				ChangesetNodeRef::Existing(_) => {},
-			}
-		}
-
-		for (hash, p) in &self.removed {
-			let prefixed = prefix_prefix(ks, (p.0.as_slice(), p.1));
-			mem_db.remove(hash, (prefixed.0.as_slice(), prefixed.1));
-		}
-		apply_node(&self.root, ks, mem_db);
-		self.root_hash()
-	}
-
 	pub fn root_hash(&self) -> H {
 		match &self.root {
 			ChangesetNodeRef::New(node) => node.hash,
