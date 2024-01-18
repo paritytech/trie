@@ -30,14 +30,10 @@ use crate::{
 use hash_db::{HashDB, Hasher, Prefix};
 
 #[cfg(feature = "std")]
-use std::collections::BTreeMap;
-#[cfg(feature = "std")]
 use std::collections::HashSet as Set;
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
-#[cfg(not(feature = "std"))]
-use alloc::collections::btree_set::BTreeMap;
 #[cfg(not(feature = "std"))]
 use alloc::collections::btree_set::BTreeSet as Set;
 
@@ -863,6 +859,19 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 			}),
 			removed: Default::default(),
 		}
+	}
+
+	pub fn to_insert_in_other_trie(mut self, root_at: Vec<u8>) -> Box<ChangesetNodeRef<H, DL>> {
+		match &mut self.root {
+			ChangesetNodeRef::New(node) => {
+				// needed for prefixed key.
+				// Note if unchanged we don't need this actually unchange should only
+				// be a thing in case of a copy.
+				node.key_childset = Some((root_at, self.removed));
+			},
+			_ => (),
+		}
+		Box::new(self.root)
 	}
 }
 

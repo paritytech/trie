@@ -256,7 +256,7 @@ where
 				.as_mut()
 				.map(|r| &mut ***r as &mut dyn TrieRecorder<TrieHash<L>, L::Location>),
 		}
-		.look_up_hash(key, NibbleSlice::new(key), Default::default())
+		.look_up_hash(key, NibbleSlice::new(key))
 	}
 
 	fn get_with<Q: Query<L::Hash>>(

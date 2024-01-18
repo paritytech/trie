@@ -399,10 +399,9 @@ where
 		mut self,
 		full_key: &[u8],
 		nibble_key: NibbleSlice,
-		location: L::Location,
 	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		match self.cache.take() {
-			Some(cache) => self.look_up_hash_with_cache(full_key, nibble_key, location, cache),
+			Some(cache) => self.look_up_hash_with_cache(full_key, nibble_key, cache),
 			None => self.look_up_without_cache(
 				nibble_key,
 				full_key,
@@ -440,7 +439,6 @@ where
 		mut self,
 		full_key: &[u8],
 		nibble_key: NibbleSlice,
-		location: L::Location,
 		cache: &mut dyn crate::TrieCache<L::Codec, L::Location>,
 	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		let value_cache_allowed = self

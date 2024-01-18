@@ -24,7 +24,7 @@ use reference_trie::{
 	ReferenceNodeCodecNoExt, TestTrieCache,
 };
 use trie_db::{
-	CachedValue, Changeset, ChangesetNodeRef, DBValue, NodeCodec, Recorder, Trie, TrieCache,
+	CachedValue, ChangesetNodeRef, DBValue, NodeCodec, Recorder, Trie, TrieCache,
 	TrieDBBuilder, TrieDBMut, TrieDBMutBuilder, TrieDBNodeIterator, TrieError, TrieHash,
 	TrieLayout, Value,
 };
@@ -860,11 +860,10 @@ fn test_two_assets_memory_db_inner_2<T: TrieLayout>() {
 test_layouts!(child_trie, child_trie_internal);
 fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 	use std::collections::BTreeMap;
-	use trie_db::OwnedPrefix;
 	struct ATrie<T: TrieLayout> {
 		root: TrieHash<T>,
 		data: BTreeMap<Vec<u8>, Vec<u8>>,
-		changeset: Option<ChangesetNodeRef<TrieHash<T>, T::Location>>,
+		changeset: Option<Box<ChangesetNodeRef<TrieHash<T>, T::Location>>>,
 	}
 	// Running a tipical child trie scenario:
 	// different trie, child trie root written all
@@ -874,10 +873,6 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let mut seed = Default::default();
 	let nb_child_trie = 10;
 	//	let nb_child_trie = 1;
-	let nb_child_trie_removed = 2;
-	let nb_child_trie_copied = 5;
-	let nb_child_trie_copied_half_removed = 1;
-	let nb_child_trie_copied_removed = 1;
 	let support_location = DB::support_location();
 	let mut memdb = DB::default();
 	let mut child_tries: BTreeMap<Vec<u8>, ATrie<T>> = Default::default();
@@ -902,7 +897,7 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 				let key: &[u8] = &k[..];
 				let val: &[u8] = c.root.as_ref();
 				let changeset = c.changeset.take().unwrap();
-				memtrie.insert_with_child_changes(key, val, Some(Box::new(changeset))).unwrap();
+				memtrie.insert_with_child_changes(key, val, Some(changeset)).unwrap();
 			}
 			let changeset = memtrie.commit();
 			let root = changeset.commit_to(&mut memdb);
@@ -910,17 +905,11 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 			main_trie.data = data;
 		} else {
 			let child_trie_root_key = data.iter().next().unwrap().0.clone();
-			let mut changeset = memtrie.commit();
+			let changeset = memtrie.commit();
 			let root = changeset.root_hash();
-			match &mut changeset.root {
-				ChangesetNodeRef::New(node) => {
-					// needed for prefixed key.
-					node.key_childset = Some((child_trie_root_key.clone(), changeset.removed));
-				},
-				_ => unreachable!(),
-			}
+			let change_to_insert = changeset.to_insert_in_other_trie(child_trie_root_key.clone());
 			child_tries
-				.insert(child_trie_root_key, ATrie { root, data, changeset: Some(changeset.root) });
+				.insert(child_trie_root_key, ATrie { root, data, changeset: Some(change_to_insert) });
 		}
 	}
 	// check data
@@ -972,26 +961,18 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		.build();
 		child_trie.remove(a_child_trie.data.iter().next().unwrap().0).unwrap();
 		child_trie.insert(b"make_sur_it_changes", b"value").unwrap();
-		let mut changeset = child_trie.commit();
+		let changeset = child_trie.commit();
 		let new_root = changeset.root_hash();
-		match &mut changeset.root {
-			ChangesetNodeRef::New(node) => {
-				// needed for prefixed key.
-				// Note if unchanged we don't need this actually unchange should only
-				// be a thing in case of a copy.
-				node.key_childset = Some((root_key.clone(), changeset.removed));
-			},
-			_ => unreachable!(),
-		}
+		let change_to_insert = changeset.to_insert_in_other_trie(root_key.clone());
 		assert!(new_root != a_child_trie_root);
-		(changeset.root, new_root)
+		(change_to_insert, new_root)
 	};
 	let mut main_trie = TrieDBMutBuilder::<T>::from_existing(&memdb, main_trie.root).build();
 	main_trie
 		.insert_with_child_changes(
 			root_key,
 			child_root_hash.as_ref(),
-			Some(Box::new(child_changeset)),
+			Some(child_changeset),
 		)
 		.unwrap();
 	let changeset = main_trie.commit();
