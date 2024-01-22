@@ -168,21 +168,20 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 					"descend pushes a crumb onto the trail; \
 						thus the trail is non-empty; qed",
 				);
-				// TODO remove this node calc (only when needed
-				let node = crumb.node.node();
+				let node_data = crumb.node.data();
+				let locations = crumb.node.locations();
 
-				match node {
-					//match crumb.node.node_plan() {
-					Node::Leaf(slice, _) => {
-						//Node::Leaf { partial: partial_plan, .. } => {
-						//let slice = partial_plan.build(node_data);
+				match crumb.node.node_plan() {
+					NodePlan::Leaf { partial: partial_plan, .. } => {
+						let slice = partial_plan.build(node_data);
 						if (fwd && slice < partial) || (!fwd && slice > partial) {
 							crumb.status = Status::Exiting;
 							return Ok(false);
 						}
 						return Ok(slice.starts_with(&partial));
 					},
-					Node::Extension(slice, child) => {
+					NodePlan::Extension { partial: partial_plan, child } => {
+						let slice = partial_plan.build(node_data);
 						if !partial.starts_with(&slice) {
 							if (fwd && slice < partial) || (!fwd && slice > partial) {
 								crumb.status = Status::Exiting;
@@ -200,12 +199,12 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						let prefix = key.back(full_key_nibbles);
 						db.get_raw_or_lookup(
 							node_hash.unwrap_or_default(),
-							child,
+							child.build(node_data, locations.first().copied().unwrap_or_default()),
 							prefix.left(),
 							true,
 						)?
 					},
-					Node::Branch(children, _value) => {
+					NodePlan::Branch { value, children } => {
 						if partial.is_empty() {
 							return Ok(true);
 						}
@@ -214,14 +213,23 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						crumb.status = Status::AtChild(i as usize);
 						self.key_nibbles.push(i);
 
-						if let Some(child) = &children[i as usize] {
+						if children[i as usize].is_some() {
+							// TODO would make sense to put location in NodePlan: this is rather
+							// costy
+							let (_, children) = NodePlan::build_value_and_children(
+								value.as_ref(),
+								children,
+								node_data,
+								locations,
+							);
+
 							full_key_nibbles += 1;
 							partial = partial.mid(1);
 
 							let prefix = key.back(full_key_nibbles);
 							db.get_raw_or_lookup(
 								node_hash.unwrap_or_default(),
-								*child,
+								children[i as usize].unwrap(),
 								prefix.left(),
 								true,
 							)?
@@ -229,7 +237,8 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 							return Ok(false);
 						}
 					},
-					Node::NibbledBranch(slice, children, _value) => {
+					NodePlan::NibbledBranch { partial: partial_plan, value, children } => {
+						let slice = partial_plan.build(node_data);
 						if !partial.starts_with(&slice) {
 							if (fwd && slice < partial) || (!fwd && slice > partial) {
 								crumb.status = Status::Exiting;
@@ -252,14 +261,23 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						self.key_nibbles.append_partial(slice.right());
 						self.key_nibbles.push(i);
 
-						if let Some(child) = &children[i as usize] {
+						if children[i as usize].is_some() {
+							// TODO would make sense to put location in NodePlan: this is rather
+							// costy
+							let (_, children) = NodePlan::build_value_and_children(
+								value.as_ref(),
+								children,
+								node_data,
+								locations,
+							);
+
 							full_key_nibbles += 1;
 							partial = partial.mid(1);
 
 							let prefix = key.back(full_key_nibbles);
 							db.get_raw_or_lookup(
 								node_hash.unwrap_or_default(),
-								*child,
+								children[i as usize].unwrap(),
 								prefix.left(),
 								true,
 							)?
@@ -267,7 +285,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 							return Ok(false);
 						}
 					},
-					Node::Empty => {
+					NodePlan::Empty => {
 						if !partial.is_empty() {
 							crumb.status = Status::Exiting;
 							return Ok(false);
@@ -386,11 +404,10 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	> {
 		loop {
 			let crumb = self.trail.last_mut()?;
-			// TODO restore on nodeplan
-			let node = crumb.node.node();
+			let node_data = crumb.node.data();
+			let locations = crumb.node.locations();
 
-			//match (crumb.status, crumb.node.node_plan()) {
-			match (crumb.status, node) {
+			match (crumb.status, crumb.node.node_plan()) {
 				(Status::Entering, _) =>
 					if fwd {
 						let crumb = self.trail.last_mut().expect("we've just fetched the last element using `last_mut` so this cannot fail; qed");
@@ -405,14 +422,14 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 				},
 				(Status::Exiting, node) => {
 					match node {
-						Node::Empty | Node::Leaf { .. } => {},
-						Node::Extension(partial, ..) => {
+						NodePlan::Empty | NodePlan::Leaf { .. } => {},
+						NodePlan::Extension { partial, .. } => {
 							self.key_nibbles.drop_lasts(partial.len());
 						},
-						Node::Branch { .. } => {
+						NodePlan::Branch { .. } => {
 							self.key_nibbles.pop();
 						},
-						Node::NibbledBranch(partial, ..) => {
+						NodePlan::NibbledBranch { partial, .. } => {
 							self.key_nibbles.drop_lasts(partial.len() + 1);
 						},
 					}
@@ -422,12 +439,13 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						return Some(Ok((&self.key_nibbles, crumb.hash.as_ref(), &crumb.node)));
 					}
 				},
-				(Status::At, Node::Extension(partial, child)) => {
+				(Status::At, NodePlan::Extension { partial: partial_plan, child }) => {
+					let partial = partial_plan.build(node_data);
 					self.key_nibbles.append_partial(partial.right());
 
 					match db.get_raw_or_lookup(
 						crumb.hash.unwrap_or_default(),
-						child,
+						child.build(node_data, locations.first().copied().unwrap_or_default()),
 						self.key_nibbles.as_prefix(),
 						true,
 					) {
@@ -440,8 +458,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						},
 					}
 				},
-				(Status::At, Node::Branch { .. }) => {
-					//(Status::At, NodePlan::Branch { .. }) => {
+				(Status::At, NodePlan::Branch { .. }) => {
 					self.key_nibbles.push(if fwd {
 						0
 					} else {
@@ -449,7 +466,8 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 					});
 					crumb.step(fwd);
 				},
-				(Status::At, Node::NibbledBranch(partial, ..)) => {
+				(Status::At, NodePlan::NibbledBranch { partial: partial_plan, .. }) => {
+					let partial = partial_plan.build(node_data);
 					self.key_nibbles.append_partial(partial.right());
 					self.key_nibbles.push(if fwd {
 						0
@@ -458,15 +476,23 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 					});
 					crumb.step(fwd);
 				},
-				(Status::AtChild(i), Node::Branch(children, ..)) |
-				(Status::AtChild(i), Node::NibbledBranch(_, children, ..)) => {
-					if let Some(child) = &children[i] {
+				(Status::AtChild(i), NodePlan::Branch { value, children, .. }) |
+				(Status::AtChild(i), NodePlan::NibbledBranch { value, children, .. }) => {
+					if children[i].is_some() {
+						// TODO would make sense to put location in NodePlan: this is rather costy
+						let (_, children) = NodePlan::build_value_and_children(
+							value.as_ref(),
+							children,
+							node_data,
+							locations,
+						);
+
 						self.key_nibbles.pop();
 						self.key_nibbles.push(i as u8);
 
 						match db.get_raw_or_lookup(
 							crumb.hash.unwrap_or_default(),
-							*child,
+							children[i].unwrap(),
 							self.key_nibbles.as_prefix(),
 							true,
 						) {

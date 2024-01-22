@@ -572,60 +572,49 @@ impl NodePlan {
 				child.build(data, locations.first().copied().unwrap_or_default()),
 			),
 			NodePlan::Branch { value, children } => {
-				let mut child_slices = [None; nibble_ops::NIBBLE_LENGTH];
-				let mut nc = 0;
-				let value = if let Some(v) = value {
-					if v.is_inline() {
-						Some(v.build(data, Default::default()))
-					} else {
-						nc += 1;
-						Some(v.build(data, locations.first().copied().unwrap_or_default()))
-					}
-				} else {
-					None
-				};
-				for i in 0..nibble_ops::NIBBLE_LENGTH {
-					if let Some(child) = &children[i] {
-						let location = if child.is_inline() {
-							Default::default()
-						} else {
-							let l = locations.get(nc).copied().unwrap_or_default();
-							nc += 1;
-							l
-						};
-						child_slices[i] = Some(child.build(data, location));
-					}
-				}
+				let (value, child_slices) =
+					Self::build_value_and_children(value.as_ref(), children, data, locations);
 				Node::Branch(child_slices, value)
 			},
 			NodePlan::NibbledBranch { partial, value, children } => {
-				let mut child_slices = [None; nibble_ops::NIBBLE_LENGTH];
-				let mut nc = 0;
-				let value = if let Some(v) = value {
-					if v.is_inline() {
-						Some(v.build(data, Default::default()))
-					} else {
-						nc += 1;
-						Some(v.build(data, locations.first().copied().unwrap_or_default()))
-					}
-				} else {
-					None
-				};
-				for i in 0..nibble_ops::NIBBLE_LENGTH {
-					if let Some(child) = &children[i] {
-						let location = if child.is_inline() {
-							Default::default()
-						} else {
-							let l = locations.get(nc).copied().unwrap_or_default();
-							nc += 1;
-							l
-						};
-						child_slices[i] = Some(child.build(data, location));
-					}
-				}
+				let (value, child_slices) =
+					Self::build_value_and_children(value.as_ref(), children, data, locations);
 				Node::NibbledBranch(partial.build(data), child_slices, value)
 			},
 		}
+	}
+
+	pub(crate) fn build_value_and_children<'a, 'b, L: Copy + Default>(
+		value: Option<&'a ValuePlan>,
+		children: &'a [Option<NodeHandlePlan>; nibble_ops::NIBBLE_LENGTH],
+		data: &'b [u8],
+		locations: &[L],
+	) -> (Option<Value<'b, L>>, [Option<NodeHandle<'b, L>>; nibble_ops::NIBBLE_LENGTH]) {
+		let mut child_slices = [None; nibble_ops::NIBBLE_LENGTH];
+		let mut nc = 0;
+		let value = if let Some(v) = value {
+			if v.is_inline() {
+				Some(v.build(data, Default::default()))
+			} else {
+				nc += 1;
+				Some(v.build(data, locations.first().copied().unwrap_or_default()))
+			}
+		} else {
+			None
+		};
+		for i in 0..nibble_ops::NIBBLE_LENGTH {
+			if let Some(child) = &children[i] {
+				let location = if child.is_inline() {
+					Default::default()
+				} else {
+					let l = locations.get(nc).copied().unwrap_or_default();
+					nc += 1;
+					l
+				};
+				child_slices[i] = Some(child.build(data, location));
+			}
+		}
+		(value, child_slices)
 	}
 
 	/// Access value plan from node plan, return `None` for
