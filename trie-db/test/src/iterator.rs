@@ -22,7 +22,7 @@ use trie_db::{
 
 use crate::TestDB;
 
-fn build_trie_db<T: TrieLayout, DB: TestDB<T>>(
+pub(crate) fn build_trie_db<T: TrieLayout, DB: TestDB<T>>(
 	pairs: &[(Vec<u8>, Vec<u8>)],
 ) -> (DB, <T::Hash as Hasher>::Out) {
 	let mut memdb = DB::default();
@@ -37,7 +37,7 @@ fn build_trie_db<T: TrieLayout, DB: TestDB<T>>(
 	(memdb, root)
 }
 
-fn nibble_vec<T: AsRef<[u8]>>(bytes: T, len: usize) -> NibbleVec {
+pub(crate) fn nibble_vec<T: AsRef<[u8]>>(bytes: T, len: usize) -> NibbleVec {
 	let slice = NibbleSlice::new(bytes.as_ref());
 
 	let mut v = NibbleVec::new();

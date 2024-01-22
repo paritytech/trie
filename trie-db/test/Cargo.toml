@@ -20,7 +20,7 @@ trie-standardmap = { path = "../../test-support/trie-standardmap", version = "0.
 reference-trie = { path = "../../test-support/reference-trie", version = "0.29.0" }
 mem-tree-db = { path = "../../test-support/mem-tree-db", version = "0.0.1" }
 hex-literal = "0.4"
-criterion = "0.4.0"
+criterion = "0.5.1"
 env_logger = { version = "0.10", default-features = false }
 log = "0.4"
 

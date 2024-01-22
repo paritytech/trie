@@ -24,9 +24,8 @@ use reference_trie::{
 	ReferenceNodeCodecNoExt, TestTrieCache,
 };
 use trie_db::{
-	CachedValue, ChangesetNodeRef, DBValue, NodeCodec, Recorder, Trie, TrieCache,
-	TrieDBBuilder, TrieDBMut, TrieDBMutBuilder, TrieDBNodeIterator, TrieError, TrieHash,
-	TrieLayout, Value,
+	CachedValue, ChangesetNodeRef, DBValue, NodeCodec, Recorder, Trie, TrieCache, TrieDBBuilder,
+	TrieDBMut, TrieDBMutBuilder, TrieDBNodeIterator, TrieError, TrieHash, TrieLayout, Value,
 };
 use trie_standardmap::*;
 
@@ -908,8 +907,10 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 			let changeset = memtrie.commit();
 			let root = changeset.root_hash();
 			let change_to_insert = changeset.to_insert_in_other_trie(child_trie_root_key.clone());
-			child_tries
-				.insert(child_trie_root_key, ATrie { root, data, changeset: Some(change_to_insert) });
+			child_tries.insert(
+				child_trie_root_key,
+				ATrie { root, data, changeset: Some(change_to_insert) },
+			);
 		}
 	}
 	// check data
@@ -969,11 +970,7 @@ fn child_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 	};
 	let mut main_trie = TrieDBMutBuilder::<T>::from_existing(&memdb, main_trie.root).build();
 	main_trie
-		.insert_with_child_changes(
-			root_key,
-			child_root_hash.as_ref(),
-			Some(child_changeset),
-		)
+		.insert_with_child_changes(root_key, child_root_hash.as_ref(), Some(child_changeset))
 		.unwrap();
 	let changeset = main_trie.commit();
 	let main_root = changeset.root_hash();

@@ -25,7 +25,7 @@ mod rstd {
 		collections::{BTreeMap, VecDeque},
 		convert,
 		error::Error,
-		fmt, hash, iter, marker, mem, ops, rc, result, sync, vec,
+		fmt, hash, iter, marker, mem, ops, result, sync, vec,
 	};
 }
 
@@ -46,6 +46,7 @@ use self::rstd::{fmt, Error};
 
 use self::rstd::{boxed::Box, vec::Vec};
 use hash_db::MaybeDebug;
+pub use iterator::TrieDBNodeDoubleEndedIterator;
 use node::NodeOwned;
 
 pub mod node;
@@ -326,6 +327,9 @@ pub trait TrieIterator<L: TrieLayout>: Iterator {
 	/// Position the iterator on the first element with key >= `key`
 	fn seek(&mut self, key: &[u8]) -> Result<(), TrieHash<L>, CError<L>>;
 }
+
+/// Extending the `TrieIterator` trait with `DoubleEndedIterator` trait.
+pub trait TrieDoubleEndedIterator<L: TrieLayout>: TrieIterator<L> + DoubleEndedIterator {}
 
 /// Trie types
 #[derive(PartialEq, Clone)]

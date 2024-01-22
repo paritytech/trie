@@ -17,6 +17,8 @@
 use memory_db::MemoryDB;
 
 #[cfg(test)]
+mod double_ended_iterator;
+#[cfg(test)]
 mod iter_build;
 #[cfg(test)]
 mod iterator;
