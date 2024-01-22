@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use crate::{
-	fatdb::FatDBDoubleEndedIterator,
 	iterator::{TrieDBNodeDoubleEndedIterator, TrieDBRawIterator},
 	lookup::Lookup,
 	nibble::NibbleSlice,
@@ -173,13 +172,6 @@ where
 		&'db self,
 	) -> Result<TrieDBKeyDoubleEndedIterator<'db, 'cache, L>, TrieHash<L>, CError<L>> {
 		TrieDBKeyDoubleEndedIterator::new(&self)
-	}
-
-	/// create `FatDBDoubleEndedIterator` from `TrieDB`.
-	pub fn into_fat_double_ended_iter(
-		&'db self,
-	) -> Result<FatDBDoubleEndedIterator<'db, 'cache, L>, TrieHash<L>, CError<L>> {
-		FatDBDoubleEndedIterator::new(&self)
 	}
 
 	/// Given some node-describing data `node`, and node key return the actual node RLP.

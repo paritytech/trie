@@ -93,7 +93,7 @@ fn iterator_seek_works_internal<T: TrieLayout, DB: TestDB<T>>() {
 }
 
 test_layouts!(double_ended_iterator, double_ended_iterator_internal);
-fn double_ended_iterator_internal<T: TrieLayout>() {
+fn double_ended_iterator_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let pairs = vec![
 		(hex!("01").to_vec(), hex!("01").to_vec()),
 		(hex!("02").to_vec(), hex!("02").to_vec()),
@@ -102,14 +102,13 @@ fn double_ended_iterator_internal<T: TrieLayout>() {
 		(hex!("11").to_vec(), hex!("11").to_vec()),
 	];
 
-	let mut memdb = MemoryDB::<<T>::Hash, PrefixedKey<_>, DBValue>::default();
-	let mut root = Default::default();
-	{
-		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
-		for (x, y) in &pairs {
-			t.insert(x, y).unwrap();
-		}
+	let mut memdb = DB::default();
+	let mut t = TrieDBMutBuilder::<T>::new(&mut memdb).build();
+	for (x, y) in &pairs {
+		t.insert(x, y).unwrap();
 	}
+	let commit = t.commit();
+	let root = memdb.commit(commit);
 
 	let t = TrieDBBuilder::<T>::new(&memdb, &root).build();
 	assert_eq!(pairs, t.iter().unwrap().map(|x| x.unwrap()).collect::<Vec<_>>());

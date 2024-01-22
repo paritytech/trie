@@ -616,11 +616,11 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	/// extra nibble (prefix padding), and the node value.
 	fn extract_key_from_raw_item<'a>(
 		raw_item: Result<
-			(&NibbleVec, Option<&TrieHash<L>>, &'a Arc<OwnedNode<DBValue>>),
+			(&NibbleVec, Option<&TrieHash<L>>, &'a Arc<OwnedNode<DBValue, L::Location>>),
 			TrieHash<L>,
 			CError<L>,
 		>,
-	) -> Option<Result<(Vec<u8>, Option<u8>, Value<'a>), TrieHash<L>, CError<L>>> {
+	) -> Option<Result<(Vec<u8>, Option<u8>, Value<'a, L::Location>), TrieHash<L>, CError<L>>> {
 		let (prefix, _, node) = match raw_item {
 			Ok(raw_item) => raw_item,
 			Err(err) => return Some(Err(err)),
@@ -779,8 +779,9 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeDoubleEndedIterator<'a, 'cache, L> {
 		&self,
 		key: &[u8],
 		prefix: Prefix,
+		location: L::Location,
 	) -> Result<DBValue, TrieHash<L>, CError<L>> {
-		TrieDBRawIterator::fetch_value(self.db, key, prefix)
+		TrieDBRawIterator::fetch_value(self.db, key, prefix, location)
 	}
 
 	/// Advance the iterator into a prefix, no value out of the prefix will be accessed
@@ -802,7 +803,7 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeDoubleEndedIterator<'a, 'cache, L> {
 	}
 
 	/// Access inner hash db.
-	pub fn db(&self) -> &dyn hash_db::HashDBRef<L::Hash, DBValue> {
+	pub fn db(&self) -> &dyn hash_db::HashDB<L::Hash, DBValue, L::Location> {
 		self.db.db()
 	}
 }
@@ -818,7 +819,7 @@ impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBNodeDoubleEndedIterato
 
 impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeDoubleEndedIterator<'a, 'cache, L> {
 	type Item =
-		Result<(NibbleVec, Option<TrieHash<L>>, Arc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
+		Result<(NibbleVec, Option<TrieHash<L>>, Arc<OwnedNode<DBValue, L::Location>>), TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.raw_iter.next_raw_item(self.db, true).map(|result| {
