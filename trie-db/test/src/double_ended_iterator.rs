@@ -20,8 +20,10 @@ use trie_db::{
 	TrieLayout,
 };
 
-use crate::iterator::{build_trie_db, nibble_vec};
-use crate::TestDB;
+use crate::{
+	iterator::{build_trie_db, nibble_vec},
+	TestDB,
+};
 
 test_layouts!(node_double_ended_iterator_works, node_double_ended_iterator);
 fn node_double_ended_iterator<T: TrieLayout, DB: TestDB<T>>() {

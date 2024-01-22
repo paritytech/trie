@@ -19,7 +19,7 @@ use crate::{
 	triedb::TrieDB,
 	TrieDoubleEndedIterator, TrieError, TrieItem, TrieKeyItem,
 };
-use hash_db::{Hasher, Prefix, EMPTY_PREFIX};
+use hash_db::{Prefix, EMPTY_PREFIX};
 
 use crate::rstd::{boxed::Box, sync::Arc, vec::Vec};
 
@@ -33,16 +33,15 @@ enum Status {
 	AftExiting,
 }
 
-// TODO Crumb L: Layout
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Eq, PartialEq)]
-struct Crumb<H: Hasher, L> {
-	hash: Option<H::Out>,
-	node: Arc<OwnedNode<DBValue, L>>,
+struct Crumb<L: TrieLayout> {
+	hash: Option<TrieHash<L>>,
+	node: Arc<OwnedNode<DBValue, L::Location>>,
 	status: Status,
 }
 
-impl<H: Hasher, L: Copy + Default> Crumb<H, L> {
+impl<L: TrieLayout> Crumb<L> {
 	/// Move on to the next status in the node's sequence in a direction.
 	fn step(&mut self, fwd: bool) {
 		self.status = match (self.status, self.node.node_plan()) {
@@ -73,7 +72,7 @@ impl<H: Hasher, L: Copy + Default> Crumb<H, L> {
 /// Iterator for going through all nodes in the trie in pre-order traversal order.
 pub struct TrieDBRawIterator<L: TrieLayout> {
 	/// Forward trail of nodes to visit.
-	trail: Vec<Crumb<L::Hash, L::Location>>,
+	trail: Vec<Crumb<L>>,
 	/// Forward iteration key nibbles of the current node.
 	key_nibbles: NibbleVec,
 }
@@ -818,8 +817,11 @@ impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBNodeDoubleEndedIterato
 }
 
 impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeDoubleEndedIterator<'a, 'cache, L> {
-	type Item =
-		Result<(NibbleVec, Option<TrieHash<L>>, Arc<OwnedNode<DBValue, L::Location>>), TrieHash<L>, CError<L>>;
+	type Item = Result<
+		(NibbleVec, Option<TrieHash<L>>, Arc<OwnedNode<DBValue, L::Location>>),
+		TrieHash<L>,
+		CError<L>,
+	>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.raw_iter.next_raw_item(self.db, true).map(|result| {
