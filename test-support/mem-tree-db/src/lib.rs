@@ -85,9 +85,24 @@ where
 
 	pub fn remove_node(&mut self, k: &H::Out) {
 		let rem_root = self.roots.remove(k);
-		for (i, node) in self.nodes.iter_mut().enumerate() {
+		#[cfg(debug_assertions)]
+		{
+			for (i, node) in self.nodes.iter_mut().enumerate() {
+				if matches!(node, NodeEntry::Live { key, .. } if key == k) {
+					assert!(rem_root.map(|r| r == i).unwrap_or(false));
+					*node = NodeEntry::Removed;
+				}
+			}
+		}
+		if let Some(rem_root_ix) = rem_root {
+			self.nodes[rem_root_ix] = NodeEntry::Removed;
+		}
+	}
+
+	pub fn test_remove_node(&mut self, k: &H::Out) {
+		self.roots.remove(k);
+		for node in self.nodes.iter_mut() {
 			if matches!(node, NodeEntry::Live { key, .. } if key == k) {
-				debug_assert!(rem_root.map(|r| r == i).unwrap_or(false));
 				*node = NodeEntry::Removed;
 			}
 		}
