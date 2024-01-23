@@ -24,7 +24,7 @@ use reference_trie::{
 	ReferenceNodeCodecNoExt, TestTrieCache,
 };
 use trie_db::{
-	CachedValue, ChangesetNodeRef, DBValue, NodeCodec, Recorder, Trie, TrieCache, TrieDBBuilder,
+	CachedValue, Changeset, DBValue, NodeCodec, Recorder, Trie, TrieCache, TrieDBBuilder,
 	TrieDBMut, TrieDBMutBuilder, TrieDBNodeIterator, TrieError, TrieHash, TrieLayout, Value,
 };
 use trie_standardmap::*;
@@ -862,7 +862,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 	struct ATrie<T: TrieLayout> {
 		root: TrieHash<T>,
 		data: BTreeMap<Vec<u8>, Vec<u8>>,
-		changeset: Option<Box<ChangesetNodeRef<TrieHash<T>, T::Location>>>,
+		changeset: Option<Box<Changeset<TrieHash<T>, T::Location>>>,
 	}
 	// Running a typical attached trie scenario (childtrie on substrate):
 	// different trie, attached trie root written all
@@ -908,7 +908,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 			let root = changeset.root_hash();
 			attached_tries.insert(
 				attached_trie_root_key.clone(),
-				ATrie { root, data, changeset: Some(changeset.root.into()) },
+				ATrie { root, data, changeset: Some(changeset.into()) },
 			);
 		}
 	}
@@ -964,7 +964,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		let changeset = attached_trie.commit_with_keyspace(root_key);
 		let new_root = changeset.root_hash();
 		assert!(new_root != a_attached_trie_root);
-		(changeset.root, new_root)
+		(changeset, new_root)
 	};
 	let mut main_trie = TrieDBMutBuilder::<T>::from_existing(&memdb, main_trie.root).build();
 	main_trie

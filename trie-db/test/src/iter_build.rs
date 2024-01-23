@@ -50,7 +50,7 @@ fn test_iter<T: TrieLayout>(data: Vec<(Vec<u8>, Vec<u8>)>) {
 		t.commit()
 	};
 	changeset.apply_to(&mut db);
-	let t = TrieDBBuilder::<T>::new(&db, changeset.root.hash()).build();
+	let t = TrieDBBuilder::<T>::new(&db, changeset.hash()).build();
 	for (i, kv) in t.iter().unwrap().enumerate() {
 		let (k, v) = kv.unwrap();
 		let key: &[u8] = &data[i].0;

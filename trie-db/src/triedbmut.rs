@@ -69,7 +69,7 @@ fn empty_children<H, L>() -> Box<[Option<NodeHandle<H, L>>; nibble_ops::NIBBLE_L
 	])
 }
 
-pub type TreeRefChangeset<L> = Box<ChangesetNodeRef<TrieHash<L>, <L as TrieLayout>::Location>>;
+pub type TreeRefChangeset<L> = Box<Changeset<TrieHash<L>, <L as TrieLayout>::Location>>;
 
 /// Type alias to indicate the nible covers a full key,
 /// therefore its left side is a full prefix.
@@ -753,7 +753,7 @@ pub struct NewChangesetNode<H, DL> {
 	pub hash: H,
 	pub prefix: OwnedPrefix,
 	pub data: Vec<u8>,
-	pub children: Vec<ChangesetNodeRef<H, DL>>,
+	pub children: Vec<Changeset<H, DL>>,
 	// Storing the key and removed nodes related
 	// to this change set node (only needed for old trie).
 	pub removed_keys: Option<(Option<Vec<u8>>, Vec<(H, OwnedPrefix)>)>,
@@ -767,23 +767,18 @@ pub struct ExistingChangesetNode<H, DL> {
 }
 
 #[derive(Debug)]
-pub enum ChangesetNodeRef<H, DL> {
+pub enum Changeset<H, DL> {
 	New(NewChangesetNode<H, DL>),
 	Existing(ExistingChangesetNode<H, DL>),
 }
 
-impl<H, DL> ChangesetNodeRef<H, DL> {
+impl<H, DL> Changeset<H, DL> {
 	pub fn hash(&self) -> &H {
 		match self {
-			ChangesetNodeRef::New(node) => &node.hash,
-			ChangesetNodeRef::Existing(node) => &node.hash,
+			Changeset::New(node) => &node.hash,
+			Changeset::Existing(node) => &node.hash,
 		}
 	}
-}
-
-#[derive(Debug)]
-pub struct Changeset<H, DL> {
-	pub root: ChangesetNodeRef<H, DL>,
 }
 
 pub fn prefix_prefix(ks: &[u8], prefix: Prefix) -> (Vec<u8>, Option<u8>) {
@@ -800,7 +795,7 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 		MH: Hasher<Out = H> + Send + Sync,
 	{
 		fn apply_node<'a, H, DL, MH, K>(
-			node: &'a ChangesetNodeRef<H, DL>,
+			node: &'a Changeset<H, DL>,
 			mem_db: &mut MemoryDB<MH, K, DBValue>,
 			mut ks: Option<&'a [u8]>,
 		) where
@@ -808,7 +803,7 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 			MH: Hasher<Out = H> + Send + Sync,
 		{
 			match node {
-				ChangesetNodeRef::New(node) => {
+				Changeset::New(node) => {
 					if let Some((k, removed)) = node.removed_keys.as_ref() {
 						for (hash, p) in removed.iter() {
 							if let Some(k) = k {
@@ -830,27 +825,17 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 						mem_db.insert((node.prefix.0.as_slice(), node.prefix.1), &node.data);
 					}
 				},
-				ChangesetNodeRef::Existing(_) => {},
+				Changeset::Existing(_) => {},
 			}
 		}
-		apply_node::<H, DL, MH, K>(&self.root, mem_db, None);
+		apply_node::<H, DL, MH, K>(&self, mem_db, None);
 		self.root_hash()
 	}
 
 	pub fn root_hash(&self) -> H {
-		match &self.root {
-			ChangesetNodeRef::New(node) => node.hash,
-			ChangesetNodeRef::Existing(node) => node.hash,
-		}
-	}
-
-	pub fn empty(root: H) -> Self {
-		Self {
-			root: ChangesetNodeRef::Existing(ExistingChangesetNode {
-				hash: root,
-				prefix: (BackingByteVec::new(), None),
-				location: Default::default(),
-			}),
+		match &self {
+			Changeset::New(node) => node.hash,
+			Changeset::Existing(node) => node.hash,
 		}
 	}
 }
@@ -2033,13 +2018,11 @@ where
 		let handle = match self.root_handle() {
 			NodeHandle::Hash(hash, location) => {
 				debug_assert!(removed.is_empty());
-				return Changeset {
-					root: ChangesetNodeRef::Existing(ExistingChangesetNode {
-						hash,
-						prefix: Default::default(),
-						location,
-					}),
-				}
+				return Changeset::Existing(ExistingChangesetNode {
+					hash,
+					prefix: Default::default(),
+					location,
+				});
 			}, // no changes necessary.
 			NodeHandle::InMemory(h) => h,
 		};
@@ -2055,7 +2038,7 @@ where
 						NodeToEncode::Node(value) => {
 							let value_hash = self.db.hash(value);
 							self.cache_value(k.inner(), value, value_hash);
-							children.push(ChangesetNodeRef::New(NewChangesetNode {
+							children.push(Changeset::New(NewChangesetNode {
 								hash: value_hash,
 								prefix: k.as_owned_prefix(),
 								data: value.to_vec(), //TODO: avoid allocation
@@ -2085,15 +2068,13 @@ where
 				self.cache_node(self.root);
 
 				self.root_handle = NodeHandle::Hash(self.root, Default::default());
-				Changeset {
-					root: ChangesetNodeRef::New(NewChangesetNode {
-						hash: self.root.clone(),
-						prefix: Default::default(),
-						data: encoded_root,
-						children,
-						removed_keys: Some((keyspace.map(|s| s.to_vec()), removed)),
-					}),
-				}
+				Changeset::New(NewChangesetNode {
+					hash: self.root.clone(),
+					prefix: Default::default(),
+					data: encoded_root,
+					children,
+					removed_keys: Some((keyspace.map(|s| s.to_vec()), removed)),
+				})
 			},
 			Stored::Cached(node, hash, location) => {
 				// probably won't happen, but update the root and move on.
@@ -2106,13 +2087,11 @@ where
 					Default::default(),
 				)));
 				debug_assert!(removed.is_empty());
-				Changeset {
-					root: ChangesetNodeRef::Existing(ExistingChangesetNode {
-						hash,
-						prefix: Default::default(),
-						location,
-					}),
-				}
+				Changeset::Existing(ExistingChangesetNode {
+					hash,
+					prefix: Default::default(),
+					location,
+				})
 			},
 		}
 	}
@@ -2140,11 +2119,11 @@ where
 		&mut self,
 		handle: NodeHandle<TrieHash<L>, L::Location>,
 		prefix: &mut NibbleVec,
-		children: &mut Vec<ChangesetNodeRef<TrieHash<L>, L::Location>>,
+		children: &mut Vec<Changeset<TrieHash<L>, L::Location>>,
 	) -> ChildReference<TrieHash<L>, L::Location> {
 		match handle {
 			NodeHandle::Hash(hash, location) => {
-				children.push(ChangesetNodeRef::Existing(ExistingChangesetNode {
+				children.push(Changeset::Existing(ExistingChangesetNode {
 					hash,
 					prefix: prefix.as_owned_prefix(),
 					location,
@@ -2154,7 +2133,7 @@ where
 			NodeHandle::InMemory(storage_handle) => {
 				match self.storage.destroy(storage_handle) {
 					Stored::Cached(_, hash, location) => {
-						children.push(ChangesetNodeRef::Existing(ExistingChangesetNode {
+						children.push(Changeset::Existing(ExistingChangesetNode {
 							hash,
 							prefix: prefix.as_owned_prefix(),
 							location,
@@ -2171,15 +2150,13 @@ where
 								match node {
 									NodeToEncode::Node(value) => {
 										let value_hash = self.db.hash(value);
-										sub_children.push(ChangesetNodeRef::New(
-											NewChangesetNode {
-												hash: value_hash,
-												prefix: prefix.as_owned_prefix(),
-												data: value.to_vec(), //TODO: avoid allocation
-												children: Default::default(),
-												removed_keys: None,
-											},
-										));
+										sub_children.push(Changeset::New(NewChangesetNode {
+											hash: value_hash,
+											prefix: prefix.as_owned_prefix(),
+											data: value.to_vec(), //TODO: avoid allocation
+											children: Default::default(),
+											removed_keys: None,
+										}));
 
 										self.cache_value(prefix.inner(), value, value_hash);
 
@@ -2205,7 +2182,7 @@ where
 							child_set.map(|c| {
 								sub_children.push(*c);
 							});
-							children.push(ChangesetNodeRef::New(NewChangesetNode {
+							children.push(Changeset::New(NewChangesetNode {
 								hash,
 								prefix: prefix.as_owned_prefix(),
 								data: encoded,
@@ -2275,7 +2252,7 @@ where
 		// expect for the child changes to have a key.
 		debug_assert!(tree_ref
 			.as_ref()
-			.map(|c| if let ChangesetNodeRef::New(set) = c.as_ref() {
+			.map(|c| if let Changeset::New(set) = c.as_ref() {
 				set.removed_keys.is_some()
 			} else {
 				true
@@ -2314,7 +2291,7 @@ where
 		// expect for the child changes to have a key.
 		debug_assert!(tree_ref
 			.as_ref()
-			.map(|c| if let ChangesetNodeRef::New(set) = c.as_ref() {
+			.map(|c| if let Changeset::New(set) = c.as_ref() {
 				set.removed_keys.is_some()
 			} else {
 				true

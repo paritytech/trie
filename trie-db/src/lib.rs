@@ -68,8 +68,8 @@ pub use self::{
 	recorder::Recorder,
 	triedb::{TrieDB, TrieDBBuilder, TrieDBIterator, TrieDBKeyIterator},
 	triedbmut::{
-		Changeset, ChangesetNodeRef, ChildReference, ExistingChangesetNode, NewChangesetNode,
-		OwnedPrefix, TrieDBMut, TrieDBMutBuilder, Value,
+		Changeset, ChildReference, ExistingChangesetNode, NewChangesetNode, OwnedPrefix, TrieDBMut,
+		TrieDBMutBuilder, Value,
 	},
 };
 pub use crate::{

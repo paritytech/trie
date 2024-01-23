@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 
 use hash_db::{Hasher, NodeDB, Prefix};
-use trie_db::{Changeset, ChangesetNodeRef, NewChangesetNode};
+use trie_db::{Changeset, NewChangesetNode};
 
 /// Node location which is just an index into the `nodes` vector.
 pub type Location = Option<usize>;
@@ -133,9 +133,9 @@ where
 		self.roots.is_empty()
 	}
 
-	fn apply(&mut self, c: &ChangesetNodeRef<H::Out, Location>) -> usize {
+	fn apply(&mut self, c: &Changeset<H::Out, Location>) -> usize {
 		match c {
-			ChangesetNodeRef::Existing(e) => {
+			Changeset::Existing(e) => {
 				let location = e.location.unwrap_or_else(|| *self.roots.get(&e.hash).unwrap());
 				let entry = self.nodes.get_mut(location).unwrap();
 				match entry {
@@ -148,7 +148,7 @@ where
 				};
 				location
 			},
-			ChangesetNodeRef::New(n) => {
+			Changeset::New(n) => {
 				let children = n.children.iter().map(|c| self.apply(c)).collect();
 				self.nodes.push(NodeEntry::Live {
 					key: n.hash,
@@ -163,16 +163,13 @@ where
 
 	pub fn apply_commit(&mut self, commit: Changeset<H::Out, Location>) {
 		if commit.root_hash() != self.hashed_null_node {
-			let root = self.apply(&commit.root);
-			let key = commit.root.hash();
+			let root = self.apply(&commit);
+			let key = commit.hash();
 			self.roots.insert(*key, root);
 		}
 		// In non test use, the root should be store before calling commit (known
 		// from tree where commit was build from).
-		if let ChangesetNodeRef::New(NewChangesetNode {
-			removed_keys: Some((_, removed)), ..
-		}) = &commit.root
-		{
+		if let Changeset::New(NewChangesetNode { removed_keys: Some((_, removed)), .. }) = &commit {
 			for (k, _) in removed {
 				self.remove_root(&k);
 			}
@@ -230,7 +227,7 @@ mod tests {
 	use super::{Location, MemTreeDB, NodeEntry};
 	use hash_db::{Hasher, NodeDB};
 	use keccak_hasher::{KeccakHash, KeccakHasher};
-	use trie_db::{Changeset, ChangesetNodeRef, ExistingChangesetNode, NewChangesetNode};
+	use trie_db::{Changeset, ExistingChangesetNode, NewChangesetNode};
 
 	fn hash(i: u32) -> KeccakHash {
 		KeccakHasher::hash(&i.to_le_bytes())
@@ -241,7 +238,7 @@ mod tests {
 		let mut db = MemTreeDB::<KeccakHasher>::default();
 
 		// First, apply a new node
-		let new_node = ChangesetNodeRef::New(NewChangesetNode {
+		let new_node = Changeset::New(NewChangesetNode {
 			hash: hash(1),
 			prefix: Default::default(),
 			data: vec![1, 2, 3],
@@ -251,7 +248,7 @@ mod tests {
 		let new_location = db.apply(&new_node);
 
 		// Then, apply an existing node that refers to the new node
-		let existing_node = ChangesetNodeRef::Existing(ExistingChangesetNode {
+		let existing_node = Changeset::Existing(ExistingChangesetNode {
 			hash: hash(1),
 			location: Some(new_location),
 			prefix: Default::default(),
@@ -264,7 +261,7 @@ mod tests {
 	#[test]
 	fn test_apply_new_node() {
 		let mut db = MemTreeDB::<KeccakHasher>::default();
-		let node = ChangesetNodeRef::New(NewChangesetNode {
+		let node = Changeset::New(NewChangesetNode {
 			hash: KeccakHash::default(),
 			prefix: Default::default(),
 			data: vec![1, 2, 3],
@@ -279,7 +276,7 @@ mod tests {
 	fn test_apply_commit() {
 		let mut db = MemTreeDB::<KeccakHasher>::default();
 		let commit = Changeset::<KeccakHash, Location> {
-			root: ChangesetNodeRef::New(NewChangesetNode {
+			root: Changeset::New(NewChangesetNode {
 				hash: KeccakHash::default(),
 				prefix: Default::default(),
 				data: vec![1, 2, 3],
@@ -297,14 +294,14 @@ mod tests {
 		let mut db = MemTreeDB::<KeccakHasher>::default();
 
 		// Create two child nodes
-		let child1 = ChangesetNodeRef::New(NewChangesetNode {
+		let child1 = Changeset::New(NewChangesetNode {
 			hash: hash(1),
 			prefix: Default::default(),
 			data: vec![1, 2, 3],
 			children: vec![],
 			removed_keys: None,
 		});
-		let child2 = ChangesetNodeRef::New(NewChangesetNode {
+		let child2 = Changeset::New(NewChangesetNode {
 			hash: hash(2),
 			prefix: Default::default(),
 			data: vec![4, 5, 6],
@@ -313,7 +310,7 @@ mod tests {
 		});
 
 		// Create a root node that refers to the child nodes
-		let root = ChangesetNodeRef::New(NewChangesetNode {
+		let root = Changeset::New(NewChangesetNode {
 			hash: hash(0),
 			prefix: Default::default(),
 			data: vec![7, 8, 9],
