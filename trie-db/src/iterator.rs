@@ -16,10 +16,10 @@ use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout};
 use crate::{
 	nibble::{nibble_ops, NibbleSlice, NibbleVec},
 	node::{Node, NodeHandle, NodePlan, OwnedNode, Value},
+	node_db::{self, Prefix, EMPTY_PREFIX},
 	triedb::TrieDB,
 	TrieDoubleEndedIterator, TrieError, TrieItem, TrieKeyItem,
 };
-use hash_db::{Prefix, EMPTY_PREFIX};
 
 use crate::rstd::{boxed::Box, sync::Arc, vec::Vec};
 
@@ -730,7 +730,7 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 	}
 
 	/// Access inner hash db.
-	pub fn db(&self) -> &dyn hash_db::NodeDB<L::Hash, DBValue, L::Location> {
+	pub fn db(&self) -> &dyn node_db::NodeDB<L::Hash, DBValue, L::Location> {
 		self.db.db()
 	}
 
@@ -828,7 +828,7 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeDoubleEndedIterator<'a, 'cache, L> {
 	}
 
 	/// Access inner hash db.
-	pub fn db(&self) -> &dyn hash_db::NodeDB<L::Hash, DBValue, L::Location> {
+	pub fn db(&self) -> &dyn node_db::NodeDB<L::Hash, DBValue, L::Location> {
 		self.db.db()
 	}
 }

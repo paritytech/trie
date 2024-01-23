@@ -18,10 +18,10 @@ use crate::{
 	nibble::LeftNibbleSlice,
 	nibble_ops::NIBBLE_LENGTH,
 	node::{Node, NodeHandle, Value},
+	node_db::Hasher,
 	rstd::{convert::TryInto, iter::Peekable, marker::PhantomData, result::Result, vec, vec::Vec},
 	CError, ChildReference, NodeCodec, TrieHash, TrieLayout,
 };
-use hash_db::Hasher;
 
 /// Errors that may occur during proof verification. Most of the errors types simply indicate that
 /// the proof is invalid with respect to the statement being verified, and the exact error type can

@@ -7,16 +7,23 @@ repository = "https://github.com/paritytech/trie"
 license = "Apache-2.0"
 edition = "2018"
 
+[[bench]]
+name = "bench"
+harness = false
+
 [dependencies]
 log = "0.4"
 smallvec = { version = "1.0.0", features = ["union", "const_new"] }
-hash-db = { path = "../hash-db", default-features = false, version = "0.16.0"}
-memory-db = { path = "../memory-db", default-features = false, version = "0.32.0"}
 rustc-hex = { version = "2.1.0", default-features = false, optional = true }
+hash-db = { version = "0.16.0", default-features = false }
+
+[dev-dependencies]
+keccak-hasher = { path = "../test-support/keccak-hasher", version = "0.16.0"}
+criterion = "0.5.1"
 
 [features]
 default = ["std"]
 std = [
-  "hash-db/std",
   "rustc-hex",
+  "hash-db/std",
 ]

@@ -13,13 +13,13 @@
 // limitations under the License.
 
 use arbitrary::Arbitrary;
-use hash_db::Hasher;
-use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
 	calc_root, compare_insert_remove, reference_trie_root_iter_build as reference_trie_root,
 };
 use std::{convert::TryInto, fmt::Debug};
 use trie_db::{
+	memory_db::{HashKey, MemoryDB, PrefixedKey},
+	node_db::Hasher,
 	proof::{generate_proof, verify_proof},
 	DBValue, Trie, TrieDBBuilder, TrieDBIterator, TrieDBMutBuilder, TrieLayout,
 };
@@ -130,7 +130,7 @@ fn data_sorted_unique(input: Vec<(Vec<u8>, Vec<u8>)>) -> Vec<(Vec<u8>, Vec<u8>)>
 	m.into_iter().collect()
 }
 
-pub fn fuzz_that_compare_implementations<T: TrieLayout>(input: &[u8]) 
+pub fn fuzz_that_compare_implementations<T: TrieLayout>(input: &[u8])
 	where T::Location: Debug,
 {
 	let data = data_sorted_unique(fuzz_to_data(input));
@@ -405,8 +405,7 @@ fn test_generate_proof<L: TrieLayout>(
 }
 
 fn test_trie_codec_proof<L: TrieLayout>(entries: Vec<(Vec<u8>, Vec<u8>)>, keys: Vec<Vec<u8>>) {
-	use hash_db::EMPTY_PREFIX;
-	use trie_db::{decode_compact, encode_compact, Recorder};
+	use trie_db::{node_db::EMPTY_PREFIX, decode_compact, encode_compact, Recorder};
 
 	// Populate DB with full trie from entries.
 	let (db, root) = {

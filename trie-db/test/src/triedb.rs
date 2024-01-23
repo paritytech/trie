@@ -14,16 +14,17 @@
 
 use std::ops::Deref;
 
-use hash_db::{Hasher, EMPTY_PREFIX};
 use hex_literal::hex;
-use memory_db::{HashKey, MemoryDB};
 use reference_trie::{
 	test_layouts, test_layouts_substrate, HashedValueNoExtThreshold, PrefixedMemoryDB,
 	TestTrieCache,
 };
 use trie_db::{
-	encode_compact, CachedValue, DBValue, Lookup, NibbleSlice, RecordedForKey, Recorder, Trie,
-	TrieCache, TrieDBBuilder, TrieDBMutBuilder, TrieLayout, TrieRecorder,
+	encode_compact,
+	memory_db::{HashKey, MemoryDB},
+	node_db::{Hasher, EMPTY_PREFIX},
+	CachedValue, DBValue, Lookup, NibbleSlice, RecordedForKey, Recorder, Trie, TrieCache,
+	TrieDBBuilder, TrieDBMutBuilder, TrieLayout, TrieRecorder,
 };
 
 use crate::{TestCommit, TestDB};

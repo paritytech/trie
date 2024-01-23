@@ -12,18 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use hash_db::{Hasher, EMPTY_PREFIX};
 use reference_trie::{test_layouts, ExtensionLayout};
 use trie_db::{
-	decode_compact, encode_compact, DBValue, NodeCodec, Recorder, Trie, TrieDBBuilder,
-	TrieDBMutBuilder, TrieError, TrieLayout,
+	decode_compact, encode_compact,
+	node_db::{Hasher, EMPTY_PREFIX},
+	DBValue, NodeCodec, Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieError, TrieLayout,
 };
 
 use crate::TestDB;
 
-type MemoryDB<T> = memory_db::MemoryDB<
+type MemoryDB<T> = trie_db::memory_db::MemoryDB<
 	<T as TrieLayout>::Hash,
-	memory_db::HashKey<<T as TrieLayout>::Hash>,
+	trie_db::memory_db::HashKey<<T as TrieLayout>::Hash>,
 	DBValue,
 >;
 

@@ -19,7 +19,7 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-use hash_db::{Hasher as KeyHasher, MaybeDebug, NodeDB, Prefix};
+use crate::node_db::{Hasher as KeyHasher, MaybeDebug, NodeDB, Prefix};
 #[cfg(feature = "std")]
 use std::{
 	cmp::Eq, collections::hash_map::Entry, collections::HashMap as Map, hash, marker::PhantomData,
@@ -44,9 +44,10 @@ use alloc::vec::Vec;
 ///
 /// # Example
 /// ```rust
-///   use hash_db::{Hasher, EMPTY_PREFIX};
+///   use trie_db::node_db::Hasher;
+///   use trie_db::node_db::{EMPTY_PREFIX};
 ///   use keccak_hasher::KeccakHasher;
-///   use memory_db::{MemoryDB, HashKey};
+///   use trie_db::memory_db::{MemoryDB, HashKey};
 ///
 ///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default();
 ///   let d = "Hello world!".as_bytes();
@@ -283,13 +284,10 @@ where
 	///
 	/// # Examples
 	/// ```rust
-	/// extern crate hash_db;
-	/// extern crate keccak_hasher;
-	/// extern crate memory_db;
-	///
-	/// use hash_db::{Hasher, NodeDB, EMPTY_PREFIX};
+	/// use trie_db::node_db::Hasher;
+	/// use trie_db::node_db::{NodeDB, EMPTY_PREFIX};
 	/// use keccak_hasher::KeccakHasher;
-	/// use memory_db::{MemoryDB, HashKey};
+	/// use trie_db::memory_db::{MemoryDB, HashKey};
 	///
 	/// fn main() {
 	///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default();
@@ -451,9 +449,11 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-	use super::{HashKey, KeyHasher, MemoryDB};
-	use hash_db::EMPTY_PREFIX;
+mod test {
+	use crate::{
+		memory_db::{HashKey, MemoryDB},
+		node_db::{Hasher as KeyHasher, EMPTY_PREFIX},
+	};
 	use keccak_hasher::KeccakHasher;
 
 	#[test]

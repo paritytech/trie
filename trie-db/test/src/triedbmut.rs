@@ -15,15 +15,15 @@
 use std::ops::Deref;
 
 use env_logger;
-use hash_db::{Hasher, NodeDB, Prefix, EMPTY_PREFIX};
 use log::debug;
-use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
 	reference_trie_root, test_layouts, ExtensionLayout, HashedValueNoExt,
 	HashedValueNoExtThreshold, NoExtensionLayout, PrefixedMemoryDB, RefHasher, ReferenceNodeCodec,
 	ReferenceNodeCodecNoExt, TestTrieCache,
 };
 use trie_db::{
+	memory_db::{HashKey, MemoryDB, PrefixedKey},
+	node_db::{Hasher, NodeDB, Prefix, EMPTY_PREFIX},
 	CachedValue, Changeset, DBValue, NodeCodec, Recorder, Trie, TrieCache, TrieDBBuilder,
 	TrieDBMut, TrieDBMutBuilder, TrieDBNodeIterator, TrieError, TrieHash, TrieLayout, Value,
 };
@@ -535,7 +535,7 @@ fn register_proof_without_value() {
 	use Prefix;
 
 	type Layout = HashedValueNoExtThreshold<1, ()>;
-	type MemoryDB = memory_db::MemoryDB<RefHasher, PrefixedKey<RefHasher>, DBValue>;
+	type MemoryDB = trie_db::memory_db::MemoryDB<RefHasher, PrefixedKey<RefHasher>, DBValue>;
 	let x = [
 		(b"test1".to_vec(), vec![1; 32]), // inline
 		(b"test1234".to_vec(), vec![2; 36]),
@@ -593,10 +593,10 @@ fn register_proof_without_value() {
 	trie.remove(b"test1234").unwrap();
 
 	// proof should contain value for 'te' only.
-	type MemoryDBProof = memory_db::MemoryDB<RefHasher, memory_db::HashKey<RefHasher>, DBValue>;
+	type MemoryDBProof = trie_db::memory_db::MemoryDB<RefHasher, HashKey<RefHasher>, DBValue>;
 	let mut memdb_from_proof = MemoryDBProof::default();
 	for (_key, value) in memdb.record.into_inner().into_iter() {
-		memdb_from_proof.insert(hash_db::EMPTY_PREFIX, value.as_slice());
+		memdb_from_proof.insert(EMPTY_PREFIX, value.as_slice());
 	}
 
 	let db_unpacked = memdb_from_proof.clone();
@@ -1024,16 +1024,16 @@ fn attached_trie_root<T: TrieLayout, DB: TestDB<T>>(
 	Some((root_hash, location))
 }
 
-pub struct KeySpacedDB<'a, H, T, DL>(&'a dyn hash_db::NodeDB<H, T, DL>, &'a [u8]);
+pub struct KeySpacedDB<'a, H, T, DL>(&'a dyn NodeDB<H, T, DL>, &'a [u8]);
 
 impl<'a, H, T, DL> KeySpacedDB<'a, H, T, DL> {
 	#[inline]
-	pub fn new(db: &'a dyn hash_db::NodeDB<H, T, DL>, ks: &'a [u8]) -> Self {
+	pub fn new(db: &'a dyn NodeDB<H, T, DL>, ks: &'a [u8]) -> Self {
 		KeySpacedDB(db, ks)
 	}
 }
 
-impl<'a, H, T, L> hash_db::NodeDB<H, T, L> for KeySpacedDB<'a, H, T, L>
+impl<'a, H, T, L> NodeDB<H, T, L> for KeySpacedDB<'a, H, T, L>
 where
 	H: Hasher,
 	T: From<&'static [u8]>,

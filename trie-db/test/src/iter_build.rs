@@ -12,11 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
 	test_layouts, ExtensionLayout, HashedValueNoExt, HashedValueNoExtThreshold, NoExtensionLayout,
 };
-use trie_db::{DBValue, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieLayout};
+use trie_db::{
+	memory_db::{HashKey, MemoryDB, PrefixedKey},
+	DBValue, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieLayout,
+};
 
 use crate::TestDB;
 

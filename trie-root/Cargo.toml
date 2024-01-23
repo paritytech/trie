@@ -9,7 +9,7 @@ categories = [ "no-std" ]
 edition = "2018"
 
 [dependencies]
-hash-db = { path = "../hash-db", default-features = false, version = "0.16.0" }
+hash-db = { version = "0.16.0", default-features = false }
 
 [features]
 default = ["std"]

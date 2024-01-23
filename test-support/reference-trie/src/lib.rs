@@ -15,13 +15,13 @@
 //! Reference implementation of a streamer.
 
 use hashbrown::{hash_map::Entry, HashMap};
-use memory_db::MemoryDB;
 use parity_scale_codec::{Compact, Decode, Encode, Error as CodecError, Input, Output};
 use std::{borrow::Borrow, fmt, iter::once, marker::PhantomData, ops::Range};
 use trie_db::{
+	memory_db::{KeyFunction, MemoryDB, PrefixedKey},
 	nibble_ops,
 	node::{NibbleSlicePlan, NodeHandlePlan, NodeOwned, NodePlan, Value, ValuePlan},
-	trie_visit,
+	node_db, trie_visit,
 	triedbmut::ChildReference,
 	DBValue, Location, NodeCodec, Trie, TrieBuilder, TrieConfiguration, TrieDBBuilder,
 	TrieDBMutBuilder, TrieHash, TrieLayout, TrieRoot,
@@ -40,15 +40,15 @@ pub use substrate_like::{
 	NodeCodec as ReferenceNodeCodecNoExtMeta, ReferenceTrieStreamNoExt,
 };
 
-pub use mem_tree_db::{Location as MemLocation, MemTreeDB};
 pub use paste::paste;
 pub use substrate::{LayoutV0 as SubstrateV0, LayoutV1 as SubstrateV1};
+pub use trie_db::mem_tree_db::{Location as MemLocation, MemTreeDB};
 
 /// Reference hasher is a keccak hasher.
 pub type RefHasher = keccak_hasher::KeccakHasher;
 
 pub type PrefixedMemoryDB<T> =
-	MemoryDB<<T as TrieLayout>::Hash, memory_db::PrefixedKey<<T as TrieLayout>::Hash>, DBValue>;
+	MemoryDB<<T as TrieLayout>::Hash, PrefixedKey<<T as TrieLayout>::Hash>, DBValue>;
 
 /// Apply a test method on every test layouts.
 #[macro_export]
@@ -947,7 +947,7 @@ pub fn compare_implementations<T, K>(data: Vec<(Vec<u8>, Vec<u8>)>)
 where
 	T: TrieLayout,
 	T::Location: std::fmt::Debug,
-	K: memory_db::KeyFunction<T::Hash> + Send + Sync,
+	K: KeyFunction<T::Hash> + Send + Sync,
 {
 	let (mut mem_db1, _) = MemoryDB::<T::Hash, K, _>::default_with_root();
 	let (mut mem_db2, _) = MemoryDB::<T::Hash, K, _>::default_with_root();
@@ -961,7 +961,7 @@ where
 	};
 	if root_new != root {
 		{
-			let db: &dyn hash_db::NodeDB<_, _, _> = &mem_db1;
+			let db: &dyn node_db::NodeDB<_, _, _> = &mem_db1;
 			let t = TrieDBBuilder::<T>::new(db, &root_new).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -969,7 +969,7 @@ where
 			}
 		}
 		{
-			let db: &dyn hash_db::NodeDB<_, _, _> = &mem_db2;
+			let db: &dyn node_db::NodeDB<_, _, _> = &mem_db2;
 			let t = TrieDBBuilder::<T>::new(db, &root).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -984,7 +984,7 @@ where
 }
 
 /// Compare trie builder and trie root implementations.
-pub fn compare_root<T: TrieLayout, DB: hash_db::NodeDB<T::Hash, DBValue, T::Location>>(
+pub fn compare_root<T: TrieLayout, DB: node_db::NodeDB<T::Hash, DBValue, T::Location>>(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
 	memdb: DB,
 ) {
@@ -1041,14 +1041,14 @@ where
 /// Trie builder trie building utility.
 pub fn calc_root_build<T, I, A, B, K>(
 	data: I,
-	memdb: &mut memory_db::MemoryDB<T::Hash, K, DBValue>,
+	memdb: &mut MemoryDB<T::Hash, K, DBValue>,
 ) -> TrieHash<T>
 where
 	T: TrieLayout,
 	I: IntoIterator<Item = (A, B)>,
 	A: AsRef<[u8]> + Ord + fmt::Debug,
 	B: AsRef<[u8]> + fmt::Debug,
-	K: memory_db::KeyFunction<T::Hash> + Send + Sync,
+	K: KeyFunction<T::Hash> + Send + Sync,
 {
 	let mut cb = TrieBuilder::<T, K>::new(memdb);
 	trie_visit::<T, _, _, _, _>(data.into_iter(), &mut cb);
@@ -1062,7 +1062,7 @@ pub fn compare_implementations_unordered<T, K>(data: Vec<(Vec<u8>, Vec<u8>)>)
 where
 	T: TrieLayout,
 	T::Location: std::fmt::Debug,
-	K: memory_db::KeyFunction<T::Hash> + Send + Sync,
+	K: KeyFunction<T::Hash> + Send + Sync,
 {
 	let mut mem_db1 = MemoryDB::<T::Hash, K, _>::default();
 	let mut mem_db2 = MemoryDB::<T::Hash, K, _>::default();
@@ -1083,7 +1083,7 @@ where
 
 	if root != root_new {
 		{
-			let db: &dyn hash_db::NodeDB<_, _, _> = &mem_db1;
+			let db: &dyn node_db::NodeDB<_, _, _> = &mem_db1;
 			let t = TrieDBBuilder::<T>::new(db, &root).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -1091,7 +1091,7 @@ where
 			}
 		}
 		{
-			let db: &dyn hash_db::NodeDB<_, _, _> = &mem_db2;
+			let db: &dyn node_db::NodeDB<_, _, _> = &mem_db2;
 			let t = TrieDBBuilder::<T>::new(db, &root_new).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -1108,7 +1108,7 @@ where
 pub fn compare_insert_remove<T, K>(data: Vec<(bool, Vec<u8>, Vec<u8>)>)
 where
 	T: TrieLayout,
-	K: memory_db::KeyFunction<T::Hash> + Send + Sync,
+	K: KeyFunction<T::Hash> + Send + Sync,
 {
 	let mut data2 = std::collections::BTreeMap::new();
 	let mut a = 0;

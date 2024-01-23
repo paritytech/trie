@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use hash_db::Hasher;
 use reference_trie::{test_layouts, NoExtensionLayout};
+use trie_db::node_db::Hasher;
 
 use trie_db::{
 	proof::{generate_proof, verify_proof, VerifyError},
@@ -22,9 +22,9 @@ use trie_db::{
 
 use crate::TestDB;
 
-type MemoryDB<T> = memory_db::MemoryDB<
+type MemoryDB<T> = trie_db::memory_db::MemoryDB<
 	<T as TrieLayout>::Hash,
-	memory_db::HashKey<<T as TrieLayout>::Hash>,
+	trie_db::memory_db::HashKey<<T as TrieLayout>::Hash>,
 	DBValue,
 >;
 

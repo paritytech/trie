@@ -16,7 +16,7 @@
 
 use crate::rstd::{boxed::Box, convert::TryInto, marker::PhantomData, vec, vec::Vec};
 
-use hash_db::{Hasher, NodeDB};
+use crate::node_db::{Hasher, NodeDB};
 
 use crate::{
 	nibble::LeftNibbleSlice,

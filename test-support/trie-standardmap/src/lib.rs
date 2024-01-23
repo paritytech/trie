@@ -14,10 +14,10 @@
 
 //! Key-value datastore with a modified Merkle tree.
 
-use hash_db::Hasher;
 use keccak_hasher::KeccakHasher;
+use trie_db::node_db::Hasher;
 
-type H256 = <KeccakHasher as hash_db::Hasher>::Out;
+type H256 = <KeccakHasher as Hasher>::Out;
 
 /// Alphabet to use when creating words for insertion into tries.
 pub enum Alphabet {

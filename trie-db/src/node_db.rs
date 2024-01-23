@@ -25,8 +25,8 @@ use alloc::vec::Vec;
 use core::hash;
 #[cfg(feature = "std")]
 use std::fmt::Debug;
-#[cfg(feature = "std")]
-use std::hash;
+
+pub use hash_db::Hasher;
 
 #[cfg(feature = "std")]
 pub trait MaybeDebug: Debug {}
@@ -51,32 +51,6 @@ pub type Prefix<'a> = (&'a [u8], Option<u8>);
 /// Can be use when the prefix is not use internally
 /// or for root nodes.
 pub static EMPTY_PREFIX: Prefix<'static> = (&[], None);
-
-/// Trait describing an object that can hash a slice of bytes. Used to abstract
-/// other types over the hashing algorithm. Defines a single `hash` method and an
-/// `Out` associated type with the necessary bounds.
-pub trait Hasher: Sync + Send {
-	/// The output type of the `Hasher`
-	type Out: AsRef<[u8]>
-		+ AsMut<[u8]>
-		+ Default
-		+ MaybeDebug
-		+ core::cmp::Ord
-		+ PartialEq
-		+ Eq
-		+ hash::Hash
-		+ Send
-		+ Sync
-		+ Clone
-		+ Copy;
-	/// What to use to build `HashMap`s with this `Hasher`.
-	type StdHasher: Sync + Send + Default + hash::Hasher;
-	/// The length in bytes of the `Hasher` output.
-	const LENGTH: usize;
-
-	/// Compute the hash of the provided slice of bytes returning the `Out` type of the `Hasher`.
-	fn hash(x: &[u8]) -> Self::Out;
-}
 
 /// Trait modelling datastore keyed by a hash defined by the `Hasher` and optional location tag.
 pub trait NodeDB<H: Hasher, T, L>: Send + Sync {

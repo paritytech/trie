@@ -17,6 +17,7 @@ use crate::{
 	lookup::Lookup,
 	nibble::NibbleSlice,
 	node::{decode_hash, NodeHandle, OwnedNode},
+	node_db::{NodeDB, Prefix, EMPTY_PREFIX},
 	rstd::boxed::Box,
 	CError, DBValue, MerkleValue, Query, Result, Trie, TrieAccess, TrieCache,
 	TrieDoubleEndedIterator, TrieError, TrieHash, TrieItem, TrieIterator, TrieKeyItem, TrieLayout,
@@ -28,7 +29,6 @@ use crate::{
 	node::Node,
 	rstd::{fmt, vec::Vec},
 };
-use hash_db::{NodeDB, Prefix, EMPTY_PREFIX};
 
 /// A builder for creating a [`TrieDB`].
 pub struct TrieDBBuilder<'db, 'cache, L: TrieLayout> {
@@ -120,7 +120,7 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 ///
 /// # Example
 /// ```ignore
-/// use hash_db::Hasher;
+/// use trie_db::node_db::Hasher;
 /// use reference_trie::{RefTrieDBMut, RefTrieDB, Trie, TrieMut};
 /// use trie_db::DBValue;
 /// use keccak_hasher::KeccakHasher;

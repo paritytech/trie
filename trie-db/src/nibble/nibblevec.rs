@@ -19,8 +19,8 @@ use crate::{
 	nibble::{nibble_ops, BackingByteVec, NibbleSlice},
 	node::NodeKey,
 	node_codec::Partial,
+	node_db::Prefix,
 };
-use hash_db::Prefix;
 
 impl Default for NibbleVec {
 	fn default() -> Self {

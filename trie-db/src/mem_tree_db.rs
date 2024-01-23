@@ -16,8 +16,10 @@
 
 use std::collections::HashMap;
 
-use hash_db::{Hasher, NodeDB, Prefix};
-use trie_db::{Changeset, NewChangesetNode};
+use crate::{
+	node_db::{Hasher, NodeDB, Prefix},
+	Changeset, NewChangesetNode,
+};
 
 /// Node location which is just an index into the `nodes` vector.
 pub type Location = Option<usize>;
@@ -223,11 +225,12 @@ where
 
 #[cfg(test)]
 mod tests {
-
-	use super::{Location, MemTreeDB, NodeEntry};
-	use hash_db::{Hasher, NodeDB};
+	use super::{MemTreeDB, NodeEntry};
+	use crate::{
+		node_db::{Hasher, NodeDB},
+		Changeset, ExistingChangesetNode, NewChangesetNode,
+	};
 	use keccak_hasher::{KeccakHash, KeccakHasher};
-	use trie_db::{Changeset, ExistingChangesetNode, NewChangesetNode};
 
 	fn hash(i: u32) -> KeccakHash {
 		KeccakHasher::hash(&i.to_le_bytes())
@@ -275,16 +278,13 @@ mod tests {
 	#[test]
 	fn test_apply_commit() {
 		let mut db = MemTreeDB::<KeccakHasher>::default();
-		let commit = Changeset::<KeccakHash, Location> {
-			root: Changeset::New(NewChangesetNode {
-				hash: KeccakHash::default(),
-				prefix: Default::default(),
-				data: vec![1, 2, 3],
-				children: vec![],
-				removed_keys: None,
-			}),
-			removed: Default::default(),
-		};
+		let commit = Changeset::New(NewChangesetNode {
+			hash: KeccakHash::default(),
+			prefix: Default::default(),
+			data: vec![1, 2, 3],
+			children: vec![],
+			removed_keys: None,
+		});
 		db.apply_commit(commit);
 		assert_eq!(db.roots.len(), 1);
 	}
@@ -310,7 +310,7 @@ mod tests {
 		});
 
 		// Create a root node that refers to the child nodes
-		let root = Changeset::New(NewChangesetNode {
+		let commit = Changeset::New(NewChangesetNode {
 			hash: hash(0),
 			prefix: Default::default(),
 			data: vec![7, 8, 9],
@@ -318,7 +318,6 @@ mod tests {
 			removed_keys: None,
 		});
 
-		let commit = Changeset::<KeccakHash, Location> { root, removed: Default::default() };
 		db.apply_commit(commit);
 
 		// Check that the root node and child nodes are in the database

@@ -8,4 +8,4 @@ edition = "2018"
 
 [dependencies]
 keccak-hasher = { path = "../keccak-hasher", version = "0.16.0"}
-hash-db = { path = "../../hash-db" , version = "0.16.0"}
+trie-db = { path = "../../trie-db" , version = "0.28.0"}

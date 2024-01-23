@@ -18,15 +18,15 @@
 //! See `trie_visit` function.
 
 use crate::{
+	memory_db::{KeyFunction, MemoryDB},
 	nibble::{nibble_ops, NibbleSlice},
 	node::Value,
 	node_codec::NodeCodec,
+	node_db::{Hasher, Prefix, EMPTY_PREFIX},
 	rstd::{cmp::max, marker::PhantomData, vec::Vec},
 	triedbmut::ChildReference,
 	DBValue, TrieHash, TrieLayout,
 };
-use hash_db::{Hasher, Prefix};
-use memory_db::MemoryDB;
 
 macro_rules! exponential_out {
 	(@3, [$($inpp:expr),*]) => { exponential_out!(@2, [$($inpp,)* $($inpp),*]) };
@@ -331,7 +331,7 @@ where
 		}
 	} else {
 		// nothing null root corner case
-		callback.process(hash_db::EMPTY_PREFIX, T::Codec::empty_node().to_vec(), true);
+		callback.process(EMPTY_PREFIX, T::Codec::empty_node().to_vec(), true);
 	}
 }
 
@@ -358,18 +358,18 @@ pub trait ProcessEncodedNode<HO> {
 /// Get trie root and insert visited node in a hash_db.
 /// As for all `ProcessEncodedNode` implementation, it
 /// is only for full trie parsing (not existing trie).
-pub struct TrieBuilder<'a, T: TrieLayout, K: memory_db::KeyFunction<T::Hash> + Send + Sync> {
+pub struct TrieBuilder<'a, T: TrieLayout, K: KeyFunction<T::Hash> + Send + Sync> {
 	db: &'a mut MemoryDB<T::Hash, K, DBValue>,
 	pub root: Option<TrieHash<T>>,
 }
 
-impl<'a, T: TrieLayout, K: memory_db::KeyFunction<T::Hash> + Send + Sync> TrieBuilder<'a, T, K> {
+impl<'a, T: TrieLayout, K: KeyFunction<T::Hash> + Send + Sync> TrieBuilder<'a, T, K> {
 	pub fn new(db: &'a mut MemoryDB<T::Hash, K, DBValue>) -> Self {
 		TrieBuilder { db, root: None }
 	}
 }
 
-impl<'a, T, K: memory_db::KeyFunction<T::Hash> + Send + Sync> ProcessEncodedNode<TrieHash<T>>
+impl<'a, T, K: KeyFunction<T::Hash> + Send + Sync> ProcessEncodedNode<TrieHash<T>>
 	for TrieBuilder<'a, T, K>
 where
 	T: TrieLayout,

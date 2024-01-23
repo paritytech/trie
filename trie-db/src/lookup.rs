@@ -18,11 +18,11 @@ use crate::{
 	nibble::NibbleSlice,
 	node::{decode_hash, Node, NodeHandle, NodeHandleOwned, NodeOwned, Value, ValueOwned},
 	node_codec::NodeCodec,
+	node_db::{Hasher, NodeDB, Prefix},
 	rstd::{boxed::Box, vec::Vec},
 	Bytes, CError, CachedValue, DBValue, MerkleValue, Query, RecordedForKey, Result, TrieAccess,
 	TrieCache, TrieError, TrieHash, TrieLayout, TrieRecorder,
 };
-use hash_db::{Hasher, NodeDB, Prefix};
 
 /// Trie lookup helper object.
 pub struct Lookup<'a, 'cache, L: TrieLayout, Q: Query<L::Hash>> {

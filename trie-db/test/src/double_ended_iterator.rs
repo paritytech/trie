@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use hash_db::Hasher;
 use hex_literal::hex;
 use reference_trie::test_layouts;
 use trie_db::{
-	node::Node, NibbleSlice, TrieDBBuilder, TrieDBNodeDoubleEndedIterator, TrieDoubleEndedIterator,
-	TrieLayout,
+	node::Node, node_db::Hasher, NibbleSlice, TrieDBBuilder, TrieDBNodeDoubleEndedIterator,
+	TrieDoubleEndedIterator, TrieLayout,
 };
 
 use crate::{

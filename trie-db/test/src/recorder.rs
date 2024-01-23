@@ -14,9 +14,11 @@
 
 //! Trie query recorder.
 
-use memory_db::{HashKey, MemoryDB};
 use reference_trie::{NoExtensionLayout, RefHasher, RefTrieDBBuilder, RefTrieDBMutBuilder};
-use trie_db::{Recorder, Trie};
+use trie_db::{
+	memory_db::{HashKey, MemoryDB},
+	Recorder, Trie,
+};
 
 #[test]
 fn trie_record() {

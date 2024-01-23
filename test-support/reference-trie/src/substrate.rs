@@ -17,12 +17,12 @@
 //! Codec and layout directly copy-pasted from substrate with minimal modifications.
 
 use core::{borrow::Borrow, iter::once, marker::PhantomData, ops::Range};
-use hash_db::Hasher;
 use parity_scale_codec as codec;
 use parity_scale_codec::{Compact, Decode, Encode, Input, Output};
 use trie_db::{
 	nibble_ops,
 	node::{NibbleSlicePlan, NodeHandlePlan, NodePlan, Value, ValuePlan},
+	node_db::Hasher,
 	ChildReference, NodeCodec as NodeCodecT, TrieConfiguration, TrieLayout,
 };
 

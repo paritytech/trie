@@ -27,7 +27,7 @@ use crate::{
 	TrieRecorder,
 };
 
-use hash_db::{Hasher, NodeDB, Prefix};
+use crate::node_db::{Hasher, NodeDB, Prefix};
 
 #[cfg(feature = "std")]
 use std::collections::HashSet as Set;
@@ -35,9 +35,9 @@ use std::collections::HashSet as Set;
 #[cfg(not(feature = "std"))]
 use alloc::collections::btree_set::BTreeSet as Set;
 
+use crate::memory_db::{KeyFunction, MemoryDB};
 #[cfg(feature = "std")]
 use log::trace;
-use memory_db::MemoryDB;
 
 #[cfg(feature = "std")]
 use crate::rstd::fmt::{self, Debug};
@@ -791,7 +791,7 @@ pub fn prefix_prefix(ks: &[u8], prefix: Prefix) -> (Vec<u8>, Option<u8>) {
 impl<H: Copy, DL: Default> Changeset<H, DL> {
 	pub fn apply_to<K, MH>(&self, mem_db: &mut MemoryDB<MH, K, DBValue>) -> H
 	where
-		K: memory_db::KeyFunction<MH> + Send + Sync,
+		K: KeyFunction<MH> + Send + Sync,
 		MH: Hasher<Out = H> + Send + Sync,
 	{
 		fn apply_node<'a, H, DL, MH, K>(
@@ -799,7 +799,7 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 			mem_db: &mut MemoryDB<MH, K, DBValue>,
 			mut ks: Option<&'a [u8]>,
 		) where
-			K: memory_db::KeyFunction<MH> + Send + Sync,
+			K: KeyFunction<MH> + Send + Sync,
 			MH: Hasher<Out = H> + Send + Sync,
 		{
 			match node {
@@ -850,11 +850,11 @@ pub type OwnedPrefix = (BackingByteVec, Option<u8>);
 ///
 /// # Example
 /// ```ignore
-/// use hash_db::Hasher;
+/// use trie_db::node_db::Hasher;
 /// use reference_trie::{RefTrieDBMut, TrieMut};
 /// use trie_db::DBValue;
 /// use keccak_hasher::KeccakHasher;
-/// use memory_db::*;
+/// use trie_db::memory_db::*;
 ///
 /// let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 /// let mut root = Default::default();

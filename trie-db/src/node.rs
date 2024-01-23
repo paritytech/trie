@@ -15,11 +15,11 @@
 use crate::{
 	nibble::{self, nibble_ops, NibbleSlice, NibbleVec},
 	node_codec::NodeCodec,
+	node_db::Hasher,
 	Bytes, CError, ChildReference, Result, TrieError, TrieHash, TrieLayout,
 };
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec::Vec};
-use hash_db::Hasher;
 
 use crate::rstd::{borrow::Borrow, mem, ops::Range};
 

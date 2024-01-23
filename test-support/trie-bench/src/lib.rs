@@ -15,12 +15,14 @@
 //! Standard trie benchmarking tool.
 
 use criterion::{black_box, BenchmarkId, Criterion};
-use hash_db::Hasher;
 use keccak_hasher::KeccakHasher;
-use memory_db::{HashKey, MemoryDB};
 use parity_scale_codec::{Compact, Encode};
 use std::default::Default;
-use trie_db::{NodeCodec, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieLayout};
+use trie_db::{
+	memory_db::{HashKey, MemoryDB},
+	node_db::Hasher,
+	NodeCodec, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieLayout,
+};
 use trie_root::{trie_root, TrieStream};
 use trie_standardmap::*;
 
@@ -79,7 +81,7 @@ fn benchmark<L: TrieLayout, S: TrieStream>(
 				}
 				t.commit()
 			};
-			let root = commit.root.hash();
+			let root = commit.hash();
 			commit.apply_to(&mut memdb);
 			b.iter(&mut || {
 				let t = TrieDBBuilder::<L>::new(&memdb, &root).build();

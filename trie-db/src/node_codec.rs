@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Generic trait for trie node encoding/decoding. Takes a `hash_db::Hasher`
+//! Generic trait for trie node encoding/decoding. Takes a `trie_db::node_db::Hasher`
 //! to parametrize the hashes used in the codec.
 
 use crate::{

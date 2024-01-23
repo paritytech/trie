@@ -45,11 +45,14 @@ mod rstd {
 use self::rstd::{fmt, Error};
 
 use self::rstd::{boxed::Box, vec::Vec};
-use hash_db::MaybeDebug;
 pub use iterator::TrieDBNodeDoubleEndedIterator;
 use node::NodeOwned;
+use node_db::MaybeDebug;
 
+pub mod mem_tree_db;
+pub mod memory_db;
 pub mod node;
+pub mod node_db;
 pub mod proof;
 pub mod recorder;
 pub mod triedb;
@@ -72,13 +75,13 @@ pub use self::{
 		TrieDBMutBuilder, Value,
 	},
 };
+use crate::node_db::Hasher;
 pub use crate::{
 	iter_build::{trie_visit, ProcessEncodedNode, TrieBuilder, TrieRoot, TrieRootUnhashed},
 	iterator::{TrieDBNodeIterator, TrieDBRawIterator},
 	node_codec::{NodeCodec, Partial},
 	trie_codec::{decode_compact, decode_compact_from_iter, encode_compact},
 };
-pub use hash_db::{Hasher, NodeDB};
 
 #[cfg(feature = "std")]
 pub use crate::iter_build::TrieRootPrint;

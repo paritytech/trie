@@ -31,7 +31,7 @@ impl TrieLayout for HashedValueNoExt {
 
 	type Hash = RefHasher;
 	type Codec = ReferenceNodeCodecNoExtMeta<RefHasher>;
-	type Location = mem_tree_db::Location;
+	type Location = trie_db::mem_tree_db::Location;
 }
 
 impl<const C: u32, L: trie_db::Location> TrieLayout for HashedValueNoExtThreshold<C, L> {
