@@ -739,7 +739,6 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 			root: self.root,
 			cache: self.cache,
 			recorder: self.recorder.map(core::cell::RefCell::new),
-			hash_count: 0,
 			storage: NodeStorage::empty(),
 			death_row: Default::default(),
 			death_row_child: Default::default(),
@@ -877,9 +876,6 @@ where
 	root_handle: NodeHandle<TrieHash<L>, L::Location>,
 	death_row: Set<(TrieHash<L>, OwnedPrefix)>,
 	death_row_child: Vec<TreeRefChangeset<L>>,
-	/// The number of hash operations this trie has performed.
-	/// Note that none are performed until changes are committed.
-	hash_count: usize,
 	/// Optional cache for speeding up the lookup of nodes.
 	cache: Option<&'a mut dyn TrieCache<L::Codec, L::Location>>,
 	/// Optional trie recorder for recording trie accesses.
@@ -2063,7 +2059,6 @@ where
 				trace!(target: "trie", "encoded root node: {:?}", ToHex(&encoded_root[..]));
 
 				self.root = self.db.hash(&encoded_root);
-				self.hash_count += 1;
 
 				self.cache_node(self.root);
 
@@ -2189,7 +2184,6 @@ where
 								children: sub_children,
 								removed_keys: None,
 							}));
-							self.hash_count += 1;
 							ChildReference::Hash(hash, Default::default())
 						} else {
 							// it's a small value, so we cram it into a `TrieHash<L>`
