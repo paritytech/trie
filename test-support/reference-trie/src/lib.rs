@@ -961,7 +961,7 @@ where
 	};
 	if root_new != root {
 		{
-			let db: &dyn hash_db::HashDB<_, _, _> = &mem_db1;
+			let db: &dyn hash_db::NodeDB<_, _, _> = &mem_db1;
 			let t = TrieDBBuilder::<T>::new(db, &root_new).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -969,7 +969,7 @@ where
 			}
 		}
 		{
-			let db: &dyn hash_db::HashDB<_, _, _> = &mem_db2;
+			let db: &dyn hash_db::NodeDB<_, _, _> = &mem_db2;
 			let t = TrieDBBuilder::<T>::new(db, &root).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -984,7 +984,7 @@ where
 }
 
 /// Compare trie builder and trie root implementations.
-pub fn compare_root<T: TrieLayout, DB: hash_db::HashDB<T::Hash, DBValue, T::Location>>(
+pub fn compare_root<T: TrieLayout, DB: hash_db::NodeDB<T::Hash, DBValue, T::Location>>(
 	data: Vec<(Vec<u8>, Vec<u8>)>,
 	memdb: DB,
 ) {
@@ -1083,7 +1083,7 @@ where
 
 	if root != root_new {
 		{
-			let db: &dyn hash_db::HashDB<_, _, _> = &mem_db1;
+			let db: &dyn hash_db::NodeDB<_, _, _> = &mem_db1;
 			let t = TrieDBBuilder::<T>::new(db, &root).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {
@@ -1091,7 +1091,7 @@ where
 			}
 		}
 		{
-			let db: &dyn hash_db::HashDB<_, _, _> = &mem_db2;
+			let db: &dyn hash_db::NodeDB<_, _, _> = &mem_db2;
 			let t = TrieDBBuilder::<T>::new(db, &root_new).build();
 			println!("{:?}", t);
 			for a in t.iter().unwrap() {

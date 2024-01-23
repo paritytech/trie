@@ -37,7 +37,7 @@ use hash_db::{Hasher, Prefix};
 use mem_tree_db::MemTreeDB;
 use trie_db::{Changeset, DBValue, TrieHash, TrieLayout};
 
-trait TestDB<T: TrieLayout>: hash_db::HashDB<T::Hash, DBValue, T::Location> + Clone + Default {
+trait TestDB<T: TrieLayout>: hash_db::NodeDB<T::Hash, DBValue, T::Location> + Clone + Default {
 	fn commit(
 		&mut self,
 		commit: trie_db::Changeset<<<T as TrieLayout>::Hash as Hasher>::Out, T::Location>,

@@ -28,11 +28,11 @@ use crate::{
 	node::Node,
 	rstd::{fmt, vec::Vec},
 };
-use hash_db::{HashDB, Prefix, EMPTY_PREFIX};
+use hash_db::{NodeDB, Prefix, EMPTY_PREFIX};
 
 /// A builder for creating a [`TrieDB`].
 pub struct TrieDBBuilder<'db, 'cache, L: TrieLayout> {
-	db: &'db dyn HashDB<L::Hash, DBValue, L::Location>,
+	db: &'db dyn NodeDB<L::Hash, DBValue, L::Location>,
 	root: &'db TrieHash<L>,
 	root_location: L::Location,
 	cache: Option<&'cache mut dyn TrieCache<L::Codec, L::Location>>,
@@ -45,14 +45,14 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 	/// This doesn't check if `root` exists in the given `db`. If `root` doesn't exist it will fail
 	/// when trying to lookup any key.
 	#[inline]
-	pub fn new(db: &'db dyn HashDB<L::Hash, DBValue, L::Location>, root: &'db TrieHash<L>) -> Self {
+	pub fn new(db: &'db dyn NodeDB<L::Hash, DBValue, L::Location>, root: &'db TrieHash<L>) -> Self {
 		Self { db, root, cache: None, recorder: None, root_location: Default::default() }
 	}
 
 	/// Same as `new` but indicating db location of root. Warning root hash will not be checked.
 	#[inline]
 	pub fn new_with_db_location(
-		db: &'db dyn HashDB<L::Hash, DBValue, L::Location>,
+		db: &'db dyn NodeDB<L::Hash, DBValue, L::Location>,
 		root: &'db TrieHash<L>,
 		root_location: L::Location,
 	) -> Self {
@@ -111,7 +111,7 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 	}
 }
 
-/// A `Trie` implementation using a generic `HashDB` backing database, a `Hasher`
+/// A `Trie` implementation using a generic `NodeDB` backing database, a `Hasher`
 /// implementation to generate keys and a `NodeCodec` implementation to encode/decode
 /// the nodes.
 ///
@@ -137,7 +137,7 @@ pub struct TrieDB<'db, 'cache, L>
 where
 	L: TrieLayout,
 {
-	db: &'db dyn HashDB<L::Hash, DBValue, L::Location>,
+	db: &'db dyn NodeDB<L::Hash, DBValue, L::Location>,
 	root: &'db TrieHash<L>,
 	root_location: L::Location,
 	cache: Option<core::cell::RefCell<&'cache mut dyn TrieCache<L::Codec, L::Location>>>,
@@ -149,7 +149,7 @@ where
 	L: TrieLayout,
 {
 	/// Get the backing database.
-	pub fn db(&'db self) -> &'db dyn HashDB<L::Hash, DBValue, L::Location> {
+	pub fn db(&'db self) -> &'db dyn NodeDB<L::Hash, DBValue, L::Location> {
 		self.db
 	}
 

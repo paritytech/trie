@@ -730,7 +730,7 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 	}
 
 	/// Access inner hash db.
-	pub fn db(&self) -> &dyn hash_db::HashDB<L::Hash, DBValue, L::Location> {
+	pub fn db(&self) -> &dyn hash_db::NodeDB<L::Hash, DBValue, L::Location> {
 		self.db.db()
 	}
 
@@ -828,7 +828,7 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeDoubleEndedIterator<'a, 'cache, L> {
 	}
 
 	/// Access inner hash db.
-	pub fn db(&self) -> &dyn hash_db::HashDB<L::Hash, DBValue, L::Location> {
+	pub fn db(&self) -> &dyn hash_db::NodeDB<L::Hash, DBValue, L::Location> {
 		self.db.db()
 	}
 }

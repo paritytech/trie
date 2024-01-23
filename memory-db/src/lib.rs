@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Reference-counted memory-based `HashDB` implementation.
+//! Reference-counted memory-based `NodeDB` implementation.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-use hash_db::{HashDB, Hasher as KeyHasher, MaybeDebug, Prefix};
+use hash_db::{Hasher as KeyHasher, MaybeDebug, NodeDB, Prefix};
 #[cfg(feature = "std")]
 use std::{
 	cmp::Eq, collections::hash_map::Entry, collections::HashMap as Map, hash, marker::PhantomData,
@@ -35,7 +35,7 @@ use core::{cmp::Eq, hash, marker::PhantomData, mem};
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-/// Reference-counted memory-based `HashDB` implementation.
+/// Reference-counted memory-based `NodeDB` implementation.
 ///
 /// Use `new()` to create a new database. Insert items with `insert()`, remove items
 /// with `remove()`, check for existence with `contains()` and lookup a hash to derive
@@ -287,7 +287,7 @@ where
 	/// extern crate keccak_hasher;
 	/// extern crate memory_db;
 	///
-	/// use hash_db::{Hasher, HashDB, EMPTY_PREFIX};
+	/// use hash_db::{Hasher, NodeDB, EMPTY_PREFIX};
 	/// use keccak_hasher::KeccakHasher;
 	/// use memory_db::{MemoryDB, HashKey};
 	///
@@ -356,7 +356,7 @@ where
 	}
 }
 
-impl<H, KF, T, L> HashDB<H, T, L> for MemoryDB<H, KF, T>
+impl<H, KF, T, L> NodeDB<H, T, L> for MemoryDB<H, KF, T>
 where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,

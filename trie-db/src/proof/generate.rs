@@ -16,7 +16,7 @@
 
 use crate::rstd::{boxed::Box, convert::TryInto, marker::PhantomData, vec, vec::Vec};
 
-use hash_db::{HashDB, Hasher};
+use hash_db::{Hasher, NodeDB};
 
 use crate::{
 	nibble::LeftNibbleSlice,
@@ -225,7 +225,7 @@ pub fn generate_proof<'a, D, L, I, K>(
 	keys: I,
 ) -> TrieResult<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 where
-	D: HashDB<L::Hash, DBValue, L::Location>,
+	D: NodeDB<L::Hash, DBValue, L::Location>,
 	L: TrieLayout,
 	I: IntoIterator<Item = &'a K>,
 	K: 'a + AsRef<[u8]>,

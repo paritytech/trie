@@ -15,7 +15,7 @@
 use std::ops::Deref;
 
 use env_logger;
-use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
+use hash_db::{Hasher, NodeDB, Prefix, EMPTY_PREFIX};
 use log::debug;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
 use reference_trie::{
@@ -35,7 +35,7 @@ type MemoryDBProof<T> =
 	MemoryDB<<T as TrieLayout>::Hash, HashKey<<T as TrieLayout>::Hash>, DBValue>;
 
 fn populate_trie<'db, T: TrieLayout>(
-	db: &'db dyn HashDB<T::Hash, DBValue, T::Location>,
+	db: &'db dyn NodeDB<T::Hash, DBValue, T::Location>,
 	v: &[(Vec<u8>, Vec<u8>)],
 ) -> TrieDBMut<'db, T> {
 	let mut t = TrieDBMutBuilder::<T>::new(db).build();
@@ -558,14 +558,14 @@ fn register_proof_without_value() {
 	unsafe impl Send for ProofRecorder {}
 	unsafe impl Sync for ProofRecorder {}
 
-	impl HashDB<RefHasher, DBValue, ()> for ProofRecorder {
+	impl NodeDB<RefHasher, DBValue, ()> for ProofRecorder {
 		fn get(
 			&self,
 			key: &<RefHasher as Hasher>::Out,
 			prefix: Prefix,
 			_location: (),
 		) -> Option<(DBValue, Vec<()>)> {
-			let v = HashDB::get(&self.db, key, prefix, ());
+			let v = NodeDB::get(&self.db, key, prefix, ());
 			if let Some((v, _)) = v.as_ref() {
 				self.record.borrow_mut().entry(key[..].to_vec()).or_insert_with(|| v.clone());
 			}
@@ -925,7 +925,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		let (attached_trie_root, attached_trie_location) =
 			attached_trie_root(&memdb, &main_trie.root, root_key).unwrap();
 
-		let child_memdb: &dyn HashDB<_, _, _> = if support_location {
+		let child_memdb: &dyn NodeDB<_, _, _> = if support_location {
 			&memdb
 		} else {
 			assert!(attached_trie_location.is_none());
@@ -949,7 +949,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		attached_trie_root(&memdb, &main_trie.root, &root_key).unwrap();
 	let (tree_ref_changeset, child_root_hash) = {
 		assert_eq!(a_attached_trie_root, a_attached_trie.root);
-		let child_memdb: &dyn HashDB<_, _, _> = if support_location {
+		let child_memdb: &dyn NodeDB<_, _, _> = if support_location {
 			&memdb
 		} else {
 			keyspaced_memdb = KeySpacedDB::new(&memdb, &root_key[..]);
@@ -979,7 +979,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 	// checking modification
 	let (a_attached_trie_root, attached_trie_location) =
 		attached_trie_root(&memdb, &main_root, root_key).unwrap();
-	let child_memdb: &dyn HashDB<_, _, _> = if support_location {
+	let child_memdb: &dyn NodeDB<_, _, _> = if support_location {
 		&memdb
 	} else {
 		keyspaced_memdb = KeySpacedDB::new(&memdb, &root_key[..]);
@@ -1027,16 +1027,16 @@ fn attached_trie_root<T: TrieLayout, DB: TestDB<T>>(
 	Some((root_hash, location))
 }
 
-pub struct KeySpacedDB<'a, H, T, DL>(&'a dyn hash_db::HashDB<H, T, DL>, &'a [u8]);
+pub struct KeySpacedDB<'a, H, T, DL>(&'a dyn hash_db::NodeDB<H, T, DL>, &'a [u8]);
 
 impl<'a, H, T, DL> KeySpacedDB<'a, H, T, DL> {
 	#[inline]
-	pub fn new(db: &'a dyn hash_db::HashDB<H, T, DL>, ks: &'a [u8]) -> Self {
+	pub fn new(db: &'a dyn hash_db::NodeDB<H, T, DL>, ks: &'a [u8]) -> Self {
 		KeySpacedDB(db, ks)
 	}
 }
 
-impl<'a, H, T, L> hash_db::HashDB<H, T, L> for KeySpacedDB<'a, H, T, L>
+impl<'a, H, T, L> hash_db::NodeDB<H, T, L> for KeySpacedDB<'a, H, T, L>
 where
 	H: Hasher,
 	T: From<&'static [u8]>,

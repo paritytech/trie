@@ -78,7 +78,7 @@ pub use crate::{
 	node_codec::{NodeCodec, Partial},
 	trie_codec::{decode_compact, decode_compact_from_iter, encode_compact},
 };
-pub use hash_db::{HashDB, Hasher};
+pub use hash_db::{Hasher, NodeDB};
 
 #[cfg(feature = "std")]
 pub use crate::iter_build::TrieRootPrint;

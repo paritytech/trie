@@ -12,17 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Flat memory-based `HashDB` implementation.
+//! Flat memory-based `NodeDB` implementation.
 
 use std::collections::HashMap;
 
-use hash_db::{HashDB, Hasher, Prefix};
+use hash_db::{Hasher, NodeDB, Prefix};
 use trie_db::{Changeset, ChangesetNodeRef};
 
 /// Node location which is just an index into the `nodes` vector.
 pub type Location = Option<usize>;
 
-/// Tree based `HashDB` implementation.
+/// Tree based `NodeDB` implementation.
 #[derive(Clone)]
 pub struct MemTreeDB<H>
 where
@@ -173,7 +173,7 @@ where
 	}
 }
 
-impl<H> HashDB<H, Vec<u8>, Location> for MemTreeDB<H>
+impl<H> NodeDB<H, Vec<u8>, Location> for MemTreeDB<H>
 where
 	H: Hasher,
 {
@@ -221,7 +221,7 @@ where
 mod tests {
 
 	use super::{Location, MemTreeDB, NodeEntry};
-	use hash_db::{HashDB, Hasher};
+	use hash_db::{Hasher, NodeDB};
 	use keccak_hasher::{KeccakHash, KeccakHasher};
 	use trie_db::{Changeset, ChangesetNodeRef, ExistingChangesetNode, NewChangesetNode};
 

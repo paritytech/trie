@@ -79,7 +79,7 @@ pub trait Hasher: Sync + Send {
 }
 
 /// Trait modelling datastore keyed by a hash defined by the `Hasher` and optional location tag.
-pub trait HashDB<H: Hasher, T, L>: Send + Sync {
+pub trait NodeDB<H: Hasher, T, L>: Send + Sync {
 	/// Look up a trie node by hash and location.
 	/// Returns the node bytes and the list of children node locations if any.
 	fn get(&self, key: &H::Out, prefix: Prefix, location: L) -> Option<(T, Vec<L>)>;

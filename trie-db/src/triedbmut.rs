@@ -27,7 +27,7 @@ use crate::{
 	TrieRecorder,
 };
 
-use hash_db::{HashDB, Hasher, Prefix};
+use hash_db::{Hasher, NodeDB, Prefix};
 
 #[cfg(feature = "std")]
 use std::collections::HashSet as Set;
@@ -189,7 +189,7 @@ impl<L: TrieLayout> Value<L> {
 	fn in_memory_fetched_value(
 		&self,
 		prefix: Prefix,
-		db: &dyn HashDB<L::Hash, DBValue, L::Location>,
+		db: &dyn NodeDB<L::Hash, DBValue, L::Location>,
 		recorder: &Option<core::cell::RefCell<&mut dyn TrieRecorder<TrieHash<L>, L::Location>>>,
 		full_key: &[u8],
 	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
@@ -659,7 +659,7 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for NodeStorage<L> {
 
 /// A builder for creating a [`TrieDBMut`].
 pub struct TrieDBMutBuilder<'db, L: TrieLayout> {
-	db: &'db dyn HashDB<L::Hash, DBValue, L::Location>,
+	db: &'db dyn NodeDB<L::Hash, DBValue, L::Location>,
 	root: TrieHash<L>,
 	root_location: L::Location,
 	cache: Option<&'db mut dyn TrieCache<L::Codec, L::Location>>,
@@ -669,7 +669,7 @@ pub struct TrieDBMutBuilder<'db, L: TrieLayout> {
 impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 	/// Create a builder for constructing a new trie with the backing database `db` and empty
 	/// `root`.
-	pub fn new(db: &'db dyn HashDB<L::Hash, DBValue, L::Location>) -> Self {
+	pub fn new(db: &'db dyn NodeDB<L::Hash, DBValue, L::Location>) -> Self {
 		let root = L::Codec::hashed_null_node();
 		Self { root, db, cache: None, recorder: None, root_location: Default::default() }
 	}
@@ -679,7 +679,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 	/// This doesn't check if `root` exists in the given `db`. If `root` doesn't exist it will fail
 	/// when trying to lookup any key.
 	pub fn from_existing(
-		db: &'db dyn HashDB<L::Hash, DBValue, L::Location>,
+		db: &'db dyn NodeDB<L::Hash, DBValue, L::Location>,
 		root: TrieHash<L>,
 	) -> Self {
 		Self { db, root, cache: None, recorder: None, root_location: Default::default() }
@@ -688,7 +688,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 	/// Same as `from_existing` but force a db location to access root.
 	/// Note root in parameter is not checked.
 	pub fn from_existing_with_db_location(
-		db: &'db dyn HashDB<L::Hash, DBValue, L::Location>,
+		db: &'db dyn NodeDB<L::Hash, DBValue, L::Location>,
 		root: TrieHash<L>,
 		root_location: L::Location,
 	) -> Self {
@@ -875,7 +875,7 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 
 pub type OwnedPrefix = (BackingByteVec, Option<u8>);
 
-/// A `Trie` implementation using a generic `HashDB` backing database.
+/// A `Trie` implementation using a generic `NodeDB` backing database.
 ///
 /// Use it as a `TrieMut` trait object. You can use `db()` to get the backing database object.
 /// Note that changes are not committed to the database until `commit` is called.
@@ -905,7 +905,7 @@ where
 	L: TrieLayout,
 {
 	storage: NodeStorage<L>,
-	db: &'a dyn HashDB<L::Hash, DBValue, L::Location>,
+	db: &'a dyn NodeDB<L::Hash, DBValue, L::Location>,
 	root: TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>, L::Location>,
 	death_row: Set<(TrieHash<L>, OwnedPrefix)>,
@@ -924,7 +924,7 @@ where
 	L: TrieLayout,
 {
 	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue, L::Location> {
+	pub fn db(&self) -> &dyn NodeDB<L::Hash, DBValue, L::Location> {
 		self.db
 	}
 

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Trie lookup via HashDB.
+//! Trie lookup via NodeDB.
 
 use crate::{
 	nibble::NibbleSlice,
@@ -22,12 +22,12 @@ use crate::{
 	Bytes, CError, CachedValue, DBValue, MerkleValue, Query, RecordedForKey, Result, TrieAccess,
 	TrieCache, TrieError, TrieHash, TrieLayout, TrieRecorder,
 };
-use hash_db::{HashDB, Hasher, Prefix};
+use hash_db::{Hasher, NodeDB, Prefix};
 
 /// Trie lookup helper object.
 pub struct Lookup<'a, 'cache, L: TrieLayout, Q: Query<L::Hash>> {
 	/// database to query from.
-	pub db: &'a dyn HashDB<L::Hash, DBValue, L::Location>,
+	pub db: &'a dyn NodeDB<L::Hash, DBValue, L::Location>,
 	/// Query object to record nodes and transform data.
 	pub query: Q,
 	/// Hash to start at
@@ -55,7 +55,7 @@ where
 		v: Value<L::Location>,
 		prefix: Prefix,
 		full_key: &[u8],
-		db: &dyn HashDB<L::Hash, DBValue, L::Location>,
+		db: &dyn NodeDB<L::Hash, DBValue, L::Location>,
 		recorder: &mut Option<&mut dyn TrieRecorder<TrieHash<L>, L::Location>>,
 		query: Q,
 	) -> Result<Q::Item, TrieHash<L>, CError<L>> {
@@ -98,7 +98,7 @@ where
 		prefix: Prefix,
 		full_key: &[u8],
 		cache: &mut dyn crate::TrieCache<L::Codec, L::Location>,
-		db: &dyn HashDB<L::Hash, DBValue, L::Location>,
+		db: &dyn NodeDB<L::Hash, DBValue, L::Location>,
 		recorder: &mut Option<&mut dyn TrieRecorder<TrieHash<L>, L::Location>>,
 	) -> Result<(Bytes, TrieHash<L>), TrieHash<L>, CError<L>> {
 		match v {
@@ -589,7 +589,7 @@ where
 			Prefix,
 			&[u8],
 			&mut dyn crate::TrieCache<L::Codec, L::Location>,
-			&dyn HashDB<L::Hash, DBValue, L::Location>,
+			&dyn NodeDB<L::Hash, DBValue, L::Location>,
 			&mut Option<&mut dyn TrieRecorder<TrieHash<L>, L::Location>>,
 		) -> Result<R, TrieHash<L>, CError<L>>,
 	) -> Result<Option<R>, TrieHash<L>, CError<L>> {
@@ -765,7 +765,7 @@ where
 			Value<L::Location>,
 			Prefix,
 			&[u8],
-			&dyn HashDB<L::Hash, DBValue, L::Location>,
+			&dyn NodeDB<L::Hash, DBValue, L::Location>,
 			&mut Option<&mut dyn TrieRecorder<TrieHash<L>, L::Location>>,
 			Q,
 		) -> Result<R, TrieHash<L>, CError<L>>,
