@@ -49,6 +49,7 @@ pub use iterator::TrieDBNodeDoubleEndedIterator;
 use node::NodeOwned;
 use node_db::MaybeDebug;
 
+#[cfg(feature = "std")]
 pub mod mem_tree_db;
 pub mod memory_db;
 pub mod node;
