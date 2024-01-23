@@ -2147,6 +2147,9 @@ where
 	/// Cache the given `value`.
 	///
 	/// `hash` is the hash of `value`.
+	///
+	/// Cache is not done here as we want to cache the location from the db,
+	/// and location on new_nodes are not resolved here.
 	fn cache_value(&mut self, _full_key: &[u8], _value: impl Into<Bytes>, _hash: TrieHash<L>) {}
 
 	/// Commit a node by hashing it and writing it to the db. Returns a
