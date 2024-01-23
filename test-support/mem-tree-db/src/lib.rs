@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 
 use hash_db::{Hasher, NodeDB, Prefix};
-use trie_db::{Changeset, ChangesetNodeRef};
+use trie_db::{Changeset, ChangesetNodeRef, NewChangesetNode};
 
 /// Node location which is just an index into the `nodes` vector.
 pub type Location = Option<usize>;
@@ -167,8 +167,15 @@ where
 			let key = commit.root.hash();
 			self.roots.insert(*key, root);
 		}
-		for (k, _) in commit.removed {
-			self.remove_root(&k);
+		// In non test use, the root should be store before calling commit (known
+		// from tree where commit was build from).
+		if let ChangesetNodeRef::New(NewChangesetNode {
+			removed_keys: Some((_, removed)), ..
+		}) = &commit.root
+		{
+			for (k, _) in removed {
+				self.remove_root(&k);
+			}
 		}
 	}
 }

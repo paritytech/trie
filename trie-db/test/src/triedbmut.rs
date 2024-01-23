@@ -864,9 +864,9 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		data: BTreeMap<Vec<u8>, Vec<u8>>,
 		changeset: Option<Box<ChangesetNodeRef<TrieHash<T>, T::Location>>>,
 	}
-	// Running a tipical child trie scenario:
-	// different trie, child trie root written all
-	// at once with childset before parent tree commit.
+	// Running a typical attached trie scenario (childtrie on substrate):
+	// different trie, attached trie root written all
+	// at once with treerefset before parent tree commit.
 	// Direct copy if using ref counting and location in db.
 	// Pruning.
 	let mut seed = Default::default();
@@ -903,14 +903,12 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 			main_trie.root = root;
 			main_trie.data = data;
 		} else {
-			let attached_trie_root_key = data.iter().next().unwrap().0.clone();
-			let changeset = memtrie.commit();
+			let attached_trie_root_key = data.iter().next().unwrap().0;
+			let changeset = memtrie.commit_with_keyspace(attached_trie_root_key);
 			let root = changeset.root_hash();
-			let change_to_insert =
-				changeset.to_insert_in_other_trie(attached_trie_root_key.clone());
 			attached_tries.insert(
-				attached_trie_root_key,
-				ATrie { root, data, changeset: Some(change_to_insert) },
+				attached_trie_root_key.clone(),
+				ATrie { root, data, changeset: Some(changeset.root.into()) },
 			);
 		}
 	}
@@ -947,7 +945,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let (root_key, a_attached_trie) = attached_tries.iter().next().unwrap();
 	let (a_attached_trie_root, attached_trie_location) =
 		attached_trie_root(&memdb, &main_trie.root, &root_key).unwrap();
-	let (tree_ref_changeset, child_root_hash) = {
+	let (tree_ref_changeset, treeref_root_hash) = {
 		assert_eq!(a_attached_trie_root, a_attached_trie.root);
 		let child_memdb: &dyn NodeDB<_, _, _> = if support_location {
 			&memdb
@@ -963,15 +961,14 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		.build();
 		attached_trie.remove(a_attached_trie.data.iter().next().unwrap().0).unwrap();
 		attached_trie.insert(b"make_sure_it_changes", b"value").unwrap();
-		let changeset = attached_trie.commit();
+		let changeset = attached_trie.commit_with_keyspace(root_key);
 		let new_root = changeset.root_hash();
-		let change_to_insert = changeset.to_insert_in_other_trie(root_key.clone());
 		assert!(new_root != a_attached_trie_root);
-		(change_to_insert, new_root)
+		(changeset.root, new_root)
 	};
 	let mut main_trie = TrieDBMutBuilder::<T>::from_existing(&memdb, main_trie.root).build();
 	main_trie
-		.insert_with_tree_ref(root_key, child_root_hash.as_ref(), Some(tree_ref_changeset))
+		.insert_with_tree_ref(root_key, treeref_root_hash.as_ref(), Some(tree_ref_changeset.into()))
 		.unwrap();
 	let changeset = main_trie.commit();
 	let main_root = changeset.root_hash();

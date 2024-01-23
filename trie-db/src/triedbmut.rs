@@ -756,7 +756,7 @@ pub struct NewChangesetNode<H, DL> {
 	pub children: Vec<ChangesetNodeRef<H, DL>>,
 	// Storing the key and removed nodes related
 	// to this change set node (only needed for old trie).
-	pub removed_keys: Option<(Vec<u8>, Vec<(H, OwnedPrefix)>)>,
+	pub removed_keys: Option<(Option<Vec<u8>>, Vec<(H, OwnedPrefix)>)>,
 }
 
 #[derive(Debug)]
@@ -784,7 +784,6 @@ impl<H, DL> ChangesetNodeRef<H, DL> {
 #[derive(Debug)]
 pub struct Changeset<H, DL> {
 	pub root: ChangesetNodeRef<H, DL>,
-	pub removed: Vec<(H, OwnedPrefix)>,
 }
 
 pub fn prefix_prefix(ks: &[u8], prefix: Prefix) -> (Vec<u8>, Option<u8>) {
@@ -800,31 +799,27 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 		K: memory_db::KeyFunction<MH> + Send + Sync,
 		MH: Hasher<Out = H> + Send + Sync,
 	{
-		for (hash, prefix) in &self.removed {
-			mem_db.remove(hash, (prefix.0.as_slice(), prefix.1));
-		}
-
-		fn apply_node<H, DL, MH, K>(
-			node: &ChangesetNodeRef<H, DL>,
+		fn apply_node<'a, H, DL, MH, K>(
+			node: &'a ChangesetNodeRef<H, DL>,
 			mem_db: &mut MemoryDB<MH, K, DBValue>,
-			ks: Option<&[u8]>,
+			mut ks: Option<&'a [u8]>,
 		) where
 			K: memory_db::KeyFunction<MH> + Send + Sync,
 			MH: Hasher<Out = H> + Send + Sync,
 		{
 			match node {
 				ChangesetNodeRef::New(node) => {
-					let ks = if ks.is_some() {
-						ks
-					} else if let Some((k, removed)) = node.removed_keys.as_ref() {
+					if let Some((k, removed)) = node.removed_keys.as_ref() {
 						for (hash, p) in removed.iter() {
-							let prefixed = prefix_prefix(k.as_slice(), (p.0.as_slice(), p.1));
-							mem_db.remove(hash, (prefixed.0.as_slice(), prefixed.1));
+							if let Some(k) = k {
+								let prefixed = prefix_prefix(k.as_slice(), (p.0.as_slice(), p.1));
+								mem_db.remove(hash, (prefixed.0.as_slice(), prefixed.1));
+								ks = Some(k.as_slice());
+							} else {
+								mem_db.remove(hash, (p.0.as_slice(), p.1));
+							}
 						}
-						Some(k.as_slice())
-					} else {
-						None
-					};
+					}
 					for child in &node.children {
 						apply_node(child, mem_db, ks);
 					}
@@ -856,21 +851,7 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 				prefix: (BackingByteVec::new(), None),
 				location: Default::default(),
 			}),
-			removed: Default::default(),
 		}
-	}
-
-	pub fn to_insert_in_other_trie(mut self, root_at: Vec<u8>) -> Box<ChangesetNodeRef<H, DL>> {
-		match &mut self.root {
-			ChangesetNodeRef::New(node) => {
-				// needed for prefixed key.
-				// Note if unchanged we don't need this actually unchange should only
-				// be a thing in case of a copy.
-				node.removed_keys = Some((root_at, self.removed));
-			},
-			_ => (),
-		}
-		Box::new(self.root)
 	}
 }
 
@@ -2021,7 +2002,21 @@ where
 	}
 
 	/// Calculate the changeset for the trie.
-	pub fn commit(mut self) -> Changeset<TrieHash<L>, L::Location> {
+	/// Note `keyspace` only apply for hash base storage to avoid key collision
+	/// between composed tree states.
+	pub fn commit(self) -> Changeset<TrieHash<L>, L::Location> {
+		self.commit_inner(None)
+	}
+
+	/// Same as commit but use a keyspace to isolate
+	/// stored date.
+	/// `keyspace` only apply for hash base storage to avoid key collision
+	/// between composed tree states.
+	pub fn commit_with_keyspace(self, keyspace: &[u8]) -> Changeset<TrieHash<L>, L::Location> {
+		self.commit_inner(Some(keyspace))
+	}
+
+	fn commit_inner(mut self, keyspace: Option<&[u8]>) -> Changeset<TrieHash<L>, L::Location> {
 		#[cfg(feature = "std")]
 		trace!(target: "trie", "Committing trie changes to db.");
 
@@ -2036,15 +2031,16 @@ where
 		}
 
 		let handle = match self.root_handle() {
-			NodeHandle::Hash(hash, location) =>
+			NodeHandle::Hash(hash, location) => {
+				debug_assert!(removed.is_empty());
 				return Changeset {
 					root: ChangesetNodeRef::Existing(ExistingChangesetNode {
 						hash,
 						prefix: Default::default(),
 						location,
 					}),
-					removed,
-				}, // no changes necessary.
+				}
+			}, // no changes necessary.
 			NodeHandle::InMemory(h) => h,
 		};
 
@@ -2095,9 +2091,8 @@ where
 						prefix: Default::default(),
 						data: encoded_root,
 						children,
-						removed_keys: None,
+						removed_keys: Some((keyspace.map(|s| s.to_vec()), removed)),
 					}),
-					removed,
 				}
 			},
 			Stored::Cached(node, hash, location) => {
@@ -2110,13 +2105,13 @@ where
 					// usage and location in triedbmut
 					Default::default(),
 				)));
+				debug_assert!(removed.is_empty());
 				Changeset {
 					root: ChangesetNodeRef::Existing(ExistingChangesetNode {
 						hash,
 						prefix: Default::default(),
 						location,
 					}),
-					removed,
 				}
 			},
 		}
@@ -2342,9 +2337,8 @@ where
 			None => {
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "remove: obliterated trie");
-				self.root_handle =
-					NodeHandle::Hash(L::Codec::hashed_null_node(), Default::default());
-				self.root = L::Codec::hashed_null_node();
+				let handle = self.storage.alloc(Stored::New(Node::Empty));
+				self.root_handle = NodeHandle::InMemory(handle);
 			},
 		}
 
