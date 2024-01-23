@@ -14,15 +14,8 @@
 
 //! Database of byte-slices keyed to their hash.
 
-#![cfg_attr(not(feature = "std"), no_std)]
+use crate::rstd::vec::Vec;
 
-#[cfg(not(feature = "std"))]
-extern crate alloc;
-
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
-#[cfg(not(feature = "std"))]
-use core::hash;
 #[cfg(feature = "std")]
 use std::fmt::Debug;
 

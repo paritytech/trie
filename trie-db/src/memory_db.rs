@@ -14,26 +14,16 @@
 
 //! Reference-counted memory-based `NodeDB` implementation.
 
-#![cfg_attr(not(feature = "std"), no_std)]
-
-#[cfg(not(feature = "std"))]
-extern crate alloc;
-
-use crate::node_db::{Hasher as KeyHasher, MaybeDebug, NodeDB, Prefix};
-#[cfg(feature = "std")]
-use std::{
-	cmp::Eq, collections::hash_map::Entry, collections::HashMap as Map, hash, marker::PhantomData,
-	mem,
+use crate::{
+	node_db::{Hasher as KeyHasher, MaybeDebug, NodeDB, Prefix},
+	rstd::{cmp::Eq, hash, marker::PhantomData, mem, vec::Vec},
 };
+
+#[cfg(feature = "std")]
+use std::collections::hash_map::{Entry, HashMap as Map};
 
 #[cfg(not(feature = "std"))]
 use alloc::collections::btree_map::{BTreeMap as Map, Entry};
-
-#[cfg(not(feature = "std"))]
-use core::{cmp::Eq, hash, marker::PhantomData, mem};
-
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
 
 /// Reference-counted memory-based `NodeDB` implementation.
 ///
