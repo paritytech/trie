@@ -962,7 +962,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		)
 		.build();
 		attached_trie.remove(a_attached_trie.data.iter().next().unwrap().0).unwrap();
-		attached_trie.insert(b"make_sur_it_changes", b"value").unwrap();
+		attached_trie.insert(b"make_sure_it_changes", b"value").unwrap();
 		let changeset = attached_trie.commit();
 		let new_root = changeset.root_hash();
 		let change_to_insert = changeset.to_insert_in_other_trie(root_key.clone());
@@ -991,7 +991,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		attached_trie_location.unwrap_or_default(),
 	)
 	.build();
-	trie.get(b"make_sur_it_changes").unwrap().unwrap();
+	trie.get(b"make_sure_it_changes").unwrap().unwrap();
 	let mut first = true;
 	for (k, v) in a_attached_trie.data.iter() {
 		if first {
@@ -1001,7 +1001,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 			assert_eq!(&trie.get(k).unwrap().unwrap(), v);
 		}
 	}
-	trie.get(b"make_sur_it_changes").unwrap().unwrap();
+	trie.get(b"make_sure_it_changes").unwrap().unwrap();
 }
 
 fn attached_trie_root<T: TrieLayout, DB: TestDB<T>>(
