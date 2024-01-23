@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use reference_trie::ExtensionLayout as Layout;
 use trie_db::{
+	memory_db,
 	proof::{generate_proof, verify_proof},
 	NibbleSlice, Trie,
 };
