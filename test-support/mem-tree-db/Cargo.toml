@@ -13,5 +13,3 @@ keccak-hasher = { path = "../keccak-hasher", version = "0.16.0" }
 trie-db = { path = "../../trie-db", version = "0.28.0" }
 trie-root = { path = "../../trie-root", version = "0.18.0" }
 parity-scale-codec = { version = "3.0.0", features = ["derive"] }
-
-[dev-dependencies]

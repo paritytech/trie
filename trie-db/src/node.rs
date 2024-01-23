@@ -699,6 +699,7 @@ impl<D: Borrow<[u8]>, L: Default + Copy> OwnedNode<D, L> {
 	pub fn locations(&self) -> &[L] {
 		&self.locations
 	}
+
 	/// Returns a reference to the node decode plan.
 	pub fn node_plan(&self) -> &NodePlan {
 		&self.plan
