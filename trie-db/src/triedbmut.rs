@@ -754,8 +754,9 @@ pub struct NewChangesetNode<H, DL> {
 	pub prefix: OwnedPrefix,
 	pub data: Vec<u8>,
 	pub children: Vec<ChangesetNodeRef<H, DL>>,
-	// Storing the key and removed nodes (only needed for old trie).
-	pub key_childset: Option<(Vec<u8>, Vec<(H, OwnedPrefix)>)>,
+	// Storing the key and removed nodes related
+	// to this change set node (only needed for old trie).
+	pub removed_keys: Option<(Vec<u8>, Vec<(H, OwnedPrefix)>)>,
 }
 
 #[derive(Debug)]
@@ -815,7 +816,7 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 				ChangesetNodeRef::New(node) => {
 					let ks = if ks.is_some() {
 						ks
-					} else if let Some((k, removed)) = node.key_childset.as_ref() {
+					} else if let Some((k, removed)) = node.removed_keys.as_ref() {
 						for (hash, p) in removed.iter() {
 							let prefixed = prefix_prefix(k.as_slice(), (p.0.as_slice(), p.1));
 							mem_db.remove(hash, (prefixed.0.as_slice(), prefixed.1));
@@ -865,7 +866,7 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 				// needed for prefixed key.
 				// Note if unchanged we don't need this actually unchange should only
 				// be a thing in case of a copy.
-				node.key_childset = Some((root_at, self.removed));
+				node.removed_keys = Some((root_at, self.removed));
 			},
 			_ => (),
 		}
@@ -1584,7 +1585,7 @@ where
 				// always replace since we took the value out.
 				Action::Replace(self.fix(Node::NibbledBranch(n, children, None, tree_ref), *key)?)
 			},
-			(Node::Branch(mut children, value, b_childset), false) => {
+			(Node::Branch(mut children, value, btreerefset), false) => {
 				let idx = partial.at(0) as usize;
 				if let Some(child) = children[idx].take() {
 					#[cfg(feature = "std")]
@@ -1598,7 +1599,7 @@ where
 					match self.remove_at(child, key, old_val, tree_ref)? {
 						Some((new, changed)) => {
 							children[idx] = Some(new.into());
-							let branch = Node::Branch(children, value, b_childset);
+							let branch = Node::Branch(children, value, btreerefset);
 							match changed {
 								// child was changed, so we were too.
 								true => Action::Replace(branch),
@@ -1612,16 +1613,16 @@ where
 							#[cfg(feature = "std")]
 							trace!(target: "trie", "branch child deleted, partial={:?}", partial);
 							Action::Replace(
-								self.fix(Node::Branch(children, value, b_childset), prefix)?,
+								self.fix(Node::Branch(children, value, btreerefset), prefix)?,
 							)
 						},
 					}
 				} else {
 					// no change needed.
-					Action::Restore(Node::Branch(children, value, b_childset))
+					Action::Restore(Node::Branch(children, value, btreerefset))
 				}
 			},
-			(Node::NibbledBranch(encoded, mut children, value, b_childset), false) => {
+			(Node::NibbledBranch(encoded, mut children, value, btreerefset), false) => {
 				let (common, existing_length) = {
 					let existing_key = NibbleSlice::from_stored(&encoded);
 					(existing_key.common_prefix(&partial), existing_key.len())
@@ -1640,7 +1641,7 @@ where
 					}
 				} else if common < existing_length {
 					// partway through an extension -- nothing to do here.
-					Action::Restore(Node::NibbledBranch(encoded, children, value, b_childset))
+					Action::Restore(Node::NibbledBranch(encoded, children, value, btreerefset))
 				} else {
 					// common == existing_length && common < partial.len() : check children
 					let idx = partial.at(common) as usize;
@@ -1658,7 +1659,7 @@ where
 							Some((new, changed)) => {
 								children[idx] = Some(new.into());
 								let branch =
-									Node::NibbledBranch(encoded, children, value, b_childset);
+									Node::NibbledBranch(encoded, children, value, btreerefset);
 								match changed {
 									// child was changed, so we were too.
 									true => Action::Replace(branch),
@@ -1676,18 +1677,18 @@ where
 									partial,
 								);
 								Action::Replace(self.fix(
-									Node::NibbledBranch(encoded, children, value, b_childset),
+									Node::NibbledBranch(encoded, children, value, btreerefset),
 									prefix,
 								)?)
 							},
 						}
 					} else {
 						// no change needed.
-						Action::Restore(Node::NibbledBranch(encoded, children, value, b_childset))
+						Action::Restore(Node::NibbledBranch(encoded, children, value, btreerefset))
 					}
 				}
 			},
-			(Node::Leaf(encoded, value, l_childset), _) => {
+			(Node::Leaf(encoded, value, ltreerefset), _) => {
 				let existing_key = NibbleSlice::from_stored(&encoded);
 				if existing_key == partial {
 					// this is the node we were looking for. Let's delete it.
@@ -1704,7 +1705,7 @@ where
 						partial,
 						NibbleSlice::from_stored(&encoded),
 					);
-					Action::Restore(Node::Leaf(encoded, value, l_childset))
+					Action::Restore(Node::Leaf(encoded, value, ltreerefset))
 				}
 			},
 			(Node::Extension(encoded, child_branch), _) => {
@@ -1760,7 +1761,7 @@ where
 		recurse_extension: bool,
 	) -> Result<Node<L>, TrieHash<L>, CError<L>> {
 		match node {
-			Node::Branch(mut children, value, b_childset) => {
+			Node::Branch(mut children, value, btreerefset) => {
 				// if only a single value, transmute to leaf/extension and feed through fixed.
 				#[cfg_attr(feature = "std", derive(Debug))]
 				enum UsedIndex {
@@ -1798,17 +1799,17 @@ where
 						// make a leaf.
 						#[cfg(feature = "std")]
 						trace!(target: "trie", "fixing: branch -> leaf");
-						Ok(Node::Leaf(NibbleSlice::new(&[]).to_stored(), value, b_childset))
+						Ok(Node::Leaf(NibbleSlice::new(&[]).to_stored(), value, btreerefset))
 					},
 					(_, value) => {
 						// all is well.
 						#[cfg(feature = "std")]
 						trace!(target: "trie", "fixing: restoring branch");
-						Ok(Node::Branch(children, value, b_childset))
+						Ok(Node::Branch(children, value, btreerefset))
 					},
 				}
 			},
-			Node::NibbledBranch(enc_nibble, mut children, value, b_childset) => {
+			Node::NibbledBranch(enc_nibble, mut children, value, btreerefset) => {
 				// if only a single value, transmute to leaf/extension and feed through fixed.
 				#[cfg_attr(feature = "std", derive(Debug))]
 				enum UsedIndex {
@@ -1868,18 +1869,23 @@ where
 								node
 							},
 						};
-						b_childset.map(|c| self.death_row_child.push(c));
+						btreerefset.map(|c| self.death_row_child.push(c));
 						match child_node {
-							Node::Leaf(sub_partial, value, l_childset) => {
+							Node::Leaf(sub_partial, value, ltreerefset) => {
 								let mut enc_nibble = enc_nibble;
 								combine_key(
 									&mut enc_nibble,
 									(nibble_ops::NIBBLE_PER_BYTE - 1, &[a][..]),
 								);
 								combine_key(&mut enc_nibble, (sub_partial.0, &sub_partial.1[..]));
-								Ok(Node::Leaf(enc_nibble, value, l_childset))
+								Ok(Node::Leaf(enc_nibble, value, ltreerefset))
 							},
-							Node::NibbledBranch(sub_partial, ch_children, ch_value, n_childset) => {
+							Node::NibbledBranch(
+								sub_partial,
+								ch_children,
+								ch_value,
+								ntreerefset,
+							) => {
 								let mut enc_nibble = enc_nibble;
 								combine_key(
 									&mut enc_nibble,
@@ -1890,7 +1896,7 @@ where
 									enc_nibble,
 									ch_children,
 									ch_value,
-									n_childset,
+									ntreerefset,
 								))
 							},
 							_ => unreachable!(),
@@ -1900,13 +1906,13 @@ where
 						// make a leaf.
 						#[cfg(feature = "std")]
 						trace!(target: "trie", "fixing: branch -> leaf");
-						Ok(Node::Leaf(enc_nibble, value, b_childset))
+						Ok(Node::Leaf(enc_nibble, value, btreerefset))
 					},
 					(_, value) => {
 						// all is well.
 						#[cfg(feature = "std")]
 						trace!(target: "trie", "fixing: restoring branch");
-						Ok(Node::NibbledBranch(enc_nibble, children, value, b_childset))
+						Ok(Node::NibbledBranch(enc_nibble, children, value, btreerefset))
 					},
 				}
 			},
@@ -1977,7 +1983,7 @@ where
 
 						self.fix_inner(Node::Extension(partial, sub_child), key.into(), true)
 					},
-					Node::Leaf(sub_partial, value, l_childset) => {
+					Node::Leaf(sub_partial, value, ltreerefset) => {
 						// combine with node below.
 						if let Some(hash) = maybe_hash {
 							// delete the cached child since we are going to replace it.
@@ -1993,7 +1999,7 @@ where
 							"fixing: extension -> leaf. new_partial={:?}",
 							partial,
 						);
-						Ok(Node::Leaf(partial, value, l_childset))
+						Ok(Node::Leaf(partial, value, ltreerefset))
 					},
 					child_node => {
 						#[cfg(feature = "std")]
@@ -2047,7 +2053,7 @@ where
 				let mut k = NibbleVec::new();
 				let mut children = Vec::new();
 
-				let (encoded_root, root_childset) = node.into_encoded(|node, o_slice, o_index| {
+				let (encoded_root, roottreerefset) = node.into_encoded(|node, o_slice, o_index| {
 					let mov = k.append_optional_slice_and_nibble(o_slice, o_index);
 					match node {
 						NodeToEncode::Node(value) => {
@@ -2058,7 +2064,7 @@ where
 								prefix: k.as_owned_prefix(),
 								data: value.to_vec(), //TODO: avoid allocation
 								children: Default::default(),
-								key_childset: None,
+								removed_keys: None,
 							}));
 
 							k.drop_lasts(mov);
@@ -2071,7 +2077,7 @@ where
 						},
 					}
 				});
-				root_childset.map(|c| {
+				roottreerefset.map(|c| {
 					children.push(*c);
 				});
 				#[cfg(feature = "std")]
@@ -2089,7 +2095,7 @@ where
 						prefix: Default::default(),
 						data: encoded_root,
 						children,
-						key_childset: None,
+						removed_keys: None,
 					}),
 					removed,
 				}
@@ -2176,7 +2182,7 @@ where
 												prefix: prefix.as_owned_prefix(),
 												data: value.to_vec(), //TODO: avoid allocation
 												children: Default::default(),
-												key_childset: None,
+												removed_keys: None,
 											},
 										));
 
@@ -2209,7 +2215,7 @@ where
 								prefix: prefix.as_owned_prefix(),
 								data: encoded,
 								children: sub_children,
-								key_childset: None,
+								removed_keys: None,
 							}));
 							self.hash_count += 1;
 							ChildReference::Hash(hash, Default::default())
@@ -2275,7 +2281,7 @@ where
 		debug_assert!(tree_ref
 			.as_ref()
 			.map(|c| if let ChangesetNodeRef::New(set) = c.as_ref() {
-				set.key_childset.is_some()
+				set.removed_keys.is_some()
 			} else {
 				true
 			})
@@ -2314,7 +2320,7 @@ where
 		debug_assert!(tree_ref
 			.as_ref()
 			.map(|c| if let ChangesetNodeRef::New(set) = c.as_ref() {
-				set.key_childset.is_some()
+				set.removed_keys.is_some()
 			} else {
 				true
 			})
