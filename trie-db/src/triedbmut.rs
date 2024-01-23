@@ -708,7 +708,6 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 			root: self.root,
 			cache: self.cache,
 			recorder: self.recorder.map(core::cell::RefCell::new),
-			hash_count: 0,
 			storage: NodeStorage::empty(),
 			death_row: Default::default(),
 			root_handle,
@@ -752,9 +751,6 @@ where
 	root: &'a mut TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
 	death_row: Set<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
-	/// The number of hash operations this trie has performed.
-	/// Note that none are performed until changes are committed.
-	hash_count: usize,
 	/// Optional cache for speeding up the lookup of nodes.
 	cache: Option<&'a mut dyn TrieCache<L::Codec>>,
 	/// Optional trie recorder for recording trie accesses.
@@ -1858,7 +1854,6 @@ where
 				trace!(target: "trie", "encoded root node: {:?}", ToHex(&encoded_root[..]));
 
 				*self.root = self.db.insert(EMPTY_PREFIX, &encoded_root);
-				self.hash_count += 1;
 
 				self.cache_node(*self.root, &encoded_root, full_key);
 
@@ -2001,7 +1996,6 @@ where
 						};
 						if encoded.len() >= L::Hash::LENGTH {
 							let hash = self.db.insert(prefix.as_prefix(), &encoded);
-							self.hash_count += 1;
 
 							self.cache_node(hash, &encoded, full_key);
 
