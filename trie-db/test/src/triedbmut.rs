@@ -896,7 +896,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 				let key: &[u8] = &k[..];
 				let val: &[u8] = c.root.as_ref();
 				let changeset = c.changeset.take().unwrap();
-				memtrie.insert_with_child_changes(key, val, Some(changeset)).unwrap();
+				memtrie.insert_with_tree_ref(key, val, Some(changeset)).unwrap();
 			}
 			let changeset = memtrie.commit();
 			let root = changeset.commit_to(&mut memdb);
@@ -906,7 +906,8 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 			let attached_trie_root_key = data.iter().next().unwrap().0.clone();
 			let changeset = memtrie.commit();
 			let root = changeset.root_hash();
-			let change_to_insert = changeset.to_insert_in_other_trie(attached_trie_root_key.clone());
+			let change_to_insert =
+				changeset.to_insert_in_other_trie(attached_trie_root_key.clone());
 			attached_tries.insert(
 				attached_trie_root_key,
 				ATrie { root, data, changeset: Some(change_to_insert) },
@@ -946,7 +947,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 	let (root_key, a_attached_trie) = attached_tries.iter().next().unwrap();
 	let (a_attached_trie_root, attached_trie_location) =
 		attached_trie_root(&memdb, &main_trie.root, &root_key).unwrap();
-	let (child_changeset, child_root_hash) = {
+	let (tree_ref_changeset, child_root_hash) = {
 		assert_eq!(a_attached_trie_root, a_attached_trie.root);
 		let child_memdb: &dyn HashDB<_, _, _> = if support_location {
 			&memdb
@@ -970,7 +971,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 	};
 	let mut main_trie = TrieDBMutBuilder::<T>::from_existing(&memdb, main_trie.root).build();
 	main_trie
-		.insert_with_child_changes(root_key, child_root_hash.as_ref(), Some(child_changeset))
+		.insert_with_tree_ref(root_key, child_root_hash.as_ref(), Some(tree_ref_changeset))
 		.unwrap();
 	let changeset = main_trie.commit();
 	let main_root = changeset.root_hash();
@@ -1016,7 +1017,7 @@ fn attached_trie_root<T: TrieLayout, DB: TestDB<T>>(
 	iter.seek(root_key).unwrap();
 	let item = iter.next()?.unwrap();
 	let node = &item.2;
-	let location = node.node_plan().attached_change_set_location(node.locations());
+	let location = node.node_plan().additional_ref_location(node.locations());
 	let root = iter.item_from_raw(&item)?.unwrap();
 	if root.0.as_slice() != root_key {
 		return None;
