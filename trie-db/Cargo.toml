@@ -26,6 +26,7 @@ default = ["std"]
 bench = [
   "std",
   "criterion",
+  "test_utils",
 ]
 test_utils = [
   "std",
