@@ -14,17 +14,17 @@
 
 //! Standard trie benchmarking tool.
 
-use criterion::{black_box, BenchmarkId, Criterion};
-use parity_scale_codec::{Compact, Encode};
-use std::default::Default;
 use crate::{
 	keccak_hasher::KeccakHasher,
 	memory_db::{HashKey, MemoryDB},
 	node_db::Hasher,
+	test_utils::*,
 	trie_root::{trie_root, TrieStream},
 	NodeCodec, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieLayout,
 };
-use crate::test_utils::*;
+use criterion::{black_box, BenchmarkId, Criterion};
+use parity_scale_codec::{Compact, Encode};
+use std::default::Default;
 
 struct TrieInsertionList(Vec<(Vec<u8>, Vec<u8>)>);
 impl ::std::fmt::Display for TrieInsertionList {

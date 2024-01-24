@@ -18,8 +18,8 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use reference_trie::ExtensionLayout as Layout;
 use trie_db::{
 	memory_db,
-	test_utils::{Alphabet, StandardMap, ValueMode},
 	proof::{generate_proof, verify_proof},
+	test_utils::{Alphabet, StandardMap, ValueMode},
 	NibbleSlice, Trie,
 };
 

@@ -14,9 +14,9 @@
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use trie_db::{
+	keccak_hasher::KeccakHasher,
 	memory_db::{HashKey, MemoryDB},
 	node_db::{Hasher, EMPTY_PREFIX},
-	keccak_hasher::{KeccakHasher},
 };
 
 criterion_group!(

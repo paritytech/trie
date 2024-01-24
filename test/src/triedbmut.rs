@@ -24,10 +24,10 @@ use reference_trie::{
 use trie_db::{
 	memory_db::{HashKey, MemoryDB, PrefixedKey},
 	node_db::{Hasher, NodeDB, Prefix, EMPTY_PREFIX},
+	test_utils::*,
 	CachedValue, Changeset, DBValue, NodeCodec, Recorder, Trie, TrieCache, TrieDBBuilder,
 	TrieDBMut, TrieDBMutBuilder, TrieDBNodeIterator, TrieError, TrieHash, TrieLayout, Value,
 };
-use trie_db::test_utils::*;
 
 use crate::{TestCommit, TestDB};
 
