@@ -16,7 +16,10 @@
 //!
 //! This module should be used to generate trie root hash.
 
-use crate::{node_db::Hasher, rstd::*};
+use crate::{
+	node_db::Hasher,
+	rstd::{cmp, vec::Vec, BTreeMap},
+};
 
 /// Different possible value to use for node encoding.
 #[derive(Clone)]
