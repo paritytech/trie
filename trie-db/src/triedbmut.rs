@@ -837,6 +837,14 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 			Changeset::Existing(node) => node.hash,
 		}
 	}
+
+	pub fn unchanged(root: H) -> Self {
+		Changeset::Existing(ExistingChangesetNode {
+			hash: root,
+			prefix: (BackingByteVec::new(), None),
+			location: Default::default(),
+		})
+	}
 }
 
 pub type OwnedPrefix = (BackingByteVec, Option<u8>);
