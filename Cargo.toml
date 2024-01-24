@@ -1,12 +1,7 @@
 [workspace]
 members = [
 	"hash256-std-hasher",
-	"test-support/keccak-hasher",
-	"test-support/reference-trie",
-	"test-support/trie-standardmap",
-	"test-support/trie-bench",
 	"trie-db",
-	"trie-db/test",
-	"trie-root",
-	"trie-root/test"
+	"test",
+	"reference-trie",
 ]

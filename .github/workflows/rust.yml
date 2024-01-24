@@ -43,11 +43,11 @@ jobs:
           command: check
           args: --manifest-path trie-db/Cargo.toml --no-default-features
 
-      - name: Check trie-root Without Std
+      - name: Check trie-db-test With bench
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --manifest-path trie-root/Cargo.toml --no-default-features
+          args: --manifest-path trie-db/test/Cargo.toml --benches
 
   fmt:
     name: Rustfmt

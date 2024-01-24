@@ -227,10 +227,10 @@ where
 mod tests {
 	use super::{MemTreeDB, NodeEntry};
 	use crate::{
+		keccak_hasher::{KeccakHash, KeccakHasher},
 		node_db::{Hasher, NodeDB},
 		Changeset, ExistingChangesetNode, NewChangesetNode,
 	};
-	use keccak_hasher::{KeccakHash, KeccakHasher};
 
 	fn hash(i: u32) -> KeccakHash {
 		KeccakHasher::hash(&i.to_le_bytes())

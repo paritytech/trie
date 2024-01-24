@@ -27,7 +27,7 @@ use trie_db::{
 	CachedValue, Changeset, DBValue, NodeCodec, Recorder, Trie, TrieCache, TrieDBBuilder,
 	TrieDBMut, TrieDBMutBuilder, TrieDBNodeIterator, TrieError, TrieHash, TrieLayout, Value,
 };
-use trie_standardmap::*;
+use trie_db::test_utils::*;
 
 use crate::{TestCommit, TestDB};
 

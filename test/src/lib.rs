@@ -29,6 +29,8 @@ mod recorder;
 #[cfg(test)]
 mod trie_codec;
 #[cfg(test)]
+mod trie_root;
+#[cfg(test)]
 mod triedb;
 #[cfg(test)]
 mod triedbmut;

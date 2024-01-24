@@ -34,9 +34,11 @@ use alloc::collections::btree_map::{BTreeMap as Map, Entry};
 ///
 /// # Example
 /// ```rust
+///   #[cfg(feature = "test_utils")]
+///   {
 ///   use trie_db::node_db::Hasher;
 ///   use trie_db::node_db::{EMPTY_PREFIX};
-///   use keccak_hasher::KeccakHasher;
+///   use trie_db::keccak_hasher::KeccakHasher;
 ///   use trie_db::memory_db::{MemoryDB, HashKey};
 ///
 ///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default();
@@ -67,6 +69,7 @@ use alloc::collections::btree_map::{BTreeMap as Map, Entry};
 ///
 ///   m.remove(&k, EMPTY_PREFIX);
 ///   assert!(!m.contains(&k, EMPTY_PREFIX));
+///   }
 /// ```
 pub struct MemoryDB<H, KF, T>
 where
@@ -274,9 +277,11 @@ where
 	///
 	/// # Examples
 	/// ```rust
+	/// #[cfg(feature = "test_utils")]
+	/// {
 	/// use trie_db::node_db::Hasher;
 	/// use trie_db::node_db::{NodeDB, EMPTY_PREFIX};
-	/// use keccak_hasher::KeccakHasher;
+	/// use trie_db::keccak_hasher::KeccakHasher;
 	/// use trie_db::memory_db::{MemoryDB, HashKey};
 	///
 	/// fn main() {
@@ -286,6 +291,7 @@ where
 	///   assert!(m.contains(&hash, EMPTY_PREFIX));
 	///   m.clear();
 	///   assert!(!m.contains(&hash, EMPTY_PREFIX));
+	/// }
 	/// }
 	/// ```
 	pub fn clear(&mut self) {
@@ -441,10 +447,10 @@ where
 #[cfg(test)]
 mod test {
 	use crate::{
+		keccak_hasher::KeccakHasher,
 		memory_db::{HashKey, MemoryDB},
 		node_db::{Hasher as KeyHasher, EMPTY_PREFIX},
 	};
-	use keccak_hasher::KeccakHasher;
 
 	#[test]
 	fn memorydb_remove_and_purge() {

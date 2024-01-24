@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use keccak_hasher::KeccakHasher;
 use trie_db::{
 	memory_db::{HashKey, MemoryDB},
 	node_db::{Hasher, EMPTY_PREFIX},
+	keccak_hasher::{KeccakHasher},
 };
 
 criterion_group!(

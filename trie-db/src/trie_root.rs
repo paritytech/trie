@@ -16,28 +16,7 @@
 //!
 //! This module should be used to generate trie root hash.
 
-#![cfg_attr(not(feature = "std"), no_std)]
-
-#[cfg(not(feature = "std"))]
-extern crate alloc;
-
-#[cfg(feature = "std")]
-mod rstd {
-	pub use std::{cmp, collections::BTreeMap, vec::Vec};
-}
-
-#[cfg(not(feature = "std"))]
-mod rstd {
-	pub use alloc::{
-		collections::{BTreeMap, VecDeque},
-		vec::Vec,
-	};
-	pub use core::cmp;
-}
-
-use self::rstd::*;
-
-pub use hash_db::Hasher;
+use crate::{node_db::Hasher, rstd::*};
 
 /// Different possible value to use for node encoding.
 #[derive(Clone)]

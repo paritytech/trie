@@ -343,7 +343,7 @@ pub trait ProcessEncodedNode<HO> {
 	/// Note that the returned value can change depending on implementation,
 	/// but usually it should be the Hash of encoded node.
 	/// This is not something direcly related to encoding but is here for
-	/// optimisation purpose (builder hash_db does return this value).
+	/// optimisation purpose (builder node_db does return this value).
 	fn process(
 		&mut self,
 		prefix: Prefix,
@@ -355,7 +355,7 @@ pub trait ProcessEncodedNode<HO> {
 	fn process_inner_hashed_value(&mut self, prefix: Prefix, value: &[u8]) -> HO;
 }
 
-/// Get trie root and insert visited node in a hash_db.
+/// Get trie root and insert visited node in a node_db.
 /// As for all `ProcessEncodedNode` implementation, it
 /// is only for full trie parsing (not existing trie).
 pub struct TrieBuilder<'a, T: TrieLayout, K: KeyFunction<T::Hash> + Send + Sync> {

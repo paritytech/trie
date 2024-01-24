@@ -21,13 +21,14 @@ use trie_db::{
 	memory_db::{KeyFunction, MemoryDB, PrefixedKey},
 	nibble_ops,
 	node::{NibbleSlicePlan, NodeHandlePlan, NodeOwned, NodePlan, Value, ValuePlan},
-	node_db, trie_visit,
+	node_db,
+	node_db::Hasher,
+	trie_root::{self, TrieStream, Value as TrieStreamValue},
+	trie_visit,
 	triedbmut::ChildReference,
 	DBValue, Location, NodeCodec, Trie, TrieBuilder, TrieConfiguration, TrieDBBuilder,
 	TrieDBMutBuilder, TrieHash, TrieLayout, TrieRoot,
 };
-pub use trie_root::TrieStream;
-use trie_root::{Hasher, Value as TrieStreamValue};
 
 mod substrate;
 mod substrate_like;
@@ -45,7 +46,7 @@ pub use substrate::{LayoutV0 as SubstrateV0, LayoutV1 as SubstrateV1};
 pub use trie_db::mem_tree_db::{Location as MemLocation, MemTreeDB};
 
 /// Reference hasher is a keccak hasher.
-pub type RefHasher = keccak_hasher::KeccakHasher;
+pub type RefHasher = trie_db::keccak_hasher::KeccakHasher;
 
 pub type PrefixedMemoryDB<T> =
 	MemoryDB<<T as TrieLayout>::Hash, PrefixedKey<<T as TrieLayout>::Hash>, DBValue>;

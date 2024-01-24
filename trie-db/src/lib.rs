@@ -49,6 +49,8 @@ pub use iterator::TrieDBNodeDoubleEndedIterator;
 use node::NodeOwned;
 use node_db::MaybeDebug;
 
+#[cfg(any(feature = "test_utils", test))]
+pub mod keccak_hasher;
 #[cfg(feature = "std")]
 pub mod mem_tree_db;
 pub mod memory_db;
@@ -56,6 +58,11 @@ pub mod node;
 pub mod node_db;
 pub mod proof;
 pub mod recorder;
+#[cfg(feature = "bench")]
+pub mod bench;
+#[cfg(feature = "test_utils")]
+pub mod test_utils;
+pub mod trie_root;
 pub mod triedb;
 pub mod triedbmut;
 

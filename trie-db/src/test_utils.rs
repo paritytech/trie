@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Key-value datastore with a modified Merkle tree.
+//! Test utilities.
 
-use keccak_hasher::KeccakHasher;
-use trie_db::node_db::Hasher;
+use crate::{keccak_hasher::KeccakHasher, node_db::Hasher};
 
 type H256 = <KeccakHasher as Hasher>::Out;
 

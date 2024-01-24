@@ -465,8 +465,8 @@ fn fuse_nibbles_node<'a>(nibbles: &'a [u8], kind: NodeKind) -> impl Iterator<Ite
 		.chain(nibbles[nibbles.len() % 2..].chunks(2).map(|ch| ch[0] << 4 | ch[1]))
 }
 
-use trie_root::Value as TrieStreamValue;
-impl TrieStream for ReferenceTrieStreamNoExt {
+use trie_db::trie_root::Value as TrieStreamValue;
+impl trie_db::trie_root::TrieStream for ReferenceTrieStreamNoExt {
 	fn new() -> Self {
 		Self { buffer: Vec::new() }
 	}

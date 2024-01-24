@@ -14,8 +14,8 @@
 
 //! Hasher implementation for the Keccak-256 hash
 
+use crate::node_db::Hasher;
 use hash256_std_hasher::Hash256StdHasher;
-use hash_db::Hasher;
 use tiny_keccak::{Hasher as _, Keccak};
 
 /// The `Keccak` hash output type.
