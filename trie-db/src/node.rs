@@ -440,9 +440,10 @@ impl<H, L> NodeOwned<H, L> {
 
 /// A `NodeHandlePlan` is a decoding plan for constructing a `NodeHandle` from an encoded trie
 /// node. This is used as a substructure of `NodePlan`. See `NodePlan` for details.
+/// Number of existing node is stored (allow fast access to children locations).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NodeHandlePlan {
-	Hash(Range<usize>),
+	Hash(Range<usize>, u8),
 	Inline(Range<usize>),
 }
 
@@ -452,7 +453,7 @@ impl NodeHandlePlan {
 	/// data, otherwise the call may decode incorrectly or panic.
 	pub fn build<'a, 'b, L>(&'a self, data: &'b [u8], location: L) -> NodeHandle<'b, L> {
 		match self {
-			NodeHandlePlan::Hash(range) => NodeHandle::Hash(&data[range.clone()], location),
+			NodeHandlePlan::Hash(range, _) => NodeHandle::Hash(&data[range.clone()], location),
 			NodeHandlePlan::Inline(range) => NodeHandle::Inline(&data[range.clone()]),
 		}
 	}
@@ -460,8 +461,8 @@ impl NodeHandlePlan {
 	/// Check if the node is innline.
 	pub fn is_inline(&self) -> bool {
 		match self {
-			NodeHandlePlan::Hash(_) => false,
-			NodeHandlePlan::Inline(_) => true,
+			NodeHandlePlan::Hash(..) => false,
+			NodeHandlePlan::Inline(..) => true,
 		}
 	}
 }
@@ -584,7 +585,7 @@ impl NodePlan {
 		}
 	}
 
-	pub(crate) fn build_value_and_children<'a, 'b, L: Copy + Default>(
+	fn build_value_and_children<'a, 'b, L: Copy + Default>(
 		value: Option<&'a ValuePlan>,
 		children: &'a [Option<NodeHandlePlan>; nibble_ops::NIBBLE_LENGTH],
 		data: &'b [u8],
@@ -617,6 +618,34 @@ impl NodePlan {
 		(value, child_slices)
 	}
 
+	pub(crate) fn build_child<'a, 'b, L: Copy + Default>(
+		value: Option<&'a ValuePlan>,
+		children: &'a [Option<NodeHandlePlan>; nibble_ops::NIBBLE_LENGTH],
+		index: usize,
+		data: &'b [u8],
+		locations: &[L],
+	) -> Option<NodeHandle<'b, L>> {
+		let mut location_value_offset = 0;
+		if let Some(v) = value {
+			if !v.is_inline() {
+				location_value_offset = 1;
+			}
+		}
+		if let Some(child) = &children[index] {
+			let location = if let NodeHandlePlan::Hash(_, i_hash) = child {
+				locations
+					.get(location_value_offset + *i_hash as usize)
+					.copied()
+					.unwrap_or_default()
+			} else {
+				Default::default()
+			};
+			Some(child.build(data, location))
+		} else {
+			None
+		}
+	}
+
 	/// Access value plan from node plan, return `None` for
 	/// node that cannot contain a `ValuePlan`.
 	pub fn value_plan(&self) -> Option<&ValuePlan> {
@@ -644,14 +673,13 @@ impl NodePlan {
 		self.value_plan().map(|v| !v.is_inline()).unwrap_or(false)
 	}
 
-	/// Check how many children location value node has.
-	pub fn num_children_locations(&self) -> usize {
+	fn num_children_locations(&self) -> usize {
 		match self {
-			NodePlan::Extension { child: NodeHandlePlan::Hash(_), .. } => 1,
+			NodePlan::Extension { child: NodeHandlePlan::Hash(..), .. } => 1,
 			NodePlan::Branch { children, .. } | NodePlan::NibbledBranch { children, .. } => {
 				let mut count = 0;
 				for child in children {
-					if let Some(NodeHandlePlan::Hash(_)) = child {
+					if let Some(NodeHandlePlan::Hash(..)) = child {
 						count += 1;
 					}
 				}
@@ -661,6 +689,8 @@ impl NodePlan {
 		}
 	}
 
+	/// Check if an extra location is defined, it can be attached state.
+	/// This method is counting and should be call only when needed.
 	pub fn additional_ref_location<L: Copy + Default>(&self, locations: &[L]) -> Option<L> {
 		let offset =
 			if self.has_location_for_value() { 1 } else { 0 } + self.num_children_locations();

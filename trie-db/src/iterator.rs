@@ -214,11 +214,10 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						self.key_nibbles.push(i);
 
 						if children[i as usize].is_some() {
-							// TODO would make sense to put location in NodePlan: this is rather
-							// costy
-							let (_, children) = NodePlan::build_value_and_children(
+							let child = NodePlan::build_child(
 								value.as_ref(),
 								children,
+								i as usize,
 								node_data,
 								locations,
 							);
@@ -229,7 +228,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 							let prefix = key.back(full_key_nibbles);
 							db.get_raw_or_lookup(
 								node_hash.unwrap_or_default(),
-								children[i as usize].unwrap(),
+								child.unwrap(),
 								prefix.left(),
 								true,
 							)?
@@ -262,11 +261,10 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						self.key_nibbles.push(i);
 
 						if children[i as usize].is_some() {
-							// TODO would make sense to put location in NodePlan: this is rather
-							// costy
-							let (_, children) = NodePlan::build_value_and_children(
+							let child = NodePlan::build_child(
 								value.as_ref(),
 								children,
+								i as usize,
 								node_data,
 								locations,
 							);
@@ -277,7 +275,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 							let prefix = key.back(full_key_nibbles);
 							db.get_raw_or_lookup(
 								node_hash.unwrap_or_default(),
-								children[i as usize].unwrap(),
+								child.unwrap(),
 								prefix.left(),
 								true,
 							)?
@@ -479,10 +477,10 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 				(Status::AtChild(i), NodePlan::Branch { value, children, .. }) |
 				(Status::AtChild(i), NodePlan::NibbledBranch { value, children, .. }) => {
 					if children[i].is_some() {
-						// TODO would make sense to put location in NodePlan: this is rather costy
-						let (_, children) = NodePlan::build_value_and_children(
+						let child = NodePlan::build_child(
 							value.as_ref(),
 							children,
+							i,
 							node_data,
 							locations,
 						);
@@ -492,7 +490,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 
 						match db.get_raw_or_lookup(
 							crumb.hash.unwrap_or_default(),
-							children[i].unwrap(),
+							child.unwrap(),
 							self.key_nibbles.as_prefix(),
 							true,
 						) {

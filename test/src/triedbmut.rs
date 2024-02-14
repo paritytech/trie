@@ -1001,6 +1001,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 	trie.get(b"make_sure_it_changes").unwrap().unwrap();
 }
 
+#[cfg(test)]
 fn attached_trie_root<T: TrieLayout, DB: TestDB<T>>(
 	memdb: &DB,
 	main_root: &TrieHash<T>,

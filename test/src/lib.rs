@@ -14,8 +14,6 @@
 
 //! Tests for trie-db crate.
 
-use trie_db::memory_db::{KeyFunction, MemoryDB};
-
 #[cfg(test)]
 mod double_ended_iterator;
 #[cfg(test)]
@@ -35,12 +33,15 @@ mod triedb;
 #[cfg(test)]
 mod triedbmut;
 
+#[cfg(test)]
 use trie_db::{
 	mem_tree_db::{Location, MemTreeDB},
+	memory_db::{KeyFunction, MemoryDB},
 	node_db::{self, Hasher, Prefix},
 	Changeset, DBValue, TrieHash, TrieLayout,
 };
 
+#[cfg(test)]
 trait TestDB<T: TrieLayout>: node_db::NodeDB<T::Hash, DBValue, T::Location> + Clone + Default {
 	fn commit(
 		&mut self,
@@ -53,6 +54,7 @@ trait TestDB<T: TrieLayout>: node_db::NodeDB<T::Hash, DBValue, T::Location> + Cl
 	}
 }
 
+#[cfg(test)]
 impl<T: TrieLayout<Hash = H>, H, KF> TestDB<T> for MemoryDB<H, KF, DBValue>
 where
 	H: Hasher,
@@ -74,6 +76,7 @@ where
 	}
 }
 
+#[cfg(test)]
 impl<T: TrieLayout<Hash = H, Location = Location>, H> TestDB<T> for MemTreeDB<H>
 where
 	H: Hasher + Clone,
@@ -97,10 +100,12 @@ where
 	}
 }
 
+#[cfg(test)]
 trait TestCommit<T: TrieLayout> {
 	fn commit_to<DB: TestDB<T>>(self, db: &mut DB) -> TrieHash<T>;
 }
 
+#[cfg(test)]
 impl<H, DL, T: TrieLayout<Location = DL>> TestCommit<T> for Changeset<H, DL>
 where
 	T::Hash: Hasher<Out = H>,

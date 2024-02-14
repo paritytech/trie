@@ -199,8 +199,8 @@ impl<'a, C: NodeCodec, L: Copy + Default> StackEntry<'a, C, L> {
 		child: &NodeHandlePlan,
 	) -> ChildReference<C::HashOut, L> {
 		match child {
-			NodeHandlePlan::Hash(_) => ChildReference::Inline(C::HashOut::default(), 0),
-			NodeHandlePlan::Inline(_) => {
+			NodeHandlePlan::Hash(..) => ChildReference::Inline(C::HashOut::default(), 0),
+			NodeHandlePlan::Inline(..) => {
 				let mut hash = C::HashOut::default();
 				assert!(
 					encoded_child.len() <= hash.as_ref().len(),
