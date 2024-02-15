@@ -15,8 +15,9 @@
 //! Reference-counted memory-based `NodeDB` implementation.
 
 use crate::{
-	node_db::{Hasher as KeyHasher, MaybeDebug, NodeDB, Prefix},
+	node_db::{Hasher as KeyHasher, MaybeDebug, NodeDB, NodeDBMut, Prefix},
 	rstd::{cmp::Eq, hash, marker::PhantomData, mem, vec::Vec},
+	Changeset, DBValue,
 };
 
 #[cfg(feature = "std")]
@@ -362,6 +363,17 @@ where
 
 	fn contains(&self, key: &H::Out, prefix: Prefix, _location: L) -> bool {
 		MemoryDB::contains(self, key, prefix)
+	}
+}
+
+impl<H, KF, L> NodeDBMut<H, DBValue, L> for MemoryDB<H, KF, DBValue>
+where
+	H: KeyHasher,
+	KF: KeyFunction<H> + Send + Sync,
+	L: Default,
+{
+	fn apply_changeset(&mut self, commit: Changeset<H::Out, L>) {
+		commit.apply_to(self);
 	}
 }
 

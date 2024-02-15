@@ -14,7 +14,10 @@
 
 //! Database of byte-slices keyed to their hash.
 
-use crate::rstd::{hash, vec::Vec};
+use crate::{
+	rstd::{hash, vec::Vec},
+	Changeset,
+};
 
 #[cfg(feature = "std")]
 use std::fmt::Debug;
@@ -84,4 +87,11 @@ pub trait NodeDB<H: Hasher, T, L>: Send + Sync {
 	fn hash(&self, value: &[u8]) -> H::Out {
 		H::hash(value)
 	}
+}
+
+/// Trait for node db that can get update by a CommitSet.
+/// Mostly usefull for testing.
+pub trait NodeDBMut<H: Hasher, T, L>: NodeDB<H, T, L> {
+	/// Insert commit set to the db.
+	fn apply_changeset(&mut self, commit: Changeset<H::Out, L>);
 }

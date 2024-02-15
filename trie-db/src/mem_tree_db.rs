@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 
 use crate::{
-	node_db::{Hasher, NodeDB, Prefix},
+	node_db::{Hasher, NodeDB, NodeDBMut, Prefix},
 	Changeset, NewChangesetNode,
 };
 
@@ -220,6 +220,15 @@ where
 		} else {
 			self.roots.contains_key(key)
 		}
+	}
+}
+
+impl<H> NodeDBMut<H, Vec<u8>, Location> for MemTreeDB<H>
+where
+	H: Hasher,
+{
+	fn apply_changeset(&mut self, commit: Changeset<H::Out, Location>) {
+		self.apply_commit(commit);
 	}
 }
 
