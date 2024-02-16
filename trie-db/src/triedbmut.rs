@@ -851,14 +851,14 @@ pub type OwnedPrefix = (BackingByteVec, Option<u8>);
 
 /// A `Trie` implementation using a generic `NodeDB` backing database.
 ///
-/// Use it as a `TrieMut` trait object. You can use `db()` to get the backing database object.
+/// You can use `db()` to get the backing database object.
 /// Note that changes are not committed to the database until `commit` is called.
 ///
 ///
 /// # Example
 /// ```ignore
 /// use trie_db::node_db::Hasher;
-/// use reference_trie::{RefTrieDBMut, TrieMut};
+/// use reference_trie::RefTrieDBMut;
 /// use trie_db::DBValue;
 /// use keccak_hasher::KeccakHasher;
 /// use trie_db::memory_db::*;
