@@ -372,8 +372,8 @@ where
 	KF: KeyFunction<H> + Send + Sync,
 	L: Default,
 {
-	fn apply_changeset(&mut self, commit: Changeset<H::Out, L>) {
-		commit.apply_to(self);
+	fn apply_changeset(&mut self, commit: Changeset<H::Out, L>) -> H::Out {
+		commit.apply_to(self)
 	}
 }
 

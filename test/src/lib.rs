@@ -82,9 +82,7 @@ where
 	H: Hasher + Clone,
 {
 	fn commit(&mut self, commit: trie_db::Changeset<H::Out, Location>) -> H::Out {
-		let root = commit.root_hash();
-		self.apply_commit(commit);
-		root
+		self.apply_commit(commit)
 	}
 
 	fn remove(&mut self, hash: &H::Out, _prefix: Prefix) {

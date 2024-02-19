@@ -163,8 +163,9 @@ where
 		}
 	}
 
-	pub fn apply_commit(&mut self, commit: Changeset<H::Out, Location>) {
-		if commit.root_hash() != self.hashed_null_node {
+	pub fn apply_commit(&mut self, commit: Changeset<H::Out, Location>) -> H::Out {
+		let root = commit.root_hash();
+		if root != self.hashed_null_node {
 			let root = self.apply(&commit);
 			let key = commit.hash();
 			self.roots.insert(*key, root);
@@ -176,6 +177,7 @@ where
 				self.remove_root(&k);
 			}
 		}
+		root
 	}
 }
 
@@ -227,8 +229,8 @@ impl<H> NodeDBMut<H, Vec<u8>, Location> for MemTreeDB<H>
 where
 	H: Hasher,
 {
-	fn apply_changeset(&mut self, commit: Changeset<H::Out, Location>) {
-		self.apply_commit(commit);
+	fn apply_changeset(&mut self, commit: Changeset<H::Out, Location>) -> H::Out {
+		self.apply_commit(commit)
 	}
 }
 

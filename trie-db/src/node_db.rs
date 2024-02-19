@@ -93,5 +93,5 @@ pub trait NodeDB<H: Hasher, T, L>: Send + Sync {
 /// Mostly usefull for testing.
 pub trait NodeDBMut<H: Hasher, T, L>: NodeDB<H, T, L> {
 	/// Insert commit set to the db.
-	fn apply_changeset(&mut self, commit: Changeset<H::Out, L>);
+	fn apply_changeset(&mut self, commit: Changeset<H::Out, L>) -> H::Out;
 }
