@@ -787,48 +787,86 @@ pub fn prefix_prefix(ks: &[u8], prefix: Prefix) -> (Vec<u8>, Option<u8>) {
 	(result, prefix.1)
 }
 
+/// Use this trait to visit a changeset content.
+pub trait ChangesetVisitor<H> {
+	fn need_prefix(&self) -> bool {
+		true
+	}
+
+	fn new_node(&mut self, prefix: Prefix, content: &[u8]);
+
+	fn removed_node(&mut self, hash: &H, prefix: Prefix);
+}
+
+impl<H, MH, K> ChangesetVisitor<H> for MemoryDB<MH, K, DBValue>
+where
+	K: KeyFunction<MH> + Send + Sync,
+	MH: Hasher<Out = H> + Send + Sync,
+{
+	fn need_prefix(&self) -> bool {
+		K::NEED_PREFIX
+	}
+
+	fn new_node(&mut self, prefix: Prefix, content: &[u8]) {
+		self.insert(prefix, content);
+	}
+
+	fn removed_node(&mut self, hash: &H, prefix: Prefix) {
+		self.remove(hash, prefix);
+	}
+}
+
 impl<H: Copy, DL: Default> Changeset<H, DL> {
+	pub fn visit(&self, v: &mut impl ChangesetVisitor<H>) -> H {
+		fn apply_node<'a, H, DL>(
+			node: &'a Changeset<H, DL>,
+			v: &mut impl ChangesetVisitor<H>,
+			mut ks: Option<&'a [u8]>,
+		) {
+			match node {
+				Changeset::New(node) => {
+					if let Some((k, removed)) = node.removed_keys.as_ref() {
+						for (hash, p) in removed.iter() {
+							let prefixed;
+							let prefix = if !v.need_prefix() {
+								(&[][..], None)
+							} else if let Some(k) = k {
+								ks = Some(k.as_slice());
+								prefixed = prefix_prefix(k.as_slice(), (p.0.as_slice(), p.1));
+								(prefixed.0.as_slice(), prefixed.1)
+							} else {
+								(p.0.as_slice(), p.1)
+							};
+							v.removed_node(hash, prefix);
+						}
+					}
+					for child in &node.children {
+						apply_node(child, v, ks);
+					}
+					let prefixed;
+					let prefix = if !v.need_prefix() {
+						(&[][..], None)
+					} else if let Some(ks) = ks {
+						prefixed = prefix_prefix(ks, (node.prefix.0.as_slice(), node.prefix.1));
+						(prefixed.0.as_slice(), prefixed.1)
+					} else {
+						(node.prefix.0.as_slice(), node.prefix.1)
+					};
+					v.new_node(prefix, &node.data);
+				},
+				Changeset::Existing(_) => {},
+			}
+		}
+		apply_node::<H, DL>(&self, v, None);
+		self.root_hash()
+	}
+
 	pub fn apply_to<K, MH>(&self, mem_db: &mut MemoryDB<MH, K, DBValue>) -> H
 	where
 		K: KeyFunction<MH> + Send + Sync,
 		MH: Hasher<Out = H> + Send + Sync,
 	{
-		fn apply_node<'a, H, DL, MH, K>(
-			node: &'a Changeset<H, DL>,
-			mem_db: &mut MemoryDB<MH, K, DBValue>,
-			mut ks: Option<&'a [u8]>,
-		) where
-			K: KeyFunction<MH> + Send + Sync,
-			MH: Hasher<Out = H> + Send + Sync,
-		{
-			match node {
-				Changeset::New(node) => {
-					if let Some((k, removed)) = node.removed_keys.as_ref() {
-						for (hash, p) in removed.iter() {
-							if let Some(k) = k {
-								let prefixed = prefix_prefix(k.as_slice(), (p.0.as_slice(), p.1));
-								mem_db.remove(hash, (prefixed.0.as_slice(), prefixed.1));
-								ks = Some(k.as_slice());
-							} else {
-								mem_db.remove(hash, (p.0.as_slice(), p.1));
-							}
-						}
-					}
-					for child in &node.children {
-						apply_node(child, mem_db, ks);
-					}
-					if let Some(ks) = ks {
-						let prefixed = prefix_prefix(ks, (node.prefix.0.as_slice(), node.prefix.1));
-						mem_db.insert((prefixed.0.as_slice(), prefixed.1), &node.data);
-					} else {
-						mem_db.insert((node.prefix.0.as_slice(), node.prefix.1), &node.data);
-					}
-				},
-				Changeset::Existing(_) => {},
-			}
-		}
-		apply_node::<H, DL, MH, K>(&self, mem_db, None);
-		self.root_hash()
+		self.visit(mem_db)
 	}
 
 	pub fn root_hash(&self) -> H {

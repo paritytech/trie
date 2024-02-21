@@ -126,6 +126,7 @@ where
 }
 
 pub trait KeyFunction<H: KeyHasher> {
+	const NEED_PREFIX: bool = true;
 	type Key: Send + Sync + Clone + hash::Hash + Eq + MaybeDebug + core::cmp::Ord;
 
 	fn key(hash: &H::Out, prefix: Prefix) -> Self::Key;
@@ -148,6 +149,7 @@ impl<H> core::fmt::Debug for HashKey<H> {
 
 impl<H: KeyHasher> KeyFunction<H> for HashKey<H> {
 	type Key = H::Out;
+	const NEED_PREFIX: bool = false;
 
 	fn key(hash: &H::Out, prefix: Prefix) -> H::Out {
 		hash_key::<H>(hash, prefix)
