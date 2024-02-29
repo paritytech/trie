@@ -784,7 +784,7 @@ impl<H, DL> Changeset<H, DL> {
 	/// In case the underlying db do not
 	/// do empty node optimization, it can
 	/// make sense to insert the empty node.
-	pub fn new_empty_tree<C: NodeCodec<HashOut = H>>() -> Self {
+	pub fn new_empty<C: NodeCodec<HashOut = H>>() -> Self {
 		Self::New(NewChangesetNode {
 			hash: C::hashed_null_node(),
 			prefix: Default::default(),
