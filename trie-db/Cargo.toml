@@ -8,14 +8,32 @@ license = "Apache-2.0"
 edition = "2018"
 
 [dependencies]
+hash256-std-hasher = { path = "../hash256-std-hasher", version = "0.15.2", optional = true }
 log = "0.4"
 smallvec = { version = "1.0.0", features = ["union", "const_new"] }
-hash-db = { path = "../hash-db", default-features = false, version = "0.16.0"}
 rustc-hex = { version = "2.1.0", default-features = false, optional = true }
+tiny-keccak = { version = "2.0.2", features = ["keccak"], optional = true }
+parity-scale-codec = { version = "3.0.0", optional = true }
+criterion = { version = "0.5.1", optional = true }
+
+[dev-dependencies]
+criterion = "0.5.1"
+hash256-std-hasher = { path = "../hash256-std-hasher", version = "0.15.2" }
+tiny-keccak = { version = "2.0.2", features = ["keccak"] }
 
 [features]
 default = ["std"]
+bench = [
+  "std",
+  "criterion",
+  "test_utils",
+]
+test_utils = [
+  "std",
+  "hash256-std-hasher",
+  "tiny-keccak",
+  "parity-scale-codec",
+]
 std = [
-  "hash-db/std",
   "rustc-hex",
 ]

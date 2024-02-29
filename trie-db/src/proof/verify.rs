@@ -18,10 +18,10 @@ use crate::{
 	nibble::LeftNibbleSlice,
 	nibble_ops::NIBBLE_LENGTH,
 	node::{Node, NodeHandle, Value},
+	node_db::Hasher,
 	rstd::{convert::TryInto, iter::Peekable, marker::PhantomData, result::Result, vec, vec::Vec},
 	CError, ChildReference, NodeCodec, TrieHash, TrieLayout,
 };
-use hash_db::Hasher;
 
 /// Errors that may occur during proof verification. Most of the errors types simply indicate that
 /// the proof is invalid with respect to the statement being verified, and the exact error type can
@@ -89,15 +89,15 @@ impl<HO: std::fmt::Debug, CE: std::error::Error + 'static> std::error::Error for
 struct StackEntry<'a, L: TrieLayout> {
 	/// The prefix is the nibble path to the node in the trie.
 	prefix: LeftNibbleSlice<'a>,
-	node: Node<'a>,
+	node: Node<'a, ()>,
 	is_inline: bool,
 	/// The value associated with this trie node.
-	value: Option<Value<'a>>,
+	value: Option<Value<'a, ()>>,
 	/// The next entry in the stack is a child of the preceding entry at this index. For branch
 	/// nodes, the index is in [0, NIBBLE_LENGTH] and for extension nodes, the index is in [0, 1].
 	child_index: usize,
 	/// The child references to use in reconstructing the trie nodes.
-	children: Vec<Option<ChildReference<TrieHash<L>>>>,
+	children: Vec<Option<ChildReference<TrieHash<L>, ()>>>,
 	/// Technical to attach lifetime to entry.
 	next_value_hash: Option<TrieHash<L>>,
 	_marker: PhantomData<L>,
@@ -109,7 +109,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 		prefix: LeftNibbleSlice<'a>,
 		is_inline: bool,
 	) -> Result<Self, Error<TrieHash<L>, CError<L>>> {
-		let node = L::Codec::decode(&node_data[..]).map_err(Error::DecodeError)?;
+		let node = L::Codec::decode(&node_data[..], &[]).map_err(Error::DecodeError)?;
 		let children_len = match &node {
 			Node::Empty | Node::Leaf(..) => 0,
 			Node::Extension(..) => 1,
@@ -132,9 +132,9 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 		})
 	}
 
-	fn value(&self) -> Option<Value> {
+	fn value(&self) -> Option<Value<()>> {
 		if let Some(hash) = self.next_value_hash.as_ref() {
-			Some(Value::Node(hash.as_ref()))
+			Some(Value::Node(hash.as_ref(), ()))
 		} else {
 			self.value.clone()
 		}
@@ -226,7 +226,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 
 	fn make_child_entry<I>(
 		proof_iter: &mut I,
-		child: NodeHandle<'a>,
+		child: NodeHandle<'a, ()>,
 		prefix: LeftNibbleSlice<'a>,
 	) -> Result<Self, Error<TrieHash<L>, CError<L>>>
 	where
@@ -240,7 +240,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 				} else {
 					StackEntry::new(data, prefix, true)
 				},
-			NodeHandle::Hash(data) => {
+			NodeHandle::Hash(data, _) => {
 				let mut hash = TrieHash::<L>::default();
 				if data.len() != hash.as_ref().len() {
 					return Err(Error::InvalidChildReference(data.to_vec()))
@@ -323,7 +323,7 @@ enum ValueMatch<'a> {
 fn match_key_to_node<'a>(
 	key: &LeftNibbleSlice<'a>,
 	prefix_len: usize,
-	node: &Node,
+	node: &Node<()>,
 ) -> ValueMatch<'a> {
 	match node {
 		Node::Empty => ValueMatch::NotFound,
@@ -365,8 +365,8 @@ fn match_key_to_node<'a>(
 fn match_key_to_branch_node<'a>(
 	key: &LeftNibbleSlice<'a>,
 	prefix_plus_partial_len: usize,
-	children: &[Option<NodeHandle>; NIBBLE_LENGTH],
-	value: Option<&Value>,
+	children: &[Option<NodeHandle<()>>; NIBBLE_LENGTH],
+	value: Option<&Value<()>>,
 ) -> ValueMatch<'a> {
 	if key.len() == prefix_plus_partial_len {
 		if value.is_none() {
@@ -455,7 +455,7 @@ where
 					ChildReference::Inline(hash, node_data.len())
 				} else {
 					let hash = L::Hash::hash(&node_data);
-					ChildReference::Hash(hash)
+					ChildReference::Hash(hash, ())
 				};
 
 				if let Some(entry) = stack.pop() {
@@ -467,7 +467,7 @@ where
 						return Err(Error::ExtraneousNode)
 					}
 					let computed_root = match child_ref {
-						ChildReference::Hash(hash) => hash,
+						ChildReference::Hash(hash, _) => hash,
 						ChildReference::Inline(_, _) =>
 							panic!("the bottom item on the stack has is_inline = false; qed"),
 					};

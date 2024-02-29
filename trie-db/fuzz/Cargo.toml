@@ -9,8 +9,6 @@ edition = "2018"
 cargo-fuzz = true
 
 [dependencies]
-hash-db = { path = "../../hash-db", version = "0.16.0" }
-memory-db = { path = "../../memory-db", version = "0.32.0" }
 reference-trie = { path = "../../test-support/reference-trie", version = "0.29.0" }
 arbitrary = { version = "1.3.0", features = ["derive"] }
 array-bytes = "6.0.0"

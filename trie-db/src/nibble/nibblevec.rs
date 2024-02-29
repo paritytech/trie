@@ -19,8 +19,8 @@ use crate::{
 	nibble::{nibble_ops, BackingByteVec, NibbleSlice},
 	node::NodeKey,
 	node_codec::Partial,
+	node_db::Prefix,
 };
-use hash_db::Prefix;
 
 impl Default for NibbleVec {
 	fn default() -> Self {
@@ -115,6 +115,12 @@ impl NibbleVec {
 		} else {
 			(&self.inner[..split], Some(nibble_ops::pad_left(self.inner[split])))
 		}
+	}
+
+	/// Get `Prefix` representation of this `NibbleVec`.
+	pub fn as_owned_prefix(&self) -> (BackingByteVec, Option<u8>) {
+		let (inner, pad) = self.as_prefix();
+		(inner.into(), pad)
 	}
 
 	/// Append another `NibbleVec`. Can be slow (alignement of second vec).

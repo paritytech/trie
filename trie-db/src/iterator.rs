@@ -16,10 +16,10 @@ use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout};
 use crate::{
 	nibble::{nibble_ops, NibbleSlice, NibbleVec},
 	node::{Node, NodeHandle, NodePlan, OwnedNode, Value},
+	node_db::{self, Prefix, EMPTY_PREFIX},
 	triedb::TrieDB,
 	TrieDoubleEndedIterator, TrieError, TrieItem, TrieKeyItem,
 };
-use hash_db::{Hasher, Prefix, EMPTY_PREFIX};
 
 use crate::rstd::{boxed::Box, sync::Arc, vec::Vec};
 
@@ -35,13 +35,13 @@ enum Status {
 
 #[cfg_attr(feature = "std", derive(Debug))]
 #[derive(Eq, PartialEq)]
-struct Crumb<H: Hasher> {
-	hash: Option<H::Out>,
-	node: Arc<OwnedNode<DBValue>>,
+struct Crumb<L: TrieLayout> {
+	hash: Option<TrieHash<L>>,
+	node: Arc<OwnedNode<DBValue, L::Location>>,
 	status: Status,
 }
 
-impl<H: Hasher> Crumb<H> {
+impl<L: TrieLayout> Crumb<L> {
 	/// Move on to the next status in the node's sequence in a direction.
 	fn step(&mut self, fwd: bool) {
 		self.status = match (self.status, self.node.node_plan()) {
@@ -72,7 +72,7 @@ impl<H: Hasher> Crumb<H> {
 /// Iterator for going through all nodes in the trie in pre-order traversal order.
 pub struct TrieDBRawIterator<L: TrieLayout> {
 	/// Forward trail of nodes to visit.
-	trail: Vec<Crumb<L::Hash>>,
+	trail: Vec<Crumb<L>>,
 	/// Forward iteration key nibbles of the current node.
 	key_nibbles: NibbleVec,
 }
@@ -89,7 +89,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 			TrieDBRawIterator { trail: Vec::with_capacity(8), key_nibbles: NibbleVec::new() };
 		let (root_node, root_hash) = db.get_raw_or_lookup(
 			*db.root(),
-			NodeHandle::Hash(db.root().as_ref()),
+			NodeHandle::Hash(db.root().as_ref(), db.root_location()),
 			EMPTY_PREFIX,
 			true,
 		)?;
@@ -120,7 +120,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	}
 
 	/// Descend into a node.
-	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<TrieHash<L>>) {
+	fn descend(&mut self, node: OwnedNode<DBValue, L::Location>, node_hash: Option<TrieHash<L>>) {
 		self.trail
 			.push(Crumb { hash: node_hash, status: Status::Entering, node: Arc::new(node) });
 	}
@@ -130,10 +130,11 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 		db: &TrieDB<L>,
 		key: &[u8],
 		prefix: Prefix,
+		location: L::Location,
 	) -> Result<DBValue, TrieHash<L>, CError<L>> {
 		let mut res = TrieHash::<L>::default();
 		res.as_mut().copy_from_slice(key);
-		db.fetch_value(res, prefix)
+		db.fetch_value(res, prefix, location)
 	}
 
 	/// Seek a node position at 'key' for iterator.
@@ -154,7 +155,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 
 		let (mut node, mut node_hash) = db.get_raw_or_lookup(
 			<TrieHash<L>>::default(),
-			NodeHandle::Hash(db.root().as_ref()),
+			NodeHandle::Hash(db.root().as_ref(), Default::default()),
 			EMPTY_PREFIX,
 			true,
 		)?;
@@ -168,6 +169,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						thus the trail is non-empty; qed",
 				);
 				let node_data = crumb.node.data();
+				let locations = crumb.node.locations();
 
 				match crumb.node.node_plan() {
 					NodePlan::Leaf { partial: partial_plan, .. } => {
@@ -197,12 +199,12 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						let prefix = key.back(full_key_nibbles);
 						db.get_raw_or_lookup(
 							node_hash.unwrap_or_default(),
-							child.build(node_data),
+							child.build(node_data, locations.first().copied().unwrap_or_default()),
 							prefix.left(),
 							true,
 						)?
 					},
-					NodePlan::Branch { value: _, children } => {
+					NodePlan::Branch { value, children } => {
 						if partial.is_empty() {
 							return Ok(true);
 						}
@@ -211,14 +213,22 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						crumb.status = Status::AtChild(i as usize);
 						self.key_nibbles.push(i);
 
-						if let Some(child) = &children[i as usize] {
+						if children[i as usize].is_some() {
+							let child = NodePlan::build_child(
+								value.as_ref(),
+								children,
+								i as usize,
+								node_data,
+								locations,
+							);
+
 							full_key_nibbles += 1;
 							partial = partial.mid(1);
 
 							let prefix = key.back(full_key_nibbles);
 							db.get_raw_or_lookup(
 								node_hash.unwrap_or_default(),
-								child.build(node_data),
+								child.unwrap(),
 								prefix.left(),
 								true,
 							)?
@@ -226,7 +236,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 							return Ok(false);
 						}
 					},
-					NodePlan::NibbledBranch { partial: partial_plan, value: _, children } => {
+					NodePlan::NibbledBranch { partial: partial_plan, value, children } => {
 						let slice = partial_plan.build(node_data);
 						if !partial.starts_with(&slice) {
 							if (fwd && slice < partial) || (!fwd && slice > partial) {
@@ -250,14 +260,22 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						self.key_nibbles.append_partial(slice.right());
 						self.key_nibbles.push(i);
 
-						if let Some(child) = &children[i as usize] {
+						if children[i as usize].is_some() {
+							let child = NodePlan::build_child(
+								value.as_ref(),
+								children,
+								i as usize,
+								node_data,
+								locations,
+							);
+
 							full_key_nibbles += 1;
 							partial = partial.mid(1);
 
 							let prefix = key.back(full_key_nibbles);
 							db.get_raw_or_lookup(
 								node_hash.unwrap_or_default(),
-								child.build(node_data),
+								child.unwrap(),
 								prefix.left(),
 								true,
 							)?
@@ -377,7 +395,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 		fwd: bool,
 	) -> Option<
 		Result<
-			(&NibbleVec, Option<&TrieHash<L>>, &Arc<OwnedNode<DBValue>>),
+			(&NibbleVec, Option<&TrieHash<L>>, &Arc<OwnedNode<DBValue, L::Location>>),
 			TrieHash<L>,
 			CError<L>,
 		>,
@@ -385,6 +403,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 		loop {
 			let crumb = self.trail.last_mut()?;
 			let node_data = crumb.node.data();
+			let locations = crumb.node.locations();
 
 			match (crumb.status, crumb.node.node_plan()) {
 				(Status::Entering, _) =>
@@ -424,7 +443,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 
 					match db.get_raw_or_lookup(
 						crumb.hash.unwrap_or_default(),
-						child.build(node_data),
+						child.build(node_data, locations.first().copied().unwrap_or_default()),
 						self.key_nibbles.as_prefix(),
 						true,
 					) {
@@ -455,15 +474,23 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 					});
 					crumb.step(fwd);
 				},
-				(Status::AtChild(i), NodePlan::Branch { children, .. }) |
-				(Status::AtChild(i), NodePlan::NibbledBranch { children, .. }) => {
-					if let Some(child) = &children[i] {
+				(Status::AtChild(i), NodePlan::Branch { value, children, .. }) |
+				(Status::AtChild(i), NodePlan::NibbledBranch { value, children, .. }) => {
+					if children[i].is_some() {
+						let child = NodePlan::build_child(
+							value.as_ref(),
+							children,
+							i,
+							node_data,
+							locations,
+						);
+
 						self.key_nibbles.pop();
 						self.key_nibbles.push(i as u8);
 
 						match db.get_raw_or_lookup(
 							crumb.hash.unwrap_or_default(),
-							child.build(node_data),
+							child.unwrap(),
 							self.key_nibbles.as_prefix(),
 							true,
 						) {
@@ -492,25 +519,15 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	/// Must be called with the same `db` as when the iterator was created.
 	pub fn next_item(&mut self, db: &TrieDB<L>) -> Option<TrieItem<TrieHash<L>, CError<L>>> {
 		while let Some(raw_item) = self.next_raw_item(db, true) {
-			let (key, maybe_extra_nibble, value) = match Self::extract_key_from_raw_item(raw_item) {
-				Some(Ok(k)) => k,
-				Some(Err(err)) => return Some(Err(err)),
+			let (prefix, _, node) = match raw_item {
+				Ok(raw_item) => raw_item,
+				Err(err) => return Some(Err(err)),
+			};
+
+			match Self::value_from_raw(prefix, node, db) {
+				Some(r) => return Some(r),
 				None => continue,
-			};
-
-			if let Some(extra_nibble) = maybe_extra_nibble {
-				return Some(Err(Box::new(TrieError::ValueAtIncompleteKey(key, extra_nibble))));
 			}
-
-			let value = match value {
-				Value::Node(hash) => match Self::fetch_value(db, &hash, (key.as_slice(), None)) {
-					Ok(value) => value,
-					Err(err) => return Some(Err(err)),
-				},
-				Value::Inline(value) => value.to_vec(),
-			};
-
-			return Some(Ok((key, value)));
 		}
 		None
 	}
@@ -520,27 +537,60 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	/// Must be called with the same `db` as when the iterator was created.
 	pub fn prev_item(&mut self, db: &TrieDB<L>) -> Option<TrieItem<TrieHash<L>, CError<L>>> {
 		while let Some(raw_item) = self.next_raw_item(db, false) {
-			let (key, maybe_extra_nibble, value) = match Self::extract_key_from_raw_item(raw_item) {
-				Some(Ok(k)) => k,
-				Some(Err(err)) => return Some(Err(err)),
-				None => continue,
+			let (prefix, _, node) = match raw_item {
+				Ok(raw_item) => raw_item,
+				Err(err) => return Some(Err(err)),
 			};
 
-			if let Some(extra_nibble) = maybe_extra_nibble {
-				return Some(Err(Box::new(TrieError::ValueAtIncompleteKey(key, extra_nibble))));
+			match Self::value_from_raw(prefix, node, db) {
+				Some(r) => return Some(r),
+				None => continue,
 			}
+		}
+		None
+	}
 
-			let value = match value {
-				Value::Node(hash) => match Self::fetch_value(db, &hash, (key.as_slice(), None)) {
+	pub(crate) fn value_from_raw(
+		prefix: &NibbleVec,
+		node: &Arc<OwnedNode<DBValue, L::Location>>,
+		db: &TrieDB<L>,
+	) -> Option<TrieItem<TrieHash<L>, CError<L>>> {
+		let mut prefix = prefix.clone();
+		let value = match node.node() {
+			Node::Leaf(partial, value) => {
+				prefix.append_partial(partial.right());
+				value
+			},
+			Node::Branch(_, value) => match value {
+				Some(value) => value,
+				None => return None,
+			},
+			Node::NibbledBranch(partial, _, value) => {
+				prefix.append_partial(partial.right());
+				match value {
+					Some(value) => value,
+					None => return None,
+				}
+			},
+			_ => return None,
+		};
+
+		let (key_slice, maybe_extra_nibble) = prefix.as_prefix();
+		let key = key_slice.to_vec();
+		if let Some(extra_nibble) = maybe_extra_nibble {
+			return Some(Err(Box::new(TrieError::ValueAtIncompleteKey(key, extra_nibble))))
+		}
+
+		let value = match value {
+			Value::Node(hash, location) =>
+				match Self::fetch_value(db, &hash, (key_slice, None), location) {
 					Ok(value) => value,
 					Err(err) => return Some(Err(err)),
 				},
-				Value::Inline(value) => value.to_vec(),
-			};
+			Value::Inline(value) => value.to_vec(),
+		};
 
-			return Some(Ok((key, value)));
-		}
-		None
+		return Some(Ok((key, value)))
 	}
 
 	/// Fetches the next key.
@@ -589,11 +639,11 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	/// extra nibble (prefix padding), and the node value.
 	fn extract_key_from_raw_item<'a>(
 		raw_item: Result<
-			(&NibbleVec, Option<&TrieHash<L>>, &'a Arc<OwnedNode<DBValue>>),
+			(&NibbleVec, Option<&TrieHash<L>>, &'a Arc<OwnedNode<DBValue, L::Location>>),
 			TrieHash<L>,
 			CError<L>,
 		>,
-	) -> Option<Result<(Vec<u8>, Option<u8>, Value<'a>), TrieHash<L>, CError<L>>> {
+	) -> Option<Result<(Vec<u8>, Option<u8>, Value<'a, L::Location>), TrieHash<L>, CError<L>>> {
 		let (prefix, _, node) = match raw_item {
 			Ok(raw_item) => raw_item,
 			Err(err) => return Some(Err(err)),
@@ -656,8 +706,9 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 		&self,
 		key: &[u8],
 		prefix: Prefix,
+		location: L::Location,
 	) -> Result<DBValue, TrieHash<L>, CError<L>> {
-		TrieDBRawIterator::fetch_value(self.db, key, prefix)
+		TrieDBRawIterator::fetch_value(self.db, key, prefix, location)
 	}
 
 	/// Advance the iterator into a prefix, no value out of the prefix will be accessed
@@ -677,8 +728,16 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeIterator<'a, 'cache, L> {
 	}
 
 	/// Access inner hash db.
-	pub fn db(&self) -> &dyn hash_db::HashDBRef<L::Hash, DBValue> {
+	pub fn db(&self) -> &dyn node_db::NodeDB<L::Hash, DBValue, L::Location> {
 		self.db.db()
+	}
+
+	/// Access value of an item.
+	pub fn item_from_raw(
+		&self,
+		item: &(NibbleVec, Option<TrieHash<L>>, Arc<OwnedNode<DBValue, L::Location>>),
+	) -> Option<TrieItem<TrieHash<L>, CError<L>>> {
+		TrieDBRawIterator::value_from_raw(&item.0, &item.2, self.db)
 	}
 }
 
@@ -689,8 +748,11 @@ impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, 'cach
 }
 
 impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, 'cache, L> {
-	type Item =
-		Result<(NibbleVec, Option<TrieHash<L>>, Arc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
+	type Item = Result<
+		(NibbleVec, Option<TrieHash<L>>, Arc<OwnedNode<DBValue, L::Location>>),
+		TrieHash<L>,
+		CError<L>,
+	>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.raw_iter.next_raw_item(self.db, true).map(|result| {
@@ -740,8 +802,9 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeDoubleEndedIterator<'a, 'cache, L> {
 		&self,
 		key: &[u8],
 		prefix: Prefix,
+		location: L::Location,
 	) -> Result<DBValue, TrieHash<L>, CError<L>> {
-		TrieDBRawIterator::fetch_value(self.db, key, prefix)
+		TrieDBRawIterator::fetch_value(self.db, key, prefix, location)
 	}
 
 	/// Advance the iterator into a prefix, no value out of the prefix will be accessed
@@ -763,7 +826,7 @@ impl<'a, 'cache, L: TrieLayout> TrieDBNodeDoubleEndedIterator<'a, 'cache, L> {
 	}
 
 	/// Access inner hash db.
-	pub fn db(&self) -> &dyn hash_db::HashDBRef<L::Hash, DBValue> {
+	pub fn db(&self) -> &dyn node_db::NodeDB<L::Hash, DBValue, L::Location> {
 		self.db.db()
 	}
 }
@@ -778,8 +841,11 @@ impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBNodeDoubleEndedIterato
 }
 
 impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeDoubleEndedIterator<'a, 'cache, L> {
-	type Item =
-		Result<(NibbleVec, Option<TrieHash<L>>, Arc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
+	type Item = Result<
+		(NibbleVec, Option<TrieHash<L>>, Arc<OwnedNode<DBValue, L::Location>>),
+		TrieHash<L>,
+		CError<L>,
+	>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.raw_iter.next_raw_item(self.db, true).map(|result| {

@@ -17,8 +17,7 @@
 use super::{nibble_ops, BackingByteVec, NibbleSlice, NibbleSliceIterator, NibbleVec};
 #[cfg(feature = "std")]
 use crate::rstd::fmt;
-use crate::{node::NodeKey, node_codec::Partial, rstd::cmp::*};
-use hash_db::Prefix;
+use crate::{node::NodeKey, node_codec::Partial, node_db::Prefix, rstd::cmp::*};
 
 impl<'a> Iterator for NibbleSliceIterator<'a> {
 	type Item = u8;

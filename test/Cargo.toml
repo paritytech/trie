@@ -1,0 +1,28 @@
+[package]
+name = "trie-db-test"
+version = "0.29.0"
+authors = ["Parity Technologies <admin@parity.io>"]
+description = "Tests for trie-db crate"
+repository = "https://github.com/paritytech/trie"
+license = "Apache-2.0"
+edition = "2018"
+
+[[bench]]
+name = "bench"
+harness = false
+
+[[bench]]
+name = "memory_db"
+harness = false
+
+[dependencies]
+trie-db = { path = "../trie-db", version = "0.28.0", features = ["test_utils", "bench"]}
+rand = { version = "0.8", default-features = false, features = ["small_rng"] }
+reference-trie = { path = "../reference-trie", version = "0.29.0" }
+hex-literal = "0.4"
+criterion = "0.5.1"
+env_logger = { version = "0.10", default-features = false }
+log = "0.4"
+
+[dev-dependencies]
+array-bytes = "6.0.0"

@@ -1,0 +1,28 @@
+[package]
+name = "reference-trie"
+version = "0.29.1"
+authors = ["Parity Technologies <admin@parity.io>"]
+description = "Simple reference trie format"
+repository = "https://github.com/paritytech/trie/"
+license = "Apache-2.0"
+edition = "2018"
+
+[dependencies]
+trie-db = { path = "../trie-db", default-features = false, version = "0.28.0" }
+parity-scale-codec = { version = "3.0.0", features = ["derive"] }
+hashbrown = { version = "0.14.1", default-features = false, features = ["ahash"] }
+paste = "1.0.12"
+
+[dev-dependencies]
+criterion = "0.5.1"
+
+[[bench]]
+name = "bench"
+harness = false
+
+[features]
+default = ["std"]
+# no actual support for std, only to avoid a cargo issues
+std = [
+  "trie-db/std",
+]

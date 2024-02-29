@@ -142,7 +142,7 @@ pub mod nibble_ops {
 }
 
 /// Backing storage for `NibbleVec`s.
-pub(crate) type BackingByteVec = smallvec::SmallVec<[u8; 40]>;
+pub type BackingByteVec = smallvec::SmallVec<[u8; 40]>;
 
 /// Owning, nibble-oriented byte vector. Counterpart to `NibbleSlice`.
 /// Nibbles are always left aligned, so making a `NibbleVec` from

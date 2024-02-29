@@ -12,30 +12,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Trie lookup via HashDB.
+//! Trie lookup via NodeDB.
 
 use crate::{
 	nibble::NibbleSlice,
 	node::{decode_hash, Node, NodeHandle, NodeHandleOwned, NodeOwned, Value, ValueOwned},
 	node_codec::NodeCodec,
+	node_db::{Hasher, NodeDB, Prefix},
 	rstd::{boxed::Box, vec::Vec},
 	Bytes, CError, CachedValue, DBValue, MerkleValue, Query, RecordedForKey, Result, TrieAccess,
 	TrieCache, TrieError, TrieHash, TrieLayout, TrieRecorder,
 };
-use hash_db::{HashDBRef, Hasher, Prefix};
 
 /// Trie lookup helper object.
 pub struct Lookup<'a, 'cache, L: TrieLayout, Q: Query<L::Hash>> {
 	/// database to query from.
-	pub db: &'a dyn HashDBRef<L::Hash, DBValue>,
+	pub db: &'a dyn NodeDB<L::Hash, DBValue, L::Location>,
 	/// Query object to record nodes and transform data.
 	pub query: Q,
 	/// Hash to start at
 	pub hash: TrieHash<L>,
+	/// Optionally location to start at.
+	pub location: L::Location,
 	/// Optional cache that should be used to speed up the lookup.
-	pub cache: Option<&'cache mut dyn TrieCache<L::Codec>>,
+	pub cache: Option<&'cache mut dyn TrieCache<L::Codec, L::Location>>,
 	/// Optional recorder that will be called to record all trie accesses.
-	pub recorder: Option<&'cache mut dyn TrieRecorder<TrieHash<L>>>,
+	pub recorder: Option<&'cache mut dyn TrieRecorder<TrieHash<L>, L::Location>>,
 }
 
 impl<'a, 'cache, L, Q> Lookup<'a, 'cache, L, Q>
@@ -50,11 +52,11 @@ where
 	///
 	/// Returns the bytes representing the value.
 	fn load_value(
-		v: Value,
+		v: Value<L::Location>,
 		prefix: Prefix,
 		full_key: &[u8],
-		db: &dyn HashDBRef<L::Hash, DBValue>,
-		recorder: &mut Option<&mut dyn TrieRecorder<TrieHash<L>>>,
+		db: &dyn NodeDB<L::Hash, DBValue, L::Location>,
+		recorder: &mut Option<&mut dyn TrieRecorder<TrieHash<L>, L::Location>>,
 		query: Q,
 	) -> Result<Q::Item, TrieHash<L>, CError<L>> {
 		match v {
@@ -65,10 +67,10 @@ where
 
 				Ok(query.decode(&value))
 			},
-			Value::Node(hash) => {
+			Value::Node(hash, location) => {
 				let mut res = TrieHash::<L>::default();
 				res.as_mut().copy_from_slice(hash);
-				if let Some(value) = db.get(&res, prefix) {
+				if let Some((value, _)) = db.get(&res, prefix, location) {
 					if let Some(recorder) = recorder {
 						recorder.record(TrieAccess::Value {
 							hash: res,
@@ -92,12 +94,12 @@ where
 	///
 	/// Returns the bytes representing the value and its hash.
 	fn load_owned_value(
-		v: ValueOwned<TrieHash<L>>,
+		v: ValueOwned<TrieHash<L>, L::Location>,
 		prefix: Prefix,
 		full_key: &[u8],
-		cache: &mut dyn crate::TrieCache<L::Codec>,
-		db: &dyn HashDBRef<L::Hash, DBValue>,
-		recorder: &mut Option<&mut dyn TrieRecorder<TrieHash<L>>>,
+		cache: &mut dyn crate::TrieCache<L::Codec, L::Location>,
+		db: &dyn NodeDB<L::Hash, DBValue, L::Location>,
+		recorder: &mut Option<&mut dyn TrieRecorder<TrieHash<L>, L::Location>>,
 	) -> Result<(Bytes, TrieHash<L>), TrieHash<L>, CError<L>> {
 		match v {
 			ValueOwned::Inline(value, hash) => {
@@ -107,10 +109,10 @@ where
 
 				Ok((value.clone(), hash))
 			},
-			ValueOwned::Node(hash) => {
-				let node = cache.get_or_insert_node(hash, &mut || {
-					let value = db
-						.get(&hash, prefix)
+			ValueOwned::Node(hash, location) => {
+				let node = cache.get_or_insert_node(hash, location, &mut || {
+					let (value, _) = db
+						.get(&hash, prefix, location)
 						.ok_or_else(|| Box::new(TrieError::IncompleteDatabase(hash)))?;
 
 					Ok(NodeOwned::Value(value.into(), hash))
@@ -137,9 +139,10 @@ where
 		}
 	}
 
-	fn record<'b>(&mut self, get_access: impl FnOnce() -> TrieAccess<'b, TrieHash<L>>)
+	fn record<'b>(&mut self, get_access: impl FnOnce() -> TrieAccess<'b, TrieHash<L>, L::Location>)
 	where
 		TrieHash<L>: 'b,
+		L::Location: 'b,
 	{
 		if let Some(recorder) = self.recorder.as_mut() {
 			recorder.record(get_access());
@@ -158,6 +161,7 @@ where
 	) -> Result<Option<MerkleValue<TrieHash<L>>>, TrieHash<L>, CError<L>> {
 		let mut partial = nibble_key;
 		let mut hash = self.hash;
+		let mut location = self.location;
 		let mut key_nibbles = 0;
 
 		let mut cache = self.cache.take();
@@ -176,16 +180,17 @@ where
 
 			// Get the owned node representation from the database.
 			let mut get_owned_node = |depth: i32| {
-				let data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
-					Some(value) => value,
-					None =>
-						return Err(Box::new(match depth {
-							0 => TrieError::InvalidStateRoot(hash),
-							_ => TrieError::IncompleteDatabase(hash),
-						})),
-				};
+				let (data, locations) =
+					match self.db.get(&hash, nibble_key.mid(key_nibbles).left(), location) {
+						Some(value) => value,
+						None =>
+							return Err(Box::new(match depth {
+								0 => TrieError::InvalidStateRoot(hash),
+								_ => TrieError::IncompleteDatabase(hash),
+							})),
+					};
 
-				let decoded = match L::Codec::decode(&data[..]) {
+				let decoded = match L::Codec::decode(&data[..], &locations) {
 					Ok(node) => node,
 					Err(e) => return Err(Box::new(TrieError::DecoderError(hash, e))),
 				};
@@ -196,7 +201,8 @@ where
 			};
 
 			let mut node = if let Some(cache) = &mut cache {
-				let node = cache.get_or_insert_node(hash, &mut || get_owned_node(depth))?;
+				let node =
+					cache.get_or_insert_node(hash, location, &mut || get_owned_node(depth))?;
 
 				self.record(|| TrieAccess::NodeOwned { hash, node_owned: node });
 
@@ -353,8 +359,9 @@ where
 
 				// check if new node data is inline or hash.
 				match next_node {
-					NodeHandleOwned::Hash(new_hash) => {
+					NodeHandleOwned::Hash(new_hash, new_location) => {
 						hash = *new_hash;
+						location = *new_location;
 						break
 					},
 					NodeHandleOwned::Inline(inline_node) => {
@@ -410,7 +417,7 @@ where
 
 							L::Hash::hash(&v)
 						},
-						Value::Node(hash_bytes) => {
+						Value::Node(hash_bytes, _location) => {
 							if let Some(recoder) = recorder.as_mut() {
 								recoder.record(TrieAccess::Hash { full_key });
 							}
@@ -432,7 +439,7 @@ where
 		mut self,
 		full_key: &[u8],
 		nibble_key: NibbleSlice,
-		cache: &mut dyn crate::TrieCache<L::Codec>,
+		cache: &mut dyn crate::TrieCache<L::Codec, L::Location>,
 	) -> Result<Option<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		let value_cache_allowed = self
 			.recorder
@@ -461,22 +468,23 @@ where
 							recoder.record(TrieAccess::InlineValue { full_key });
 						}
 
-						Ok((hash, Some(value.clone())))
+						Ok((hash, Some(value.clone()), Default::default()))
 					},
-					ValueOwned::Node(hash) => {
+					ValueOwned::Node(hash, location) => {
 						if let Some(recoder) = recorder.as_mut() {
 							recoder.record(TrieAccess::Hash { full_key });
 						}
 
-						Ok((hash, None))
+						Ok((hash, None, location))
 					},
 				},
 			)?;
 
 			match &hash_and_value {
-				Some((hash, Some(value))) =>
+				Some((hash, Some(value), _location)) =>
 					cache.cache_value_for_key(full_key, (value.clone(), *hash).into()),
-				Some((hash, None)) => cache.cache_value_for_key(full_key, (*hash).into()),
+				Some((hash, None, location)) =>
+					cache.cache_value_for_key(full_key, CachedValue::ExistingHash(*hash, *location)),
 				None => cache.cache_value_for_key(full_key, CachedValue::NonExisting),
 			}
 
@@ -494,7 +502,7 @@ where
 		mut self,
 		full_key: &[u8],
 		nibble_key: NibbleSlice,
-		cache: &mut dyn crate::TrieCache<L::Codec>,
+		cache: &mut dyn crate::TrieCache<L::Codec, L::Location>,
 	) -> Result<Option<Q::Item>, TrieHash<L>, CError<L>> {
 		let trie_nodes_recorded =
 			self.recorder.as_ref().map(|r| r.trie_nodes_recorded_for_key(full_key));
@@ -511,7 +519,7 @@ where
 		};
 
 		let lookup_data = |lookup: &mut Self,
-		                   cache: &mut dyn crate::TrieCache<L::Codec>|
+		                   cache: &mut dyn crate::TrieCache<L::Codec, L::Location>|
 		 -> Result<Option<Bytes>, TrieHash<L>, CError<L>> {
 			let data = lookup.look_up_with_cache_internal(
 				nibble_key,
@@ -528,11 +536,11 @@ where
 		let res = match value_cache_allowed.then(|| cache.lookup_value_for_key(full_key)).flatten()
 		{
 			Some(CachedValue::NonExisting) => None,
-			Some(CachedValue::ExistingHash(hash)) => {
+			Some(CachedValue::ExistingHash(hash, location)) => {
 				let data = Self::load_owned_value(
 					// If we only have the hash cached, this can only be a value node.
 					// For inline nodes we cache them directly as `CachedValue::Existing`.
-					ValueOwned::Node(*hash),
+					ValueOwned::Node(*hash, *location),
 					nibble_key.original_data_as_prefix(),
 					full_key,
 					cache,
@@ -575,33 +583,35 @@ where
 		&mut self,
 		nibble_key: NibbleSlice,
 		full_key: &[u8],
-		cache: &mut dyn crate::TrieCache<L::Codec>,
+		cache: &mut dyn crate::TrieCache<L::Codec, L::Location>,
 		load_value_owned: impl Fn(
-			ValueOwned<TrieHash<L>>,
+			ValueOwned<TrieHash<L>, L::Location>,
 			Prefix,
 			&[u8],
-			&mut dyn crate::TrieCache<L::Codec>,
-			&dyn HashDBRef<L::Hash, DBValue>,
-			&mut Option<&mut dyn TrieRecorder<TrieHash<L>>>,
+			&mut dyn crate::TrieCache<L::Codec, L::Location>,
+			&dyn NodeDB<L::Hash, DBValue, L::Location>,
+			&mut Option<&mut dyn TrieRecorder<TrieHash<L>, L::Location>>,
 		) -> Result<R, TrieHash<L>, CError<L>>,
 	) -> Result<Option<R>, TrieHash<L>, CError<L>> {
 		let mut partial = nibble_key;
 		let mut hash = self.hash;
+		let mut location = self.location;
 		let mut key_nibbles = 0;
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
-			let mut node = cache.get_or_insert_node(hash, &mut || {
-				let node_data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
-					Some(value) => value,
-					None =>
-						return Err(Box::new(match depth {
-							0 => TrieError::InvalidStateRoot(hash),
-							_ => TrieError::IncompleteDatabase(hash),
-						})),
-				};
+			let mut node = cache.get_or_insert_node(hash, location, &mut || {
+				let (node_data, locations) =
+					match self.db.get(&hash, nibble_key.mid(key_nibbles).left(), location) {
+						Some(value) => value,
+						None =>
+							return Err(Box::new(match depth {
+								0 => TrieError::InvalidStateRoot(hash),
+								_ => TrieError::IncompleteDatabase(hash),
+							})),
+					};
 
-				let decoded = match L::Codec::decode(&node_data[..]) {
+				let decoded = match L::Codec::decode(&node_data[..], &locations) {
 					Ok(node) => node,
 					Err(e) => return Err(Box::new(TrieError::DecoderError(hash, e))),
 				};
@@ -727,8 +737,9 @@ where
 
 				// check if new node data is inline or hash.
 				match next_node {
-					NodeHandleOwned::Hash(new_hash) => {
+					NodeHandleOwned::Hash(new_hash, new_location) => {
 						hash = *new_hash;
+						location = *new_location;
 						break
 					},
 					NodeHandleOwned::Inline(inline_node) => {
@@ -751,28 +762,30 @@ where
 		nibble_key: NibbleSlice,
 		full_key: &[u8],
 		load_value: impl Fn(
-			Value,
+			Value<L::Location>,
 			Prefix,
 			&[u8],
-			&dyn HashDBRef<L::Hash, DBValue>,
-			&mut Option<&mut dyn TrieRecorder<TrieHash<L>>>,
+			&dyn NodeDB<L::Hash, DBValue, L::Location>,
+			&mut Option<&mut dyn TrieRecorder<TrieHash<L>, L::Location>>,
 			Q,
 		) -> Result<R, TrieHash<L>, CError<L>>,
 	) -> Result<Option<R>, TrieHash<L>, CError<L>> {
 		let mut partial = nibble_key;
 		let mut hash = self.hash;
+		let mut location = self.location;
 		let mut key_nibbles = 0;
 
 		// this loop iterates through non-inline nodes.
 		for depth in 0.. {
-			let node_data = match self.db.get(&hash, nibble_key.mid(key_nibbles).left()) {
-				Some(value) => value,
-				None =>
-					return Err(Box::new(match depth {
-						0 => TrieError::InvalidStateRoot(hash),
-						_ => TrieError::IncompleteDatabase(hash),
-					})),
-			};
+			let (node_data, locations) =
+				match self.db.get(&hash, nibble_key.mid(key_nibbles).left(), location) {
+					Some(value) => value,
+					None =>
+						return Err(Box::new(match depth {
+							0 => TrieError::InvalidStateRoot(hash),
+							_ => TrieError::IncompleteDatabase(hash),
+						})),
+				};
 
 			self.record(|| TrieAccess::EncodedNode {
 				hash,
@@ -783,7 +796,7 @@ where
 			// without incrementing the depth.
 			let mut node_data = &node_data[..];
 			loop {
-				let decoded = match L::Codec::decode(node_data) {
+				let decoded = match L::Codec::decode(node_data, &locations) {
 					Ok(node) => node,
 					Err(e) => return Err(Box::new(TrieError::DecoderError(hash, e))),
 				};
@@ -833,7 +846,8 @@ where
 								Ok(None)
 							}
 						} else {
-							match children[partial.at(0) as usize] {
+							let i = partial.at(0) as usize;
+							match children[i] {
 								Some(x) => {
 									partial = partial.mid(1);
 									key_nibbles += 1;
@@ -870,7 +884,8 @@ where
 								Ok(None)
 							}
 						} else {
-							match children[partial.at(slice.len()) as usize] {
+							let i = partial.at(slice.len()) as usize;
+							match children[i] {
 								Some(x) => {
 									partial = partial.mid(slice.len() + 1);
 									key_nibbles += slice.len() + 1;
@@ -893,9 +908,10 @@ where
 
 				// check if new node data is inline or hash.
 				match next_node {
-					NodeHandle::Hash(data) => {
+					NodeHandle::Hash(data, l) => {
 						hash = decode_hash::<L::Hash>(data)
 							.ok_or_else(|| Box::new(TrieError::InvalidHash(hash, data.to_vec())))?;
+						location = l;
 						break
 					},
 					NodeHandle::Inline(data) => {
