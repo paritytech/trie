@@ -37,13 +37,13 @@ jobs:
           command: test
           args: --workspace
 
-      - name: Check trie-db Without Std
+      - name: Check subtrie Without Std
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --manifest-path trie-db/Cargo.toml --no-default-features
+          args: --manifest-path subtrie/Cargo.toml --no-default-features
 
-      - name: Check trie-db-test With bench
+      - name: Check subtrie-test With bench
         uses: actions-rs/cargo@v1
         with:
           command: check
