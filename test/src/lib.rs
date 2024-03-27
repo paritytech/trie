@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Tests for trie-db crate.
+//! Tests for subtrie crate.
 
 #[cfg(test)]
 mod double_ended_iterator;

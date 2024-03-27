@@ -1,7 +1,7 @@
 [workspace]
 members = [
 	"hash256-std-hasher",
-	"trie-db",
+	"subtrie",
 	"test",
 	"reference-trie",
 ]
