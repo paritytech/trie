@@ -120,9 +120,9 @@ impl<'db, 'cache, L: TrieLayout> TrieDBBuilder<'db, 'cache, L> {
 ///
 /// # Example
 /// ```ignore
-/// use trie_db::node_db::Hasher;
+/// use subtrie::node_db::Hasher;
 /// use reference_trie::{RefTrieDBMut, RefTrieDB, Trie};
-/// use trie_db::DBValue;
+/// use subtrie::DBValue;
 /// use keccak_hasher::KeccakHasher;
 /// use memory_db::*;
 ///

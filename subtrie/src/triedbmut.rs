@@ -871,11 +871,11 @@ pub type OwnedPrefix = (BackingByteVec, Option<u8>);
 ///
 /// # Example
 /// ```ignore
-/// use trie_db::node_db::Hasher;
+/// use subtrie::node_db::Hasher;
 /// use reference_trie::RefTrieDBMut;
-/// use trie_db::DBValue;
+/// use subtrie::DBValue;
 /// use keccak_hasher::KeccakHasher;
-/// use trie_db::memory_db::*;
+/// use subtrie::memory_db::*;
 ///
 /// let mut memdb = MemoryDB::<KeccakHasher, HashKey<_>, DBValue>::default();
 /// let mut root = Default::default();

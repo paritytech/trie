@@ -37,10 +37,10 @@ use alloc::collections::btree_map::{BTreeMap as Map, Entry};
 /// ```rust
 ///   #[cfg(feature = "test_utils")]
 ///   {
-///   use trie_db::node_db::Hasher;
-///   use trie_db::node_db::{EMPTY_PREFIX};
-///   use trie_db::keccak_hasher::KeccakHasher;
-///   use trie_db::memory_db::{MemoryDB, HashKey};
+///   use subtrie::node_db::Hasher;
+///   use subtrie::node_db::{EMPTY_PREFIX};
+///   use subtrie::keccak_hasher::KeccakHasher;
+///   use subtrie::memory_db::{MemoryDB, HashKey};
 ///
 ///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default();
 ///   let d = "Hello world!".as_bytes();
@@ -280,10 +280,10 @@ where
 	/// ```rust
 	/// #[cfg(feature = "test_utils")]
 	/// {
-	/// use trie_db::node_db::Hasher;
-	/// use trie_db::node_db::{NodeDB, EMPTY_PREFIX};
-	/// use trie_db::keccak_hasher::KeccakHasher;
-	/// use trie_db::memory_db::{MemoryDB, HashKey};
+	/// use subtrie::node_db::Hasher;
+	/// use subtrie::node_db::{NodeDB, EMPTY_PREFIX};
+	/// use subtrie::keccak_hasher::KeccakHasher;
+	/// use subtrie::memory_db::{MemoryDB, HashKey};
 	///
 	/// fn main() {
 	///   let mut m = MemoryDB::<KeccakHasher, HashKey<_>, Vec<u8>>::default();

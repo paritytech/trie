@@ -333,7 +333,7 @@ where
 					assert_eq!(
 						Some(&value),
 						expected_value.as_ref(),
-						"expected_value is found using `trie_db::Lookup`; \
+						"expected_value is found using `subtrie::Lookup`; \
 						value is found by traversing the same nodes recorded during the lookup \
 						using the same logic; \
 						thus the values found must be equal"
@@ -352,7 +352,7 @@ where
 					assert_eq!(
 						value,
 						expected_value.as_ref().map(|v| v.as_ref()),
-						"expected_value is found using `trie_db::Lookup`; \
+						"expected_value is found using `subtrie::Lookup`; \
 						value is found by traversing the same nodes recorded during the lookup \
 						using the same logic; \
 						thus the values found must be equal"
