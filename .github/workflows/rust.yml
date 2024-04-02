@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout Sources
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install Rust Toolchain
         uses: actions-rs/toolchain@v1
@@ -37,29 +37,23 @@ jobs:
           command: test
           args: --workspace
 
-      - name: Check trie-db Without Std
+      - name: Check subtrie Without Std
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --manifest-path trie-db/Cargo.toml --no-default-features
+          args: --manifest-path subtrie/Cargo.toml --no-default-features
 
-      - name: Check memory-db Without Std
+      - name: Check subtrie-test With bench
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --manifest-path memory-db/Cargo.toml --no-default-features
-
-      - name: Check trie-root Without Std
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --manifest-path trie-root/Cargo.toml --no-default-features
+          args: --manifest-path test/Cargo.toml --benches
 
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal

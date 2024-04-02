@@ -1,0 +1,68 @@
+[package]
+name = "trie-db-fuzz"
+version = "0.0.1"
+authors = []
+publish = false
+edition = "2018"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+reference-trie = { path = "../../test-support/reference-trie", version = "0.29.0" }
+arbitrary = { version = "1.3.0", features = ["derive"] }
+array-bytes = "6.0.0"
+
+[dependencies.subtrie]
+path = ".."
+
+[dependencies.libfuzzer-sys]
+version = "0.4.6"
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "trie_root_new"
+path = "fuzz_targets/trie_root_new.rs"
+
+[[bin]]
+name = "trie_root"
+path = "fuzz_targets/trie_root.rs"
+
+[[bin]]
+name = "trie_root_fix_len"
+path = "fuzz_targets/trie_root_fix_len.rs"
+
+[[bin]]
+name = "no_ext_insert"
+path = "fuzz_targets/no_ext_insert.rs"
+
+[[bin]]
+name = "no_ext_insert_rem"
+path = "fuzz_targets/no_ext_insert_rem.rs"
+
+[[bin]]
+name = "prefix_iter"
+path = "fuzz_targets/prefix_iter.rs"
+
+[[bin]]
+name = "seek_iter"
+path = "fuzz_targets/seek_iter.rs"
+
+[[bin]]
+name = "trie_proof_valid"
+path = "fuzz_targets/trie_proof_valid.rs"
+
+[[bin]]
+name = "trie_codec_proof"
+path = "fuzz_targets/trie_codec_proof.rs"
+
+[[bin]]
+name = "trie_proof_invalid"
+path = "fuzz_targets/trie_proof_invalid.rs"
+
+[[bin]]
+name = "prefix_seek_iter"
+path = "fuzz_targets/prefix_seek_iter.rs"
