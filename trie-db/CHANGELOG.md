@@ -4,6 +4,9 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
+## [0.29.0] - 2024-03-04
+- Implements `DoubleEndedIterator` for trie iterator [#208](https://github.com/paritytech/trie/pull/208)
+
 ## [0.28.0] - 2023-09-12
 - Make `trie_nodes_recorded_for_key` work for inline values [#194](https://github.com/paritytech/trie/pull/194)
 - trie-db: Fetch the closest merkle value [#199](https://github.com/paritytech/trie/pull/199)
