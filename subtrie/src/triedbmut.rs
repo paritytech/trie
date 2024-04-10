@@ -760,8 +760,8 @@ pub struct NewChangesetNode<H, DL> {
 
 #[derive(Debug)]
 pub struct ExistingChangesetNode<H, DL> {
-	pub hash: H,
-	pub prefix: OwnedPrefix,
+	pub hash: H, // TODO is it used?
+	pub prefix: OwnedPrefix, // TODO is it used?
 	pub location: DL,
 }
 
@@ -980,7 +980,7 @@ where
 			Stored::Cached(node, hash, location) => match inspector(self, node, key)? {
 				Action::Restore(node) => Some((Stored::Cached(node, hash, location), false)),
 				Action::Replace(node) => {
-					self.death_row.insert((hash, current_key.left_owned()));
+					self.death_row.insert((hash, current_key.left_owned())); // TODO don't feed deathrow when unused (location support except root)
 					Some((Stored::New(node), true))
 				},
 				Action::Delete(tree_ref) => {

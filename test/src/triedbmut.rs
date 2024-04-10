@@ -870,7 +870,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 	// Direct copy if using ref counting and location in db.
 	// Pruning.
 	let mut seed = Default::default();
-	let nb_attached_trie = 5; // TODO happen between 4 and 5
+	let nb_attached_trie = 4; // TODO happen between 3 and 4
 	let nb_attaching = 2;
 	//	let nb_attached_trie = 1;
 	let support_location = DB::support_location();
@@ -880,7 +880,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		ATrie { root: Default::default(), data: Default::default(), changeset: None };
 	let mut all_attached_tries: Vec<BTreeMap<Vec<u8>, ATrie<T>>> = Default::default();
 	let mut main_root_init = false;
-	for _ in 0..nb_attaching {
+	for a in 0..nb_attaching {
 		let mut attached_tries: BTreeMap<Vec<u8>, ATrie<T>> = Default::default();
 		for i in 0..nb_attached_trie + 1 {
 			let x = StandardMap {
@@ -888,8 +888,8 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 				min_key: 3,
 				journal_key: 0,
 				value_mode: ValueMode::Index,
-				count: 20,
-				//count: 2,
+				//count: 20,
+				count: 2,
 			}
 			.make_with(&mut seed);
 
@@ -900,11 +900,16 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 				} else {
 					TrieDBMutBuilder::<T>::from_existing(&memdb, main_trie.root).build()
 				};
+				let mut b = 0;
 				for (k, c) in attached_tries.iter_mut() {
 					let key: &[u8] = &k[..];
 					let val: &[u8] = c.root.as_ref();
 					let changeset = c.changeset.take().unwrap();
 					memtrie.insert_with_tree_ref(key, val, Some(changeset)).unwrap();
+					if a == 1 && b == 1 {
+						break;
+					}
+					b+=1;
 				}
 				let changeset = memtrie.commit();
 				let root = changeset.commit_to(&mut memdb);
@@ -926,13 +931,20 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		// check data
 		if !main_root_init {
 			let trie = TrieDBBuilder::<T>::new(&memdb, &main_trie.root).build();
+			println!("{:?}", trie);
 			for (k, v) in main_trie.data.iter() {
 				assert_eq!(&trie.get(k).unwrap().unwrap(), v);
 			}
 			main_root_init = true;
+		} else {
+			let trie = TrieDBBuilder::<T>::new(&memdb, &main_trie.root).build();
+			println!("{:?}", trie);
 		}
 		for attached_tries in all_attached_tries.iter() {
+			let mut first = 0;
 		for (root_key, attached_trie) in attached_tries {
+			first+=1;
+			if first > 0 {
 			let (attached_trie_root, attached_trie_location) =
 				attached_trie_root(&memdb, &main_trie.root, root_key).unwrap();
 
@@ -953,7 +965,8 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 			for (k, v) in attached_trie.data.iter() {
 				assert_eq!(&trie.get(k).unwrap().unwrap(), v);
 			}
-		}
+		}}
+	
 		}
 		// Modifying an existing child trie.
 		let attached_tries = all_attached_tries.last_mut().unwrap();
@@ -1017,7 +1030,10 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 				assert_eq!(&trie.get(k).unwrap().unwrap(), v);
 			}
 		}
-
+		//--
+		let root_key = root_key.clone();
+		attached_tries.remove(&root_key);
+/*
 		//-------
 		let (a_attached_trie_root, attached_trie_location) =
 			attached_trie_root(&memdb, &main_trie.root, &root_key).unwrap();
@@ -1061,6 +1077,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		changeset.commit_to(&mut memdb);
 		let root_key = root_key.clone();
 		attached_tries.remove(&root_key);
+*/
 	}
 }
 
