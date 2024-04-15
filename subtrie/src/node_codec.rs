@@ -17,7 +17,7 @@
 
 use crate::{
 	node::{Node, NodePlan, Value},
-	ChildReference, MaybeDebug,
+	ChildReference, Location, MaybeDebug,
 };
 
 use crate::rstd::{borrow::Borrow, hash, vec::Vec, Error};
@@ -59,7 +59,7 @@ pub trait NodeCodec: Sized {
 	fn decode_plan(data: &[u8]) -> Result<NodePlan, Self::Error>;
 
 	/// Decode bytes to a `Node`. Returns `Self::E` on failure.
-	fn decode<'a, L: Copy + Default>(
+	fn decode<'a, L: Location>(
 		data: &'a [u8],
 		locations: &[L],
 	) -> Result<Node<'a, L>, Self::Error> {

@@ -23,8 +23,8 @@ use crate::{
 	},
 	node_codec::NodeCodec,
 	rstd::{boxed::Box, convert::TryFrom, mem, ops::Index, result, vec::Vec, VecDeque},
-	Bytes, CError, DBValue, Result, TrieAccess, TrieCache, TrieError, TrieHash, TrieLayout,
-	TrieRecorder,
+	Bytes, CError, DBValue, Location, Result, TrieAccess, TrieCache, TrieError, TrieHash,
+	TrieLayout, TrieRecorder,
 };
 
 use crate::node_db::{Hasher, NodeDB, Prefix};
@@ -83,13 +83,13 @@ impl<L: TrieLayout> Default for TreeRefChangeset<L> {
 }
 
 impl<L: TrieLayout> TreeRefChangeset<L> {
-	fn location(&self) -> Option<L::Location> {
+	fn location(&self) -> L::Location {
 		match self {
-			TreeRefChangeset::None => None,
-			TreeRefChangeset::Existing(l) => Some(*l),
+			TreeRefChangeset::None => Default::default(),
+			TreeRefChangeset::Existing(l) => *l,
 			TreeRefChangeset::Changed(c) => match &**c {
-				Changeset::New(_) => None,
-				Changeset::Existing(e) => Some(e.location),
+				Changeset::New(_) => Default::default(),
+				Changeset::Existing(e) => e.location,
 			},
 		}
 	}
@@ -391,10 +391,10 @@ impl<L: TrieLayout> Node<L> {
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash, e)))?;
 		let node = match encoded_node {
 			EncodedNode::Empty => Node::Empty,
-			EncodedNode::Leaf(k, v) => Node::Leaf(k.into(), v.into(), TreeRefChangeset::None),
+			EncodedNode::Leaf(k, v, a) => Node::Leaf(k.into(), v.into(), a.into_changes()),
 			EncodedNode::Extension(key, cb) =>
 				Node::Extension(key.into(), Self::inline_or_hash(node_hash, cb, storage)?),
-			EncodedNode::Branch(encoded_children, val) => {
+			EncodedNode::Branch(encoded_children, val, a) => {
 				let mut child = |i: usize| match encoded_children[i] {
 					Some(child) => Self::inline_or_hash(node_hash, child, storage).map(Some),
 					None => Ok(None),
@@ -419,9 +419,9 @@ impl<L: TrieLayout> Node<L> {
 					child(15)?,
 				]);
 
-				Node::Branch(children, val.map(Into::into), TreeRefChangeset::None)
+				Node::Branch(children, val.map(Into::into), a.into_changes())
 			},
-			EncodedNode::NibbledBranch(k, encoded_children, val) => {
+			EncodedNode::NibbledBranch(k, encoded_children, val, a) => {
 				let mut child = |i: usize| match encoded_children[i] {
 					Some(child) => Self::inline_or_hash(node_hash, child, storage).map(Some),
 					None => Ok(None),
@@ -446,7 +446,7 @@ impl<L: TrieLayout> Node<L> {
 					child(15)?,
 				]);
 
-				Node::NibbledBranch(k.into(), children, val.map(Into::into), TreeRefChangeset::None)
+				Node::NibbledBranch(k.into(), children, val.map(Into::into), a.into_changes())
 			},
 		};
 		Ok(node)
@@ -459,10 +459,10 @@ impl<L: TrieLayout> Node<L> {
 	) -> Self {
 		match node_owned {
 			NodeOwned::Empty => Node::Empty,
-			NodeOwned::Leaf(k, v) => Node::Leaf(k.into(), v.into(), TreeRefChangeset::None),
+			NodeOwned::Leaf(k, v, a) => Node::Leaf(k.into(), v.into(), a.into_changes()),
 			NodeOwned::Extension(key, cb) =>
 				Node::Extension(key.into(), Self::inline_or_hash_owned(cb, storage)),
-			NodeOwned::Branch(encoded_children, val) => {
+			NodeOwned::Branch(encoded_children, val, a) => {
 				let mut child = |i: usize| {
 					encoded_children[i]
 						.as_ref()
@@ -488,9 +488,9 @@ impl<L: TrieLayout> Node<L> {
 					child(15),
 				]);
 
-				Node::Branch(children, val.as_ref().map(Into::into), TreeRefChangeset::None)
+				Node::Branch(children, val.as_ref().map(Into::into), a.into_changes())
 			},
-			NodeOwned::NibbledBranch(k, encoded_children, val) => {
+			NodeOwned::NibbledBranch(k, encoded_children, val, a) => {
 				let mut child = |i: usize| {
 					encoded_children[i]
 						.as_ref()
@@ -520,7 +520,7 @@ impl<L: TrieLayout> Node<L> {
 					k.into(),
 					children,
 					val.as_ref().map(Into::into),
-					TreeRefChangeset::None,
+					a.into_changes(),
 				)
 			},
 			NodeOwned::Value(_, _) =>

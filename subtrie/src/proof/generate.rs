@@ -23,8 +23,8 @@ use crate::{
 	nibble_ops::NIBBLE_LENGTH,
 	node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, Value, ValuePlan},
 	recorder::Record,
-	CError, ChildReference, DBValue, NibbleSlice, NodeCodec, Recorder, Result as TrieResult, Trie,
-	TrieDBBuilder, TrieError, TrieHash, TrieLayout,
+	CError, ChildReference, DBValue, Location, NibbleSlice, NodeCodec, Recorder,
+	Result as TrieResult, Trie, TrieDBBuilder, TrieError, TrieHash, TrieLayout,
 };
 
 struct StackEntry<'a, C: NodeCodec, L> {
@@ -46,7 +46,7 @@ struct StackEntry<'a, C: NodeCodec, L> {
 	_marker: PhantomData<C>,
 }
 
-impl<'a, C: NodeCodec, L: Copy + Default> StackEntry<'a, C, L> {
+impl<'a, C: NodeCodec, L: Location> StackEntry<'a, C, L> {
 	fn new(
 		prefix: LeftNibbleSlice<'a>,
 		node_data: Vec<u8>,
@@ -393,7 +393,7 @@ fn resolve_value<C: NodeCodec, L>(
 
 /// Determine the next algorithmic step to take by matching the current key against the current top
 /// entry on the stack.
-fn match_key_to_node<'a, C: NodeCodec, L: Copy + Default>(
+fn match_key_to_node<'a, C: NodeCodec, L: Location>(
 	node: &'a OwnedNode<Vec<u8>, L>,
 	omit_value: &mut bool,
 	child_index: &mut usize,
@@ -405,7 +405,7 @@ fn match_key_to_node<'a, C: NodeCodec, L: Copy + Default>(
 	let node = node.node();
 	Ok(match node {
 		Node::Empty => Step::FoundValue(None),
-		Node::Leaf(partial, value) => {
+		Node::Leaf(partial, value, _) => {
 			if key.contains(&partial, prefix_len) && key.len() == prefix_len + partial.len() {
 				match value {
 					Value::Inline(data) => {
@@ -429,7 +429,7 @@ fn match_key_to_node<'a, C: NodeCodec, L: Copy + Default>(
 			} else {
 				Step::FoundValue(None)
 			},
-		Node::Branch(child_handles, value) => match_key_to_branch_node::<C, L>(
+		Node::Branch(child_handles, value, _) => match_key_to_branch_node::<C, L>(
 			value.clone(),
 			&child_handles,
 			omit_value,
@@ -440,7 +440,7 @@ fn match_key_to_node<'a, C: NodeCodec, L: Copy + Default>(
 			NibbleSlice::new(&[]),
 			recorded_nodes,
 		)?,
-		Node::NibbledBranch(partial, child_handles, value) => match_key_to_branch_node::<C, L>(
+		Node::NibbledBranch(partial, child_handles, value, _) => match_key_to_branch_node::<C, L>(
 			value.clone(),
 			&child_handles,
 			omit_value,
@@ -454,7 +454,7 @@ fn match_key_to_node<'a, C: NodeCodec, L: Copy + Default>(
 	})
 }
 
-fn match_key_to_branch_node<'a, 'b, C: NodeCodec, L: Copy + Default>(
+fn match_key_to_branch_node<'a, 'b, C: NodeCodec, L: Location>(
 	value: Option<Value<'a, L>>,
 	child_handles: &'b [Option<NodeHandle<'a, L>>; NIBBLE_LENGTH],
 	omit_value: &mut bool,
@@ -513,7 +513,7 @@ fn match_key_to_branch_node<'a, 'b, C: NodeCodec, L: Copy + Default>(
 /// Unwind the stack until the given key is prefixed by the entry at the top of the stack. If the
 /// key is None, unwind the stack completely. As entries are popped from the stack, they are
 /// encoded into proof nodes and added to the finalized proof.
-fn unwind_stack<C: NodeCodec, L: Copy + Default>(
+fn unwind_stack<C: NodeCodec, L: Location>(
 	stack: &mut Vec<StackEntry<C, L>>,
 	proof_nodes: &mut Vec<Vec<u8>>,
 	maybe_key: Option<&LeftNibbleSlice>,

@@ -1262,7 +1262,7 @@ mod tests {
 		);
 		let dec =
 			<ReferenceNodeCodecNoExt<RefHasher> as NodeCodec>::decode(&enc, &[] as &[()]).unwrap();
-		let o_sl = if let Node::Leaf(sl, _) = dec { Some(sl) } else { None };
+		let o_sl = if let Node::Leaf(sl, _, _) = dec { Some(sl) } else { None };
 		assert!(o_sl.is_some());
 	}
 

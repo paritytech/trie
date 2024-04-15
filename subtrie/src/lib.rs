@@ -378,7 +378,15 @@ pub trait TrieLayout {
 }
 
 /// Trait alias for requirement of location with `TrieLayout`.
-pub trait Location: Copy + Default + Eq + PartialEq + MaybeDebug {}
+pub trait Location: Copy + Default + Eq + PartialEq + MaybeDebug {
+	fn into_changes<L: TrieLayout<Location = Self>>(self) -> TreeRefChangeset<L> {
+		if self == Self::default() {
+			TreeRefChangeset::None
+		} else {
+			TreeRefChangeset::Existing(self)
+		}
+	}
+}
 
 impl<T: Copy + Default + Eq + PartialEq + MaybeDebug> Location for T {}
 

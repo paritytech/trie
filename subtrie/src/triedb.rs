@@ -369,7 +369,7 @@ where
 			false,
 		) {
 			Ok((owned_node, _node_hash)) => match owned_node.node() {
-				Node::Leaf(slice, value) => {
+				Node::Leaf(slice, value, _) => {
 					let mut disp = f.debug_struct("Node::Leaf");
 					if let Some(i) = self.index {
 						disp.field("index", &i);
@@ -395,7 +395,7 @@ where
 					);
 					disp.finish()
 				},
-				Node::Branch(ref nodes, ref value) => {
+				Node::Branch(ref nodes, ref value, _) => {
 					let nodes: Vec<TrieAwareDebugNode<L>> = nodes
 						.into_iter()
 						.enumerate()
@@ -416,7 +416,7 @@ where
 					disp.field("nodes", &nodes).field("value", &value);
 					disp.finish()
 				},
-				Node::NibbledBranch(slice, nodes, value) => {
+				Node::NibbledBranch(slice, nodes, value, _) => {
 					let nodes: Vec<TrieAwareDebugNode<L>> = nodes
 						.iter()
 						.enumerate()

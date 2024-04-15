@@ -117,8 +117,8 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 		};
 		let value = match &node {
 			Node::Empty | Node::Extension(_, _) => None,
-			Node::Leaf(_, value) => Some(value.clone()),
-			Node::Branch(_, value) | Node::NibbledBranch(_, _, value) => value.clone(),
+			Node::Leaf(_, value, _) => Some(value.clone()),
+			Node::Branch(_, value, _) | Node::NibbledBranch(_, _, value, _) => value.clone(),
 		};
 		Ok(StackEntry {
 			node,
@@ -145,7 +145,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 		self.complete_children()?;
 		Ok(match self.node {
 			Node::Empty => L::Codec::empty_node().to_vec(),
-			Node::Leaf(partial, _) => {
+			Node::Leaf(partial, _, _) => {
 				let value = self.value().expect(
 					"value is assigned to Some in StackEntry::new; \
 						value is only ever reassigned in the ValueMatch::MatchesLeaf match \
@@ -158,8 +158,8 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 					self.children[0].expect("the child must be completed since child_index is 1");
 				L::Codec::extension_node(partial.right_iter(), partial.len(), child)
 			},
-			Node::Branch(_, _) => L::Codec::branch_node(self.children.iter(), self.value()),
-			Node::NibbledBranch(partial, _, _) => L::Codec::branch_node_nibbled(
+			Node::Branch(_, _, _) => L::Codec::branch_node(self.children.iter(), self.value()),
+			Node::NibbledBranch(partial, _, _, _) => L::Codec::branch_node_nibbled(
 				partial.right_iter(),
 				partial.len(),
 				self.children.iter(),
@@ -182,7 +182,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 				assert_eq!(self.child_index, 0);
 				Self::make_child_entry(proof_iter, child, child_prefix)
 			},
-			Node::Branch(children, _) | Node::NibbledBranch(_, children, _) => {
+			Node::Branch(children, _, _) | Node::NibbledBranch(_, children, _, _) => {
 				// because this is a branch
 				assert!(child_prefix.len() > 0);
 				let child_index = child_prefix
@@ -210,7 +210,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 				self.children[self.child_index] = Some(child_ref);
 				self.child_index += 1;
 			},
-			Node::Branch(children, _) | Node::NibbledBranch(_, children, _) => {
+			Node::Branch(children, _, _) | Node::NibbledBranch(_, children, _, _) => {
 				while self.child_index < NIBBLE_LENGTH {
 					if let Some(child) = children[self.child_index] {
 						let child_ref = child.try_into().map_err(Error::InvalidChildReference)?;
@@ -327,7 +327,7 @@ fn match_key_to_node<'a>(
 ) -> ValueMatch<'a> {
 	match node {
 		Node::Empty => ValueMatch::NotFound,
-		Node::Leaf(partial, value) => {
+		Node::Leaf(partial, value, _) => {
 			if key.contains(partial, prefix_len) && key.len() == prefix_len + partial.len() {
 				match value {
 					Value::Node(..) => ValueMatch::NotOmitted,
@@ -348,9 +348,9 @@ fn match_key_to_node<'a>(
 			} else {
 				ValueMatch::NotFound
 			},
-		Node::Branch(children, value) =>
+		Node::Branch(children, value, _) =>
 			match_key_to_branch_node(key, prefix_len, children, value.as_ref()),
-		Node::NibbledBranch(partial, children, value) =>
+		Node::NibbledBranch(partial, children, value, _) =>
 			if key.contains(partial, prefix_len) {
 				match_key_to_branch_node(key, prefix_len + partial.len(), children, value.as_ref())
 			} else {

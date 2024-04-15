@@ -223,7 +223,7 @@ where
 			let mut is_inline = false;
 			loop {
 				let next_node = match node {
-					NodeOwned::Leaf(slice, _) => {
+					NodeOwned::Leaf(slice, _, _) => {
 						// The leaf slice can be longer than remainder of the provided key
 						// (descendent), but not the other way around.
 						if !slice.starts_with_slice(&partial) {
@@ -271,7 +271,7 @@ where
 							return Ok(None)
 						}
 					},
-					NodeOwned::Branch(children, value) =>
+					NodeOwned::Branch(children, value, _) =>
 						if partial.is_empty() {
 							if value.is_none() {
 								self.record(|| TrieAccess::NonExisting { full_key });
@@ -294,7 +294,7 @@ where
 								},
 							}
 						},
-					NodeOwned::NibbledBranch(slice, children, value) => {
+					NodeOwned::NibbledBranch(slice, children, value, _) => {
 						// Not enough remainder key to continue the search.
 						if partial.len() < slice.len() {
 							self.record(|| TrieAccess::NonExisting { full_key });
@@ -625,7 +625,7 @@ where
 			// without incrementing the depth.
 			loop {
 				let next_node = match node {
-					NodeOwned::Leaf(slice, value) =>
+					NodeOwned::Leaf(slice, value, _) =>
 						return if partial == *slice {
 							let value = (*value).clone();
 							load_value_owned(
@@ -652,7 +652,7 @@ where
 
 							return Ok(None)
 						},
-					NodeOwned::Branch(children, value) =>
+					NodeOwned::Branch(children, value, _) =>
 						if partial.is_empty() {
 							return if let Some(value) = value.clone() {
 								load_value_owned(
@@ -683,7 +683,7 @@ where
 								},
 							}
 						},
-					NodeOwned::NibbledBranch(slice, children, value) => {
+					NodeOwned::NibbledBranch(slice, children, value, _) => {
 						if !partial.starts_with_vec(&slice) {
 							self.record(|| TrieAccess::NonExisting { full_key });
 
@@ -802,7 +802,7 @@ where
 				};
 
 				let next_node = match decoded {
-					Node::Leaf(slice, value) =>
+					Node::Leaf(slice, value, _) =>
 						return if slice == partial {
 							load_value(
 								value,
@@ -828,7 +828,7 @@ where
 
 							return Ok(None)
 						},
-					Node::Branch(children, value) =>
+					Node::Branch(children, value, _) =>
 						if partial.is_empty() {
 							return if let Some(val) = value {
 								load_value(
@@ -860,7 +860,7 @@ where
 								},
 							}
 						},
-					Node::NibbledBranch(slice, children, value) => {
+					Node::NibbledBranch(slice, children, value, _) => {
 						if !partial.starts_with(&slice) {
 							self.record(|| TrieAccess::NonExisting { full_key });
 

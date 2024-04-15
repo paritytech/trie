@@ -31,8 +31,8 @@ use crate::{
 	node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, ValuePlan},
 	node_db::Prefix,
 	rstd::{boxed::Box, convert::TryInto, marker::PhantomData, result, sync::Arc, vec, vec::Vec},
-	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result, TrieDB, TrieDBRawIterator,
-	TrieError, TrieHash, TrieLayout,
+	CError, ChildReference, DBValue, Location, NibbleVec, NodeCodec, Result, TrieDB,
+	TrieDBRawIterator, TrieError, TrieHash, TrieLayout,
 };
 
 const OMIT_VALUE_HASH: crate::node::Value<'static, ()> = crate::node::Value::Inline(&[]);
@@ -55,7 +55,7 @@ struct EncoderStackEntry<C: NodeCodec, L> {
 	_marker: PhantomData<C>,
 }
 
-impl<C: NodeCodec, L: Copy + Default> EncoderStackEntry<C, L> {
+impl<C: NodeCodec, L: Location> EncoderStackEntry<C, L> {
 	/// Given the prefix of the next child node, identify its index and advance `child_index` to
 	/// that. For a given entry, this must be called sequentially only with strictly increasing
 	/// child prefixes. Returns an error if the child prefix is not a child of this entry or if
@@ -344,7 +344,7 @@ struct DecoderStackEntry<'a, C: NodeCodec, L> {
 	_marker: PhantomData<C>,
 }
 
-impl<'a, C: NodeCodec, L: Copy + Default> DecoderStackEntry<'a, C, L> {
+impl<'a, C: NodeCodec, L: Location> DecoderStackEntry<'a, C, L> {
 	/// Advance the child index until either it exceeds the number of children or the child is
 	/// marked as omitted. Omitted children are indicated by an empty inline reference. For each
 	/// child that is passed over and not omitted, copy over the child reference from the node to
@@ -367,7 +367,7 @@ impl<'a, C: NodeCodec, L: Copy + Default> DecoderStackEntry<'a, C, L> {
 				}
 				self.child_index += 1;
 			},
-			Node::Branch(children, _) | Node::NibbledBranch(_, children, _) => {
+			Node::Branch(children, _, _) | Node::NibbledBranch(_, children, _, _) => {
 				while self.child_index < NIBBLE_LENGTH {
 					match children[self.child_index] {
 						Some(NodeHandle::Inline(data)) if data.is_empty() => return Ok(false),
@@ -392,13 +392,13 @@ impl<'a, C: NodeCodec, L: Copy + Default> DecoderStackEntry<'a, C, L> {
 	fn push_to_prefix(&self, prefix: &mut NibbleVec) {
 		match self.node {
 			Node::Empty => {},
-			Node::Leaf(partial, _) | Node::Extension(partial, _) => {
+			Node::Leaf(partial, _, _) | Node::Extension(partial, _) => {
 				prefix.append_partial(partial.right());
 			},
-			Node::Branch(_, _) => {
+			Node::Branch(_, _, _) => {
 				prefix.push(self.child_index as u8);
 			},
-			Node::NibbledBranch(partial, _, _) => {
+			Node::NibbledBranch(partial, _, _, _) => {
 				prefix.append_partial(partial.right());
 				prefix.push(self.child_index as u8);
 			},
@@ -410,13 +410,13 @@ impl<'a, C: NodeCodec, L: Copy + Default> DecoderStackEntry<'a, C, L> {
 	fn pop_from_prefix(&self, prefix: &mut NibbleVec) {
 		match self.node {
 			Node::Empty => {},
-			Node::Leaf(partial, _) | Node::Extension(partial, _) => {
+			Node::Leaf(partial, _, _) | Node::Extension(partial, _) => {
 				prefix.drop_lasts(partial.len());
 			},
-			Node::Branch(_, _) => {
+			Node::Branch(_, _, _) => {
 				prefix.pop();
 			},
-			Node::NibbledBranch(partial, _, _) => {
+			Node::NibbledBranch(partial, _, _, _) => {
 				prefix.pop();
 				prefix.drop_lasts(partial.len());
 			},
@@ -431,18 +431,18 @@ impl<'a, C: NodeCodec, L: Copy + Default> DecoderStackEntry<'a, C, L> {
 		let attached_hash = attached_hash.map(|h| crate::node::Value::Node(h, Default::default()));
 		match self.node {
 			Node::Empty => C::empty_node().to_vec(),
-			Node::Leaf(partial, value) =>
+			Node::Leaf(partial, value, _) =>
 				C::leaf_node(partial.right_iter(), partial.len(), attached_hash.unwrap_or(value)),
 			Node::Extension(partial, _) => C::extension_node(
 				partial.right_iter(),
 				partial.len(),
 				self.children[0].expect("required by method precondition; qed"),
 			),
-			Node::Branch(_, value) => C::branch_node(
+			Node::Branch(_, value, _) => C::branch_node(
 				self.children.into_iter(),
 				if attached_hash.is_some() { attached_hash } else { value },
 			),
-			Node::NibbledBranch(partial, _, value) => C::branch_node_nibbled(
+			Node::NibbledBranch(partial, _, value, _) => C::branch_node_nibbled(
 				partial.right_iter(),
 				partial.len(),
 				self.children.iter(),

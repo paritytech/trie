@@ -16,7 +16,7 @@ use crate::{
 	nibble::{self, nibble_ops, NibbleSlice, NibbleVec},
 	node_codec::NodeCodec,
 	node_db::Hasher,
-	Bytes, CError, ChildReference, Result, TrieError, TrieHash, TrieLayout,
+	Bytes, CError, ChildReference, Location, Result, TrieError, TrieHash, TrieLayout,
 };
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, vec::Vec};
@@ -34,13 +34,13 @@ pub enum NodeHandle<'a, L> {
 	Inline(&'a [u8]),
 }
 
-impl<'a, L: Copy + Default> NodeHandle<'a, L> {
+impl<'a, L: Location> NodeHandle<'a, L> {
 	/// Converts this node handle into a [`NodeHandleOwned`].
-	pub fn to_owned_handle<TL: TrieLayout>(
+	pub fn to_owned_handle<TL>(
 		&self,
 	) -> Result<NodeHandleOwned<TrieHash<TL>, TL::Location>, TrieHash<TL>, CError<TL>>
 	where
-		TL::Location: From<L>,
+		TL: TrieLayout<Location = L>,
 	{
 		match self {
 			Self::Hash(h, l) => decode_hash::<TL::Hash>(h)
@@ -65,7 +65,7 @@ pub enum NodeHandleOwned<H, L> {
 impl<H, L> NodeHandleOwned<H, L>
 where
 	H: Default + AsRef<[u8]> + AsMut<[u8]> + Copy,
-	L: Default + Copy,
+	L: Location,
 {
 	/// Returns `self` as a [`ChildReference`].
 	///
@@ -118,7 +118,7 @@ pub enum Value<'a, L> {
 	Node(&'a [u8], L),
 }
 
-impl<'a, L: Copy + Default> Value<'a, L> {
+impl<'a, L: Location> Value<'a, L> {
 	pub(crate) fn new_inline(value: &'a [u8], threshold: Option<u32>) -> Option<Self> {
 		if let Some(threshold) = threshold {
 			if value.len() >= threshold as usize {
@@ -131,9 +131,9 @@ impl<'a, L: Copy + Default> Value<'a, L> {
 		}
 	}
 
-	pub fn to_owned_value<TL: TrieLayout>(&self) -> ValueOwned<TrieHash<TL>, TL::Location>
+	pub fn to_owned_value<TL>(&self) -> ValueOwned<TrieHash<TL>, TL::Location>
 	where
-		TL::Location: From<L>,
+		TL: TrieLayout<Location = L>,
 	{
 		match self {
 			Self::Inline(data) => ValueOwned::Inline(Bytes::from(*data), TL::Hash::hash(data)),
@@ -157,7 +157,7 @@ pub enum ValueOwned<H, L> {
 	Node(H, L),
 }
 
-impl<H: AsRef<[u8]> + Copy, L: Copy + Default> ValueOwned<H, L> {
+impl<H: AsRef<[u8]> + Copy, L: Location> ValueOwned<H, L> {
 	/// Returns self as [`Value`].
 	pub fn as_value(&self) -> Value<L> {
 		match self {
@@ -193,36 +193,38 @@ pub enum Node<'a, L> {
 	// kept see how it is stored in triedbmut `Node`
 	/// Null trie node; could be an empty root or an empty branch entry.
 	Empty,
-	/// Leaf node; has key slice and value. Value may not be empty.
-	Leaf(NibbleSlice<'a>, Value<'a, L>),
+	/// Leaf node; has key slice and value. Value may not be empty. An attached db location
+	/// reference can exist.
+	Leaf(NibbleSlice<'a>, Value<'a, L>, L),
 	/// Extension node; has key slice and node data. Data may not be null.
 	Extension(NibbleSlice<'a>, NodeHandle<'a, L>),
 	/// Branch node; has slice of child nodes (each possibly null)
 	/// and an optional immediate node data.
-	Branch([Option<NodeHandle<'a, L>>; nibble_ops::NIBBLE_LENGTH], Option<Value<'a, L>>),
+	Branch([Option<NodeHandle<'a, L>>; nibble_ops::NIBBLE_LENGTH], Option<Value<'a, L>>, L),
 	/// Branch node with support for a nibble (when extension nodes are not used).
 	NibbledBranch(
 		NibbleSlice<'a>,
 		[Option<NodeHandle<'a, L>>; nibble_ops::NIBBLE_LENGTH],
 		Option<Value<'a, L>>,
+		L,
 	),
 }
 
 impl<Location> Node<'_, Location> {
 	/// Converts this node into a [`NodeOwned`].
-	pub fn to_owned_node<L: TrieLayout>(
+	pub fn to_owned_node<L>(
 		&self,
 	) -> Result<NodeOwned<TrieHash<L>, L::Location>, TrieHash<L>, CError<L>>
 	where
-		L::Location: From<Location>,
-		Location: Copy + Default,
+		L: TrieLayout<Location = Location>,
+		Location: crate::Location,
 	{
 		match self {
 			Self::Empty => Ok(NodeOwned::Empty),
-			Self::Leaf(n, d) => Ok(NodeOwned::Leaf((*n).into(), d.to_owned_value::<L>())),
+			Self::Leaf(n, d, a) => Ok(NodeOwned::Leaf((*n).into(), d.to_owned_value::<L>(), *a)),
 			Self::Extension(n, h) =>
 				Ok(NodeOwned::Extension((*n).into(), h.to_owned_handle::<L>()?)),
-			Self::Branch(childs, data) => {
+			Self::Branch(childs, data, attached) => {
 				let mut childs_owned = [(); nibble_ops::NIBBLE_LENGTH].map(|_| None);
 				childs
 					.iter()
@@ -234,9 +236,13 @@ impl<Location> Node<'_, Location> {
 					})
 					.collect::<Result<_, _, _>>()?;
 
-				Ok(NodeOwned::Branch(childs_owned, data.as_ref().map(|d| d.to_owned_value::<L>())))
+				Ok(NodeOwned::Branch(
+					childs_owned,
+					data.as_ref().map(|d| d.to_owned_value::<L>()),
+					*attached,
+				))
 			},
-			Self::NibbledBranch(n, childs, data) => {
+			Self::NibbledBranch(n, childs, data, attached) => {
 				let mut childs_owned = [(); nibble_ops::NIBBLE_LENGTH].map(|_| None);
 				childs
 					.iter()
@@ -252,6 +258,7 @@ impl<Location> Node<'_, Location> {
 					(*n).into(),
 					childs_owned,
 					data.as_ref().map(|d| d.to_owned_value::<L>()),
+					*attached,
 				))
 			},
 		}
@@ -265,17 +272,18 @@ pub enum NodeOwned<H, L> {
 	/// Null trie node; could be an empty root or an empty branch entry.
 	Empty,
 	/// Leaf node; has key slice and value. Value may not be empty.
-	Leaf(NibbleVec, ValueOwned<H, L>),
+	Leaf(NibbleVec, ValueOwned<H, L>, L),
 	/// Extension node; has key slice and node data. Data may not be null.
 	Extension(NibbleVec, NodeHandleOwned<H, L>),
 	/// Branch node; has slice of child nodes (each possibly null)
 	/// and an optional immediate node data.
-	Branch([Option<NodeHandleOwned<H, L>>; nibble_ops::NIBBLE_LENGTH], Option<ValueOwned<H, L>>),
+	Branch([Option<NodeHandleOwned<H, L>>; nibble_ops::NIBBLE_LENGTH], Option<ValueOwned<H, L>>, L),
 	/// Branch node with support for a nibble (when extension nodes are not used).
 	NibbledBranch(
 		NibbleVec,
 		[Option<NodeHandleOwned<H, L>>; nibble_ops::NIBBLE_LENGTH],
 		Option<ValueOwned<H, L>>,
+		L,
 	),
 	/// Node that represents a value.
 	///
@@ -284,7 +292,7 @@ pub enum NodeOwned<H, L> {
 	Value(Bytes, H),
 }
 
-impl<H, L: Copy + Default> NodeOwned<H, L>
+impl<H, L: Location> NodeOwned<H, L>
 where
 	H: Default + AsRef<[u8]> + AsMut<[u8]> + Copy,
 {
@@ -295,18 +303,18 @@ where
 	{
 		match self {
 			Self::Empty => C::empty_node().to_vec(),
-			Self::Leaf(partial, value) =>
+			Self::Leaf(partial, value, _) =>
 				C::leaf_node(partial.right_iter(), partial.len(), value.as_value()),
 			Self::Extension(partial, child) => C::extension_node(
 				partial.right_iter(),
 				partial.len(),
 				child.as_child_reference::<C>(),
 			),
-			Self::Branch(children, value) => C::branch_node(
+			Self::Branch(children, value, _) => C::branch_node(
 				children.iter().map(|child| child.as_ref().map(|c| c.as_child_reference::<C>())),
 				value.as_ref().map(|v| v.as_value()),
 			),
-			Self::NibbledBranch(partial, children, value) => C::branch_node_nibbled(
+			Self::NibbledBranch(partial, children, value, _) => C::branch_node_nibbled(
 				partial.right_iter(),
 				partial.len(),
 				children.iter().map(|child| child.as_ref().map(|c| c.as_child_reference::<C>())),
@@ -355,9 +363,9 @@ where
 		}
 
 		match self {
-			Self::Leaf(_, _) | Self::Empty | Self::Value(_, _) => ChildIter::Empty,
+			Self::Leaf(..) | Self::Empty | Self::Value(..) => ChildIter::Empty,
 			Self::Extension(_, child) => ChildIter::Single(child, false),
-			Self::Branch(children, _) | Self::NibbledBranch(_, children, _) =>
+			Self::Branch(children, ..) | Self::NibbledBranch(_, children, ..) =>
 				ChildIter::Array(children, 0),
 		}
 	}
@@ -366,10 +374,10 @@ where
 	pub fn data_hash(&self) -> Option<H> {
 		match &self {
 			Self::Empty => None,
-			Self::Leaf(_, value) => value.data_hash(),
+			Self::Leaf(_, value, _) => value.data_hash(),
 			Self::Extension(_, _) => None,
-			Self::Branch(_, value) => value.as_ref().and_then(|v| v.data_hash()),
-			Self::NibbledBranch(_, _, value) => value.as_ref().and_then(|v| v.data_hash()),
+			Self::Branch(_, value, _) => value.as_ref().and_then(|v| v.data_hash()),
+			Self::NibbledBranch(_, _, value, _) => value.as_ref().and_then(|v| v.data_hash()),
 			Self::Value(_, hash) => Some(*hash),
 		}
 	}
@@ -380,10 +388,10 @@ impl<H, L> NodeOwned<H, L> {
 	pub fn data(&self) -> Option<&Bytes> {
 		match &self {
 			Self::Empty => None,
-			Self::Leaf(_, value) => value.data(),
+			Self::Leaf(_, value, _) => value.data(),
 			Self::Extension(_, _) => None,
-			Self::Branch(_, value) => value.as_ref().and_then(|v| v.data()),
-			Self::NibbledBranch(_, _, value) => value.as_ref().and_then(|v| v.data()),
+			Self::Branch(_, value, _) => value.as_ref().and_then(|v| v.data()),
+			Self::NibbledBranch(_, _, value, _) => value.as_ref().and_then(|v| v.data()),
 			Self::Value(data, _) => Some(data),
 		}
 	}
@@ -391,10 +399,10 @@ impl<H, L> NodeOwned<H, L> {
 	/// Returns the partial key of this node.
 	pub fn partial_key(&self) -> Option<&NibbleVec> {
 		match self {
-			Self::Branch(_, _) | Self::Value(_, _) | Self::Empty => None,
+			Self::Branch(_, _, _) | Self::Value(_, _) | Self::Empty => None,
 			Self::Extension(partial, _) |
-			Self::Leaf(partial, _) |
-			Self::NibbledBranch(partial, _, _) => Some(partial),
+			Self::Leaf(partial, _, _) |
+			Self::NibbledBranch(partial, _, _, _) => Some(partial),
 		}
 	}
 
@@ -419,7 +427,7 @@ impl<H, L> NodeOwned<H, L> {
 		// to add the size of any dynamically allocated data.
 		let dynamic_size = match self {
 			Self::Empty => 0,
-			Self::Leaf(nibbles, value) =>
+			Self::Leaf(nibbles, value, _) =>
 				nibbles.inner().len() + value.data().map_or(0, |b| b.len()),
 			Self::Value(bytes, _) => bytes.len(),
 			Self::Extension(nibbles, child) => {
@@ -427,10 +435,10 @@ impl<H, L> NodeOwned<H, L> {
 				// `self_size`.
 				nibbles.inner().len() + child.as_inline().map_or(0, |n| n.size_in_bytes())
 			},
-			Self::Branch(childs, value) =>
+			Self::Branch(childs, value, _) =>
 				childs_size(childs.iter()) +
 					value.as_ref().and_then(|v| v.data()).map_or(0, |b| b.len()),
-			Self::NibbledBranch(nibbles, childs, value) =>
+			Self::NibbledBranch(nibbles, childs, value, _) =>
 				nibbles.inner().len() +
 					childs_size(childs.iter()) +
 					value.as_ref().and_then(|v| v.data()).map_or(0, |b| b.len()),
@@ -517,6 +525,24 @@ impl ValuePlan {
 		}
 	}
 
+	// TODO is build still used
+	/// Build a value slice by decoding a byte slice according to the plan.
+	pub fn build_leaf<'a, 'b, L: Location>(
+		&'a self,
+		data: &'b [u8],
+		location: &[L],
+	) -> (Value<'b, L>, L) {
+		let (value, ix) = match self {
+			ValuePlan::Inline(range) => (Value::Inline(&data[range.clone()]), 0),
+			ValuePlan::Node(range) => (
+				Value::Node(&data[range.clone()], location.first().copied().unwrap_or_default()),
+				1,
+			),
+		};
+
+		(value, location.get(ix).copied().unwrap_or_default())
+	}
+
 	/// Check if the value is inline.
 	pub fn is_inline(&self) -> bool {
 		match self {
@@ -559,40 +585,36 @@ impl NodePlan {
 	/// Build a node by decoding a byte slice according to the node plan and attaching location
 	/// dats. It is the responsibility of the caller to ensure that the node plan was created for
 	/// the argument data, otherwise the call may decode incorrectly or panic.
-	pub fn build<'a, 'b, L: Copy + Default>(
-		&'a self,
-		data: &'b [u8],
-		locations: &[L],
-	) -> Node<'b, L> {
+	pub fn build<'a, 'b, L: Location>(&'a self, data: &'b [u8], locations: &[L]) -> Node<'b, L> {
 		match self {
 			NodePlan::Empty => Node::Empty,
-			NodePlan::Leaf { partial, value } => Node::Leaf(
-				partial.build(data),
-				value.build(data, locations.first().copied().unwrap_or_default()),
-			),
+			NodePlan::Leaf { partial, value } => {
+				let (value, attached) = value.build_leaf(data, locations);
+				Node::Leaf(partial.build(data), value, attached)
+			},
 			NodePlan::Extension { partial, child } => Node::Extension(
 				partial.build(data),
 				child.build(data, locations.first().copied().unwrap_or_default()),
 			),
 			NodePlan::Branch { value, children } => {
-				let (value, child_slices) =
+				let (value, child_slices, attached) =
 					Self::build_value_and_children(value.as_ref(), children, data, locations);
-				Node::Branch(child_slices, value)
+				Node::Branch(child_slices, value, attached)
 			},
 			NodePlan::NibbledBranch { partial, value, children } => {
-				let (value, child_slices) =
+				let (value, child_slices, attached) =
 					Self::build_value_and_children(value.as_ref(), children, data, locations);
-				Node::NibbledBranch(partial.build(data), child_slices, value)
+				Node::NibbledBranch(partial.build(data), child_slices, value, attached)
 			},
 		}
 	}
 
-	fn build_value_and_children<'a, 'b, L: Copy + Default>(
+	fn build_value_and_children<'a, 'b, L: Location>(
 		value: Option<&'a ValuePlan>,
 		children: &'a [Option<NodeHandlePlan>; nibble_ops::NIBBLE_LENGTH],
 		data: &'b [u8],
 		locations: &[L],
-	) -> (Option<Value<'b, L>>, [Option<NodeHandle<'b, L>>; nibble_ops::NIBBLE_LENGTH]) {
+	) -> (Option<Value<'b, L>>, [Option<NodeHandle<'b, L>>; nibble_ops::NIBBLE_LENGTH], L) {
 		let mut child_slices = [None; nibble_ops::NIBBLE_LENGTH];
 		let mut nc = 0;
 		let value = if let Some(v) = value {
@@ -617,10 +639,11 @@ impl NodePlan {
 				child_slices[i] = Some(child.build(data, location));
 			}
 		}
-		(value, child_slices)
+		let attached = locations.get(nc).copied().unwrap_or_default();
+		(value, child_slices, attached)
 	}
 
-	pub(crate) fn build_child<'a, 'b, L: Copy + Default>(
+	pub(crate) fn build_child<'a, 'b, L: Location>(
 		value: Option<&'a ValuePlan>,
 		children: &'a [Option<NodeHandlePlan>; nibble_ops::NIBBLE_LENGTH],
 		index: usize,
@@ -693,7 +716,7 @@ impl NodePlan {
 
 	/// Check if an extra location is defined, it can be attached state.
 	/// This method is counting and should be call only when needed.
-	pub fn additional_ref_location<L: Copy + Default>(&self, locations: &[L]) -> Option<L> {
+	pub fn additional_ref_location<L: Location>(&self, locations: &[L]) -> Option<L> {
 		let offset =
 			if self.has_location_for_value() { 1 } else { 0 } + self.num_children_locations();
 		if locations.len() > offset {
@@ -716,7 +739,7 @@ pub struct OwnedNode<D: Borrow<[u8]>, L> {
 	locations: Vec<L>,
 }
 
-impl<D: Borrow<[u8]>, L: Default + Copy> OwnedNode<D, L> {
+impl<D: Borrow<[u8]>, L: Location> OwnedNode<D, L> {
 	/// Construct an `OwnedNode` by decoding an owned data source according to some codec.
 	pub fn new<C: NodeCodec>(data: D, locations: Vec<L>) -> core::result::Result<Self, C::Error> {
 		let plan = C::decode_plan(data.borrow())?;

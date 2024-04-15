@@ -41,7 +41,7 @@ fn node_double_ended_iterator<T: TrieLayout, DB: TestDB<T>>() {
 			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("02"), 2));
 				match node.node() {
-					Node::Leaf(partial, _) => assert_eq!(partial, NibbleSlice::new(&hex!("")[..])),
+					Node::Leaf(partial, ..) => assert_eq!(partial, NibbleSlice::new(&hex!("")[..])),
 					_ => panic!("unexpected node"),
 				}
 			},
@@ -52,7 +52,7 @@ fn node_double_ended_iterator<T: TrieLayout, DB: TestDB<T>>() {
 			Some(Ok((prefix, None, node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("0120"), 3));
 				match node.node() {
-					Node::Leaf(partial, _) =>
+					Node::Leaf(partial, ..) =>
 						assert_eq!(partial, NibbleSlice::new_offset(&hex!("03")[..], 1)),
 					_ => panic!("unexpected node"),
 				}
@@ -64,7 +64,7 @@ fn node_double_ended_iterator<T: TrieLayout, DB: TestDB<T>>() {
 			Some(Ok((prefix, None, node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("01"), 2));
 				match node.node() {
-					Node::Branch(_, _) => {},
+					Node::Branch(..) => {},
 					_ => panic!("unexpected node"),
 				}
 			},
@@ -75,7 +75,7 @@ fn node_double_ended_iterator<T: TrieLayout, DB: TestDB<T>>() {
 			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("00"), 1));
 				match node.node() {
-					Node::Branch(_, _) => {},
+					Node::Branch(..) => {},
 					_ => panic!("unexpected node"),
 				}
 			},
@@ -103,7 +103,7 @@ fn node_double_ended_iterator<T: TrieLayout, DB: TestDB<T>>() {
 			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("02"), 2));
 				match node.node() {
-					Node::Leaf(partial, _) => assert_eq!(partial, NibbleSlice::new(&hex!("")[..])),
+					Node::Leaf(partial, ..) => assert_eq!(partial, NibbleSlice::new(&hex!("")[..])),
 					_ => panic!("unexpected node"),
 				}
 			},
@@ -117,7 +117,7 @@ fn node_double_ended_iterator<T: TrieLayout, DB: TestDB<T>>() {
 				}
 				assert_eq!(prefix, nibble_vec(hex!("0120"), 3));
 				match node.node() {
-					Node::Leaf(partial, _) =>
+					Node::Leaf(partial, ..) =>
 						assert_eq!(partial, NibbleSlice::new_offset(&hex!("03")[..], 1)),
 					_ => panic!("unexpected node"),
 				}
@@ -132,7 +132,7 @@ fn node_double_ended_iterator<T: TrieLayout, DB: TestDB<T>>() {
 				}
 				assert_eq!(prefix, nibble_vec(hex!("01"), 2));
 				match node.node() {
-					Node::NibbledBranch(partial, _, _) =>
+					Node::NibbledBranch(partial, ..) =>
 						assert_eq!(partial, NibbleSlice::new_offset(&hex!("")[..], 0)),
 					_ => panic!("unexpected node"),
 				}
@@ -144,7 +144,7 @@ fn node_double_ended_iterator<T: TrieLayout, DB: TestDB<T>>() {
 			Some(Ok((prefix, Some(_), node))) => {
 				assert_eq!(prefix, nibble_vec(hex!(""), 0));
 				match node.node() {
-					Node::NibbledBranch(partial, _, _) =>
+					Node::NibbledBranch(partial, ..) =>
 						assert_eq!(partial, NibbleSlice::new_offset(&hex!("00")[..], 1)),
 					_ => panic!("unexpected node"),
 				}
@@ -301,7 +301,7 @@ fn prefix_back_works_internal<T: TrieLayout, DB: TestDB<T>>() {
 			Some(Ok((prefix, None, node))) => {
 				assert_eq!(prefix, nibble_vec(hex!("0123"), 4));
 				match node.node() {
-					Node::Leaf(partial, _) => {
+					Node::Leaf(partial, ..) => {
 						assert_eq!(partial, NibbleSlice::new_offset(&hex!("")[..], 0))
 					},
 					_ => panic!("unexpected node"),
@@ -317,7 +317,7 @@ fn prefix_back_works_internal<T: TrieLayout, DB: TestDB<T>>() {
 				}
 				assert_eq!(prefix, nibble_vec(hex!("0123"), 4));
 				match node.node() {
-					Node::Leaf(partial, _) => {
+					Node::Leaf(partial, ..) => {
 						assert_eq!(partial, NibbleSlice::new_offset(&hex!("")[..], 0))
 					},
 					_ => panic!("unexpected node"),
@@ -334,7 +334,7 @@ fn prefix_back_works_internal<T: TrieLayout, DB: TestDB<T>>() {
 			}
 			assert_eq!(prefix, nibble_vec(hex!("0122"), 4));
 			match node.node() {
-				Node::Leaf(partial, _) => {
+				Node::Leaf(partial, ..) => {
 					assert_eq!(partial, NibbleSlice::new_offset(&hex!("")[..], 0))
 				},
 				_ => panic!("unexpected node"),
@@ -350,9 +350,9 @@ fn prefix_back_works_internal<T: TrieLayout, DB: TestDB<T>>() {
 			}
 			assert_eq!(prefix, nibble_vec(hex!("0120"), 3));
 			match node.node() {
-				Node::NibbledBranch(partial, _, _) =>
+				Node::NibbledBranch(partial, ..) =>
 					assert_eq!(partial, NibbleSlice::new_offset(&hex!("")[..], 0)),
-				Node::Branch(_, _) => {},
+				Node::Branch(..) => {},
 				_ => panic!("unexpected node"),
 			}
 		},
@@ -366,9 +366,9 @@ fn prefix_back_works_internal<T: TrieLayout, DB: TestDB<T>>() {
 			}
 			assert_eq!(prefix, nibble_vec(hex!("01"), 2));
 			match node.node() {
-				Node::NibbledBranch(partial, _, _) =>
+				Node::NibbledBranch(partial, ..) =>
 					assert_eq!(partial, NibbleSlice::new_offset(&hex!("")[..], 0)),
-				Node::Branch(_, _) => {},
+				Node::Branch(..) => {},
 				_ => panic!("unexpected node"),
 			}
 		},

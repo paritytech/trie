@@ -557,15 +557,15 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	) -> Option<TrieItem<TrieHash<L>, CError<L>>> {
 		let mut prefix = prefix.clone();
 		let value = match node.node() {
-			Node::Leaf(partial, value) => {
+			Node::Leaf(partial, value, _) => {
 				prefix.append_partial(partial.right());
 				value
 			},
-			Node::Branch(_, value) => match value {
+			Node::Branch(_, value, _) => match value {
 				Some(value) => value,
 				None => return None,
 			},
-			Node::NibbledBranch(partial, _, value) => {
+			Node::NibbledBranch(partial, _, value, _) => {
 				prefix.append_partial(partial.right());
 				match value {
 					Some(value) => value,
@@ -651,15 +651,15 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 
 		let mut prefix = prefix.clone();
 		let value = match node.node() {
-			Node::Leaf(partial, value) => {
+			Node::Leaf(partial, value, _) => {
 				prefix.append_partial(partial.right());
 				value
 			},
-			Node::Branch(_, value) => match value {
+			Node::Branch(_, value, _) => match value {
 				Some(value) => value,
 				None => return None,
 			},
-			Node::NibbledBranch(partial, _, value) => {
+			Node::NibbledBranch(partial, _, value, _) => {
 				prefix.append_partial(partial.right());
 				match value {
 					Some(value) => value,
