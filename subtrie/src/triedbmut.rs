@@ -825,8 +825,7 @@ pub struct NewChangesetNode<H, DL> {
 
 #[derive(Debug)]
 pub struct ExistingChangesetNode<H, DL> {
-	pub hash: H,             // TODO is it used?
-	pub prefix: OwnedPrefix, // TODO is it used?
+	pub hash: H,             // TODO take lot of mem when only use for root
 	pub location: DL,
 }
 
@@ -920,7 +919,6 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 	pub fn unchanged(root: H) -> Self {
 		Changeset::Existing(ExistingChangesetNode {
 			hash: root,
-			prefix: (BackingByteVec::new(), None),
 			location: Default::default(),
 		})
 	}
@@ -2109,7 +2107,6 @@ where
 				debug_assert!(removed.is_empty());
 				return Changeset::Existing(ExistingChangesetNode {
 					hash,
-					prefix: Default::default(),
 					location,
 				});
 			}, // no changes necessary.
@@ -2177,7 +2174,6 @@ where
 				debug_assert!(removed.is_empty());
 				Changeset::Existing(ExistingChangesetNode {
 					hash,
-					prefix: Default::default(),
 					location,
 				})
 			},
@@ -2213,7 +2209,6 @@ where
 			NodeHandle::Hash(hash, location) => {
 				children.push(Changeset::Existing(ExistingChangesetNode {
 					hash,
-					prefix: prefix.as_owned_prefix(),
 					location,
 				}));
 				ChildReference::Hash(hash, location)
@@ -2223,7 +2218,6 @@ where
 					Stored::Cached(_, hash, location) => {
 						children.push(Changeset::Existing(ExistingChangesetNode {
 							hash,
-							prefix: prefix.as_owned_prefix(),
 							location,
 						}));
 						ChildReference::Hash(hash, location)

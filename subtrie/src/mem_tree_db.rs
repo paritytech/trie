@@ -265,7 +265,6 @@ mod tests {
 		let existing_node = Changeset::Existing(ExistingChangesetNode {
 			hash: hash(1),
 			location: Some(new_location),
-			prefix: Default::default(),
 		});
 		let existing_location = db.apply(&existing_node);
 
