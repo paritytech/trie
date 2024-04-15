@@ -188,8 +188,9 @@ impl<H, L> ValueOwned<H, L> {
 /// Type of node in the trie and essential information thereof.
 #[derive(Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "std", derive(Debug))]
-pub enum Node<'a, L> { // TODO HERE node need attached content location so when change in triedbmut this content is kept
-					   // see how it is stored in triedbmut `Node`
+pub enum Node<'a, L> {
+	// TODO HERE node need attached content location so when change in triedbmut this content is
+	// kept see how it is stored in triedbmut `Node`
 	/// Null trie node; could be an empty root or an empty branch entry.
 	Empty,
 	/// Leaf node; has key slice and value. Value may not be empty.

@@ -79,8 +79,8 @@ pub use self::{
 	recorder::Recorder,
 	triedb::{TrieDB, TrieDBBuilder, TrieDBIterator, TrieDBKeyIterator},
 	triedbmut::{
-		Changeset, ChildReference, ExistingChangesetNode, NewChangesetNode, OwnedPrefix, TrieDBMut,
-		TrieDBMutBuilder, Value,
+		Changeset, ChildReference, ExistingChangesetNode, NewChangesetNode, OwnedPrefix,
+		TreeRefChangeset, TrieDBMut, TrieDBMutBuilder, Value,
 	},
 };
 use crate::node_db::Hasher;

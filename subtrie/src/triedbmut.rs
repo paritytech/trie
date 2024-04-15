@@ -69,7 +69,67 @@ fn empty_children<H, L>() -> Box<[Option<NodeHandle<H, L>>; nibble_ops::NIBBLE_L
 	])
 }
 
-pub type TreeRefChangeset<L> = Box<Changeset<TrieHash<L>, <L as TrieLayout>::Location>>;
+/// Attached db level non merklized data.
+pub enum TreeRefChangeset<L: TrieLayout> {
+	None,
+	Existing(<L as TrieLayout>::Location),
+	Changed(Box<Changeset<TrieHash<L>, <L as TrieLayout>::Location>>),
+}
+
+impl<L: TrieLayout> Default for TreeRefChangeset<L> {
+	fn default() -> Self {
+		TreeRefChangeset::None
+	}
+}
+
+impl<L: TrieLayout> TreeRefChangeset<L> {
+	fn location(&self) -> Option<L::Location> {
+		match self {
+			TreeRefChangeset::None => None,
+			TreeRefChangeset::Existing(l) => Some(*l),
+			TreeRefChangeset::Changed(c) => match &**c {
+				Changeset::New(_) => None,
+				Changeset::Existing(e) => Some(e.location),
+			},
+		}
+	}
+
+	fn has_changes(&self) -> bool {
+		if let TreeRefChangeset::Changed(c) = self {
+			if let Changeset::New(_) = &**c {
+				return true
+			}
+		}
+		false
+	}
+
+	fn changes_ref(&self) -> Option<&NewChangesetNode<TrieHash<L>, <L as TrieLayout>::Location>> {
+		if let TreeRefChangeset::Changed(c) = self {
+			if let Changeset::New(c) = &**c {
+				return Some(c)
+			}
+		}
+		None
+	}
+
+	fn changes_mut(
+		&mut self,
+	) -> Option<&mut NewChangesetNode<TrieHash<L>, <L as TrieLayout>::Location>> {
+		if let TreeRefChangeset::Changed(c) = self {
+			if let Changeset::New(c) = &mut **c {
+				return Some(c)
+			}
+		}
+		None
+	}
+
+	fn into_changes(self) -> Option<Box<Changeset<TrieHash<L>, <L as TrieLayout>::Location>>> {
+		if let TreeRefChangeset::Changed(c) = self {
+			return Some(c)
+		}
+		None
+	}
+}
 
 /// Type alias to indicate the nible covers a full key,
 /// therefore its left side is a full prefix.
@@ -221,7 +281,7 @@ enum Node<L: TrieLayout> {
 	/// A leaf node contains the end of a key and a value.
 	/// This key is encoded from a `NibbleSlice`, meaning it contains
 	/// a flag indicating it is a leaf.
-	Leaf(NodeKey, Value<L>, Option<TreeRefChangeset<L>>),
+	Leaf(NodeKey, Value<L>, TreeRefChangeset<L>),
 	/// An extension contains a shared portion of a key and a child node.
 	/// The shared portion is encoded from a `NibbleSlice` meaning it contains
 	/// a flag indicating it is an extension.
@@ -231,14 +291,14 @@ enum Node<L: TrieLayout> {
 	Branch(
 		Box<[Option<NodeHandle<TrieHash<L>, L::Location>>; nibble_ops::NIBBLE_LENGTH]>,
 		Option<Value<L>>,
-		Option<TreeRefChangeset<L>>,
+		TreeRefChangeset<L>,
 	),
 	/// Branch node with support for a nibble (to avoid extension node).
 	NibbledBranch(
 		NodeKey,
 		Box<[Option<NodeHandle<TrieHash<L>, L::Location>>; nibble_ops::NIBBLE_LENGTH]>,
 		Option<Value<L>>,
-		Option<TreeRefChangeset<L>>,
+		TreeRefChangeset<L>,
 	),
 }
 
@@ -331,7 +391,7 @@ impl<L: TrieLayout> Node<L> {
 			.map_err(|e| Box::new(TrieError::DecoderError(node_hash, e)))?;
 		let node = match encoded_node {
 			EncodedNode::Empty => Node::Empty,
-			EncodedNode::Leaf(k, v) => Node::Leaf(k.into(), v.into(), None),
+			EncodedNode::Leaf(k, v) => Node::Leaf(k.into(), v.into(), TreeRefChangeset::None),
 			EncodedNode::Extension(key, cb) =>
 				Node::Extension(key.into(), Self::inline_or_hash(node_hash, cb, storage)?),
 			EncodedNode::Branch(encoded_children, val) => {
@@ -359,7 +419,7 @@ impl<L: TrieLayout> Node<L> {
 					child(15)?,
 				]);
 
-				Node::Branch(children, val.map(Into::into), None)
+				Node::Branch(children, val.map(Into::into), TreeRefChangeset::None)
 			},
 			EncodedNode::NibbledBranch(k, encoded_children, val) => {
 				let mut child = |i: usize| match encoded_children[i] {
@@ -386,7 +446,7 @@ impl<L: TrieLayout> Node<L> {
 					child(15)?,
 				]);
 
-				Node::NibbledBranch(k.into(), children, val.map(Into::into), None)
+				Node::NibbledBranch(k.into(), children, val.map(Into::into), TreeRefChangeset::None)
 			},
 		};
 		Ok(node)
@@ -399,7 +459,7 @@ impl<L: TrieLayout> Node<L> {
 	) -> Self {
 		match node_owned {
 			NodeOwned::Empty => Node::Empty,
-			NodeOwned::Leaf(k, v) => Node::Leaf(k.into(), v.into(), None),
+			NodeOwned::Leaf(k, v) => Node::Leaf(k.into(), v.into(), TreeRefChangeset::None),
 			NodeOwned::Extension(key, cb) =>
 				Node::Extension(key.into(), Self::inline_or_hash_owned(cb, storage)),
 			NodeOwned::Branch(encoded_children, val) => {
@@ -428,7 +488,7 @@ impl<L: TrieLayout> Node<L> {
 					child(15),
 				]);
 
-				Node::Branch(children, val.as_ref().map(Into::into), None)
+				Node::Branch(children, val.as_ref().map(Into::into), TreeRefChangeset::None)
 			},
 			NodeOwned::NibbledBranch(k, encoded_children, val) => {
 				let mut child = |i: usize| {
@@ -456,7 +516,12 @@ impl<L: TrieLayout> Node<L> {
 					child(15),
 				]);
 
-				Node::NibbledBranch(k.into(), children, val.as_ref().map(Into::into), None)
+				Node::NibbledBranch(
+					k.into(),
+					children,
+					val.as_ref().map(Into::into),
+					TreeRefChangeset::None,
+				)
 			},
 			NodeOwned::Value(_, _) =>
 				unreachable!("`NodeOwned::Value` can only be returned for the hash of a value."),
@@ -466,7 +531,7 @@ impl<L: TrieLayout> Node<L> {
 	// TODO: parallelize
 	/// Here `child_cb` should process the first parameter to either insert an external
 	/// node value or to encode and add a new branch child node.
-	fn into_encoded<F>(self, mut child_cb: F) -> (Vec<u8>, Option<TreeRefChangeset<L>>)
+	fn into_encoded<F>(self, mut child_cb: F) -> (Vec<u8>, TreeRefChangeset<L>)
 	where
 		F: FnMut(
 			NodeToEncode<TrieHash<L>, L::Location>,
@@ -475,7 +540,7 @@ impl<L: TrieLayout> Node<L> {
 		) -> ChildReference<TrieHash<L>, L::Location>,
 	{
 		match self {
-			Node::Empty => (L::Codec::empty_node().to_vec(), None),
+			Node::Empty => (L::Codec::empty_node().to_vec(), Default::default()),
 			Node::Leaf(partial, mut value, tree_ref) => {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let value = value.into_encoded::<F>(Some(&pr), &mut child_cb);
@@ -485,7 +550,7 @@ impl<L: TrieLayout> Node<L> {
 				let pr = NibbleSlice::new_offset(&partial.1[..], partial.0);
 				let it = pr.right_iter();
 				let c = child_cb(NodeToEncode::TrieNode(child), Some(&pr), None);
-				(L::Codec::extension_node(it, pr.len(), c), None)
+				(L::Codec::extension_node(it, pr.len(), c), TreeRefChangeset::None)
 			},
 			Node::Branch(mut children, mut value, tree_ref) => {
 				let value = value.as_mut().map(|v| v.into_encoded::<F>(None, &mut child_cb));
@@ -542,7 +607,7 @@ enum Action<L: TrieLayout> {
 	// Restore the original node. This trusts that the node is actually the original.
 	Restore(Node<L>),
 	// if it is a new node, just clears the storage.
-	Delete(Option<TreeRefChangeset<L>>),
+	Delete(TreeRefChangeset<L>),
 }
 
 // post-insert action. Same as action without delete
@@ -760,7 +825,7 @@ pub struct NewChangesetNode<H, DL> {
 
 #[derive(Debug)]
 pub struct ExistingChangesetNode<H, DL> {
-	pub hash: H, // TODO is it used?
+	pub hash: H,             // TODO is it used?
 	pub prefix: OwnedPrefix, // TODO is it used?
 	pub location: DL,
 }
@@ -973,7 +1038,9 @@ where
 				Action::Restore(node) => Some((Stored::New(node), false)),
 				Action::Replace(node) => Some((Stored::New(node), true)),
 				Action::Delete(tree_ref) => {
-					tree_ref.map(|c| self.death_row_child.push(c));
+					if !matches!(tree_ref, TreeRefChangeset::None) {
+						self.death_row_child.push(tree_ref);
+					}
 					None
 				},
 			},
@@ -985,7 +1052,9 @@ where
 				},
 				Action::Delete(tree_ref) => {
 					self.death_row.insert((hash, current_key.left_owned()));
-					tree_ref.map(|c| self.death_row_child.push(c));
+					if !matches!(tree_ref, TreeRefChangeset::None) {
+						self.death_row_child.push(tree_ref);
+					}
 					None
 				},
 			},
@@ -1097,7 +1166,7 @@ where
 		key: &mut NibbleFullKey,
 		value: Bytes,
 		old_val: &mut Option<Value<L>>,
-		tree_ref: Option<TreeRefChangeset<L>>,
+		tree_ref: TreeRefChangeset<L>,
 	) -> Result<(StorageHandle, bool), TrieHash<L>, CError<L>> {
 		let h = match handle {
 			NodeHandle::InMemory(h) => h,
@@ -1141,7 +1210,7 @@ where
 		key: &mut NibbleFullKey,
 		value: Bytes,
 		old_val: &mut Option<Value<L>>,
-		tree_ref: Option<TreeRefChangeset<L>>,
+		tree_ref: TreeRefChangeset<L>,
 	) -> Result<InsertAction<L>, TrieHash<L>, CError<L>> {
 		let partial = *key;
 
@@ -1265,7 +1334,7 @@ where
 							existing_key.to_stored_range(common),
 							children,
 							None,
-							None,
+							TreeRefChangeset::None,
 						))
 					}
 				} else {
@@ -1354,13 +1423,13 @@ where
 						children[idx] = Some(self.storage.alloc(Stored::New(new_leaf)).into());
 
 						if L::USE_EXTENSION {
-							Node::Branch(children, None, None)
+							Node::Branch(children, None, TreeRefChangeset::None)
 						} else {
 							Node::NibbledBranch(
 								partial.to_stored_range(common),
 								children,
 								None,
-								None,
+								TreeRefChangeset::None,
 							)
 						}
 					};
@@ -1465,7 +1534,7 @@ where
 					// continue inserting.
 					let branch_action = self
 						.insert_inspector(
-							Node::Branch(children, None, None),
+							Node::Branch(children, None, TreeRefChangeset::None),
 							key,
 							value,
 							old_val,
@@ -1528,7 +1597,7 @@ where
 		handle: NodeHandle<TrieHash<L>, L::Location>,
 		key: &mut NibbleFullKey,
 		old_val: &mut Option<Value<L>>,
-		tree_ref: Option<TreeRefChangeset<L>>,
+		tree_ref: TreeRefChangeset<L>,
 	) -> Result<Option<(StorageHandle, bool)>, TrieHash<L>, CError<L>> {
 		let stored = match handle {
 			NodeHandle::InMemory(h) => self.storage.destroy(h),
@@ -1551,11 +1620,11 @@ where
 		node: Node<L>,
 		key: &mut NibbleFullKey,
 		old_val: &mut Option<Value<L>>,
-		tree_ref: Option<TreeRefChangeset<L>>,
+		tree_ref: TreeRefChangeset<L>,
 	) -> Result<Action<L>, TrieHash<L>, CError<L>> {
 		let partial = *key;
 		Ok(match (node, partial.is_empty()) {
-			(Node::Empty, _) => Action::Delete(None),
+			(Node::Empty, _) => Action::Delete(TreeRefChangeset::None),
 			(Node::Branch(c, None, _), true) => Action::Restore(Node::Branch(c, None, tree_ref)),
 			(Node::NibbledBranch(n, c, None, _), true) =>
 				Action::Restore(Node::NibbledBranch(n, c, None, tree_ref)),
@@ -1718,7 +1787,7 @@ where
 						None => {
 							// the whole branch got deleted.
 							// that means that this extension is useless.
-							Action::Delete(None)
+							Action::Delete(TreeRefChangeset::None)
 						},
 					}
 				} else {
@@ -1853,7 +1922,9 @@ where
 								node
 							},
 						};
-						btreerefset.map(|c| self.death_row_child.push(c));
+						if !matches!(btreerefset, TreeRefChangeset::None) {
+							self.death_row_child.push(btreerefset);
+						}
 						match child_node {
 							Node::Leaf(sub_partial, value, ltreerefset) => {
 								let mut enc_nibble = enc_nibble;
@@ -2074,7 +2145,7 @@ where
 						},
 					}
 				});
-				roottreerefset.map(|c| {
+				roottreerefset.into_changes().map(|c| {
 					children.push(*c);
 				});
 				#[cfg(feature = "std")]
@@ -2196,7 +2267,7 @@ where
 						let result = if encoded.len() >= L::Hash::LENGTH {
 							let hash = self.db.hash(&encoded);
 							self.cache_node(hash);
-							child_set.map(|c| {
+							child_set.into_changes().map(|c| {
 								sub_children.push(*c);
 							});
 							children.push(Changeset::New(NewChangesetNode {
@@ -2256,24 +2327,21 @@ where
 		key: &[u8],
 		value: &[u8],
 	) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
-		self.insert_with_tree_ref(key, value, None)
+		self.insert_with_tree_ref(key, value, TreeRefChangeset::None)
 	}
 
 	pub fn insert_with_tree_ref(
 		&mut self,
 		key: &[u8],
 		value: &[u8],
-		tree_ref: Option<TreeRefChangeset<L>>,
+		tree_ref: TreeRefChangeset<L>,
 	) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
 		// expect for the child changes to have a key.
-		debug_assert!(tree_ref
-			.as_ref()
-			.map(|c| if let Changeset::New(set) = c.as_ref() {
-				set.removed_keys.is_some()
-			} else {
-				true
-			})
-			.unwrap_or(true));
+		debug_assert!(if let Some(set) = tree_ref.changes_ref() {
+			set.removed_keys.is_some()
+		} else {
+			true
+		});
 		if !L::ALLOW_EMPTY && value.is_empty() {
 			return self.remove(key)
 		}
@@ -2296,23 +2364,20 @@ where
 	}
 
 	pub fn remove(&mut self, key: &[u8]) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
-		self.remove_with_tree_ref(key, None)
+		self.remove_with_tree_ref(key, TreeRefChangeset::None)
 	}
 
 	pub fn remove_with_tree_ref(
 		&mut self,
 		key: &[u8],
-		tree_ref: Option<TreeRefChangeset<L>>,
+		tree_ref: TreeRefChangeset<L>,
 	) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
 		// expect for the child changes to have a key.
-		debug_assert!(tree_ref
-			.as_ref()
-			.map(|c| if let Changeset::New(set) = c.as_ref() {
-				set.removed_keys.is_some()
-			} else {
-				true
-			})
-			.unwrap_or(true));
+		debug_assert!(if let Some(set) = tree_ref.changes_ref() {
+			set.removed_keys.is_some()
+		} else {
+			true
+		});
 
 		#[cfg(feature = "std")]
 		trace!(target: "trie", "remove: key={:?}", ToHex(key));
