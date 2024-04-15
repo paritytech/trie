@@ -830,21 +830,24 @@ pub struct ExistingChangesetNode<H, DL> {
 }
 
 #[derive(Debug)]
-pub enum Changeset<H, DL> {
-	New(NewChangesetNode<H, DL>),
-	Existing(ExistingChangesetNode<H, DL>),
+pub struct Changeset<H, DL> {
+	pub old_root: H,
+	pub change: Changenode<H, DL>,
+}
+
+#[derive(Debug)]
+pub enum Changenode<H, DL> {
+	New(Box<NewChangesetNode<H, DL>>),
+	Existing(DL),
 }
 
 impl<H, DL> Changeset<H, DL> {
 	pub fn hash(&self) -> &H {
-		match self {
-			Changeset::New(node) => &node.hash,
-			Changeset::Existing(node) => &node.hash,
-		}
+		&self.old_root
 	}
 }
 
-impl<H, DL> Changeset<H, DL> {
+impl<H, DL> Changenode<H, DL> {
 	/// In case the underlying db do not
 	/// do empty node optimization, it can
 	/// make sense to insert the empty node.
@@ -858,6 +861,7 @@ impl<H, DL> Changeset<H, DL> {
 		})
 	}
 }
+
 pub fn prefix_prefix(ks: &[u8], prefix: Prefix) -> (Vec<u8>, Option<u8>) {
 	let mut result = Vec::with_capacity(ks.len() + prefix.0.len());
 	result.extend_from_slice(ks);
@@ -872,7 +876,7 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 		MH: Hasher<Out = H> + Send + Sync,
 	{
 		fn apply_node<'a, H, DL, MH, K>(
-			node: &'a Changeset<H, DL>,
+			node: &'a Changenode<H, DL>,
 			mem_db: &mut MemoryDB<MH, K, DBValue>,
 			mut ks: Option<&'a [u8]>,
 		) where
