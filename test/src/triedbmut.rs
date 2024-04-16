@@ -870,8 +870,8 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 	// Direct copy if using ref counting and location in db.
 	// Pruning.
 	let mut seed = Default::default();
-	let nb_attached_trie = 4; // TODO happen between 3 and 4
-	let nb_attaching = 2;
+	let nb_attached_trie = 10;
+	let nb_attaching = 4;
 	//	let nb_attached_trie = 1;
 	let support_location = DB::support_location();
 	let mut memdb = DB::default();
@@ -880,7 +880,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		ATrie { root: Default::default(), data: Default::default(), changeset: None };
 	let mut all_attached_tries: Vec<BTreeMap<Vec<u8>, ATrie<T>>> = Default::default();
 	let mut main_root_init = false;
-	for a in 0..nb_attaching {
+	for _ in 0..nb_attaching {
 		let mut attached_tries: BTreeMap<Vec<u8>, ATrie<T>> = Default::default();
 		for i in 0..nb_attached_trie + 1 {
 			let x = StandardMap {
@@ -900,16 +900,11 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 				} else {
 					TrieDBMutBuilder::<T>::from_existing(&memdb, main_trie.root).build()
 				};
-				let mut b = 0;
 				for (k, c) in attached_tries.iter_mut() {
 					let key: &[u8] = &k[..];
 					let val: &[u8] = c.root.as_ref();
 					let changeset = c.changeset.take().unwrap();
 					memtrie.insert_with_tree_ref(key, val, Some(changeset)).unwrap();
-					if a == 1 && b == 1 {
-						break;
-					}
-					b += 1;
 				}
 				let changeset = memtrie.commit();
 				let root = changeset.commit_to(&mut memdb);
@@ -947,7 +942,6 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 				if first > 0 {
 					let (attached_trie_root, attached_trie_location) =
 						attached_trie_root(&memdb, &main_trie.root, root_key).unwrap();
-
 					let child_memdb: &dyn NodeDB<_, _, _> = if support_location {
 						&memdb
 					} else {
