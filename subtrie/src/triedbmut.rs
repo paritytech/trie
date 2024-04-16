@@ -835,14 +835,12 @@ pub enum Changenode<H, DL> {
 
 impl<H, DL: Default> Default for Changenode<H, DL> {
 	fn default() -> Self {
-		println!("d");
 		Self::Existing(Default::default())
 	}
 }
 
 impl<H, DL> From<DL> for Changenode<H, DL> {
 	fn from(l: DL) -> Self {
-		println!("d");
 		Changenode::Existing(l)
 	}
 }
@@ -922,7 +920,7 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 	}
 
 	pub fn unchanged(root: H, root_location: DL) -> Self {
-		println!("de");
+		// TODO consider Changenode::None
 		Changeset { old_root: root, change: Changenode::Existing(root_location) }
 	}
 }
