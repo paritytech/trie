@@ -81,7 +81,7 @@ fn benchmark<L: TrieLayout, S: TrieStream>(
 				}
 				t.commit()
 			};
-			let root = commit.hash();
+			let root = commit.root_hash();
 			commit.apply_to(&mut memdb);
 			b.iter(&mut || {
 				let t = TrieDBBuilder::<L>::new(&memdb, &root).build();

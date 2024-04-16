@@ -79,8 +79,8 @@ pub use self::{
 	recorder::Recorder,
 	triedb::{TrieDB, TrieDBBuilder, TrieDBIterator, TrieDBKeyIterator},
 	triedbmut::{
-		Changeset, ChildReference, ExistingChangesetNode, NewChangesetNode, OwnedPrefix,
-		TreeRefChangeset, TrieDBMut, TrieDBMutBuilder, Value,
+		Changenode, Changeset, ChildReference, ExistingChangesetNode, NewChangesetNode,
+		OwnedPrefix, TreeRefChangeset, TrieDBMut, TrieDBMutBuilder, Value,
 	},
 };
 use crate::node_db::Hasher;
@@ -381,9 +381,9 @@ pub trait TrieLayout {
 pub trait Location: Copy + Default + Eq + PartialEq + MaybeDebug {
 	fn into_changes<L: TrieLayout<Location = Self>>(self) -> TreeRefChangeset<L> {
 		if self == Self::default() {
-			TreeRefChangeset::None
+			None
 		} else {
-			TreeRefChangeset::Existing(self)
+			Some(Changenode::Existing(self))
 		}
 	}
 }

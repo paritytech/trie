@@ -999,7 +999,7 @@ pub fn compare_root<T: TrieLayout, DB: node_db::NodeDB<T::Hash, DBValue, T::Loca
 		for i in 0..data.len() {
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 		}
-		*t.commit().hash()
+		t.commit().root_hash()
 	};
 
 	assert_eq!(root, root_new);
@@ -1078,7 +1078,7 @@ where
 			t.insert(&data[i].0[..], &data[i].1[..]).unwrap();
 			b_map.insert(data[i].0.clone(), data[i].1.clone());
 		}
-		*t.commit().hash()
+		t.commit().root_hash()
 	};
 	let root_new = {
 		let mut cb = TrieBuilder::<T, K>::new(&mut mem_db2);
@@ -1120,7 +1120,7 @@ where
 	let mut memdb = MemoryDB::<T::Hash, K, _>::default();
 	let mut root = {
 		let t = TrieDBMutBuilder::<T>::new(&memdb).build();
-		*t.commit().hash()
+		t.commit().root_hash()
 	};
 	while a < data.len() {
 		// new triemut every 3 element

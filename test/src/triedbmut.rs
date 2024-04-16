@@ -25,9 +25,8 @@ use trie_db::{
 	memory_db::{HashKey, MemoryDB, PrefixedKey},
 	node_db::{Hasher, NodeDB, Prefix, EMPTY_PREFIX},
 	test_utils::*,
-	CachedValue, Changeset, DBValue, NodeCodec, Recorder, TreeRefChangeset, Trie, TrieCache,
-	TrieDBBuilder, TrieDBMut, TrieDBMutBuilder, TrieDBNodeIterator, TrieError, TrieHash,
-	TrieLayout, Value,
+	CachedValue, DBValue, NodeCodec, Recorder, Trie, TrieCache, TrieDBBuilder,
+	TrieDBMut, TrieDBMutBuilder, TrieDBNodeIterator, TrieError, TrieHash, TrieLayout, Value, TreeRefChangeset,
 };
 
 use crate::{TestCommit, TestDB};
@@ -863,7 +862,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 	struct ATrie<T: TrieLayout> {
 		root: TrieHash<T>,
 		data: BTreeMap<Vec<u8>, Vec<u8>>,
-		changeset: Option<Box<Changeset<TrieHash<T>, T::Location>>>,
+		changeset: TreeRefChangeset<T>,
 	}
 	// Running a typical attached trie scenario (childtrie on substrate):
 	// different trie, attached trie root written all
@@ -906,9 +905,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 					let key: &[u8] = &k[..];
 					let val: &[u8] = c.root.as_ref();
 					let changeset = c.changeset.take().unwrap();
-					memtrie
-						.insert_with_tree_ref(key, val, TreeRefChangeset::Changed(changeset))
-						.unwrap();
+					memtrie.insert_with_tree_ref(key, val, Some(changeset)).unwrap();
 					if a == 1 && b == 1 {
 						break;
 					}
@@ -926,7 +923,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 				let root = changeset.root_hash();
 				attached_tries.insert(
 					attached_trie_root_key.clone(),
-					ATrie { root, data, changeset: Some(changeset.into()) },
+					ATrie { root, data, changeset: Some(changeset.change) },
 				);
 			}
 		}
@@ -999,11 +996,7 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		};
 		let mut main_tree = TrieDBMutBuilder::<T>::from_existing(&memdb, main_trie.root).build();
 		main_tree
-			.insert_with_tree_ref(
-				root_key,
-				treeref_root_hash.as_ref(),
-				TreeRefChangeset::Changed(tree_ref_changeset.into()),
-			)
+			.insert_with_tree_ref(root_key, treeref_root_hash.as_ref(), Some(tree_ref_changeset.change))
 			.unwrap();
 		let changeset = main_tree.commit();
 		main_trie.root = changeset.root_hash();
