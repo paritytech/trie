@@ -845,19 +845,22 @@ impl<H, DL> From<DL> for Changenode<H, DL> {
 	}
 }
 
-impl<H, DL> Changenode<H, DL> {
+impl<H: Default, DL> Changeset<H, DL> {
 	/// In case the underlying db do not
 	/// do empty node optimization, it can
 	/// make sense to insert the empty node.
 	/// TODO used??
 	pub fn new_empty<C: NodeCodec<HashOut = H>>() -> Self {
-		Self::New(Box::new(NewChangesetNode {
-			hash: C::hashed_null_node(),
-			prefix: Default::default(),
-			data: C::empty_node().to_vec(),
-			children: Default::default(),
-			removed_keys: None,
-		}))
+		Changeset {
+			old_root: Default::default(),
+			change: Changenode::New(Box::new(NewChangesetNode {
+				hash: C::hashed_null_node(),
+				prefix: Default::default(),
+				data: C::empty_node().to_vec(),
+				children: Default::default(),
+				removed_keys: None,
+			})),
+		}
 	}
 }
 

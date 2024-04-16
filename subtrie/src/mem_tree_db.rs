@@ -169,13 +169,13 @@ where
 
 	pub fn apply_commit(&mut self, commit: Changeset<H::Out, Location>) -> H::Out {
 		let root = commit.root_hash();
+		if let Changenode::New(_) = &commit.change {
+			self.remove_root(&commit.old_root);
+		}
 		if root != self.hashed_null_node {
 			let root = self.apply(&commit.change, Some(commit.old_root));
 			let key = commit.root_hash();
 			self.roots.insert(key, root);
-		}
-		if let Changenode::New(_) = &commit.change {
-			self.remove_root(&commit.old_root);
 		}
 		root
 	}

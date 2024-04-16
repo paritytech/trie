@@ -25,8 +25,8 @@ use trie_db::{
 	memory_db::{HashKey, MemoryDB, PrefixedKey},
 	node_db::{Hasher, NodeDB, Prefix, EMPTY_PREFIX},
 	test_utils::*,
-	CachedValue, DBValue, NodeCodec, Recorder, Trie, TrieCache, TrieDBBuilder,
-	TrieDBMut, TrieDBMutBuilder, TrieDBNodeIterator, TrieError, TrieHash, TrieLayout, Value, TreeRefChangeset,
+	CachedValue, DBValue, NodeCodec, Recorder, TreeRefChangeset, Trie, TrieCache, TrieDBBuilder,
+	TrieDBMut, TrieDBMutBuilder, TrieDBNodeIterator, TrieError, TrieHash, TrieLayout, Value,
 };
 
 use crate::{TestCommit, TestDB};
@@ -990,7 +990,11 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 		};
 		let mut main_tree = TrieDBMutBuilder::<T>::from_existing(&memdb, main_trie.root).build();
 		main_tree
-			.insert_with_tree_ref(root_key, treeref_root_hash.as_ref(), Some(tree_ref_changeset.change))
+			.insert_with_tree_ref(
+				root_key,
+				treeref_root_hash.as_ref(),
+				Some(tree_ref_changeset.change),
+			)
 			.unwrap();
 		let changeset = main_tree.commit();
 		main_trie.root = changeset.root_hash();
