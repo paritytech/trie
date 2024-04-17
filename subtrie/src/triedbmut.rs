@@ -812,6 +812,8 @@ pub struct NewChangesetNode<H, DL> {
 	pub children: Vec<Changenode<H, DL>>,
 	// Storing the key and removed nodes related
 	// to this change set node (only needed for old trie).
+	// Warning this is also here that the contextual keyspace
+	// is stored (so it should always be define).
 	pub removed_keys: Option<(Option<Vec<u8>>, Vec<(H, OwnedPrefix)>)>,
 }
 
@@ -824,6 +826,7 @@ pub struct ExistingChangesetNode<H, DL> {
 #[derive(Debug)]
 pub struct Changeset<H, DL> {
 	pub old_root: H,
+	pub death_row_child: Vec<Changenode<H, DL>>,
 	pub change: Changenode<H, DL>,
 }
 
@@ -853,6 +856,7 @@ impl<H: Default, DL> Changeset<H, DL> {
 	pub fn new_empty<C: NodeCodec<HashOut = H>>() -> Self {
 		Changeset {
 			old_root: Default::default(),
+			death_row_child: Default::default(),
 			change: Changenode::New(Box::new(NewChangesetNode {
 				hash: C::hashed_null_node(),
 				prefix: Default::default(),
@@ -911,6 +915,9 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 				Changenode::Existing(_) => {},
 			}
 		}
+		for c in &self.death_row_child {
+			apply_node::<H, DL, MH, K>(c, mem_db, None);
+		}
 		apply_node::<H, DL, MH, K>(&self.change, mem_db, None);
 		self.root_hash()
 	}
@@ -924,7 +931,11 @@ impl<H: Copy, DL: Default> Changeset<H, DL> {
 
 	pub fn unchanged(root: H, root_location: DL) -> Self {
 		// TODO consider Changenode::None
-		Changeset { old_root: root, change: Changenode::Existing(root_location) }
+		Changeset {
+			old_root: root,
+			death_row_child: Default::default(),
+			change: Changenode::Existing(root_location),
+		}
 	}
 }
 
@@ -964,7 +975,7 @@ where
 	root: TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>, L::Location>,
 	death_row: Set<(TrieHash<L>, OwnedPrefix)>,
-	death_row_child: Vec<TreeRefChangeset<L>>,
+	death_row_child: Vec<Changenode<TrieHash<L>, L::Location>>,
 	/// Optional cache for speeding up the lookup of nodes.
 	cache: Option<&'a mut dyn TrieCache<L::Codec, L::Location>>,
 	/// Optional trie recorder for recording trie accesses.
@@ -1040,8 +1051,8 @@ where
 				Action::Restore(node) => Some((Stored::New(node), false)),
 				Action::Replace(node) => Some((Stored::New(node), true)),
 				Action::Delete(tree_ref) => {
-					if tree_ref.is_some() {
-						self.death_row_child.push(tree_ref);
+					if let Some(c) = tree_ref {
+						self.death_row_child.push(c);
 					}
 					None
 				},
@@ -1054,8 +1065,8 @@ where
 				},
 				Action::Delete(tree_ref) => {
 					self.death_row.insert((hash, current_key.left_owned()));
-					if tree_ref.is_some() {
-						self.death_row_child.push(tree_ref);
+					if let Some(c) = tree_ref {
+						self.death_row_child.push(c);
 					}
 					None
 				},
@@ -1750,6 +1761,7 @@ where
 					let mut key_val = key.clone();
 					key_val.advance(existing_key.len());
 					self.replace_old_value(old_val, Some(value), key_val.left());
+					// Note that ltreerefset is also drop here, same for update of attached.
 					Action::Delete(tree_ref)
 				} else {
 					// leaf the node alone.
@@ -1924,8 +1936,8 @@ where
 								node
 							},
 						};
-						if btreerefset.is_some() {
-							self.death_row_child.push(btreerefset);
+						if let Some(c) = btreerefset {
+							self.death_row_child.push(c);
 						}
 						match child_node {
 							Node::Leaf(sub_partial, value, ltreerefset) => {
@@ -2088,6 +2100,7 @@ where
 	/// stored date.
 	/// `keyspace` only apply for hash base storage to avoid key collision
 	/// between composed tree states.
+	/// See apply_to using removed key store keyspace to feed memory db with prefix.
 	pub fn commit_with_keyspace(self, keyspace: &[u8]) -> Changeset<TrieHash<L>, L::Location> {
 		self.commit_inner(Some(keyspace))
 	}
@@ -2109,7 +2122,11 @@ where
 		let handle = match self.root_handle() {
 			NodeHandle::Hash(hash, location) => {
 				debug_assert!(removed.is_empty());
-				return Changeset { old_root: hash, change: Changenode::Existing(location) };
+				return Changeset {
+					old_root: hash,
+					death_row_child: self.death_row_child,
+					change: Changenode::Existing(location),
+				};
 			}, // no changes necessary.
 			NodeHandle::InMemory(h) => h,
 		};
@@ -2157,6 +2174,7 @@ where
 				self.root_handle = NodeHandle::Hash(self.root, Default::default());
 				Changeset {
 					old_root,
+					death_row_child: self.death_row_child,
 					change: Changenode::New(Box::new(NewChangesetNode {
 						hash: self.root.clone(),
 						prefix: Default::default(),
@@ -2177,7 +2195,11 @@ where
 					Default::default(),
 				)));
 				debug_assert!(removed.is_empty());
-				Changeset { old_root: hash, change: Changenode::Existing(location) }
+				Changeset {
+					old_root: hash,
+					death_row_child: self.death_row_child,
+					change: Changenode::Existing(location),
+				}
 			},
 		}
 	}

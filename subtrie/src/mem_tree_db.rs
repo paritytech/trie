@@ -289,6 +289,7 @@ mod tests {
 		let mut db = MemTreeDB::<KeccakHasher>::default();
 		let commit = Changeset {
 			old_root: hash(0),
+			death_row_child: Vec::new(),
 			change: Changenode::New(Box::new(NewChangesetNode {
 				hash: KeccakHash::default(),
 				prefix: Default::default(),
@@ -324,6 +325,7 @@ mod tests {
 		// Create a root node that refers to the child nodes
 		let commit = Changeset {
 			old_root: hash(999),
+			death_row_child: Vec::new(),
 			change: Changenode::New(Box::new(NewChangesetNode {
 				hash: hash(0),
 				prefix: Default::default(),
