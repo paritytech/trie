@@ -1197,7 +1197,7 @@ where
 		Ok((self.storage.alloc(new_stored), changed))
 	}
 
-	fn replace_old_value(
+	fn return_old_value(
 		&mut self,
 		old_value: &mut Option<Value<L>>,
 		stored_value: Option<Value<L>>,
@@ -1247,7 +1247,7 @@ where
 					let unchanged = stored_value == value;
 					let branch = Node::Branch(children, value, tree_ref);
 
-					self.replace_old_value(old_val, stored_value, key.left());
+					self.return_old_value(old_val, stored_value, key.left());
 
 					if unchanged {
 						InsertAction::Restore(branch)
@@ -1300,7 +1300,7 @@ where
 
 					let mut key_val = key.clone();
 					key_val.advance(existing_key.len());
-					self.replace_old_value(old_val, stored_value, key_val.left());
+					self.return_old_value(old_val, stored_value, key_val.left());
 
 					if unchanged {
 						InsertAction::Restore(branch)
@@ -1402,7 +1402,7 @@ where
 					let unchanged = stored_value == value;
 					let mut key_val = key.clone();
 					key_val.advance(existing_key.len());
-					self.replace_old_value(old_val, Some(stored_value), key_val.left());
+					self.return_old_value(old_val, Some(stored_value), key_val.left());
 					if unchanged {
 						// unchanged. restore
 						InsertAction::Restore(Node::Leaf(encoded.clone(), value, l_tree_ref))
@@ -1642,12 +1642,12 @@ where
 			(Node::NibbledBranch(n, c, None, _), true) =>
 				Action::Restore(Node::NibbledBranch(n, c, None, tree_ref)),
 			(Node::Branch(children, val, _), true) => {
-				self.replace_old_value(old_val, val, key.left());
+				self.return_old_value(old_val, val, key.left());
 				// always replace since we took the value out.
 				Action::Replace(self.fix(Node::Branch(children, None, tree_ref), *key)?)
 			},
 			(Node::NibbledBranch(n, children, val, _), true) => {
-				self.replace_old_value(old_val, val, key.left());
+				self.return_old_value(old_val, val, key.left());
 				// always replace since we took the value out.
 				Action::Replace(self.fix(Node::NibbledBranch(n, children, None, tree_ref), *key)?)
 			},
@@ -1698,7 +1698,7 @@ where
 					if let Some(value) = value {
 						let mut key_val = key.clone();
 						key_val.advance(existing_length);
-						self.replace_old_value(old_val, Some(value), key_val.left());
+						self.return_old_value(old_val, Some(value), key_val.left());
 						let f =
 							self.fix(Node::NibbledBranch(encoded, children, None, tree_ref), *key);
 						Action::Replace(f?)
@@ -1760,7 +1760,7 @@ where
 					// this is the node we were looking for. Let's delete it.
 					let mut key_val = key.clone();
 					key_val.advance(existing_key.len());
-					self.replace_old_value(old_val, Some(value), key_val.left());
+					self.return_old_value(old_val, Some(value), key_val.left());
 					// Note that ltreerefset is also drop here, same for update of attached.
 					Action::Delete(tree_ref)
 				} else {
