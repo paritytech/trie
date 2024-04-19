@@ -973,6 +973,17 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 			for (k, _) in attached_trie.data.iter() {
 				assert_eq!(&key_iter.next().unwrap().unwrap(), k);
 			}
+
+			let mut key_iter = trie.key_iter().unwrap();
+			key_iter.seek(attached_trie.data.iter().next().unwrap().0).unwrap();
+			let mut first = true;
+			for (k, _) in attached_trie.data.iter() {
+				if first {
+					first = false;
+				}
+				assert_eq!(&key_iter.next().unwrap().unwrap(), k);
+			}
+
 		}
 		for (i, root_key) in remove_keys.into_iter().enumerate() {
 			let a_attached_trie = all_attached_tries.get(&root_key).unwrap();
