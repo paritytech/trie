@@ -155,7 +155,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 
 		let (mut node, mut node_hash) = db.get_raw_or_lookup(
 			<TrieHash<L>>::default(),
-			NodeHandle::Hash(db.root().as_ref(), Default::default()),
+			NodeHandle::Hash(db.root().as_ref(), db.root_location()),
 			EMPTY_PREFIX,
 			true,
 		)?;
