@@ -804,7 +804,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NewChangesetNode<H, DL> {
 	pub hash: H,
 	pub prefix: OwnedPrefix,
@@ -817,20 +817,14 @@ pub struct NewChangesetNode<H, DL> {
 	pub removed_keys: Option<(Option<Vec<u8>>, Vec<(H, OwnedPrefix)>)>,
 }
 
-#[derive(Debug)]
-pub struct ExistingChangesetNode<H, DL> {
-	pub hash: H, // TODO take lot of mem when only use for root
-	pub location: DL,
-}
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Changeset<H, DL> {
 	pub old_root: H,
 	pub death_row_child: Vec<Changenode<H, DL>>,
 	pub change: Changenode<H, DL>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Changenode<H, DL> {
 	New(Box<NewChangesetNode<H, DL>>),
 	Existing(DL),
