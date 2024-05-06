@@ -983,7 +983,6 @@ fn attached_trie_internal<T: TrieLayout, DB: TestDB<T>>() {
 				}
 				assert_eq!(&key_iter.next().unwrap().unwrap(), k);
 			}
-
 		}
 		for (i, root_key) in remove_keys.into_iter().enumerate() {
 			let a_attached_trie = all_attached_tries.get(&root_key).unwrap();

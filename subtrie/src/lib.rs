@@ -45,7 +45,6 @@ mod rstd {
 use self::rstd::{fmt, Error};
 
 use self::rstd::{boxed::Box, vec::Vec};
-pub use iterator::TrieDBNodeDoubleEndedIterator;
 use node::NodeOwned;
 use node_db::MaybeDebug;
 
@@ -86,7 +85,7 @@ pub use self::{
 use crate::node_db::Hasher;
 pub use crate::{
 	iter_build::{trie_visit, ProcessEncodedNode, TrieBuilder, TrieRoot, TrieRootUnhashed},
-	iterator::{TrieDBNodeIterator, TrieDBRawIterator},
+	iterator::{TrieDBNodeDoubleEndedIterator, TrieDBNodeIterator, TrieDBRawIterator},
 	node_codec::{NodeCodec, Partial},
 	trie_codec::{decode_compact, decode_compact_from_iter, encode_compact},
 };
