@@ -418,3 +418,17 @@ fn next_back_weird_behaviour_internal_1<T: TrieLayout>() {
 	iter.seek(&[10]).unwrap();
 	assert!(iter.next_back().is_none());
 }
+
+test_layouts!(fuzz_set, fuzz_set_internal);
+fn fuzz_set_internal<T: TrieLayout>() {
+	type DB<T> = memory_db::MemoryDB<
+		<T as TrieLayout>::Hash,
+		memory_db::PrefixedKey<<T as TrieLayout>::Hash>,
+		trie_db::DBValue,
+	>;
+
+	let fuzz_inputs = [vec![0, 5, 0, 0, 43, 0, 5, 0]];
+	for i in fuzz_inputs {
+		reference_trie::fuzz_double_iter::<T, DB<T>>(&i);
+	}
+}

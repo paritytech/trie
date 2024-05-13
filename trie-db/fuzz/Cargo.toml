@@ -11,7 +11,7 @@ cargo-fuzz = true
 [dependencies]
 hash-db = { path = "../../hash-db", version = "0.16.0" }
 memory-db = { path = "../../memory-db", version = "0.32.0" }
-reference-trie = { path = "../../test-support/reference-trie", version = "0.29.0" }
+reference-trie = { path = "../../test-support/reference-trie", version = "0.29.1" }
 arbitrary = { version = "1.3.0", features = ["derive"] }
 array-bytes = "6.0.0"
 
@@ -68,3 +68,7 @@ path = "fuzz_targets/trie_proof_invalid.rs"
 [[bin]]
 name = "prefix_seek_iter"
 path = "fuzz_targets/prefix_seek_iter.rs"
+
+[[bin]]
+name = "double_iter"
+path = "fuzz_targets/double_iter.rs"

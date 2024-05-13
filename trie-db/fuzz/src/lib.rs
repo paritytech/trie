@@ -15,57 +15,16 @@
 use arbitrary::Arbitrary;
 use hash_db::Hasher;
 use memory_db::{HashKey, MemoryDB, PrefixedKey};
+pub use reference_trie::fuzz_double_iter;
 use reference_trie::{
-	calc_root, compare_insert_remove, reference_trie_root_iter_build as reference_trie_root,
+	calc_root, compare_insert_remove, fuzz_to_data,
+	reference_trie_root_iter_build as reference_trie_root,
 };
 use std::convert::TryInto;
 use trie_db::{
 	proof::{generate_proof, verify_proof},
 	DBValue, Trie, TrieDBBuilder, TrieDBIterator, TrieDBMutBuilder, TrieLayout, TrieMut,
 };
-
-fn fuzz_to_data(input: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
-	let mut result = Vec::new();
-	// enc = (minkeylen, maxkeylen (min max up to 32), datas)
-	// fix data len 2 bytes
-	let mut minkeylen = if let Some(v) = input.get(0) {
-		let mut v = *v & 31u8;
-		v = v + 1;
-		v
-	} else {
-		return result
-	};
-	let mut maxkeylen = if let Some(v) = input.get(1) {
-		let mut v = *v & 31u8;
-		v = v + 1;
-		v
-	} else {
-		return result
-	};
-
-	if maxkeylen < minkeylen {
-		let v = minkeylen;
-		minkeylen = maxkeylen;
-		maxkeylen = v;
-	}
-	let mut ix = 2;
-	loop {
-		let keylen = if let Some(v) = input.get(ix) {
-			let mut v = *v & 31u8;
-			v = v + 1;
-			v = std::cmp::max(minkeylen, v);
-			v = std::cmp::min(maxkeylen, v);
-			v as usize
-		} else {
-			break
-		};
-		let key = if input.len() > ix + keylen { input[ix..ix + keylen].to_vec() } else { break };
-		ix += keylen;
-		let val = if input.len() > ix + 2 { input[ix..ix + 2].to_vec() } else { break };
-		result.push((key, val));
-	}
-	result
-}
 
 fn fuzz_removal(data: Vec<(Vec<u8>, Vec<u8>)>) -> Vec<(bool, Vec<u8>, Vec<u8>)> {
 	let mut res = Vec::new();
