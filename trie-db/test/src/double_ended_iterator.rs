@@ -432,6 +432,7 @@ fn fuzz_set_internal<T: TrieLayout>() {
 		vec![0, 5, 0, 0, 43, 0, 5, 0],
 	];
 	for i in fuzz_inputs {
-		reference_trie::fuzz_double_iter::<T, DB<T>>(&i);
+		reference_trie::fuzz_double_iter::<T, DB<T>>(&i, false);
+		reference_trie::fuzz_double_iter::<T, DB<T>>(&i, true);
 	}
 }

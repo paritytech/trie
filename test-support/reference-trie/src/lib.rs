@@ -1237,7 +1237,7 @@ mod tests {
 }
 
 // This is a bit redundant with other iterator fuzzer
-fn test_iterator<L, DB>(entries: Vec<(Vec<u8>, Vec<u8>)>, keys: Vec<Vec<u8>>)
+fn test_iterator<L, DB>(entries: Vec<(Vec<u8>, Vec<u8>)>, keys: Vec<Vec<u8>>, prefix: bool)
 where
 	L: TrieLayout,
 	DB: hash_db::HashDB<L::Hash, DBValue> + hash_db::HashDBRef<L::Hash, DBValue> + Default,
@@ -1277,10 +1277,22 @@ where
 	}
 	for key in keys {
 		use trie_db::TrieIterator;
-		let mut iter = trie_db::triedb::TrieDBDoubleEndedIterator::new(&trie).unwrap();
-		iter.seek(&key).unwrap();
-		let mut iter_ref = ref_tree.iter().filter(|k| k.0 >= &key);
-		let mut iter_ref2 = ref_tree.iter().filter(|k| k.0 <= &key);
+		let mut iter = if prefix {
+			trie_db::triedb::TrieDBDoubleEndedIterator::new_prefixed(&trie, &key).unwrap()
+		} else {
+			trie_db::triedb::TrieDBDoubleEndedIterator::new(&trie).unwrap()
+		};
+		if !prefix {
+			iter.seek(&key).unwrap();
+		}
+		let mut iter_ref =
+			ref_tree
+				.iter()
+				.filter(|k| if prefix { k.0.starts_with(&key) } else { k.0 >= &key });
+		let mut iter_ref2 =
+			ref_tree
+				.iter()
+				.filter(|k| if prefix { k.0.starts_with(&key) } else { k.0 <= &key });
 		loop {
 			let n = iter.next();
 			let nb = iter.next_back();
@@ -1291,13 +1303,11 @@ where
 			if n_ref.is_none() && nb_ref.is_none() {
 				break;
 			}
-
-			// TODO use key as prefix
 		}
 	}
 }
 
-pub fn fuzz_double_iter<T, DB>(input: &[u8])
+pub fn fuzz_double_iter<T, DB>(input: &[u8], prefix: bool)
 where
 	T: TrieLayout,
 	DB: hash_db::HashDB<T::Hash, DBValue> + hash_db::HashDBRef<T::Hash, DBValue> + Default,
@@ -1312,7 +1322,7 @@ where
 	keys.sort();
 	keys.dedup();
 
-	test_iterator::<T, DB>(data, keys);
+	test_iterator::<T, DB>(data, keys, prefix);
 }
 
 pub fn fuzz_to_data(input: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {

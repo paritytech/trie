@@ -496,6 +496,18 @@ impl<'a, 'cache, L: TrieLayout> TrieDBDoubleEndedIterator<'a, 'cache, L> {
 			back_raw_iter: TrieDBRawIterator::new(db)?,
 		})
 	}
+
+	/// Create a new iterator, but limited to a given prefix.
+	pub fn new_prefixed(
+		db: &'a TrieDB<'a, 'cache, L>,
+		prefix: &[u8],
+	) -> Result<Self, TrieHash<L>, CError<L>> {
+		Ok(Self {
+			db,
+			raw_iter: TrieDBRawIterator::new_prefixed(db, prefix)?,
+			back_raw_iter: TrieDBRawIterator::new_prefixed(db, prefix)?,
+		})
+	}
 }
 
 impl<L: TrieLayout> TrieDoubleEndedIterator<L> for TrieDBDoubleEndedIterator<'_, '_, L> {}

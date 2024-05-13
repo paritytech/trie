@@ -9,5 +9,6 @@ type T = reference_trie::NoExtensionLayout;
 type DB = MemoryDB<<T as TrieLayout>::Hash, PrefixedKey<<T as TrieLayout>::Hash>, DBValue>;
 
 fuzz_target!(|data: &[u8]| {
-	fuzz_double_iter::<T, DB>(data);
+	fuzz_double_iter::<T, DB>(data, false);
+	fuzz_double_iter::<T, DB>(data, true);
 });
