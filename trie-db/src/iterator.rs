@@ -183,7 +183,6 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						if !partial.starts_with(&slice) {
 							if (fwd && slice < partial) || (!fwd && slice > partial) {
 								crumb.status = Status::AftExiting;
-								self.key_nibbles.append_partial(slice.right());
 								return Ok(false);
 							}
 							return Ok(slice.starts_with(&partial));
@@ -231,8 +230,6 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						if !partial.starts_with(&slice) {
 							if (fwd && slice < partial) || (!fwd && slice > partial) {
 								crumb.status = Status::AftExiting;
-								self.key_nibbles.append_partial(slice.right());
-								self.key_nibbles.push((nibble_ops::NIBBLE_LENGTH - 1) as u8);
 								return Ok(false);
 							}
 							return Ok(slice.starts_with(&partial));

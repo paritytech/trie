@@ -1242,8 +1242,6 @@ where
 	L: TrieLayout,
 	DB: hash_db::HashDB<L::Hash, DBValue> + hash_db::HashDBRef<L::Hash, DBValue> + Default,
 {
-	use hash_db::{HashDB, EMPTY_PREFIX};
-	use trie_db::{decode_compact, encode_compact, Recorder};
 	let mut ref_tree = std::collections::BTreeMap::new();
 
 	// Populate DB with full trie from entries.
