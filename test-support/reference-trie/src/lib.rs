@@ -1264,12 +1264,13 @@ where
 	// standard iter
 	let mut iter = trie_db::triedb::TrieDBDoubleEndedIterator::new(&trie).unwrap();
 	let mut iter_ref = ref_tree.iter();
+	let mut iter_ref2 = ref_tree.iter();
 
 	loop {
 		let n = iter.next();
 		let nb = iter.next_back();
 		let n_ref = iter_ref.next();
-		let nb_ref = iter_ref.next_back();
+		let nb_ref = iter_ref2.next_back();
 		assert_eq!(n.as_ref().map(|v| v.as_ref().map(|v| (&v.0, &v.1)).unwrap()), n_ref);
 		assert_eq!(nb.as_ref().map(|v| v.as_ref().map(|v| (&v.0, &v.1)).unwrap()), nb_ref);
 		if n_ref.is_none() && nb_ref.is_none() {
