@@ -1235,3 +1235,135 @@ mod tests {
 		}
 	}
 }
+
+// This is a bit redundant with other iterator fuzzer
+fn test_iterator<L, DB>(entries: Vec<(Vec<u8>, Vec<u8>)>, keys: Vec<Vec<u8>>, prefix: bool)
+where
+	L: TrieLayout,
+	DB: hash_db::HashDB<L::Hash, DBValue> + hash_db::HashDBRef<L::Hash, DBValue> + Default,
+{
+	let mut ref_tree = std::collections::BTreeMap::new();
+
+	// Populate DB with full trie from entries.
+	let (db, root) = {
+		let mut db = DB::default();
+		let mut root = Default::default();
+		{
+			let mut trie = TrieDBMutBuilder::<L>::new(&mut db, &mut root).build();
+			for (key, value) in entries.into_iter() {
+				trie.insert(&key, &value).unwrap();
+				ref_tree.insert(key, value);
+			}
+		}
+		(db, root)
+	};
+	// Lookup items in trie while recording traversed nodes.
+	let trie = TrieDBBuilder::<L>::new(&db, &root).build();
+	// standard iter
+	let mut iter = trie_db::triedb::TrieDBDoubleEndedIterator::new(&trie).unwrap();
+	let mut iter_ref = ref_tree.iter();
+	let mut iter_ref2 = ref_tree.iter();
+
+	loop {
+		let n = iter.next();
+		let nb = iter.next_back();
+		let n_ref = iter_ref.next();
+		let nb_ref = iter_ref2.next_back();
+		assert_eq!(n.as_ref().map(|v| v.as_ref().map(|v| (&v.0, &v.1)).unwrap()), n_ref);
+		assert_eq!(nb.as_ref().map(|v| v.as_ref().map(|v| (&v.0, &v.1)).unwrap()), nb_ref);
+		if n_ref.is_none() && nb_ref.is_none() {
+			break;
+		}
+	}
+	for key in keys {
+		use trie_db::TrieIterator;
+		let mut iter = if prefix {
+			trie_db::triedb::TrieDBDoubleEndedIterator::new_prefixed(&trie, &key).unwrap()
+		} else {
+			trie_db::triedb::TrieDBDoubleEndedIterator::new(&trie).unwrap()
+		};
+		if !prefix {
+			iter.seek(&key).unwrap();
+		}
+		let mut iter_ref =
+			ref_tree
+				.iter()
+				.filter(|k| if prefix { k.0.starts_with(&key) } else { k.0 >= &key });
+		let mut iter_ref2 =
+			ref_tree
+				.iter()
+				.filter(|k| if prefix { k.0.starts_with(&key) } else { k.0 <= &key });
+		loop {
+			let n = iter.next();
+			let nb = iter.next_back();
+			let n_ref = iter_ref.next();
+			let nb_ref = iter_ref2.next_back();
+			assert_eq!(n.as_ref().map(|v| v.as_ref().map(|v| (&v.0, &v.1)).unwrap()), n_ref);
+			assert_eq!(nb.as_ref().map(|v| v.as_ref().map(|v| (&v.0, &v.1)).unwrap()), nb_ref);
+			if n_ref.is_none() && nb_ref.is_none() {
+				break;
+			}
+		}
+	}
+}
+
+pub fn fuzz_double_iter<T, DB>(input: &[u8], prefix: bool)
+where
+	T: TrieLayout,
+	DB: hash_db::HashDB<T::Hash, DBValue> + hash_db::HashDBRef<T::Hash, DBValue> + Default,
+{
+	let mut data = fuzz_to_data(input);
+	// - the first 2/3 are added to the trie.
+	// - the last 1/3 is not added to the trie and use for random seek and prefix.
+	let mut keys = data[(data.len() / 3)..].iter().map(|(key, _)| key.clone()).collect::<Vec<_>>();
+	data.truncate(data.len() * 2 / 3);
+
+	let data = data_sorted_unique(data);
+	keys.sort();
+	keys.dedup();
+
+	test_iterator::<T, DB>(data, keys, prefix);
+}
+
+pub fn fuzz_to_data(input: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
+	let mut result = Vec::new();
+	// enc = (minkeylen, maxkeylen (min max up to 32), datas)
+	// fix data len 2 bytes
+	let mut minkeylen = if let Some(v) = input.get(0) {
+		let mut v = *v & 31u8;
+		v = v + 1;
+		v
+	} else {
+		return result
+	};
+	let mut maxkeylen = if let Some(v) = input.get(1) {
+		let mut v = *v & 31u8;
+		v = v + 1;
+		v
+	} else {
+		return result
+	};
+
+	if maxkeylen < minkeylen {
+		let v = minkeylen;
+		minkeylen = maxkeylen;
+		maxkeylen = v;
+	}
+	let mut ix = 2;
+	loop {
+		let keylen = if let Some(v) = input.get(ix) {
+			let mut v = *v & 31u8;
+			v = v + 1;
+			v = std::cmp::max(minkeylen, v);
+			v = std::cmp::min(maxkeylen, v);
+			v as usize
+		} else {
+			break
+		};
+		let key = if input.len() > ix + keylen { input[ix..ix + keylen].to_vec() } else { break };
+		ix += keylen;
+		let val = if input.len() > ix + 2 { input[ix..ix + 2].to_vec() } else { break };
+		result.push((key, val));
+	}
+	result
+}

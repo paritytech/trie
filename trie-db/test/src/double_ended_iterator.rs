@@ -201,10 +201,7 @@ fn seek_back_works_internal<T: TrieLayout>() {
 	let mut iter = TrieDBNodeDoubleEndedIterator::new(&trie).unwrap();
 
 	<dyn TrieDoubleEndedIterator<T, Item = _>>::seek(&mut iter, &hex!("")[..]).unwrap();
-	match iter.next_back() {
-		Some(Ok((prefix, _, _))) => assert_eq!(prefix, nibble_vec(hex!(""), 0)),
-		_ => panic!("unexpected item"),
-	}
+	assert!(iter.next_back().is_none());
 
 	<dyn TrieDoubleEndedIterator<T, Item = _>>::seek(&mut iter, &hex!("03")[..]).unwrap();
 	match iter.next_back() {
@@ -405,4 +402,37 @@ fn prefix_over_empty_works_internal<T: TrieLayout>() {
 	let mut iter = TrieDBNodeDoubleEndedIterator::new(&trie).unwrap();
 	iter.prefix(&hex!("00")[..]).unwrap();
 	assert!(iter.next_back().is_none());
+}
+
+test_layouts!(next_back_weird_behaviour_1, next_back_weird_behaviour_internal_1);
+fn next_back_weird_behaviour_internal_1<T: TrieLayout>() {
+	use trie_db::TrieIterator;
+
+	let pairs = vec![(vec![11], b"bbbb".to_vec())];
+
+	let (memdb, root) = build_trie_db::<T>(&pairs);
+	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+
+	let mut iter = trie_db::triedb::TrieDBDoubleEndedIterator::new(&trie).unwrap();
+
+	iter.seek(&[10]).unwrap();
+	assert!(iter.next_back().is_none());
+}
+
+test_layouts!(fuzz_set, fuzz_set_internal);
+fn fuzz_set_internal<T: TrieLayout>() {
+	type DB<T> = memory_db::MemoryDB<
+		<T as TrieLayout>::Hash,
+		memory_db::PrefixedKey<<T as TrieLayout>::Hash>,
+		trie_db::DBValue,
+	>;
+
+	let fuzz_inputs = [
+		vec![32, 65, 255, 254, 255, 213, 0, 0, 0, 254, 255, 0, 0, 235, 0, 0, 35],
+		vec![0, 5, 0, 0, 43, 0, 5, 0],
+	];
+	for i in fuzz_inputs {
+		reference_trie::fuzz_double_iter::<T, DB<T>>(&i, false);
+		reference_trie::fuzz_double_iter::<T, DB<T>>(&i, true);
+	}
 }

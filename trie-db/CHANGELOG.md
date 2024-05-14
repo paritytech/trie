@@ -4,6 +4,9 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
+## [0.29.1] - 2024-05-24
+- Fix backward iterator seek [#215](https://github.com/paritytech/trie/pull/215)
+
 ## [0.29.0] - 2024-03-04
 - Implements `DoubleEndedIterator` for trie iterator [#208](https://github.com/paritytech/trie/pull/208)
 
