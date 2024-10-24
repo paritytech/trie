@@ -72,56 +72,6 @@ fn empty_children<H, L>() -> Box<[Option<NodeHandle<H, L>>; nibble_ops::NIBBLE_L
 /// Alias on changenode over trie layout.
 /// TODO rename (is change node)
 pub type TreeRefChangeset<L> = Option<Changenode<TrieHash<L>, <L as TrieLayout>::Location>>;
-/*
-impl<L: TrieLayout> Changenode<TrieHash<L>, <L as TrieLayout>::Location> {
-	fn location(&self) -> L::Location {
-		match self {
-			TreeRefChangeset::None => Default::default(),
-			TreeRefChangeset::Existing(l) => *l,
-			TreeRefChangeset::Changed(c) => match &**c {
-				Changeset::New(_) => Default::default(),
-				Changeset::Existing(e) => e.location,
-			},
-		}
-	}
-
-	fn has_changes(&self) -> bool {
-		if let TreeRefChangeset::Changed(c) = self {
-			if let Changeset::New(_) = &**c {
-				return true
-			}
-		}
-		false
-	}
-
-	fn changes_ref(&self) -> Option<&NewChangesetNode<TrieHash<L>, <L as TrieLayout>::Location>> {
-		if let TreeRefChangeset::Changed(c) = self {
-			if let Changeset::New(c) = &**c {
-				return Some(c)
-			}
-		}
-		None
-	}
-
-	fn changes_mut(
-		&mut self,
-	) -> Option<&mut NewChangesetNode<TrieHash<L>, <L as TrieLayout>::Location>> {
-		if let TreeRefChangeset::Changed(c) = self {
-			if let Changeset::New(c) = &mut **c {
-				return Some(c)
-			}
-		}
-		None
-	}
-
-	fn into_changes(self) -> Option<Box<Changeset<TrieHash<L>, <L as TrieLayout>::Location>>> {
-		if let TreeRefChangeset::Changed(c) = self {
-			return Some(c)
-		}
-		None
-	}
-}
-	*/
 
 /// Type alias to indicate the nible covers a full key,
 /// therefore its left side is a full prefix.
