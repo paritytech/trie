@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use core::iter;
+
 use crate::{
 	nibble::{self, nibble_ops, NibbleSlice, NibbleVec},
 	node_codec::NodeCodec,
@@ -210,34 +212,57 @@ impl Node<'_> {
 			Self::Extension(n, h) =>
 				Ok(NodeOwned::Extension((*n).into(), h.to_owned_handle::<L>()?)),
 			Self::Branch(childs, data) => {
-				let mut childs_owned = [(); nibble_ops::NIBBLE_LENGTH].map(|_| None);
+				let last_existing_child_index = childs
+					.iter()
+					.enumerate()
+					.flat_map(|(index, value)| value.map(|_v| index))
+					.rev()
+					.next()
+					.unwrap_or_default();
+				let mut childs_owned = Vec::with_capacity(last_existing_child_index + 1);
+
 				childs
 					.iter()
 					.enumerate()
 					.map(|(i, c)| {
-						childs_owned[i] =
-							c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?;
+						if i <= last_existing_child_index {
+							childs_owned
+								.push(c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?);
+						}
 						Ok(())
 					})
 					.collect::<Result<_, _, _>>()?;
 
-				Ok(NodeOwned::Branch(childs_owned, data.as_ref().map(|d| d.to_owned_value::<L>())))
+				Ok(NodeOwned::Branch(
+					ChildrenNodesOwned(childs_owned),
+					data.as_ref().map(|d| d.to_owned_value::<L>()),
+				))
 			},
 			Self::NibbledBranch(n, childs, data) => {
-				let mut childs_owned = [(); nibble_ops::NIBBLE_LENGTH].map(|_| None);
+				let last_existing_child_index = childs
+					.iter()
+					.enumerate()
+					.flat_map(|(index, value)| value.map(|_v| index))
+					.rev()
+					.next()
+					.unwrap_or_default();
+				let mut childs_owned = Vec::with_capacity(last_existing_child_index + 1);
+
 				childs
 					.iter()
 					.enumerate()
 					.map(|(i, c)| {
-						childs_owned[i] =
-							c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?;
+						if i <= last_existing_child_index {
+							childs_owned
+								.push(c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?);
+						}
 						Ok(())
 					})
 					.collect::<Result<_, _, _>>()?;
 
 				Ok(NodeOwned::NibbledBranch(
 					(*n).into(),
-					childs_owned,
+					ChildrenNodesOwned(childs_owned),
 					data.as_ref().map(|d| d.to_owned_value::<L>()),
 				))
 			},
@@ -257,18 +282,44 @@ pub enum NodeOwned<H> {
 	Extension(NibbleVec, NodeHandleOwned<H>),
 	/// Branch node; has slice of child nodes (each possibly null)
 	/// and an optional immediate node data.
-	Branch([Option<NodeHandleOwned<H>>; nibble_ops::NIBBLE_LENGTH], Option<ValueOwned<H>>),
+	Branch(ChildrenNodesOwned<H>, Option<ValueOwned<H>>),
 	/// Branch node with support for a nibble (when extension nodes are not used).
-	NibbledBranch(
-		NibbleVec,
-		[Option<NodeHandleOwned<H>>; nibble_ops::NIBBLE_LENGTH],
-		Option<ValueOwned<H>>,
-	),
+	NibbledBranch(NibbleVec, ChildrenNodesOwned<H>, Option<ValueOwned<H>>),
 	/// Node that represents a value.
 	///
 	/// This variant is only constructed when working with a [`crate::TrieCache`]. It is only
 	/// used to cache a raw value.
 	Value(Bytes, H),
+}
+
+/// Owned children of a node.
+///
+/// The maximum size of the children is `nibble_ops::NIBBLE_LENGTH`, in order to save memory we
+/// represent only the children until the last missing one. For example, if the children are
+/// `[Some(_), None, Some(_), None, None, None, None, None None, None, None, None, None, None, None,
+/// None]` we will only store in the vector `[Some(_), None, Some(_)]`.
+///
+/// This is useful to save space in the TrieCache when the children are not fully populated.
+///
+/// Before this struct was introduced, the children were stored in a fixed size array of length
+/// `nibble_ops::NIBBLE_LENGTH`, to make sure there aren't any direct accesses to the array that
+/// we've missed, wrap in its on struct, rather than directly use the `Vec`.
+#[derive(Eq, PartialEq, Clone)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub struct ChildrenNodesOwned<H>(Vec<Option<NodeHandleOwned<H>>>);
+
+impl<H> ChildrenNodesOwned<H> {
+	pub fn get(&self, index: usize) -> Option<&Option<NodeHandleOwned<H>>> {
+		self.0.get(index)
+	}
+
+	pub fn iter(&self) -> impl Iterator<Item = &Option<NodeHandleOwned<H>>> {
+		self.0.iter()
+	}
+
+	pub fn len(&self) -> usize {
+		self.0.len()
+	}
 }
 
 impl<H> NodeOwned<H>
@@ -289,16 +340,29 @@ where
 				partial.len(),
 				child.as_child_reference::<C>(),
 			),
-			Self::Branch(children, value) => C::branch_node(
-				children.iter().map(|child| child.as_ref().map(|c| c.as_child_reference::<C>())),
-				value.as_ref().map(|v| v.as_value()),
-			),
-			Self::NibbledBranch(partial, children, value) => C::branch_node_nibbled(
-				partial.right_iter(),
-				partial.len(),
-				children.iter().map(|child| child.as_ref().map(|c| c.as_child_reference::<C>())),
-				value.as_ref().map(|v| v.as_value()),
-			),
+			Self::Branch(children, value) => {
+				let repeat = iter::repeat(&None).take(nibble_ops::NIBBLE_LENGTH - children.len());
+				C::branch_node(
+					children
+						.iter()
+						.chain(repeat)
+						.map(|child| child.as_ref().map(|c| c.as_child_reference::<C>())),
+					value.as_ref().map(|v| v.as_value()),
+				)
+			},
+			Self::NibbledBranch(partial, children, value) => {
+				let repeat = iter::repeat(&None).take(nibble_ops::NIBBLE_LENGTH - children.len());
+
+				C::branch_node_nibbled(
+					partial.right_iter(),
+					partial.len(),
+					children
+						.iter()
+						.chain(repeat)
+						.map(|child| child.as_ref().map(|c| c.as_child_reference::<C>())),
+					value.as_ref().map(|v| v.as_value()),
+				)
+			},
 			Self::Value(data, _) => data.to_vec(),
 		}
 	}
@@ -308,7 +372,7 @@ where
 		enum ChildIter<'a, H> {
 			Empty,
 			Single(&'a NodeHandleOwned<H>, bool),
-			Array(&'a [Option<NodeHandleOwned<H>>; nibble_ops::NIBBLE_LENGTH], usize),
+			Array(&'a ChildrenNodesOwned<H>, usize),
 		}
 
 		impl<'a, H> Iterator for ChildIter<'a, H> {
@@ -332,7 +396,7 @@ where
 								*index += 1;
 
 								// Ignore non-existing childs.
-								if let Some(ref child) = childs[*index - 1] {
+								if let Some(Some(ref child)) = childs.get(*index - 1) {
 									break Some((Some(*index as u8 - 1), child))
 								}
 							},
