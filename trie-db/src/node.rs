@@ -309,7 +309,7 @@ impl<H> ChildrenNodesOwned<H> {
 	/// The size of the iterator is always constant goes up to `nibble_ops::NIBBLE_LENGTH`, with
 	/// None representing the missing children.
 	pub fn iter(&self) -> impl Iterator<Item = &Option<NodeHandleOwned<H>>> {
-		self.0.iter().chain(std::iter::repeat(&None)).take(nibble_ops::NIBBLE_LENGTH)
+		self.0.iter().chain(iter::repeat(&None)).take(nibble_ops::NIBBLE_LENGTH)
 	}
 
 	/// Returns the number of children.
