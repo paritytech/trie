@@ -212,13 +212,8 @@ impl Node<'_> {
 			Self::Extension(n, h) =>
 				Ok(NodeOwned::Extension((*n).into(), h.to_owned_handle::<L>()?)),
 			Self::Branch(childs, data) => {
-				let last_existing_child_index = childs
-					.iter()
-					.enumerate()
-					.flat_map(|(index, value)| value.map(|_v| index))
-					.rev()
-					.next()
-					.unwrap_or_default();
+				let last_existing_child_index =
+					childs.iter().rposition(Option::is_some).unwrap_or_default();
 				let mut childs_owned = Vec::with_capacity(last_existing_child_index + 1);
 
 				childs
@@ -239,13 +234,8 @@ impl Node<'_> {
 				))
 			},
 			Self::NibbledBranch(n, childs, data) => {
-				let last_existing_child_index = childs
-					.iter()
-					.enumerate()
-					.flat_map(|(index, value)| value.map(|_v| index))
-					.rev()
-					.next()
-					.unwrap_or_default();
+				let last_existing_child_index =
+					childs.iter().rposition(Option::is_some).unwrap_or_default();
 				let mut childs_owned = Vec::with_capacity(last_existing_child_index + 1);
 
 				childs
@@ -303,20 +293,26 @@ pub enum NodeOwned<H> {
 ///
 /// Before this struct was introduced, the children were stored in a fixed size array of length
 /// `nibble_ops::NIBBLE_LENGTH`, to make sure there aren't any direct accesses to the array that
-/// we've missed, wrap in its on struct, rather than directly use the `Vec`.
+/// we've missed, wrap it in its own struct, rather than directly use the `Vec`.
 #[derive(Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct ChildrenNodesOwned<H>(Vec<Option<NodeHandleOwned<H>>>);
 
 impl<H> ChildrenNodesOwned<H> {
-	pub fn get(&self, index: usize) -> Option<&Option<NodeHandleOwned<H>>> {
-		self.0.get(index)
+	/// Returns the child at the given index.
+	pub fn get(&self, index: usize) -> Option<&NodeHandleOwned<H>> {
+		self.0.get(index).and_then(|node| node.as_ref())
 	}
 
+	/// Returns an iterator over all children.
+	///
+	/// The size of the iterator is always constant goes up to `nibble_ops::NIBBLE_LENGTH`, with
+	/// None representing the missing children.
 	pub fn iter(&self) -> impl Iterator<Item = &Option<NodeHandleOwned<H>>> {
-		self.0.iter()
+		self.0.iter().chain(std::iter::repeat(&None)).take(nibble_ops::NIBBLE_LENGTH)
 	}
 
+	/// Returns the number of children.
 	pub fn len(&self) -> usize {
 		self.0.len()
 	}
@@ -340,29 +336,16 @@ where
 				partial.len(),
 				child.as_child_reference::<C>(),
 			),
-			Self::Branch(children, value) => {
-				let repeat = iter::repeat(&None).take(nibble_ops::NIBBLE_LENGTH - children.len());
-				C::branch_node(
-					children
-						.iter()
-						.chain(repeat)
-						.map(|child| child.as_ref().map(|c| c.as_child_reference::<C>())),
-					value.as_ref().map(|v| v.as_value()),
-				)
-			},
-			Self::NibbledBranch(partial, children, value) => {
-				let repeat = iter::repeat(&None).take(nibble_ops::NIBBLE_LENGTH - children.len());
-
-				C::branch_node_nibbled(
-					partial.right_iter(),
-					partial.len(),
-					children
-						.iter()
-						.chain(repeat)
-						.map(|child| child.as_ref().map(|c| c.as_child_reference::<C>())),
-					value.as_ref().map(|v| v.as_value()),
-				)
-			},
+			Self::Branch(children, value) => C::branch_node(
+				children.iter().map(|child| child.as_ref().map(|c| c.as_child_reference::<C>())),
+				value.as_ref().map(|v| v.as_value()),
+			),
+			Self::NibbledBranch(partial, children, value) => C::branch_node_nibbled(
+				partial.right_iter(),
+				partial.len(),
+				children.iter().map(|child| child.as_ref().map(|c| c.as_child_reference::<C>())),
+				value.as_ref().map(|v| v.as_value()),
+			),
 			Self::Value(data, _) => data.to_vec(),
 		}
 	}
@@ -396,7 +379,7 @@ where
 								*index += 1;
 
 								// Ignore non-existing childs.
-								if let Some(Some(ref child)) = childs.get(*index - 1) {
+								if let Some(ref child) = childs.get(*index - 1) {
 									break Some((Some(*index as u8 - 1), child))
 								}
 							},

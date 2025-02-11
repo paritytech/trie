@@ -275,13 +275,13 @@ where
 								.unwrap_or_else(|| MerkleValue::Hash(hash));
 							return Ok(Some(res))
 						} else {
-							match &children.get(partial.at(0) as usize) {
-								Some(Some(x)) => {
+							match children.get(partial.at(0) as usize) {
+								Some(x) => {
 									partial = partial.mid(1);
 									key_nibbles += 1;
 									x
 								},
-								None | Some(None) => {
+								None => {
 									self.record(|| TrieAccess::NonExisting { full_key });
 
 									return Ok(None)
@@ -323,13 +323,13 @@ where
 								.unwrap_or_else(|| MerkleValue::Hash(hash));
 							return Ok(Some(res))
 						} else {
-							match &children.get(partial.at(slice.len()) as usize) {
-								Some(Some(x)) => {
+							match children.get(partial.at(slice.len()) as usize) {
+								Some(x) => {
 									partial = partial.mid(slice.len() + 1);
 									key_nibbles += slice.len() + 1;
 									x
 								},
-								None | Some(None) => {
+								None => {
 									self.record(|| TrieAccess::NonExisting { full_key });
 
 									return Ok(None)
@@ -660,13 +660,13 @@ where
 								Ok(None)
 							}
 						} else {
-							match &children.get(partial.at(0) as usize) {
-								Some(Some(x)) => {
+							match children.get(partial.at(0) as usize) {
+								Some(x) => {
 									partial = partial.mid(1);
 									key_nibbles += 1;
 									x
 								},
-								None | Some(None) => {
+								None => {
 									self.record(|| TrieAccess::NonExisting { full_key });
 
 									return Ok(None)
@@ -697,13 +697,13 @@ where
 								Ok(None)
 							}
 						} else {
-							match &children.get(partial.at(slice.len()) as usize) {
-								Some(Some(x)) => {
+							match children.get(partial.at(slice.len()) as usize) {
+								Some(x) => {
 									partial = partial.mid(slice.len() + 1);
 									key_nibbles += slice.len() + 1;
 									x
 								},
-								None | Some(None) => {
+								None => {
 									self.record(|| TrieAccess::NonExisting { full_key });
 
 									return Ok(None)

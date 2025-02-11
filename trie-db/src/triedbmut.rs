@@ -389,11 +389,7 @@ impl<L: TrieLayout> Node<L> {
 				Node::Extension(key.into(), Self::inline_or_hash_owned(cb, storage)),
 			NodeOwned::Branch(encoded_children, val) => {
 				let mut child = |i: usize| {
-					encoded_children
-						.get(i)
-						.unwrap_or(&None)
-						.as_ref()
-						.map(|child| Self::inline_or_hash_owned(child, storage))
+					encoded_children.get(i).map(|child| Self::inline_or_hash_owned(child, storage))
 				};
 
 				let children = Box::new([
@@ -419,11 +415,7 @@ impl<L: TrieLayout> Node<L> {
 			},
 			NodeOwned::NibbledBranch(k, encoded_children, val) => {
 				let mut child = |i: usize| {
-					encoded_children
-						.get(i)
-						.unwrap_or(&None)
-						.as_ref()
-						.map(|child| Self::inline_or_hash_owned(child, storage))
+					encoded_children.get(i).map(|child| Self::inline_or_hash_owned(child, storage))
 				};
 
 				let children = Box::new([
