@@ -212,21 +212,27 @@ impl Node<'_> {
 			Self::Extension(n, h) =>
 				Ok(NodeOwned::Extension((*n).into(), h.to_owned_handle::<L>()?)),
 			Self::Branch(childs, data) => {
-				let last_existing_child_index =
-					childs.iter().rposition(Option::is_some).unwrap_or_default();
-				let mut childs_owned = Vec::with_capacity(last_existing_child_index + 1);
+				let childs_owned = if let Some(last_existing_child_index) =
+					childs.iter().rposition(Option::is_some)
+				{
+					let mut childs_owned = Vec::with_capacity(last_existing_child_index + 1);
 
-				childs
-					.iter()
-					.enumerate()
-					.map(|(i, c)| {
-						if i <= last_existing_child_index {
-							childs_owned
-								.push(c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?);
-						}
-						Ok(())
-					})
-					.collect::<Result<_, _, _>>()?;
+					childs
+						.iter()
+						.enumerate()
+						.map(|(i, c)| {
+							if i <= last_existing_child_index {
+								childs_owned.push(
+									c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?,
+								);
+							}
+							Ok(())
+						})
+						.collect::<Result<_, _, _>>()?;
+					childs_owned
+				} else {
+					Vec::new()
+				};
 
 				Ok(NodeOwned::Branch(
 					ChildrenNodesOwned(childs_owned),
@@ -234,21 +240,27 @@ impl Node<'_> {
 				))
 			},
 			Self::NibbledBranch(n, childs, data) => {
-				let last_existing_child_index =
-					childs.iter().rposition(Option::is_some).unwrap_or_default();
-				let mut childs_owned = Vec::with_capacity(last_existing_child_index + 1);
+				let childs_owned = if let Some(last_existing_child_index) =
+					childs.iter().rposition(Option::is_some)
+				{
+					let mut childs_owned = Vec::with_capacity(last_existing_child_index + 1);
 
-				childs
-					.iter()
-					.enumerate()
-					.map(|(i, c)| {
-						if i <= last_existing_child_index {
-							childs_owned
-								.push(c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?);
-						}
-						Ok(())
-					})
-					.collect::<Result<_, _, _>>()?;
+					childs
+						.iter()
+						.enumerate()
+						.map(|(i, c)| {
+							if i <= last_existing_child_index {
+								childs_owned.push(
+									c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?,
+								);
+							}
+							Ok(())
+						})
+						.collect::<Result<_, _, _>>()?;
+					childs_owned
+				} else {
+					Vec::new()
+				};
 
 				Ok(NodeOwned::NibbledBranch(
 					(*n).into(),
