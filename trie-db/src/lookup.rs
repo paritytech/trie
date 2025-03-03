@@ -275,7 +275,7 @@ where
 								.unwrap_or_else(|| MerkleValue::Hash(hash));
 							return Ok(Some(res))
 						} else {
-							match &children[partial.at(0) as usize] {
+							match children.get(partial.at(0) as usize) {
 								Some(x) => {
 									partial = partial.mid(1);
 									key_nibbles += 1;
@@ -323,7 +323,7 @@ where
 								.unwrap_or_else(|| MerkleValue::Hash(hash));
 							return Ok(Some(res))
 						} else {
-							match &children[partial.at(slice.len()) as usize] {
+							match children.get(partial.at(slice.len()) as usize) {
 								Some(x) => {
 									partial = partial.mid(slice.len() + 1);
 									key_nibbles += slice.len() + 1;
@@ -660,7 +660,7 @@ where
 								Ok(None)
 							}
 						} else {
-							match &children[partial.at(0) as usize] {
+							match children.get(partial.at(0) as usize) {
 								Some(x) => {
 									partial = partial.mid(1);
 									key_nibbles += 1;
@@ -697,7 +697,7 @@ where
 								Ok(None)
 							}
 						} else {
-							match &children[partial.at(slice.len()) as usize] {
+							match children.get(partial.at(slice.len()) as usize) {
 								Some(x) => {
 									partial = partial.mid(slice.len() + 1);
 									key_nibbles += slice.len() + 1;
