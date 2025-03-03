@@ -231,7 +231,7 @@ impl Node<'_> {
 						.collect::<Result<_, _, _>>()?;
 					childs_owned
 				} else {
-					Vec::new()
+					Vec::with_capacity(0)
 				};
 
 				Ok(NodeOwned::Branch(
@@ -259,7 +259,7 @@ impl Node<'_> {
 						.collect::<Result<_, _, _>>()?;
 					childs_owned
 				} else {
-					Vec::new()
+					Vec::with_capacity(0)
 				};
 
 				Ok(NodeOwned::NibbledBranch(
@@ -324,8 +324,8 @@ impl<H> ChildrenNodesOwned<H> {
 		self.0.iter().chain(iter::repeat(&None)).take(nibble_ops::NIBBLE_LENGTH)
 	}
 
-	/// Returns the number of children.
-	pub fn len(&self) -> usize {
+	/// Returns the number of allocated children.
+	pub fn allocated_len(&self) -> usize {
 		self.0.len()
 	}
 }
@@ -385,7 +385,7 @@ where
 								Some((None, child))
 							},
 						Self::Array(childs, index) =>
-							if *index >= childs.len() {
+							if *index >= childs.allocated_len() {
 								break None
 							} else {
 								*index += 1;
