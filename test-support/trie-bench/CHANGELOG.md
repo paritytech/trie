@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 
+## [0.40.0] - 2025-03-07
+- chore: Release trie-db 0.30.0 [#213](https://github.com/paritytech/trie/pull/218)
+
 ## [0.39.0] - 2023-03-04
 - chore: Release trie-db 0.29.0 [#213](https://github.com/paritytech/trie/pull/213)
 
