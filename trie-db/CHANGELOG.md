@@ -4,6 +4,9 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
+## [0.30.0] - 2025-03-06
+- Improve `TrieCache` size by reducing size_of `NodeOwned` [#216](https://github.com/paritytech/trie/pull/216)
+
 ## [0.29.1] - 2024-05-24
 - Fix backward iterator seek [#215](https://github.com/paritytech/trie/pull/215)
 
