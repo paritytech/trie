@@ -11,7 +11,7 @@ edition = "2018"
 keccak-hasher = { path = "../keccak-hasher", version = "0.16.0" }
 trie-standardmap = { path = "../trie-standardmap", version = "0.16.0" }
 hash-db = { path = "../../hash-db" , version = "0.16.0"}
-memory-db = { path = "../../memory-db", version = "0.32.0" }
+memory-db = { path = "../../memory-db", version = "0.33.0" }
 trie-root = { path = "../../trie-root", version = "0.18.0" }
 trie-db = { path = "../../trie-db", version = "0.30.0" }
 criterion = "0.5.1"
