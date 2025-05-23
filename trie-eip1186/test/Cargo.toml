@@ -1,6 +1,6 @@
 [package]
 name = "trie-eip1186-test"
-version = "0.5.0"
+version = "0.6.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Tests for trie-eip1186 crate"
 repository = "https://github.com/paritytech/trie"
