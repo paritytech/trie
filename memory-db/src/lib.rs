@@ -30,7 +30,7 @@ use std::{
 };
 
 #[cfg(not(feature = "std"))]
-use alloc::collections::btree_map::{BTreeMap as Map, Entry};
+use hashbrown::{hash_map::Entry, HashMap as Map};
 
 #[cfg(not(feature = "std"))]
 use core::{borrow::Borrow, cmp::Eq, hash, marker::PhantomData, mem};
