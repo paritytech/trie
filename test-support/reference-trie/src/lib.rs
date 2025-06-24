@@ -1174,6 +1174,7 @@ mod tests {
 	use trie_db::{nibble_ops::NIBBLE_PER_BYTE, node::Node};
 
 	const _: fn() -> () = || {
+		#[allow(dead_code)]
 		struct AssertTrieDBRawIteratorIsSendAndSync
 		where
 			trie_db::TrieDBRawIterator<NoExtensionLayout>: Send + Sync;

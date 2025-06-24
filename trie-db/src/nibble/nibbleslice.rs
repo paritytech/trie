@@ -52,7 +52,7 @@ impl<'a> NibbleSlice<'a> {
 	}
 
 	/// Get nibble slice from a `NodeKey`.
-	pub fn from_stored(i: &NodeKey) -> NibbleSlice {
+	pub fn from_stored(i: &NodeKey) -> NibbleSlice<'_> {
 		NibbleSlice::new_offset(&i.1[..], i.0)
 	}
 
@@ -166,7 +166,7 @@ impl<'a> NibbleSlice<'a> {
 
 	/// Return `Partial` representation of this slice:
 	/// first encoded byte and following slice.
-	pub fn right(&'a self) -> Partial {
+	pub fn right(&'a self) -> Partial<'a> {
 		let split = self.offset / nibble_ops::NIBBLE_PER_BYTE;
 		let nb = (self.len() % nibble_ops::NIBBLE_PER_BYTE) as u8;
 		if nb > 0 {
@@ -237,7 +237,7 @@ impl<'a> NibbleSlice<'a> {
 	/// Return left portion of `NibbleSlice`, if the slice
 	/// originates from a full key it will be the `Prefix of
 	/// the node`.
-	pub fn left(&'a self) -> Prefix {
+	pub fn left(&'a self) -> Prefix<'a> {
 		let split = self.offset / nibble_ops::NIBBLE_PER_BYTE;
 		let ix = (self.offset % nibble_ops::NIBBLE_PER_BYTE) as u8;
 		if ix == 0 {
@@ -250,7 +250,7 @@ impl<'a> NibbleSlice<'a> {
 	/// Get [`Prefix`] representation of the inner data.
 	///
 	/// This means the entire inner data will be returned as [`Prefix`], ignoring any `offset`.
-	pub fn original_data_as_prefix(&self) -> Prefix {
+	pub fn original_data_as_prefix(&self) -> Prefix<'_> {
 		(&self.data, None)
 	}
 

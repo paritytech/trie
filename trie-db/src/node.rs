@@ -154,7 +154,7 @@ pub enum ValueOwned<H> {
 
 impl<H: AsRef<[u8]> + Copy> ValueOwned<H> {
 	/// Returns self as [`Value`].
-	pub fn as_value(&self) -> Value {
+	pub fn as_value(&self) -> Value<'_> {
 		match self {
 			Self::Inline(data, _) => Value::Inline(&data),
 			Self::Node(hash) => Value::Node(hash.as_ref()),
@@ -228,7 +228,7 @@ impl Node<'_> {
 							}
 							Ok(())
 						})
-						.collect::<Result<_, _, _>>()?;
+						.collect::<Result<Vec<()>, _, _>>()?;
 					childs_owned
 				} else {
 					Vec::with_capacity(0)
@@ -256,7 +256,7 @@ impl Node<'_> {
 							}
 							Ok(())
 						})
-						.collect::<Result<_, _, _>>()?;
+						.collect::<Result<Vec<()>, _, _>>()?;
 					childs_owned
 				} else {
 					Vec::with_capacity(0)
@@ -670,7 +670,7 @@ impl<D: Borrow<[u8]>> OwnedNode<D> {
 	}
 
 	/// Construct a `Node` by borrowing data from this struct.
-	pub fn node(&self) -> Node {
+	pub fn node(&self) -> Node<'_> {
 		self.plan.build(self.data.borrow())
 	}
 }

@@ -132,7 +132,7 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 		})
 	}
 
-	fn value(&self) -> Option<Value> {
+	fn value(&self) -> Option<Value<'_>> {
 		if let Some(hash) = self.next_value_hash.as_ref() {
 			Some(Value::Node(hash.as_ref()))
 		} else {
