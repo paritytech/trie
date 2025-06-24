@@ -107,7 +107,7 @@ impl NibbleVec {
 	}
 
 	/// Get `Prefix` representation of this `NibbleVec`.
-	pub fn as_prefix(&self) -> Prefix {
+	pub fn as_prefix(&self) -> Prefix<'_> {
 		let split = self.len / nibble_ops::NIBBLE_PER_BYTE;
 		let pos = (self.len % nibble_ops::NIBBLE_PER_BYTE) as u8;
 		if pos == 0 {
@@ -208,7 +208,7 @@ impl NibbleVec {
 	}
 
 	/// Try to treat this `NibbleVec` as a `NibbleSlice`. Works only if there is no padding.
-	pub fn as_nibbleslice(&self) -> Option<NibbleSlice> {
+	pub fn as_nibbleslice(&self) -> Option<NibbleSlice<'_>> {
 		if self.len % nibble_ops::NIBBLE_PER_BYTE == 0 {
 			Some(NibbleSlice::new(self.inner()))
 		} else {
