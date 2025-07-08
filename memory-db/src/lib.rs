@@ -242,12 +242,11 @@ pub fn legacy_prefixed_key<H: KeyHasher>(key: &H::Out, prefix: Prefix) -> Vec<u8
 	prefixed_key
 }
 
-impl<H, KF, T, S> Default for MemoryDB<H, KF, T, S>
+impl<H, KF, T> Default for MemoryDB<H, KF, T, RandomState>
 where
 	H: KeyHasher,
 	T: for<'a> From<&'a [u8]>,
 	KF: KeyFunction<H>,
-	S: BuildHasher + Default,
 {
 	fn default() -> Self {
 		Self::from_null_node(&[0u8][..], [0u8][..].into())
@@ -305,8 +304,13 @@ where
 {
 	/// Create a new `MemoryDB` from a given null key/data
 	pub fn from_null_node(null_key: &[u8], null_node_data: T) -> Self {
+		Self::from_null_node_with_hasher(null_key, null_node_data, S::default())
+	}
+
+	/// Create a new `MemoryDB` from a given null key/data with a custom hasher.
+	pub fn from_null_node_with_hasher(null_key: &[u8], null_node_data: T, hasher: S) -> Self {
 		MemoryDB {
-			data: Map::default(),
+			data: Map::with_hasher(hasher),
 			hashed_null_node: H::hash(null_key),
 			null_node_data,
 			_kf: Default::default(),
@@ -320,10 +324,15 @@ where
 
 	/// Create a new default instance of `Self` and returns `Self` and the root hash.
 	pub fn default_with_root() -> (Self, H::Out) {
-		let db = Self::default();
+		let db = Self::new(&[0u8][..]);
 		let root = db.hashed_null_node;
 
 		(db, root)
+	}
+
+	/// Create a new instance of `Self` with a custom hasher.
+	pub fn with_hasher(hasher: S) -> Self {
+		Self::from_null_node_with_hasher(&[0u8][..], [0u8][..].into(), hasher)
 	}
 
 	/// Clear all data from the database.
