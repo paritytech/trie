@@ -31,7 +31,10 @@ use std::{
 };
 
 #[cfg(not(feature = "std"))]
-use hashbrown::{hash_map::Entry, DefaultHashBuilder as RandomState, HashMap as Map};
+use hashbrown::{hash_map::Entry, HashMap as Map};
+
+#[cfg(not(feature = "std"))]
+use foldhash::quality::RandomState;
 
 #[cfg(not(feature = "std"))]
 use core::{borrow::Borrow, cmp::Eq, hash, marker::PhantomData, mem};
