@@ -421,7 +421,7 @@ where
 	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: Send + Sync + KeyFunction<H>,
 	KF::Key: Borrow<[u8]> + for<'a> From<&'a [u8]>,
-	S: BuildHasher + Default,
+	S: BuildHasher + Default + Send + Sync,
 {
 	fn get(&self, key: &H::Out) -> Option<T> {
 		match self.data.get(key.as_ref()) {
@@ -472,7 +472,7 @@ where
 	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: Send + Sync + KeyFunction<H>,
 	KF::Key: Borrow<[u8]> + for<'a> From<&'a [u8]>,
-	S: BuildHasher + Default,
+	S: BuildHasher + Default + Send + Sync,
 {
 	fn get(&self, key: &H::Out) -> Option<T> {
 		PlainDB::get(self, key)
@@ -487,7 +487,7 @@ where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: KeyFunction<H> + Send + Sync,
-	S: BuildHasher + Default,
+	S: BuildHasher + Default + Send + Sync,
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
 		if key == &self.hashed_null_node {
@@ -567,7 +567,7 @@ where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: KeyFunction<H> + Send + Sync,
-	S: BuildHasher + Default,
+	S: BuildHasher + Default + Send + Sync,
 {
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
 		HashDB::get(self, key, prefix)
@@ -583,7 +583,7 @@ where
 	T: Default + PartialEq<T> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: KeyFunction<H> + Send + Sync,
 	KF::Key: Borrow<[u8]> + for<'a> From<&'a [u8]>,
-	S: BuildHasher + Default,
+	S: BuildHasher + Default + Send + Sync,
 {
 	fn as_plain_db(&self) -> &dyn PlainDB<H::Out, T> {
 		self
@@ -598,7 +598,7 @@ where
 	H: KeyHasher,
 	T: Default + PartialEq<T> + AsRef<[u8]> + for<'a> From<&'a [u8]> + Clone + Send + Sync,
 	KF: KeyFunction<H> + Send + Sync,
-	S: BuildHasher + Default,
+	S: BuildHasher + Default + Send + Sync,
 {
 	fn as_hash_db(&self) -> &dyn HashDB<H, T> {
 		self
