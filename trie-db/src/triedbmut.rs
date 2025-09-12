@@ -22,7 +22,7 @@ use crate::{
 		NodeKey, NodeOwned, Value as EncodedValue, ValueOwned,
 	},
 	node_codec::NodeCodec,
-	rstd::{boxed::Box, convert::TryFrom, mem, ops::Index, result, vec::Vec, VecDeque},
+	rstd::{boxed::Box, convert::TryFrom, mem, ops, ops::Index, result, vec::Vec, VecDeque},
 	Bytes, CError, CachedValue, DBValue, Result, TrieAccess, TrieCache, TrieError, TrieHash,
 	TrieLayout, TrieMut, TrieRecorder,
 };
@@ -695,11 +695,14 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 		self
 	}
 
-	/// Build the [`TrieDBMut`].
-	pub fn build(self) -> TrieDBMut<'db, L> {
+	/// Build the [`TrieDBMutBase`] instance which is not commited on drop.
+	///
+	/// This instance of trie will not recompute the storage root hash unless [`commit`] method is
+	/// called explicitly.
+	pub fn build_base(self) -> TrieDBMutBase<'db, L> {
 		let root_handle = NodeHandle::Hash(*self.root);
 
-		TrieDBMut {
+		TrieDBMutBase {
 			db: self.db,
 			root: self.root,
 			cache: self.cache,
@@ -709,6 +712,23 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 			root_handle,
 		}
 	}
+
+	/// Build the [`TrieDBMut`].
+	pub fn build(self) -> TrieDBMut<'db, L> {
+		let root_handle = NodeHandle::Hash(*self.root);
+
+		let base = TrieDBMutBase {
+			db: self.db,
+			root: self.root,
+			cache: self.cache,
+			recorder: self.recorder.map(core::cell::RefCell::new),
+			storage: NodeStorage::empty(),
+			death_row: Default::default(),
+			root_handle,
+		};
+
+		CommitOnDrop::new(base)
+	}
 }
 
 /// A `Trie` implementation using a generic `HashDB` backing database.
@@ -716,7 +736,10 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 /// Use it as a `TrieMut` trait object. You can use `db()` to get the backing database object.
 /// Note that changes are not committed to the database until `commit` is called.
 ///
-/// Querying the root or dropping the trie will commit automatically.
+/// Querying the root of the trie will commit automatically.
+///
+/// Dropping will not commit, refer to [`TrieDBMut`] for `Trie` implementation that performs
+/// `commit` on `drop`..
 ///
 ///
 /// # Example
@@ -738,7 +761,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 /// t.remove(b"foo").unwrap();
 /// assert!(!t.contains(b"foo").unwrap());
 /// ```
-pub struct TrieDBMut<'a, L>
+pub struct TrieDBMutBase<'a, L>
 where
 	L: TrieLayout,
 {
@@ -753,7 +776,31 @@ where
 	recorder: Option<core::cell::RefCell<&'a mut dyn TrieRecorder<TrieHash<L>>>>,
 }
 
-impl<'a, L> TrieDBMut<'a, L>
+/// Wrapper around `TrieDBMutBase` that commits changes on drop.
+pub struct CommitOnDrop<'a, L: TrieLayout>(TrieDBMutBase<'a, L>);
+
+impl<'a, L: TrieLayout> CommitOnDrop<'a, L> {
+	/// Create a new `CommitOnDrop` wrapper around a given instance of `TrieDBMutBase`.
+	pub fn new(base: TrieDBMutBase<'a, L>) -> Self {
+		CommitOnDrop(base)
+	}
+}
+
+impl<'a, L: TrieLayout> ops::Deref for CommitOnDrop<'a, L> {
+	type Target = TrieDBMutBase<'a, L>;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
+	}
+}
+
+impl<'a, L: TrieLayout> ops::DerefMut for CommitOnDrop<'a, L> {
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		&mut self.0
+	}
+}
+
+impl<'a, L> TrieDBMutBase<'a, L>
 where
 	L: TrieLayout,
 {
@@ -2020,7 +2067,7 @@ where
 	}
 }
 
-impl<'a, L> TrieMut<L> for TrieDBMut<'a, L>
+impl<'a, L> TrieMut<L> for TrieDBMutBase<'a, L>
 where
 	L: TrieLayout,
 {
@@ -2098,14 +2145,51 @@ where
 	}
 }
 
-impl<'a, L> Drop for TrieDBMut<'a, L>
+impl<'a, L> TrieMut<L> for CommitOnDrop<'a, L>
+where
+	L: TrieLayout,
+{
+	fn root(&mut self) -> &TrieHash<L> {
+		self.0.root()
+	}
+
+	fn is_empty(&self) -> bool {
+		self.0.is_empty()
+	}
+
+	fn get<'x, 'key>(&'x self, key: &'key [u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
+	where
+		'x: 'key,
+	{
+		self.0.get(key)
+	}
+
+	fn insert(
+		&mut self,
+		key: &[u8],
+		value: &[u8],
+	) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
+		self.0.insert(key, value)
+	}
+
+	fn remove(&mut self, key: &[u8]) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
+		self.0.remove(key)
+	}
+}
+
+impl<'a, L> Drop for CommitOnDrop<'a, L>
 where
 	L: TrieLayout,
 {
 	fn drop(&mut self) {
-		self.commit();
+		self.0.commit();
 	}
 }
+
+/// Type alias for `Trie` implementation.
+///
+/// Querying the root or dropping the trie will commit automatically.
+pub type TrieDBMut<'a, L> = CommitOnDrop<'a, L>;
 
 /// combine two NodeKeys
 fn combine_key(start: &mut NodeKey, end: (usize, &[u8])) {
