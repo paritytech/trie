@@ -635,7 +635,7 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for NodeStorage<L> {
 	}
 }
 
-/// A builder for creating a [`TrieDBMut`].
+/// A builder for creating a [`TrieDBMut`] or [`TrieDBMutBase`].
 pub struct TrieDBMutBuilder<'db, L: TrieLayout> {
 	db: &'db mut dyn HashDB<L::Hash, DBValue>,
 	root: &'db mut TrieHash<L>,
@@ -738,8 +738,8 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 ///
 /// Querying the root of the trie will commit automatically.
 ///
-/// Dropping will not commit, refer to [`TrieDBMut`] for `Trie` implementation that performs
-/// `commit` on `drop`..
+/// Dropping the instance will not result in commit. Refer to [`TrieDBMut`] for `Trie`
+/// implementation that performs `commit` on `drop`.
 ///
 ///
 /// # Example
@@ -2186,9 +2186,16 @@ where
 	}
 }
 
-/// Type alias for `Trie` implementation.
+/// Type alias for `Trie` implementation using a generic `HashDB` backing database.
 ///
-/// Querying the root or dropping the trie will commit automatically.
+/// Can be used as a `TrieMut` trait object. `db()` can be used to get the backing database
+/// object.
+///
+/// Note that no changes are committed to the database until `commit` is called.
+///
+/// Querying the root or dropping the instance will commit automatically.
+///
+/// Refer to [`TrieDBMutBase`] for `Trie` implementation that does not perform `commit` on `drop`.
 pub type TrieDBMut<'a, L> = CommitOnDrop<'a, L>;
 
 /// combine two NodeKeys
