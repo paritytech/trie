@@ -733,7 +733,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 
 /// A `Trie` implementation using a generic `HashDB` backing database.
 ///
-/// Use it as a `TrieMut` trait object. You can use `db()` to get the backing database object.
+/// Use it as a [`TrieMut`] trait object. You can use `db()` to get the backing database object.
 /// Note that changes are not committed to the database until `commit` is called.
 ///
 /// Querying the root of the trie will commit automatically.
@@ -776,11 +776,11 @@ where
 	recorder: Option<core::cell::RefCell<&'a mut dyn TrieRecorder<TrieHash<L>>>>,
 }
 
-/// Wrapper around `TrieDBMutBase` that commits changes on drop.
+/// Wrapper around [`TrieDBMutBase`] that commits changes on drop.
 pub struct CommitOnDrop<'a, L: TrieLayout>(TrieDBMutBase<'a, L>);
 
 impl<'a, L: TrieLayout> CommitOnDrop<'a, L> {
-	/// Create a new `CommitOnDrop` wrapper around a given instance of `TrieDBMutBase`.
+	/// Creates a new [`CommitOnDrop`] wrapper around a given instance of [`TrieDBMutBase`].
 	pub fn new(base: TrieDBMutBase<'a, L>) -> Self {
 		CommitOnDrop(base)
 	}
@@ -2188,12 +2188,13 @@ where
 
 /// Type alias for `Trie` implementation using a generic `HashDB` backing database.
 ///
-/// Can be used as a `TrieMut` trait object. `db()` can be used to get the backing database
+/// Can be used as a [`TrieMut`] trait object. `db()` can be used to get the backing database
 /// object.
 ///
-/// Note that no changes are committed to the database until `commit` is called.
+/// Querying the root or dropping the instance will commit changes.
 ///
-/// Querying the root or dropping the instance will commit automatically.
+/// Note that no changes are committed to the database until `commit` is called explicitly or
+/// implicitly.
 ///
 /// Refer to [`TrieDBMutBase`] for `Trie` implementation that does not perform `commit` on `drop`.
 pub type TrieDBMut<'a, L> = CommitOnDrop<'a, L>;
