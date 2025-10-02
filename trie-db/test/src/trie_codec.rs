@@ -25,6 +25,12 @@ type MemoryDB<T> = memory_db::MemoryDB<
 	DBValue,
 >;
 
+type PrefixedMemoryDB<T> = memory_db::MemoryDB<
+	<T as TrieLayout>::Hash,
+	memory_db::PrefixedKey<<T as TrieLayout>::Hash>,
+	DBValue,
+>;
+
 fn test_encode_compact<L: TrieLayout>(
 	entries: Vec<(&'static [u8], &'static [u8])>,
 	keys: Vec<&'static [u8]>,
@@ -76,7 +82,7 @@ fn test_decode_compact<L: TrieLayout>(
 	expected_used: usize,
 ) {
 	// Reconstruct the partial DB from the compact encoding.
-	let mut db = MemoryDB::<L>::default();
+	let mut db = PrefixedMemoryDB::<L>::default();
 	let (root, used) = decode_compact::<L, _>(&mut db, encoded).unwrap();
 	assert_eq!(root, expected_root);
 	assert_eq!(used, expected_used);
