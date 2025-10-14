@@ -122,7 +122,13 @@ fn trie_compact_encoding_works_internal<T: TrieLayout>() {
 
 	encoded.push(Vec::new()); // Add an extra item to ensure it is not read.
 	test_decode_compact::<T>(MemoryDB::<T>::default(), &encoded, &items, root, encoded.len() - 1);
-	test_decode_compact::<T>(PrefixedMemoryDB::<T>::default(), &encoded, &items, root, encoded.len() - 1);
+	test_decode_compact::<T>(
+		PrefixedMemoryDB::<T>::default(),
+		&encoded,
+		&items,
+		root,
+		encoded.len() - 1,
+	);
 }
 
 test_layouts!(
