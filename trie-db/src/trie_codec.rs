@@ -29,7 +29,7 @@ use crate::{
 	nibble_ops::NIBBLE_LENGTH,
 	node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, ValuePlan},
 	rstd::{boxed::Box, convert::TryInto, marker::PhantomData, result, sync::Arc, vec, vec::Vec},
-	CError, ChildReference, DBValue, NibbleSlice, NibbleVec, NodeCodec, Result, TrieDB, TrieDBRawIterator,
+	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result, TrieDB, TrieDBRawIterator,
 	TrieError, TrieHash, TrieLayout,
 };
 use hash_db::{HashDB, Prefix};
@@ -464,27 +464,12 @@ where
 	DB: HashDB<L::Hash, DBValue>,
 	I: IntoIterator<Item = &'a [u8]>,
 {
-	decode_compact_from_iter_with_prefix::<L, DB, I>(db, encoded, &[])
-}
-
-/// Variant of 'decode_compact' that accept an iterator of encoded nodes as input,
-/// and root prefix.
-pub fn decode_compact_from_iter_with_prefix<'a, L, DB, I>(
-	db: &mut DB,
-	encoded: I,
-	root_prefix: &[u8],
-) -> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
-where
-	L: TrieLayout,
-	DB: HashDB<L::Hash, DBValue>,
-	I: IntoIterator<Item = &'a [u8]>,
-{
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
 	let mut stack: Vec<DecoderStackEntry<L::Codec>> = Vec::new();
 
 	// The prefix of the next item to be read from the slice of encoded items.
-	let mut prefix = NibbleVec::from(NibbleSlice::new(root_prefix));
+	let mut prefix = NibbleVec::new();
 
 	let mut iter = encoded.into_iter().enumerate();
 	while let Some((i, encoded_node)) = iter.next() {

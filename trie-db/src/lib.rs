@@ -81,7 +81,7 @@ pub use crate::{
 	iter_build::{trie_visit, ProcessEncodedNode, TrieBuilder, TrieRoot, TrieRootUnhashed},
 	iterator::{TrieDBNodeIterator, TrieDBRawIterator},
 	node_codec::{NodeCodec, Partial},
-	trie_codec::{decode_compact, decode_compact_from_iter, decode_compact_from_iter_with_prefix, encode_compact},
+	trie_codec::{decode_compact, decode_compact_from_iter, encode_compact},
 };
 pub use hash_db::{HashDB, HashDBRef, Hasher};
 
