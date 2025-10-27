@@ -27,11 +27,19 @@
 
 use crate::{
 	nibble_ops::NIBBLE_LENGTH,
-	node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, ValuePlan},
-	rstd::{boxed::Box, convert::TryInto, marker::PhantomData, result, sync::Arc, vec, vec::Vec},
+	node::{decode_hash, Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, ValuePlan},
+	rstd::{
+		boxed::Box,
+		convert::TryInto,
+		marker::PhantomData,
+		result,
+		sync::Arc,
+		vec::Vec,
+	},
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result, TrieDB, TrieDBRawIterator,
 	TrieError, TrieHash, TrieLayout,
 };
+use alloc::collections::BTreeSet;
 use hash_db::{HashDB, Prefix};
 
 const OMIT_VALUE_HASH: crate::node::Value<'static> = crate::node::Value::Inline(&[]);
@@ -51,6 +59,8 @@ struct EncoderStackEntry<C: NodeCodec> {
 	/// The encoding of the subtrie nodes rooted at this entry, which is built up in
 	/// `encode_compact`.
 	output_index: usize,
+	/// If true, the node will not be added to the output.
+	ignore: bool,
 	_marker: PhantomData<C>,
 }
 
@@ -99,7 +109,11 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 	}
 
 	/// Generates the encoding of the subtrie rooted at this entry.
-	fn encode_node(&mut self) -> Result<Vec<u8>, C::HashOut, C::Error> {
+	fn encode_node(&mut self, output: &mut [Vec<u8>]) -> Result<(), C::HashOut, C::Error> {
+		if self.ignore {
+			return Ok(())
+		}
+
 		let node_data = self.node.data();
 		let node_plan = self.node.node_plan();
 		let mut encoded = match node_plan {
@@ -153,7 +167,9 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 				return Err(Box::new(TrieError::InvalidStateRoot(Default::default())))
 			}
 		}
-		Ok(encoded)
+
+		output[self.output_index] = encoded;
+		Ok(())
 	}
 
 	/// Generate the list of child references for a branch node with certain children omitted.
@@ -192,21 +208,25 @@ fn detached_value<L: TrieLayout>(
 	value: &ValuePlan,
 	node_data: &[u8],
 	node_prefix: Prefix,
-) -> Option<Vec<u8>> {
-	let fetched;
-	match value {
+	ignore_nodes: &BTreeSet<TrieHash<L>>,
+) -> Result<Option<Vec<u8>>, TrieHash<L>, CError<L>> {
+	Ok(match value {
 		ValuePlan::Node(hash_plan) => {
-			if let Ok(value) =
-				TrieDBRawIterator::fetch_value(db, &node_data[hash_plan.clone()], node_prefix)
-			{
-				fetched = value;
+			let hash_data = &node_data[hash_plan.clone()];
+			if ignore_nodes.contains(&decode_hash::<L::Hash>(&hash_data).ok_or_else(|| {
+				TrieError::InvalidHash(TrieHash::<L>::default(), hash_data.into())
+			})?) {
+				return Ok(None)
+			}
+
+			if let Ok(value) = TrieDBRawIterator::fetch_value(db, hash_data, node_prefix) {
+				Some(value)
 			} else {
-				return None
+				None
 			}
 		},
-		_ => return None,
-	}
-	Some(fetched)
+		_ => None,
+	})
 }
 
 /// Generates a compact representation of the partial trie stored in the given DB. The encoding
@@ -217,6 +237,23 @@ fn detached_value<L: TrieLayout>(
 /// This function makes the assumption that all child references in an inline trie node are inline
 /// references.
 pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+where
+	L: TrieLayout,
+{
+	encode_compact_ignore_nodes::<L>(db, &Default::default())
+}
+
+/// Generates a compact representation of the partial trie stored in the given DB. The encoding
+/// is a vector of mutated trie nodes with those child references omitted. The mutated trie nodes
+/// are listed in pre-order traversal order so that the full nodes can be efficiently
+/// reconstructed recursively.
+///
+/// This function makes the assumption that all child references in an inline trie node are inline
+/// references.
+pub fn encode_compact_ignore_nodes<L>(
+	db: &TrieDB<L>,
+	ignore_nodes: &BTreeSet<TrieHash<L>>,
+) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 where
 	L: TrieLayout,
 {
@@ -238,12 +275,13 @@ where
 	// so at least one iteration always occurs.
 	while let Some(item) = iter.next_raw_item(db, true) {
 		match item {
-			Ok((prefix, node_hash, node)) => {
-				// Skip inline nodes, as they cannot contain hash references to other nodes by
-				// assumption.
-				if node_hash.is_none() {
-					continue
-				}
+			// Skip inline nodes, as they cannot contain hash references to other nodes by
+			// assumption.
+			Ok((_, None, _)) => {},
+			Ok((prefix, Some(node_hash), node_owned)) => {
+				// Convert NodeOwned back to OwnedNode for encoding
+				let encoded = node_owned.to_encoded::<L::Codec>();
+				let node = Arc::new(OwnedNode::new::<L::Codec>(encoded).expect("node should encode/decode correctly"));
 
 				// Unwind the stack until the new entry is a child of the last entry on the stack.
 				// If the stack entry prefix is a prefix of the new entry prefix, then it must be a
@@ -262,21 +300,27 @@ where
 						stack.push(last_entry);
 						break
 					} else {
-						output[last_entry.output_index] = last_entry.encode_node()?;
+						last_entry.encode_node(&mut output)?;
 					}
 				}
 
 				let (children_len, detached_value) = match node.node_plan() {
 					NodePlan::Empty => (0, None),
-					NodePlan::Leaf { value, .. } =>
-						(0, detached_value(db, value, node.data(), prefix.as_prefix())),
+					NodePlan::Leaf { value, .. } => (
+						0,
+						detached_value(db, value, node.data(), prefix.as_prefix(), ignore_nodes)?,
+					),
 					NodePlan::Extension { .. } => (1, None),
 					NodePlan::NibbledBranch { value: Some(value), .. } |
-					NodePlan::Branch { value: Some(value), .. } =>
-						(NIBBLE_LENGTH, detached_value(db, value, node.data(), prefix.as_prefix())),
+					NodePlan::Branch { value: Some(value), .. } => (
+						NIBBLE_LENGTH,
+						detached_value(db, value, node.data(), prefix.as_prefix(), ignore_nodes)?,
+					),
 					NodePlan::NibbledBranch { value: None, .. } |
 					NodePlan::Branch { value: None, .. } => (NIBBLE_LENGTH, None),
 				};
+
+				let ignore = ignore_nodes.contains(&node_hash);
 
 				stack.push(EncoderStackEntry {
 					prefix: prefix.clone(),
@@ -285,11 +329,16 @@ where
 					omit_children: vec![false; children_len],
 					omit_value: detached_value.is_some(),
 					output_index: output.len(),
+					ignore,
 					_marker: PhantomData::default(),
 				});
-				// Insert a placeholder into output which will be replaced when this new entry is
-				// popped from the stack.
-				output.push(Vec::new());
+
+				if !ignore {
+					// Insert a placeholder into output which will be replaced when this new entry
+					// is popped from the stack.
+					output.push(Vec::new());
+				}
+
 				if let Some(value) = detached_value {
 					output.push(value);
 				}
@@ -305,7 +354,7 @@ where
 	}
 
 	while let Some(mut entry) = stack.pop() {
-		output[entry.output_index] = entry.encode_node()?;
+		entry.encode_node(&mut output)?;
 	}
 
 	Ok(output)

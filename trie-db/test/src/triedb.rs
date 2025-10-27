@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Deref;
+use std::{collections::BTreeSet, iter::FromIterator, ops::Deref};
 
 use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
 use hex_literal::hex;
@@ -21,8 +21,9 @@ use reference_trie::{
 	test_layouts, test_layouts_substrate, HashedValueNoExtThreshold, TestTrieCache,
 };
 use trie_db::{
-	encode_compact, CachedValue, DBValue, Lookup, NibbleSlice, RecordedForKey, Recorder, Trie,
-	TrieCache, TrieDBBuilder, TrieDBMutBuilder, TrieLayout, TrieMut, TrieRecorder,
+	encode_compact, encode_compact_ignore_nodes, CachedValue, DBValue, Lookup, NibbleSlice,
+	RecordedForKey, Recorder, Trie, TrieCache, TrieDBBuilder, TrieDBMutBuilder, TrieLayout,
+	TrieMut, TrieRecorder,
 };
 
 type PrefixedMemoryDB<T> =
@@ -1135,6 +1136,95 @@ fn test_record_value() {
 	assert_eq!(compact_proof[0].len(), 38);
 	// leaf with value hash only.
 	assert_eq!(compact_proof[1].len(), 33);
+}
+
+#[test]
+fn compact_proof_ignore_nodes() {
+	type L = HashedValueNoExtThreshold<33>;
+	let key_value = vec![
+		(b"A".to_vec(), vec![1; 32]),
+		(b"B".to_vec(), vec![1; 33]),
+		(b"C".to_vec(), vec![3; 33]),
+	];
+
+	// Add some initial data to the trie
+	let mut memdb = PrefixedMemoryDB::<L>::default();
+	let mut root = Default::default();
+	{
+		let mut t = TrieDBMutBuilder::<L>::new(&mut memdb, &mut root).build();
+		for (key, value) in key_value.iter() {
+			t.insert(key, value).unwrap();
+		}
+	}
+
+	let leaf_hash = {
+		let mut recorder = Recorder::<L>::new();
+		let trie = TrieDBBuilder::<L>::new(&memdb, &root).with_recorder(&mut recorder).build();
+
+		trie.get(&key_value[2].0).unwrap();
+		drop(trie);
+
+		let nodes = recorder.drain();
+		nodes[nodes.len() - 2].hash
+	};
+
+	assert!(leaf_hash != root);
+	assert!(leaf_hash != <L as TrieLayout>::Hash::hash(&key_value[2].1));
+
+	let mut recorder = Recorder::<L>::new();
+	let overlay = memdb.clone();
+	let new_root = root;
+	{
+		let trie = TrieDBBuilder::<L>::new(&overlay, &new_root)
+			.with_recorder(&mut recorder)
+			.build();
+
+		for (key, _) in key_value.iter() {
+			trie.get(&key).unwrap();
+		}
+	}
+
+	let mut partial_db = MemoryDBProof::<L>::default();
+	for record in recorder.drain() {
+		partial_db.insert(EMPTY_PREFIX, &record.data);
+	}
+
+	assert_eq!(partial_db.keys().len(), 6);
+
+	let compact_proof = {
+		let trie = <TrieDBBuilder<L>>::new(&partial_db, &root).build();
+		encode_compact::<L>(&trie).unwrap()
+	};
+	assert_eq!(compact_proof.len(), 6);
+
+	let compact_proof = {
+		let trie = <TrieDBBuilder<L>>::new(&partial_db, &root).build();
+		encode_compact_ignore_nodes::<L>(
+			&trie,
+			&BTreeSet::from_iter([root, <L as TrieLayout>::Hash::hash(&key_value[2].1)]),
+		)
+		.unwrap()
+	};
+	assert_eq!(compact_proof.len(), 4);
+
+	let compact_proof = {
+		let trie = <TrieDBBuilder<L>>::new(&partial_db, &root).build();
+		let keys = partial_db.keys();
+
+		encode_compact_ignore_nodes::<L>(
+			&trie,
+			&BTreeSet::from_iter([*keys.keys().nth(2).unwrap(), *keys.keys().nth(5).unwrap()]),
+		)
+		.unwrap()
+	};
+	assert_eq!(compact_proof.len(), 4);
+
+	let compact_proof = {
+		let trie = <TrieDBBuilder<L>>::new(&partial_db, &root).build();
+
+		encode_compact_ignore_nodes::<L>(&trie, &BTreeSet::from_iter([leaf_hash])).unwrap()
+	};
+	assert_eq!(compact_proof.len(), 5);
 }
 
 test_layouts!(test_trie_nodes_recorded, test_trie_nodes_recorded_internal);

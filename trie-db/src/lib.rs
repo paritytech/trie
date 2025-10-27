@@ -15,7 +15,6 @@
 
 //! Trie interface and implementation.
 
-#[cfg(not(feature = "std"))]
 extern crate alloc;
 
 #[cfg(feature = "std")]
@@ -81,7 +80,7 @@ pub use crate::{
 	iter_build::{trie_visit, ProcessEncodedNode, TrieBuilder, TrieRoot, TrieRootUnhashed},
 	iterator::{TrieDBNodeIterator, TrieDBRawIterator},
 	node_codec::{NodeCodec, Partial},
-	trie_codec::{decode_compact, decode_compact_from_iter, encode_compact},
+	trie_codec::{decode_compact, decode_compact_from_iter, encode_compact, encode_compact_ignore_nodes},
 };
 pub use hash_db::{HashDB, HashDBRef, Hasher};
 

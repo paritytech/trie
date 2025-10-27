@@ -17,9 +17,9 @@ use crate::{
 	iterator::{TrieDBNodeDoubleEndedIterator, TrieDBRawIterator},
 	lookup::Lookup,
 	nibble::NibbleSlice,
-	node::{decode_hash, NodeHandle, OwnedNode},
+	node::{decode_hash, NodeHandle, NodeOwned},
 	rstd::boxed::Box,
-	CError, DBValue, MerkleValue, Query, Result, Trie, TrieAccess, TrieCache,
+	CError, DBValue, MerkleValue, NodeCodec, Query, Result, Trie, TrieAccess, TrieCache,
 	TrieDoubleEndedIterator, TrieError, TrieHash, TrieItem, TrieIterator, TrieKeyItem, TrieLayout,
 	TrieRecorder,
 };
@@ -183,38 +183,66 @@ where
 		node_handle: NodeHandle,
 		partial_key: Prefix,
 		record_access: bool,
-	) -> Result<(OwnedNode<DBValue>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
-		let (node_hash, node_data) = match node_handle {
+	) -> Result<(NodeOwned<TrieHash<L>>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
+		let (node_hash, node_owned) = match node_handle {
 			NodeHandle::Hash(data) => {
 				let node_hash = decode_hash::<L::Hash>(data)
 					.ok_or_else(|| Box::new(TrieError::InvalidHash(parent_hash, data.to_vec())))?;
-				let node_data = self.db.get(&node_hash, partial_key).ok_or_else(|| {
-					if partial_key == EMPTY_PREFIX {
-						Box::new(TrieError::InvalidStateRoot(node_hash))
-					} else {
-						Box::new(TrieError::IncompleteDatabase(node_hash))
-					}
-				})?;
 
-				(Some(node_hash), node_data)
+				let node_owned = if let Some(cache) = &self.cache {
+					// Use cache to get or insert the node
+					cache.borrow_mut().get_or_insert_node(node_hash, &mut || {
+						let node_data = self.db.get(&node_hash, partial_key).ok_or_else(|| {
+							if partial_key == EMPTY_PREFIX {
+								Box::new(TrieError::InvalidStateRoot(node_hash))
+							} else {
+								Box::new(TrieError::IncompleteDatabase(node_hash))
+							}
+						})?;
+
+						let decoded = L::Codec::decode(&node_data[..])
+							.map_err(|e| Box::new(TrieError::DecoderError(node_hash, e)))?;
+
+						decoded.to_owned_node::<L>()
+					})?.clone()
+				} else {
+					// No cache, fetch from db directly
+					let node_data = self.db.get(&node_hash, partial_key).ok_or_else(|| {
+						if partial_key == EMPTY_PREFIX {
+							Box::new(TrieError::InvalidStateRoot(node_hash))
+						} else {
+							Box::new(TrieError::IncompleteDatabase(node_hash))
+						}
+					})?;
+
+					let decoded = L::Codec::decode(&node_data[..])
+						.map_err(|e| Box::new(TrieError::DecoderError(node_hash, e)))?;
+
+					decoded.to_owned_node::<L>()?
+				};
+
+				(Some(node_hash), node_owned)
 			},
-			NodeHandle::Inline(data) => (None, data.to_vec()),
+			NodeHandle::Inline(data) => {
+				let decoded = L::Codec::decode(data)
+					.map_err(|e| Box::new(TrieError::DecoderError(parent_hash, e)))?;
+				let node_owned = decoded.to_owned_node::<L>()?;
+				(None, node_owned)
+			},
 		};
-		let owned_node = OwnedNode::new::<L::Codec>(node_data)
-			.map_err(|e| Box::new(TrieError::DecoderError(node_hash.unwrap_or(parent_hash), e)))?;
 
 		if record_access {
 			if let Some((hash, recorder)) =
 				node_hash.as_ref().and_then(|h| self.recorder.as_ref().map(|r| (h, r)))
 			{
-				recorder.borrow_mut().record(TrieAccess::EncodedNode {
+				recorder.borrow_mut().record(TrieAccess::NodeOwned {
 					hash: *hash,
-					encoded_node: owned_node.data().into(),
+					node_owned: &node_owned,
 				});
 			}
 		}
 
-		Ok((owned_node, node_hash))
+		Ok((node_owned, node_hash))
 	}
 
 	/// Fetch a value under the given `hash`.
@@ -344,7 +372,19 @@ where
 			self.partial_key.as_prefix(),
 			false,
 		) {
-			Ok((owned_node, _node_hash)) => match owned_node.node() {
+			Ok((owned_node, _node_hash)) => {
+				// Encode and decode to get Node for debug display
+				let encoded = owned_node.to_encoded::<L::Codec>();
+				let node = match L::Codec::decode(&encoded[..]) {
+					Ok(n) => n,
+					Err(e) => return f
+						.debug_struct("BROKEN_NODE")
+						.field("index", &self.index)
+						.field("key", &self.node_key)
+						.field("error", &format!("ERROR decoding node: {:?}", e))
+						.finish(),
+				};
+				match node {
 				Node::Leaf(slice, value) => {
 					let mut disp = f.debug_struct("Node::Leaf");
 					if let Some(i) = self.index {
@@ -418,6 +458,7 @@ where
 					let mut disp = f.debug_struct("Node::Empty");
 					disp.finish()
 				},
+				}
 			},
 			Err(e) => f
 				.debug_struct("BROKEN_NODE")

@@ -15,7 +15,7 @@
 use super::{CError, DBValue, Result, Trie, TrieHash, TrieIterator, TrieLayout};
 use crate::{
 	nibble::{nibble_ops, NibbleSlice, NibbleVec},
-	node::{Node, NodeHandle, NodePlan, OwnedNode, Value},
+	node::{NodeHandle, NodeOwned, Value},
 	triedb::TrieDB,
 	TrieDoubleEndedIterator, TrieError, TrieItem, TrieKeyItem,
 };
@@ -37,30 +37,30 @@ enum Status {
 #[derive(Eq, PartialEq)]
 struct Crumb<H: Hasher> {
 	hash: Option<H::Out>,
-	node: Arc<OwnedNode<DBValue>>,
+	node: Arc<NodeOwned<H::Out>>,
 	status: Status,
 }
 
 impl<H: Hasher> Crumb<H> {
 	/// Move on to the next status in the node's sequence in a direction.
 	fn step(&mut self, fwd: bool) {
-		self.status = match (self.status, self.node.node_plan()) {
-			(Status::Entering, NodePlan::Extension { .. }) => Status::At,
-			(Status::Entering, NodePlan::Branch { .. }) |
-			(Status::Entering, NodePlan::NibbledBranch { .. }) => Status::At,
-			(Status::At, NodePlan::Branch { .. }) |
-			(Status::At, NodePlan::NibbledBranch { .. }) =>
+		self.status = match (self.status, self.node.as_ref()) {
+			(Status::Entering, NodeOwned::Extension(_, _)) => Status::At,
+			(Status::Entering, NodeOwned::Branch(_, _)) |
+			(Status::Entering, NodeOwned::NibbledBranch(_, _, _)) => Status::At,
+			(Status::At, NodeOwned::Branch(_, _)) |
+			(Status::At, NodeOwned::NibbledBranch(_, _, _)) =>
 				if fwd {
 					Status::AtChild(0)
 				} else {
 					Status::AtChild(nibble_ops::NIBBLE_LENGTH - 1)
 				},
-			(Status::AtChild(x), NodePlan::Branch { .. }) |
-			(Status::AtChild(x), NodePlan::NibbledBranch { .. })
+			(Status::AtChild(x), NodeOwned::Branch(_, _)) |
+			(Status::AtChild(x), NodeOwned::NibbledBranch(_, _, _))
 				if fwd && x < (nibble_ops::NIBBLE_LENGTH - 1) =>
 				Status::AtChild(x + 1),
-			(Status::AtChild(x), NodePlan::Branch { .. }) |
-			(Status::AtChild(x), NodePlan::NibbledBranch { .. })
+			(Status::AtChild(x), NodeOwned::Branch(_, _)) |
+			(Status::AtChild(x), NodeOwned::NibbledBranch(_, _, _))
 				if !fwd && x > 0 =>
 				Status::AtChild(x - 1),
 			(Status::Exiting, _) => Status::AftExiting,
@@ -120,7 +120,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	}
 
 	/// Descend into a node.
-	fn descend(&mut self, node: OwnedNode<DBValue>, node_hash: Option<TrieHash<L>>) {
+	fn descend(&mut self, node: NodeOwned<TrieHash<L>>, node_hash: Option<TrieHash<L>>) {
 		self.trail
 			.push(Crumb { hash: node_hash, status: Status::Entering, node: Arc::new(node) });
 	}
@@ -162,46 +162,73 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 		let mut full_key_nibbles = 0;
 		loop {
 			let (next_node, next_node_hash) = {
-				self.descend(node, node_hash);
+				self.descend(node.clone(), node_hash);
 				let crumb = self.trail.last_mut().expect(
 					"descend pushes a crumb onto the trail; \
 						thus the trail is non-empty; qed",
 				);
-				let node_data = crumb.node.data();
 
-				match crumb.node.node_plan() {
-					NodePlan::Leaf { partial: partial_plan, .. } => {
-						let slice = partial_plan.build(node_data);
-						if (fwd && slice < partial) || (!fwd && slice > partial) {
+				match crumb.node.as_ref() {
+					NodeOwned::Leaf(slice, _) => {
+						// Compare element by element
+						let cmp_result = {
+							let s = core::cmp::min(partial.len(), slice.len());
+							let mut result = core::cmp::Ordering::Equal;
+							for i in 0..s {
+								result = partial.at(i).cmp(&slice.at(i));
+								if result != core::cmp::Ordering::Equal {
+									break;
+								}
+							}
+							if result == core::cmp::Ordering::Equal {
+								result = partial.len().cmp(&slice.len());
+							}
+							result
+						};
+						if (fwd && cmp_result == core::cmp::Ordering::Greater) || (!fwd && cmp_result == core::cmp::Ordering::Less) {
 							crumb.status = Status::AftExiting;
 							return Ok(false);
 						}
-						return Ok(slice.starts_with(&partial));
+						return Ok(slice.starts_with_slice(&partial));
 					},
-					NodePlan::Extension { partial: partial_plan, child } => {
-						let slice = partial_plan.build(node_data);
-						if !partial.starts_with(&slice) {
-							if (fwd && slice < partial) || (!fwd && slice > partial) {
+					NodeOwned::Extension(slice, child) => {
+						if !partial.starts_with_vec(slice) {
+							// Compare element by element
+							let cmp_result = {
+								let s = core::cmp::min(partial.len(), slice.len());
+								let mut result = core::cmp::Ordering::Equal;
+								for i in 0..s {
+									result = partial.at(i).cmp(&slice.at(i));
+									if result != core::cmp::Ordering::Equal {
+										break;
+									}
+								}
+								if result == core::cmp::Ordering::Equal {
+									result = partial.len().cmp(&slice.len());
+								}
+								result
+							};
+							if (fwd && cmp_result == core::cmp::Ordering::Greater) || (!fwd && cmp_result == core::cmp::Ordering::Less) {
 								crumb.status = Status::AftExiting;
 								return Ok(false);
 							}
-							return Ok(slice.starts_with(&partial));
+							return Ok(slice.starts_with_slice(&partial));
 						}
 
 						full_key_nibbles += slice.len();
 						partial = partial.mid(slice.len());
 						crumb.status = Status::At;
-						self.key_nibbles.append_partial(slice.right());
+						self.key_nibbles.append(slice);
 
 						let prefix = key.back(full_key_nibbles);
-						db.get_raw_or_lookup(
+						Self::get_node_from_handle(
+							db,
 							node_hash.unwrap_or_default(),
-							child.build(node_data),
+							child,
 							prefix.left(),
-							true,
 						)?
 					},
-					NodePlan::Branch { value: _, children } => {
+					NodeOwned::Branch(children, _) => {
 						if partial.is_empty() {
 							return Ok(true);
 						}
@@ -210,29 +237,43 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						crumb.status = Status::AtChild(i as usize);
 						self.key_nibbles.push(i);
 
-						if let Some(child) = &children[i as usize] {
+						if let Some(child) = children.get(i as usize) {
 							full_key_nibbles += 1;
 							partial = partial.mid(1);
 
 							let prefix = key.back(full_key_nibbles);
-							db.get_raw_or_lookup(
+							Self::get_node_from_handle(
+								db,
 								node_hash.unwrap_or_default(),
-								child.build(node_data),
+								child,
 								prefix.left(),
-								true,
 							)?
 						} else {
 							return Ok(false);
 						}
 					},
-					NodePlan::NibbledBranch { partial: partial_plan, value: _, children } => {
-						let slice = partial_plan.build(node_data);
-						if !partial.starts_with(&slice) {
-							if (fwd && slice < partial) || (!fwd && slice > partial) {
+					NodeOwned::NibbledBranch(slice, children, _) => {
+						if !partial.starts_with_vec(slice) {
+							// Compare element by element
+							let cmp_result = {
+								let s = core::cmp::min(partial.len(), slice.len());
+								let mut result = core::cmp::Ordering::Equal;
+								for i in 0..s {
+									result = partial.at(i).cmp(&slice.at(i));
+									if result != core::cmp::Ordering::Equal {
+										break;
+									}
+								}
+								if result == core::cmp::Ordering::Equal {
+									result = partial.len().cmp(&slice.len());
+								}
+								result
+							};
+							if (fwd && cmp_result == core::cmp::Ordering::Greater) || (!fwd && cmp_result == core::cmp::Ordering::Less) {
 								crumb.status = Status::AftExiting;
 								return Ok(false);
 							}
-							return Ok(slice.starts_with(&partial));
+							return Ok(slice.starts_with_slice(&partial));
 						}
 
 						full_key_nibbles += slice.len();
@@ -244,36 +285,55 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 
 						let i = partial.at(0);
 						crumb.status = Status::AtChild(i as usize);
-						self.key_nibbles.append_partial(slice.right());
+						self.key_nibbles.append(slice);
 						self.key_nibbles.push(i);
 
-						if let Some(child) = &children[i as usize] {
+						if let Some(child) = children.get(i as usize) {
 							full_key_nibbles += 1;
 							partial = partial.mid(1);
 
 							let prefix = key.back(full_key_nibbles);
-							db.get_raw_or_lookup(
+							Self::get_node_from_handle(
+								db,
 								node_hash.unwrap_or_default(),
-								child.build(node_data),
+								child,
 								prefix.left(),
-								true,
 							)?
 						} else {
 							return Ok(false);
 						}
 					},
-					NodePlan::Empty => {
+					NodeOwned::Empty => {
 						if !partial.is_empty() {
 							crumb.status = Status::Exiting;
 							return Ok(false);
 						}
 						return Ok(true);
 					},
+					NodeOwned::Value(_, _) => {
+						crumb.status = Status::Exiting;
+						return Ok(false);
+					},
 				}
 			};
 
 			node = next_node;
 			node_hash = next_node_hash;
+		}
+	}
+
+	/// Helper function to get a node from a NodeHandleOwned
+	fn get_node_from_handle(
+		db: &TrieDB<L>,
+		parent_hash: TrieHash<L>,
+		handle: &crate::node::NodeHandleOwned<TrieHash<L>>,
+		prefix: Prefix,
+	) -> Result<(NodeOwned<TrieHash<L>>, Option<TrieHash<L>>), TrieHash<L>, CError<L>> {
+		match handle {
+			crate::node::NodeHandleOwned::Hash(hash) => {
+				db.get_raw_or_lookup(parent_hash, NodeHandle::Hash(hash.as_ref()), prefix, true)
+			},
+			crate::node::NodeHandleOwned::Inline(node) => Ok(((**node).clone(), None)),
 		}
 	}
 
@@ -337,21 +397,22 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 		let mut len = 0;
 		// look first prefix in trail
 		for i in 0..self.trail.len() {
-			match self.trail[i].node.node_plan() {
-				NodePlan::Empty => {},
-				NodePlan::Branch { .. } => {
+			match self.trail[i].node.as_ref() {
+				NodeOwned::Empty => {},
+				NodeOwned::Branch(_, _) => {
 					len += 1;
 				},
-				NodePlan::Leaf { partial, .. } => {
+				NodeOwned::Leaf(partial, _) => {
 					len += partial.len();
 				},
-				NodePlan::Extension { partial, .. } => {
+				NodeOwned::Extension(partial, _) => {
 					len += partial.len();
 				},
-				NodePlan::NibbledBranch { partial, .. } => {
+				NodeOwned::NibbledBranch(partial, _, _) => {
 					len += 1;
 					len += partial.len();
 				},
+				NodeOwned::Value(_, _) => {},
 			}
 			if len > prefix_len {
 				self.trail = self.trail.split_off(i);
@@ -374,16 +435,15 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 		fwd: bool,
 	) -> Option<
 		Result<
-			(&NibbleVec, Option<&TrieHash<L>>, &Arc<OwnedNode<DBValue>>),
+			(&NibbleVec, Option<&TrieHash<L>>, &Arc<NodeOwned<TrieHash<L>>>),
 			TrieHash<L>,
 			CError<L>,
 		>,
 	> {
 		loop {
 			let crumb = self.trail.last_mut()?;
-			let node_data = crumb.node.data();
 
-			match (crumb.status, crumb.node.node_plan()) {
+			match (crumb.status, crumb.node.as_ref()) {
 				(Status::Entering, _) =>
 					if fwd {
 						let crumb = self.trail.last_mut().expect("we've just fetched the last element using `last_mut` so this cannot fail; qed");
@@ -398,14 +458,14 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 				},
 				(Status::Exiting, node) => {
 					match node {
-						NodePlan::Empty | NodePlan::Leaf { .. } => {},
-						NodePlan::Extension { partial, .. } => {
+						NodeOwned::Empty | NodeOwned::Leaf(_, _) | NodeOwned::Value(_, _) => {},
+						NodeOwned::Extension(partial, _) => {
 							self.key_nibbles.drop_lasts(partial.len());
 						},
-						NodePlan::Branch { .. } => {
+						NodeOwned::Branch(_, _) => {
 							self.key_nibbles.pop();
 						},
-						NodePlan::NibbledBranch { partial, .. } => {
+						NodeOwned::NibbledBranch(partial, _, _) => {
 							self.key_nibbles.drop_lasts(partial.len() + 1);
 						},
 					}
@@ -415,15 +475,14 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						return Some(Ok((&self.key_nibbles, crumb.hash.as_ref(), &crumb.node)));
 					}
 				},
-				(Status::At, NodePlan::Extension { partial: partial_plan, child }) => {
-					let partial = partial_plan.build(node_data);
-					self.key_nibbles.append_partial(partial.right());
+				(Status::At, NodeOwned::Extension(partial, child)) => {
+					self.key_nibbles.append(partial);
 
-					match db.get_raw_or_lookup(
+					match Self::get_node_from_handle(
+						db,
 						crumb.hash.unwrap_or_default(),
-						child.build(node_data),
+						child,
 						self.key_nibbles.as_prefix(),
-						true,
 					) {
 						Ok((node, node_hash)) => {
 							self.descend(node, node_hash);
@@ -434,7 +493,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 						},
 					}
 				},
-				(Status::At, NodePlan::Branch { .. }) => {
+				(Status::At, NodeOwned::Branch(_, _)) => {
 					self.key_nibbles.push(if fwd {
 						0
 					} else {
@@ -442,9 +501,8 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 					});
 					crumb.step(fwd);
 				},
-				(Status::At, NodePlan::NibbledBranch { partial: partial_plan, .. }) => {
-					let partial = partial_plan.build(node_data);
-					self.key_nibbles.append_partial(partial.right());
+				(Status::At, NodeOwned::NibbledBranch(partial, _, _)) => {
+					self.key_nibbles.append(partial);
 					self.key_nibbles.push(if fwd {
 						0
 					} else {
@@ -452,17 +510,17 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 					});
 					crumb.step(fwd);
 				},
-				(Status::AtChild(i), NodePlan::Branch { children, .. }) |
-				(Status::AtChild(i), NodePlan::NibbledBranch { children, .. }) => {
-					if let Some(child) = &children[i] {
+				(Status::AtChild(i), NodeOwned::Branch(children, _)) |
+				(Status::AtChild(i), NodeOwned::NibbledBranch(_, children, _)) => {
+					if let Some(child) = children.get(i) {
 						self.key_nibbles.pop();
 						self.key_nibbles.push(i as u8);
 
-						match db.get_raw_or_lookup(
+						match Self::get_node_from_handle(
+							db,
 							crumb.hash.unwrap_or_default(),
-							child.build(node_data),
+							child,
 							self.key_nibbles.as_prefix(),
-							true,
 						) {
 							Ok((node, node_hash)) => {
 								self.descend(node, node_hash);
@@ -586,7 +644,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	/// extra nibble (prefix padding), and the node value.
 	fn extract_key_from_raw_item<'a>(
 		raw_item: Result<
-			(&NibbleVec, Option<&TrieHash<L>>, &'a Arc<OwnedNode<DBValue>>),
+			(&NibbleVec, Option<&TrieHash<L>>, &'a Arc<NodeOwned<TrieHash<L>>>),
 			TrieHash<L>,
 			CError<L>,
 		>,
@@ -597,19 +655,19 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 		};
 
 		let mut prefix = prefix.clone();
-		let value = match node.node() {
-			Node::Leaf(partial, value) => {
-				prefix.append_partial(partial.right());
-				value
+		let value = match node.as_ref() {
+			NodeOwned::Leaf(partial, value) => {
+				prefix.append(partial);
+				value.as_value()
 			},
-			Node::Branch(_, value) => match value {
-				Some(value) => value,
+			NodeOwned::Branch(_, value) => match value {
+				Some(value) => value.as_value(),
 				None => return None,
 			},
-			Node::NibbledBranch(partial, _, value) => {
-				prefix.append_partial(partial.right());
+			NodeOwned::NibbledBranch(partial, _, value) => {
+				prefix.append(partial);
 				match value {
-					Some(value) => value,
+					Some(value) => value.as_value(),
 					None => return None,
 				}
 			},
@@ -687,7 +745,7 @@ impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBNodeIterator<'a, 'cach
 
 impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeIterator<'a, 'cache, L> {
 	type Item =
-		Result<(NibbleVec, Option<TrieHash<L>>, Arc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
+		Result<(NibbleVec, Option<TrieHash<L>>, Arc<NodeOwned<TrieHash<L>>>), TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.raw_iter.next_raw_item(self.db, true).map(|result| {
@@ -776,7 +834,7 @@ impl<'a, 'cache, L: TrieLayout> TrieIterator<L> for TrieDBNodeDoubleEndedIterato
 
 impl<'a, 'cache, L: TrieLayout> Iterator for TrieDBNodeDoubleEndedIterator<'a, 'cache, L> {
 	type Item =
-		Result<(NibbleVec, Option<TrieHash<L>>, Arc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
+		Result<(NibbleVec, Option<TrieHash<L>>, Arc<NodeOwned<TrieHash<L>>>), TrieHash<L>, CError<L>>;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.raw_iter.next_raw_item(self.db, true).map(|result| {
