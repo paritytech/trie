@@ -16,6 +16,5 @@ rustc-hex = { version = "2.1.0", default-features = false, optional = true }
 [features]
 default = ["std"]
 std = [
-  "hash-db/std",
   "rustc-hex",
 ]

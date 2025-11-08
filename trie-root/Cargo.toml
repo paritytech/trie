@@ -13,6 +13,4 @@ hash-db = { path = "../hash-db", default-features = false, version = "0.16.0" }
 
 [features]
 default = ["std"]
-std = [
-	"hash-db/std"
-]
+std = []
