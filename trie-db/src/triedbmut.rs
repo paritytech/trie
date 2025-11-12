@@ -22,7 +22,7 @@ use crate::{
 		NodeKey, NodeOwned, Value as EncodedValue, ValueOwned,
 	},
 	node_codec::NodeCodec,
-	rstd::{boxed::Box, convert::TryFrom, mem, ops, ops::Index, result, vec::Vec, VecDeque},
+	rstd::{boxed::Box, convert::TryFrom, mem, ops::Index, result, vec::Vec, VecDeque},
 	Bytes, CError, CachedValue, DBValue, Result, TrieAccess, TrieCache, TrieError, TrieHash,
 	TrieLayout, TrieMut, TrieRecorder,
 };
@@ -635,12 +635,13 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for NodeStorage<L> {
 	}
 }
 
-/// A builder for creating a [`TrieDBMut`] or [`TrieDBMutBase`].
+/// A builder for creating a [`TrieDBMut`].
 pub struct TrieDBMutBuilder<'db, L: TrieLayout> {
 	db: &'db mut dyn HashDB<L::Hash, DBValue>,
 	root: &'db mut TrieHash<L>,
 	cache: Option<&'db mut dyn TrieCache<L::Codec>>,
 	recorder: Option<&'db mut dyn TrieRecorder<TrieHash<L>>>,
+	commit_on_drop: bool,
 }
 
 impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
@@ -649,7 +650,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 	pub fn new(db: &'db mut dyn HashDB<L::Hash, DBValue>, root: &'db mut TrieHash<L>) -> Self {
 		*root = L::Codec::hashed_null_node();
 
-		Self { root, db, cache: None, recorder: None }
+		Self { root, db, cache: None, recorder: None, commit_on_drop: true }
 	}
 
 	/// Create a builder for constructing a new trie with the backing database `db` and `root`.
@@ -660,7 +661,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
 	) -> Self {
-		Self { db, root, cache: None, recorder: None }
+		Self { db, root, cache: None, recorder: None, commit_on_drop: true }
 	}
 
 	/// Use the given `cache` for the db.
@@ -695,29 +696,28 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 		self
 	}
 
-	/// Build the [`TrieDBMutBase`] instance which is not commited on drop.
+	/// Disable automatic commit on drop.
 	///
-	/// This instance of trie will not recompute the storage root hash unless [`commit`] method is
-	/// called explicitly.
-	pub fn build_base(self) -> TrieDBMutBase<'db, L> {
-		let root_handle = NodeHandle::Hash(*self.root);
-
-		TrieDBMutBase {
-			db: self.db,
-			root: self.root,
-			cache: self.cache,
-			recorder: self.recorder.map(core::cell::RefCell::new),
-			storage: NodeStorage::empty(),
-			death_row: Default::default(),
-			root_handle,
-		}
+	/// By default, [`TrieDBMut`] automatically commits changes when dropped. Calling this method
+	/// disables that behavior, requiring explicit calls to [`TrieDBMut::commit`] to persist
+	/// changes to the database.
+	///
+	/// This is useful when you want fine-grained control over when changes are committed, or when
+	/// you want to avoid the performance cost of committing if you're just doing temporary
+	/// operations.
+	pub fn without_commit_on_drop(mut self) -> Self {
+		self.commit_on_drop = false;
+		self
 	}
 
 	/// Build the [`TrieDBMut`].
+	///
+	/// By default, the returned trie will automatically commit changes when dropped. Use
+	/// [`without_commit_on_drop`](Self::without_commit_on_drop) to disable this behavior.
 	pub fn build(self) -> TrieDBMut<'db, L> {
 		let root_handle = NodeHandle::Hash(*self.root);
 
-		let base = TrieDBMutBase {
+		TrieDBMut {
 			db: self.db,
 			root: self.root,
 			cache: self.cache,
@@ -725,9 +725,8 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 			storage: NodeStorage::empty(),
 			death_row: Default::default(),
 			root_handle,
-		};
-
-		CommitOnDrop::new(base)
+			commit_on_drop: self.commit_on_drop,
+		}
 	}
 }
 
@@ -738,9 +737,9 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 ///
 /// Querying the root of the trie will commit automatically.
 ///
-/// Dropping the instance will not result in commit. Refer to [`TrieDBMut`] for `Trie`
-/// implementation that performs `commit` on `drop`.
-///
+/// Dropping the instance may or may not commit depending on how it was constructed:
+/// - Instances created with [`TrieDBMutBuilder::build`] will commit on drop.
+/// - Instances created with [`TrieDBMutBuilder::build_base`] will not commit on drop.
 ///
 /// # Example
 /// ```ignore
@@ -761,7 +760,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 /// t.remove(b"foo").unwrap();
 /// assert!(!t.contains(b"foo").unwrap());
 /// ```
-pub struct TrieDBMutBase<'a, L>
+pub struct TrieDBMut<'a, L>
 where
 	L: TrieLayout,
 {
@@ -774,33 +773,11 @@ where
 	cache: Option<&'a mut dyn TrieCache<L::Codec>>,
 	/// Optional trie recorder for recording trie accesses.
 	recorder: Option<core::cell::RefCell<&'a mut dyn TrieRecorder<TrieHash<L>>>>,
+	/// Whether to commit on drop.
+	commit_on_drop: bool,
 }
 
-/// Wrapper around [`TrieDBMutBase`] that commits changes on drop.
-pub struct CommitOnDrop<'a, L: TrieLayout>(TrieDBMutBase<'a, L>);
-
-impl<'a, L: TrieLayout> CommitOnDrop<'a, L> {
-	/// Creates a new [`CommitOnDrop`] wrapper around a given instance of [`TrieDBMutBase`].
-	pub fn new(base: TrieDBMutBase<'a, L>) -> Self {
-		CommitOnDrop(base)
-	}
-}
-
-impl<'a, L: TrieLayout> ops::Deref for CommitOnDrop<'a, L> {
-	type Target = TrieDBMutBase<'a, L>;
-
-	fn deref(&self) -> &Self::Target {
-		&self.0
-	}
-}
-
-impl<'a, L: TrieLayout> ops::DerefMut for CommitOnDrop<'a, L> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		&mut self.0
-	}
-}
-
-impl<'a, L> TrieDBMutBase<'a, L>
+impl<'a, L> TrieDBMut<'a, L>
 where
 	L: TrieLayout,
 {
@@ -2067,7 +2044,7 @@ where
 	}
 }
 
-impl<'a, L> TrieMut<L> for TrieDBMutBase<'a, L>
+impl<'a, L> TrieMut<L> for TrieDBMut<'a, L>
 where
 	L: TrieLayout,
 {
@@ -2145,59 +2122,16 @@ where
 	}
 }
 
-impl<'a, L> TrieMut<L> for CommitOnDrop<'a, L>
-where
-	L: TrieLayout,
-{
-	fn root(&mut self) -> &TrieHash<L> {
-		self.0.root()
-	}
-
-	fn is_empty(&self) -> bool {
-		self.0.is_empty()
-	}
-
-	fn get<'x, 'key>(&'x self, key: &'key [u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
-	where
-		'x: 'key,
-	{
-		self.0.get(key)
-	}
-
-	fn insert(
-		&mut self,
-		key: &[u8],
-		value: &[u8],
-	) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
-		self.0.insert(key, value)
-	}
-
-	fn remove(&mut self, key: &[u8]) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
-		self.0.remove(key)
-	}
-}
-
-impl<'a, L> Drop for CommitOnDrop<'a, L>
+impl<'a, L> Drop for TrieDBMut<'a, L>
 where
 	L: TrieLayout,
 {
 	fn drop(&mut self) {
-		self.0.commit();
+		if self.commit_on_drop {
+			self.commit();
+		}
 	}
 }
-
-/// Type alias for `Trie` implementation using a generic `HashDB` backing database.
-///
-/// Can be used as a [`TrieMut`] trait object. `db()` can be used to get the backing database
-/// object.
-///
-/// Querying the root or dropping the instance will commit changes.
-///
-/// Note that no changes are committed to the database until `commit` is called explicitly or
-/// implicitly.
-///
-/// Refer to [`TrieDBMutBase`] for `Trie` implementation that does not perform `commit` on `drop`.
-pub type TrieDBMut<'a, L> = CommitOnDrop<'a, L>;
 
 /// combine two NodeKeys
 fn combine_key(start: &mut NodeKey, end: (usize, &[u8])) {
