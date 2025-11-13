@@ -890,3 +890,100 @@ fn test_two_assets_memory_db_inner_2<T: TrieLayout>() {
 	assert_eq!(state.get(key2.as_ref()).unwrap().unwrap(), data2);
 	assert_eq!(state.get(key3.as_ref()).unwrap().unwrap(), data3);
 }
+
+/// Prepare a non-empty trie for testing commit_on_drop behavior.
+/// Returns a database and root with one committed key-value pair.
+fn prepare_test_trie<T: TrieLayout>() -> (PrefixedMemoryDB<T>, <T::Hash as Hasher>::Out) {
+	use hash_db::Hasher;
+
+	let mut memdb = PrefixedMemoryDB::<T>::default();
+	let mut root = <T::Hash as Hasher>::Out::default();
+
+	let initial_data = vec![(b"existing_key".to_vec(), b"existing_value".to_vec())];
+	populate_trie::<T>(&mut memdb, &mut root, &initial_data);
+
+	(memdb, root)
+}
+
+test_layouts!(test_commit_on_drop_disabled, test_commit_on_drop_disabled_internal);
+fn test_commit_on_drop_disabled_internal<T: TrieLayout>() {
+	let (mut memdb, mut root) = prepare_test_trie::<T>();
+	let root_before = root.clone();
+	let db_key_count_before = memdb.keys().len();
+
+	{
+		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root)
+			.without_commit_on_drop()
+			.build();
+		trie.insert(b"test_key_1", b"test_value_1").unwrap();
+		trie.insert(b"test_key_2", b"test_value_2").unwrap();
+		trie.insert(b"test_key_3", b"test_value_3").unwrap();
+	}
+
+	assert_eq!(
+		root, root_before,
+		"Root should not change after drop without commit"
+	);
+
+	let db_key_count_after = memdb.keys().len();
+	assert_eq!(
+		db_key_count_before, db_key_count_after,
+		"Database should not gain new entries after drop without commit (before: {}, after: {})",
+		db_key_count_before,
+		db_key_count_after
+	);
+}
+
+test_layouts!(test_commit_on_drop_enabled, test_commit_on_drop_enabled_internal);
+fn test_commit_on_drop_enabled_internal<T: TrieLayout>() {
+	let (mut memdb, mut root) = prepare_test_trie::<T>();
+	let root_before = root.clone();
+	let db_key_count_before = memdb.keys().len();
+
+	{
+		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root).build();
+		trie.insert(b"test_key_1", b"test_value_1").unwrap();
+		trie.insert(b"test_key_2", b"test_value_2").unwrap();
+		trie.insert(b"test_key_3", b"test_value_3").unwrap();
+	}
+
+	assert_ne!(root, root_before, "Root should change after drop with auto-commit");
+
+	let db_key_count_after = memdb.keys().len();
+	assert!(
+		db_key_count_after > db_key_count_before,
+		"Database should contain more nodes after drop with auto-commit (before: {}, after: {})",
+		db_key_count_before,
+		db_key_count_after
+	);
+}
+
+test_layouts!(test_commit_on_drop_explicit, test_commit_on_drop_explicit_internal);
+fn test_commit_on_drop_explicit_internal<T: TrieLayout>() {
+	let (mut memdb, mut root) = prepare_test_trie::<T>();
+	let root_before = root.clone();
+	let db_key_count_before = memdb.keys().len();
+
+	{
+		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root)
+			.without_commit_on_drop()
+			.build();
+		trie.insert(b"test_key_1", b"test_value_1").unwrap();
+		trie.insert(b"test_key_2", b"test_value_2").unwrap();
+		trie.insert(b"test_key_3", b"test_value_3").unwrap();
+		trie.commit();
+	}
+
+	assert_ne!(
+		root, root_before,
+		"Root should change after explicit commit"
+	);
+
+	let db_key_count_after = memdb.keys().len();
+	assert!(
+		db_key_count_after > db_key_count_before,
+		"Database should contain more nodes after explicit commit (before: {}, after: {})",
+		db_key_count_before,
+		db_key_count_after
+	);
+}
