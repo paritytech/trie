@@ -1,6 +1,6 @@
 [package]
 name = "trie-db-test"
-version = "0.31.0"
+version = "0.31.1"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Tests for trie-db crate"
 repository = "https://github.com/paritytech/trie"
