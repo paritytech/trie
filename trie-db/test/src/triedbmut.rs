@@ -920,17 +920,13 @@ fn test_commit_on_drop_disabled_internal<T: TrieLayout>() {
 		trie.insert(b"test_key_3", b"test_value_3").unwrap();
 	}
 
-	assert_eq!(
-		root, root_before,
-		"Root should not change after drop without commit"
-	);
+	assert_eq!(root, root_before, "Root should not change after drop without commit");
 
 	let db_key_count_after = memdb.keys().len();
 	assert_eq!(
 		db_key_count_before, db_key_count_after,
 		"Database should not gain new entries after drop without commit (before: {}, after: {})",
-		db_key_count_before,
-		db_key_count_after
+		db_key_count_before, db_key_count_after
 	);
 }
 
@@ -974,10 +970,7 @@ fn test_commit_on_drop_explicit_internal<T: TrieLayout>() {
 		trie.commit();
 	}
 
-	assert_ne!(
-		root, root_before,
-		"Root should change after explicit commit"
-	);
+	assert_ne!(root, root_before, "Root should change after explicit commit");
 
 	let db_key_count_after = memdb.keys().len();
 	assert!(
