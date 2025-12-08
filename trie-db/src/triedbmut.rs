@@ -705,7 +705,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 	/// This is useful when you want fine-grained control over when changes are committed, or when
 	/// you want to avoid the performance cost of committing if you're just doing temporary
 	/// operations.
-	pub fn without_commit_on_drop(mut self) -> Self {
+	pub fn disable_commit_on_drop(mut self) -> Self {
 		self.commit_on_drop = false;
 		self
 	}
@@ -713,7 +713,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 	/// Build the [`TrieDBMut`].
 	///
 	/// By default, the returned trie will automatically commit changes when dropped. Use
-	/// [`without_commit_on_drop`](Self::without_commit_on_drop) to disable this behavior.
+	/// [`disable_commit_on_drop`](Self::disable_commit_on_drop) to disable this behavior.
 	pub fn build(self) -> TrieDBMut<'db, L> {
 		let root_handle = NodeHandle::Hash(*self.root);
 
@@ -737,9 +737,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 ///
 /// Querying the root of the trie will commit automatically.
 ///
-/// Dropping the instance may or may not commit depending on how it was constructed:
-/// - Instances created with [`TrieDBMutBuilder::build`] will commit on drop.
-/// - Instances created with [`TrieDBMutBuilder::build_base`] will not commit on drop.
+/// Dropping the instance may or may not commit depending on [Self::commit_on_drop] flag.
 ///
 /// # Example
 /// ```ignore

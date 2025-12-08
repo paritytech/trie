@@ -913,7 +913,7 @@ fn test_commit_on_drop_disabled_internal<T: TrieLayout>() {
 
 	{
 		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root)
-			.without_commit_on_drop()
+			.disable_commit_on_drop()
 			.build();
 		trie.insert(b"test_key_1", b"test_value_1").unwrap();
 		trie.insert(b"test_key_2", b"test_value_2").unwrap();
@@ -962,7 +962,7 @@ fn test_commit_on_drop_explicit_internal<T: TrieLayout>() {
 
 	{
 		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root)
-			.without_commit_on_drop()
+			.disable_commit_on_drop()
 			.build();
 		trie.insert(b"test_key_1", b"test_value_1").unwrap();
 		trie.insert(b"test_key_2", b"test_value_2").unwrap();
