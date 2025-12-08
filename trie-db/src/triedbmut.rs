@@ -641,6 +641,7 @@ pub struct TrieDBMutBuilder<'db, L: TrieLayout> {
 	root: &'db mut TrieHash<L>,
 	cache: Option<&'db mut dyn TrieCache<L::Codec>>,
 	recorder: Option<&'db mut dyn TrieRecorder<TrieHash<L>>>,
+	commit_on_drop: bool,
 }
 
 impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
@@ -649,7 +650,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 	pub fn new(db: &'db mut dyn HashDB<L::Hash, DBValue>, root: &'db mut TrieHash<L>) -> Self {
 		*root = L::Codec::hashed_null_node();
 
-		Self { root, db, cache: None, recorder: None }
+		Self { root, db, cache: None, recorder: None, commit_on_drop: true }
 	}
 
 	/// Create a builder for constructing a new trie with the backing database `db` and `root`.
@@ -660,7 +661,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
 	) -> Self {
-		Self { db, root, cache: None, recorder: None }
+		Self { db, root, cache: None, recorder: None, commit_on_drop: true }
 	}
 
 	/// Use the given `cache` for the db.
@@ -695,7 +696,24 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 		self
 	}
 
+	/// Disable automatic commit on drop.
+	///
+	/// By default, [`TrieDBMut`] automatically commits changes when dropped. Calling this method
+	/// disables that behavior, requiring explicit calls to [`TrieDBMut::commit`] to persist
+	/// changes to the database.
+	///
+	/// This is useful when you want fine-grained control over when changes are committed, or when
+	/// you want to avoid the performance cost of committing if you're just doing temporary
+	/// operations.
+	pub fn disable_commit_on_drop(mut self) -> Self {
+		self.commit_on_drop = false;
+		self
+	}
+
 	/// Build the [`TrieDBMut`].
+	///
+	/// By default, the returned trie will automatically commit changes when dropped. Use
+	/// [`disable_commit_on_drop`](Self::disable_commit_on_drop) to disable this behavior.
 	pub fn build(self) -> TrieDBMut<'db, L> {
 		let root_handle = NodeHandle::Hash(*self.root);
 
@@ -707,17 +725,19 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 			storage: NodeStorage::empty(),
 			death_row: Default::default(),
 			root_handle,
+			commit_on_drop: self.commit_on_drop,
 		}
 	}
 }
 
 /// A `Trie` implementation using a generic `HashDB` backing database.
 ///
-/// Use it as a `TrieMut` trait object. You can use `db()` to get the backing database object.
+/// Use it as a [`TrieMut`] trait object. You can use `db()` to get the backing database object.
 /// Note that changes are not committed to the database until `commit` is called.
 ///
-/// Querying the root or dropping the trie will commit automatically.
+/// Querying the root of the trie will commit automatically.
 ///
+/// Dropping the instance may or may not commit depending on [Self::commit_on_drop] flag.
 ///
 /// # Example
 /// ```ignore
@@ -751,6 +771,8 @@ where
 	cache: Option<&'a mut dyn TrieCache<L::Codec>>,
 	/// Optional trie recorder for recording trie accesses.
 	recorder: Option<core::cell::RefCell<&'a mut dyn TrieRecorder<TrieHash<L>>>>,
+	/// Whether to commit on drop.
+	commit_on_drop: bool,
 }
 
 impl<'a, L> TrieDBMut<'a, L>
@@ -2103,7 +2125,9 @@ where
 	L: TrieLayout,
 {
 	fn drop(&mut self) {
-		self.commit();
+		if self.commit_on_drop {
+			self.commit();
+		}
 	}
 }
 
