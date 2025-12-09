@@ -513,10 +513,18 @@ where
 
 			// Since `advance_child_index` returned true, the preconditions for `encode_node` are
 			// satisfied.
-			let hash = last_entry
-				.attached_value
-				.as_ref()
-				.map(|value| db.insert(prefix.as_prefix(), value));
+			let hash = last_entry.attached_value.as_ref().map(|value| {
+				let partial_prefix_len = match &last_entry.node {
+					Node::Leaf(partial, _) | Node::NibbledBranch(partial, _, _) => {
+						prefix.append_partial(partial.right());
+						partial.len()
+					},
+					_ => 0,
+				};
+				let hash = db.insert(prefix.as_prefix(), value);
+				prefix.drop_lasts(partial_prefix_len);
+				hash
+			});
 			let node_data = last_entry.encode_node(hash.as_ref().map(|h| h.as_ref()));
 			let node_hash = db.insert(prefix.as_prefix(), node_data.as_ref());
 

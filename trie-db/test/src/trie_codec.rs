@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use hash_db::{HashDB, Hasher, EMPTY_PREFIX};
+use hash_db::{HashDB, HashDBRef, Hasher, EMPTY_PREFIX};
 use reference_trie::{test_layouts, ExtensionLayout};
 use trie_db::{
 	decode_compact, encode_compact, DBValue, NodeCodec, Recorder, Trie, TrieDBBuilder,
@@ -22,6 +22,12 @@ use trie_db::{
 type MemoryDB<T> = memory_db::MemoryDB<
 	<T as TrieLayout>::Hash,
 	memory_db::HashKey<<T as TrieLayout>::Hash>,
+	DBValue,
+>;
+
+type PrefixedMemoryDB<T> = memory_db::MemoryDB<
+	<T as TrieLayout>::Hash,
+	memory_db::PrefixedKey<<T as TrieLayout>::Hash>,
 	DBValue,
 >;
 
@@ -70,13 +76,13 @@ fn test_encode_compact<L: TrieLayout>(
 }
 
 fn test_decode_compact<L: TrieLayout>(
+	mut db: impl HashDB<L::Hash, DBValue> + HashDBRef<L::Hash, DBValue>,
 	encoded: &[Vec<u8>],
-	items: Vec<(&'static [u8], Option<DBValue>)>,
+	items: &[(&'static [u8], Option<DBValue>)],
 	expected_root: <L::Hash as Hasher>::Out,
 	expected_used: usize,
 ) {
 	// Reconstruct the partial DB from the compact encoding.
-	let mut db = MemoryDB::<L>::default();
 	let (root, used) = decode_compact::<L, _>(&mut db, encoded).unwrap();
 	assert_eq!(root, expected_root);
 	assert_eq!(used, expected_used);
@@ -84,7 +90,7 @@ fn test_decode_compact<L: TrieLayout>(
 	// Check that lookups for all items succeed.
 	let trie = <TrieDBBuilder<L>>::new(&db, &root).build();
 	for (key, expected_value) in items {
-		assert_eq!(trie.get(key).unwrap(), expected_value);
+		assert_eq!(&trie.get(key).unwrap(), expected_value);
 	}
 }
 
@@ -115,7 +121,14 @@ fn trie_compact_encoding_works_internal<T: TrieLayout>() {
 	);
 
 	encoded.push(Vec::new()); // Add an extra item to ensure it is not read.
-	test_decode_compact::<T>(&encoded, items, root, encoded.len() - 1);
+	test_decode_compact::<T>(MemoryDB::<T>::default(), &encoded, &items, root, encoded.len() - 1);
+	test_decode_compact::<T>(
+		PrefixedMemoryDB::<T>::default(),
+		&encoded,
+		&items,
+		root,
+		encoded.len() - 1,
+	);
 }
 
 test_layouts!(
