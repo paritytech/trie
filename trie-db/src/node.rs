@@ -228,7 +228,7 @@ impl Node<'_> {
 							}
 							Ok(())
 						})
-						.collect::<Result<_, _, _>>()?;
+						.collect::<Result<Vec<()>, _, _>>()?;
 					childs_owned
 				} else {
 					Vec::with_capacity(0)
@@ -256,7 +256,7 @@ impl Node<'_> {
 							}
 							Ok(())
 						})
-						.collect::<Result<_, _, _>>()?;
+						.collect::<Result<Vec<()>, _, _>>()?;
 					childs_owned
 				} else {
 					Vec::with_capacity(0)
