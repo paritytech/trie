@@ -219,7 +219,7 @@ impl Node<'_> {
 							c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?;
 						Ok(())
 					})
-					.collect::<Result<_, _, _>>()?;
+					.collect::<Result<Vec<()>, _, _>>()?;
 
 				Ok(NodeOwned::Branch(childs_owned, data.as_ref().map(|d| d.to_owned_value::<L>())))
 			},
@@ -233,7 +233,7 @@ impl Node<'_> {
 							c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?;
 						Ok(())
 					})
-					.collect::<Result<_, _, _>>()?;
+					.collect::<Result<Vec<()>, _, _>>()?;
 
 				Ok(NodeOwned::NibbledBranch(
 					(*n).into(),
