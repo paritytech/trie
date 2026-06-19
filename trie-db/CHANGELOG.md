@@ -4,6 +4,9 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
+## [Unreleased]
+- Fix `TrieDBMut` panic (debug) / silent value corruption (release) when removing a key that is a strict prefix of existing keys [#217](https://github.com/paritytech/trie/issues/217)
+
 ## [0.30.0] - 2025-03-06
 - Improve `TrieCache` size by reducing size_of `NodeOwned` [#216](https://github.com/paritytech/trie/pull/216)
 
