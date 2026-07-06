@@ -310,6 +310,28 @@ pub fn fuzz_that_trie_codec_proofs<T: TrieLayout>(input: &[u8]) {
 	test_trie_codec_proof::<T>(data, keys);
 }
 
+pub fn fuzz_that_trie_codec_proofs_with_shared_values<T: TrieLayout>(input: &[u8]) {
+	let mut data = fuzz_to_data(input);
+	// Map values onto a tiny alphabet of large values so that many keys share the same
+	// hash-addressed value node (exercising detached-value deduplication).
+	for (_, value) in data.iter_mut() {
+		let selector = value.first().copied().unwrap_or(0) % 4;
+		*value = vec![selector; 64];
+	}
+	// Split data into 3 parts:
+	// - the first 1/3 is added to the trie and not included in the proof
+	// - the second 1/3 is added to the trie and included in the proof
+	// - the last 1/3 is not added to the trie and the proof proves non-inclusion of them
+	let mut keys = data[(data.len() / 3)..].iter().map(|(key, _)| key.clone()).collect::<Vec<_>>();
+	data.truncate(data.len() * 2 / 3);
+
+	let data = data_sorted_unique(data);
+	keys.sort();
+	keys.dedup();
+
+	test_trie_codec_proof::<T>(data, keys);
+}
+
 pub fn fuzz_that_verify_rejects_invalid_proofs<T: TrieLayout>(input: &[u8]) {
 	if input.len() < 4 {
 		return
@@ -378,7 +400,7 @@ fn test_generate_proof<L: TrieLayout>(
 
 fn test_trie_codec_proof<L: TrieLayout>(entries: Vec<(Vec<u8>, Vec<u8>)>, keys: Vec<Vec<u8>>) {
 	use hash_db::{HashDB, EMPTY_PREFIX};
-	use trie_db::{decode_compact, encode_compact, Recorder};
+	use trie_db::{decode_compact, encode_compact, encode_compact_skip_duplicate_values, Recorder};
 
 	// Populate DB with full trie from entries.
 	let (db, root) = {
@@ -426,7 +448,32 @@ fn test_trie_codec_proof<L: TrieLayout>(entries: Vec<(Vec<u8>, Vec<u8>)>, keys: 
 
 	// Check that lookups for all items succeed.
 	let trie = TrieDBBuilder::<L>::new(&db, &root).build();
-	for (key, expected_value) in items {
-		assert_eq!(trie.get(key.as_slice()).unwrap(), expected_value);
+	for (key, expected_value) in &items {
+		assert_eq!(&trie.get(key.as_slice()).unwrap(), expected_value);
+	}
+
+	// Round-trip the deduplicating encoding as well: it must reconstruct fully readable tries
+	// in both hash-keyed and position-keyed (prefixed) databases.
+	let deduplicated = {
+		let trie = TrieDBBuilder::<L>::new(&partial_db, &expected_root).build();
+		encode_compact_skip_duplicate_values::<L>(&trie, &mut Default::default()).unwrap()
+	};
+	assert!(deduplicated.len() <= expected_used);
+
+	let mut hash_keyed_db = <MemoryDB<L::Hash, HashKey<_>, _>>::default();
+	let (root, used) = decode_compact::<L, _>(&mut hash_keyed_db, &deduplicated).unwrap();
+	assert_eq!(root, expected_root);
+	assert_eq!(used, deduplicated.len());
+	let trie = TrieDBBuilder::<L>::new(&hash_keyed_db, &root).build();
+	for (key, expected_value) in &items {
+		assert_eq!(&trie.get(key.as_slice()).unwrap(), expected_value);
+	}
+
+	let mut prefixed_db = <MemoryDB<L::Hash, PrefixedKey<_>, _>>::default();
+	let (root, _) = decode_compact::<L, _>(&mut prefixed_db, &deduplicated).unwrap();
+	assert_eq!(root, expected_root);
+	let trie = TrieDBBuilder::<L>::new(&prefixed_db, &root).build();
+	for (key, expected_value) in &items {
+		assert_eq!(&trie.get(key.as_slice()).unwrap(), expected_value);
 	}
 }
