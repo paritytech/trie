@@ -305,6 +305,29 @@ fn skip_duplicate_values_handles_missing_value_nodes_internal<T: TrieLayout>() {
 }
 
 #[test]
+fn decode_compact_counts_attached_value_items() {
+	// Layout storing every non-empty value as a separate value node.
+	type L = reference_trie::HashedValueNoExtThreshold<1>;
+
+	// A trie whose compact encoding ends with an attached value: a single entry, so the encoding
+	// is exactly the escaped root leaf directly followed by its detached value. The returned
+	// item count must include the attached value, otherwise continuing to decode concatenated
+	// encodings at that offset would re-read the value as a node.
+	let (db, root) = build_trie::<L>(&[(b"key", SHARED_VALUE)]);
+	let encoded = {
+		let trie = <TrieDBBuilder<L>>::new(&db, &root).build();
+		encode_compact::<L>(&trie).unwrap()
+	};
+	assert_eq!(encoded.len(), 2);
+	assert_eq!(encoded[1].as_slice(), SHARED_VALUE);
+
+	let mut decoded_db = MemoryDB::<L>::default();
+	let (decoded_root, used) = decode_compact::<L, _>(&mut decoded_db, &encoded).unwrap();
+	assert_eq!(decoded_root, root);
+	assert_eq!(used, encoded.len());
+}
+
+#[test]
 fn skip_duplicate_values_across_concatenated_encodings() {
 	// Layout storing every non-empty value as a separate value node.
 	type L = reference_trie::HashedValueNoExtThreshold<1>;
