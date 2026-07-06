@@ -581,8 +581,12 @@ where
 	// The prefix of the next item to be read from the slice of encoded items.
 	let mut prefix = NibbleVec::new();
 
+	// The number of items consumed so far, including attached values.
+	let mut used = 0;
+
 	let mut iter = encoded.into_iter().enumerate();
 	while let Some((i, encoded_node)) = iter.next() {
+		used = i + 1;
 		let mut attached_node = 0;
 		if let Some(header) = L::Codec::ESCAPE_HEADER {
 			if encoded_node.starts_with(&[header]) {
@@ -607,7 +611,8 @@ where
 
 		if attached_node > 0 {
 			// Read value
-			if let Some((_, fetched_value)) = iter.next() {
+			if let Some((i, fetched_value)) = iter.next() {
+				used = i + 1;
 				last_entry.attached_value = Some(fetched_value);
 				// Record the value immediately (not at node completion): a node deduplicated
 				// against this one can complete before this node does, e.g. a leaf below a
@@ -674,7 +679,7 @@ where
 				last_entry.children[last_entry.child_index] = Some(ChildReference::Hash(node_hash));
 				last_entry.child_index += 1;
 			} else {
-				return Ok((node_hash, i + 1))
+				return Ok((node_hash, used))
 			}
 		}
 	}
