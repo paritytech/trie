@@ -22,7 +22,7 @@ extern crate alloc;
 mod rstd {
 	pub use std::{
 		borrow, boxed, cmp,
-		collections::{BTreeMap, VecDeque},
+		collections::{BTreeMap, BTreeSet, VecDeque},
 		convert,
 		error::Error,
 		fmt, hash, iter, marker, mem, ops, result, sync, vec,
@@ -33,7 +33,7 @@ mod rstd {
 mod rstd {
 	pub use alloc::{
 		borrow, boxed,
-		collections::{btree_map::BTreeMap, VecDeque},
+		collections::{btree_map::BTreeMap, btree_set::BTreeSet, VecDeque},
 		rc, sync, vec,
 	};
 	pub use core::{cmp, convert, fmt, hash, iter, marker, mem, ops, result};
@@ -81,7 +81,10 @@ pub use crate::{
 	iter_build::{trie_visit, ProcessEncodedNode, TrieBuilder, TrieRoot, TrieRootUnhashed},
 	iterator::{TrieDBNodeIterator, TrieDBRawIterator},
 	node_codec::{NodeCodec, Partial},
-	trie_codec::{decode_compact, decode_compact_from_iter, encode_compact},
+	trie_codec::{
+		decode_compact, decode_compact_from_iter, decode_compact_from_iter_with_known_values,
+		encode_compact, encode_compact_skip_duplicate_values,
+	},
 };
 pub use hash_db::{HashDB, HashDBRef, Hasher};
 
