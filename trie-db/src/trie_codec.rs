@@ -24,15 +24,34 @@
 //! hash references to nodes not in the partial trie are left intact. The compact encoding can be
 //! expected to save roughly (n - 1) hashes in size where n is the number of nodes in the partial
 //! trie.
+//!
+//! For layouts storing large values as separate, hash-addressed value nodes (see
+//! `TrieLayout::MAX_INLINE_VALUE`), a value node contained in the partial trie is "detached": the
+//! referencing node is emitted with a reserved escape header (see `NodeCodec::ESCAPE_HEADER`) and
+//! an empty inline value, immediately followed by the value bytes as a standalone item. A node
+//! whose value node is *not* part of the partial trie is emitted unmodified, still referencing
+//! its value by hash.
+//!
+//! `encode_compact` detaches a shared value node once per referencing node. Use
+//! [`encode_compact_skip_duplicate_values`] to emit each distinct value only once; later
+//! referencing nodes are emitted unmodified, exactly like nodes whose value node is missing from
+//! the partial trie. Such an encoding decodes into a hash-keyed (prefix-ignoring) database with
+//! any decoder. Decoding into a database keyed by position (prefix) additionally requires the
+//! decoder to re-insert the deduplicated value at every referencing position, which
+//! [`decode_compact_from_iter_with_known_values`] (and the decode functions delegating to it)
+//! does for values seen earlier in the encoding.
 
 use crate::{
 	nibble_ops::NIBBLE_LENGTH,
-	node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, ValuePlan},
-	rstd::{boxed::Box, convert::TryInto, marker::PhantomData, result, sync::Arc, vec, vec::Vec},
+	node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, Value, ValuePlan},
+	rstd::{
+		boxed::Box, convert::TryInto, marker::PhantomData, result, sync::Arc, vec, vec::Vec,
+		BTreeMap, BTreeSet,
+	},
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result, TrieDB, TrieDBRawIterator,
 	TrieError, TrieHash, TrieLayout,
 };
-use hash_db::{HashDB, Prefix};
+use hash_db::{HashDB, Hasher, Prefix};
 
 const OMIT_VALUE_HASH: crate::node::Value<'static> = crate::node::Value::Inline(&[]);
 
@@ -187,24 +206,34 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 /// Detached value if included does write a reserved header,
 /// followed by node encoded with 0 length value and the value
 /// as a standalone vec.
+///
+/// When `seen_values` is given, a value whose hash is already in the set is not detached again:
+/// `None` is returned and the referencing node stays unmodified, exactly like a node whose value
+/// node is not part of the partial trie. Hashes are only added to the set for values that are
+/// actually emitted.
 fn detached_value<L: TrieLayout>(
 	db: &TrieDB<L>,
 	value: &ValuePlan,
 	node_data: &[u8],
 	node_prefix: Prefix,
+	seen_values: Option<&mut BTreeSet<Vec<u8>>>,
 ) -> Option<Vec<u8>> {
-	let fetched;
-	match value {
-		ValuePlan::Node(hash_plan) => {
-			if let Ok(value) =
-				TrieDBRawIterator::fetch_value(db, &node_data[hash_plan.clone()], node_prefix)
-			{
-				fetched = value;
-			} else {
-				return None
-			}
-		},
+	let hash_plan = match value {
+		ValuePlan::Node(hash_plan) => hash_plan,
 		_ => return None,
+	};
+	let value_hash = &node_data[hash_plan.clone()];
+	if let Some(seen_values) = &seen_values {
+		if seen_values.contains(value_hash) {
+			return None
+		}
+	}
+	let fetched = match TrieDBRawIterator::fetch_value(db, value_hash, node_prefix) {
+		Ok(value) => value,
+		Err(_) => return None,
+	};
+	if let Some(seen_values) = seen_values {
+		seen_values.insert(value_hash.to_vec());
 	}
 	Some(fetched)
 }
@@ -214,9 +243,47 @@ fn detached_value<L: TrieLayout>(
 /// are listed in pre-order traversal order so that the full nodes can be efficiently
 /// reconstructed recursively.
 ///
+/// A detached value node shared by multiple referencing nodes is emitted once per referencing
+/// node. See [`encode_compact_skip_duplicate_values`] for an encoding that emits each distinct
+/// value only once.
+///
 /// This function makes the assumption that all child references in an inline trie node are inline
 /// references.
 pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+where
+	L: TrieLayout,
+{
+	encode_compact_inner(db, None)
+}
+
+/// Variant of [`encode_compact`] that emits each distinct detached value node only once, no
+/// matter how many nodes reference it. Later referencing nodes are emitted unmodified (still
+/// referencing the value by hash), exactly like nodes whose value node is not part of the partial
+/// trie.
+///
+/// `seen_value_hashes` collects the hashes of the emitted values. Pass `&mut Default::default()`
+/// for a standalone encoding, or thread the same set through successive calls to deduplicate
+/// across multiple concatenated encodings (the corresponding decode calls must then thread their
+/// known-values map through [`decode_compact_from_iter_with_known_values`] the same way).
+///
+/// The resulting encoding decodes with any decoder into a hash-keyed (prefix-ignoring) database.
+/// Decoding into a database keyed by position (prefix) requires a decoder that re-inserts
+/// deduplicated values at every referencing position, i.e.
+/// [`decode_compact_from_iter_with_known_values`] or the decode functions delegating to it.
+pub fn encode_compact_skip_duplicate_values<L>(
+	db: &TrieDB<L>,
+	seen_value_hashes: &mut BTreeSet<Vec<u8>>,
+) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+where
+	L: TrieLayout,
+{
+	encode_compact_inner(db, Some(seen_value_hashes))
+}
+
+fn encode_compact_inner<L>(
+	db: &TrieDB<L>,
+	mut seen_value_hashes: Option<&mut BTreeSet<Vec<u8>>>,
+) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 where
 	L: TrieLayout,
 {
@@ -268,12 +335,28 @@ where
 
 				let (children_len, detached_value) = match node.node_plan() {
 					NodePlan::Empty => (0, None),
-					NodePlan::Leaf { value, .. } =>
-						(0, detached_value(db, value, node.data(), prefix.as_prefix())),
+					NodePlan::Leaf { value, .. } => (
+						0,
+						detached_value(
+							db,
+							value,
+							node.data(),
+							prefix.as_prefix(),
+							seen_value_hashes.as_deref_mut(),
+						),
+					),
 					NodePlan::Extension { .. } => (1, None),
 					NodePlan::NibbledBranch { value: Some(value), .. } |
-					NodePlan::Branch { value: Some(value), .. } =>
-						(NIBBLE_LENGTH, detached_value(db, value, node.data(), prefix.as_prefix())),
+					NodePlan::Branch { value: Some(value), .. } => (
+						NIBBLE_LENGTH,
+						detached_value(
+							db,
+							value,
+							node.data(),
+							prefix.as_prefix(),
+							seen_value_hashes.as_deref_mut(),
+						),
+					),
 					NodePlan::NibbledBranch { value: None, .. } |
 					NodePlan::Branch { value: None, .. } => (NIBBLE_LENGTH, None),
 				};
@@ -464,6 +547,33 @@ where
 	DB: HashDB<L::Hash, DBValue>,
 	I: IntoIterator<Item = &'a [u8]>,
 {
+	decode_compact_from_iter_with_known_values::<L, DB, I>(db, encoded, &mut BTreeMap::new())
+}
+
+/// Variant of [`decode_compact_from_iter`] that lets the caller thread the map of detached
+/// values seen so far (keyed by value hash) through successive calls.
+///
+/// The encoding may deduplicate detached value nodes (see
+/// [`encode_compact_skip_duplicate_values`]): a value shared by multiple referencing nodes is
+/// attached to the first referencing node only, and later referencing nodes reference it by hash.
+/// For every such node, the decoder re-inserts the value from `known_values` at the node's
+/// position, so that a position-keyed (prefixed) `db` ends up with the same entries as for an
+/// encoding without deduplication (for a hash-keyed `db`, the re-insert is redundant but
+/// harmless). All attached values are recorded in `known_values`.
+///
+/// Threading the same map through successive calls is only needed when the corresponding
+/// encodings were produced with a shared `seen_value_hashes` set, deduplicating values across
+/// them.
+pub fn decode_compact_from_iter_with_known_values<'a, L, DB, I>(
+	db: &mut DB,
+	encoded: I,
+	known_values: &mut BTreeMap<Vec<u8>, DBValue>,
+) -> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
+where
+	L: TrieLayout,
+	DB: HashDB<L::Hash, DBValue>,
+	I: IntoIterator<Item = &'a [u8]>,
+{
 	// The stack of nodes through a path in the trie. Each entry is a child node of the preceding
 	// entry.
 	let mut stack: Vec<DecoderStackEntry<L::Codec>> = Vec::new();
@@ -499,6 +609,11 @@ where
 			// Read value
 			if let Some((_, fetched_value)) = iter.next() {
 				last_entry.attached_value = Some(fetched_value);
+				// Record the value immediately (not at node completion): a node deduplicated
+				// against this one can complete before this node does, e.g. a leaf below a
+				// branch that carries the value.
+				known_values
+					.insert(L::Hash::hash(fetched_value).as_ref().to_vec(), fetched_value.to_vec());
 			} else {
 				return Err(Box::new(TrieError::IncompleteDatabase(<TrieHash<L>>::default())))
 			}
@@ -525,6 +640,31 @@ where
 				prefix.drop_lasts(partial_prefix_len);
 				hash
 			});
+			if hash.is_none() {
+				// A node referencing its value by hash may have had its detached value
+				// deduplicated (see `encode_compact_skip_duplicate_values`): the value bytes were
+				// attached to an earlier referencing node only. Re-insert them at this node's
+				// position too, so that a position-keyed (prefixed) `db` ends up with the same
+				// entries as for an encoding without deduplication. A hash miss means the value
+				// node is not part of the encoding at all, which is legal for a partial trie.
+				let value_hash = match &last_entry.node {
+					Node::Leaf(_, Value::Node(hash)) => Some(*hash),
+					Node::Branch(_, Some(Value::Node(hash))) |
+					Node::NibbledBranch(_, _, Some(Value::Node(hash))) => Some(*hash),
+					_ => None,
+				};
+				if let Some(value) = value_hash.and_then(|hash| known_values.get(hash)) {
+					let partial_prefix_len = match &last_entry.node {
+						Node::Leaf(partial, _) | Node::NibbledBranch(partial, _, _) => {
+							prefix.append_partial(partial.right());
+							partial.len()
+						},
+						_ => 0,
+					};
+					db.insert(prefix.as_prefix(), value);
+					prefix.drop_lasts(partial_prefix_len);
+				}
+			}
 			let node_data = last_entry.encode_node(hash.as_ref().map(|h| h.as_ref()));
 			let node_hash = db.insert(prefix.as_prefix(), node_data.as_ref());
 
