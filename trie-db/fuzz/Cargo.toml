@@ -10,7 +10,7 @@ cargo-fuzz = true
 
 [dependencies]
 hash-db = { path = "../../hash-db", version = "0.16.0" }
-memory-db = { path = "../../memory-db", version = "0.33.0" }
+memory-db = { path = "../../memory-db", version = "0.34.0" }
 reference-trie = { path = "../../test-support/reference-trie", version = "0.29.1" }
 arbitrary = { version = "1.3.0", features = ["derive"] }
 array-bytes = "6.0.0"
@@ -60,6 +60,10 @@ path = "fuzz_targets/trie_proof_valid.rs"
 [[bin]]
 name = "trie_codec_proof"
 path = "fuzz_targets/trie_codec_proof.rs"
+
+[[bin]]
+name = "trie_codec_proof_dedup"
+path = "fuzz_targets/trie_codec_proof_dedup.rs"
 
 [[bin]]
 name = "trie_proof_invalid"
