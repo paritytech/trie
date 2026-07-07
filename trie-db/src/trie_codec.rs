@@ -26,22 +26,17 @@
 //! trie.
 //!
 //! For layouts storing large values as separate, hash-addressed value nodes (see
-//! `TrieLayout::MAX_INLINE_VALUE`), a value node contained in the partial trie is "detached": the
-//! referencing node is emitted with a reserved escape header (see `NodeCodec::ESCAPE_HEADER`) and
-//! an empty inline value, immediately followed by the value bytes as a standalone item. A node
-//! whose value node is *not* part of the partial trie is emitted unmodified, still referencing
-//! its value by hash.
+//! `TrieLayout::MAX_INLINE_VALUE`), a value node in the partial trie is "detached": the
+//! referencing node is emitted with a reserved escape header (`NodeCodec::ESCAPE_HEADER`) and an
+//! empty inline value, followed by the value bytes as a standalone item. Nodes whose value node is
+//! *not* in the partial trie are emitted unmodified, referencing the value by hash.
 //!
-//! `encode_compact` detaches a shared value node once per referencing node. Use
-//! [`encode_compact_skip_duplicate_values`] to emit each distinct value only once; later
-//! referencing nodes are emitted unmodified, exactly like nodes whose value node is missing from
-//! the partial trie. Such an encoding decodes into a hash-keyed (prefix-ignoring) database with
-//! any decoder as far as read access is concerned. Reconstructing the exact same database as an
-//! encoding without deduplication — every referencing position populated in a position-keyed
-//! (prefixed) database, reference counts matching the number of referencing nodes in a
-//! hash-keyed one — requires the decoder to re-insert the deduplicated value at every
-//! referencing position, which [`decode_compact_from_iter_with_known_values`] (and the decode
-//! functions delegating to it) does for values seen earlier in the encoding.
+//! `encode_compact` detaches a shared value once per referencing node;
+//! [`encode_compact_skip_duplicate_values`] emits each distinct value only once. The result
+//! decodes with any decoder for read access, but only
+//! [`decode_compact_from_iter_with_known_values`] (and its delegators) re-inserts a deduplicated
+//! value at every referencing position — needed to reconstruct the same reference counts
+//! (hash-keyed db) and entries (prefixed db) as an un-deduplicated encoding.
 
 use crate::{
 	nibble_ops::NIBBLE_LENGTH,
@@ -209,10 +204,8 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 /// followed by node encoded with 0 length value and the value
 /// as a standalone vec.
 ///
-/// When `seen_values` is given, a value whose hash is already in the set is not detached again:
-/// `None` is returned and the referencing node stays unmodified, exactly like a node whose value
-/// node is not part of the partial trie. Hashes are only added to the set for values that are
-/// actually emitted.
+/// With `seen_values`, a value whose hash is already in the set is not detached again (`None` is
+/// returned, the node stays unmodified). Hashes are added only for values actually emitted.
 fn detached_value<L: TrieLayout>(
 	db: &TrieDB<L>,
 	value: &ValuePlan,
@@ -245,9 +238,8 @@ fn detached_value<L: TrieLayout>(
 /// are listed in pre-order traversal order so that the full nodes can be efficiently
 /// reconstructed recursively.
 ///
-/// A detached value node shared by multiple referencing nodes is emitted once per referencing
-/// node. See [`encode_compact_skip_duplicate_values`] for an encoding that emits each distinct
-/// value only once.
+/// A detached value shared by multiple nodes is emitted once per referencing node; see
+/// [`encode_compact_skip_duplicate_values`] to emit each distinct value only once.
 ///
 /// This function makes the assumption that all child references in an inline trie node are inline
 /// references.
@@ -258,24 +250,13 @@ where
 	encode_compact_inner(db, None)
 }
 
-/// Variant of [`encode_compact`] that emits each distinct detached value node only once, no
-/// matter how many nodes reference it. Later referencing nodes are emitted unmodified (still
-/// referencing the value by hash), exactly like nodes whose value node is not part of the partial
-/// trie.
+/// Variant of [`encode_compact`] that emits each distinct detached value only once; later
+/// referencing nodes are emitted unmodified, referencing the value by hash.
 ///
-/// `seen_value_hashes` collects the hashes of the emitted values. Pass `&mut Default::default()`
-/// for a standalone encoding, or thread the same set through successive calls to deduplicate
-/// across multiple concatenated encodings (the corresponding decode calls must then thread their
-/// known-values map through [`decode_compact_from_iter_with_known_values`] the same way).
-///
-/// The resulting encoding decodes with any decoder into a hash-keyed (prefix-ignoring) database
-/// for read access. Note that decoders predating [`decode_compact_from_iter_with_known_values`]
-/// (and the decode functions delegating to it) insert a deduplicated value only once, so its
-/// reference count does not reflect the number of referencing nodes; consumers that apply
-/// removals to the reconstructed database and read through it afterwards need a decoder that
-/// re-inserts deduplicated values at every referencing position. The same holds for decoding
-/// into a database keyed by position (prefix), where only such a decoder recreates the entry at
-/// every referencing position.
+/// `seen_value_hashes` collects the emitted value hashes. Pass `&mut Default::default()` for a
+/// standalone encoding, or thread the same set across concatenated encodings (the matching decode
+/// calls must then thread a known-values map through
+/// [`decode_compact_from_iter_with_known_values`]).
 pub fn encode_compact_skip_duplicate_values<L>(
 	db: &TrieDB<L>,
 	seen_value_hashes: &mut BTreeSet<Vec<u8>>,
@@ -556,20 +537,15 @@ where
 	decode_compact_from_iter_with_known_values::<L, DB, I>(db, encoded, &mut BTreeMap::new())
 }
 
-/// Variant of [`decode_compact_from_iter`] that lets the caller thread the map of detached
-/// values seen so far (keyed by value hash) through successive calls.
+/// Variant of [`decode_compact_from_iter`] that threads the map of detached values seen so far
+/// (keyed by value hash) across successive calls.
 ///
-/// The encoding may deduplicate detached value nodes (see
-/// [`encode_compact_skip_duplicate_values`]): a value shared by multiple referencing nodes is
-/// attached to the first referencing node only, and later referencing nodes reference it by hash.
-/// For every such node, the decoder re-inserts the value from `known_values` at the node's
-/// position, so that a position-keyed (prefixed) `db` ends up with the same entries as for an
-/// encoding without deduplication (for a hash-keyed `db`, the re-insert is redundant but
-/// harmless). All attached values are recorded in `known_values`.
-///
-/// Threading the same map through successive calls is only needed when the corresponding
-/// encodings were produced with a shared `seen_value_hashes` set, deduplicating values across
-/// them.
+/// For deduplicated encodings (see [`encode_compact_skip_duplicate_values`]) a shared value is
+/// attached to its first referencing node only; for every later referencing node the decoder
+/// re-inserts the value from `known_values` at that node's position, so a prefixed `db` ends up
+/// with the same entries as an un-deduplicated encoding (redundant but harmless for a hash-keyed
+/// `db`). All attached values are recorded in `known_values`. Threading the map across calls is
+/// only needed when the encodings shared a `seen_value_hashes` set.
 pub fn decode_compact_from_iter_with_known_values<'a, L, DB, I>(
 	db: &mut DB,
 	encoded: I,
@@ -620,9 +596,8 @@ where
 			if let Some((i, fetched_value)) = iter.next() {
 				used = i + 1;
 				last_entry.attached_value = Some(fetched_value);
-				// Record the value immediately (not at node completion): a node deduplicated
-				// against this one can complete before this node does, e.g. a leaf below a
-				// branch that carries the value.
+				// Record immediately, not at node completion: a node deduplicated against this
+				// one can complete first (e.g. a leaf below a branch that carries the value).
 				known_values
 					.insert(L::Hash::hash(fetched_value).as_ref().to_vec(), fetched_value.to_vec());
 			} else {
@@ -652,12 +627,10 @@ where
 				hash
 			});
 			if hash.is_none() {
-				// A node referencing its value by hash may have had its detached value
-				// deduplicated (see `encode_compact_skip_duplicate_values`): the value bytes were
-				// attached to an earlier referencing node only. Re-insert them at this node's
-				// position too, so that a position-keyed (prefixed) `db` ends up with the same
-				// entries as for an encoding without deduplication. A hash miss means the value
-				// node is not part of the encoding at all, which is legal for a partial trie.
+				// A value referenced by hash may have been deduplicated (see
+				// `encode_compact_skip_duplicate_values`) and attached to an earlier node only;
+				// re-insert it here so a prefixed `db` matches an un-deduplicated encoding. A hash
+				// miss means the value node is not in the encoding at all, which is legal.
 				let value_hash = match &last_entry.node {
 					Node::Leaf(_, Value::Node(hash)) => Some(*hash),
 					Node::Branch(_, Some(Value::Node(hash))) |
