@@ -36,10 +36,12 @@
 //! [`encode_compact_skip_duplicate_values`] to emit each distinct value only once; later
 //! referencing nodes are emitted unmodified, exactly like nodes whose value node is missing from
 //! the partial trie. Such an encoding decodes into a hash-keyed (prefix-ignoring) database with
-//! any decoder. Decoding into a database keyed by position (prefix) additionally requires the
-//! decoder to re-insert the deduplicated value at every referencing position, which
-//! [`decode_compact_from_iter_with_known_values`] (and the decode functions delegating to it)
-//! does for values seen earlier in the encoding.
+//! any decoder as far as read access is concerned. Reconstructing the exact same database as an
+//! encoding without deduplication — every referencing position populated in a position-keyed
+//! (prefixed) database, reference counts matching the number of referencing nodes in a
+//! hash-keyed one — requires the decoder to re-insert the deduplicated value at every
+//! referencing position, which [`decode_compact_from_iter_with_known_values`] (and the decode
+//! functions delegating to it) does for values seen earlier in the encoding.
 
 use crate::{
 	nibble_ops::NIBBLE_LENGTH,
@@ -266,10 +268,14 @@ where
 /// across multiple concatenated encodings (the corresponding decode calls must then thread their
 /// known-values map through [`decode_compact_from_iter_with_known_values`] the same way).
 ///
-/// The resulting encoding decodes with any decoder into a hash-keyed (prefix-ignoring) database.
-/// Decoding into a database keyed by position (prefix) requires a decoder that re-inserts
-/// deduplicated values at every referencing position, i.e.
-/// [`decode_compact_from_iter_with_known_values`] or the decode functions delegating to it.
+/// The resulting encoding decodes with any decoder into a hash-keyed (prefix-ignoring) database
+/// for read access. Note that decoders predating [`decode_compact_from_iter_with_known_values`]
+/// (and the decode functions delegating to it) insert a deduplicated value only once, so its
+/// reference count does not reflect the number of referencing nodes; consumers that apply
+/// removals to the reconstructed database and read through it afterwards need a decoder that
+/// re-inserts deduplicated values at every referencing position. The same holds for decoding
+/// into a database keyed by position (prefix), where only such a decoder recreates the entry at
+/// every referencing position.
 pub fn encode_compact_skip_duplicate_values<L>(
 	db: &TrieDB<L>,
 	seen_value_hashes: &mut BTreeSet<Vec<u8>>,
