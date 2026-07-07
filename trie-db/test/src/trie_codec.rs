@@ -245,6 +245,16 @@ fn skip_duplicate_values_emits_shared_values_once_internal<T: TrieLayout>() {
 	let (decoded_root, _) = decode_compact::<T, _>(&mut prefixed_db, &deduplicated).unwrap();
 	assert_eq!(decoded_root, root);
 	assert_entries_match::<T>(&prefixed_db, root, &entries);
+
+	// Both encodings must reconstruct the exact same databases: same entries at every position
+	// and same reference counts (the deduplicated value is re-inserted once per referencing
+	// node, so removal-consolidating consumers observe no difference either).
+	let mut expected_hash_keyed_db = MemoryDB::<T>::default();
+	decode_compact::<T, _>(&mut expected_hash_keyed_db, &encoded).unwrap();
+	assert!(hash_keyed_db == expected_hash_keyed_db && expected_hash_keyed_db == hash_keyed_db);
+	let mut expected_prefixed_db = PrefixedMemoryDB::<T>::default();
+	decode_compact::<T, _>(&mut expected_prefixed_db, &encoded).unwrap();
+	assert!(prefixed_db == expected_prefixed_db && expected_prefixed_db == prefixed_db);
 }
 
 test_layouts!(
