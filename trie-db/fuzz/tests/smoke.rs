@@ -16,7 +16,10 @@
 //! without a libFuzzer setup.
 
 use reference_trie::HashedValueNoExtThreshold;
-use trie_db_fuzz::{fuzz_that_trie_codec_proofs, fuzz_that_trie_codec_proofs_with_shared_values};
+use trie_db_fuzz::{
+	fuzz_that_trie_codec_proofs, fuzz_that_trie_codec_proofs_with_shared_subtrees,
+	fuzz_that_trie_codec_proofs_with_shared_values,
+};
 
 fn xorshift(state: &mut u64) -> u64 {
 	*state ^= *state << 13;
@@ -30,9 +33,9 @@ fn trie_codec_proof_dedup_smoke() {
 	let mut state = 0x0123_4567_89ab_cdefu64;
 	for len in (0..2048usize).step_by(37) {
 		let input: Vec<u8> = (0..len).map(|_| xorshift(&mut state) as u8).collect();
-		// A layout storing every non-empty value as a separate, hash-addressed value node, so
-		// that compact-proof value detachment and deduplication are exercised.
+		// Hashed-value layout, so value detachment and deduplication are exercised.
 		fuzz_that_trie_codec_proofs::<HashedValueNoExtThreshold<1>>(&input);
 		fuzz_that_trie_codec_proofs_with_shared_values::<HashedValueNoExtThreshold<1>>(&input);
+		fuzz_that_trie_codec_proofs_with_shared_subtrees::<HashedValueNoExtThreshold<1>>(&input);
 	}
 }
