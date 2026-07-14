@@ -128,10 +128,7 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	/// Skip the descendants of the node most recently yielded by `next_raw_item`: iteration
 	/// continues with the node's next sibling (or an ancestor's).
 	///
-	/// Must only be called directly after `next_raw_item(_, true)` yielded a node. At that point
-	/// the node's own partial and child index have not been pushed to `key_nibbles` yet (that
-	/// happens when its `Status::At` is processed), so the crumb can jump straight to
-	/// `Status::AftExiting` — popping it and stepping the parent — with nothing to unwind.
+	/// Must only be called directly after `next_raw_item(_, true)` yielded a node.
 	pub(crate) fn skip_current_subtree(&mut self) {
 		if let Some(crumb) = self.trail.last_mut() {
 			crumb.status = Status::AftExiting;

@@ -299,10 +299,7 @@ where
 			Ok((prefix, node_hash, node)) => {
 				// Skip inline nodes, as they cannot contain hash references to other nodes by
 				// assumption.
-				let node_hash = match node_hash {
-					Some(node_hash) => node_hash,
-					None => continue,
-				};
+				let Some(node_hash) = node_hash else { continue };
 
 				if let Some(seen_hashes) = seen_hashes.as_deref_mut() {
 					// A subtree whose root was already emitted is skipped entirely; the parent's
@@ -428,10 +425,10 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 				match child {
 					NodeHandle::Inline(data) if data.is_empty() => return Ok(false),
 					_ => {
-						let child_ref = child.try_into().map_err(|hash| {
+						let child_ref: ChildReference<_> = child.try_into().map_err(|hash| {
 							Box::new(TrieError::InvalidHash(C::HashOut::default(), hash))
 						})?;
-						if let ChildReference::Hash(_) = child_ref {
+						if child_ref.is_hash() {
 							self.hash_ref_children |= 1u16 << self.child_index;
 						}
 						self.children[self.child_index] = Some(child_ref);
@@ -444,10 +441,11 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 					match children[self.child_index] {
 						Some(NodeHandle::Inline(data)) if data.is_empty() => return Ok(false),
 						Some(child) => {
-							let child_ref = child.try_into().map_err(|hash| {
-								Box::new(TrieError::InvalidHash(C::HashOut::default(), hash))
-							})?;
-							if let ChildReference::Hash(_) = child_ref {
+							let child_ref: ChildReference<_> =
+								child.try_into().map_err(|hash| {
+									Box::new(TrieError::InvalidHash(C::HashOut::default(), hash))
+								})?;
+							if child_ref.is_hash() {
 								self.hash_ref_children |= 1u16 << self.child_index;
 							}
 							self.children[self.child_index] = Some(child_ref);
@@ -697,6 +695,9 @@ where
 /// Decoding work is proportional to the *un-deduplicated* encoding: re-inserting subtrees at every
 /// occurrence can touch far more positions than there are items in `encoded`, so callers decoding
 /// untrusted input should bound the logical size, not the encoded size.
+///
+/// Returns the root hash of the reconstructed partial trie and the number of items consumed from
+/// `encoded`.
 pub fn decode_compact_from_iter_with_known_items<'a, L, DB, I>(
 	db: &mut DB,
 	encoded: I,
@@ -714,12 +715,8 @@ where
 	// The prefix of the next item to be read from the slice of encoded items.
 	let mut prefix = NibbleVec::new();
 
-	// The number of items consumed so far, including attached values.
-	let mut used;
-
 	let mut iter = encoded.into_iter().enumerate();
 	while let Some((i, encoded_node)) = iter.next() {
-		used = i + 1;
 		let mut attached_node = 0;
 		if let Some(header) = L::Codec::ESCAPE_HEADER {
 			if encoded_node.starts_with(&[header]) {
@@ -745,8 +742,7 @@ where
 
 		if attached_node > 0 {
 			// Read value
-			if let Some((i, fetched_value)) = iter.next() {
-				used = i + 1;
+			if let Some((_, fetched_value)) = iter.next() {
 				last_entry.attached_value = Some(fetched_value);
 				// Record immediately: a node deduplicated against this one can complete before
 				// this node does, e.g. a leaf below a branch carrying the value.
@@ -818,7 +814,7 @@ where
 				last_entry.children[last_entry.child_index] = Some(ChildReference::Hash(node_hash));
 				last_entry.child_index += 1;
 			} else {
-				return Ok((node_hash, used))
+				return Ok((node_hash, i + 1 + attached_node))
 			}
 		}
 	}
