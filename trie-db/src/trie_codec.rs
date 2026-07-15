@@ -302,11 +302,12 @@ where
 				let Some(node_hash) = node_hash else { continue };
 
 				if let Some(seen_hashes) = seen_hashes.as_deref_mut() {
+					let is_root = stack.is_empty();
 					// A subtree whose root was already emitted is skipped entirely; the parent's
 					// `omit_children` bit stays unset, keeping a plain hash reference. The root is
 					// never skipped, so each encoding stays individually decodable when
 					// `seen_hashes` is threaded across successive encodings.
-					if !stack.is_empty() && seen_hashes.contains(node_hash.as_ref()) {
+					if !is_root && seen_hashes.contains(node_hash.as_ref()) {
 						iter.skip_current_subtree();
 						continue
 					}
