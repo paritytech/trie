@@ -489,7 +489,9 @@ fn skip_duplicates_shares_subtrees_across_concatenated_encodings() {
 	assert_entries_match::<L>(&prefixed_db, root_a, &entries_a);
 	assert_entries_match::<L>(&prefixed_db, root_b, &entries_b);
 
-	// Deduplicating across the encodings must not change the reconstructed database.
+	// Both encodings prove the shared subtree to the same depth, so this reproduces the plain
+	// database exactly. In general the cross-encoding reconstruction is only a reference-count
+	// superset of it (see `decode_compact_from_iter_with_known_items`).
 	let mut expected_db = PrefixedMemoryDB::<L>::default();
 	let plain_a = encode_compact::<L>(&trie_a).unwrap();
 	let plain_b = encode_compact::<L>(&trie_b).unwrap();

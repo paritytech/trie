@@ -689,9 +689,14 @@ where
 ///
 /// Every attached value and reconstructed node is recorded in `known_items`. A node referencing a
 /// known item only by hash (see [`encode_compact_skip_duplicates`]) has it — for a subtree, the
-/// item and everything known below it — re-inserted at that position, reconstructing the same
-/// database as an un-deduplicated encoding. Threading across calls is only needed for encodings
-/// deduplicated with a shared `seen_hashes` set.
+/// item and everything known below it — re-inserted at that position. Threading across calls is
+/// only needed for encodings deduplicated with a shared `seen_hashes` set.
+///
+/// A deduplicated hash reference is indistinguishable from a genuine reference to a node outside
+/// the encoding, so when the trie has identically encoded subtrees this re-inserts external
+/// siblings too. The result is a *superset* of the un-deduplicated database: same nodes, but
+/// reference counts that may be higher (bounded by the full trie), never lower. Reads and the root
+/// are exact; over-counting is the safe direction for reference-counted stores.
 ///
 /// Decoding work is proportional to the *un-deduplicated* encoding: re-inserting subtrees at every
 /// occurrence can touch far more positions than there are items in `encoded`, so callers decoding
