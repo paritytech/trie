@@ -578,12 +578,14 @@ fn select_queried(spec: &TrieSpec, entries: &[(Vec<u8>, Vec<u8>)]) -> Vec<Vec<u8
 
 /// Structure-aware, differential fuzz harness for deduplicated compact proofs.
 ///
-/// Builds up to [`DedupScenario::MAX_TRIES`] tries from the scenario and, for each, encodes the
-/// recorded partial trie both with plain [`encode_compact`](trie_db::encode_compact) and with
-/// deduplication ([`encode_compact_skip_duplicates`](trie_db::encode_compact_skip_duplicates)),
-/// threading one `seen_hashes` set across all tries. It decodes the plain encodings independently
-/// and the deduplicated ones with a threaded `known_items` map, into both hash-keyed and
-/// position-keyed (prefixed) databases.
+/// Builds up to [`DedupScenario::MAX_TRIES`] tries, records the queried keys of each, and
+/// consolidates all recorded nodes into one frozen union set — the fixed-backing-set
+/// precondition of [`encode_compact_skip_duplicates`](trie_db::encode_compact_skip_duplicates)
+/// (in Substrate, the single proof recorder shared by a whole block). Every trie is then encoded
+/// from that set: plain ([`encode_compact`](trie_db::encode_compact)), self-contained
+/// deduplicated (fresh seen-set) and deduplicated with one `seen_hashes` set threaded across all
+/// tries. Plain encodings decode independently, threaded ones with a threaded `known_items` map,
+/// into both hash-keyed and position-keyed (prefixed) databases.
 ///
 /// Oracles:
 /// - every deduplicated encoding reconstructs its root and all proven keys;
@@ -593,6 +595,9 @@ fn select_queried(spec: &TrieSpec, entries: &[(Vec<u8>, Vec<u8>)]) -> Vec<Vec<u8
 /// - a self-contained encoding stays decodable by the released 0.31.0 decoder (hash-keyed);
 /// - the threaded reconstruction is sandwiched between plain and the full tries (see
 ///   [`assert_sub_db`]); strict equality does not hold once subtrees repeat.
+///
+/// Threading `seen_hashes` across per-trie recorded sets instead violates the precondition and
+/// drops nodes; `divergent_coverage_drops_nodes` in the smoke tests pins that failure mode.
 pub fn fuzz_dedup_scenario<L: TrieLayout>(scenario: DedupScenario) {
 	use hash_db::{HashDB, EMPTY_PREFIX};
 	use std::collections::{BTreeMap, BTreeSet};
@@ -621,8 +626,12 @@ pub fn fuzz_dedup_scenario<L: TrieLayout>(scenario: DedupScenario) {
 
 	let mut total_plain = 0usize;
 	let mut total_dedup = 0usize;
-	let mut produced_any = false;
 
+	// Phase 1: build every trie and record its queried keys, consolidating all recorded nodes
+	// into one frozen union set — so every encoding sees the same coverage below any shared hash
+	// (the precondition of `encode_compact_skip_duplicates`).
+	let mut union_partial = MemoryDB::<L::Hash, HashKey<_>, DBValue>::default();
+	let mut recorded = Vec::new();
 	for trie_spec in scenario.tries.iter().take(DedupScenario::MAX_TRIES) {
 		let entries = build_entries(trie_spec, &value_pool);
 		if entries.is_empty() {
@@ -662,15 +671,21 @@ pub fn fuzz_dedup_scenario<L: TrieLayout>(scenario: DedupScenario) {
 				items.push((key.clone(), value));
 			}
 		}
-		let mut partial_db = MemoryDB::<L::Hash, HashKey<_>, DBValue>::default();
 		for record in recorder.drain() {
-			partial_db.emplace(record.hash, EMPTY_PREFIX, record.data);
+			union_partial.emplace(record.hash, EMPTY_PREFIX, record.data);
 		}
+		recorded.push((root, items));
+	}
+	if recorded.is_empty() {
+		return
+	}
 
+	// Phase 2: encode every trie from the frozen union set, threading `seen_hashes` in order.
+	for (root, items) in &recorded {
 		// Encode the partial trie three ways: plain, deduplicated with the threaded `seen_hashes`,
 		// and deduplicated standalone (a fresh seen-set, i.e. a self-contained proof).
 		let (plain, dedup, standalone) = {
-			let trie = TrieDBBuilder::<L>::new(&partial_db, &root).build();
+			let trie = TrieDBBuilder::<L>::new(&union_partial, root).build();
 			let plain = encode_compact::<L>(&trie).unwrap();
 			let standalone =
 				encode_compact_skip_duplicates::<L>(&trie, &mut BTreeSet::new()).unwrap();
@@ -683,7 +698,7 @@ pub fn fuzz_dedup_scenario<L: TrieLayout>(scenario: DedupScenario) {
 
 		// Idempotency: with every item already seen, re-encoding emits only the root.
 		{
-			let trie = TrieDBBuilder::<L>::new(&partial_db, &root).build();
+			let trie = TrieDBBuilder::<L>::new(&union_partial, root).build();
 			let reencoded =
 				encode_compact_skip_duplicates::<L>(&trie, &mut seen_hashes.clone()).unwrap();
 			assert_eq!(reencoded.len(), 1, "re-encoding a fully-seen trie must emit only the root");
@@ -718,9 +733,9 @@ pub fn fuzz_dedup_scenario<L: TrieLayout>(scenario: DedupScenario) {
 				_,
 			>(&mut old_db, standalone.iter().map(Vec::as_slice))
 			.unwrap();
-			assert_eq!(old_root, root, "released 0.31.0 decoder must reconstruct the same root");
+			assert_eq!(&old_root, root, "released 0.31.0 decoder must reconstruct the same root");
 			let old_trie = TrieDBBuilder::<L>::new(&old_db, &old_root).build();
-			for (key, expected_value) in &items {
+			for (key, expected_value) in items {
 				assert_eq!(
 					&old_trie.get(key).unwrap(),
 					expected_value,
@@ -731,9 +746,9 @@ pub fn fuzz_dedup_scenario<L: TrieLayout>(scenario: DedupScenario) {
 
 		// Decode the plain encoding independently into the expected databases.
 		let (decoded_root, _) = decode_compact::<L, _>(&mut expected_hashed, &plain).unwrap();
-		assert_eq!(decoded_root, root);
+		assert_eq!(&decoded_root, root);
 		let (decoded_root, _) = decode_compact::<L, _>(&mut expected_prefixed, &plain).unwrap();
-		assert_eq!(decoded_root, root);
+		assert_eq!(&decoded_root, root);
 
 		// Decode the deduplicated encoding with threaded known-items into the actual databases.
 		let (decoded_root, _) = decode_compact_from_iter_with_known_items::<L, _, _>(
@@ -742,26 +757,20 @@ pub fn fuzz_dedup_scenario<L: TrieLayout>(scenario: DedupScenario) {
 			&mut known_hashed,
 		)
 		.unwrap();
-		assert_eq!(decoded_root, root);
+		assert_eq!(&decoded_root, root);
 		let (decoded_root, _) = decode_compact_from_iter_with_known_items::<L, _, _>(
 			&mut actual_prefixed,
 			dedup.iter().map(Vec::as_slice),
 			&mut known_prefixed,
 		)
 		.unwrap();
-		assert_eq!(decoded_root, root);
+		assert_eq!(&decoded_root, root);
 
 		// Every proven key resolves to its expected value in the reconstructed trie.
-		let trie = TrieDBBuilder::<L>::new(&actual_hashed, &root).build();
-		for (key, expected_value) in &items {
+		let trie = TrieDBBuilder::<L>::new(&actual_hashed, root).build();
+		for (key, expected_value) in items {
 			assert_eq!(&trie.get(key).unwrap(), expected_value);
 		}
-
-		produced_any = true;
-	}
-
-	if !produced_any {
-		return
 	}
 
 	// The threaded, cross-encoding differential. Strict equality does not hold: a deduplicated

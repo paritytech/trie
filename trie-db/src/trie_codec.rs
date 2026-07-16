@@ -255,6 +255,11 @@ where
 ///
 /// `seen_hashes` collects the emitted hashes.
 ///
+/// All encodings sharing one `seen_hashes` set must be generated from a single, fixed backing
+/// node set: a skipped subtree is reconstructable only if everything below it was emitted when
+/// its root was first seen. Encoding from per-proof recorded sets whose coverage of a shared
+/// node diverges silently drops the divergent nodes and produces unverifiable proofs.
+///
 /// Any decoder reconstructs a readable hash-keyed database from the result. Reconstructing the
 /// exact database of an un-deduplicated encoding (every position populated, matching reference
 /// counts) requires a re-inserting decoder, i.e. [`decode_compact_from_iter_with_known_items`].
@@ -306,7 +311,9 @@ where
 					// A subtree whose root was already emitted is skipped entirely; the parent's
 					// `omit_children` bit stays unset, keeping a plain hash reference. The root is
 					// never skipped, so each encoding stays individually decodable when
-					// `seen_hashes` is threaded across successive encodings.
+					// `seen_hashes` is threaded across successive encodings. Sound only under the
+					// fixed-backing-set precondition (see `encode_compact_skip_duplicates`): the
+					// subtree below a seen hash must not have grown since it was emitted.
 					if !is_root && seen_hashes.contains(node_hash.as_ref()) {
 						iter.skip_current_subtree();
 						continue
