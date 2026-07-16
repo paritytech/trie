@@ -218,7 +218,7 @@ pub fn fuzz_prefix_iter<T: TrieLayout>(input: &[u8]) {
 	assert_eq!(error, 0);
 }
 
-#[derive(Debug, Arbitrary)]
+#[derive(Debug, Clone, Arbitrary)]
 pub struct PrefixSeekTestInput {
 	keys: Vec<Vec<u8>>,
 	prefix_key: Vec<u8>,
@@ -352,8 +352,10 @@ pub fn fuzz_that_trie_codec_proofs_with_shared_subtrees<T: TrieLayout>(input: &[
 	// - the second 1/3 is added to the trie and included in the proof
 	// - the last 1/3 is not added to the trie and the proof proves non-inclusion of them
 	// Mirrored pairs are adjacent, so the split mostly keeps both occurrences of a subtree.
-	let mut keys =
-		mirrored[(mirrored.len() / 3)..].iter().map(|(key, _)| key.clone()).collect::<Vec<_>>();
+	let mut keys = mirrored[(mirrored.len() / 3)..]
+		.iter()
+		.map(|(key, _)| key.clone())
+		.collect::<Vec<_>>();
 	mirrored.truncate(mirrored.len() * 2 / 3);
 
 	let mirrored = data_sorted_unique(mirrored);
@@ -427,6 +429,286 @@ fn test_generate_proof<L: TrieLayout>(
 		.collect();
 
 	(root, proof, items)
+}
+
+/// Structure-aware input for the deduplicating compact-proof harness.
+///
+/// Unlike the byte-stream `fuzz_to_data` harnesses (which produce mostly disjoint keys and shallow
+/// tries), this describes several tries drawn from a shared value pool, with keys squeezed into a
+/// small nibble alphabet and optional (possibly nested) subtree mirroring. That deliberately
+/// manufactures colliding keys, deep branches, extensions, nibbled branches carrying a value *and*
+/// children, and recursively duplicated subtrees — the structures the deduplication and
+/// re-insertion code paths need. Sharing one value pool across tries also exercises cross-encoding
+/// deduplication (threaded `seen_hashes` / `known_items`).
+#[derive(Debug, Clone, Arbitrary)]
+pub struct DedupScenario {
+	/// The tries in the scenario; capped to [`DedupScenario::MAX_TRIES`] at build time.
+	tries: Vec<TrieSpec>,
+	/// Pool of candidate values, shared by every trie so values (and whole subtrees) collide.
+	value_pool: Vec<ValueSpec>,
+}
+
+impl DedupScenario {
+	const MAX_TRIES: usize = 4;
+	const MAX_BASE_KEYS: usize = 12;
+	const MAX_KEY_BYTES: usize = 6;
+	/// Squeeze raw bytes into a small alphabet so keys collide and branches form.
+	const KEY_ALPHABET: usize = 4;
+}
+
+#[derive(Debug, Clone, Arbitrary)]
+struct TrieSpec {
+	/// Raw key material; squeezed to a small nibble alphabet at build time.
+	keys: Vec<KeySpec>,
+	/// Number of identical sibling subtrees to mirror the key set into (`1 + n % 4`, i.e. 1..=4).
+	/// A value of 1 disables mirroring.
+	mirror_copies: u8,
+	/// When set, mirror the key set one extra level down first, so a duplicated subtree itself
+	/// contains a duplicated sub-subtree (exercises the recursive re-insertion work-loop).
+	nested_mirror: bool,
+	/// Indices (modulo entry count) of the keys proven into the partial trie. Empty means "all".
+	queried: Vec<u16>,
+}
+
+#[derive(Debug, Clone, Arbitrary)]
+struct KeySpec {
+	/// Raw key bytes; squeezed to the small alphabet and truncated at build time.
+	bytes: Vec<u8>,
+	/// Index (modulo pool length) of this key's value in the shared value pool.
+	value: u16,
+}
+
+#[derive(Debug, Clone, Arbitrary)]
+struct ValueSpec {
+	/// Byte the value is filled with (small alphabet keeps distinct values few and sharing
+	/// likely).
+	selector: u8,
+	/// Large values become separate (detachable) value nodes; small ones stay inline.
+	large: bool,
+}
+
+/// Map a raw byte to the small key alphabet. Each symbol has equal nibbles so branches diverge at
+/// byte boundaries: {0x00, 0x11, 0x22, 0x33}.
+fn alphabet_byte(raw: u8) -> u8 {
+	let symbol = (raw as usize % DedupScenario::KEY_ALPHABET) as u8;
+	symbol * 0x11
+}
+
+/// Prepend `prefix` to every key in `entries`, cloning the values.
+fn mirror_entries(entries: &[(Vec<u8>, Vec<u8>)], prefix: u8) -> Vec<(Vec<u8>, Vec<u8>)> {
+	entries
+		.iter()
+		.map(|(key, value)| {
+			let mut mirrored = Vec::with_capacity(key.len() + 1);
+			mirrored.push(prefix);
+			mirrored.extend_from_slice(key);
+			(mirrored, value.clone())
+		})
+		.collect()
+}
+
+/// Materialize the shared value pool. Each spec is either a small inline value or a large value
+/// node; an empty pool falls back to one of each.
+fn build_value_pool(specs: &[ValueSpec]) -> Vec<Vec<u8>> {
+	if specs.is_empty() {
+		return vec![vec![0u8], vec![1u8; 32]]
+	}
+	specs
+		.iter()
+		.map(|spec| if spec.large { vec![spec.selector; 32] } else { vec![spec.selector] })
+		.collect()
+}
+
+/// Build the sorted, unique `(key, value)` entries for one trie from its spec.
+fn build_entries(spec: &TrieSpec, value_pool: &[Vec<u8>]) -> Vec<(Vec<u8>, Vec<u8>)> {
+	// Base keys, squeezed into the small alphabet, truncated, and non-empty.
+	let mut base: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+	for key_spec in spec.keys.iter().take(DedupScenario::MAX_BASE_KEYS) {
+		let key: Vec<u8> = key_spec
+			.bytes
+			.iter()
+			.take(DedupScenario::MAX_KEY_BYTES)
+			.map(|raw| alphabet_byte(*raw))
+			.collect();
+		if key.is_empty() {
+			continue
+		}
+		let value = value_pool[key_spec.value as usize % value_pool.len()].clone();
+		base.push((key, value));
+	}
+
+	// Optionally mirror one extra level down first, so mirrored subtrees nest.
+	if spec.nested_mirror {
+		let mut nested = mirror_entries(&base, 0x01);
+		nested.extend(mirror_entries(&base, 0x02));
+		base = nested;
+	}
+
+	// Mirror into `copies` identical sibling subtrees below the root (distinct first nibbles).
+	let copies = 1 + spec.mirror_copies as usize % 4;
+	let entries = if copies >= 2 {
+		const OUTER_PREFIXES: [u8; 4] = [0x00, 0x10, 0x20, 0x30];
+		let mut mirrored = Vec::new();
+		for &prefix in OUTER_PREFIXES.iter().take(copies) {
+			mirrored.extend(mirror_entries(&base, prefix));
+		}
+		mirrored
+	} else {
+		base
+	};
+
+	data_sorted_unique(entries)
+}
+
+/// Select the keys proven into the partial trie: the listed indices (modulo entry count), or all
+/// keys when none are listed.
+fn select_queried(spec: &TrieSpec, entries: &[(Vec<u8>, Vec<u8>)]) -> Vec<Vec<u8>> {
+	if spec.queried.is_empty() {
+		return entries.iter().map(|(key, _)| key.clone()).collect()
+	}
+	let mut keys: Vec<Vec<u8>> = spec
+		.queried
+		.iter()
+		.map(|index| entries[*index as usize % entries.len()].0.clone())
+		.collect();
+	keys.sort();
+	keys.dedup();
+	keys
+}
+
+/// Structure-aware, differential fuzz harness for deduplicated compact proofs.
+///
+/// Builds up to [`DedupScenario::MAX_TRIES`] tries from the scenario and, for each, encodes the
+/// recorded partial trie both with plain [`encode_compact`](trie_db::encode_compact) and with
+/// deduplication ([`encode_compact_skip_duplicates`](trie_db::encode_compact_skip_duplicates)),
+/// threading one `seen_hashes` set across all tries. It decodes the plain encodings independently
+/// and the deduplicated ones with a threaded `known_items` map, into both hash-keyed and
+/// position-keyed (prefixed) databases.
+///
+/// Oracles:
+/// - every deduplicated encoding reconstructs its trie root and all proven keys;
+/// - deduplication never grows the encoding (`Σ dedup.len() <= Σ plain.len()`);
+/// - re-encoding a fully-seen trie emits only its root (idempotency / "always emit root");
+/// - the threaded deduplicated reconstruction is bit-for-bit identical to the plain reconstruction
+///   — same entries and same reference counts — in both database keyings. This is the strong
+///   differential covering the re-insertion machinery.
+pub fn fuzz_dedup_scenario<L: TrieLayout>(scenario: DedupScenario) {
+	use hash_db::{HashDB, EMPTY_PREFIX};
+	use std::collections::{BTreeMap, BTreeSet};
+	use trie_db::{
+		decode_compact, decode_compact_from_iter_with_known_items, encode_compact,
+		encode_compact_skip_duplicates, Recorder,
+	};
+
+	let value_pool = build_value_pool(&scenario.value_pool);
+
+	// Databases accumulated across all tries for the differential oracle.
+	let mut expected_prefixed = MemoryDB::<L::Hash, PrefixedKey<_>, DBValue>::default();
+	let mut actual_prefixed = MemoryDB::<L::Hash, PrefixedKey<_>, DBValue>::default();
+	let mut expected_hashed = MemoryDB::<L::Hash, HashKey<_>, DBValue>::default();
+	let mut actual_hashed = MemoryDB::<L::Hash, HashKey<_>, DBValue>::default();
+
+	// Deduplication state threaded across every trie in the scenario.
+	let mut seen_hashes = BTreeSet::new();
+	// Threaded known-items maps: one per reconstructed database.
+	let mut known_prefixed = BTreeMap::new();
+	let mut known_hashed = BTreeMap::new();
+
+	let mut total_plain = 0usize;
+	let mut total_dedup = 0usize;
+	let mut produced_any = false;
+
+	for trie_spec in scenario.tries.iter().take(DedupScenario::MAX_TRIES) {
+		let entries = build_entries(trie_spec, &value_pool);
+		if entries.is_empty() {
+			continue
+		}
+
+		// Build the full trie in a hash-keyed database.
+		let mut db = MemoryDB::<L::Hash, HashKey<_>, DBValue>::default();
+		let mut root = Default::default();
+		{
+			let mut trie = TrieDBMutBuilder::<L>::new(&mut db, &mut root).build();
+			for (key, value) in &entries {
+				trie.insert(key, value).unwrap();
+			}
+		}
+
+		// Record the partial trie for the proven keys.
+		let queried = select_queried(trie_spec, &entries);
+		let mut recorder = Recorder::<L>::new();
+		let mut items = Vec::with_capacity(queried.len());
+		{
+			let trie = TrieDBBuilder::<L>::new(&db, &root).with_recorder(&mut recorder).build();
+			for key in &queried {
+				let value = trie.get(key).unwrap();
+				items.push((key.clone(), value));
+			}
+		}
+		let mut partial_db = MemoryDB::<L::Hash, HashKey<_>, DBValue>::default();
+		for record in recorder.drain() {
+			partial_db.emplace(record.hash, EMPTY_PREFIX, record.data);
+		}
+
+		// Encode the partial trie both ways; `seen_hashes` is threaded across tries.
+		let (plain, dedup) = {
+			let trie = TrieDBBuilder::<L>::new(&partial_db, &root).build();
+			let plain = encode_compact::<L>(&trie).unwrap();
+			let dedup = encode_compact_skip_duplicates::<L>(&trie, &mut seen_hashes).unwrap();
+			(plain, dedup)
+		};
+		assert!(dedup.len() <= plain.len(), "deduplication must not grow the encoding");
+		total_plain += plain.len();
+		total_dedup += dedup.len();
+
+		// Idempotency: with every item already seen, re-encoding emits only the root.
+		{
+			let trie = TrieDBBuilder::<L>::new(&partial_db, &root).build();
+			let reencoded =
+				encode_compact_skip_duplicates::<L>(&trie, &mut seen_hashes.clone()).unwrap();
+			assert_eq!(reencoded.len(), 1, "re-encoding a fully-seen trie must emit only the root");
+		}
+
+		// Decode the plain encoding independently into the expected databases.
+		let (decoded_root, _) = decode_compact::<L, _>(&mut expected_hashed, &plain).unwrap();
+		assert_eq!(decoded_root, root);
+		let (decoded_root, _) = decode_compact::<L, _>(&mut expected_prefixed, &plain).unwrap();
+		assert_eq!(decoded_root, root);
+
+		// Decode the deduplicated encoding with threaded known-items into the actual databases.
+		let (decoded_root, _) = decode_compact_from_iter_with_known_items::<L, _, _>(
+			&mut actual_hashed,
+			dedup.iter().map(Vec::as_slice),
+			&mut known_hashed,
+		)
+		.unwrap();
+		assert_eq!(decoded_root, root);
+		let (decoded_root, _) = decode_compact_from_iter_with_known_items::<L, _, _>(
+			&mut actual_prefixed,
+			dedup.iter().map(Vec::as_slice),
+			&mut known_prefixed,
+		)
+		.unwrap();
+		assert_eq!(decoded_root, root);
+
+		// Every proven key resolves to its expected value in the reconstructed trie.
+		let trie = TrieDBBuilder::<L>::new(&actual_hashed, &root).build();
+		for (key, expected_value) in &items {
+			assert_eq!(&trie.get(key).unwrap(), expected_value);
+		}
+
+		produced_any = true;
+	}
+
+	if !produced_any {
+		return
+	}
+
+	// The strong differential: threaded deduplicated reconstruction equals the plain
+	// reconstruction, entries and reference counts included, in both keyings.
+	assert!(actual_hashed == expected_hashed && expected_hashed == actual_hashed);
+	assert!(actual_prefixed == expected_prefixed && expected_prefixed == actual_prefixed);
+	assert!(total_dedup <= total_plain);
 }
 
 fn test_trie_codec_proof<L: TrieLayout>(entries: Vec<(Vec<u8>, Vec<u8>)>, keys: Vec<Vec<u8>>) {

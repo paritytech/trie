@@ -15,10 +15,12 @@
 //! Deterministic smoke runs of the fuzz harnesses, so their assertions are exercised in CI
 //! without a libFuzzer setup.
 
+use arbitrary::{Arbitrary, Unstructured};
 use reference_trie::HashedValueNoExtThreshold;
 use trie_db_fuzz::{
-	fuzz_that_trie_codec_proofs, fuzz_that_trie_codec_proofs_with_shared_subtrees,
-	fuzz_that_trie_codec_proofs_with_shared_values,
+	fuzz_dedup_scenario, fuzz_that_trie_codec_proofs,
+	fuzz_that_trie_codec_proofs_with_shared_subtrees,
+	fuzz_that_trie_codec_proofs_with_shared_values, DedupScenario,
 };
 
 fn xorshift(state: &mut u64) -> u64 {
@@ -37,5 +39,18 @@ fn trie_codec_proof_dedup_smoke() {
 		fuzz_that_trie_codec_proofs::<HashedValueNoExtThreshold<1>>(&input);
 		fuzz_that_trie_codec_proofs_with_shared_values::<HashedValueNoExtThreshold<1>>(&input);
 		fuzz_that_trie_codec_proofs_with_shared_subtrees::<HashedValueNoExtThreshold<1>>(&input);
+	}
+}
+
+#[test]
+fn trie_codec_proof_dedup_guided_smoke() {
+	let mut state = 0xdead_beef_cafe_f00du64;
+	for len in (0..4096usize).step_by(29) {
+		let input: Vec<u8> = (0..len).map(|_| xorshift(&mut state) as u8).collect();
+		// Structure-aware scenario built the same way libFuzzer builds it, via `arbitrary`.
+		let mut unstructured = Unstructured::new(&input);
+		if let Ok(scenario) = DedupScenario::arbitrary(&mut unstructured) {
+			fuzz_dedup_scenario::<HashedValueNoExtThreshold<1>>(scenario);
+		}
 	}
 }
