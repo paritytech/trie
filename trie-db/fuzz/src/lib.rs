@@ -792,8 +792,8 @@ where
 	let sup = collect(sup);
 	for (key, &sub_rc) in &sub {
 		match sup.get(key) {
-			Some(&sup_rc) => assert!(sup_rc >= sub_rc, "{msg}: reference count under-counted"),
-			None => panic!("{msg}: key missing from the containing database"),
+			Some(&sup_rc) => assert!(sup_rc >= sub_rc, "{}: reference count under-counted", msg),
+			None => panic!("{}: key missing from the containing database", msg),
 		}
 	}
 }
