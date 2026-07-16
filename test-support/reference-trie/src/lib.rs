@@ -30,6 +30,7 @@ use trie_root::{Hasher, Value as TrieStreamValue};
 
 mod substrate;
 mod substrate_like;
+pub mod trie_db_0_31_decoder;
 pub mod node {
 	pub use trie_db::node::Node;
 }

@@ -589,6 +589,9 @@ fn select_queried(spec: &TrieSpec, entries: &[(Vec<u8>, Vec<u8>)]) -> Vec<Vec<u8
 /// - every deduplicated encoding reconstructs its trie root and all proven keys;
 /// - deduplication never grows the encoding (`Σ dedup.len() <= Σ plain.len()`);
 /// - re-encoding a fully-seen trie emits only its root (idempotency / "always emit root");
+/// - a self-contained deduplicated encoding stays decodable by the released 0.31.0 decoder into a
+///   hash-keyed database, recovering every proven key (backward compatibility; reference counts
+///   aside);
 /// - the threaded deduplicated reconstruction is bit-for-bit identical to the plain reconstruction
 ///   — same entries and same reference counts — in both database keyings. This is the strong
 ///   differential covering the re-insertion machinery.
@@ -667,6 +670,37 @@ pub fn fuzz_dedup_scenario<L: TrieLayout>(scenario: DedupScenario) {
 			let reencoded =
 				encode_compact_skip_duplicates::<L>(&trie, &mut seen_hashes.clone()).unwrap();
 			assert_eq!(reencoded.len(), 1, "re-encoding a fully-seen trie must emit only the root");
+		}
+
+		// Backward compatibility: a self-contained (fresh-seen) deduplicated encoding must stay
+		// decodable by the released 0.31.0 decoder into a hash-keyed database — an old node must
+		// still verify a new proof. Reference counts are undercounted there (a shared item lands
+		// once, not once per reference), so we assert readability only — every proven key reads
+		// back its value — never database equality. Hash-keyed only: 0.31.0 mis-prefixes attached
+		// values in a position-keyed database (fixed by #227). This holds because within one
+		// fresh-seen encoding every collapsed duplicate points back to an item emitted earlier in
+		// the same encoding, which the old decoder inserts by hash.
+		{
+			let standalone = {
+				let trie = TrieDBBuilder::<L>::new(&partial_db, &root).build();
+				encode_compact_skip_duplicates::<L>(&trie, &mut BTreeSet::new()).unwrap()
+			};
+			let mut old_db = MemoryDB::<L::Hash, HashKey<_>, DBValue>::default();
+			let (old_root, _) = reference_trie::trie_db_0_31_decoder::decode_compact_from_iter::<
+				L,
+				_,
+				_,
+			>(&mut old_db, standalone.iter().map(Vec::as_slice))
+			.unwrap();
+			assert_eq!(old_root, root, "released 0.31.0 decoder must reconstruct the same root");
+			let old_trie = TrieDBBuilder::<L>::new(&old_db, &old_root).build();
+			for (key, expected_value) in &items {
+				assert_eq!(
+					&old_trie.get(key).unwrap(),
+					expected_value,
+					"released 0.31.0 decoder must recover every proven key (refcounts aside)"
+				);
+			}
 		}
 
 		// Decode the plain encoding independently into the expected databases.
