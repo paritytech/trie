@@ -154,8 +154,9 @@ fn trie_decoding_fails_with_incomplete_database_internal<T: TrieLayout>() {
 	}
 }
 
-/// A value above every tested layout threshold, stored as a shared, hash-addressed value node.
-const SHARED_VALUE: &[u8] = &[4; 32];
+/// A value above every tested layout threshold — including the substrate-like threshold of 33 —
+/// stored as a shared, hash-addressed value node.
+const SHARED_VALUE: &[u8] = &[4; 33];
 
 /// Whether the layout stores [`SHARED_VALUE`] as a separate value node.
 fn has_value_nodes<T: TrieLayout>() -> bool {
