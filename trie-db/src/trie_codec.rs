@@ -218,6 +218,7 @@ fn detached_value<L: TrieLayout>(
 	let value_hash = &node_data[hash_plan.clone()];
 	if let Some(seen_hashes) = &seen_hashes {
 		if seen_hashes.contains(value_hash) {
+			// Value node already emitted: do not detach it again, keep the hash reference.
 			return None
 		}
 	}
