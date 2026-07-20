@@ -558,14 +558,14 @@ where
 		},
 		_ => 0,
 	};
-	for index in 0..entry.children.len() {
+	for (index, child) in entry.children.iter().enumerate() {
+		// Only children that came on the wire as hash references may point at deduplicated
+		// subtrees; reconstructed children were already inserted while decoding them.
 		if entry.hash_ref_children & (1u16 << index) == 0 {
 			continue
 		}
-		let hash = match &entry.children[index] {
-			Some(ChildReference::Hash(hash)) => hash,
-			_ => continue,
-		};
+		// The mask bit is only ever set where a hash child reference was stored.
+		let Some(ChildReference::Hash(hash)) = child else { continue };
 		// An extension's child sits directly below the partial; branch children add their nibble.
 		let result = if matches!(&entry.node, Node::Extension(..)) {
 			reinsert_known_subtree::<L, DB>(db, known_items, hash.as_ref(), prefix)
