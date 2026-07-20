@@ -317,7 +317,8 @@ where
 					// fixed-backing-set precondition (see `encode_compact_skip_duplicates`): the
 					// subtree below a seen hash must not have grown since it was emitted.
 					if !is_root && seen_hashes.contains(node_hash.as_ref()) {
-						iter.skip_current_subtree();
+						let skipped = iter.skip_current_subtree();
+						debug_assert!(skipped, "`next_raw_item` just yielded this node; qed");
 						continue
 					}
 					seen_hashes.insert(node_hash.as_ref().to_vec());

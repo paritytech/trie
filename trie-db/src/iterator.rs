@@ -128,10 +128,18 @@ impl<L: TrieLayout> TrieDBRawIterator<L> {
 	/// Skip the descendants of the node most recently yielded by `next_raw_item`: iteration
 	/// continues with the node's next sibling (or an ancestor's).
 	///
-	/// Must only be called directly after `next_raw_item(_, true)` yielded a node.
-	pub(crate) fn skip_current_subtree(&mut self) {
-		if let Some(crumb) = self.trail.last_mut() {
-			crumb.status = Status::AftExiting;
+	/// Returns `false` (and does nothing) unless called directly after `next_raw_item(_, true)`
+	/// yielded a node.
+	pub(crate) fn skip_current_subtree(&mut self) -> bool {
+		let Some(crumb) = self.trail.last_mut() else { return false };
+		match (crumb.status, crumb.node.node_plan()) {
+			// Directly after a forward yield the node's partial has not been pushed to
+			// `key_nibbles` yet, so the crumb can jump straight to `AftExiting`.
+			(Status::At, _) | (Status::Exiting, NodePlan::Empty | NodePlan::Leaf { .. }) => {
+				crumb.status = Status::AftExiting;
+				true
+			},
+			_ => false,
 		}
 	}
 
