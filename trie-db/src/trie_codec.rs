@@ -38,7 +38,7 @@
 
 use crate::{
 	nibble_ops::NIBBLE_LENGTH,
-	node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, Value, ValuePlan},
+	node::{decode_hash, Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, Value, ValuePlan},
 	rstd::{
 		boxed::Box, convert::TryInto, marker::PhantomData, result, sync::Arc, vec, vec::Vec,
 		BTreeMap, BTreeSet,
@@ -209,15 +209,18 @@ fn detached_value<L: TrieLayout>(
 	value: &ValuePlan,
 	node_data: &[u8],
 	node_prefix: Prefix,
-	seen_hashes: Option<&mut BTreeSet<Vec<u8>>>,
+	seen_hashes: Option<&mut BTreeSet<TrieHash<L>>>,
 ) -> Option<Vec<u8>> {
 	let hash_plan = match value {
 		ValuePlan::Node(hash_plan) => hash_plan,
 		_ => return None,
 	};
 	let value_hash = &node_data[hash_plan.clone()];
-	if let Some(seen_hashes) = &seen_hashes {
-		if seen_hashes.contains(value_hash) {
+	// `decode_hash` only fails for a codec violating the hash-length contract on value nodes;
+	// such a value is detached unconditionally, i.e. never deduplicated.
+	let dedup_key = if seen_hashes.is_some() { decode_hash::<L::Hash>(value_hash) } else { None };
+	if let (Some(seen_hashes), Some(key)) = (&seen_hashes, &dedup_key) {
+		if seen_hashes.contains(key) {
 			// Value node already emitted: do not detach it again, keep the hash reference.
 			return None
 		}
@@ -226,8 +229,8 @@ fn detached_value<L: TrieLayout>(
 		Ok(value) => value,
 		Err(_) => return None,
 	};
-	if let Some(seen_hashes) = seen_hashes {
-		seen_hashes.insert(value_hash.to_vec());
+	if let (Some(seen_hashes), Some(key)) = (seen_hashes, dedup_key) {
+		seen_hashes.insert(key);
 	}
 	Some(fetched)
 }
@@ -269,7 +272,7 @@ where
 /// prefixed `db` populating a duplicated subtree only below a later occurrence would drop it.
 pub fn encode_compact_skip_duplicates<L>(
 	db: &TrieDB<L>,
-	seen_hashes: &mut BTreeSet<Vec<u8>>,
+	seen_hashes: &mut BTreeSet<TrieHash<L>>,
 ) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 where
 	L: TrieLayout,
@@ -279,7 +282,7 @@ where
 
 fn encode_compact_inner<L>(
 	db: &TrieDB<L>,
-	mut seen_hashes: Option<&mut BTreeSet<Vec<u8>>>,
+	mut seen_hashes: Option<&mut BTreeSet<TrieHash<L>>>,
 ) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 where
 	L: TrieLayout,
@@ -316,12 +319,12 @@ where
 					// unset, keeping a plain hash reference. Sound only under the
 					// fixed-backing-set precondition (see `encode_compact_skip_duplicates`): the
 					// subtree below a seen hash must not have grown since it was emitted.
-					if !is_root && seen_hashes.contains(node_hash.as_ref()) {
+					if !is_root && seen_hashes.contains(node_hash) {
 						let skipped = iter.skip_current_subtree();
 						debug_assert!(skipped, "`next_raw_item` just yielded this node; qed");
 						continue
 					}
-					seen_hashes.insert(node_hash.as_ref().to_vec());
+					seen_hashes.insert(*node_hash);
 				}
 
 				// Unwind the stack until the new entry is a child of the last entry on the stack.
@@ -413,11 +416,9 @@ struct DecoderStackEntry<'a, C: NodeCodec> {
 	child_index: usize,
 	/// The reconstructed child references.
 	children: Vec<Option<ChildReference<C::HashOut>>>,
-	/// Bit mask of children kept as plain hash references, which may point at subtrees
-	/// deduplicated into an earlier occurrence (see [`encode_compact_skip_duplicates`]).
-	hash_ref_children: u16,
-	/// A value attached as a node. The node will need to use its hash as value.
-	attached_value: Option<&'a [u8]>,
+	/// A value attached as a node, together with its hash.
+	/// The node will need to use the hash as value.
+	attached_value: Option<(&'a [u8], C::HashOut)>,
 	_marker: PhantomData<C>,
 }
 
@@ -436,12 +437,9 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 				match child {
 					NodeHandle::Inline(data) if data.is_empty() => return Ok(false),
 					_ => {
-						let child_ref: ChildReference<_> = child.try_into().map_err(|hash| {
+						let child_ref = child.try_into().map_err(|hash| {
 							Box::new(TrieError::InvalidHash(C::HashOut::default(), hash))
 						})?;
-						if child_ref.is_hash() {
-							self.hash_ref_children |= 1u16 << self.child_index;
-						}
 						self.children[self.child_index] = Some(child_ref);
 					},
 				}
@@ -452,13 +450,9 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 					match children[self.child_index] {
 						Some(NodeHandle::Inline(data)) if data.is_empty() => return Ok(false),
 						Some(child) => {
-							let child_ref: ChildReference<_> =
-								child.try_into().map_err(|hash| {
-									Box::new(TrieError::InvalidHash(C::HashOut::default(), hash))
-								})?;
-							if child_ref.is_hash() {
-								self.hash_ref_children |= 1u16 << self.child_index;
-							}
+							let child_ref = child.try_into().map_err(|hash| {
+								Box::new(TrieError::InvalidHash(C::HashOut::default(), hash))
+							})?;
 							self.children[self.child_index] = Some(child_ref);
 						},
 						None => {},
@@ -536,47 +530,56 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	}
 }
 
-/// Re-insert the deduplicated subtrees that `entry`'s node references through plain hash-reference
+/// Re-insert the deduplicated subtrees that `node` references through plain hash-reference
 /// children (see [`encode_compact_skip_duplicates`]), replaying what an un-deduplicated encoding
 /// would have inserted below this node. Hashes missing from `known_items` reference items outside
 /// the encoding and are skipped, like the holes an un-deduplicated encoding would leave.
 ///
-/// `prefix` is `entry`'s node prefix; it is restored before returning.
+/// `node` is the node as it came on the wire: only children still holding a hash handle may point
+/// at deduplicated subtrees. Omitted children arrived as empty inline handles and their
+/// reconstructed subtrees were already inserted while decoding them.
+///
+/// `prefix` is the node's prefix; it is restored before returning.
 fn reinsert_known_subtrees<L, DB>(
 	db: &mut DB,
-	known_items: &BTreeMap<Vec<u8>, DBValue>,
-	entry: &DecoderStackEntry<L::Codec>,
+	known_items: &BTreeMap<TrieHash<L>, DBValue>,
+	node: &Node,
 	prefix: &mut NibbleVec,
 ) -> Result<(), TrieHash<L>, CError<L>>
 where
 	L: TrieLayout,
 	DB: HashDB<L::Hash, DBValue>,
 {
-	let partial_len = match &entry.node {
-		Node::Extension(partial, _) | Node::NibbledBranch(partial, _, _) => {
-			prefix.append_partial(partial.right());
-			partial.len()
+	// Wire hash handles were length-validated in `advance_child_index`, so `decode_hash` cannot
+	// fail here; a `None` is treated as a miss anyway.
+	let (children, partial_len) = match node {
+		Node::Empty | Node::Leaf(..) => return Ok(()),
+		Node::Extension(partial, child) => {
+			// An extension's child sits directly below the partial, without a branch nibble.
+			if let NodeHandle::Hash(hash) = child {
+				if let Some(hash) = decode_hash::<L::Hash>(hash) {
+					prefix.append_partial(partial.right());
+					let result = reinsert_known_subtree::<L, DB>(db, known_items, hash, prefix);
+					prefix.drop_lasts(partial.len());
+					result?;
+				}
+			}
+			return Ok(())
 		},
-		_ => 0,
+		Node::Branch(children, _) => (children, 0),
+		Node::NibbledBranch(partial, children, _) => {
+			prefix.append_partial(partial.right());
+			(children, partial.len())
+		},
 	};
-	for (index, child) in entry.children.iter().enumerate() {
-		// Only children that came on the wire as hash references may point at deduplicated
-		// subtrees; reconstructed children were already inserted while decoding them.
-		if entry.hash_ref_children & (1u16 << index) == 0 {
-			continue
-		}
-		// The mask bit is only ever set where a hash child reference was stored.
-		let Some(ChildReference::Hash(hash)) = child else { continue };
-		// An extension's child sits directly below the partial; branch children add their nibble.
-		let result = if matches!(&entry.node, Node::Extension(..)) {
-			reinsert_known_subtree::<L, DB>(db, known_items, hash.as_ref(), prefix)
-		} else {
+	for (index, child) in children.iter().enumerate() {
+		if let Some(NodeHandle::Hash(hash)) = child {
+			let Some(hash) = decode_hash::<L::Hash>(hash) else { continue };
 			prefix.push(index as u8);
-			let result = reinsert_known_subtree::<L, DB>(db, known_items, hash.as_ref(), prefix);
+			let result = reinsert_known_subtree::<L, DB>(db, known_items, hash, prefix);
 			prefix.pop();
-			result
-		};
-		result?;
+			result?;
+		}
 	}
 	prefix.drop_lasts(partial_len);
 	Ok(())
@@ -587,8 +590,8 @@ where
 /// occupy below `prefix`.
 fn reinsert_known_subtree<L, DB>(
 	db: &mut DB,
-	known_items: &BTreeMap<Vec<u8>, DBValue>,
-	hash: &[u8],
+	known_items: &BTreeMap<TrieHash<L>, DBValue>,
+	hash: TrieHash<L>,
 	prefix: &NibbleVec,
 ) -> Result<(), TrieHash<L>, CError<L>>
 where
@@ -598,44 +601,54 @@ where
 	// Work items are `(prefix, hash, is_value)`. Values are inserted verbatim; nodes are decoded
 	// to enqueue their hash-referenced value and children. A decode failure only means the hash
 	// was recorded for a value whose bytes are not a node, so it is ignored rather than an error.
-	let mut work = vec![(prefix.clone(), hash.to_vec(), false)];
+	// Map keys are the items' true hashes, so inserts go through `emplace` and skip re-hashing.
+	// `decode_hash` cannot fail on codec-validated handles; a `None` is treated as a miss anyway.
+	let mut work = vec![(prefix.clone(), hash, false)];
 	while let Some((prefix, hash, is_value)) = work.pop() {
 		let item = match known_items.get(&hash) {
 			Some(item) => item,
 			None => continue,
 		};
 		if is_value {
-			db.insert(prefix.as_prefix(), item);
+			db.emplace(hash, prefix.as_prefix(), item.clone());
 			continue
 		}
 		let node = match L::Codec::decode(item) {
 			Ok(node) => node,
 			Err(_) => continue,
 		};
-		db.insert(prefix.as_prefix(), item);
+		db.emplace(hash, prefix.as_prefix(), item.clone());
 		match node {
 			Node::Empty => {},
 			Node::Leaf(partial, value) =>
 				if let Value::Node(value_hash) = value {
-					let mut value_prefix = prefix;
-					value_prefix.append_partial(partial.right());
-					work.push((value_prefix, value_hash.to_vec(), true));
+					if let Some(value_hash) = decode_hash::<L::Hash>(value_hash) {
+						let mut value_prefix = prefix;
+						value_prefix.append_partial(partial.right());
+						work.push((value_prefix, value_hash, true));
+					}
 				},
 			Node::Extension(partial, child) =>
 				if let NodeHandle::Hash(child_hash) = child {
-					let mut child_prefix = prefix;
-					child_prefix.append_partial(partial.right());
-					work.push((child_prefix, child_hash.to_vec(), false));
+					if let Some(child_hash) = decode_hash::<L::Hash>(child_hash) {
+						let mut child_prefix = prefix;
+						child_prefix.append_partial(partial.right());
+						work.push((child_prefix, child_hash, false));
+					}
 				},
 			Node::Branch(children, value) => {
 				if let Some(Value::Node(value_hash)) = value {
-					work.push((prefix.clone(), value_hash.to_vec(), true));
+					if let Some(value_hash) = decode_hash::<L::Hash>(value_hash) {
+						work.push((prefix.clone(), value_hash, true));
+					}
 				}
 				for (index, child) in children.iter().enumerate() {
 					if let Some(NodeHandle::Hash(child_hash)) = child {
-						let mut child_prefix = prefix.clone();
-						child_prefix.push(index as u8);
-						work.push((child_prefix, child_hash.to_vec(), false));
+						if let Some(child_hash) = decode_hash::<L::Hash>(child_hash) {
+							let mut child_prefix = prefix.clone();
+							child_prefix.push(index as u8);
+							work.push((child_prefix, child_hash, false));
+						}
 					}
 				}
 			},
@@ -643,13 +656,17 @@ where
 				let mut node_prefix = prefix;
 				node_prefix.append_partial(partial.right());
 				if let Some(Value::Node(value_hash)) = value {
-					work.push((node_prefix.clone(), value_hash.to_vec(), true));
+					if let Some(value_hash) = decode_hash::<L::Hash>(value_hash) {
+						work.push((node_prefix.clone(), value_hash, true));
+					}
 				}
 				for (index, child) in children.iter().enumerate() {
 					if let Some(NodeHandle::Hash(child_hash)) = child {
-						let mut child_prefix = node_prefix.clone();
-						child_prefix.push(index as u8);
-						work.push((child_prefix, child_hash.to_vec(), false));
+						if let Some(child_hash) = decode_hash::<L::Hash>(child_hash) {
+							let mut child_prefix = node_prefix.clone();
+							child_prefix.push(index as u8);
+							work.push((child_prefix, child_hash, false));
+						}
 					}
 				}
 			},
@@ -717,7 +734,7 @@ where
 pub fn decode_compact_from_iter_with_known_items<'a, L, DB, I>(
 	db: &mut DB,
 	encoded: I,
-	known_items: &mut BTreeMap<Vec<u8>, DBValue>,
+	known_items: &mut BTreeMap<TrieHash<L>, DBValue>,
 ) -> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 where
 	L: TrieLayout,
@@ -751,7 +768,6 @@ where
 			node,
 			child_index: 0,
 			children: vec![None; children_len],
-			hash_ref_children: 0,
 			attached_value: None,
 			_marker: PhantomData::default(),
 		};
@@ -759,11 +775,11 @@ where
 		if attached_node > 0 {
 			// Read value
 			if let Some((_, fetched_value)) = iter.next() {
-				last_entry.attached_value = Some(fetched_value);
+				let value_hash = L::Hash::hash(fetched_value);
+				last_entry.attached_value = Some((fetched_value, value_hash));
 				// Record immediately: a node deduplicated against this one can complete before
 				// this node does, e.g. a leaf below a branch carrying the value.
-				known_items
-					.insert(L::Hash::hash(fetched_value).as_ref().to_vec(), fetched_value.to_vec());
+				known_items.insert(value_hash, fetched_value.to_vec());
 			} else {
 				return Err(Box::new(TrieError::IncompleteDatabase(<TrieHash<L>>::default())))
 			}
@@ -778,7 +794,7 @@ where
 
 			// Since `advance_child_index` returned true, the preconditions for `encode_node` are
 			// satisfied.
-			let hash = last_entry.attached_value.as_ref().map(|value| {
+			let hash = last_entry.attached_value.map(|(value, value_hash)| {
 				let partial_prefix_len = match &last_entry.node {
 					Node::Leaf(partial, _) | Node::NibbledBranch(partial, _, _) => {
 						prefix.append_partial(partial.right());
@@ -786,9 +802,10 @@ where
 					},
 					_ => 0,
 				};
-				let hash = db.insert(prefix.as_prefix(), value);
+				// The hash was computed when the value was read; `emplace` skips re-hashing.
+				db.emplace(value_hash, prefix.as_prefix(), value.to_vec());
 				prefix.drop_lasts(partial_prefix_len);
-				hash
+				value_hash
 			});
 			if hash.is_none() {
 				// The node's detached value may have been deduplicated into an earlier occurrence
@@ -801,7 +818,10 @@ where
 					Node::NibbledBranch(_, _, Some(Value::Node(hash))) => Some(*hash),
 					_ => None,
 				};
-				if let Some(value) = value_hash.and_then(|hash| known_items.get(hash)) {
+				let known_value = value_hash
+					.and_then(|hash| decode_hash::<L::Hash>(hash))
+					.and_then(|hash| known_items.get(&hash).map(|value| (hash, value)));
+				if let Some((value_hash, value)) = known_value {
 					let partial_prefix_len = match &last_entry.node {
 						Node::Leaf(partial, _) | Node::NibbledBranch(partial, _, _) => {
 							prefix.append_partial(partial.right());
@@ -809,20 +829,18 @@ where
 						},
 						_ => 0,
 					};
-					db.insert(prefix.as_prefix(), value);
+					db.emplace(value_hash, prefix.as_prefix(), value.clone());
 					prefix.drop_lasts(partial_prefix_len);
 				}
 			}
 			// Children kept as plain hash references may point at subtrees deduplicated into an
 			// earlier occurrence; re-insert them here too. Misses again mean the nodes are not in
 			// the encoding.
-			if last_entry.hash_ref_children != 0 {
-				reinsert_known_subtrees::<L, DB>(db, known_items, &last_entry, &mut prefix)?;
-			}
+			reinsert_known_subtrees::<L, DB>(db, known_items, &last_entry.node, &mut prefix)?;
 			let node_data = last_entry.encode_node(hash.as_ref().map(|h| h.as_ref()));
 			let node_hash = db.insert(prefix.as_prefix(), node_data.as_ref());
 
-			known_items.insert(node_hash.as_ref().to_vec(), node_data);
+			known_items.insert(node_hash, node_data);
 
 			if let Some(entry) = stack.pop() {
 				last_entry = entry;
