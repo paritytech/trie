@@ -38,7 +38,7 @@
 
 use crate::{
 	nibble_ops::NIBBLE_LENGTH,
-	node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, ValuePlan},
+	node::{decode_hash, Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, ValuePlan},
 	rstd::{
 		boxed::Box, convert::TryInto, marker::PhantomData, result, sync::Arc, vec, vec::Vec,
 		BTreeSet,
@@ -209,16 +209,18 @@ fn detached_value<L: TrieLayout>(
 	value: &ValuePlan,
 	node_data: &[u8],
 	node_prefix: Prefix,
-	seen_hashes: Option<&mut BTreeSet<Vec<u8>>>,
+	seen_hashes: Option<&mut BTreeSet<TrieHash<L>>>,
 ) -> Option<Vec<u8>> {
 	let hash_plan = match value {
 		ValuePlan::Node(hash_plan) => hash_plan,
 		_ => return None,
 	};
 	let value_hash = &node_data[hash_plan.clone()];
-	if let Some(seen_hashes) = &seen_hashes {
+
+	let dedup_key = seen_hashes.as_ref().and_then(|_| decode_hash::<L::Hash>(value_hash));
+	if let (Some(seen_hashes), Some(key)) = (&seen_hashes, &dedup_key) {
 		// Already emitted once: keep the plain hash reference instead of detaching again.
-		if seen_hashes.contains(value_hash) {
+		if seen_hashes.contains(key) {
 			return None
 		}
 	}
@@ -226,8 +228,8 @@ fn detached_value<L: TrieLayout>(
 		Ok(value) => value,
 		Err(_) => return None,
 	};
-	if let Some(seen_hashes) = seen_hashes {
-		seen_hashes.insert(value_hash.to_vec());
+	if let (Some(seen_hashes), Some(key)) = (seen_hashes, dedup_key) {
+		seen_hashes.insert(key);
 	}
 	Some(fetched)
 }
@@ -270,7 +272,7 @@ where
 /// Assumes occurrences of an item are interchangeable, as they are when `db` is hash-keyed.
 pub fn encode_compact_skip_duplicates<L>(
 	db: &TrieDB<L>,
-	seen_hashes: &mut BTreeSet<Vec<u8>>,
+	seen_hashes: &mut BTreeSet<TrieHash<L>>,
 ) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 where
 	L: TrieLayout,
@@ -280,7 +282,7 @@ where
 
 fn encode_compact_inner<L>(
 	db: &TrieDB<L>,
-	mut seen_hashes: Option<&mut BTreeSet<Vec<u8>>>,
+	mut seen_hashes: Option<&mut BTreeSet<TrieHash<L>>>,
 ) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 where
 	L: TrieLayout,
@@ -316,11 +318,11 @@ where
 					// `seen_hashes` is threaded across successive encodings. Sound only under the
 					// fixed-backing-set precondition (see `encode_compact_skip_duplicates`): the
 					// subtree below a seen hash must not have grown since it was emitted.
-					if !is_root && seen_hashes.contains(node_hash.as_ref()) {
+					if !is_root && seen_hashes.contains(node_hash) {
 						iter.skip_current_subtree();
 						continue
 					}
-					seen_hashes.insert(node_hash.as_ref().to_vec());
+					seen_hashes.insert(*node_hash);
 				}
 
 				// Unwind the stack until the new entry is a child of the last entry on the stack.
