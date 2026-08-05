@@ -432,7 +432,7 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 				match child {
 					NodeHandle::Inline(data) if data.is_empty() => return Ok(false),
 					_ => {
-						let child_ref: ChildReference<_> = child.try_into().map_err(|hash| {
+						let child_ref = child.try_into().map_err(|hash| {
 							Box::new(TrieError::InvalidHash(C::HashOut::default(), hash))
 						})?;
 						self.children[self.child_index] = Some(child_ref);
@@ -445,10 +445,9 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 					match children[self.child_index] {
 						Some(NodeHandle::Inline(data)) if data.is_empty() => return Ok(false),
 						Some(child) => {
-							let child_ref: ChildReference<_> =
-								child.try_into().map_err(|hash| {
-									Box::new(TrieError::InvalidHash(C::HashOut::default(), hash))
-								})?;
+							let child_ref = child.try_into().map_err(|hash| {
+								Box::new(TrieError::InvalidHash(C::HashOut::default(), hash))
+							})?;
 							self.children[self.child_index] = Some(child_ref);
 						},
 						None => {},
