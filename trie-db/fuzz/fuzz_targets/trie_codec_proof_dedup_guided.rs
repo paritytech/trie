@@ -8,6 +8,6 @@ use trie_db_fuzz::{fuzz_dedup_scenario, DedupScenario};
 // stream fed through `fuzz_to_data`.
 fuzz_target!(|scenario: DedupScenario| {
 	// Hashed-value layout: values are detachable value nodes, so value- and subtree-level
-	// deduplication and the re-insertion machinery are all exercised.
+	// deduplication are both exercised.
 	fuzz_dedup_scenario::<reference_trie::HashedValueNoExtThreshold<1>>(scenario);
 });

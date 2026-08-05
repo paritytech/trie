@@ -14,11 +14,11 @@
 
 use hash_db::{HashDB, HashDBRef, Hasher, EMPTY_PREFIX};
 use reference_trie::{test_layouts, ExtensionLayout};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use trie_db::{
-	decode_compact, decode_compact_from_iter_with_known_items, encode_compact,
-	encode_compact_skip_duplicates, DBValue, NodeCodec, Recorder, Trie, TrieDBBuilder,
-	TrieDBMutBuilder, TrieError, TrieLayout, TrieMut,
+	decode_compact, decode_compact_from_iter, encode_compact, encode_compact_skip_duplicates,
+	DBValue, NodeCodec, Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieError, TrieLayout,
+	TrieMut,
 };
 
 type MemoryDB<T> = memory_db::MemoryDB<
@@ -155,7 +155,12 @@ fn trie_decoding_fails_with_incomplete_database_internal<T: TrieLayout>() {
 }
 
 /// A value above every tested layout threshold, stored as a shared, hash-addressed value node.
-const SHARED_VALUE: &[u8] = &[4; 32];
+const SHARED_VALUE: &[u8] = &[4; 33];
+
+/// The stored keys of a hash-keyed database, ignoring reference counts.
+fn db_key_set<T: TrieLayout>(db: &MemoryDB<T>) -> BTreeSet<Vec<u8>> {
+	db.keys().into_iter().map(|(key, _rc)| key.as_ref().to_vec()).collect()
+}
 
 /// Whether the layout stores [`SHARED_VALUE`] as a separate value node.
 fn has_value_nodes<T: TrieLayout>() -> bool {
@@ -197,7 +202,7 @@ fn build_trie<T: TrieLayout>(
 }
 
 fn assert_entries_match<T: TrieLayout>(
-	db: &(impl HashDB<T::Hash, DBValue> + HashDBRef<T::Hash, DBValue>),
+	db: &impl HashDBRef<T::Hash, DBValue>,
 	root: <T::Hash as Hasher>::Out,
 	entries: &[(&'static [u8], &'static [u8])],
 ) {
@@ -235,26 +240,50 @@ fn skip_duplicate_values_emits_shared_values_once_internal<T: TrieLayout>() {
 		assert_eq!(deduplicated.len(), encoded.len() - 2);
 	}
 
-	// The deduplicated encoding reconstructs a fully readable trie in a hash-keyed database...
+	// The deduplicated encoding reconstructs a fully readable trie in a hash-keyed database:
+	// every deduplicated item is present from its first occurrence.
 	let mut hash_keyed_db = MemoryDB::<T>::default();
 	let (decoded_root, used) = decode_compact::<T, _>(&mut hash_keyed_db, &deduplicated).unwrap();
 	assert_eq!(decoded_root, root);
 	assert_eq!(used, deduplicated.len());
 	assert_entries_match::<T>(&hash_keyed_db, root, &entries);
 
-	// ...and, via value re-insertion, in a position-keyed (prefixed) database as well.
-	let mut prefixed_db = PrefixedMemoryDB::<T>::default();
-	let (decoded_root, _) = decode_compact::<T, _>(&mut prefixed_db, &deduplicated).unwrap();
-	assert_eq!(decoded_root, root);
-	assert_entries_match::<T>(&prefixed_db, root, &entries);
-
-	// Both encodings reconstruct identical databases: same entries, same reference counts.
+	// Both encodings reconstruct the same node set; only reference counts differ (a deduplicated
+	// item is inserted once instead of once per occurrence), which reads never depend on.
 	let mut expected_hash_keyed_db = MemoryDB::<T>::default();
 	decode_compact::<T, _>(&mut expected_hash_keyed_db, &encoded).unwrap();
-	assert!(hash_keyed_db == expected_hash_keyed_db && expected_hash_keyed_db == hash_keyed_db);
-	let mut expected_prefixed_db = PrefixedMemoryDB::<T>::default();
-	decode_compact::<T, _>(&mut expected_prefixed_db, &encoded).unwrap();
-	assert!(prefixed_db == expected_prefixed_db && expected_prefixed_db == prefixed_db);
+	assert_eq!(db_key_set::<T>(&hash_keyed_db), db_key_set::<T>(&expected_hash_keyed_db));
+}
+
+/// Deduplicated encodings are unsupported in position-keyed (prefixed) databases: a deduplicated
+/// item is present only below the position of its first occurrence, so decoding succeeds (the
+/// root is exact) but a lookup through a later referencing position misses. This pins the
+/// documented limitation of [`encode_compact_skip_duplicates`].
+#[test]
+fn skip_duplicates_is_unsupported_in_prefixed_databases() {
+	// Layout storing every non-empty value as a separate value node.
+	type L = reference_trie::HashedValueNoExtThreshold<1>;
+
+	let entries = shared_value_entries();
+	let (db, root) = build_trie::<L>(&entries);
+	let trie = <TrieDBBuilder<L>>::new(&db, &root).build();
+	let deduplicated = encode_compact_skip_duplicates::<L>(&trie, &mut Default::default()).unwrap();
+
+	let mut prefixed_db = PrefixedMemoryDB::<L>::default();
+	let (decoded_root, _) = decode_compact::<L, _>(&mut prefixed_db, &deduplicated).unwrap();
+	assert_eq!(decoded_root, root);
+
+	let trie = <TrieDBBuilder<L>>::new(&prefixed_db, &root).build();
+	// The shared value sits under the prefix of its first referencing node...
+	assert_eq!(trie.get(b"key").unwrap().as_deref(), Some(SHARED_VALUE));
+	// ...so the lookup under any other prefix misses it.
+	match trie.get(b"other") {
+		Err(err) => match *err {
+			TrieError::IncompleteDatabase(_) => {},
+			_ => panic!("got unexpected TrieError"),
+		},
+		_ => panic!("lookup was unexpectedly successful"),
+	}
 }
 
 test_layouts!(
@@ -295,10 +324,10 @@ fn skip_duplicate_values_handles_missing_value_nodes_internal<T: TrieLayout>() {
 	let (decoded_root, _) = decode_compact::<T, _>(&mut decoded_db, &deduplicated).unwrap();
 	assert_eq!(decoded_root, root);
 
-	// Node-level deduplication must not change the reconstructed database.
+	// Node-level deduplication must not change the reconstructed node set.
 	let mut expected_db = MemoryDB::<T>::default();
 	decode_compact::<T, _>(&mut expected_db, &encoded).unwrap();
-	assert!(decoded_db == expected_db && expected_db == decoded_db);
+	assert_eq!(db_key_set::<T>(&decoded_db), db_key_set::<T>(&expected_db));
 
 	let trie = <TrieDBBuilder<T>>::new(&decoded_db, &root).build();
 	// The distinct value is present either way.
@@ -367,25 +396,19 @@ fn skip_duplicate_values_across_concatenated_encodings() {
 	assert_eq!(count_shared_value_items(&encoded_a), 1);
 	assert_eq!(count_shared_value_items(&encoded_b), 0);
 
-	// Decode both with a threaded known-values map into one prefixed database.
-	let mut prefixed_db = PrefixedMemoryDB::<L>::default();
-	let mut known_items = BTreeMap::new();
-	let (decoded_root_a, _) = decode_compact_from_iter_with_known_items::<L, _, _>(
-		&mut prefixed_db,
-		encoded_a.iter().map(Vec::as_slice),
-		&mut known_items,
-	)
-	.unwrap();
-	let (decoded_root_b, _) = decode_compact_from_iter_with_known_items::<L, _, _>(
-		&mut prefixed_db,
-		encoded_b.iter().map(Vec::as_slice),
-		&mut known_items,
-	)
-	.unwrap();
+	// Decode both into one shared hash-keyed database: the second encoding's reference to the
+	// shared value resolves against the item decoded from the first.
+	let mut shared_db = MemoryDB::<L>::default();
+	let (decoded_root_a, _) =
+		decode_compact_from_iter::<L, _, _>(&mut shared_db, encoded_a.iter().map(Vec::as_slice))
+			.unwrap();
+	let (decoded_root_b, _) =
+		decode_compact_from_iter::<L, _, _>(&mut shared_db, encoded_b.iter().map(Vec::as_slice))
+			.unwrap();
 	assert_eq!(decoded_root_a, root_a);
 	assert_eq!(decoded_root_b, root_b);
-	assert_entries_match::<L>(&prefixed_db, root_a, &entries_a);
-	assert_entries_match::<L>(&prefixed_db, root_b, &entries_b);
+	assert_entries_match::<L>(&shared_db, root_a, &entries_a);
+	assert_entries_match::<L>(&shared_db, root_b, &entries_b);
 }
 
 /// Entries forming two identical subtrees below the root.
@@ -422,26 +445,18 @@ fn skip_duplicates_emits_shared_subtrees_once_internal<T: TrieLayout>() {
 	// deduplication does not depend on values being stored in separate value nodes.
 	assert!(deduplicated.len() < encoded.len());
 
-	// The deduplicated encoding reconstructs a fully readable trie in a hash-keyed database...
+	// The deduplicated encoding reconstructs a fully readable trie in a hash-keyed database:
+	// the skipped subtree is present from its first occurrence.
 	let mut hash_keyed_db = MemoryDB::<T>::default();
 	let (decoded_root, used) = decode_compact::<T, _>(&mut hash_keyed_db, &deduplicated).unwrap();
 	assert_eq!(decoded_root, root);
 	assert_eq!(used, deduplicated.len());
 	assert_entries_match::<T>(&hash_keyed_db, root, &entries);
 
-	// ...and, via subtree re-insertion, in a position-keyed (prefixed) database as well.
-	let mut prefixed_db = PrefixedMemoryDB::<T>::default();
-	let (decoded_root, _) = decode_compact::<T, _>(&mut prefixed_db, &deduplicated).unwrap();
-	assert_eq!(decoded_root, root);
-	assert_entries_match::<T>(&prefixed_db, root, &entries);
-
-	// Both encodings reconstruct identical databases: same entries, same reference counts.
+	// Both encodings reconstruct the same node set; only reference counts differ.
 	let mut expected_hash_keyed_db = MemoryDB::<T>::default();
 	decode_compact::<T, _>(&mut expected_hash_keyed_db, &encoded).unwrap();
-	assert!(hash_keyed_db == expected_hash_keyed_db && expected_hash_keyed_db == hash_keyed_db);
-	let mut expected_prefixed_db = PrefixedMemoryDB::<T>::default();
-	decode_compact::<T, _>(&mut expected_prefixed_db, &encoded).unwrap();
-	assert!(prefixed_db == expected_prefixed_db && expected_prefixed_db == prefixed_db);
+	assert_eq!(db_key_set::<T>(&hash_keyed_db), db_key_set::<T>(&expected_hash_keyed_db));
 }
 
 #[test]
@@ -469,35 +484,27 @@ fn skip_duplicates_shares_subtrees_across_concatenated_encodings() {
 		encode_compact_skip_duplicates::<L>(&trie_b, &mut Default::default()).unwrap();
 	assert!(encoded_b.len() < standalone_b.len());
 
-	// Decode both with a threaded known-items map into one prefixed database.
-	let mut prefixed_db = PrefixedMemoryDB::<L>::default();
-	let mut known_items = BTreeMap::new();
-	let (decoded_root_a, _) = decode_compact_from_iter_with_known_items::<L, _, _>(
-		&mut prefixed_db,
-		encoded_a.iter().map(Vec::as_slice),
-		&mut known_items,
-	)
-	.unwrap();
-	let (decoded_root_b, _) = decode_compact_from_iter_with_known_items::<L, _, _>(
-		&mut prefixed_db,
-		encoded_b.iter().map(Vec::as_slice),
-		&mut known_items,
-	)
-	.unwrap();
+	// Decode both into one shared hash-keyed database: the second encoding's reference to the
+	// shared subtree resolves against the items decoded from the first.
+	let mut shared_db = MemoryDB::<L>::default();
+	let (decoded_root_a, _) =
+		decode_compact_from_iter::<L, _, _>(&mut shared_db, encoded_a.iter().map(Vec::as_slice))
+			.unwrap();
+	let (decoded_root_b, _) =
+		decode_compact_from_iter::<L, _, _>(&mut shared_db, encoded_b.iter().map(Vec::as_slice))
+			.unwrap();
 	assert_eq!(decoded_root_a, root_a);
 	assert_eq!(decoded_root_b, root_b);
-	assert_entries_match::<L>(&prefixed_db, root_a, &entries_a);
-	assert_entries_match::<L>(&prefixed_db, root_b, &entries_b);
+	assert_entries_match::<L>(&shared_db, root_a, &entries_a);
+	assert_entries_match::<L>(&shared_db, root_b, &entries_b);
 
-	// Both encodings prove the shared subtree to the same depth, so this reproduces the plain
-	// database exactly. In general the cross-encoding reconstruction is only a reference-count
-	// superset of it (see `decode_compact_from_iter_with_known_items`).
-	let mut expected_db = PrefixedMemoryDB::<L>::default();
+	// The reconstructed node set matches the plain encodings' exactly.
+	let mut expected_db = MemoryDB::<L>::default();
 	let plain_a = encode_compact::<L>(&trie_a).unwrap();
 	let plain_b = encode_compact::<L>(&trie_b).unwrap();
 	decode_compact::<L, _>(&mut expected_db, &plain_a).unwrap();
 	decode_compact::<L, _>(&mut expected_db, &plain_b).unwrap();
-	assert!(prefixed_db == expected_db && expected_db == prefixed_db);
+	assert_eq!(db_key_set::<L>(&shared_db), db_key_set::<L>(&expected_db));
 }
 
 #[test]
@@ -518,31 +525,19 @@ fn skip_duplicates_always_emits_the_root() {
 	assert!(first.len() > 1);
 	assert_eq!(second.len(), 1);
 
-	// With a threaded known-items map, decoding the second encoding reconstructs the full
-	// database below the root, exactly like decoding the first encoding twice would.
-	let mut prefixed_db = PrefixedMemoryDB::<L>::default();
-	let mut known_items = BTreeMap::new();
-	let (decoded_root, _) = decode_compact_from_iter_with_known_items::<L, _, _>(
-		&mut prefixed_db,
-		first.iter().map(Vec::as_slice),
-		&mut known_items,
-	)
-	.unwrap();
+	// Decoded into one shared hash-keyed database, the second encoding verifies against the items
+	// decoded from the first: the root is reconstructed and every entry stays readable.
+	let mut shared_db = MemoryDB::<L>::default();
+	let (decoded_root, _) =
+		decode_compact_from_iter::<L, _, _>(&mut shared_db, first.iter().map(Vec::as_slice))
+			.unwrap();
 	assert_eq!(decoded_root, root);
-	let (decoded_root, used) = decode_compact_from_iter_with_known_items::<L, _, _>(
-		&mut prefixed_db,
-		second.iter().map(Vec::as_slice),
-		&mut known_items,
-	)
-	.unwrap();
+	let (decoded_root, used) =
+		decode_compact_from_iter::<L, _, _>(&mut shared_db, second.iter().map(Vec::as_slice))
+			.unwrap();
 	assert_eq!(decoded_root, root);
 	assert_eq!(used, 1);
-	assert_entries_match::<L>(&prefixed_db, root, &entries);
-
-	let mut expected_db = PrefixedMemoryDB::<L>::default();
-	decode_compact::<L, _>(&mut expected_db, &first).unwrap();
-	decode_compact::<L, _>(&mut expected_db, &first).unwrap();
-	assert!(prefixed_db == expected_db && expected_db == prefixed_db);
+	assert_entries_match::<L>(&shared_db, root, &entries);
 }
 
 #[test]

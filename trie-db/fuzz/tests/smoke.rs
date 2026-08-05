@@ -54,3 +54,90 @@ fn trie_codec_proof_dedup_guided_smoke() {
 		}
 	}
 }
+
+/// Fuzzer-found inputs, replayed byte-for-byte the way libFuzzer feeds them.
+#[test]
+fn fuzzer_found_scenarios() {
+	const INPUTS: &[&str] = &[
+		// crash-bf782723…: shared subtrees deduplicated across threaded encodings; historically
+		// pinned the reference-count semantics of the (since removed) re-inserting decoder, kept
+		// as a regression scenario for the node-set invariant of `fuzz_dedup_scenario`.
+		"3fff413f20b5b5b5b54185018601ff00858b01028681ff96fffffffaffff41fa96ffffa1a1ff96ffffe2ffb1b524fafafbfa962c01",
+		// crash-ef90b66d…: proofs covering a shared subtree to different depths; dropped a node
+		// when the harness encoded from per-trie recorded sets instead of their union (the
+		// fixed-backing-set precondition of `encode_compact_skip_duplicates`).
+		"c901cd01002b2b0b0100000081402b2b2b2b0b0011ab3105d2ffffff01b000d2f90660cf2b",
+	];
+	for input in INPUTS {
+		let bytes = array_bytes::hex2bytes(*input).unwrap();
+		let scenario = DedupScenario::arbitrary_take_rest(Unstructured::new(&bytes)).unwrap();
+		fuzz_dedup_scenario::<HashedValueNoExtThreshold<1>>(scenario);
+	}
+}
+
+/// Violating the precondition of `encode_compact_skip_duplicates` — threading `seen_hashes`
+/// across encodings from per-proof recorded sets whose coverage of a shared node diverges —
+/// silently drops nodes. This pins the failure mode; if the encoder is ever hardened against
+/// it, update this test (and the harness doc) accordingly.
+#[test]
+fn divergent_coverage_drops_nodes() {
+	use hash_db::{HashDB, EMPTY_PREFIX};
+	use memory_db::{HashKey, MemoryDB};
+	use std::collections::BTreeSet;
+	use trie_db::{
+		decode_compact_from_iter, encode_compact_skip_duplicates, DBValue, Recorder, Trie,
+		TrieDBBuilder, TrieDBMutBuilder, TrieError, TrieLayout, TrieMut,
+	};
+	type L = HashedValueNoExtThreshold<1>;
+	type H = <L as TrieLayout>::Hash;
+
+	let entries: Vec<(Vec<u8>, Vec<u8>)> = vec![
+		(vec![0x11, 0x00], vec![0]),
+		(vec![0x11, 0x11], vec![1; 32]),
+		(vec![0x22, 0x22], vec![0]),
+	];
+	let mut db = MemoryDB::<H, HashKey<H>, DBValue>::default();
+	let mut root = Default::default();
+	{
+		let mut trie = TrieDBMutBuilder::<L>::new(&mut db, &mut root).build();
+		for (key, value) in &entries {
+			trie.insert(key, value).unwrap();
+		}
+	}
+
+	// Two proofs of the same trie, each recorded independently, so the branch above the two
+	// 0x11… leaves is a boundary node of proof 0 and covered deeper by proof 1.
+	let mut seen = BTreeSet::new();
+	let mut reconstructed = MemoryDB::<H, HashKey<H>, DBValue>::default();
+	let queried: [&[u8]; 2] = [&[0x11, 0x00], &[0x11, 0x11]];
+	for (proof, key) in queried.iter().enumerate() {
+		let mut recorder = Recorder::<L>::new();
+		{
+			let trie = TrieDBBuilder::<L>::new(&db, &root).with_recorder(&mut recorder).build();
+			trie.get(key).unwrap().unwrap();
+		}
+		let mut partial = MemoryDB::<H, HashKey<H>, DBValue>::default();
+		for record in recorder.drain() {
+			partial.emplace(record.hash, EMPTY_PREFIX, record.data);
+		}
+		let encoded = {
+			let trie = TrieDBBuilder::<L>::new(&partial, &root).build();
+			encode_compact_skip_duplicates::<L>(&trie, &mut seen).unwrap()
+		};
+		decode_compact_from_iter::<L, _, _>(&mut reconstructed, encoded.iter().map(Vec::as_slice))
+			.unwrap();
+
+		let trie = TrieDBBuilder::<L>::new(&reconstructed, &root).build();
+		let result = trie.get(key);
+		if proof == 0 {
+			assert!(result.unwrap().is_some(), "proof 0 must be readable");
+		} else {
+			// Proof 1's encoding skipped the seen boundary branch, dropping the leaf that only
+			// proof 1 covers — the node exists in no encoding at all.
+			assert!(
+				matches!(*result.unwrap_err(), TrieError::IncompleteDatabase(_)),
+				"expected the documented node drop under divergent coverage"
+			);
+		}
+	}
+}

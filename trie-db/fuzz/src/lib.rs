@@ -437,9 +437,9 @@ fn test_generate_proof<L: TrieLayout>(
 /// tries), this describes several tries drawn from a shared value pool, with keys squeezed into a
 /// small nibble alphabet and optional (possibly nested) subtree mirroring. That deliberately
 /// manufactures colliding keys, deep branches, extensions, nibbled branches carrying a value *and*
-/// children, and recursively duplicated subtrees — the structures the deduplication and
-/// re-insertion code paths need. Sharing one value pool across tries also exercises cross-encoding
-/// deduplication (threaded `seen_hashes` / `known_items`).
+/// children, and recursively duplicated subtrees — the structures the deduplication code paths
+/// need. Sharing one value pool across tries also exercises cross-encoding deduplication
+/// (a threaded `seen_hashes` set).
 #[derive(Debug, Clone, Arbitrary)]
 pub struct DedupScenario {
 	/// The tries in the scenario; capped to [`DedupScenario::MAX_TRIES`] at build time.
@@ -464,7 +464,7 @@ struct TrieSpec {
 	/// A value of 1 disables mirroring.
 	mirror_copies: u8,
 	/// When set, mirror the key set one extra level down first, so a duplicated subtree itself
-	/// contains a duplicated sub-subtree (exercises the recursive re-insertion work-loop).
+	/// contains a duplicated sub-subtree (exercises nested subtree deduplication).
 	nested_mirror: bool,
 	/// Indices (modulo entry count) of the keys proven into the partial trie. Empty means "all".
 	queried: Vec<u16>,
@@ -584,45 +584,39 @@ fn select_queried(spec: &TrieSpec, entries: &[(Vec<u8>, Vec<u8>)]) -> Vec<Vec<u8
 /// (in Substrate, the single proof recorder shared by a whole block). Every trie is then encoded
 /// from that set: plain ([`encode_compact`](trie_db::encode_compact)), self-contained
 /// deduplicated (fresh seen-set) and deduplicated with one `seen_hashes` set threaded across all
-/// tries. Plain encodings decode independently, threaded ones with a threaded `known_items` map,
-/// into both hash-keyed and position-keyed (prefixed) databases.
+/// tries. Plain encodings decode independently; threaded ones accumulate into one shared
+/// hash-keyed database.
 ///
 /// Oracles:
 /// - every deduplicated encoding reconstructs its root and all proven keys;
 /// - deduplication never grows the encoding (`Σ dedup <= Σ plain`);
 /// - re-encoding a fully-seen trie emits only its root ("always emit root");
-/// - a self-contained encoding reconstructs bit-for-bit like plain, both keyings;
+/// - a self-contained encoding reconstructs the same node set as plain;
 /// - a self-contained encoding stays decodable by the released 0.31.0 decoder (hash-keyed);
-/// - the threaded reconstruction is sandwiched between plain and the full tries (see
-///   [`assert_sub_db`]); strict equality does not hold once subtrees repeat.
+/// - the threaded reconstruction yields exactly the node set of the plain reconstructions:
+///   deduplication drops re-emissions, never nodes. Reference counts and positions are not
+///   compared — a proof is a hash-keyed node set, not a mutable database, and deduplicated
+///   encodings deliberately do not reconstruct per-position bookkeeping.
 ///
 /// Threading `seen_hashes` across per-trie recorded sets instead violates the precondition and
 /// drops nodes; `divergent_coverage_drops_nodes` in the smoke tests pins that failure mode.
 pub fn fuzz_dedup_scenario<L: TrieLayout>(scenario: DedupScenario) {
 	use hash_db::{HashDB, EMPTY_PREFIX};
-	use std::collections::{BTreeMap, BTreeSet};
+	use std::collections::BTreeSet;
 	use trie_db::{
-		decode_compact, decode_compact_from_iter_with_known_items, encode_compact,
-		encode_compact_skip_duplicates, Recorder,
+		decode_compact, decode_compact_from_iter, encode_compact, encode_compact_skip_duplicates,
+		Recorder,
 	};
 
 	let value_pool = build_value_pool(&scenario.value_pool);
 
-	// Databases accumulated across all tries for the differential oracle. `expected_*` is the plain
-	// reconstruction, `actual_*` the threaded deduplicated one, and `full_*` the complete tries —
-	// the upper bound the reconstruction may never exceed.
-	let mut expected_prefixed = MemoryDB::<L::Hash, PrefixedKey<_>, DBValue>::default();
-	let mut actual_prefixed = MemoryDB::<L::Hash, PrefixedKey<_>, DBValue>::default();
-	let mut full_prefixed = MemoryDB::<L::Hash, PrefixedKey<_>, DBValue>::default();
+	// Databases accumulated across all tries for the differential oracle. `expected_hashed` is
+	// the plain reconstruction, `actual_hashed` the threaded deduplicated one.
 	let mut expected_hashed = MemoryDB::<L::Hash, HashKey<_>, DBValue>::default();
 	let mut actual_hashed = MemoryDB::<L::Hash, HashKey<_>, DBValue>::default();
-	let mut full_hashed = MemoryDB::<L::Hash, HashKey<_>, DBValue>::default();
 
 	// Deduplication state threaded across every trie in the scenario.
 	let mut seen_hashes = BTreeSet::new();
-	// Threaded known-items maps: one per reconstructed database.
-	let mut known_prefixed = BTreeMap::new();
-	let mut known_hashed = BTreeMap::new();
 
 	let mut total_plain = 0usize;
 	let mut total_dedup = 0usize;
@@ -646,18 +640,6 @@ pub fn fuzz_dedup_scenario<L: TrieLayout>(scenario: DedupScenario) {
 			for (key, value) in &entries {
 				trie.insert(key, value).unwrap();
 			}
-		}
-		// Accumulate the complete tries (both keyings) as the reconstruction's upper bound.
-		full_hashed.consolidate(db.clone());
-		{
-			let mut db_prefixed = MemoryDB::<L::Hash, PrefixedKey<_>, DBValue>::default();
-			let mut full_root = Default::default();
-			let mut trie = TrieDBMutBuilder::<L>::new(&mut db_prefixed, &mut full_root).build();
-			for (key, value) in &entries {
-				trie.insert(key, value).unwrap();
-			}
-			drop(trie);
-			full_prefixed.consolidate(db_prefixed);
 		}
 
 		// Record the partial trie for the proven keys.
@@ -704,21 +686,18 @@ pub fn fuzz_dedup_scenario<L: TrieLayout>(scenario: DedupScenario) {
 			assert_eq!(reencoded.len(), 1, "re-encoding a fully-seen trie must emit only the root");
 		}
 
-		// A single self-contained encoding reconstructs exactly like plain (both keyings): within
-		// one proof only references to already-emitted items are collapsed. The threaded case is
-		// weaker.
+		// A single self-contained encoding reconstructs the same node set as plain: within one
+		// proof only references to already-emitted items are collapsed, so nothing goes missing.
+		// Reference counts differ by design and are not compared.
 		{
 			let mut plain_hashed = MemoryDB::<L::Hash, HashKey<_>, DBValue>::default();
 			let mut standalone_hashed = MemoryDB::<L::Hash, HashKey<_>, DBValue>::default();
 			decode_compact::<L, _>(&mut plain_hashed, &plain).unwrap();
 			decode_compact::<L, _>(&mut standalone_hashed, &standalone).unwrap();
-			assert!(plain_hashed == standalone_hashed, "single-encoding hash-keyed mismatch");
-
-			let mut plain_prefixed = MemoryDB::<L::Hash, PrefixedKey<_>, DBValue>::default();
-			let mut standalone_prefixed = MemoryDB::<L::Hash, PrefixedKey<_>, DBValue>::default();
-			decode_compact::<L, _>(&mut plain_prefixed, &plain).unwrap();
-			decode_compact::<L, _>(&mut standalone_prefixed, &standalone).unwrap();
-			assert!(plain_prefixed == standalone_prefixed, "single-encoding prefixed mismatch");
+			assert!(
+				db_key_set(&plain_hashed) == db_key_set(&standalone_hashed),
+				"single-encoding node-set mismatch"
+			);
 		}
 
 		// Backward compatibility: the released 0.31.0 decoder must still reconstruct a readable
@@ -744,26 +723,15 @@ pub fn fuzz_dedup_scenario<L: TrieLayout>(scenario: DedupScenario) {
 			}
 		}
 
-		// Decode the plain encoding independently into the expected databases.
+		// Decode the plain encoding independently into the expected database.
 		let (decoded_root, _) = decode_compact::<L, _>(&mut expected_hashed, &plain).unwrap();
 		assert_eq!(&decoded_root, root);
-		let (decoded_root, _) = decode_compact::<L, _>(&mut expected_prefixed, &plain).unwrap();
-		assert_eq!(&decoded_root, root);
 
-		// Decode the deduplicated encoding with threaded known-items into the actual databases.
-		let (decoded_root, _) = decode_compact_from_iter_with_known_items::<L, _, _>(
-			&mut actual_hashed,
-			dedup.iter().map(Vec::as_slice),
-			&mut known_hashed,
-		)
-		.unwrap();
-		assert_eq!(&decoded_root, root);
-		let (decoded_root, _) = decode_compact_from_iter_with_known_items::<L, _, _>(
-			&mut actual_prefixed,
-			dedup.iter().map(Vec::as_slice),
-			&mut known_prefixed,
-		)
-		.unwrap();
+		// Decode the deduplicated encoding into the shared actual database: items deduplicated
+		// across encodings are present from the encoding that emitted them.
+		let (decoded_root, _) =
+			decode_compact_from_iter::<L, _, _>(&mut actual_hashed, dedup.iter().map(Vec::as_slice))
+				.unwrap();
 		assert_eq!(&decoded_root, root);
 
 		// Every proven key resolves to its expected value in the reconstructed trie.
@@ -773,38 +741,22 @@ pub fn fuzz_dedup_scenario<L: TrieLayout>(scenario: DedupScenario) {
 		}
 	}
 
-	// The threaded, cross-encoding differential. Strict equality does not hold: a deduplicated
-	// hash reference is indistinguishable from a genuine external one, so identically encoded
-	// subtrees get re-inserted at extra (genuine) positions. The reconstruction is therefore
-	// sandwiched — it contains everything plain does and nothing absent from the full tries — and
-	// over-approximation is the safe direction (a node lingers, never dropped while referenced).
-	assert_sub_db(&expected_hashed, &actual_hashed, "plain not contained in dedup (hashed)");
-	assert_sub_db(&actual_hashed, &full_hashed, "dedup exceeds the full trie (hashed)");
-	assert_sub_db(&expected_prefixed, &actual_prefixed, "plain not contained in dedup (prefixed)");
-	assert_sub_db(&actual_prefixed, &full_prefixed, "dedup exceeds the full trie (prefixed)");
+	// The threaded, cross-encoding differential: deduplication drops re-emissions, never nodes,
+	// so the threaded reconstruction holds exactly the node set of the plain reconstructions.
+	// Reference counts and positions are not compared — deduplicated encodings deliberately do
+	// not reconstruct per-position bookkeeping.
+	assert!(
+		db_key_set(&actual_hashed) == db_key_set(&expected_hashed),
+		"threaded reconstruction differs from the plain node set"
+	);
 	assert!(total_dedup <= total_plain);
 }
 
-/// Assert every stored key of `sub` is present in `sup` with a reference count at least as large.
-/// Used to sandwich the threaded reconstruction between plain (lower) and the full tries (upper).
-fn assert_sub_db<H, KF>(sub: &MemoryDB<H, KF, DBValue>, sup: &MemoryDB<H, KF, DBValue>, msg: &str)
-where
-	H: hash_db::Hasher,
-	KF: memory_db::KeyFunction<H>,
-	KF::Key: AsRef<[u8]> + Ord,
-{
-	use std::collections::BTreeMap;
-	let collect = |db: &MemoryDB<H, KF, DBValue>| -> BTreeMap<Vec<u8>, i32> {
-		db.keys().into_iter().map(|(key, rc)| (key.as_ref().to_vec(), rc)).collect()
-	};
-	let sub = collect(sub);
-	let sup = collect(sup);
-	for (key, &sub_rc) in &sub {
-		match sup.get(key) {
-			Some(&sup_rc) => assert!(sup_rc >= sub_rc, "{}: reference count under-counted", msg),
-			None => panic!("{}: key missing from the containing database", msg),
-		}
-	}
+/// The stored keys of a hash-keyed database, ignoring reference counts.
+fn db_key_set<H: hash_db::Hasher>(
+	db: &MemoryDB<H, HashKey<H>, DBValue>,
+) -> std::collections::BTreeSet<Vec<u8>> {
+	db.keys().into_iter().map(|(key, _rc)| key.as_ref().to_vec()).collect()
 }
 
 fn test_trie_codec_proof<L: TrieLayout>(entries: Vec<(Vec<u8>, Vec<u8>)>, keys: Vec<Vec<u8>>) {
@@ -861,7 +813,7 @@ fn test_trie_codec_proof<L: TrieLayout>(entries: Vec<(Vec<u8>, Vec<u8>)>, keys: 
 		assert_eq!(&trie.get(key.as_slice()).unwrap(), expected_value);
 	}
 
-	// Round-trip the deduplicating encoding into hash-keyed and prefixed databases.
+	// Round-trip the deduplicating encoding into a hash-keyed database.
 	let deduplicated = {
 		let trie = TrieDBBuilder::<L>::new(&partial_db, &expected_root).build();
 		encode_compact_skip_duplicates::<L>(&trie, &mut Default::default()).unwrap()
@@ -872,23 +824,10 @@ fn test_trie_codec_proof<L: TrieLayout>(entries: Vec<(Vec<u8>, Vec<u8>)>, keys: 
 	let (root, used) = decode_compact::<L, _>(&mut hash_keyed_db, &deduplicated).unwrap();
 	assert_eq!(root, expected_root);
 	assert_eq!(used, deduplicated.len());
-	// Deduplication must not change the reconstructed database (`db` holds the decoded
-	// unmodified encoding): same entries, same reference counts.
-	assert!(hash_keyed_db == db && db == hash_keyed_db);
+	// Deduplication must not change the reconstructed node set (`db` holds the decoded
+	// unmodified encoding); reference counts differ by design and are not compared.
+	assert!(db_key_set(&hash_keyed_db) == db_key_set(&db));
 	let trie = TrieDBBuilder::<L>::new(&hash_keyed_db, &root).build();
-	for (key, expected_value) in &items {
-		assert_eq!(&trie.get(key.as_slice()).unwrap(), expected_value);
-	}
-
-	let mut prefixed_db = <MemoryDB<L::Hash, PrefixedKey<_>, _>>::default();
-	let (root, _) = decode_compact::<L, _>(&mut prefixed_db, &deduplicated).unwrap();
-	assert_eq!(root, expected_root);
-	// Same for a position-keyed database, where deduplicated items have to be re-inserted at
-	// every referencing position.
-	let mut expected_prefixed_db = <MemoryDB<L::Hash, PrefixedKey<_>, _>>::default();
-	decode_compact::<L, _>(&mut expected_prefixed_db, &compact_trie).unwrap();
-	assert!(prefixed_db == expected_prefixed_db && expected_prefixed_db == prefixed_db);
-	let trie = TrieDBBuilder::<L>::new(&prefixed_db, &root).build();
 	for (key, expected_value) in &items {
 		assert_eq!(&trie.get(key.as_slice()).unwrap(), expected_value);
 	}

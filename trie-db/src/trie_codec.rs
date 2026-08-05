@@ -38,15 +38,15 @@
 
 use crate::{
 	nibble_ops::NIBBLE_LENGTH,
-	node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, Value, ValuePlan},
+	node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, ValuePlan},
 	rstd::{
 		boxed::Box, convert::TryInto, marker::PhantomData, result, sync::Arc, vec, vec::Vec,
-		BTreeMap, BTreeSet,
+		BTreeSet,
 	},
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result, TrieDB, TrieDBRawIterator,
 	TrieError, TrieHash, TrieLayout,
 };
-use hash_db::{HashDB, Hasher, Prefix};
+use hash_db::{HashDB, Prefix};
 
 const OMIT_VALUE_HASH: crate::node::Value<'static> = crate::node::Value::Inline(&[]);
 
@@ -217,6 +217,7 @@ fn detached_value<L: TrieLayout>(
 	};
 	let value_hash = &node_data[hash_plan.clone()];
 	if let Some(seen_hashes) = &seen_hashes {
+		// Already emitted once: keep the plain hash reference instead of detaching again.
 		if seen_hashes.contains(value_hash) {
 			return None
 		}
@@ -260,12 +261,13 @@ where
 /// its root was first seen. Encoding from per-proof recorded sets whose coverage of a shared
 /// node diverges silently drops the divergent nodes and produces unverifiable proofs.
 ///
-/// Any decoder reconstructs a readable hash-keyed database from the result. Reconstructing the
-/// exact database of an un-deduplicated encoding (every position populated, matching reference
-/// counts) requires a re-inserting decoder, i.e. [`decode_compact_from_iter_with_known_items`].
+/// A deduplicated occurrence is indistinguishable from a reference to an item outside the
+/// partial trie, so any decoder reconstructs a readable hash-keyed
+/// node set: every item is present under its hash from its first occurrence. Per-position
+/// bookkeeping is deliberately not reconstructable: decoding into a position-keyed (prefixed)
+/// database, or relying on the reconstruction's reference counts, is unsupported.
 ///
-/// Assumes occurrences of an item are interchangeable, as they are when `db` is hash-keyed. A
-/// prefixed `db` populating a duplicated subtree only below a later occurrence would drop it.
+/// Assumes occurrences of an item are interchangeable, as they are when `db` is hash-keyed.
 pub fn encode_compact_skip_duplicates<L>(
 	db: &TrieDB<L>,
 	seen_hashes: &mut BTreeSet<Vec<u8>>,
@@ -410,9 +412,6 @@ struct DecoderStackEntry<'a, C: NodeCodec> {
 	child_index: usize,
 	/// The reconstructed child references.
 	children: Vec<Option<ChildReference<C::HashOut>>>,
-	/// Bit mask of children kept as plain hash references, which may point at subtrees
-	/// deduplicated into an earlier occurrence (see [`encode_compact_skip_duplicates`]).
-	hash_ref_children: u16,
 	/// A value attached as a node. The node will need to use its hash as value.
 	attached_value: Option<&'a [u8]>,
 	_marker: PhantomData<C>,
@@ -436,9 +435,6 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 						let child_ref: ChildReference<_> = child.try_into().map_err(|hash| {
 							Box::new(TrieError::InvalidHash(C::HashOut::default(), hash))
 						})?;
-						if child_ref.is_hash() {
-							self.hash_ref_children |= 1u16 << self.child_index;
-						}
 						self.children[self.child_index] = Some(child_ref);
 					},
 				}
@@ -453,9 +449,6 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 								child.try_into().map_err(|hash| {
 									Box::new(TrieError::InvalidHash(C::HashOut::default(), hash))
 								})?;
-							if child_ref.is_hash() {
-								self.hash_ref_children |= 1u16 << self.child_index;
-							}
 							self.children[self.child_index] = Some(child_ref);
 						},
 						None => {},
@@ -533,138 +526,17 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 	}
 }
 
-/// Re-insert the deduplicated subtrees that `entry`'s node references through plain hash-reference
-/// children (see [`encode_compact_skip_duplicates`]), replaying what an un-deduplicated encoding
-/// would have inserted below this node. Hashes missing from `known_items` reference items outside
-/// the encoding and are skipped, like the holes an un-deduplicated encoding would leave.
-///
-/// `prefix` is `entry`'s node prefix; it is restored before returning.
-fn reinsert_known_subtrees<L, DB>(
-	db: &mut DB,
-	known_items: &BTreeMap<Vec<u8>, DBValue>,
-	entry: &DecoderStackEntry<L::Codec>,
-	prefix: &mut NibbleVec,
-) -> Result<(), TrieHash<L>, CError<L>>
-where
-	L: TrieLayout,
-	DB: HashDB<L::Hash, DBValue>,
-{
-	let partial_len = match &entry.node {
-		Node::Extension(partial, _) | Node::NibbledBranch(partial, _, _) => {
-			prefix.append_partial(partial.right());
-			partial.len()
-		},
-		_ => 0,
-	};
-	for index in 0..entry.children.len() {
-		if entry.hash_ref_children & (1u16 << index) == 0 {
-			continue
-		}
-		let hash = match &entry.children[index] {
-			Some(ChildReference::Hash(hash)) => hash,
-			_ => continue,
-		};
-		// An extension's child sits directly below the partial; branch children add their nibble.
-		let result = if matches!(&entry.node, Node::Extension(..)) {
-			reinsert_known_subtree::<L, DB>(db, known_items, hash.as_ref(), prefix)
-		} else {
-			prefix.push(index as u8);
-			let result = reinsert_known_subtree::<L, DB>(db, known_items, hash.as_ref(), prefix);
-			prefix.pop();
-			result
-		};
-		result?;
-	}
-	prefix.drop_lasts(partial_len);
-	Ok(())
-}
-
-/// Re-insert at `prefix` the subtree rooted at the known node with `hash`: the node, its known
-/// detached value and, transitively, its known child subtrees, each at the position it would
-/// occupy below `prefix`.
-fn reinsert_known_subtree<L, DB>(
-	db: &mut DB,
-	known_items: &BTreeMap<Vec<u8>, DBValue>,
-	hash: &[u8],
-	prefix: &NibbleVec,
-) -> Result<(), TrieHash<L>, CError<L>>
-where
-	L: TrieLayout,
-	DB: HashDB<L::Hash, DBValue>,
-{
-	// Work items are `(prefix, hash, is_value)`. Values are inserted verbatim; nodes are decoded
-	// to enqueue their hash-referenced value and children. A decode failure only means the hash
-	// was recorded for a value whose bytes are not a node, so it is ignored rather than an error.
-	let mut work = vec![(prefix.clone(), hash.to_vec(), false)];
-	while let Some((prefix, hash, is_value)) = work.pop() {
-		let item = match known_items.get(&hash) {
-			Some(item) => item,
-			None => continue,
-		};
-		if is_value {
-			db.insert(prefix.as_prefix(), item);
-			continue
-		}
-		let node = match L::Codec::decode(item) {
-			Ok(node) => node,
-			Err(_) => continue,
-		};
-		db.insert(prefix.as_prefix(), item);
-		match node {
-			Node::Empty => {},
-			Node::Leaf(partial, value) =>
-				if let Value::Node(value_hash) = value {
-					let mut value_prefix = prefix;
-					value_prefix.append_partial(partial.right());
-					work.push((value_prefix, value_hash.to_vec(), true));
-				},
-			Node::Extension(partial, child) =>
-				if let NodeHandle::Hash(child_hash) = child {
-					let mut child_prefix = prefix;
-					child_prefix.append_partial(partial.right());
-					work.push((child_prefix, child_hash.to_vec(), false));
-				},
-			Node::Branch(children, value) => {
-				if let Some(Value::Node(value_hash)) = value {
-					work.push((prefix.clone(), value_hash.to_vec(), true));
-				}
-				for (index, child) in children.iter().enumerate() {
-					if let Some(NodeHandle::Hash(child_hash)) = child {
-						let mut child_prefix = prefix.clone();
-						child_prefix.push(index as u8);
-						work.push((child_prefix, child_hash.to_vec(), false));
-					}
-				}
-			},
-			Node::NibbledBranch(partial, children, value) => {
-				let mut node_prefix = prefix;
-				node_prefix.append_partial(partial.right());
-				if let Some(Value::Node(value_hash)) = value {
-					work.push((node_prefix.clone(), value_hash.to_vec(), true));
-				}
-				for (index, child) in children.iter().enumerate() {
-					if let Some(NodeHandle::Hash(child_hash)) = child {
-						let mut child_prefix = node_prefix.clone();
-						child_prefix.push(index as u8);
-						work.push((child_prefix, child_hash.to_vec(), false));
-					}
-				}
-			},
-		}
-	}
-	Ok(())
-}
-
 /// Reconstructs a partial trie DB from a compact representation. The encoding is a vector of
 /// mutated trie nodes with those child references omitted. The decode function reads them in order
 /// from the given slice, reconstructing the full nodes and inserting them into the given `HashDB`.
 /// It stops after fully constructing one partial trie and returns the root hash and the number of
-/// nodes read. If an error occurs during decoding, there are no guarantees about which entries
-/// were or were not added to the DB.
+/// items read — trie nodes plus any detached value items consumed. If an error occurs during
+/// decoding, there are no guarantees about which entries were or were not added to the DB.
 ///
-/// The number of nodes read may be fewer than the total number of items in `encoded`. This allows
-/// one to concatenate multiple compact encodings together and still reconstruct them all.
-//
+/// This count may be fewer than the total number of items in `encoded`. This allows one to
+/// concatenate multiple compact encodings together and still reconstruct them all: decode the
+/// next encoding starting at the returned offset.
+///
 /// This function makes the assumption that all child references in an inline trie node are inline
 /// references.
 pub fn decode_compact<L, DB>(
@@ -682,39 +554,6 @@ where
 pub fn decode_compact_from_iter<'a, L, DB, I>(
 	db: &mut DB,
 	encoded: I,
-) -> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
-where
-	L: TrieLayout,
-	DB: HashDB<L::Hash, DBValue>,
-	I: IntoIterator<Item = &'a [u8]>,
-{
-	decode_compact_from_iter_with_known_items::<L, DB, I>(db, encoded, &mut BTreeMap::new())
-}
-
-/// Variant of [`decode_compact_from_iter`] that threads the map of already decoded items —
-/// attached values and reconstructed nodes, keyed by hash — across successive calls.
-///
-/// Every attached value and reconstructed node is recorded in `known_items`. A node referencing a
-/// known item only by hash (see [`encode_compact_skip_duplicates`]) has it — for a subtree, the
-/// item and everything known below it — re-inserted at that position. Threading across calls is
-/// only needed for encodings deduplicated with a shared `seen_hashes` set.
-///
-/// A deduplicated hash reference is indistinguishable from a genuine reference to a node outside
-/// the encoding, so when the trie has identically encoded subtrees this re-inserts external
-/// siblings too. The result is a *superset* of the un-deduplicated database: same nodes, but
-/// reference counts that may be higher (bounded by the full trie), never lower. Reads and the root
-/// are exact; over-counting is the safe direction for reference-counted stores.
-///
-/// Decoding work is proportional to the *un-deduplicated* encoding: re-inserting subtrees at every
-/// occurrence can touch far more positions than there are items in `encoded`, so callers decoding
-/// untrusted input should bound the logical size, not the encoded size.
-///
-/// Returns the root hash of the reconstructed partial trie and the number of items consumed from
-/// `encoded`.
-pub fn decode_compact_from_iter_with_known_items<'a, L, DB, I>(
-	db: &mut DB,
-	encoded: I,
-	known_items: &mut BTreeMap<Vec<u8>, DBValue>,
 ) -> Result<(TrieHash<L>, usize), TrieHash<L>, CError<L>>
 where
 	L: TrieLayout,
@@ -748,7 +587,6 @@ where
 			node,
 			child_index: 0,
 			children: vec![None; children_len],
-			hash_ref_children: 0,
 			attached_value: None,
 			_marker: PhantomData::default(),
 		};
@@ -757,10 +595,6 @@ where
 			// Read value
 			if let Some((_, fetched_value)) = iter.next() {
 				last_entry.attached_value = Some(fetched_value);
-				// Record immediately: a node deduplicated against this one can complete before
-				// this node does, e.g. a leaf below a branch carrying the value.
-				known_items
-					.insert(L::Hash::hash(fetched_value).as_ref().to_vec(), fetched_value.to_vec());
 			} else {
 				return Err(Box::new(TrieError::IncompleteDatabase(<TrieHash<L>>::default())))
 			}
@@ -787,39 +621,8 @@ where
 				prefix.drop_lasts(partial_prefix_len);
 				hash
 			});
-			if hash.is_none() {
-				// The node's detached value may have been deduplicated into an earlier occurrence
-				// (see `encode_compact_skip_duplicates`); re-insert it here too so `db` matches an
-				// un-deduplicated encoding. A miss means the value is not in the encoding, which is
-				// legal.
-				let value_hash = match &last_entry.node {
-					Node::Leaf(_, Value::Node(hash)) => Some(*hash),
-					Node::Branch(_, Some(Value::Node(hash))) |
-					Node::NibbledBranch(_, _, Some(Value::Node(hash))) => Some(*hash),
-					_ => None,
-				};
-				if let Some(value) = value_hash.and_then(|hash| known_items.get(hash)) {
-					let partial_prefix_len = match &last_entry.node {
-						Node::Leaf(partial, _) | Node::NibbledBranch(partial, _, _) => {
-							prefix.append_partial(partial.right());
-							partial.len()
-						},
-						_ => 0,
-					};
-					db.insert(prefix.as_prefix(), value);
-					prefix.drop_lasts(partial_prefix_len);
-				}
-			}
-			// Children kept as plain hash references may point at subtrees deduplicated into an
-			// earlier occurrence; re-insert them here too. Misses again mean the nodes are not in
-			// the encoding.
-			if last_entry.hash_ref_children != 0 {
-				reinsert_known_subtrees::<L, DB>(db, known_items, &last_entry, &mut prefix)?;
-			}
 			let node_data = last_entry.encode_node(hash.as_ref().map(|h| h.as_ref()));
 			let node_hash = db.insert(prefix.as_prefix(), node_data.as_ref());
-
-			known_items.insert(node_hash.as_ref().to_vec(), node_data);
 
 			if let Some(entry) = stack.pop() {
 				last_entry = entry;
