@@ -224,10 +224,7 @@ fn detached_value<L: TrieLayout>(
 			return None
 		}
 	}
-	let fetched = match TrieDBRawIterator::fetch_value(db, value_hash, node_prefix) {
-		Ok(value) => value,
-		Err(_) => return None,
-	};
+	let fetched = TrieDBRawIterator::fetch_value(db, value_hash, node_prefix).ok()?;
 	if let (Some(seen_hashes), Some(key)) = (seen_hashes, dedup_key) {
 		seen_hashes.insert(key);
 	}
