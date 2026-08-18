@@ -83,10 +83,9 @@ fn fuzzer_found_scenarios() {
 fn divergent_coverage_drops_nodes() {
 	use hash_db::{HashDB, EMPTY_PREFIX};
 	use memory_db::{HashKey, MemoryDB};
-	use std::collections::BTreeSet;
 	use trie_db::{
-		decode_compact_from_iter, encode_compact_skip_duplicates, DBValue, Recorder, Trie,
-		TrieDBBuilder, TrieDBMutBuilder, TrieError, TrieLayout, TrieMut,
+		decode_compact_from_iter, encode_compact_skip_duplicates, DBValue, Recorder, SeenHashes,
+		Trie, TrieDBBuilder, TrieDBMutBuilder, TrieError, TrieLayout, TrieMut,
 	};
 	type L = HashedValueNoExtThreshold<1>;
 	type H = <L as TrieLayout>::Hash;
@@ -107,7 +106,7 @@ fn divergent_coverage_drops_nodes() {
 
 	// Two proofs of the same trie, each recorded independently, so the branch above the two
 	// 0x11… leaves is a boundary node of proof 0 and covered deeper by proof 1.
-	let mut seen = BTreeSet::new();
+	let mut seen = SeenHashes::default();
 	let mut reconstructed = MemoryDB::<H, HashKey<H>, DBValue>::default();
 	let queried: [&[u8]; 2] = [&[0x11, 0x00], &[0x11, 0x11]];
 	for (proof, key) in queried.iter().enumerate() {

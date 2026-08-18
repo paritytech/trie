@@ -602,10 +602,9 @@ fn select_queried(spec: &TrieSpec, entries: &[(Vec<u8>, Vec<u8>)]) -> Vec<Vec<u8
 /// drops nodes; `divergent_coverage_drops_nodes` in the smoke tests pins that failure mode.
 pub fn fuzz_dedup_scenario<L: TrieLayout>(scenario: DedupScenario) {
 	use hash_db::{HashDB, EMPTY_PREFIX};
-	use std::collections::BTreeSet;
 	use trie_db::{
 		decode_compact, decode_compact_from_iter, encode_compact, encode_compact_skip_duplicates,
-		Recorder,
+		Recorder, SeenHashes,
 	};
 
 	let value_pool = build_value_pool(&scenario.value_pool);
@@ -616,7 +615,7 @@ pub fn fuzz_dedup_scenario<L: TrieLayout>(scenario: DedupScenario) {
 	let mut actual_hashed = MemoryDB::<L::Hash, HashKey<_>, DBValue>::default();
 
 	// Deduplication state threaded across every trie in the scenario.
-	let mut seen_hashes = BTreeSet::new();
+	let mut seen_hashes = SeenHashes::default();
 
 	let mut total_plain = 0usize;
 	let mut total_dedup = 0usize;
@@ -670,7 +669,7 @@ pub fn fuzz_dedup_scenario<L: TrieLayout>(scenario: DedupScenario) {
 			let trie = TrieDBBuilder::<L>::new(&union_partial, root).build();
 			let plain = encode_compact::<L>(&trie).unwrap();
 			let standalone =
-				encode_compact_skip_duplicates::<L>(&trie, &mut BTreeSet::new()).unwrap();
+				encode_compact_skip_duplicates::<L>(&trie, &mut SeenHashes::default()).unwrap();
 			let dedup = encode_compact_skip_duplicates::<L>(&trie, &mut seen_hashes).unwrap();
 			(plain, dedup, standalone)
 		};

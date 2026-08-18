@@ -17,8 +17,8 @@ use reference_trie::{test_layouts, ExtensionLayout};
 use std::collections::BTreeSet;
 use trie_db::{
 	decode_compact, decode_compact_from_iter, encode_compact, encode_compact_skip_duplicates,
-	DBValue, NodeCodec, Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieError, TrieLayout,
-	TrieMut,
+	DBValue, NodeCodec, Recorder, SeenHashes, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieError,
+	TrieLayout, TrieMut,
 };
 
 type MemoryDB<T> = memory_db::MemoryDB<
@@ -384,7 +384,7 @@ fn skip_duplicate_values_across_concatenated_encodings() {
 
 	// Thread one seen-set through both encodings: the second references the shared value
 	// without re-emitting it.
-	let mut seen_hashes = BTreeSet::new();
+	let mut seen_hashes = SeenHashes::default();
 	let encoded_a = {
 		let trie = <TrieDBBuilder<L>>::new(&db_a, &root_a).build();
 		encode_compact_skip_duplicates::<L>(&trie, &mut seen_hashes).unwrap()
@@ -477,7 +477,7 @@ fn skip_duplicates_shares_subtrees_across_concatenated_encodings() {
 
 	// Thread one seen-set through both encodings: the second references the shared subtree
 	// without re-emitting it.
-	let mut seen_hashes = BTreeSet::new();
+	let mut seen_hashes = SeenHashes::default();
 	let encoded_a = encode_compact_skip_duplicates::<L>(&trie_a, &mut seen_hashes).unwrap();
 	let encoded_b = encode_compact_skip_duplicates::<L>(&trie_b, &mut seen_hashes).unwrap();
 	let standalone_b =
@@ -519,7 +519,7 @@ fn skip_duplicates_always_emits_the_root() {
 	// Encode the same trie twice with one threaded seen-set. Everything is known when the second
 	// encoding starts, but the root must still be emitted so the encoding stays individually
 	// decodable; all its children collapse to plain hash references.
-	let mut seen_hashes = BTreeSet::new();
+	let mut seen_hashes = SeenHashes::default();
 	let first = encode_compact_skip_duplicates::<L>(&trie, &mut seen_hashes).unwrap();
 	let second = encode_compact_skip_duplicates::<L>(&trie, &mut seen_hashes).unwrap();
 	assert!(first.len() > 1);
@@ -538,6 +538,71 @@ fn skip_duplicates_always_emits_the_root() {
 	assert_eq!(decoded_root, root);
 	assert_eq!(used, 1);
 	assert_entries_match::<L>(&shared_db, root, &entries);
+}
+
+/// A value byte-identical to a node's encoding hashes to that node's hash. With one shared set,
+/// emitting it early would fire the node-subtree skip on the real node and drop its subtree while
+/// the proof still matched the root. [`SeenHashes`] keeps the namespaces disjoint, so the subtree
+/// must survive. Every node encoding is tried in turn as the poison value.
+#[test]
+fn value_equal_to_node_encoding_does_not_drop_subtree() {
+	// Layout storing every non-empty value as a separate value node.
+	type L = reference_trie::HashedValueNoExtThreshold<1>;
+
+	// Root branch with children under nibbles 0xA and 0xF; the 0xA child is a non-root branch with
+	// two leaves — a subtree worth dropping.
+	let base: [(&[u8], &[u8]); 3] =
+		[(&[0xA1], &[1u8; 40]), (&[0xA2], &[2u8; 40]), (&[0xF9], &[3u8; 40])];
+	let (base_db, _base_root) = {
+		let mut db = MemoryDB::<L>::default();
+		let mut root = Default::default();
+		{
+			let mut trie = <TrieDBMutBuilder<L>>::new(&mut db, &mut root).build();
+			for (key, value) in base.iter() {
+				trie.insert(key, value).unwrap();
+			}
+		}
+		(db, root)
+	};
+
+	// Every node encoding in the trie, each a candidate poison value.
+	let node_encodings: Vec<DBValue> = base_db
+		.keys()
+		.into_iter()
+		.filter_map(|(hash, _rc)| {
+			HashDBRef::<<L as TrieLayout>::Hash, DBValue>::get(&base_db, &hash, EMPTY_PREFIX)
+		})
+		.collect();
+	assert!(node_encodings.len() > 1);
+
+	for poison in node_encodings {
+		// Add a leaf under nibble 0x0 (so it sorts first) whose value equals a node encoding. The
+		// 0xA/0xF subtrees are untouched, so their node hashes still match `poison`.
+		let mut db = MemoryDB::<L>::default();
+		let mut root = Default::default();
+		{
+			let mut trie = <TrieDBMutBuilder<L>>::new(&mut db, &mut root).build();
+			trie.insert(&[0x01], &poison).unwrap();
+			for (key, value) in base.iter() {
+				trie.insert(key, value).unwrap();
+			}
+		}
+
+		let trie = <TrieDBBuilder<L>>::new(&db, &root).build();
+		let deduplicated =
+			encode_compact_skip_duplicates::<L>(&trie, &mut SeenHashes::default()).unwrap();
+
+		let mut decoded_db = MemoryDB::<L>::default();
+		let (decoded_root, _) = decode_compact::<L, _>(&mut decoded_db, &deduplicated).unwrap();
+		assert_eq!(decoded_root, root);
+
+		// The whole trie must still be readable; before the fix the 0xA subtree was dropped.
+		let decoded = <TrieDBBuilder<L>>::new(&decoded_db, &root).build();
+		assert_eq!(decoded.get(&[0x01]).unwrap().as_deref(), Some(poison.as_slice()));
+		for (key, value) in base.iter() {
+			assert_eq!(decoded.get(key).unwrap().as_deref(), Some(*value));
+		}
+	}
 }
 
 #[test]

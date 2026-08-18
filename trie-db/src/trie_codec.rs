@@ -198,18 +198,42 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 	}
 }
 
+/// Hashes of items already emitted by [`encode_compact_skip_duplicates`], so later occurrences
+/// keep a plain hash reference instead of being emitted again.
+///
+/// Node and value hashes are kept in separate namespaces: skipping a node drops its whole subtree
+/// and is only sound once that subtree was emitted, which a value can never guarantee. A shared
+/// set would let a value equal to a node's encoding trigger the skip and drop the subtree.
+pub struct SeenHashes<L: TrieLayout> {
+	nodes: BTreeSet<TrieHash<L>>,
+	values: BTreeSet<TrieHash<L>>,
+}
+
+// Hand-written impls: deriving would add a spurious `L: Default`/`L: Clone` bound.
+impl<L: TrieLayout> Default for SeenHashes<L> {
+	fn default() -> Self {
+		SeenHashes { nodes: BTreeSet::new(), values: BTreeSet::new() }
+	}
+}
+
+impl<L: TrieLayout> Clone for SeenHashes<L> {
+	fn clone(&self) -> Self {
+		SeenHashes { nodes: self.nodes.clone(), values: self.values.clone() }
+	}
+}
+
 /// Detached value if included does write a reserved header,
 /// followed by node encoded with 0 length value and the value
 /// as a standalone vec.
 ///
-/// When `seen_hashes` is given, a value whose hash is already in the set is not detached again.
-/// Only hashes of actually emitted values are added to the set.
+/// When `seen` is given, a value whose hash is already in the value namespace is not detached
+/// again. Only hashes of actually emitted values are added to the set.
 fn detached_value<L: TrieLayout>(
 	db: &TrieDB<L>,
 	value: &ValuePlan,
 	node_data: &[u8],
 	node_prefix: Prefix,
-	seen_hashes: Option<&mut BTreeSet<TrieHash<L>>>,
+	seen: Option<&mut SeenHashes<L>>,
 ) -> Option<Vec<u8>> {
 	let hash_plan = match value {
 		ValuePlan::Node(hash_plan) => hash_plan,
@@ -217,16 +241,16 @@ fn detached_value<L: TrieLayout>(
 	};
 	let value_hash = &node_data[hash_plan.clone()];
 
-	let dedup_key = seen_hashes.as_ref().and_then(|_| decode_hash::<L::Hash>(value_hash));
-	if let (Some(seen_hashes), Some(key)) = (&seen_hashes, &dedup_key) {
+	let dedup_key = seen.as_ref().and_then(|_| decode_hash::<L::Hash>(value_hash));
+	if let (Some(seen), Some(key)) = (&seen, &dedup_key) {
 		// Already emitted once: keep the plain hash reference instead of detaching again.
-		if seen_hashes.contains(key) {
+		if seen.values.contains(key) {
 			return None
 		}
 	}
 	let fetched = TrieDBRawIterator::fetch_value(db, value_hash, node_prefix).ok()?;
-	if let (Some(seen_hashes), Some(key)) = (seen_hashes, dedup_key) {
-		seen_hashes.insert(key);
+	if let (Some(seen), Some(key)) = (seen, dedup_key) {
+		seen.values.insert(key);
 	}
 	Some(fetched)
 }
@@ -253,9 +277,10 @@ where
 /// like references to items outside the partial trie. Only items at least as large as a hash are
 /// referenced this way, so deduplication never grows the encoding.
 ///
-/// `seen_hashes` collects the emitted hashes.
+/// `seen` collects the emitted hashes, keeping trie-node and detached-value hashes in disjoint
+/// namespaces (see [`SeenHashes`]).
 ///
-/// All encodings sharing one `seen_hashes` set must be generated from a single, fixed backing
+/// All encodings sharing one `seen` set must be generated from a single, fixed backing
 /// node set: a skipped subtree is reconstructable only if everything below it was emitted when
 /// its root was first seen. Encoding from per-proof recorded sets whose coverage of a shared
 /// node diverges silently drops the divergent nodes and produces unverifiable proofs.
@@ -269,17 +294,17 @@ where
 /// Assumes occurrences of an item are interchangeable, as they are when `db` is hash-keyed.
 pub fn encode_compact_skip_duplicates<L>(
 	db: &TrieDB<L>,
-	seen_hashes: &mut BTreeSet<TrieHash<L>>,
+	seen: &mut SeenHashes<L>,
 ) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 where
 	L: TrieLayout,
 {
-	encode_compact_inner(db, Some(seen_hashes))
+	encode_compact_inner(db, Some(seen))
 }
 
 fn encode_compact_inner<L>(
 	db: &TrieDB<L>,
-	mut seen_hashes: Option<&mut BTreeSet<TrieHash<L>>>,
+	mut seen: Option<&mut SeenHashes<L>>,
 ) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 where
 	L: TrieLayout,
@@ -307,19 +332,19 @@ where
 				// assumption.
 				let Some(node_hash) = node_hash else { continue };
 
-				if let Some(seen_hashes) = seen_hashes.as_deref_mut() {
+				if let Some(seen) = seen.as_deref_mut() {
 					let is_root = stack.is_empty();
 					// A subtree whose root was already emitted is skipped entirely; the parent's
 					// `omit_children` bit stays unset, keeping a plain hash reference. The root is
 					// never skipped, so each encoding stays individually decodable when
-					// `seen_hashes` is threaded across successive encodings. Sound only under the
+					// `seen` is threaded across successive encodings. Sound only under the
 					// fixed-backing-set precondition (see `encode_compact_skip_duplicates`): the
 					// subtree below a seen hash must not have grown since it was emitted.
-					if !is_root && seen_hashes.contains(node_hash) {
+					if !is_root && seen.nodes.contains(node_hash) {
 						iter.skip_current_subtree();
 						continue
 					}
-					seen_hashes.insert(*node_hash);
+					seen.nodes.insert(*node_hash);
 				}
 
 				// Unwind the stack until the new entry is a child of the last entry on the stack.
@@ -352,7 +377,7 @@ where
 							value,
 							node.data(),
 							prefix.as_prefix(),
-							seen_hashes.as_deref_mut(),
+							seen.as_deref_mut(),
 						),
 					),
 					NodePlan::Extension { .. } => (1, None),
@@ -364,7 +389,7 @@ where
 							value,
 							node.data(),
 							prefix.as_prefix(),
-							seen_hashes.as_deref_mut(),
+							seen.as_deref_mut(),
 						),
 					),
 					NodePlan::NibbledBranch { value: None, .. } |
