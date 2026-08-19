@@ -4,6 +4,19 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
+## [Unreleased]
+- Fix the item count returned by `decode_compact`/`decode_compact_from_iter` when the last
+  decoded node carries an attached (detached-at-encoding) value: the value item was not counted,
+  so continuing to decode concatenated encodings at the returned offset re-read the value as a
+  node.
+- Add `encode_compact_skip_duplicates`, emitting each distinct item in a compact proof — trie
+  node or detached value node — only once instead of once per referencing position. Deduplicated
+  encodings reconstruct a readable hash-keyed database with any decoder, including already
+  released ones; decoding them into position-keyed (prefixed) databases, or relying on
+  reconstructed reference counts, is unsupported — a proof is a record of state accesses, not a
+  database to mutate
+  ([polkadot-sdk#12565](https://github.com/paritytech/polkadot-sdk/issues/12565)).
+
 ## [0.30.0] - 2025-03-06
 - Improve `TrieCache` size by reducing size_of `NodeOwned` [#216](https://github.com/paritytech/trie/pull/216)
 

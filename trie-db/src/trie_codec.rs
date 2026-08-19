@@ -24,11 +24,25 @@
 //! hash references to nodes not in the partial trie are left intact. The compact encoding can be
 //! expected to save roughly (n - 1) hashes in size where n is the number of nodes in the partial
 //! trie.
+//!
+//! A value node contained in the partial trie (see [`TrieLayout::MAX_INLINE_VALUE`]) is
+//! "detached": the referencing node is emitted with an escape header (see
+//! `NodeCodec::ESCAPE_HEADER`) and an empty inline value, directly followed by the value bytes
+//! as a standalone item. A node whose value node is *not* part of the partial trie is emitted
+//! unmodified, still referencing its value by hash.
+//!
+//! `encode_compact` re-emits a shared item once per position (a detached value per referencing
+//! node, a duplicated subtree per occurrence). [`encode_compact_skip_duplicates`] instead emits
+//! each distinct item only once; later occurrences keep a plain hash reference, like any
+//! reference to an item outside the partial trie.
 
 use crate::{
 	nibble_ops::NIBBLE_LENGTH,
-	node::{Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, ValuePlan},
-	rstd::{boxed::Box, convert::TryInto, marker::PhantomData, result, sync::Arc, vec, vec::Vec},
+	node::{decode_hash, Node, NodeHandle, NodeHandlePlan, NodePlan, OwnedNode, ValuePlan},
+	rstd::{
+		boxed::Box, convert::TryInto, marker::PhantomData, result, sync::Arc, vec, vec::Vec,
+		BTreeSet,
+	},
 	CError, ChildReference, DBValue, NibbleVec, NodeCodec, Result, TrieDB, TrieDBRawIterator,
 	TrieError, TrieHash, TrieLayout,
 };
@@ -184,27 +198,59 @@ impl<C: NodeCodec> EncoderStackEntry<C> {
 	}
 }
 
+/// Hashes of items already emitted by [`encode_compact_skip_duplicates`], so later occurrences
+/// keep a plain hash reference instead of being emitted again.
+///
+/// Node and value hashes are kept in separate namespaces: skipping a node drops its whole subtree
+/// and is only sound once that subtree was emitted, which a value can never guarantee. A shared
+/// set would let a value equal to a node's encoding trigger the skip and drop the subtree.
+pub struct SeenHashes<L: TrieLayout> {
+	nodes: BTreeSet<TrieHash<L>>,
+	values: BTreeSet<TrieHash<L>>,
+}
+
+// Hand-written impls: deriving would add a spurious `L: Default`/`L: Clone` bound.
+impl<L: TrieLayout> Default for SeenHashes<L> {
+	fn default() -> Self {
+		SeenHashes { nodes: BTreeSet::new(), values: BTreeSet::new() }
+	}
+}
+
+impl<L: TrieLayout> Clone for SeenHashes<L> {
+	fn clone(&self) -> Self {
+		SeenHashes { nodes: self.nodes.clone(), values: self.values.clone() }
+	}
+}
+
 /// Detached value if included does write a reserved header,
 /// followed by node encoded with 0 length value and the value
 /// as a standalone vec.
+///
+/// When `seen` is given, a value whose hash is already in the value namespace is not detached
+/// again. Only hashes of actually emitted values are added to the set.
 fn detached_value<L: TrieLayout>(
 	db: &TrieDB<L>,
 	value: &ValuePlan,
 	node_data: &[u8],
 	node_prefix: Prefix,
+	seen: Option<&mut SeenHashes<L>>,
 ) -> Option<Vec<u8>> {
-	let fetched;
-	match value {
-		ValuePlan::Node(hash_plan) => {
-			if let Ok(value) =
-				TrieDBRawIterator::fetch_value(db, &node_data[hash_plan.clone()], node_prefix)
-			{
-				fetched = value;
-			} else {
-				return None
-			}
-		},
+	let hash_plan = match value {
+		ValuePlan::Node(hash_plan) => hash_plan,
 		_ => return None,
+	};
+	let value_hash = &node_data[hash_plan.clone()];
+
+	let dedup_key = seen.as_ref().and_then(|_| decode_hash::<L::Hash>(value_hash));
+	if let (Some(seen), Some(key)) = (&seen, &dedup_key) {
+		// Already emitted once: keep the plain hash reference instead of detaching again.
+		if seen.values.contains(key) {
+			return None
+		}
+	}
+	let fetched = TrieDBRawIterator::fetch_value(db, value_hash, node_prefix).ok()?;
+	if let (Some(seen), Some(key)) = (seen, dedup_key) {
+		seen.values.insert(key);
 	}
 	Some(fetched)
 }
@@ -214,9 +260,52 @@ fn detached_value<L: TrieLayout>(
 /// are listed in pre-order traversal order so that the full nodes can be efficiently
 /// reconstructed recursively.
 ///
+/// A shared detached value node is emitted once per referencing node and a duplicated subtree
+/// once per occurrence (see [`encode_compact_skip_duplicates`]).
+///
 /// This function makes the assumption that all child references in an inline trie node are inline
 /// references.
 pub fn encode_compact<L>(db: &TrieDB<L>) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+where
+	L: TrieLayout,
+{
+	encode_compact_inner(db, None)
+}
+
+/// Variant of [`encode_compact`] that emits each distinct item — trie node or detached value
+/// node — only once. Later occurrences keep a plain hash reference to the emitted item, exactly
+/// like references to items outside the partial trie. Only items at least as large as a hash are
+/// referenced this way, so deduplication never grows the encoding.
+///
+/// `seen` collects the emitted hashes, keeping trie-node and detached-value hashes in disjoint
+/// namespaces (see [`SeenHashes`]).
+///
+/// All encodings sharing one `seen` set must be generated from a single, fixed backing
+/// node set: a skipped subtree is reconstructable only if everything below it was emitted when
+/// its root was first seen. Encoding from per-proof recorded sets whose coverage of a shared
+/// node diverges silently drops the divergent nodes and produces unverifiable proofs.
+///
+/// A deduplicated occurrence is indistinguishable from a reference to an item outside the
+/// partial trie, so any decoder reconstructs a readable hash-keyed
+/// node set: every item is present under its hash from its first occurrence. Per-position
+/// bookkeeping is deliberately not reconstructable: decoding into a position-keyed (prefixed)
+/// database, or relying on the reconstruction's reference counts, is unsupported.
+///
+/// Assumes occurrences of an item are interchangeable, as they are when `db` is hash-keyed.
+pub fn encode_compact_skip_duplicates<L>(
+	db: &TrieDB<L>,
+	seen: &mut SeenHashes<L>,
+) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
+where
+	L: TrieLayout,
+{
+	encode_compact_inner(db, Some(seen))
+}
+
+fn encode_compact_inner<L>(
+	db: &TrieDB<L>,
+	mut seen: Option<&mut SeenHashes<L>>,
+) -> Result<Vec<Vec<u8>>, TrieHash<L>, CError<L>>
 where
 	L: TrieLayout,
 {
@@ -241,8 +330,21 @@ where
 			Ok((prefix, node_hash, node)) => {
 				// Skip inline nodes, as they cannot contain hash references to other nodes by
 				// assumption.
-				if node_hash.is_none() {
-					continue
+				let Some(node_hash) = node_hash else { continue };
+
+				if let Some(seen) = seen.as_deref_mut() {
+					let is_root = stack.is_empty();
+					// A subtree whose root was already emitted is skipped entirely; the parent's
+					// `omit_children` bit stays unset, keeping a plain hash reference. The root is
+					// never skipped, so each encoding stays individually decodable when
+					// `seen` is threaded across successive encodings. Sound only under the
+					// fixed-backing-set precondition (see `encode_compact_skip_duplicates`): the
+					// subtree below a seen hash must not have grown since it was emitted.
+					if !is_root && seen.nodes.contains(node_hash) {
+						iter.skip_current_subtree();
+						continue
+					}
+					seen.nodes.insert(*node_hash);
 				}
 
 				// Unwind the stack until the new entry is a child of the last entry on the stack.
@@ -268,12 +370,28 @@ where
 
 				let (children_len, detached_value) = match node.node_plan() {
 					NodePlan::Empty => (0, None),
-					NodePlan::Leaf { value, .. } =>
-						(0, detached_value(db, value, node.data(), prefix.as_prefix())),
+					NodePlan::Leaf { value, .. } => (
+						0,
+						detached_value(
+							db,
+							value,
+							node.data(),
+							prefix.as_prefix(),
+							seen.as_deref_mut(),
+						),
+					),
 					NodePlan::Extension { .. } => (1, None),
 					NodePlan::NibbledBranch { value: Some(value), .. } |
-					NodePlan::Branch { value: Some(value), .. } =>
-						(NIBBLE_LENGTH, detached_value(db, value, node.data(), prefix.as_prefix())),
+					NodePlan::Branch { value: Some(value), .. } => (
+						NIBBLE_LENGTH,
+						detached_value(
+							db,
+							value,
+							node.data(),
+							prefix.as_prefix(),
+							seen.as_deref_mut(),
+						),
+					),
 					NodePlan::NibbledBranch { value: None, .. } |
 					NodePlan::Branch { value: None, .. } => (NIBBLE_LENGTH, None),
 				};
@@ -435,12 +553,13 @@ impl<'a, C: NodeCodec> DecoderStackEntry<'a, C> {
 /// mutated trie nodes with those child references omitted. The decode function reads them in order
 /// from the given slice, reconstructing the full nodes and inserting them into the given `HashDB`.
 /// It stops after fully constructing one partial trie and returns the root hash and the number of
-/// nodes read. If an error occurs during decoding, there are no guarantees about which entries
-/// were or were not added to the DB.
+/// items read — trie nodes plus any detached value items consumed. If an error occurs during
+/// decoding, there are no guarantees about which entries were or were not added to the DB.
 ///
-/// The number of nodes read may be fewer than the total number of items in `encoded`. This allows
-/// one to concatenate multiple compact encodings together and still reconstruct them all.
-//
+/// This count may be fewer than the total number of items in `encoded`. This allows one to
+/// concatenate multiple compact encodings together and still reconstruct them all: decode the
+/// next encoding starting at the returned offset.
+///
 /// This function makes the assumption that all child references in an inline trie node are inline
 /// references.
 pub fn decode_compact<L, DB>(
@@ -534,7 +653,7 @@ where
 				last_entry.children[last_entry.child_index] = Some(ChildReference::Hash(node_hash));
 				last_entry.child_index += 1;
 			} else {
-				return Ok((node_hash, i + 1))
+				return Ok((node_hash, i + 1 + attached_node))
 			}
 		}
 	}
