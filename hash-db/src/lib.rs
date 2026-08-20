@@ -14,23 +14,13 @@
 
 //! Database of byte-slices keyed to their hash.
 
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
-#[cfg(not(feature = "std"))]
 use core::hash;
-#[cfg(feature = "std")]
-use std::fmt::Debug;
-#[cfg(feature = "std")]
-use std::hash;
+use core::fmt::Debug;
 
-#[cfg(feature = "std")]
 pub trait MaybeDebug: Debug {}
-#[cfg(feature = "std")]
 impl<T: Debug> MaybeDebug for T {}
-#[cfg(not(feature = "std"))]
-pub trait MaybeDebug {}
-#[cfg(not(feature = "std"))]
-impl<T> MaybeDebug for T {}
 
 /// A trie node prefix, it is the nibble path from the trie root
 /// to the trie node.
@@ -205,7 +195,6 @@ impl<'a, H: Hasher, T> AsHashDB<H, T> for &'a mut dyn HashDB<H, T> {
 	}
 }
 
-#[cfg(feature = "std")]
 impl<'a, K, V> AsPlainDB<K, V> for &'a mut dyn PlainDB<K, V> {
 	fn as_plain_db(&self) -> &dyn PlainDB<K, V> {
 		&**self
