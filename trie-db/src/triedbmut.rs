@@ -1392,9 +1392,19 @@ where
 				Action::Replace(self.fix(Node::Branch(children, None), *key)?)
 			},
 			(Node::NibbledBranch(n, children, val), true) => {
-				self.replace_old_value(old_val, val, key.left());
-				// always replace since we took the value out.
-				Action::Replace(self.fix(Node::NibbledBranch(n, children, None), *key)?)
+				// The search key ended here, but this branch carries its own partial that the
+				// key did not traverse. That means the key is not actually present in the trie,
+				// so removal must be a no-op. Otherwise we would delete a different (longer)
+				// key's value and over-advance the nibble offset while fixing the branch,
+				// panicking in debug / silently corrupting the trie in release. See
+				// https://github.com/paritytech/trie/issues/217.
+				if NibbleSlice::from_stored(&n).is_empty() {
+					self.replace_old_value(old_val, val, key.left());
+					// always replace since we took the value out.
+					Action::Replace(self.fix(Node::NibbledBranch(n, children, None), *key)?)
+				} else {
+					Action::Restore(Node::NibbledBranch(n, children, val))
+				}
 			},
 			(Node::Branch(mut children, value), false) => {
 				let idx = partial.at(0) as usize;
