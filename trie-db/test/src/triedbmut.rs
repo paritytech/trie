@@ -930,6 +930,48 @@ fn test_commit_on_drop_disabled_internal<T: TrieLayout>() {
 	);
 }
 
+test_layouts!(
+	test_commit_on_drop_disabled_after_removing_last_key,
+	test_commit_on_drop_disabled_after_removing_last_key_internal
+);
+fn test_commit_on_drop_disabled_after_removing_last_key_internal<T: TrieLayout>() {
+	let (mut memdb, mut root) = prepare_test_trie::<T>();
+	let root_before = root.clone();
+	let db_key_count_before = memdb.keys().len();
+
+	{
+		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root)
+			.disable_commit_on_drop()
+			.build();
+		trie.remove(b"existing_key").unwrap();
+		assert!(trie.is_empty());
+	}
+
+	assert_eq!(root, root_before, "Root should not change after drop without commit");
+	assert_eq!(
+		memdb.keys().len(),
+		db_key_count_before,
+		"Database should not change after drop without commit"
+	);
+
+	{
+		let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+		assert_eq!(trie.get(b"existing_key").unwrap(), Some(b"existing_value".to_vec()));
+	}
+
+	{
+		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root)
+			.disable_commit_on_drop()
+			.build();
+		trie.remove(b"existing_key").unwrap();
+		trie.commit();
+	}
+	assert_eq!(root, reference_hashed_null_node::<T>());
+
+	let trie = TrieDBBuilder::<T>::new(&memdb, &root).build();
+	assert_eq!(trie.get(b"existing_key").unwrap(), None);
+}
+
 test_layouts!(test_commit_on_drop_enabled, test_commit_on_drop_enabled_internal);
 fn test_commit_on_drop_enabled_internal<T: TrieLayout>() {
 	let (mut memdb, mut root) = prepare_test_trie::<T>();

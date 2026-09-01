@@ -1839,7 +1839,10 @@ where
 		}
 
 		let handle = match self.root_handle() {
-			NodeHandle::Hash(_) => return, // no changes necessary.
+			NodeHandle::Hash(hash) => {
+				*self.root = hash;
+				return
+			},
 			NodeHandle::InMemory(h) => h,
 		};
 
@@ -2112,7 +2115,6 @@ where
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "remove: obliterated trie");
 				self.root_handle = NodeHandle::Hash(L::Codec::hashed_null_node());
-				*self.root = L::Codec::hashed_null_node();
 			},
 		}
 
