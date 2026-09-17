@@ -1,5 +1,8 @@
 [package]
 name = "reference-trie"
+# NOTE: do not bump this version. `parity-crate-owner` does not own this crate
+# on crates.io yet, so the release workflow cannot publish a new version of it.
+# If a bump is unavoidable it has to be published by hand.
 version = "0.29.3"
 authors = ["Parity Technologies <admin@parity.io>"]
 description = "Simple reference trie format"

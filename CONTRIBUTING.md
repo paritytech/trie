@@ -34,13 +34,20 @@ Bumping versions should be done in a separate from regular code changes PR.
 
 This part of the guidelines is for `trie` maintainers.
 
-When making a new release make sure to follow these steps:
-* Submit a PR with a version bump and list all major and breaking changes in the crate's changelog
+Crates are published by paritytech/crates_publish_automation as `parity-crate-owner`.
 
-After the PR is merged into master:
-* `cargo publish` on the latest master (try with `--dry-run` first)
-* Add a git tag in format `<crate-name>-v<version>`,
-e.g. `git tag trie-db-v0.2.2` and push it with `git push origin trie-db-v0.2.2`
+1. Merge a PR that bumps the version of each crate being released and of the
+   workspace crates depending on it, and turns `## [Unreleased]` in their
+   changelogs into `## [X.Y.Z] - YYYY-MM-DD`.
+2. Publish a GitHub Release from `master` with tag `<crate>-vX.Y.Z` for the
+   main crate released (`trie-db` whenever it is bumped) and the changelog
+   entries as notes. For a patch of an old line, target its `backport/<line>`
+   branch instead and untick "Set as the latest release", the branch must
+   contain `.github/workflows/release.yml`.
+3. The `Release` workflow packages the crates and hands them to the publisher,
+   which publishes the versions crates.io does not have yet. Check crates.io.
+   If it fails, an issue labelled `failure` is opened here, fix the cause and
+   re-run the workflow, already published versions are skipped.
 
 ## Conduct
 
