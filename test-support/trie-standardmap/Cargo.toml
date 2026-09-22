@@ -1,9 +1,6 @@
 [package]
 name = "trie-standardmap"
 description = "Standard test map for profiling tries"
-# NOTE: do not bump this version. `parity-crate-owner` does not own this crate
-# on crates.io yet, so the release workflow cannot publish a new version of it.
-# If a bump is unavoidable it has to be published by hand.
 version = "0.16.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 license = "Apache-2.0"
