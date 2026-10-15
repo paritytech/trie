@@ -1990,26 +1990,29 @@ where
 						});
 
 						let encoded = {
-							let commit_child = |node: NodeToEncode<TrieHash<L>>,
-							                    o_slice: Option<&NibbleSlice>,
-							                    o_index: Option<u8>| {
-								let mov = prefix.append_optional_slice_and_nibble(o_slice, o_index);
-								match node {
-									NodeToEncode::Node(value) => {
-										let value_hash = self.db.insert(prefix.as_prefix(), value);
+							let commit_child =
+								|node: NodeToEncode<TrieHash<L>>,
+								 o_slice: Option<&NibbleSlice>,
+								 o_index: Option<u8>| {
+									let mov =
+										prefix.append_optional_slice_and_nibble(o_slice, o_index);
+									match node {
+										NodeToEncode::Node(value) => {
+											let value_hash =
+												self.db.insert(prefix.as_prefix(), value);
 
-										self.cache_value(prefix.inner(), value, value_hash);
+											self.cache_value(prefix.inner(), value, value_hash);
 
-										prefix.drop_lasts(mov);
-										ChildReference::Hash(value_hash)
-									},
-									NodeToEncode::TrieNode(node_handle) => {
-										let result = self.commit_child(node_handle, prefix);
-										prefix.drop_lasts(mov);
-										result
-									},
-								}
-							};
+											prefix.drop_lasts(mov);
+											ChildReference::Hash(value_hash)
+										},
+										NodeToEncode::TrieNode(node_handle) => {
+											let result = self.commit_child(node_handle, prefix);
+											prefix.drop_lasts(mov);
+											result
+										},
+									}
+								};
 							node.into_encoded(commit_child)
 						};
 						if encoded.len() >= L::Hash::LENGTH {
