@@ -38,3 +38,5 @@ mod trie_codec;
 mod triedb;
 #[cfg(test)]
 mod triedbmut;
+#[cfg(test)]
+mod triedbmut_append_only;
