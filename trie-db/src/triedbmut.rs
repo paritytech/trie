@@ -43,10 +43,12 @@ use crate::rstd::fmt::{self, Debug};
 
 // For lookups into the Node storage buffer.
 // This is deliberately non-copyable.
+#[derive(Clone)]
 #[cfg_attr(feature = "std", derive(Debug))]
 struct StorageHandle(usize);
 
 // Handles to nodes in the trie.
+#[derive(Clone)]
 #[cfg_attr(feature = "std", derive(Debug))]
 enum NodeHandle<H> {
 	/// Loaded into memory.
@@ -73,7 +75,7 @@ fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; nibble_ops::NIBBLE_LENGTH]
 type NibbleFullKey<'key> = NibbleSlice<'key>;
 
 /// Value representation for Node.
-#[derive(Clone, Eq)]
+#[derive(Eq)]
 pub enum Value<L: TrieLayout> {
 	/// Value bytes inlined in a trie node.
 	Inline(Bytes),
@@ -83,6 +85,17 @@ pub enum Value<L: TrieLayout> {
 	/// The hash may be undefined until it node is added
 	/// to the db.
 	NewNode(Option<TrieHash<L>>, Bytes),
+}
+
+// Not derived, as that would require `L: Clone`.
+impl<L: TrieLayout> Clone for Value<L> {
+	fn clone(&self) -> Self {
+		match self {
+			Value::Inline(value) => Value::Inline(value.clone()),
+			Value::Node(hash) => Value::Node(*hash),
+			Value::NewNode(hash, value) => Value::NewNode(*hash, value.clone()),
+		}
+	}
 }
 
 impl<L: TrieLayout> PartialEq<Self> for Value<L> {
@@ -228,6 +241,20 @@ enum Node<L: TrieLayout> {
 		Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>,
 		Option<Value<L>>,
 	),
+}
+
+// Not derived, as that would require `L: Clone`.
+impl<L: TrieLayout> Clone for Node<L> {
+	fn clone(&self) -> Self {
+		match self {
+			Node::Empty => Node::Empty,
+			Node::Leaf(key, value) => Node::Leaf(key.clone(), value.clone()),
+			Node::Extension(key, child) => Node::Extension(key.clone(), child.clone()),
+			Node::Branch(children, value) => Node::Branch(children.clone(), value.clone()),
+			Node::NibbledBranch(key, children, value) =>
+				Node::NibbledBranch(key.clone(), children.clone(), value.clone()),
+		}
+	}
 }
 
 #[cfg(feature = "std")]
@@ -553,6 +580,16 @@ enum Stored<L: TrieLayout> {
 	New(Node<L>),
 	// A cached node, loaded from the DB.
 	Cached(Node<L>, TrieHash<L>),
+}
+
+// Not derived, as that would require `L: Clone`.
+impl<L: TrieLayout> Clone for Stored<L> {
+	fn clone(&self) -> Self {
+		match self {
+			Stored::New(node) => Stored::New(node.clone()),
+			Stored::Cached(node, hash) => Stored::Cached(node.clone(), *hash),
+		}
+	}
 }
 
 /// Used to build a collection of child nodes from a collection of `NodeHandle`s
