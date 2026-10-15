@@ -824,8 +824,9 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 	/// Make the trie append-only, so it supports [`TrieDBMut::snapshot`],
 	/// [`TrieDBMut::rollback_to`] and [`TrieDBMut::detach`].
 	///
-	/// An append-only trie never frees memory and cannot be committed; this also disables commit
-	/// on drop.
+	/// An append-only trie never frees memory. It must not be committed: a rollback could not
+	/// undo death row entries, so replaced nodes are never scheduled for removal and a commit
+	/// would leak them into the database. Commit on drop is therefore disabled.
 	pub fn append_only(mut self) -> Self {
 		let root_handle = NodeHandle::Hash(*self.root);
 		self.detached.get_or_insert_with(|| DetachedTrieDBMut {
@@ -940,7 +941,8 @@ where
 		}
 	}
 
-	// Only `commit` uses it, and an append-only trie is never committed.
+	// A rollback could not undo death row entries, which is why an append-only trie must not be
+	// committed.
 	fn add_to_death_row(&mut self, hash: TrieHash<L>, prefix: (BackingByteVec, Option<u8>)) {
 		if !self.storage.append_only {
 			self.death_row.insert((hash, prefix));
@@ -1982,9 +1984,9 @@ where
 	/// Commit the in-memory changes to disk, freeing their storage and
 	/// updating the state root.
 	///
-	/// Not supported by an append-only trie, see [`TrieDBMutBuilder::append_only`].
+	/// Must not be called on an append-only trie, see [`TrieDBMutBuilder::append_only`].
 	pub fn commit(&mut self) {
-		debug_assert!(!self.storage.append_only, "An append-only trie cannot be committed");
+		debug_assert!(!self.storage.append_only, "An append-only trie must not be committed");
 		#[cfg(feature = "std")]
 		trace!(target: "trie", "Committing trie changes to db.");
 
