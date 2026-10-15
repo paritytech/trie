@@ -187,7 +187,8 @@ impl<'a, L: TrieLayout> StackEntry<'a, L> {
 				assert!(child_prefix.len() > 0);
 				let child_index = child_prefix
 					.at(child_prefix.len() - 1)
-					.expect("it's less than prefix.len(); qed") as usize;
+					.expect("it's less than prefix.len(); qed")
+					as usize;
 				while self.child_index < child_index {
 					if let Some(child) = children[self.child_index] {
 						let child_ref = child.try_into().map_err(Error::InvalidChildReference)?;
