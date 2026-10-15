@@ -18,9 +18,7 @@ criterion = "0.5.1"
 
 [features]
 default = ["std"]
-std = [
-  "hash-db/std",
-]
+std = []
 
 [[bench]]
 name = "bench"
