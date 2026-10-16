@@ -718,6 +718,16 @@ impl<L: TrieLayout> Clone for DetachedTrieDBMut<L> {
 	}
 }
 
+/// An append-only trie without in-memory nodes, see [`TrieDBMutBuilder::from_detached`].
+impl<L: TrieLayout> Default for DetachedTrieDBMut<L> {
+	fn default() -> Self {
+		Self {
+			storage: NodeStorage { append_only: true, ..NodeStorage::empty() },
+			root_handle: NodeHandle::Hash(Default::default()),
+		}
+	}
+}
+
 impl<L: TrieLayout> DetachedTrieDBMut<L> {
 	/// Take a snapshot to roll back to, see [`TrieDBMut::snapshot`].
 	pub fn snapshot(&self) -> TrieDBMutSnapshot<L> {
@@ -777,12 +787,16 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 
 	/// Create a builder that continues an append-only trie from its `detached` state.
 	///
-	/// The `root` is not read: the trie continues from the root `detached` was built on.
+	/// A detached trie that holds no in-memory nodes has no state built on any root yet, so it
+	/// continues from `root`; otherwise it continues from the root it was built on.
 	pub fn from_detached(
 		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
-		detached: DetachedTrieDBMut<L>,
+		mut detached: DetachedTrieDBMut<L>,
 	) -> Self {
+		if detached.storage.nodes.is_empty() {
+			detached.root_handle = NodeHandle::Hash(*root);
+		}
 		Self {
 			db,
 			root,
