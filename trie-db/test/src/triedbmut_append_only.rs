@@ -109,7 +109,7 @@ fn pristine<T: TrieLayout>(
 }
 
 /// One append-only session over `detached`, with a fresh recorder like the PoV estimator takes
-/// on every flush. Returns the detached state and the nodes recorded in this session.
+/// on every size estimation call. Returns the detached state and the nodes recorded in it.
 fn session<T: TrieLayout>(
 	detached: DetachedTrieDBMut<T>,
 	db: &mut PrefixedMemoryDB<T>,
