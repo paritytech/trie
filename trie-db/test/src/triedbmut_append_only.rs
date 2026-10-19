@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Append-only `TrieDBMut`, as used to estimate the proof size of a block's storage deletions
+//! `AppendOnlyTrieDBMut`, as used to estimate the proof size of a block's storage deletions
 //! incrementally: deletes are applied over several sessions (detached in between) and runtime
 //! transactions roll them back, yet the recorded nodes must match one real `storage_root`.
 
@@ -23,8 +23,8 @@ use memory_db::{MemoryDB, PrefixedKey};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use reference_trie::test_layouts;
 use trie_db::{
-	DBValue, DetachedTrieDBMut, Recorder, TrieDBMut, TrieDBMutBuilder, TrieDBMutSnapshot, TrieHash,
-	TrieLayout, TrieMut,
+	AppendOnlyTrieDBMut, AppendOnlyTrieDBMutBuilder, DBValue, DetachedTrieDBMut, Recorder,
+	TrieDBMutBuilder, TrieDBMutSnapshot, TrieHash, TrieLayout, TrieMut,
 };
 
 type PrefixedMemoryDB<T> =
@@ -65,7 +65,10 @@ fn block_start_trie<T: TrieLayout>() -> (PrefixedMemoryDB<T>, TrieHash<T>, Vec<V
 	build_trie::<T>(&[&fillers[..], &collapsing[..]].concat())
 }
 
-fn read_keys<T: TrieLayout>(trie: &TrieDBMut<T>, keys: &[Vec<u8>]) -> Vec<Option<DBValue>> {
+fn read_keys<T: TrieLayout>(
+	trie: &AppendOnlyTrieDBMut<T>,
+	keys: &[Vec<u8>],
+) -> Vec<Option<DBValue>> {
 	keys.iter().map(|key| trie.get(key).unwrap()).collect()
 }
 
@@ -92,8 +95,8 @@ fn real_session<T: TrieLayout, K: AsRef<[u8]>>(
 			trie.remove(key.as_ref()).unwrap();
 		}
 	}
-	let contents =
-		read_keys(&TrieDBMutBuilder::<T>::from_existing(&mut scratch, &mut root).build(), probed);
+	let trie = TrieDBMutBuilder::<T>::from_existing(&mut scratch, &mut root).build();
+	let contents = probed.iter().map(|key| trie.get(key).unwrap()).collect();
 	(drain(recorder), contents)
 }
 
@@ -101,11 +104,7 @@ fn pristine<T: TrieLayout>(
 	db: &mut PrefixedMemoryDB<T>,
 	root: TrieHash<T>,
 ) -> DetachedTrieDBMut<T> {
-	let mut root = root;
-	TrieDBMutBuilder::<T>::from_existing(db, &mut root)
-		.append_only()
-		.build()
-		.detach()
+	AppendOnlyTrieDBMutBuilder::<T>::from_existing(db, root).build().detach()
 }
 
 /// One append-only session over `detached`, with a fresh recorder like the PoV estimator takes
@@ -114,11 +113,10 @@ fn session<T: TrieLayout>(
 	detached: DetachedTrieDBMut<T>,
 	db: &mut PrefixedMemoryDB<T>,
 	root: TrieHash<T>,
-	operations: impl FnOnce(&mut TrieDBMut<T>),
+	operations: impl FnOnce(&mut AppendOnlyTrieDBMut<T>),
 ) -> (DetachedTrieDBMut<T>, Nodes<T>) {
-	let mut root = root;
 	let mut recorder = Recorder::<T>::new();
-	let mut trie = TrieDBMutBuilder::<T>::from_detached(db, &mut root, detached)
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(db, root, detached)
 		.with_recorder(&mut recorder)
 		.build();
 	operations(&mut trie);
@@ -385,20 +383,15 @@ test_layouts!(
 	rollback_last_delete_preserves_external_root,
 	rollback_last_delete_preserves_external_root_internal
 );
-/// Rolling back the deletion of the final key must restore both the in-memory view and the
-/// caller's root, which is observable after the append-only trie is dropped.
+/// Rolling back the deletion of the final key must restore the in-memory view. The caller's
+/// root is not even borrowed, so it cannot be touched.
 fn rollback_last_delete_preserves_external_root_internal<T: TrieLayout>() {
 	let value = vec![1u8; 64];
-	let (mut db, mut root, _) = build_trie::<T>(&[(K1.to_vec(), value.clone())]);
-	let original_root = root;
-	{
-		let mut trie =
-			TrieDBMutBuilder::<T>::from_existing(&mut db, &mut root).append_only().build();
-		let snapshot = trie.snapshot();
-		trie.remove(K1).unwrap();
-		assert!(trie.is_empty());
-		trie.rollback_to(&snapshot);
-		assert_eq!(trie.get(K1).unwrap(), Some(value));
-	}
-	assert_eq!(root, original_root, "Rollback must preserve the caller's root");
+	let (mut db, root, _) = build_trie::<T>(&[(K1.to_vec(), value.clone())]);
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_existing(&mut db, root).build();
+	let snapshot = trie.snapshot();
+	trie.remove(K1).unwrap();
+	assert!(trie.is_empty());
+	trie.rollback_to(&snapshot);
+	assert_eq!(trie.get(K1).unwrap(), Some(value));
 }

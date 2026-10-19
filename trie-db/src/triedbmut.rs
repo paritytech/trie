@@ -585,6 +585,15 @@ enum Stored<L: TrieLayout> {
 	Cached(Node<L>, TrieHash<L>),
 }
 
+impl<L: TrieLayout> Stored<L> {
+	fn node(&self) -> &Node<L> {
+		match self {
+			Stored::New(node) => node,
+			Stored::Cached(node, _) => node,
+		}
+	}
+}
+
 // Not derived, as that would require `L: Clone`.
 impl<L: TrieLayout> Clone for Stored<L> {
 	fn clone(&self) -> Self {
@@ -645,14 +654,21 @@ trait NodeStorage<L: TrieLayout>: for<'a> Index<&'a StorageHandle, Output = Node
 }
 
 /// Compact and cache-friendly storage for Trie nodes.
-///
-/// In append-only mode nodes are never overwritten, so truncating `nodes` back to an earlier
-/// length restores the trie as it was then: a node only references nodes allocated before it.
 struct CommittingNodeStorage<L: TrieLayout> {
 	nodes: Vec<Stored<L>>,
 	free_indices: VecDeque<usize>,
 	death_row: Set<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
-	append_only: bool,
+}
+
+impl<L: TrieLayout> CommittingNodeStorage<L> {
+	/// Create a new storage.
+	fn empty() -> Self {
+		CommittingNodeStorage {
+			nodes: Vec::new(),
+			free_indices: VecDeque::new(),
+			death_row: Default::default(),
+		}
+	}
 }
 
 impl<L: TrieLayout> NodeStorage<L> for CommittingNodeStorage<L> {
@@ -668,44 +684,12 @@ impl<L: TrieLayout> NodeStorage<L> for CommittingNodeStorage<L> {
 
 	fn destroy(&mut self, handle: StorageHandle) -> Stored<L> {
 		let idx = handle.0;
-
-		if self.append_only {
-			return self.nodes[idx].clone()
-		}
 		self.free_indices.push_back(idx);
 		mem::replace(&mut self.nodes[idx], Stored::New(Node::Empty))
 	}
 
-	// A rollback could not undo death row entries, which is why an append-only trie must not be
-	// committed.
 	fn retire(&mut self, hash: TrieHash<L>, prefix: (BackingByteVec, Option<u8>)) {
-		if !self.append_only {
-			self.death_row.insert((hash, prefix));
-		}
-	}
-}
-
-impl<L: TrieLayout> CommittingNodeStorage<L> {
-	/// Create a new storage.
-	fn empty() -> Self {
-		CommittingNodeStorage {
-			nodes: Vec::new(),
-			free_indices: VecDeque::new(),
-			death_row: Default::default(),
-			append_only: false,
-		}
-	}
-
-	fn snapshot(&self, root_handle: &NodeHandle<TrieHash<L>>) -> TrieDBMutSnapshot<L> {
-		TrieDBMutSnapshot { root_handle: root_handle.clone(), storage_len: self.nodes.len() }
-	}
-
-	/// Returns the root handle to restore along with the storage.
-	fn rollback_to(&mut self, snapshot: &TrieDBMutSnapshot<L>) -> NodeHandle<TrieHash<L>> {
-		debug_assert!(self.append_only, "Rollback requires an append-only trie");
-		debug_assert!(snapshot.storage_len <= self.nodes.len(), "Snapshot was rolled back past");
-		self.nodes.truncate(snapshot.storage_len);
-		snapshot.root_handle.clone()
+		self.death_row.insert((hash, prefix));
 	}
 }
 
@@ -713,45 +697,85 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for CommittingNodeStorage<L> {
 	type Output = Node<L>;
 
 	fn index(&self, handle: &'a StorageHandle) -> &Node<L> {
-		match self.nodes[handle.0] {
-			Stored::New(ref node) => node,
-			Stored::Cached(ref node, _) => node,
-		}
+		self.nodes[handle.0].node()
 	}
 }
 
-/// In-memory state of an append-only [`TrieDBMut`], detached from its borrows.
+/// Storage whose nodes are never overwritten, so truncating `nodes` back to an earlier length
+/// restores the trie as it was then: a node only references nodes allocated before it.
 ///
-/// Obtained with [`TrieDBMut::detach`] and attached again with
-/// [`TrieDBMutBuilder::from_detached`].
+/// Retired database nodes are forgotten: this storage is never committed, and a rollback could
+/// not undo a death row.
+struct AppendOnlyNodeStorage<L: TrieLayout> {
+	nodes: Vec<Stored<L>>,
+}
+
+impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
+	fn snapshot(&self, root_handle: &NodeHandle<TrieHash<L>>) -> TrieDBMutSnapshot<L> {
+		TrieDBMutSnapshot { root_handle: root_handle.clone(), storage_len: self.nodes.len() }
+	}
+
+	/// Returns the root handle to restore along with the storage.
+	fn rollback_to(&mut self, snapshot: &TrieDBMutSnapshot<L>) -> NodeHandle<TrieHash<L>> {
+		debug_assert!(snapshot.storage_len <= self.nodes.len(), "Snapshot was rolled back past");
+		self.nodes.truncate(snapshot.storage_len);
+		snapshot.root_handle.clone()
+	}
+}
+
+impl<L: TrieLayout> NodeStorage<L> for AppendOnlyNodeStorage<L> {
+	fn alloc(&mut self, stored: Stored<L>) -> StorageHandle {
+		self.nodes.push(stored);
+		StorageHandle(self.nodes.len() - 1)
+	}
+
+	fn destroy(&mut self, handle: StorageHandle) -> Stored<L> {
+		self.nodes[handle.0].clone()
+	}
+
+	fn retire(&mut self, _hash: TrieHash<L>, _prefix: (BackingByteVec, Option<u8>)) {}
+}
+
+impl<'a, L: TrieLayout> Index<&'a StorageHandle> for AppendOnlyNodeStorage<L> {
+	type Output = Node<L>;
+
+	fn index(&self, handle: &'a StorageHandle) -> &Node<L> {
+		self.nodes[handle.0].node()
+	}
+}
+
+/// In-memory state of an [`AppendOnlyTrieDBMut`], detached from its borrows.
+///
+/// Obtained with [`AppendOnlyTrieDBMut::detach`] and attached again with
+/// [`AppendOnlyTrieDBMutBuilder::from_detached`].
 pub struct DetachedTrieDBMut<L: TrieLayout> {
-	storage: CommittingNodeStorage<L>,
+	storage: AppendOnlyNodeStorage<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
 }
 
-/// An append-only trie without in-memory nodes, see [`TrieDBMutBuilder::from_detached`].
+/// A trie without in-memory nodes, see [`AppendOnlyTrieDBMutBuilder::from_detached`].
 impl<L: TrieLayout> Default for DetachedTrieDBMut<L> {
 	fn default() -> Self {
 		Self {
-			storage: CommittingNodeStorage { append_only: true, ..CommittingNodeStorage::empty() },
+			storage: AppendOnlyNodeStorage { nodes: Vec::new() },
 			root_handle: NodeHandle::Hash(Default::default()),
 		}
 	}
 }
 
 impl<L: TrieLayout> DetachedTrieDBMut<L> {
-	/// Take a snapshot to roll back to, see [`TrieDBMut::snapshot`].
+	/// Take a snapshot to roll back to, see [`AppendOnlyTrieDBMut::snapshot`].
 	pub fn snapshot(&self) -> TrieDBMutSnapshot<L> {
 		self.storage.snapshot(&self.root_handle)
 	}
 
-	/// Roll back to `snapshot`, see [`TrieDBMut::rollback_to`].
+	/// Roll back to `snapshot`, see [`AppendOnlyTrieDBMut::rollback_to`].
 	pub fn rollback_to(&mut self, snapshot: &TrieDBMutSnapshot<L>) {
 		self.root_handle = self.storage.rollback_to(snapshot);
 	}
 }
 
-/// A point an append-only [`TrieDBMut`] can be rolled back to.
+/// A point an [`AppendOnlyTrieDBMut`] can be rolled back to.
 ///
 /// A snapshot becomes invalid once the trie is rolled back to a snapshot taken before it.
 pub struct TrieDBMutSnapshot<L: TrieLayout> {
@@ -773,7 +797,6 @@ pub struct TrieDBMutBuilder<'db, L: TrieLayout> {
 	cache: Option<&'db mut dyn TrieCache<L::Codec>>,
 	recorder: Option<&'db mut dyn TrieRecorder<TrieHash<L>>>,
 	commit_on_drop: bool,
-	detached: Option<DetachedTrieDBMut<L>>,
 }
 
 impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
@@ -782,7 +805,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 	pub fn new(db: &'db mut dyn HashDB<L::Hash, DBValue>, root: &'db mut TrieHash<L>) -> Self {
 		*root = L::Codec::hashed_null_node();
 
-		Self { root, db, cache: None, recorder: None, commit_on_drop: true, detached: None }
+		Self { root, db, cache: None, recorder: None, commit_on_drop: true }
 	}
 
 	/// Create a builder for constructing a new trie with the backing database `db` and `root`.
@@ -793,29 +816,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 		db: &'db mut dyn HashDB<L::Hash, DBValue>,
 		root: &'db mut TrieHash<L>,
 	) -> Self {
-		Self { db, root, cache: None, recorder: None, commit_on_drop: true, detached: None }
-	}
-
-	/// Create a builder that continues an append-only trie from its `detached` state.
-	///
-	/// A detached trie that holds no in-memory nodes has no state built on any root yet, so it
-	/// continues from `root`; otherwise it continues from the root it was built on.
-	pub fn from_detached(
-		db: &'db mut dyn HashDB<L::Hash, DBValue>,
-		root: &'db mut TrieHash<L>,
-		mut detached: DetachedTrieDBMut<L>,
-	) -> Self {
-		if detached.storage.nodes.is_empty() {
-			detached.root_handle = NodeHandle::Hash(*root);
-		}
-		Self {
-			db,
-			root,
-			cache: None,
-			recorder: None,
-			commit_on_drop: false,
-			detached: Some(detached),
-		}
+		Self { db, root, cache: None, recorder: None, commit_on_drop: true }
 	}
 
 	/// Use the given `cache` for the db.
@@ -864,32 +865,93 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 		self
 	}
 
-	/// Make the trie append-only, so it supports [`TrieDBMut::snapshot`],
-	/// [`TrieDBMut::rollback_to`] and [`TrieDBMut::detach`].
-	///
-	/// An append-only trie never frees memory. It must not be committed: a rollback could not
-	/// undo death row entries, so replaced nodes are never scheduled for removal and a commit
-	/// would leak them into the database. Commit on drop is therefore disabled.
-	pub fn append_only(mut self) -> Self {
-		let root_handle = NodeHandle::Hash(*self.root);
-		self.detached.get_or_insert_with(|| DetachedTrieDBMut {
-			storage: CommittingNodeStorage { append_only: true, ..CommittingNodeStorage::empty() },
-			root_handle,
-		});
-		self.disable_commit_on_drop()
-	}
-
 	/// Build the [`TrieDBMut`].
 	///
 	/// By default, the returned trie will automatically commit changes when dropped. Use
 	/// [`disable_commit_on_drop`](Self::disable_commit_on_drop) to disable this behavior.
 	pub fn build(self) -> TrieDBMut<'db, L> {
-		let root_handle = NodeHandle::Hash(*self.root);
-		let DetachedTrieDBMut { storage, root_handle } = self
-			.detached
-			.unwrap_or(DetachedTrieDBMut { storage: CommittingNodeStorage::empty(), root_handle });
-
 		TrieDBMut {
+			core: TrieDBMutCore {
+				db: self.db,
+				cache: self.cache,
+				recorder: self.recorder.map(core::cell::RefCell::new),
+				storage: CommittingNodeStorage::empty(),
+				root_handle: NodeHandle::Hash(*self.root),
+			},
+			root: self.root,
+			commit_on_drop: self.commit_on_drop,
+		}
+	}
+}
+
+/// A builder for creating an [`AppendOnlyTrieDBMut`].
+pub struct AppendOnlyTrieDBMutBuilder<'db, L: TrieLayout> {
+	db: &'db mut dyn HashDB<L::Hash, DBValue>,
+	cache: Option<&'db mut dyn TrieCache<L::Codec>>,
+	recorder: Option<&'db mut dyn TrieRecorder<TrieHash<L>>>,
+	detached: DetachedTrieDBMut<L>,
+}
+
+impl<'db, L: TrieLayout> AppendOnlyTrieDBMutBuilder<'db, L> {
+	/// Create a builder for a trie with the backing database `db` and `root`.
+	///
+	/// This doesn't check if `root` exists in the given `db`. If `root` doesn't exist it will fail
+	/// when trying to lookup any key.
+	pub fn from_existing(db: &'db mut dyn HashDB<L::Hash, DBValue>, root: TrieHash<L>) -> Self {
+		Self::from_detached(db, root, Default::default())
+	}
+
+	/// Create a builder that continues a trie from its `detached` state.
+	///
+	/// A detached trie that holds no in-memory nodes has no state built on any root yet, so it
+	/// continues from `root`; otherwise it continues from the root it was built on.
+	pub fn from_detached(
+		db: &'db mut dyn HashDB<L::Hash, DBValue>,
+		root: TrieHash<L>,
+		mut detached: DetachedTrieDBMut<L>,
+	) -> Self {
+		if detached.storage.nodes.is_empty() {
+			detached.root_handle = NodeHandle::Hash(root);
+		}
+		Self { db, cache: None, recorder: None, detached }
+	}
+
+	/// Use the given `cache` for the db.
+	pub fn with_cache(mut self, cache: &'db mut dyn TrieCache<L::Codec>) -> Self {
+		self.cache = Some(cache);
+		self
+	}
+
+	/// Use the given optional `cache` for the db.
+	pub fn with_optional_cache<'cache: 'db>(
+		mut self,
+		cache: Option<&'cache mut dyn TrieCache<L::Codec>>,
+	) -> Self {
+		// Make the compiler happy by "converting" the lifetime
+		self.cache = cache.map(|c| c as _);
+		self
+	}
+
+	/// Use the given `recorder` to record trie accesses.
+	pub fn with_recorder(mut self, recorder: &'db mut dyn TrieRecorder<TrieHash<L>>) -> Self {
+		self.recorder = Some(recorder);
+		self
+	}
+
+	/// Use the given optional `recorder` to record trie accesses.
+	pub fn with_optional_recorder<'recorder: 'db>(
+		mut self,
+		recorder: Option<&'recorder mut dyn TrieRecorder<TrieHash<L>>>,
+	) -> Self {
+		// Make the compiler happy by "converting" the lifetime
+		self.recorder = recorder.map(|r| r as _);
+		self
+	}
+
+	/// Build the [`AppendOnlyTrieDBMut`].
+	pub fn build(self) -> AppendOnlyTrieDBMut<'db, L> {
+		let DetachedTrieDBMut { storage, root_handle } = self.detached;
+		AppendOnlyTrieDBMut {
 			core: TrieDBMutCore {
 				db: self.db,
 				cache: self.cache,
@@ -897,8 +959,6 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 				storage,
 				root_handle,
 			},
-			root: self.root,
-			commit_on_drop: self.commit_on_drop,
 		}
 	}
 }
@@ -2077,35 +2137,9 @@ where
 		self.core.db
 	}
 
-	/// Take a snapshot to later roll back to. Cheap: it does not copy the trie.
-	pub fn snapshot(&self) -> TrieDBMutSnapshot<L> {
-		self.core.storage.snapshot(&self.core.root_handle)
-	}
-
-	/// Roll back all changes made since `snapshot` was taken.
-	///
-	/// Only supported by an append-only trie, see [`TrieDBMutBuilder::append_only`].
-	pub fn rollback_to(&mut self, snapshot: &TrieDBMutSnapshot<L>) {
-		self.core.root_handle = self.core.storage.rollback_to(snapshot);
-	}
-
-	/// Detach the in-memory state, to continue later with [`TrieDBMutBuilder::from_detached`].
-	///
-	/// Only supported by an append-only trie, see [`TrieDBMutBuilder::append_only`].
-	pub fn detach(mut self) -> DetachedTrieDBMut<L> {
-		debug_assert!(self.core.storage.append_only, "Only an append-only trie can be detached");
-		DetachedTrieDBMut {
-			storage: mem::replace(&mut self.core.storage, CommittingNodeStorage::empty()),
-			root_handle: mem::replace(&mut self.core.root_handle, NodeHandle::Hash(*self.root)),
-		}
-	}
-
 	/// Commit the in-memory changes to disk, freeing their storage and
 	/// updating the state root.
-	///
-	/// Must not be called on an append-only trie, see [`TrieDBMutBuilder::append_only`].
 	pub fn commit(&mut self) {
-		debug_assert!(!self.core.storage.append_only, "An append-only trie must not be committed");
 		#[cfg(feature = "std")]
 		trace!(target: "trie", "Committing trie changes to db.");
 
@@ -2366,6 +2400,74 @@ where
 		if self.commit_on_drop {
 			self.commit();
 		}
+	}
+}
+
+/// A trie that lives in memory only: it reads the backing database, but never writes to it and
+/// never commits a root.
+///
+/// Its in-memory nodes are never overwritten, so [`Self::snapshot`] takes a
+/// [`TrieDBMutSnapshot`] in constant time and [`Self::rollback_to`] restores it without copying
+/// the trie. [`Self::detach`] returns the in-memory state as a [`DetachedTrieDBMut`], which
+/// [`AppendOnlyTrieDBMutBuilder::from_detached`] attaches again to a database, cache and
+/// recorder. Memory is not freed before the trie is dropped.
+pub struct AppendOnlyTrieDBMut<'a, L>
+where
+	L: TrieLayout,
+{
+	core: TrieDBMutCore<'a, L, AppendOnlyNodeStorage<L>>,
+}
+
+impl<'a, L> AppendOnlyTrieDBMut<'a, L>
+where
+	L: TrieLayout,
+{
+	/// Is the trie empty?
+	pub fn is_empty(&self) -> bool {
+		self.core.is_empty()
+	}
+
+	/// Does the trie contain a given key?
+	pub fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
+		self.get(key).map(|value| value.is_some())
+	}
+
+	/// What is the value of the given key in this trie?
+	pub fn get(&self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+		self.core.get(key)
+	}
+
+	/// Insert a `key`/`value` pair into the trie. An empty value is equivalent to removing
+	/// `key` from the trie. Returns the old value associated with this key, if it existed.
+	pub fn insert(
+		&mut self,
+		key: &[u8],
+		value: &[u8],
+	) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
+		self.core.insert(key, value)
+	}
+
+	/// Remove a `key` from the trie. Equivalent to making it equal to the empty
+	/// value. Returns the old value associated with this key, if it existed.
+	pub fn remove(&mut self, key: &[u8]) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
+		self.core.remove(key)
+	}
+
+	/// Take a snapshot to later roll back to. Cheap: it does not copy the trie.
+	pub fn snapshot(&self) -> TrieDBMutSnapshot<L> {
+		self.core.storage.snapshot(&self.core.root_handle)
+	}
+
+	/// Roll back all changes made since `snapshot` was taken.
+	pub fn rollback_to(&mut self, snapshot: &TrieDBMutSnapshot<L>) {
+		self.core.root_handle = self.core.storage.rollback_to(snapshot);
+	}
+
+	/// Detach the in-memory state, to continue later with
+	/// [`AppendOnlyTrieDBMutBuilder::from_detached`].
+	pub fn detach(self) -> DetachedTrieDBMut<L> {
+		let TrieDBMutCore { storage, root_handle, .. } = self.core;
+		DetachedTrieDBMut { storage, root_handle }
 	}
 }
 
