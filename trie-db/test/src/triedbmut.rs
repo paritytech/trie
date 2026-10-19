@@ -980,3 +980,43 @@ fn test_commit_on_drop_explicit_internal<T: TrieLayout>() {
 		db_key_count_after
 	);
 }
+
+test_layouts!(
+	test_removing_last_key_without_commit_keeps_root,
+	test_removing_last_key_without_commit_keeps_root_internal
+);
+/// Emptying the trie is a change like any other: until committed, the caller's root must keep
+/// the hash it was built from.
+fn test_removing_last_key_without_commit_keeps_root_internal<T: TrieLayout>() {
+	let (mut memdb, mut root) = prepare_test_trie::<T>();
+	let root_before = root.clone();
+
+	{
+		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root)
+			.disable_commit_on_drop()
+			.build();
+		trie.remove(b"existing_key").unwrap();
+		assert!(trie.is_empty());
+	}
+
+	assert_eq!(root, root_before, "Root should not change after drop without commit");
+}
+
+test_layouts!(
+	test_removing_last_key_then_commit_writes_empty_root,
+	test_removing_last_key_then_commit_writes_empty_root_internal
+);
+/// The commit of an emptied trie publishes the empty root to the caller.
+fn test_removing_last_key_then_commit_writes_empty_root_internal<T: TrieLayout>() {
+	let (mut memdb, mut root) = prepare_test_trie::<T>();
+
+	{
+		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root)
+			.disable_commit_on_drop()
+			.build();
+		trie.remove(b"existing_key").unwrap();
+		trie.commit();
+	}
+
+	assert_eq!(root, reference_hashed_null_node::<T>());
+}

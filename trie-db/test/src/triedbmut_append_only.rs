@@ -380,3 +380,25 @@ fn random_run<T: TrieLayout>(seed: u64) {
 	}
 	assert_matches_real(&mut db, root, detached, &keys, &surviving_deletes, &recorded);
 }
+
+test_layouts!(
+	rollback_last_delete_preserves_external_root,
+	rollback_last_delete_preserves_external_root_internal
+);
+/// Rolling back the deletion of the final key must restore both the in-memory view and the
+/// caller's root, which is observable after the append-only trie is dropped.
+fn rollback_last_delete_preserves_external_root_internal<T: TrieLayout>() {
+	let value = vec![1u8; 64];
+	let (mut db, mut root, _) = build_trie::<T>(&[(K1.to_vec(), value.clone())]);
+	let original_root = root;
+	{
+		let mut trie =
+			TrieDBMutBuilder::<T>::from_existing(&mut db, &mut root).append_only().build();
+		let snapshot = trie.snapshot();
+		trie.remove(K1).unwrap();
+		assert!(trie.is_empty());
+		trie.rollback_to(&snapshot);
+		assert_eq!(trie.get(K1).unwrap(), Some(value));
+	}
+	assert_eq!(root, original_root, "Rollback must preserve the caller's root");
+}
