@@ -2049,14 +2049,6 @@ where
 		}
 	}
 
-	// a hack to get the root node's handle
-	fn root_handle(&self) -> NodeHandle<TrieHash<L>> {
-		match self.root_handle {
-			NodeHandle::Hash(h) => NodeHandle::Hash(h),
-			NodeHandle::InMemory(StorageHandle(x)) => NodeHandle::InMemory(StorageHandle(x)),
-		}
-	}
-
 	fn is_empty(&self) -> bool {
 		match self.root_handle {
 			NodeHandle::Hash(h) => h == L::Codec::hashed_null_node(),
@@ -2089,7 +2081,7 @@ where
 		trace!(target: "trie", "insert: key={:?}, value={:?}", ToHex(key), ToHex(&value));
 
 		let value = Bytes::from(value);
-		let root_handle = self.root_handle();
+		let root_handle = self.root_handle.clone();
 		let (new_handle, _changed) =
 			self.insert_at(root_handle, &mut NibbleSlice::new(key), value, &mut old_val)?;
 
@@ -2104,7 +2096,7 @@ where
 		#[cfg(feature = "std")]
 		trace!(target: "trie", "remove: key={:?}", ToHex(key));
 
-		let root_handle = self.root_handle();
+		let root_handle = self.root_handle.clone();
 		let mut key_slice = NibbleSlice::new(key);
 		let mut old_val = None;
 
@@ -2159,7 +2151,7 @@ where
 			self.core.db.remove(&hash, (&prefix.0[..], prefix.1));
 		}
 
-		let handle = match self.core.root_handle() {
+		let handle = match self.core.root_handle.clone() {
 			NodeHandle::Hash(hash) => {
 				*self.root = hash;
 				return
