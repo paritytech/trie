@@ -10,7 +10,9 @@ The format is based on [Keep a Changelog].
   time and `TrieDBMut::rollback_to` restores it without copying the trie. `TrieDBMut::detach`
   returns the in-memory state as a `DetachedTrieDBMut`, which also supports snapshots and
   rollbacks, and `TrieDBMutBuilder::from_detached` attaches it again to a database, root, cache
-  and recorder. An append-only trie must not be committed.
+  and recorder. An append-only trie must not be committed. `DetachedTrieDBMut::default` is an
+  append-only trie without in-memory nodes, and `from_detached` continues such a trie from the
+  given root.
 
 ## [0.32.0] - 2026-08-19
 - Fix the item count returned by `decode_compact`/`decode_compact_from_iter` when the last

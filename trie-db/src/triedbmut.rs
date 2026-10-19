@@ -639,17 +639,6 @@ struct NodeStorage<L: TrieLayout> {
 	append_only: bool,
 }
 
-// Not derived, as that would require `L: Clone`.
-impl<L: TrieLayout> Clone for NodeStorage<L> {
-	fn clone(&self) -> Self {
-		Self {
-			nodes: self.nodes.clone(),
-			free_indices: self.free_indices.clone(),
-			append_only: self.append_only,
-		}
-	}
-}
-
 impl<L: TrieLayout> NodeStorage<L> {
 	/// Create a new storage.
 	fn empty() -> Self {
@@ -709,13 +698,6 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for NodeStorage<L> {
 pub struct DetachedTrieDBMut<L: TrieLayout> {
 	storage: NodeStorage<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
-}
-
-// Not derived, as that would require `L: Clone`.
-impl<L: TrieLayout> Clone for DetachedTrieDBMut<L> {
-	fn clone(&self) -> Self {
-		Self { storage: self.storage.clone(), root_handle: self.root_handle.clone() }
-	}
 }
 
 /// An append-only trie without in-memory nodes, see [`TrieDBMutBuilder::from_detached`].
