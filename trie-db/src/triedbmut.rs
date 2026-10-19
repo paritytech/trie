@@ -711,15 +711,13 @@ struct AppendOnlyNodeStorage<L: TrieLayout> {
 }
 
 impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
-	fn snapshot(&self, root_handle: &NodeHandle<TrieHash<L>>) -> TrieDBMutSnapshot<L> {
-		TrieDBMutSnapshot { root_handle: root_handle.clone(), storage_len: self.nodes.len() }
+	fn mark(&self) -> usize {
+		self.nodes.len()
 	}
 
-	/// Returns the root handle to restore along with the storage.
-	fn rollback_to(&mut self, snapshot: &TrieDBMutSnapshot<L>) -> NodeHandle<TrieHash<L>> {
-		debug_assert!(snapshot.storage_len <= self.nodes.len(), "Snapshot was rolled back past");
-		self.nodes.truncate(snapshot.storage_len);
-		snapshot.root_handle.clone()
+	fn rewind(&mut self, mark: usize) {
+		debug_assert!(mark <= self.nodes.len(), "Snapshot was rolled back past");
+		self.nodes.truncate(mark);
 	}
 }
 
@@ -766,12 +764,16 @@ impl<L: TrieLayout> Default for DetachedTrieDBMut<L> {
 impl<L: TrieLayout> DetachedTrieDBMut<L> {
 	/// Take a snapshot to roll back to, see [`AppendOnlyTrieDBMut::snapshot`].
 	pub fn snapshot(&self) -> TrieDBMutSnapshot<L> {
-		self.storage.snapshot(&self.root_handle)
+		TrieDBMutSnapshot {
+			root_handle: self.root_handle.clone(),
+			storage_mark: self.storage.mark(),
+		}
 	}
 
 	/// Roll back to `snapshot`, see [`AppendOnlyTrieDBMut::rollback_to`].
 	pub fn rollback_to(&mut self, snapshot: &TrieDBMutSnapshot<L>) {
-		self.root_handle = self.storage.rollback_to(snapshot);
+		self.storage.rewind(snapshot.storage_mark);
+		self.root_handle = snapshot.root_handle.clone();
 	}
 }
 
@@ -780,13 +782,13 @@ impl<L: TrieLayout> DetachedTrieDBMut<L> {
 /// A snapshot becomes invalid once the trie is rolled back to a snapshot taken before it.
 pub struct TrieDBMutSnapshot<L: TrieLayout> {
 	root_handle: NodeHandle<TrieHash<L>>,
-	storage_len: usize,
+	storage_mark: usize,
 }
 
 // Not derived, as that would require `L: Clone`.
 impl<L: TrieLayout> Clone for TrieDBMutSnapshot<L> {
 	fn clone(&self) -> Self {
-		Self { root_handle: self.root_handle.clone(), storage_len: self.storage_len }
+		Self { root_handle: self.root_handle.clone(), storage_mark: self.storage_mark }
 	}
 }
 
@@ -2455,12 +2457,16 @@ where
 
 	/// Take a snapshot to later roll back to. Cheap: it does not copy the trie.
 	pub fn snapshot(&self) -> TrieDBMutSnapshot<L> {
-		self.core.storage.snapshot(&self.core.root_handle)
+		TrieDBMutSnapshot {
+			root_handle: self.core.root_handle.clone(),
+			storage_mark: self.core.storage.mark(),
+		}
 	}
 
 	/// Roll back all changes made since `snapshot` was taken.
 	pub fn rollback_to(&mut self, snapshot: &TrieDBMutSnapshot<L>) {
-		self.core.root_handle = self.core.storage.rollback_to(snapshot);
+		self.core.storage.rewind(snapshot.storage_mark);
+		self.core.root_handle = snapshot.root_handle.clone();
 	}
 
 	/// Detach the in-memory state, to continue later with
