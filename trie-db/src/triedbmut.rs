@@ -708,26 +708,30 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for CommittingNodeStorage<L> {
 /// Retired database nodes are forgotten: this storage is never committed, and a rollback could
 /// not undo a death row.
 struct AppendOnlyNodeStorage<L: TrieLayout> {
-	nodes: Vec<Stored<L>>,
-	/// Every length the arena was rewound to, in order.
-	rewinds: Vec<usize>,
+	/// Each node carries an allocation ID that is never reused within this storage.
+	nodes: Vec<(u64, Stored<L>)>,
+	/// Not rewound on rollback, so reusing an arena index cannot revive an old snapshot.
+	allocation_id: u64,
 }
 
 impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 	fn mark(&self) -> StorageMark {
-		StorageMark { nodes: self.nodes.len(), rewinds: self.rewinds.len() }
+		StorageMark {
+			nodes: self.nodes.len(),
+			last_node_id: self.nodes.last().map_or(0, |(id, _)| *id),
+		}
 	}
 
-	/// A mark describes the arena up to its length; a rewind below that length replaced those
-	/// nodes, so such a mark must not be used again.
+	/// Nodes are only appended or truncated. If the last node covered by the mark still has
+	/// its original ID, the entire prefix is unchanged. Check this before discarding any nodes.
 	fn rewind(&mut self, mark: &StorageMark) {
 		assert!(mark.nodes <= self.nodes.len(), "Snapshot was rolled back past");
-		assert!(
-			self.rewinds[mark.rewinds..].iter().all(|rewound_to| *rewound_to >= mark.nodes),
+		let last_node_id = mark.nodes.checked_sub(1).map_or(0, |index| self.nodes[index].0);
+		assert_eq!(
+			last_node_id, mark.last_node_id,
 			"Snapshot was invalidated by a rollback to a point before it"
 		);
 		self.nodes.truncate(mark.nodes);
-		self.rewinds.push(mark.nodes);
 	}
 }
 
@@ -735,17 +739,20 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 #[derive(Clone, Copy)]
 struct StorageMark {
 	nodes: usize,
-	rewinds: usize,
+	/// Zero denotes the empty prefix; allocated nodes have IDs starting at one.
+	last_node_id: u64,
 }
 
 impl<L: TrieLayout> NodeStorage<L> for AppendOnlyNodeStorage<L> {
 	fn alloc(&mut self, stored: Stored<L>) -> StorageHandle {
-		self.nodes.push(stored);
+		self.allocation_id =
+			self.allocation_id.checked_add(1).expect("Append-only allocation ID exhausted");
+		self.nodes.push((self.allocation_id, stored));
 		StorageHandle(self.nodes.len() - 1)
 	}
 
 	fn destroy(&mut self, handle: StorageHandle) -> Stored<L> {
-		self.nodes[handle.0].clone()
+		self.nodes[handle.0].1.clone()
 	}
 
 	fn retire(&mut self, _hash: TrieHash<L>, _prefix: (BackingByteVec, Option<u8>)) {}
@@ -755,7 +762,7 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for AppendOnlyNodeStorage<L> {
 	type Output = Node<L>;
 
 	fn index(&self, handle: &'a StorageHandle) -> &Node<L> {
-		self.nodes[handle.0].node()
+		self.nodes[handle.0].1.node()
 	}
 }
 
@@ -772,7 +779,7 @@ impl<L: TrieLayout> DetachedTrieDBMut<L> {
 	/// The trie at `root`, without in-memory nodes.
 	pub fn new(root: TrieHash<L>) -> Self {
 		Self {
-			storage: AppendOnlyNodeStorage { nodes: Vec::new(), rewinds: Vec::new() },
+			storage: AppendOnlyNodeStorage { nodes: Vec::new(), allocation_id: 0 },
 			root_handle: NodeHandle::Hash(root),
 		}
 	}

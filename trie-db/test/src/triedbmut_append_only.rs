@@ -410,3 +410,48 @@ fn inserts_internal<T: TrieLayout>() {
 	assert_eq!(trie.get(NEW_BRANCH).unwrap(), None);
 	assert_eq!(read_keys(&trie, &keys), before);
 }
+
+test_layouts!(
+	reused_arena_indices_do_not_revive_snapshots,
+	reused_arena_indices_do_not_revive_snapshots_internal
+);
+/// Repeating the same edits after a rollback reuses the same arena indices. A snapshot from
+/// the discarded branch must still be rejected, without disturbing the current branch.
+fn reused_arena_indices_do_not_revive_snapshots_internal<T: TrieLayout>() {
+	const NEW_KEY: &[u8] = &[0x60, 0x00, 0xEE, 0xEE];
+	const LATER_KEY: &[u8] = &[0x70, 0x00, 0xFF, 0xFF];
+	let (db, root, keys) = block_start_trie::<T>();
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_existing(&db, root).build();
+	let original_values = read_keys(&trie, &keys);
+	let initial = trie.snapshot();
+
+	trie.insert(NEW_KEY, &[1; 40]).unwrap();
+	let stale = trie.snapshot();
+	let mut detached = trie.detach();
+	detached.rollback_to(&initial);
+
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(&db, detached).build();
+	// The same insertion allocates the same number of nodes at the same indices.
+	trie.insert(NEW_KEY, &[2; 40]).unwrap();
+	let current = trie.snapshot();
+	let rejected =
+		std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| trie.rollback_to(&stale)));
+	assert!(rejected.is_err());
+	assert_eq!(trie.get(NEW_KEY).unwrap(), Some(vec![2; 40]));
+
+	// The rejected rollback must not discard nodes allocated after the stale snapshot's mark.
+	trie.insert(LATER_KEY, &[3; 40]).unwrap();
+	let rejected =
+		std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| trie.rollback_to(&stale)));
+	assert!(rejected.is_err());
+	assert_eq!(trie.get(LATER_KEY).unwrap(), Some(vec![3; 40]));
+
+	trie.rollback_to(&current);
+	trie.rollback_to(&current);
+	assert_eq!(trie.get(NEW_KEY).unwrap(), Some(vec![2; 40]));
+	assert_eq!(trie.get(LATER_KEY).unwrap(), None);
+	trie.rollback_to(&initial);
+	trie.rollback_to(&initial);
+	assert_eq!(trie.get(NEW_KEY).unwrap(), None);
+	assert_eq!(read_keys(&trie, &keys), original_values);
+}
