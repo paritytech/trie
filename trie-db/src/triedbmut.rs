@@ -27,7 +27,7 @@ use crate::{
 	TrieLayout, TrieMut, TrieRecorder,
 };
 
-use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
+use hash_db::{HashDB, HashDBRef, Hasher, Prefix, EMPTY_PREFIX};
 
 #[cfg(feature = "std")]
 use std::collections::HashSet as Set;
@@ -195,7 +195,7 @@ impl<L: TrieLayout> Value<L> {
 	fn in_memory_fetched_value(
 		&self,
 		prefix: Prefix,
-		db: &dyn HashDB<L::Hash, DBValue>,
+		db: &dyn HashDBRef<L::Hash, DBValue>,
 		recorder: &Option<core::cell::RefCell<&mut dyn TrieRecorder<TrieHash<L>>>>,
 		full_key: &[u8],
 	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
@@ -905,7 +905,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 
 /// A builder for creating an [`AppendOnlyTrieDBMut`].
 pub struct AppendOnlyTrieDBMutBuilder<'db, L: TrieLayout> {
-	db: &'db mut dyn HashDB<L::Hash, DBValue>,
+	db: &'db dyn HashDBRef<L::Hash, DBValue>,
 	cache: Option<&'db mut dyn TrieCache<L::Codec>>,
 	recorder: Option<&'db mut dyn TrieRecorder<TrieHash<L>>>,
 	detached: DetachedTrieDBMut<L>,
@@ -916,7 +916,7 @@ impl<'db, L: TrieLayout> AppendOnlyTrieDBMutBuilder<'db, L> {
 	///
 	/// This doesn't check if `root` exists in the given `db`. If `root` doesn't exist it will fail
 	/// when trying to lookup any key.
-	pub fn from_existing(db: &'db mut dyn HashDB<L::Hash, DBValue>, root: TrieHash<L>) -> Self {
+	pub fn from_existing(db: &'db dyn HashDBRef<L::Hash, DBValue>, root: TrieHash<L>) -> Self {
 		Self::from_detached(db, root, Default::default())
 	}
 
@@ -925,7 +925,7 @@ impl<'db, L: TrieLayout> AppendOnlyTrieDBMutBuilder<'db, L> {
 	/// A detached trie that holds no in-memory nodes has no state built on any root yet, so it
 	/// continues from `root`; otherwise it continues from the root it was built on.
 	pub fn from_detached(
-		db: &'db mut dyn HashDB<L::Hash, DBValue>,
+		db: &'db dyn HashDBRef<L::Hash, DBValue>,
 		root: TrieHash<L>,
 		mut detached: DetachedTrieDBMut<L>,
 	) -> Self {
@@ -985,13 +985,14 @@ impl<'db, L: TrieLayout> AppendOnlyTrieDBMutBuilder<'db, L> {
 /// The trie algorithms over an in-memory node storage.
 ///
 /// What becomes of the modified nodes, a commit or a rollback, is up to the type wrapping it.
-struct TrieDBMutCore<'a, L, S>
+struct TrieDBMutCore<'a, L, S, DB>
 where
 	L: TrieLayout,
 	S: NodeStorage<L>,
+	DB: HashDBRef<L::Hash, DBValue>,
 {
 	storage: S,
-	db: &'a mut dyn HashDB<L::Hash, DBValue>,
+	db: DB,
 	root_handle: NodeHandle<TrieHash<L>>,
 	/// Optional cache for speeding up the lookup of nodes.
 	cache: Option<&'a mut dyn TrieCache<L::Codec>>,
@@ -1031,16 +1032,17 @@ pub struct TrieDBMut<'a, L>
 where
 	L: TrieLayout,
 {
-	core: TrieDBMutCore<'a, L, CommittingNodeStorage<L>>,
+	core: TrieDBMutCore<'a, L, CommittingNodeStorage<L>, &'a mut dyn HashDB<L::Hash, DBValue>>,
 	root: &'a mut TrieHash<L>,
 	/// Whether to commit on drop.
 	commit_on_drop: bool,
 }
 
-impl<'a, L, S> TrieDBMutCore<'a, L, S>
+impl<'a, L, S, DB> TrieDBMutCore<'a, L, S, DB>
 where
 	L: TrieLayout,
 	S: NodeStorage<L>,
+	DB: HashDBRef<L::Hash, DBValue>,
 {
 	// Cache a node by hash.
 	fn cache(
@@ -1148,7 +1150,7 @@ where
 						if NibbleSlice::from_stored(slice) == partial {
 							return Ok(value.in_memory_fetched_value(
 								prefix,
-								self.db,
+								&self.db,
 								&self.recorder,
 								full_key,
 							)?)
@@ -1168,7 +1170,7 @@ where
 							return Ok(if let Some(v) = value.as_ref() {
 								v.in_memory_fetched_value(
 									prefix,
-									self.db,
+									&self.db,
 									&self.recorder,
 									full_key,
 								)?
@@ -1188,7 +1190,7 @@ where
 							return Ok(if let Some(v) = value.as_ref() {
 								v.in_memory_fetched_value(
 									prefix,
-									self.db,
+									&self.db,
 									&self.recorder,
 									full_key,
 								)?
@@ -2427,7 +2429,7 @@ pub struct AppendOnlyTrieDBMut<'a, L>
 where
 	L: TrieLayout,
 {
-	core: TrieDBMutCore<'a, L, AppendOnlyNodeStorage<L>>,
+	core: TrieDBMutCore<'a, L, AppendOnlyNodeStorage<L>, &'a dyn HashDBRef<L::Hash, DBValue>>,
 }
 
 impl<'a, L> AppendOnlyTrieDBMut<'a, L>
