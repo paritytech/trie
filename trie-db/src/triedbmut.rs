@@ -2397,14 +2397,15 @@ where
 	}
 }
 
-/// A trie that lives in memory only: it reads the backing database, but never writes to it and
-/// never commits a root.
+/// A mutable trie whose changes can be rolled back.
 ///
-/// Its in-memory nodes are never overwritten, so [`Self::snapshot`] takes a
-/// [`TrieDBMutSnapshot`] in constant time and [`Self::rollback_to`] restores it without copying
-/// the trie. [`Self::detach`] returns the in-memory state as a [`DetachedTrieDBMut`], which
-/// [`AppendOnlyTrieDBMutBuilder::from_detached`] attaches again to a database, cache and
-/// recorder. Memory is not freed before the trie is dropped.
+/// [`Self::snapshot`] marks the current state and [`Self::rollback_to`] returns to it; snapshots
+/// nest, so they can follow transactions. [`Self::detach`] gives up the borrows of the database,
+/// cache and recorder and keeps the in-memory state as a [`DetachedTrieDBMut`], which
+/// [`AppendOnlyTrieDBMutBuilder::from_detached`] attaches again later.
+///
+/// The trie is never committed: it reads the backing database but never writes to it, and it
+/// never writes a root. Nodes stay allocated until the trie is dropped, even after a rollback.
 pub struct AppendOnlyTrieDBMut<'a, L>
 where
 	L: TrieLayout,
