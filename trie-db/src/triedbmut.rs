@@ -42,7 +42,7 @@ use log::trace;
 use crate::rstd::fmt::{self, Debug};
 
 // For lookups into the Node storage buffer.
-// This is deliberately non-copyable.
+// Cloneable, but deliberately not `Copy`: duplicating a handle is explicit.
 #[derive(Clone)]
 #[cfg_attr(feature = "std", derive(Debug))]
 struct StorageHandle(usize);
@@ -646,7 +646,8 @@ trait NodeStorage<L: TrieLayout>: for<'a> Index<&'a StorageHandle, Output = Node
 	/// Allocate a new node in the storage.
 	fn alloc(&mut self, stored: Stored<L>) -> StorageHandle;
 
-	/// Remove a node from the storage, consuming the handle and returning the node.
+	/// Take the node behind `handle` out of the trie; the handle must not be used again. Whether
+	/// the slot is freed is up to the storage.
 	fn destroy(&mut self, handle: StorageHandle) -> Stored<L>;
 
 	/// The trie no longer references the database node `hash` under `prefix`.
@@ -786,7 +787,8 @@ impl<L: TrieLayout> DetachedTrieDBMut<L> {
 		}
 	}
 
-	/// Roll back to `snapshot`, see [`AppendOnlyTrieDBMut::rollback_to`].
+	/// Roll back to `snapshot`, see [`AppendOnlyTrieDBMut::rollback_to`]; the recorder and the
+	/// cache are not rolled back.
 	pub fn rollback_to(&mut self, snapshot: &TrieDBMutSnapshot<L>) {
 		self.storage.rewind(&snapshot.storage_mark);
 		self.root_handle = snapshot.root_handle.clone();
@@ -2424,7 +2426,8 @@ where
 /// [`AppendOnlyTrieDBMutBuilder::from_detached`] attaches again later.
 ///
 /// The trie is never committed: it reads the backing database but never writes to it, and it
-/// never writes a root. Nodes stay allocated until the trie is dropped, even after a rollback.
+/// never writes a root. Nodes replaced by later changes stay allocated until a rollback discards
+/// them or the trie is dropped.
 pub struct AppendOnlyTrieDBMut<'a, L>
 where
 	L: TrieLayout,
@@ -2476,6 +2479,9 @@ where
 	}
 
 	/// Roll back all changes made since `snapshot` was taken.
+	///
+	/// Only the trie is restored: what the recorder recorded and the cache cached since the
+	/// snapshot stays.
 	///
 	/// Panics if the trie was rolled back to a point before `snapshot` since it was taken.
 	pub fn rollback_to(&mut self, snapshot: &TrieDBMutSnapshot<L>) {

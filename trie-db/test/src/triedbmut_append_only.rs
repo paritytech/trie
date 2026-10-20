@@ -408,3 +408,26 @@ fn rollback_below_a_snapshot_internal<T: TrieLayout>() {
 		std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| trie.rollback_to(&inner)));
 	assert!(rollback.is_err(), "a snapshot taken above a later rollback point must be refused");
 }
+
+test_layouts!(inserts_are_visible_and_roll_back, inserts_internal);
+/// The other tests only remove. Inserting drives `insert_at` over a storage whose `destroy` hands
+/// out a copy of the node instead of taking it out, and a rollback must drop the inserts too.
+fn inserts_internal<T: TrieLayout>() {
+	const NEW_SIBLING: &[u8] = &[0x50, 0x20, 0xDD, 0xDD];
+	const NEW_BRANCH: &[u8] = &[0x60, 0x00, 0xEE, 0xEE];
+	let (db, root, keys) = block_start_trie::<T>();
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_existing(&db, root).build();
+	let before = read_keys(&trie, &keys);
+
+	assert_eq!(trie.insert(NEW_SIBLING, &[1; 40]).unwrap(), None);
+	let snapshot = trie.snapshot();
+	assert_eq!(trie.insert(NEW_BRANCH, &[2; 40]).unwrap(), None);
+	assert_eq!(trie.get(NEW_SIBLING).unwrap(), Some(vec![1; 40]));
+	assert_eq!(trie.get(NEW_BRANCH).unwrap(), Some(vec![2; 40]));
+	assert_eq!(read_keys(&trie, &keys), before);
+
+	trie.rollback_to(&snapshot);
+	assert_eq!(trie.get(NEW_SIBLING).unwrap(), Some(vec![1; 40]));
+	assert_eq!(trie.get(NEW_BRANCH).unwrap(), None);
+	assert_eq!(read_keys(&trie, &keys), before);
+}
