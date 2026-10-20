@@ -708,17 +708,33 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for CommittingNodeStorage<L> {
 /// not undo a death row.
 struct AppendOnlyNodeStorage<L: TrieLayout> {
 	nodes: Vec<Stored<L>>,
+	/// Every length the arena was rewound to, in order.
+	rewinds: Vec<usize>,
 }
 
 impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
-	fn mark(&self) -> usize {
-		self.nodes.len()
+	fn mark(&self) -> StorageMark {
+		StorageMark { nodes: self.nodes.len(), rewinds: self.rewinds.len() }
 	}
 
-	fn rewind(&mut self, mark: usize) {
-		debug_assert!(mark <= self.nodes.len(), "Snapshot was rolled back past");
-		self.nodes.truncate(mark);
+	/// A mark describes the arena up to its length; a rewind below that length replaced those
+	/// nodes, so such a mark must not be used again.
+	fn rewind(&mut self, mark: &StorageMark) {
+		assert!(mark.nodes <= self.nodes.len(), "Snapshot was rolled back past");
+		assert!(
+			self.rewinds[mark.rewinds..].iter().all(|rewound_to| *rewound_to >= mark.nodes),
+			"Snapshot was invalidated by a rollback to a point before it"
+		);
+		self.nodes.truncate(mark.nodes);
+		self.rewinds.push(mark.nodes);
 	}
+}
+
+/// Where an [`AppendOnlyNodeStorage`] stood when a snapshot was taken.
+#[derive(Clone, Copy)]
+struct StorageMark {
+	nodes: usize,
+	rewinds: usize,
 }
 
 impl<L: TrieLayout> NodeStorage<L> for AppendOnlyNodeStorage<L> {
@@ -755,7 +771,7 @@ pub struct DetachedTrieDBMut<L: TrieLayout> {
 impl<L: TrieLayout> Default for DetachedTrieDBMut<L> {
 	fn default() -> Self {
 		Self {
-			storage: AppendOnlyNodeStorage { nodes: Vec::new() },
+			storage: AppendOnlyNodeStorage { nodes: Vec::new(), rewinds: Vec::new() },
 			root_handle: NodeHandle::Hash(Default::default()),
 		}
 	}
@@ -772,17 +788,18 @@ impl<L: TrieLayout> DetachedTrieDBMut<L> {
 
 	/// Roll back to `snapshot`, see [`AppendOnlyTrieDBMut::rollback_to`].
 	pub fn rollback_to(&mut self, snapshot: &TrieDBMutSnapshot<L>) {
-		self.storage.rewind(snapshot.storage_mark);
+		self.storage.rewind(&snapshot.storage_mark);
 		self.root_handle = snapshot.root_handle.clone();
 	}
 }
 
 /// A point an [`AppendOnlyTrieDBMut`] can be rolled back to.
 ///
-/// A snapshot becomes invalid once the trie is rolled back to a snapshot taken before it.
+/// A snapshot becomes invalid once the trie is rolled back to a point before it; rolling back to
+/// an invalid snapshot panics.
 pub struct TrieDBMutSnapshot<L: TrieLayout> {
 	root_handle: NodeHandle<TrieHash<L>>,
-	storage_mark: usize,
+	storage_mark: StorageMark,
 }
 
 // Not derived, as that would require `L: Clone`.
@@ -2457,8 +2474,10 @@ where
 	}
 
 	/// Roll back all changes made since `snapshot` was taken.
+	///
+	/// Panics if the trie was rolled back to a point before `snapshot` since it was taken.
 	pub fn rollback_to(&mut self, snapshot: &TrieDBMutSnapshot<L>) {
-		self.core.storage.rewind(snapshot.storage_mark);
+		self.core.storage.rewind(&snapshot.storage_mark);
 		self.core.root_handle = snapshot.root_handle.clone();
 	}
 

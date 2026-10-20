@@ -395,3 +395,26 @@ fn rollback_last_delete_preserves_external_root_internal<T: TrieLayout>() {
 	trie.rollback_to(&snapshot);
 	assert_eq!(trie.get(K1).unwrap(), Some(value));
 }
+
+test_layouts!(rollback_below_a_snapshot_invalidates_it, rollback_below_a_snapshot_internal);
+/// A snapshot describes the arena up to its mark. Rolling back below that mark and working on
+/// replaces those nodes, so the snapshot would install a root that is not its own; using it must
+/// be refused. Rolling back to the same snapshot again is fine.
+fn rollback_below_a_snapshot_internal<T: TrieLayout>() {
+	let (mut db, root, keys) = block_start_trie::<T>();
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_existing(&mut db, root).build();
+
+	let outer = trie.snapshot();
+	trie.remove(K1).unwrap();
+	let inner = trie.snapshot();
+
+	trie.rollback_to(&outer);
+	trie.rollback_to(&outer);
+	for key in &keys {
+		trie.remove(key).unwrap();
+	}
+
+	let rollback =
+		std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| trie.rollback_to(&inner)));
+	assert!(rollback.is_err(), "a snapshot taken above a later rollback point must be refused");
+}
