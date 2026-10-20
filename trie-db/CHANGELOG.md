@@ -11,8 +11,8 @@ The format is based on [Keep a Changelog].
   copying the trie. `detach` returns the in-memory state as a `DetachedTrieDBMut`, which also
   supports snapshots and rollbacks, and `AppendOnlyTrieDBMutBuilder::from_detached` attaches it
   again to a database, root, cache and recorder. The database is only read, so the builder takes
-  it as `&dyn HashDBRef`. `DetachedTrieDBMut::default` holds no in-memory nodes and continues
-  from whatever root it is attached to.
+  it as `&dyn HashDBRef`. `DetachedTrieDBMut::new` is the trie at a root without in-memory
+  nodes.
 - `TrieDBMut` writes the caller's root only in `commit`: removing the last key no longer writes
   the empty root before the trie is committed.
 

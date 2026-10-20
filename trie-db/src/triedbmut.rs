@@ -761,24 +761,22 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for AppendOnlyNodeStorage<L> {
 
 /// In-memory state of an [`AppendOnlyTrieDBMut`], detached from its borrows.
 ///
-/// Obtained with [`AppendOnlyTrieDBMut::detach`] and attached again with
-/// [`AppendOnlyTrieDBMutBuilder::from_detached`].
+/// Created with [`Self::new`] or obtained with [`AppendOnlyTrieDBMut::detach`], and attached
+/// with [`AppendOnlyTrieDBMutBuilder::from_detached`].
 pub struct DetachedTrieDBMut<L: TrieLayout> {
 	storage: AppendOnlyNodeStorage<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
 }
 
-/// A trie without in-memory nodes, see [`AppendOnlyTrieDBMutBuilder::from_detached`].
-impl<L: TrieLayout> Default for DetachedTrieDBMut<L> {
-	fn default() -> Self {
+impl<L: TrieLayout> DetachedTrieDBMut<L> {
+	/// The trie at `root`, without in-memory nodes.
+	pub fn new(root: TrieHash<L>) -> Self {
 		Self {
 			storage: AppendOnlyNodeStorage { nodes: Vec::new(), rewinds: Vec::new() },
-			root_handle: NodeHandle::Hash(Default::default()),
+			root_handle: NodeHandle::Hash(root),
 		}
 	}
-}
 
-impl<L: TrieLayout> DetachedTrieDBMut<L> {
 	/// Take a snapshot to roll back to, see [`AppendOnlyTrieDBMut::snapshot`].
 	pub fn snapshot(&self) -> TrieDBMutSnapshot<L> {
 		TrieDBMutSnapshot {
@@ -919,21 +917,14 @@ impl<'db, L: TrieLayout> AppendOnlyTrieDBMutBuilder<'db, L> {
 	/// This doesn't check if `root` exists in the given `db`. If `root` doesn't exist it will fail
 	/// when trying to lookup any key.
 	pub fn from_existing(db: &'db dyn HashDBRef<L::Hash, DBValue>, root: TrieHash<L>) -> Self {
-		Self::from_detached(db, root, Default::default())
+		Self::from_detached(db, DetachedTrieDBMut::new(root))
 	}
 
 	/// Create a builder that continues a trie from its `detached` state.
-	///
-	/// A detached trie that holds no in-memory nodes has no state built on any root yet, so it
-	/// continues from `root`; otherwise it continues from the root it was built on.
 	pub fn from_detached(
 		db: &'db dyn HashDBRef<L::Hash, DBValue>,
-		root: TrieHash<L>,
-		mut detached: DetachedTrieDBMut<L>,
+		detached: DetachedTrieDBMut<L>,
 	) -> Self {
-		if detached.storage.nodes.is_empty() {
-			detached.root_handle = NodeHandle::Hash(root);
-		}
 		Self { db, cache: None, recorder: None, detached }
 	}
 
