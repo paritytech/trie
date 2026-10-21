@@ -24,4 +24,4 @@ env_logger = { version = "0.10", default-features = false }
 log = "0.4"
 
 [dev-dependencies]
-array-bytes = "6.0.0"
+array-bytes = "9.3.0"
