@@ -15,5 +15,4 @@ hash-db = { path = "../hash-db", default-features = false, version = "0.16.0"}
 default = ["std"]
 std = [
   "trie-db/std",
-  "hash-db/std",
 ]
