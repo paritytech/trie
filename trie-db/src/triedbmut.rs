@@ -718,18 +718,35 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 		StorageMark { nodes: self.nodes.len(), rewinds: self.rewinds.len() }
 	}
 
-	/// A mark describes the arena up to its length; a rewind below that length replaced those
-	/// nodes, so such a mark must not be used again.
-	fn rewind(&mut self, mark: &StorageMark) {
-		assert!(mark.nodes <= self.nodes.len(), "Snapshot was rolled back past");
-		assert!(
-			self.rewinds[mark.rewinds..].iter().all(|rewound_to| *rewound_to >= mark.nodes),
-			"Snapshot was invalidated by a rollback to a point before it"
-		);
+	/// Cut the arena back to `mark`.
+	///
+	/// Fails, without touching the arena, if it was cut below `mark` since the mark was taken.
+	fn rewind(&mut self, mark: &StorageMark) -> core::result::Result<(), InvalidSnapshot> {
+		let intact = mark.nodes <= self.nodes.len() &&
+			self.rewinds[mark.rewinds..].iter().all(|rewound_to| *rewound_to >= mark.nodes);
+		if !intact {
+			return Err(InvalidSnapshot)
+		}
 		self.nodes.truncate(mark.nodes);
 		self.rewinds.push(mark.nodes);
+		Ok(())
 	}
 }
+
+/// The trie was rolled back to a point before the snapshot since the snapshot was taken, so the
+/// snapshot no longer describes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidSnapshot;
+
+#[cfg(feature = "std")]
+impl fmt::Display for InvalidSnapshot {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "The trie was rolled back to a point before the snapshot")
+	}
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for InvalidSnapshot {}
 
 /// Where an [`AppendOnlyNodeStorage`] stood when a snapshot was taken.
 #[derive(Clone, Copy)]
@@ -785,18 +802,24 @@ impl<L: TrieLayout> DetachedTrieDBMut<L> {
 		}
 	}
 
-	/// Roll back to `snapshot`, see [`AppendOnlyTrieDBMut::rollback_to`]; the recorder and the
-	/// cache are not rolled back.
-	pub fn rollback_to(&mut self, snapshot: &TrieDBMutSnapshot<L>) {
-		self.storage.rewind(&snapshot.storage_mark);
+	/// Roll back to `snapshot`, see [`AppendOnlyTrieDBMut::rollback_to`].
+	///
+	/// Fails, leaving the state as it is, if it was rolled back to a point before `snapshot` since
+	/// the snapshot was taken.
+	pub fn rollback_to(
+		&mut self,
+		snapshot: &TrieDBMutSnapshot<L>,
+	) -> core::result::Result<(), InvalidSnapshot> {
+		self.storage.rewind(&snapshot.storage_mark)?;
 		self.root_handle = snapshot.root_handle.clone();
+		Ok(())
 	}
 }
 
 /// A point an [`AppendOnlyTrieDBMut`] can be rolled back to.
 ///
 /// A snapshot becomes invalid once the trie is rolled back to a point before it; rolling back to
-/// an invalid snapshot panics.
+/// an invalid snapshot fails with [`InvalidSnapshot`].
 pub struct TrieDBMutSnapshot<L: TrieLayout> {
 	root_handle: NodeHandle<TrieHash<L>>,
 	storage_mark: StorageMark,
@@ -2474,10 +2497,15 @@ where
 	/// Only the trie is restored: what the recorder recorded and the cache cached since the
 	/// snapshot stays.
 	///
-	/// Panics if the trie was rolled back to a point before `snapshot` since it was taken.
-	pub fn rollback_to(&mut self, snapshot: &TrieDBMutSnapshot<L>) {
-		self.core.storage.rewind(&snapshot.storage_mark);
+	/// Fails, leaving the trie as it is, if the trie was rolled back to a point before `snapshot`
+	/// since it was taken.
+	pub fn rollback_to(
+		&mut self,
+		snapshot: &TrieDBMutSnapshot<L>,
+	) -> core::result::Result<(), InvalidSnapshot> {
+		self.core.storage.rewind(&snapshot.storage_mark)?;
 		self.core.root_handle = snapshot.root_handle.clone();
+		Ok(())
 	}
 
 	/// Detach the in-memory state, to continue later with

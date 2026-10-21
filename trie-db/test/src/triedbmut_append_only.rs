@@ -23,8 +23,8 @@ use memory_db::{MemoryDB, PrefixedKey};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use reference_trie::test_layouts;
 use trie_db::{
-	AppendOnlyTrieDBMut, AppendOnlyTrieDBMutBuilder, DBValue, DetachedTrieDBMut, Recorder,
-	TrieDBMutBuilder, TrieDBMutSnapshot, TrieHash, TrieLayout, TrieMut,
+	AppendOnlyTrieDBMut, AppendOnlyTrieDBMutBuilder, DBValue, DetachedTrieDBMut, InvalidSnapshot,
+	Recorder, TrieDBMutBuilder, TrieDBMutSnapshot, TrieHash, TrieLayout, TrieMut,
 };
 
 type PrefixedMemoryDB<T> =
@@ -165,7 +165,7 @@ fn rollback_then_redo_internal<T: TrieLayout>() {
 		trie.remove(K1).unwrap();
 		let snapshot = trie.snapshot();
 		trie.remove(K2).unwrap();
-		trie.rollback_to(&snapshot);
+		trie.rollback_to(&snapshot).unwrap();
 	});
 	let (detached, values) = contents::<T>(detached, &db, &keys);
 	assert_eq!(values[keys.iter().position(|key| key == K2).unwrap()], Some(vec![2u8; 64]));
@@ -192,8 +192,8 @@ fn nested_rollbacks_internal<T: TrieLayout>() {
 		trie.remove(K1).unwrap();
 		let inner = trie.snapshot();
 		trie.remove(K2).unwrap();
-		trie.rollback_to(&inner);
-		trie.rollback_to(&outer);
+		trie.rollback_to(&inner).unwrap();
+		trie.rollback_to(&outer).unwrap();
 	});
 	let (detached, values) = contents::<T>(detached, &db, &keys);
 	assert_eq!(values, pristine_contents);
@@ -215,7 +215,7 @@ fn rollback_to_initial_snapshot_internal<T: TrieLayout>() {
 
 	let mut never_mutated = pristine::<T>(&db, root);
 	let initial = never_mutated.snapshot();
-	never_mutated.rollback_to(&initial);
+	never_mutated.rollback_to(&initial).unwrap();
 	assert_eq!(contents::<T>(never_mutated, &db, &keys).1, pristine_contents);
 
 	let (mut emptied, _) = session::<T>(pristine::<T>(&db, root), &db, |trie| {
@@ -224,7 +224,7 @@ fn rollback_to_initial_snapshot_internal<T: TrieLayout>() {
 		}
 		assert!(trie.is_empty());
 	});
-	emptied.rollback_to(&initial);
+	emptied.rollback_to(&initial).unwrap();
 	let (emptied, values) = contents::<T>(emptied, &db, &keys);
 	assert_eq!(values, pristine_contents);
 	let (_, recorded) = session::<T>(emptied, &db, |trie| {
@@ -248,7 +248,7 @@ fn detached_snapshot_spans_sessions_internal<T: TrieLayout>() {
 		trie.remove(K2).unwrap();
 		trie.remove(K3).unwrap();
 	});
-	detached.rollback_to(&snapshot);
+	detached.rollback_to(&snapshot).unwrap();
 	let (detached, values) = contents::<T>(detached, &db, &keys);
 	assert_eq!(values, only_k1_removed);
 
@@ -322,7 +322,7 @@ fn random_run<T: TrieLayout>(seed: u64) {
 				let index = rng.gen_range(0..snapshots.len());
 				snapshots.truncate(index + 1);
 				let (snapshot, deletes, nodes) = &snapshots[index];
-				detached.rollback_to(snapshot);
+				detached.rollback_to(snapshot).unwrap();
 				surviving_deletes.truncate(*deletes);
 				recorded = nodes.clone();
 				detached =
@@ -361,7 +361,7 @@ fn rollback_last_delete_preserves_external_root_internal<T: TrieLayout>() {
 	let snapshot = trie.snapshot();
 	trie.remove(K1).unwrap();
 	assert!(trie.is_empty());
-	trie.rollback_to(&snapshot);
+	trie.rollback_to(&snapshot).unwrap();
 	assert_eq!(trie.get(K1).unwrap(), Some(value));
 }
 
@@ -377,15 +377,14 @@ fn rollback_below_a_snapshot_internal<T: TrieLayout>() {
 	trie.remove(K1).unwrap();
 	let inner = trie.snapshot();
 
-	trie.rollback_to(&outer);
-	trie.rollback_to(&outer);
+	trie.rollback_to(&outer).unwrap();
+	trie.rollback_to(&outer).unwrap();
 	for key in &keys {
 		trie.remove(key).unwrap();
 	}
 
-	let rollback =
-		std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| trie.rollback_to(&inner)));
-	assert!(rollback.is_err(), "a snapshot taken above a later rollback point must be refused");
+	assert_eq!(trie.rollback_to(&inner), Err(InvalidSnapshot));
+	assert_eq!(trie.get(K1).unwrap(), None, "a refused rollback leaves the trie as it is");
 }
 
 test_layouts!(inserts_are_visible_and_roll_back, inserts_internal);
@@ -405,7 +404,7 @@ fn inserts_internal<T: TrieLayout>() {
 	assert_eq!(trie.get(NEW_BRANCH).unwrap(), Some(vec![2; 40]));
 	assert_eq!(read_keys(&trie, &keys), before);
 
-	trie.rollback_to(&snapshot);
+	trie.rollback_to(&snapshot).unwrap();
 	assert_eq!(trie.get(NEW_SIBLING).unwrap(), Some(vec![1; 40]));
 	assert_eq!(trie.get(NEW_BRANCH).unwrap(), None);
 	assert_eq!(read_keys(&trie, &keys), before);
