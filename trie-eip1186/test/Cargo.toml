@@ -6,6 +6,7 @@ description = "Tests for trie-eip1186 crate"
 repository = "https://github.com/paritytech/trie"
 license = "Apache-2.0"
 edition = "2018"
+publish = false
 
 [dependencies]
 trie-eip1186 = { path = "..", version = "0.5.0"}
