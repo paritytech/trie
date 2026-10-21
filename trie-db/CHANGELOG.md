@@ -4,6 +4,9 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
+## [Unreleased]
+- Fix `TrieDBMut` panic (debug) / silent value corruption (release) when removing a key that is a strict prefix of existing keys [#217](https://github.com/paritytech/trie/issues/217)
+
 ## [0.32.0] - 2026-08-19
 - Fix the item count returned by `decode_compact`/`decode_compact_from_iter` when the last
   decoded node carries an attached (detached-at-encoding) value: the value item was not counted,

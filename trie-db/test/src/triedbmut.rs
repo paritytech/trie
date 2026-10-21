@@ -980,3 +980,72 @@ fn test_commit_on_drop_explicit_internal<T: TrieLayout>() {
 		db_key_count_after
 	);
 }
+
+test_layouts!(remove_prefix_key_is_noop_issue_217, remove_prefix_key_is_noop_issue_217_internal);
+fn remove_prefix_key_is_noop_issue_217_internal<T: TrieLayout>() {
+	// Regression for https://github.com/paritytech/trie/issues/217.
+	// Removing a key that is only a strict prefix of existing keys (so it terminates partway
+	// through a branch's own partial) must be a no-op. Before the fix this panicked in debug
+	// (`assertion failed: self.len() >= i` in nibbleslice) and silently deleted a different
+	// key's value while over-advancing the nibble offset in release.
+
+	// `ff` is absent but is a strict prefix of `ffff` / `ffffff`.
+	let pairs: Vec<(Vec<u8>, Vec<u8>)> = vec![
+		(vec![0xff, 0xff], vec![0x0a]),
+		(vec![0xfe, 0xff, 0xe9], vec![0x0b]),
+		(vec![0xff, 0xff, 0xff], vec![0x0c]),
+	];
+
+	let mut memdb = PrefixedMemoryDB::<T>::default();
+	let mut root = Default::default();
+	{
+		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+		for (k, v) in &pairs {
+			t.insert(k, v).unwrap();
+		}
+		// Inserting an empty value is treated as a removal (the original repro), ...
+		t.insert(&[0xff], &[]).unwrap();
+		// ... and the direct remove API must behave identically.
+		t.remove(&[0xff]).unwrap();
+
+		assert_eq!(t.get(&[0xff]).unwrap(), None);
+		for (k, v) in &pairs {
+			assert_eq!(t.get(k).unwrap(), Some(v.clone()));
+		}
+		// commit on drop
+	}
+	// The no-op removals must leave the trie byte-identical to one built from the survivors.
+	// `calc_root` consumes its input in order, so the reference keys must be sorted.
+	let mut survivors = pairs;
+	survivors.sort();
+	assert_eq!(root, reference_trie::calc_root::<T, _, _, _>(survivors));
+}
+
+test_layouts!(remove_exact_branch_value_issue_217, remove_exact_branch_value_issue_217_internal);
+fn remove_exact_branch_value_issue_217_internal<T: TrieLayout>() {
+	// Companion to the #217 fix: a key whose value genuinely sits where the shared partial
+	// ends must still be removable. Guards against the fix over-skipping a legitimate removal.
+	let mut memdb = PrefixedMemoryDB::<T>::default();
+	let mut root = Default::default();
+	{
+		let mut t = TrieDBMutBuilder::<T>::new(&mut memdb, &mut root).build();
+		t.insert(&[0xff, 0xaa], &[0x01]).unwrap();
+		t.insert(&[0xff, 0xbb], &[0x02]).unwrap();
+		// `ff` now holds a value sitting on the shared-prefix branch.
+		t.insert(&[0xff], &[0x09]).unwrap();
+		assert_eq!(t.get(&[0xff]).unwrap(), Some(vec![0x09]));
+
+		t.remove(&[0xff]).unwrap();
+
+		assert_eq!(t.get(&[0xff]).unwrap(), None);
+		assert_eq!(t.get(&[0xff, 0xaa]).unwrap(), Some(vec![0x01]));
+		assert_eq!(t.get(&[0xff, 0xbb]).unwrap(), Some(vec![0x02]));
+		// commit on drop
+	}
+	let mut survivors = vec![
+		(vec![0xff, 0xaa], vec![0x01]),
+		(vec![0xff, 0xbb], vec![0x02]),
+	];
+	survivors.sort();
+	assert_eq!(root, reference_trie::calc_root::<T, _, _, _>(survivors));
+}
