@@ -1,0 +1,14 @@
+
+project: openml
+target: openml
+
+cmds:
+    - cmd: /trie_root_new
+    - cmd: /trie_root
+    - cmd: /trie_root_fix_len
+    - cmd: /no_ext_insert
+    - cmd: /prefix_iter
+    - cmd: /seek_iter
+    - cmd: /trie_proof_valid
+    - cmd: /trie_codec_proof
+    - cmd: /trie_proof_invalid
