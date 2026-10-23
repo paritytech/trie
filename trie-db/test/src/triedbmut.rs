@@ -980,3 +980,113 @@ fn test_commit_on_drop_explicit_internal<T: TrieLayout>() {
 		db_key_count_after
 	);
 }
+
+const ABSENT_PREFIX_KEY: &[u8] = &[0xec];
+
+/// The value of `0xecb6` sits in a branch reached by consuming exactly `ABSENT_PREFIX_KEY`.
+fn entries_with_one_child_under_prefix() -> Vec<(Vec<u8>, Vec<u8>)> {
+	vec![
+		(vec![0xeb, 0xb1], b"v1".to_vec()),
+		(vec![0xec, 0xb6], b"v2".to_vec()),
+		(vec![0xec, 0xb6, 0x01], b"v3".to_vec()),
+	]
+}
+
+fn entries_with_two_children_under_prefix() -> Vec<(Vec<u8>, Vec<u8>)> {
+	let mut entries = entries_with_one_child_under_prefix();
+	entries.push((vec![0xec, 0xb6, 0x11], b"v4".to_vec()));
+	entries
+}
+
+fn assert_trie_contains<T: TrieLayout>(
+	memdb: &PrefixedMemoryDB<T>,
+	root: &<T::Hash as Hasher>::Out,
+	entries: &[(Vec<u8>, Vec<u8>)],
+) {
+	let trie = TrieDBBuilder::<T>::new(memdb, root).build();
+	for (key, value) in entries {
+		assert_eq!(trie.get(key).unwrap().as_ref(), Some(value), "value of {:x?}", key);
+	}
+}
+
+fn assert_removing_absent_prefix_key_changes_nothing<T: TrieLayout>(
+	entries: &[(Vec<u8>, Vec<u8>)],
+) {
+	let mut memdb = PrefixedMemoryDB::<T>::default();
+	let mut root = Default::default();
+	populate_trie::<T>(&mut memdb, &mut root, entries);
+	let root_before = root;
+	let db_key_count_before = memdb.keys().len();
+
+	{
+		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root).build();
+		assert_eq!(trie.remove(ABSENT_PREFIX_KEY).unwrap(), None);
+	}
+
+	assert_eq!(root, root_before);
+	assert_eq!(memdb.keys().len(), db_key_count_before);
+	assert_trie_contains::<T>(&memdb, &root, entries);
+}
+
+fn assert_inserting_absent_prefix_key_keeps_other_values<T: TrieLayout>(
+	entries: &[(Vec<u8>, Vec<u8>)],
+) {
+	let mut memdb = PrefixedMemoryDB::<T>::default();
+	let mut root = Default::default();
+	populate_trie::<T>(&mut memdb, &mut root, entries);
+
+	{
+		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root).build();
+		assert_eq!(trie.insert(ABSENT_PREFIX_KEY, b"prefix value").unwrap(), None);
+	}
+
+	let mut expected_entries = entries.to_vec();
+	expected_entries.push((ABSENT_PREFIX_KEY.to_vec(), b"prefix value".to_vec()));
+	assert_eq!(root, reference_trie_root::<T, _, _, _>(expected_entries.clone()));
+	assert_trie_contains::<T>(&memdb, &root, &expected_entries);
+}
+
+test_layouts!(
+	remove_absent_prefix_key_with_one_child,
+	remove_absent_prefix_key_with_one_child_internal
+);
+/// An absent key that is a strict prefix of a stored key must not take that key's value, and
+/// must not panic while restructuring the single-child branch that held it.
+fn remove_absent_prefix_key_with_one_child_internal<T: TrieLayout>() {
+	assert_removing_absent_prefix_key_changes_nothing::<T>(&entries_with_one_child_under_prefix());
+}
+
+test_layouts!(
+	remove_absent_prefix_key_with_two_children,
+	remove_absent_prefix_key_with_two_children_internal
+);
+/// An absent key that is a strict prefix of a stored key must not silently drop that key's value
+/// from a branch that stays valid without it.
+fn remove_absent_prefix_key_with_two_children_internal<T: TrieLayout>() {
+	assert_removing_absent_prefix_key_changes_nothing::<T>(
+		&entries_with_two_children_under_prefix(),
+	);
+}
+
+test_layouts!(
+	insert_absent_prefix_key_with_one_child,
+	insert_absent_prefix_key_with_one_child_internal
+);
+/// Inserting a key that is a strict prefix of a stored key must split the branch holding that key,
+/// not overwrite its value.
+fn insert_absent_prefix_key_with_one_child_internal<T: TrieLayout>() {
+	assert_inserting_absent_prefix_key_keeps_other_values::<T>(
+		&entries_with_one_child_under_prefix(),
+	);
+}
+
+test_layouts!(
+	insert_absent_prefix_key_with_two_children,
+	insert_absent_prefix_key_with_two_children_internal
+);
+/// Same as `insert_absent_prefix_key_with_one_child`, for a branch that has two children.
+fn insert_absent_prefix_key_with_two_children_internal<T: TrieLayout>() {
+	assert_inserting_absent_prefix_key_keeps_other_values::<T>(
+		&entries_with_two_children_under_prefix(),
+	);
+}

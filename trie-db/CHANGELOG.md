@@ -4,6 +4,10 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
+## [Unreleased]
+- Fix `TrieDBMut::remove` of a key that does not exist but is a strict prefix of a stored key:
+  it no longer panics or deletes the stored key's value.
+
 ## [0.32.0] - 2026-08-19
 - Fix the item count returned by `decode_compact`/`decode_compact_from_iter` when the last
   decoded node carries an attached (detached-at-encoding) value: the value item was not counted,

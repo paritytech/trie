@@ -1384,17 +1384,10 @@ where
 		Ok(match (node, partial.is_empty()) {
 			(Node::Empty, _) => Action::Delete,
 			(Node::Branch(c, None), true) => Action::Restore(Node::Branch(c, None)),
-			(Node::NibbledBranch(n, c, None), true) =>
-				Action::Restore(Node::NibbledBranch(n, c, None)),
 			(Node::Branch(children, val), true) => {
 				self.replace_old_value(old_val, val, key.left());
 				// always replace since we took the value out.
 				Action::Replace(self.fix(Node::Branch(children, None), *key)?)
-			},
-			(Node::NibbledBranch(n, children, val), true) => {
-				self.replace_old_value(old_val, val, key.left());
-				// always replace since we took the value out.
-				Action::Replace(self.fix(Node::NibbledBranch(n, children, None), *key)?)
 			},
 			(Node::Branch(mut children, value), false) => {
 				let idx = partial.at(0) as usize;
@@ -1431,7 +1424,7 @@ where
 					Action::Restore(Node::Branch(children, value))
 				}
 			},
-			(Node::NibbledBranch(encoded, mut children, value), false) => {
+			(Node::NibbledBranch(encoded, mut children, value), _) => {
 				let (common, existing_length) = {
 					let existing_key = NibbleSlice::from_stored(&encoded);
 					(existing_key.common_prefix(&partial), existing_key.len())
