@@ -702,8 +702,12 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for CommittingNodeStorage<L> {
 	}
 }
 
-/// Storage whose nodes are never overwritten, so truncating `nodes` back to an earlier length
-/// restores the trie as it was then: a node only references nodes allocated before it.
+/// Storage whose nodes below the newest mark are never overwritten, so truncating `nodes` back to
+/// the length of a mark restores the trie as it was then: a node written before a mark only
+/// references nodes that existed when the mark was taken.
+///
+/// Nodes written since the newest mark are not seen by any snapshot, so their slots are reused.
+/// Slots still free when a mark is taken stay empty until a rollback discards them.
 ///
 /// Retired database nodes are forgotten: this storage is never committed, and a rollback could
 /// not undo a death row.
@@ -711,10 +715,20 @@ struct AppendOnlyNodeStorage<L: TrieLayout> {
 	nodes: Vec<Stored<L>>,
 	/// Every length the arena was rewound to, in order.
 	rewinds: Vec<usize>,
+	/// Length of the arena at the newest mark or rewind; slots below it are never overwritten.
+	frozen_below: usize,
+	/// Emptied slots at or above `frozen_below`.
+	free_indices: Vec<usize>,
 }
 
 impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
-	fn mark(&self) -> StorageMark {
+	fn empty() -> Self {
+		Self { nodes: Vec::new(), rewinds: Vec::new(), frozen_below: 0, free_indices: Vec::new() }
+	}
+
+	fn mark(&mut self) -> StorageMark {
+		self.frozen_below = self.nodes.len();
+		self.free_indices.clear();
 		StorageMark { nodes: self.nodes.len(), rewinds: self.rewinds.len() }
 	}
 
@@ -729,6 +743,8 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 		}
 		self.nodes.truncate(mark.nodes);
 		self.rewinds.push(mark.nodes);
+		self.frozen_below = mark.nodes;
+		self.free_indices.clear();
 		Ok(())
 	}
 }
@@ -757,12 +773,22 @@ struct StorageMark {
 
 impl<L: TrieLayout> NodeStorage<L> for AppendOnlyNodeStorage<L> {
 	fn alloc(&mut self, stored: Stored<L>) -> StorageHandle {
-		self.nodes.push(stored);
-		StorageHandle(self.nodes.len() - 1)
+		if let Some(idx) = self.free_indices.pop() {
+			self.nodes[idx] = stored;
+			StorageHandle(idx)
+		} else {
+			self.nodes.push(stored);
+			StorageHandle(self.nodes.len() - 1)
+		}
 	}
 
 	fn destroy(&mut self, handle: StorageHandle) -> Stored<L> {
-		self.nodes[handle.0].clone()
+		let idx = handle.0;
+		if idx < self.frozen_below {
+			return self.nodes[idx].clone()
+		}
+		self.free_indices.push(idx);
+		mem::replace(&mut self.nodes[idx], Stored::New(Node::Empty))
 	}
 
 	fn retire(&mut self, _hash: TrieHash<L>, _prefix: (BackingByteVec, Option<u8>)) {}
@@ -788,14 +814,11 @@ pub struct DetachedTrieDBMut<L: TrieLayout> {
 impl<L: TrieLayout> DetachedTrieDBMut<L> {
 	/// The trie at `root`, without in-memory nodes.
 	pub fn new(root: TrieHash<L>) -> Self {
-		Self {
-			storage: AppendOnlyNodeStorage { nodes: Vec::new(), rewinds: Vec::new() },
-			root_handle: NodeHandle::Hash(root),
-		}
+		Self { storage: AppendOnlyNodeStorage::empty(), root_handle: NodeHandle::Hash(root) }
 	}
 
 	/// Take a snapshot to roll back to, see [`AppendOnlyTrieDBMut::snapshot`].
-	pub fn snapshot(&self) -> TrieDBMutSnapshot<L> {
+	pub fn snapshot(&mut self) -> TrieDBMutSnapshot<L> {
 		TrieDBMutSnapshot {
 			root_handle: self.root_handle.clone(),
 			storage_mark: self.storage.mark(),
@@ -2440,8 +2463,8 @@ where
 /// [`AppendOnlyTrieDBMutBuilder::from_detached`] attaches again later.
 ///
 /// The trie is never committed: it reads the backing database but never writes to it, and it
-/// never writes a root. Nodes replaced by later changes stay allocated until a rollback discards
-/// them or the trie is dropped.
+/// never writes a root. Nodes replaced by later changes are reused, except those a snapshot may
+/// still need, which stay allocated until a rollback discards them or the trie is dropped.
 pub struct AppendOnlyTrieDBMut<'a, L>
 where
 	L: TrieLayout,
@@ -2485,7 +2508,9 @@ where
 	}
 
 	/// Take a snapshot to later roll back to. Cheap: it does not copy the trie.
-	pub fn snapshot(&self) -> TrieDBMutSnapshot<L> {
+	///
+	/// Takes `&mut self` because nodes written before the snapshot are no longer reused in place.
+	pub fn snapshot(&mut self) -> TrieDBMutSnapshot<L> {
 		TrieDBMutSnapshot {
 			root_handle: self.core.root_handle.clone(),
 			storage_mark: self.core.storage.mark(),

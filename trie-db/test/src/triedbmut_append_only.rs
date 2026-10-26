@@ -240,7 +240,7 @@ fn detached_snapshot_spans_sessions_internal<T: TrieLayout>() {
 	let (_, only_k1_removed) = real_session::<T, _>(&db, root, &[K1], &keys);
 	let (_, k1_and_k3_removed) = real_session::<T, _>(&db, root, &[K1, K3], &keys);
 
-	let (detached, _) = session::<T>(pristine::<T>(&db, root), &db, |trie| {
+	let (mut detached, _) = session::<T>(pristine::<T>(&db, root), &db, |trie| {
 		trie.remove(K1).unwrap();
 	});
 	let snapshot = detached.snapshot();
