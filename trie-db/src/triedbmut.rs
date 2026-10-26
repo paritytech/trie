@@ -2508,6 +2508,13 @@ where
 		Ok(())
 	}
 
+	/// Number of slots in the in-memory node arena, freed ones included. A diagnostic for tests,
+	/// not part of the stable API.
+	#[doc(hidden)]
+	pub fn arena_len(&self) -> usize {
+		self.core.storage.nodes.len()
+	}
+
 	/// Detach the in-memory state, to continue later with
 	/// [`AppendOnlyTrieDBMutBuilder::from_detached`].
 	pub fn detach(self) -> DetachedTrieDBMut<L> {

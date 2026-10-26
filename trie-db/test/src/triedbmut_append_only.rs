@@ -409,3 +409,84 @@ fn inserts_internal<T: TrieLayout>() {
 	assert_eq!(trie.get(NEW_BRANCH).unwrap(), None);
 	assert_eq!(read_keys(&trie, &keys), before);
 }
+
+/// Keys on the path to K1 that are not in the trie.
+fn absent_keys_under_k1() -> Vec<Vec<u8>> {
+	(0..50u8).map(|byte| vec![0x50, 0x00, 0xAA, byte]).collect()
+}
+
+/// Removes every key in `absent_keys` and checks that only the first removal grew the arena.
+fn assert_absent_removals_reuse_slots<T: TrieLayout>(
+	trie: &mut AppendOnlyTrieDBMut<T>,
+	absent_keys: &[Vec<u8>],
+) {
+	assert!(trie.remove(&absent_keys[0]).unwrap().is_none());
+	let after_first = trie.arena_len();
+	for key in &absent_keys[1..] {
+		assert!(trie.remove(key).unwrap().is_none());
+	}
+	assert_eq!(trie.arena_len(), after_first);
+}
+
+test_layouts!(absent_key_removals_keep_arena_bounded, absent_key_removals_internal);
+/// The estimation trie lives for a whole block, and a block may remove tens of thousands of keys,
+/// many of them absent. Outside of a snapshot nothing needs the replaced nodes, so a removal must
+/// reuse their slots: an arena growing by a path copy per removal exhausts the runtime's memory.
+fn absent_key_removals_internal<T: TrieLayout>() {
+	let (db, root, _) = block_start_trie::<T>();
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_existing(&db, root).build();
+	assert_absent_removals_reuse_slots(&mut trie, &absent_keys_under_k1());
+}
+
+test_layouts!(rollback_after_slot_reuse, rollback_after_slot_reuse_internal);
+/// The second delete along a path overwrites the slots the first one freed. A rollback must still
+/// restore the trie of the snapshot, and the slots handed out afterwards must not be ones the
+/// rollback discarded, so a redo loads and records exactly what a real session does.
+fn rollback_after_slot_reuse_internal<T: TrieLayout>() {
+	let (db, root, keys) = block_start_trie::<T>();
+	let (_, k3_removed) = real_session::<T, _>(&db, root, &[K3], &keys);
+	let (real, all_removed) = real_session::<T, _>(&db, root, &[K3, K1, K2], &keys);
+
+	let (detached, mut recorded) = session::<T>(pristine::<T>(&db, root), &db, |trie| {
+		trie.remove(K3).unwrap();
+		let snapshot = trie.snapshot();
+		trie.remove(K1).unwrap();
+		trie.remove(K2).unwrap();
+		trie.rollback_to(&snapshot).unwrap();
+	});
+	let (detached, values) = contents::<T>(detached, &db, &keys);
+	assert_eq!(values, k3_removed);
+
+	let (detached, nodes) = session::<T>(detached, &db, |trie| {
+		trie.remove(K1).unwrap();
+		trie.remove(K2).unwrap();
+	});
+	recorded.extend(nodes);
+	assert_eq!(recorded, real);
+	assert_eq!(contents::<T>(detached, &db, &keys).1, all_removed);
+}
+
+test_layouts!(nested_rollbacks_after_slot_reuse, nested_rollbacks_after_slot_reuse_internal);
+/// A snapshot protects every node written before it, so deletes inside a nested transaction may
+/// only reuse slots written after the inner snapshot, and both rollbacks must restore their own
+/// trie. Once rolled back past the outer snapshot, nothing protects the nodes written since it,
+/// so removals must reuse their slots again instead of growing the arena.
+fn nested_rollbacks_after_slot_reuse_internal<T: TrieLayout>() {
+	let (db, root, keys) = block_start_trie::<T>();
+	let (_, pristine_contents) = real_session::<T, &[u8]>(&db, root, &[], &keys);
+	let (_, k3_removed) = real_session::<T, _>(&db, root, &[K3], &keys);
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_existing(&db, root).build();
+
+	let outer = trie.snapshot();
+	trie.remove(K3).unwrap();
+	let inner = trie.snapshot();
+	trie.remove(K1).unwrap();
+	trie.remove(K2).unwrap();
+
+	trie.rollback_to(&inner).unwrap();
+	assert_eq!(read_keys(&trie, &keys), k3_removed);
+	trie.rollback_to(&outer).unwrap();
+	assert_eq!(read_keys(&trie, &keys), pristine_contents);
+
+	assert_absent_removals_reuse_slots(&mut trie, &absent_keys_under_k1());
+}
