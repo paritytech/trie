@@ -474,19 +474,27 @@ test_layouts!(nested_rollbacks_after_slot_reuse, nested_rollbacks_after_slot_reu
 fn nested_rollbacks_after_slot_reuse_internal<T: TrieLayout>() {
 	let (db, root, keys) = block_start_trie::<T>();
 	let (_, pristine_contents) = real_session::<T, &[u8]>(&db, root, &[], &keys);
-	let (_, k3_removed) = real_session::<T, _>(&db, root, &[K3], &keys);
+	let (_, k1_and_k2_removed) = real_session::<T, _>(&db, root, &[K1, K2], &keys);
+	// Enough nodes that the inner snapshot protects more slots than the absent-key removals at
+	// the end use, so those would not be reused if the protection stayed at the inner snapshot.
+	let inserted: Vec<Vec<u8>> = (0..32u8).map(|byte| vec![0xE0, byte, 0x55]).collect();
 	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_existing(&db, root).build();
 
 	let outer = trie.snapshot();
-	trie.remove(K3).unwrap();
+	for key in &inserted {
+		trie.insert(key, &[7; 40]).unwrap();
+	}
 	let inner = trie.snapshot();
 	trie.remove(K1).unwrap();
 	trie.remove(K2).unwrap();
+	assert_eq!(read_keys(&trie, &keys), k1_and_k2_removed);
 
 	trie.rollback_to(&inner).unwrap();
-	assert_eq!(read_keys(&trie, &keys), k3_removed);
+	assert_eq!(read_keys(&trie, &keys), pristine_contents);
+	assert!(read_keys(&trie, &inserted).iter().all(|value| *value == Some(vec![7; 40])));
 	trie.rollback_to(&outer).unwrap();
 	assert_eq!(read_keys(&trie, &keys), pristine_contents);
+	assert!(read_keys(&trie, &inserted).iter().all(Option::is_none));
 
 	assert_absent_removals_reuse_slots(&mut trie, &absent_keys_under_k1());
 }
