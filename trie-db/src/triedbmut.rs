@@ -279,7 +279,7 @@ impl<L: TrieLayout> Node<L> {
 	fn inline_or_hash(
 		parent_hash: TrieHash<L>,
 		child: EncodedNodeHandle,
-		storage: &mut NodeStorage<L>,
+		storage: &mut impl NodeStorage<L>,
 	) -> Result<NodeHandle<TrieHash<L>>, TrieHash<L>, CError<L>> {
 		let handle = match child {
 			EncodedNodeHandle::Hash(data) => {
@@ -298,7 +298,7 @@ impl<L: TrieLayout> Node<L> {
 	// load an inline node into memory or get the hash to do the lookup later.
 	fn inline_or_hash_owned(
 		child: &NodeHandleOwned<TrieHash<L>>,
-		storage: &mut NodeStorage<L>,
+		storage: &mut impl NodeStorage<L>,
 	) -> NodeHandle<TrieHash<L>> {
 		match child {
 			NodeHandleOwned::Hash(hash) => NodeHandle::Hash(*hash),
@@ -313,7 +313,7 @@ impl<L: TrieLayout> Node<L> {
 	fn from_encoded<'a, 'b>(
 		node_hash: TrieHash<L>,
 		data: &'a [u8],
-		storage: &'b mut NodeStorage<L>,
+		storage: &'b mut impl NodeStorage<L>,
 	) -> Result<Self, TrieHash<L>, CError<L>> {
 		let encoded_node =
 			L::Codec::decode(data).map_err(|e| Box::new(TrieError::DecoderError(node_hash, e)))?;
@@ -381,7 +381,10 @@ impl<L: TrieLayout> Node<L> {
 	}
 
 	/// Decode a node from a [`NodeOwned`].
-	fn from_node_owned(node_owned: &NodeOwned<TrieHash<L>>, storage: &mut NodeStorage<L>) -> Self {
+	fn from_node_owned(
+		node_owned: &NodeOwned<TrieHash<L>>,
+		storage: &mut impl NodeStorage<L>,
+	) -> Self {
 		match node_owned {
 			NodeOwned::Empty => Node::Empty,
 			NodeOwned::Leaf(k, v) => Node::Leaf(k.into(), v.into()),
@@ -555,6 +558,15 @@ enum Stored<L: TrieLayout> {
 	Cached(Node<L>, TrieHash<L>),
 }
 
+impl<L: TrieLayout> Stored<L> {
+	fn node(&self) -> &Node<L> {
+		match self {
+			Stored::New(node) => node,
+			Stored::Cached(node, _) => node,
+		}
+	}
+}
+
 /// Used to build a collection of child nodes from a collection of `NodeHandle`s
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -592,19 +604,38 @@ where
 	}
 }
 
-/// Compact and cache-friendly storage for Trie nodes.
-struct NodeStorage<L: TrieLayout> {
-	nodes: Vec<Stored<L>>,
-	free_indices: VecDeque<usize>,
+/// In-memory storage of the nodes a trie modifies.
+trait NodeStorage<L: TrieLayout>: for<'a> Index<&'a StorageHandle, Output = Node<L>> {
+	/// Allocate a new node in the storage.
+	fn alloc(&mut self, stored: Stored<L>) -> StorageHandle;
+
+	/// Take the node behind `handle` out of the trie; the handle must not be used again. Whether
+	/// the slot is freed is up to the storage.
+	fn destroy(&mut self, handle: StorageHandle) -> Stored<L>;
+
+	/// The trie no longer references the database node `hash` under `prefix`.
+	fn retire(&mut self, hash: TrieHash<L>, prefix: (BackingByteVec, Option<u8>));
 }
 
-impl<L: TrieLayout> NodeStorage<L> {
+/// Compact and cache-friendly storage for Trie nodes.
+struct CommittingNodeStorage<L: TrieLayout> {
+	nodes: Vec<Stored<L>>,
+	free_indices: VecDeque<usize>,
+	death_row: Set<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
+}
+
+impl<L: TrieLayout> CommittingNodeStorage<L> {
 	/// Create a new storage.
 	fn empty() -> Self {
-		NodeStorage { nodes: Vec::new(), free_indices: VecDeque::new() }
+		CommittingNodeStorage {
+			nodes: Vec::new(),
+			free_indices: VecDeque::new(),
+			death_row: Default::default(),
+		}
 	}
+}
 
-	/// Allocate a new node in the storage.
+impl<L: TrieLayout> NodeStorage<L> for CommittingNodeStorage<L> {
 	fn alloc(&mut self, stored: Stored<L>) -> StorageHandle {
 		if let Some(idx) = self.free_indices.pop_front() {
 			self.nodes[idx] = stored;
@@ -615,23 +646,22 @@ impl<L: TrieLayout> NodeStorage<L> {
 		}
 	}
 
-	/// Remove a node from the storage, consuming the handle and returning the node.
 	fn destroy(&mut self, handle: StorageHandle) -> Stored<L> {
 		let idx = handle.0;
-
 		self.free_indices.push_back(idx);
 		mem::replace(&mut self.nodes[idx], Stored::New(Node::Empty))
 	}
+
+	fn retire(&mut self, hash: TrieHash<L>, prefix: (BackingByteVec, Option<u8>)) {
+		self.death_row.insert((hash, prefix));
+	}
 }
 
-impl<'a, L: TrieLayout> Index<&'a StorageHandle> for NodeStorage<L> {
+impl<'a, L: TrieLayout> Index<&'a StorageHandle> for CommittingNodeStorage<L> {
 	type Output = Node<L>;
 
 	fn index(&self, handle: &'a StorageHandle) -> &Node<L> {
-		match self.nodes[handle.0] {
-			Stored::New(ref node) => node,
-			Stored::Cached(ref node, _) => node,
-		}
+		self.nodes[handle.0].node()
 	}
 }
 
@@ -722,8 +752,7 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 			root: self.root,
 			cache: self.cache,
 			recorder: self.recorder.map(core::cell::RefCell::new),
-			storage: NodeStorage::empty(),
-			death_row: Default::default(),
+			storage: CommittingNodeStorage::empty(),
 			root_handle,
 			commit_on_drop: self.commit_on_drop,
 		}
@@ -762,11 +791,10 @@ pub struct TrieDBMut<'a, L>
 where
 	L: TrieLayout,
 {
-	storage: NodeStorage<L>,
+	storage: CommittingNodeStorage<L>,
 	db: &'a mut dyn HashDB<L::Hash, DBValue>,
 	root: &'a mut TrieHash<L>,
 	root_handle: NodeHandle<TrieHash<L>>,
-	death_row: Set<(TrieHash<L>, (BackingByteVec, Option<u8>))>,
 	/// Optional cache for speeding up the lookup of nodes.
 	cache: Option<&'a mut dyn TrieCache<L::Codec>>,
 	/// Optional trie recorder for recording trie accesses.
@@ -852,11 +880,11 @@ where
 			Stored::Cached(node, hash) => match inspector(self, node, key)? {
 				Action::Restore(node) => Some((Stored::Cached(node, hash), false)),
 				Action::Replace(node) => {
-					self.death_row.insert((hash, current_key.left_owned()));
+					self.storage.retire(hash, current_key.left_owned());
 					Some((Stored::New(node), true))
 				},
 				Action::Delete => {
-					self.death_row.insert((hash, current_key.left_owned()));
+					self.storage.retire(hash, current_key.left_owned());
 					None
 				},
 			},
@@ -992,10 +1020,7 @@ where
 		match &stored_value {
 			Some(Value::NewNode(Some(hash), _)) // also removing new node in case commit is called multiple times
 			| Some(Value::Node(hash)) => {
-				self.death_row.insert((
-					hash.clone(),
-					(prefix.0.into(), prefix.1),
-				));
+				self.storage.retire(hash.clone(), (prefix.0.into(), prefix.1));
 			},
 			_ => (),
 		}
@@ -1666,8 +1691,8 @@ where
 						let child_node = match stored {
 							Stored::New(node) => node,
 							Stored::Cached(node, hash) => {
-								self.death_row
-									.insert((hash, (child_prefix.0[..].into(), child_prefix.1)));
+								self.storage
+									.retire(hash, (child_prefix.0[..].into(), child_prefix.1));
 								node
 							},
 						};
@@ -1759,8 +1784,7 @@ where
 						// combine with node below.
 						if let Some(hash) = maybe_hash {
 							// delete the cached child since we are going to replace it.
-							self.death_row
-								.insert((hash, (child_prefix.0[..].into(), child_prefix.1)));
+							self.storage.retire(hash, (child_prefix.0[..].into(), child_prefix.1));
 						}
 						// subpartial
 						let mut partial = partial;
@@ -1778,8 +1802,7 @@ where
 						// combine with node below.
 						if let Some(hash) = maybe_hash {
 							// delete the cached child since we are going to replace it.
-							self.death_row
-								.insert((hash, (child_prefix.0[..].into(), child_prefix.1)));
+							self.storage.retire(hash, (child_prefix.0[..].into(), child_prefix.1));
 						}
 						// subpartial oly
 						let mut partial = partial;
@@ -1819,15 +1842,15 @@ where
 
 		// always kill all the nodes on death row.
 		#[cfg(feature = "std")]
-		trace!(target: "trie", "{:?} nodes to remove from db", self.death_row.len());
+		trace!(target: "trie", "{:?} nodes to remove from db", self.storage.death_row.len());
 
 		#[cfg(feature = "std")]
-		for (hash, prefix) in self.death_row.drain() {
+		for (hash, prefix) in self.storage.death_row.drain() {
 			self.db.remove(&hash, (&prefix.0[..], prefix.1));
 		}
 
 		#[cfg(not(feature = "std"))]
-		for (hash, prefix) in core::mem::take(&mut self.death_row).into_iter() {
+		for (hash, prefix) in core::mem::take(&mut self.storage.death_row).into_iter() {
 			self.db.remove(&hash, (&prefix.0[..], prefix.1));
 		}
 
