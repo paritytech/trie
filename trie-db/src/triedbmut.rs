@@ -27,7 +27,7 @@ use crate::{
 	TrieLayout, TrieMut, TrieRecorder,
 };
 
-use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
+use hash_db::{HashDB, HashDBRef, Hasher, Prefix, EMPTY_PREFIX};
 
 #[cfg(feature = "std")]
 use std::collections::HashSet as Set;
@@ -42,11 +42,13 @@ use log::trace;
 use crate::rstd::fmt::{self, Debug};
 
 // For lookups into the Node storage buffer.
-// This is deliberately non-copyable.
+// Cloneable, but deliberately not `Copy`: duplicating a handle is explicit.
+#[derive(Clone)]
 #[cfg_attr(feature = "std", derive(Debug))]
 struct StorageHandle(usize);
 
 // Handles to nodes in the trie.
+#[derive(Clone)]
 #[cfg_attr(feature = "std", derive(Debug))]
 enum NodeHandle<H> {
 	/// Loaded into memory.
@@ -182,7 +184,7 @@ impl<L: TrieLayout> Value<L> {
 	fn in_memory_fetched_value(
 		&self,
 		prefix: Prefix,
-		db: &dyn HashDB<L::Hash, DBValue>,
+		db: &dyn HashDBRef<L::Hash, DBValue>,
 		recorder: &Option<core::cell::RefCell<&mut dyn TrieRecorder<TrieHash<L>>>>,
 		full_key: &[u8],
 	) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
@@ -745,18 +747,36 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 	/// By default, the returned trie will automatically commit changes when dropped. Use
 	/// [`disable_commit_on_drop`](Self::disable_commit_on_drop) to disable this behavior.
 	pub fn build(self) -> TrieDBMut<'db, L> {
-		let root_handle = NodeHandle::Hash(*self.root);
-
 		TrieDBMut {
-			db: self.db,
+			core: TrieDBMutCore {
+				db: self.db,
+				cache: self.cache,
+				recorder: self.recorder.map(core::cell::RefCell::new),
+				storage: CommittingNodeStorage::empty(),
+				root_handle: NodeHandle::Hash(*self.root),
+			},
 			root: self.root,
-			cache: self.cache,
-			recorder: self.recorder.map(core::cell::RefCell::new),
-			storage: CommittingNodeStorage::empty(),
-			root_handle,
 			commit_on_drop: self.commit_on_drop,
 		}
 	}
+}
+
+/// The trie algorithms over an in-memory node storage.
+///
+/// What becomes of the modified nodes, a commit or a rollback, is up to the type wrapping it.
+struct TrieDBMutCore<'a, L, S, DB>
+where
+	L: TrieLayout,
+	S: NodeStorage<L>,
+	DB: HashDBRef<L::Hash, DBValue>,
+{
+	storage: S,
+	db: DB,
+	root_handle: NodeHandle<TrieHash<L>>,
+	/// Optional cache for speeding up the lookup of nodes.
+	cache: Option<&'a mut dyn TrieCache<L::Codec>>,
+	/// Optional trie recorder for recording trie accesses.
+	recorder: Option<core::cell::RefCell<&'a mut dyn TrieRecorder<TrieHash<L>>>>,
 }
 
 /// A `Trie` implementation using a generic `HashDB` backing database.
@@ -791,32 +811,18 @@ pub struct TrieDBMut<'a, L>
 where
 	L: TrieLayout,
 {
-	storage: CommittingNodeStorage<L>,
-	db: &'a mut dyn HashDB<L::Hash, DBValue>,
+	core: TrieDBMutCore<'a, L, CommittingNodeStorage<L>, &'a mut dyn HashDB<L::Hash, DBValue>>,
 	root: &'a mut TrieHash<L>,
-	root_handle: NodeHandle<TrieHash<L>>,
-	/// Optional cache for speeding up the lookup of nodes.
-	cache: Option<&'a mut dyn TrieCache<L::Codec>>,
-	/// Optional trie recorder for recording trie accesses.
-	recorder: Option<core::cell::RefCell<&'a mut dyn TrieRecorder<TrieHash<L>>>>,
 	/// Whether to commit on drop.
 	commit_on_drop: bool,
 }
 
-impl<'a, L> TrieDBMut<'a, L>
+impl<'a, L, S, DB> TrieDBMutCore<'a, L, S, DB>
 where
 	L: TrieLayout,
+	S: NodeStorage<L>,
+	DB: HashDBRef<L::Hash, DBValue>,
 {
-	/// Get the backing database.
-	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue> {
-		self.db
-	}
-
-	/// Get the backing database mutably.
-	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue> {
-		self.db
-	}
-
 	// Cache a node by hash.
 	fn cache(
 		&mut self,
@@ -923,7 +929,7 @@ where
 						if NibbleSlice::from_stored(slice) == partial {
 							return Ok(value.in_memory_fetched_value(
 								prefix,
-								self.db,
+								&self.db,
 								&self.recorder,
 								full_key,
 							)?)
@@ -943,7 +949,7 @@ where
 							return Ok(if let Some(v) = value.as_ref() {
 								v.in_memory_fetched_value(
 									prefix,
-									self.db,
+									&self.db,
 									&self.recorder,
 									full_key,
 								)?
@@ -963,7 +969,7 @@ where
 							return Ok(if let Some(v) = value.as_ref() {
 								v.in_memory_fetched_value(
 									prefix,
-									self.db,
+									&self.db,
 									&self.recorder,
 									full_key,
 								)?
@@ -1834,6 +1840,88 @@ where
 		}
 	}
 
+	fn is_empty(&self) -> bool {
+		match self.root_handle {
+			NodeHandle::Hash(h) => h == L::Codec::hashed_null_node(),
+			NodeHandle::InMemory(ref h) => match self.storage[h] {
+				Node::Empty => true,
+				_ => false,
+			},
+		}
+	}
+
+	fn get<'x, 'key>(&'x self, key: &'key [u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
+	where
+		'x: 'key,
+	{
+		self.lookup(key, NibbleSlice::new(key), &self.root_handle)
+	}
+
+	fn insert(
+		&mut self,
+		key: &[u8],
+		value: &[u8],
+	) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
+		if !L::ALLOW_EMPTY && value.is_empty() {
+			return self.remove(key)
+		}
+
+		let mut old_val = None;
+
+		#[cfg(feature = "std")]
+		trace!(target: "trie", "insert: key={:?}, value={:?}", ToHex(key), ToHex(&value));
+
+		let value = Bytes::from(value);
+		let root_handle = self.root_handle.clone();
+		let (new_handle, _changed) =
+			self.insert_at(root_handle, &mut NibbleSlice::new(key), value, &mut old_val)?;
+
+		#[cfg(feature = "std")]
+		trace!(target: "trie", "insert: altered trie={}", _changed);
+		self.root_handle = NodeHandle::InMemory(new_handle);
+
+		Ok(old_val)
+	}
+
+	fn remove(&mut self, key: &[u8]) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
+		#[cfg(feature = "std")]
+		trace!(target: "trie", "remove: key={:?}", ToHex(key));
+
+		let root_handle = self.root_handle.clone();
+		let mut key_slice = NibbleSlice::new(key);
+		let mut old_val = None;
+
+		match self.remove_at(root_handle, &mut key_slice, &mut old_val)? {
+			Some((handle, _changed)) => {
+				#[cfg(feature = "std")]
+				trace!(target: "trie", "remove: altered trie={}", _changed);
+				self.root_handle = NodeHandle::InMemory(handle);
+			},
+			None => {
+				#[cfg(feature = "std")]
+				trace!(target: "trie", "remove: obliterated trie");
+				self.root_handle = NodeHandle::Hash(L::Codec::hashed_null_node());
+			},
+		}
+
+		Ok(old_val)
+	}
+}
+
+impl<'a, L> TrieDBMut<'a, L>
+where
+	L: TrieLayout,
+{
+	/// Get the backing database.
+	pub fn db(&self) -> &dyn HashDB<L::Hash, DBValue> {
+		self.core.db
+	}
+
+	/// Get the backing database mutably.
+	pub fn db_mut(&mut self) -> &mut dyn HashDB<L::Hash, DBValue> {
+		self.core.db
+	}
+
 	/// Commit the in-memory changes to disk, freeing their storage and
 	/// updating the state root.
 	pub fn commit(&mut self) {
@@ -1842,19 +1930,19 @@ where
 
 		// always kill all the nodes on death row.
 		#[cfg(feature = "std")]
-		trace!(target: "trie", "{:?} nodes to remove from db", self.storage.death_row.len());
+		trace!(target: "trie", "{:?} nodes to remove from db", self.core.storage.death_row.len());
 
 		#[cfg(feature = "std")]
-		for (hash, prefix) in self.storage.death_row.drain() {
-			self.db.remove(&hash, (&prefix.0[..], prefix.1));
+		for (hash, prefix) in self.core.storage.death_row.drain() {
+			self.core.db.remove(&hash, (&prefix.0[..], prefix.1));
 		}
 
 		#[cfg(not(feature = "std"))]
-		for (hash, prefix) in core::mem::take(&mut self.storage.death_row).into_iter() {
-			self.db.remove(&hash, (&prefix.0[..], prefix.1));
+		for (hash, prefix) in core::mem::take(&mut self.core.storage.death_row).into_iter() {
+			self.core.db.remove(&hash, (&prefix.0[..], prefix.1));
 		}
 
-		let handle = match self.root_handle() {
+		let handle = match self.core.root_handle.clone() {
 			NodeHandle::Hash(hash) => {
 				*self.root = hash;
 				return
@@ -1862,10 +1950,10 @@ where
 			NodeHandle::InMemory(h) => h,
 		};
 
-		match self.storage.destroy(handle) {
+		match self.core.storage.destroy(handle) {
 			Stored::New(node) => {
 				// Reconstructs the full key for root node.
-				let full_key = self.cache.as_ref().and_then(|_| {
+				let full_key = self.core.cache.as_ref().and_then(|_| {
 					node.partial_key().and_then(|k| Some(NibbleSlice::from_stored(k).into()))
 				});
 
@@ -1875,7 +1963,7 @@ where
 					let mov = k.append_optional_slice_and_nibble(o_slice, o_index);
 					match node {
 						NodeToEncode::Node(value) => {
-							let value_hash = self.db.insert(k.as_prefix(), value);
+							let value_hash = self.core.db.insert(k.as_prefix(), value);
 							self.cache_value(k.inner(), value, value_hash);
 							k.drop_lasts(mov);
 							ChildReference::Hash(value_hash)
@@ -1890,17 +1978,17 @@ where
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "encoded root node: {:?}", ToHex(&encoded_root[..]));
 
-				*self.root = self.db.insert(EMPTY_PREFIX, &encoded_root);
+				*self.root = self.core.db.insert(EMPTY_PREFIX, &encoded_root);
 
 				self.cache_node(*self.root, &encoded_root, full_key);
 
-				self.root_handle = NodeHandle::Hash(*self.root);
+				self.core.root_handle = NodeHandle::Hash(*self.root);
 			},
 			Stored::Cached(node, hash) => {
 				// probably won't happen, but update the root and move on.
 				*self.root = hash;
-				self.root_handle =
-					NodeHandle::InMemory(self.storage.alloc(Stored::Cached(node, hash)));
+				self.core.root_handle =
+					NodeHandle::InMemory(self.core.storage.alloc(Stored::Cached(node, hash)));
 			},
 		}
 	}
@@ -1908,7 +1996,7 @@ where
 	/// Cache the given `encoded` node.
 	fn cache_node(&mut self, hash: TrieHash<L>, encoded: &[u8], full_key: Option<NibbleVec>) {
 		// If we have a cache, cache our node directly.
-		if let Some(cache) = self.cache.as_mut() {
+		if let Some(cache) = self.core.cache.as_mut() {
 			let node = cache.get_or_insert_node(hash, &mut || {
 				Ok(L::Codec::decode(&encoded)
 					.ok()
@@ -1964,7 +2052,7 @@ where
 	///
 	/// `hash` is the hash of `value`.
 	fn cache_value(&mut self, full_key: &[u8], value: impl Into<Bytes>, hash: TrieHash<L>) {
-		if let Some(cache) = self.cache.as_mut() {
+		if let Some(cache) = self.core.cache.as_mut() {
 			let value = value.into();
 
 			// `get_or_insert` should always return `Ok`, but be safe.
@@ -1996,11 +2084,11 @@ where
 		match handle {
 			NodeHandle::Hash(hash) => ChildReference::Hash(hash),
 			NodeHandle::InMemory(storage_handle) => {
-				match self.storage.destroy(storage_handle) {
+				match self.core.storage.destroy(storage_handle) {
 					Stored::Cached(_, hash) => ChildReference::Hash(hash),
 					Stored::New(node) => {
 						// Reconstructs the full key
-						let full_key = self.cache.as_ref().and_then(|_| {
+						let full_key = self.core.cache.as_ref().and_then(|_| {
 							let mut prefix = prefix.clone();
 							if let Some(partial) = node.partial_key() {
 								prefix.append_partial(NibbleSlice::from_stored(partial).right());
@@ -2018,7 +2106,7 @@ where
 									match node {
 										NodeToEncode::Node(value) => {
 											let value_hash =
-												self.db.insert(prefix.as_prefix(), value);
+												self.core.db.insert(prefix.as_prefix(), value);
 
 											self.cache_value(prefix.inner(), value, value_hash);
 
@@ -2035,7 +2123,7 @@ where
 							node.into_encoded(commit_child)
 						};
 						if encoded.len() >= L::Hash::LENGTH {
-							let hash = self.db.insert(prefix.as_prefix(), &encoded);
+							let hash = self.core.db.insert(prefix.as_prefix(), &encoded);
 
 							self.cache_node(hash, &encoded, full_key);
 
@@ -2054,14 +2142,6 @@ where
 			},
 		}
 	}
-
-	// a hack to get the root node's handle
-	fn root_handle(&self) -> NodeHandle<TrieHash<L>> {
-		match self.root_handle {
-			NodeHandle::Hash(h) => NodeHandle::Hash(h),
-			NodeHandle::InMemory(StorageHandle(x)) => NodeHandle::InMemory(StorageHandle(x)),
-		}
-	}
 }
 
 impl<'a, L> TrieMut<L> for TrieDBMut<'a, L>
@@ -2074,20 +2154,14 @@ where
 	}
 
 	fn is_empty(&self) -> bool {
-		match self.root_handle {
-			NodeHandle::Hash(h) => h == L::Codec::hashed_null_node(),
-			NodeHandle::InMemory(ref h) => match self.storage[h] {
-				Node::Empty => true,
-				_ => false,
-			},
-		}
+		self.core.is_empty()
 	}
 
 	fn get<'x, 'key>(&'x self, key: &'key [u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>>
 	where
 		'x: 'key,
 	{
-		self.lookup(key, NibbleSlice::new(key), &self.root_handle)
+		self.core.get(key)
 	}
 
 	fn insert(
@@ -2095,49 +2169,11 @@ where
 		key: &[u8],
 		value: &[u8],
 	) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
-		if !L::ALLOW_EMPTY && value.is_empty() {
-			return self.remove(key)
-		}
-
-		let mut old_val = None;
-
-		#[cfg(feature = "std")]
-		trace!(target: "trie", "insert: key={:?}, value={:?}", ToHex(key), ToHex(&value));
-
-		let value = Bytes::from(value);
-		let root_handle = self.root_handle();
-		let (new_handle, _changed) =
-			self.insert_at(root_handle, &mut NibbleSlice::new(key), value, &mut old_val)?;
-
-		#[cfg(feature = "std")]
-		trace!(target: "trie", "insert: altered trie={}", _changed);
-		self.root_handle = NodeHandle::InMemory(new_handle);
-
-		Ok(old_val)
+		self.core.insert(key, value)
 	}
 
 	fn remove(&mut self, key: &[u8]) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
-		#[cfg(feature = "std")]
-		trace!(target: "trie", "remove: key={:?}", ToHex(key));
-
-		let root_handle = self.root_handle();
-		let mut key_slice = NibbleSlice::new(key);
-		let mut old_val = None;
-
-		match self.remove_at(root_handle, &mut key_slice, &mut old_val)? {
-			Some((handle, _changed)) => {
-				#[cfg(feature = "std")]
-				trace!(target: "trie", "remove: altered trie={}", _changed);
-				self.root_handle = NodeHandle::InMemory(handle);
-			},
-			None => {
-				#[cfg(feature = "std")]
-				trace!(target: "trie", "remove: obliterated trie");
-				self.root_handle = NodeHandle::Hash(L::Codec::hashed_null_node());
-			},
-		}
-
-		Ok(old_val)
+		self.core.remove(key)
 	}
 }
 
