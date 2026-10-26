@@ -998,6 +998,12 @@ fn entries_with_two_children_under_prefix() -> Vec<(Vec<u8>, Vec<u8>)> {
 	entries
 }
 
+/// All keys share the prefix `0xecb6`, so the root is a branch with that partial and `0xecb6`'s
+/// value.
+fn entries_with_the_value_at_the_root() -> Vec<(Vec<u8>, Vec<u8>)> {
+	vec![(vec![0xec, 0xb6], b"v2".to_vec()), (vec![0xec, 0xb6, 0x01], b"v3".to_vec())]
+}
+
 fn assert_trie_contains<T: TrieLayout>(
 	memdb: &PrefixedMemoryDB<T>,
 	root: &<T::Hash as Hasher>::Out,
@@ -1010,6 +1016,7 @@ fn assert_trie_contains<T: TrieLayout>(
 }
 
 fn assert_removing_absent_prefix_key_changes_nothing<T: TrieLayout>(
+	absent_key: &[u8],
 	entries: &[(Vec<u8>, Vec<u8>)],
 ) {
 	let mut memdb = PrefixedMemoryDB::<T>::default();
@@ -1020,7 +1027,7 @@ fn assert_removing_absent_prefix_key_changes_nothing<T: TrieLayout>(
 
 	{
 		let mut trie = TrieDBMutBuilder::<T>::from_existing(&mut memdb, &mut root).build();
-		assert_eq!(trie.remove(ABSENT_PREFIX_KEY).unwrap(), None);
+		assert_eq!(trie.remove(absent_key).unwrap(), None);
 	}
 
 	assert_eq!(root, root_before);
@@ -1053,7 +1060,10 @@ test_layouts!(
 /// An absent key that is a strict prefix of a stored key must not take that key's value, and
 /// must not panic while restructuring the single-child branch that held it.
 fn remove_absent_prefix_key_with_one_child_internal<T: TrieLayout>() {
-	assert_removing_absent_prefix_key_changes_nothing::<T>(&entries_with_one_child_under_prefix());
+	assert_removing_absent_prefix_key_changes_nothing::<T>(
+		ABSENT_PREFIX_KEY,
+		&entries_with_one_child_under_prefix(),
+	);
 }
 
 test_layouts!(
@@ -1064,7 +1074,21 @@ test_layouts!(
 /// from a branch that stays valid without it.
 fn remove_absent_prefix_key_with_two_children_internal<T: TrieLayout>() {
 	assert_removing_absent_prefix_key_changes_nothing::<T>(
+		ABSENT_PREFIX_KEY,
 		&entries_with_two_children_under_prefix(),
+	);
+}
+
+test_layouts!(
+	remove_empty_key_from_root_with_partial,
+	remove_empty_key_from_root_with_partial_internal
+);
+/// The same mistake at the root: the key is empty before any descent, while the root's partial is
+/// not, so the root's value belongs to a longer key and must stay.
+fn remove_empty_key_from_root_with_partial_internal<T: TrieLayout>() {
+	assert_removing_absent_prefix_key_changes_nothing::<T>(
+		&[],
+		&entries_with_the_value_at_the_root(),
 	);
 }
 
