@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog].
   `InvalidSnapshot` and leaves the trie as it is.
 - `TrieDBMut` writes the caller's root only in `commit`: removing the last key no longer writes
   the empty root before the trie is committed.
+- Fix `TrieDBMut::remove` of a key that does not exist but is a strict prefix of a stored key:
+  it no longer panics or deletes the stored key's value.
 
 ## [0.32.0] - 2026-08-19
 - Fix the item count returned by `decode_compact`/`decode_compact_from_iter` when the last
