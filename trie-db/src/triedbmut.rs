@@ -712,9 +712,10 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for CommittingNodeStorage<L> {
 /// Retired database nodes are forgotten: this storage is never committed, and a rollback could
 /// not undo a death row.
 struct AppendOnlyNodeStorage<L: TrieLayout> {
-	nodes: Vec<Stored<L>>,
-	/// Every length the arena was rewound to, in order.
-	rewinds: Vec<usize>,
+	/// Each node carries an allocation ID that is never reused within this storage.
+	nodes: Vec<(u64, Stored<L>)>,
+	/// Not rewound on rollback, so reusing an arena index cannot revive an old snapshot.
+	allocation_id: u64,
 	/// Length of the arena at the newest mark or rewind; slots below it are never overwritten.
 	frozen_below: usize,
 	/// Emptied slots at or above `frozen_below`.
@@ -723,29 +724,34 @@ struct AppendOnlyNodeStorage<L: TrieLayout> {
 
 impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 	fn empty() -> Self {
-		Self { nodes: Vec::new(), rewinds: Vec::new(), frozen_below: 0, free_indices: Vec::new() }
+		Self { nodes: Vec::new(), allocation_id: 0, frozen_below: 0, free_indices: Vec::new() }
 	}
 
 	fn mark(&mut self) -> StorageMark {
 		self.frozen_below = self.nodes.len();
 		self.free_indices.clear();
-		StorageMark { nodes: self.nodes.len(), rewinds: self.rewinds.len() }
+		StorageMark { nodes: self.nodes.len(), last_node_id: self.last_node_id(self.nodes.len()) }
 	}
 
 	/// Cut the arena back to `mark`.
 	///
-	/// Fails, without touching the arena, if it was cut below `mark` since the mark was taken.
+	/// Fails, without touching the arena, if it was cut below `mark` since the mark was taken:
+	/// every write to a slot gives it a fresh ID, so the nodes under the mark are unchanged if
+	/// and only if the last of them still carries the ID the mark saw.
 	fn rewind(&mut self, mark: &StorageMark) -> core::result::Result<(), InvalidSnapshot> {
-		let intact = mark.nodes <= self.nodes.len() &&
-			self.rewinds[mark.rewinds..].iter().all(|rewound_to| *rewound_to >= mark.nodes);
+		let intact =
+			mark.nodes <= self.nodes.len() && self.last_node_id(mark.nodes) == mark.last_node_id;
 		if !intact {
 			return Err(InvalidSnapshot)
 		}
 		self.nodes.truncate(mark.nodes);
-		self.rewinds.push(mark.nodes);
 		self.frozen_below = mark.nodes;
 		self.free_indices.clear();
 		Ok(())
+	}
+
+	fn last_node_id(&self, len: usize) -> u64 {
+		len.checked_sub(1).map_or(0, |index| self.nodes[index].0)
 	}
 }
 
@@ -768,11 +774,15 @@ impl std::error::Error for InvalidSnapshot {}
 #[derive(Clone, Copy)]
 struct StorageMark {
 	nodes: usize,
-	rewinds: usize,
+	/// Zero denotes the empty prefix; allocated nodes have IDs starting at one.
+	last_node_id: u64,
 }
 
 impl<L: TrieLayout> NodeStorage<L> for AppendOnlyNodeStorage<L> {
 	fn alloc(&mut self, stored: Stored<L>) -> StorageHandle {
+		self.allocation_id =
+			self.allocation_id.checked_add(1).expect("Append-only allocation ID exhausted");
+		let stored = (self.allocation_id, stored);
 		if let Some(idx) = self.free_indices.pop() {
 			self.nodes[idx] = stored;
 			StorageHandle(idx)
@@ -785,10 +795,10 @@ impl<L: TrieLayout> NodeStorage<L> for AppendOnlyNodeStorage<L> {
 	fn destroy(&mut self, handle: StorageHandle) -> Stored<L> {
 		let idx = handle.0;
 		if idx < self.frozen_below {
-			return self.nodes[idx].clone()
+			return self.nodes[idx].1.clone()
 		}
 		self.free_indices.push(idx);
-		mem::replace(&mut self.nodes[idx], Stored::New(Node::Empty))
+		mem::replace(&mut self.nodes[idx].1, Stored::New(Node::Empty))
 	}
 
 	fn retire(&mut self, _hash: TrieHash<L>, _prefix: (BackingByteVec, Option<u8>)) {}
@@ -798,7 +808,7 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for AppendOnlyNodeStorage<L> {
 	type Output = Node<L>;
 
 	fn index(&self, handle: &'a StorageHandle) -> &Node<L> {
-		self.nodes[handle.0].node()
+		self.nodes[handle.0].1.node()
 	}
 }
 
