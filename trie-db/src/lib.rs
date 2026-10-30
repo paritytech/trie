@@ -77,7 +77,7 @@ pub use self::{
 	triedb::{TrieDB, TrieDBBuilder, TrieDBIterator, TrieDBKeyIterator},
 	triedbmut::{
 		AppendOnlyTrieDBMut, AppendOnlyTrieDBMutBuilder, ChildReference, DetachedTrieDBMut,
-		TrieDBMut, TrieDBMutBuilder, TrieDBMutSnapshot, Value,
+		InvalidSnapshot, TrieDBMut, TrieDBMutBuilder, TrieDBMutSnapshot, Value,
 	},
 };
 pub use crate::{
