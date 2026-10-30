@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog].
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
 ## [Unreleased]
+- Fix `TrieDBMut::remove` of a key that does not exist but is a strict prefix of a stored key:
+  it no longer panics or deletes the stored key's value.
 - Add `AppendOnlyTrieDBMut`, a trie that lives in memory only: it reads the backing database but
   never writes to it and never commits a root. Its in-memory nodes are never overwritten, so
   `snapshot` takes a `TrieDBMutSnapshot` in constant time and `rollback_to` restores it without
@@ -16,8 +18,6 @@ The format is based on [Keep a Changelog].
   `InvalidSnapshot` and leaves the trie as it is.
 - `TrieDBMut` writes the caller's root only in `commit`: removing the last key no longer writes
   the empty root before the trie is committed.
-- Fix `TrieDBMut::remove` of a key that does not exist but is a strict prefix of a stored key:
-  it no longer panics or deletes the stored key's value.
 
 ## [0.32.0] - 2026-08-19
 - Fix the item count returned by `decode_compact`/`decode_compact_from_iter` when the last
