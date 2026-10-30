@@ -218,7 +218,9 @@ fn rollback_to_initial_snapshot_internal<T: TrieLayout>() {
 	never_mutated.rollback_to(&initial).unwrap();
 	assert_eq!(contents::<T>(never_mutated, &db, &keys).1, pristine_contents);
 
-	let (mut emptied, _) = session::<T>(pristine::<T>(&db, root), &db, |trie| {
+	let mut start = pristine::<T>(&db, root);
+	let initial = start.snapshot();
+	let (mut emptied, _) = session::<T>(start, &db, |trie| {
 		for key in &keys {
 			trie.remove(key).unwrap();
 		}
@@ -538,4 +540,22 @@ fn reused_arena_indices_do_not_revive_snapshots_internal<T: TrieLayout>() {
 	trie.rollback_to(&initial).unwrap();
 	assert_eq!(trie.get(NEW_KEY).unwrap(), None);
 	assert_eq!(read_keys(&trie, &keys), original_values);
+}
+
+test_layouts!(snapshot_of_another_trie_is_refused, snapshot_of_another_trie_internal);
+/// A snapshot only describes the trie it was taken from. Used on another trie it would install
+/// that trie's root over unrelated nodes, so it must be refused and leave the trie as it is.
+fn snapshot_of_another_trie_internal<T: TrieLayout>() {
+	let (db, root, keys) = block_start_trie::<T>();
+	let foreign = DetachedTrieDBMut::<T>::new(Default::default()).snapshot();
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_existing(&db, root).build();
+	let before = read_keys(&trie, &keys);
+	let initial = trie.snapshot();
+
+	trie.remove(K1).unwrap();
+	assert_eq!(trie.rollback_to(&foreign), Err(InvalidSnapshot));
+	assert_eq!(trie.get(K1).unwrap(), None);
+
+	trie.rollback_to(&initial).unwrap();
+	assert_eq!(read_keys(&trie, &keys), before);
 }

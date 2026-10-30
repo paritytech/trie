@@ -40,6 +40,7 @@ use log::trace;
 
 #[cfg(feature = "std")]
 use crate::rstd::fmt::{self, Debug};
+use core::sync::atomic::{AtomicU64, Ordering};
 
 // For lookups into the Node storage buffer.
 // Cloneable, but deliberately not `Copy`: duplicating a handle is explicit.
@@ -711,7 +712,12 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for CommittingNodeStorage<L> {
 ///
 /// Retired database nodes are forgotten: this storage is never committed, and a rollback could
 /// not undo a death row.
+/// Source of [`AppendOnlyNodeStorage::id`]; never reset, so no two storages share an id.
+static NEXT_STORAGE_ID: AtomicU64 = AtomicU64::new(1);
+
 struct AppendOnlyNodeStorage<L: TrieLayout> {
+	/// Unique to this storage, so a mark taken from another storage is recognised.
+	id: u64,
 	/// Each node carries an allocation ID that is never reused within this storage.
 	nodes: Vec<(u64, Stored<L>)>,
 	/// Not rewound on rollback, so reusing an arena index cannot revive an old snapshot.
@@ -724,23 +730,35 @@ struct AppendOnlyNodeStorage<L: TrieLayout> {
 
 impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 	fn empty() -> Self {
-		Self { nodes: Vec::new(), allocation_id: 0, frozen_below: 0, free_indices: Vec::new() }
+		Self {
+			id: NEXT_STORAGE_ID.fetch_add(1, Ordering::Relaxed),
+			nodes: Vec::new(),
+			allocation_id: 0,
+			frozen_below: 0,
+			free_indices: Vec::new(),
+		}
 	}
 
 	fn mark(&mut self) -> StorageMark {
 		self.frozen_below = self.nodes.len();
 		self.free_indices.clear();
-		StorageMark { nodes: self.nodes.len(), last_node_id: self.last_node_id(self.nodes.len()) }
+		StorageMark {
+			storage_id: self.id,
+			nodes: self.nodes.len(),
+			last_node_id: self.last_node_id(self.nodes.len()),
+		}
 	}
 
 	/// Cut the arena back to `mark`.
 	///
-	/// Fails, without touching the arena, if it was cut below `mark` since the mark was taken:
-	/// every write to a slot gives it a fresh ID, so the nodes under the mark are unchanged if
-	/// and only if the last of them still carries the ID the mark saw.
+	/// Fails, without touching the arena, if `mark` was taken from another storage or the arena
+	/// was cut below `mark` since the mark was taken: every write to a slot gives it a fresh ID,
+	/// so the nodes under the mark are unchanged if and only if the last of them still carries
+	/// the ID the mark saw.
 	fn rewind(&mut self, mark: &StorageMark) -> core::result::Result<(), InvalidSnapshot> {
-		let intact =
-			mark.nodes <= self.nodes.len() && self.last_node_id(mark.nodes) == mark.last_node_id;
+		let intact = mark.storage_id == self.id &&
+			mark.nodes <= self.nodes.len() &&
+			self.last_node_id(mark.nodes) == mark.last_node_id;
 		if !intact {
 			return Err(InvalidSnapshot)
 		}
@@ -755,15 +773,15 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 	}
 }
 
-/// The trie was rolled back to a point before the snapshot since the snapshot was taken, so the
-/// snapshot no longer describes it.
+/// The snapshot does not describe the trie: it was taken from another trie, or the trie was
+/// rolled back to a point before it since it was taken.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvalidSnapshot;
 
 #[cfg(feature = "std")]
 impl fmt::Display for InvalidSnapshot {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		write!(f, "The trie was rolled back to a point before the snapshot")
+		write!(f, "The snapshot was taken from another trie or the trie was rolled back past it")
 	}
 }
 
@@ -773,6 +791,7 @@ impl std::error::Error for InvalidSnapshot {}
 /// Where an [`AppendOnlyNodeStorage`] stood when a snapshot was taken.
 #[derive(Clone, Copy)]
 struct StorageMark {
+	storage_id: u64,
 	nodes: usize,
 	/// Zero denotes the empty prefix; allocated nodes have IDs starting at one.
 	last_node_id: u64,
@@ -837,8 +856,8 @@ impl<L: TrieLayout> DetachedTrieDBMut<L> {
 
 	/// Roll back to `snapshot`, see [`AppendOnlyTrieDBMut::rollback_to`].
 	///
-	/// Fails, leaving the state as it is, if it was rolled back to a point before `snapshot` since
-	/// the snapshot was taken.
+	/// Fails, leaving the state as it is, if `snapshot` was taken from another trie or the state
+	/// was rolled back to a point before `snapshot` since the snapshot was taken.
 	pub fn rollback_to(
 		&mut self,
 		snapshot: &TrieDBMutSnapshot<L>,
@@ -2525,8 +2544,8 @@ where
 	/// Only the trie is restored: what the recorder recorded and the cache cached since the
 	/// snapshot stays.
 	///
-	/// Fails, leaving the trie as it is, if the trie was rolled back to a point before `snapshot`
-	/// since it was taken.
+	/// Fails, leaving the trie as it is, if `snapshot` was taken from another trie or the trie was
+	/// rolled back to a point before `snapshot` since it was taken.
 	pub fn rollback_to(
 		&mut self,
 		snapshot: &TrieDBMutSnapshot<L>,
