@@ -40,6 +40,7 @@ use log::trace;
 
 #[cfg(feature = "std")]
 use crate::rstd::fmt::{self, Debug};
+use core::sync::atomic::{AtomicU64, Ordering};
 
 // For lookups into the Node storage buffer.
 // Cloneable, but deliberately not `Copy`: duplicating a handle is explicit.
@@ -75,7 +76,7 @@ fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; nibble_ops::NIBBLE_LENGTH]
 type NibbleFullKey<'key> = NibbleSlice<'key>;
 
 /// Value representation for Node.
-#[derive(Clone, Eq)]
+#[derive(Eq)]
 pub enum Value<L: TrieLayout> {
 	/// Value bytes inlined in a trie node.
 	Inline(Bytes),
@@ -85,6 +86,17 @@ pub enum Value<L: TrieLayout> {
 	/// The hash may be undefined until it node is added
 	/// to the db.
 	NewNode(Option<TrieHash<L>>, Bytes),
+}
+
+// Not derived, as that would require `L: Clone`.
+impl<L: TrieLayout> Clone for Value<L> {
+	fn clone(&self) -> Self {
+		match self {
+			Value::Inline(value) => Value::Inline(value.clone()),
+			Value::Node(hash) => Value::Node(*hash),
+			Value::NewNode(hash, value) => Value::NewNode(*hash, value.clone()),
+		}
+	}
 }
 
 impl<L: TrieLayout> PartialEq<Self> for Value<L> {
@@ -230,6 +242,20 @@ enum Node<L: TrieLayout> {
 		Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>,
 		Option<Value<L>>,
 	),
+}
+
+// Not derived, as that would require `L: Clone`.
+impl<L: TrieLayout> Clone for Node<L> {
+	fn clone(&self) -> Self {
+		match self {
+			Node::Empty => Node::Empty,
+			Node::Leaf(key, value) => Node::Leaf(key.clone(), value.clone()),
+			Node::Extension(key, child) => Node::Extension(key.clone(), child.clone()),
+			Node::Branch(children, value) => Node::Branch(children.clone(), value.clone()),
+			Node::NibbledBranch(key, children, value) =>
+				Node::NibbledBranch(key.clone(), children.clone(), value.clone()),
+		}
+	}
 }
 
 #[cfg(feature = "std")]
@@ -569,6 +595,16 @@ impl<L: TrieLayout> Stored<L> {
 	}
 }
 
+// Not derived, as that would require `L: Clone`.
+impl<L: TrieLayout> Clone for Stored<L> {
+	fn clone(&self) -> Self {
+		match self {
+			Stored::New(node) => Stored::New(node.clone()),
+			Stored::Cached(node, hash) => Stored::Cached(node.clone(), *hash),
+		}
+	}
+}
+
 /// Used to build a collection of child nodes from a collection of `NodeHandle`s
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -667,6 +703,187 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for CommittingNodeStorage<L> {
 	}
 }
 
+/// Storage whose nodes below the newest mark are never overwritten, so truncating `nodes` back to
+/// the length of a mark restores the trie as it was then: a node written before a mark only
+/// references nodes that existed when the mark was taken.
+///
+/// Nodes written since the newest mark are not seen by any snapshot, so their slots are reused.
+/// Slots still free when a mark is taken stay empty until a rollback discards them.
+///
+/// Retired database nodes are forgotten: this storage is never committed, and a rollback could
+/// not undo a death row.
+/// Source of [`AppendOnlyNodeStorage::id`]; never reset, so no two storages share an id.
+static NEXT_STORAGE_ID: AtomicU64 = AtomicU64::new(1);
+
+struct AppendOnlyNodeStorage<L: TrieLayout> {
+	/// Unique to this storage, so a mark taken from another storage is recognised.
+	id: u64,
+	/// Each node carries an allocation ID that is never reused within this storage.
+	nodes: Vec<(u64, Stored<L>)>,
+	/// Not rewound on rollback, so reusing an arena index cannot revive an old snapshot.
+	allocation_id: u64,
+	/// Length of the arena at the newest mark or rewind; slots below it are never overwritten.
+	frozen_below: usize,
+	/// Emptied slots at or above `frozen_below`.
+	free_indices: Vec<usize>,
+}
+
+impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
+	fn empty() -> Self {
+		Self {
+			id: NEXT_STORAGE_ID.fetch_add(1, Ordering::Relaxed),
+			nodes: Vec::new(),
+			allocation_id: 0,
+			frozen_below: 0,
+			free_indices: Vec::new(),
+		}
+	}
+
+	fn mark(&mut self) -> StorageMark {
+		self.frozen_below = self.nodes.len();
+		self.free_indices.clear();
+		StorageMark {
+			storage_id: self.id,
+			nodes: self.nodes.len(),
+			last_node_id: self.last_node_id(self.nodes.len()),
+		}
+	}
+
+	/// Cut the arena back to `mark`.
+	///
+	/// Fails, without touching the arena, if `mark` was taken from another storage or the arena
+	/// was cut below `mark` since the mark was taken: every write to a slot gives it a fresh ID,
+	/// so the nodes under the mark are unchanged if and only if the last of them still carries
+	/// the ID the mark saw.
+	fn rewind(&mut self, mark: &StorageMark) -> core::result::Result<(), InvalidSnapshot> {
+		let intact = mark.storage_id == self.id &&
+			mark.nodes <= self.nodes.len() &&
+			self.last_node_id(mark.nodes) == mark.last_node_id;
+		if !intact {
+			return Err(InvalidSnapshot)
+		}
+		self.nodes.truncate(mark.nodes);
+		self.frozen_below = mark.nodes;
+		self.free_indices.clear();
+		Ok(())
+	}
+
+	fn last_node_id(&self, len: usize) -> u64 {
+		len.checked_sub(1).map_or(0, |index| self.nodes[index].0)
+	}
+}
+
+/// The snapshot does not describe the trie: it was taken from another trie, or the trie was
+/// rolled back to a point before it since it was taken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidSnapshot;
+
+#[cfg(feature = "std")]
+impl fmt::Display for InvalidSnapshot {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "The snapshot was taken from another trie or the trie was rolled back past it")
+	}
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for InvalidSnapshot {}
+
+/// Where an [`AppendOnlyNodeStorage`] stood when a snapshot was taken.
+#[derive(Clone, Copy)]
+struct StorageMark {
+	storage_id: u64,
+	nodes: usize,
+	/// Zero denotes the empty prefix; allocated nodes have IDs starting at one.
+	last_node_id: u64,
+}
+
+impl<L: TrieLayout> NodeStorage<L> for AppendOnlyNodeStorage<L> {
+	fn alloc(&mut self, stored: Stored<L>) -> StorageHandle {
+		self.allocation_id =
+			self.allocation_id.checked_add(1).expect("Append-only allocation ID exhausted");
+		let stored = (self.allocation_id, stored);
+		if let Some(idx) = self.free_indices.pop() {
+			self.nodes[idx] = stored;
+			StorageHandle(idx)
+		} else {
+			self.nodes.push(stored);
+			StorageHandle(self.nodes.len() - 1)
+		}
+	}
+
+	fn destroy(&mut self, handle: StorageHandle) -> Stored<L> {
+		let idx = handle.0;
+		if idx < self.frozen_below {
+			return self.nodes[idx].1.clone()
+		}
+		self.free_indices.push(idx);
+		mem::replace(&mut self.nodes[idx].1, Stored::New(Node::Empty))
+	}
+
+	fn retire(&mut self, _hash: TrieHash<L>, _prefix: (BackingByteVec, Option<u8>)) {}
+}
+
+impl<'a, L: TrieLayout> Index<&'a StorageHandle> for AppendOnlyNodeStorage<L> {
+	type Output = Node<L>;
+
+	fn index(&self, handle: &'a StorageHandle) -> &Node<L> {
+		self.nodes[handle.0].1.node()
+	}
+}
+
+/// In-memory state of an [`AppendOnlyTrieDBMut`], detached from its borrows.
+///
+/// Created with [`Self::new`] or obtained with [`AppendOnlyTrieDBMut::detach`], and attached
+/// with [`AppendOnlyTrieDBMutBuilder::from_detached`].
+pub struct DetachedTrieDBMut<L: TrieLayout> {
+	storage: AppendOnlyNodeStorage<L>,
+	root_handle: NodeHandle<TrieHash<L>>,
+}
+
+impl<L: TrieLayout> DetachedTrieDBMut<L> {
+	/// The trie at `root`, without in-memory nodes.
+	pub fn new(root: TrieHash<L>) -> Self {
+		Self { storage: AppendOnlyNodeStorage::empty(), root_handle: NodeHandle::Hash(root) }
+	}
+
+	/// Take a snapshot to roll back to, see [`AppendOnlyTrieDBMut::snapshot`].
+	pub fn snapshot(&mut self) -> TrieDBMutSnapshot<L> {
+		TrieDBMutSnapshot {
+			root_handle: self.root_handle.clone(),
+			storage_mark: self.storage.mark(),
+		}
+	}
+
+	/// Roll back to `snapshot`, see [`AppendOnlyTrieDBMut::rollback_to`].
+	///
+	/// Fails, leaving the state as it is, if `snapshot` was taken from another trie or the state
+	/// was rolled back to a point before `snapshot` since the snapshot was taken.
+	pub fn rollback_to(
+		&mut self,
+		snapshot: &TrieDBMutSnapshot<L>,
+	) -> core::result::Result<(), InvalidSnapshot> {
+		self.storage.rewind(&snapshot.storage_mark)?;
+		self.root_handle = snapshot.root_handle.clone();
+		Ok(())
+	}
+}
+
+/// A point an [`AppendOnlyTrieDBMut`] can be rolled back to.
+///
+/// A snapshot becomes invalid once the trie is rolled back to a point before it; rolling back to
+/// an invalid snapshot fails with [`InvalidSnapshot`].
+pub struct TrieDBMutSnapshot<L: TrieLayout> {
+	root_handle: NodeHandle<TrieHash<L>>,
+	storage_mark: StorageMark,
+}
+
+// Not derived, as that would require `L: Clone`.
+impl<L: TrieLayout> Clone for TrieDBMutSnapshot<L> {
+	fn clone(&self) -> Self {
+		Self { root_handle: self.root_handle.clone(), storage_mark: self.storage_mark }
+	}
+}
+
 /// A builder for creating a [`TrieDBMut`].
 pub struct TrieDBMutBuilder<'db, L: TrieLayout> {
 	db: &'db mut dyn HashDB<L::Hash, DBValue>,
@@ -757,6 +974,78 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 			},
 			root: self.root,
 			commit_on_drop: self.commit_on_drop,
+		}
+	}
+}
+
+/// A builder for creating an [`AppendOnlyTrieDBMut`].
+pub struct AppendOnlyTrieDBMutBuilder<'db, L: TrieLayout> {
+	db: &'db dyn HashDBRef<L::Hash, DBValue>,
+	cache: Option<&'db mut dyn TrieCache<L::Codec>>,
+	recorder: Option<&'db mut dyn TrieRecorder<TrieHash<L>>>,
+	detached: DetachedTrieDBMut<L>,
+}
+
+impl<'db, L: TrieLayout> AppendOnlyTrieDBMutBuilder<'db, L> {
+	/// Create a builder for a trie with the backing database `db` and `root`.
+	///
+	/// This doesn't check if `root` exists in the given `db`. If `root` doesn't exist it will fail
+	/// when trying to lookup any key.
+	pub fn from_existing(db: &'db dyn HashDBRef<L::Hash, DBValue>, root: TrieHash<L>) -> Self {
+		Self::from_detached(db, DetachedTrieDBMut::new(root))
+	}
+
+	/// Create a builder that continues a trie from its `detached` state.
+	pub fn from_detached(
+		db: &'db dyn HashDBRef<L::Hash, DBValue>,
+		detached: DetachedTrieDBMut<L>,
+	) -> Self {
+		Self { db, cache: None, recorder: None, detached }
+	}
+
+	/// Use the given `cache` for the db.
+	pub fn with_cache(mut self, cache: &'db mut dyn TrieCache<L::Codec>) -> Self {
+		self.cache = Some(cache);
+		self
+	}
+
+	/// Use the given optional `cache` for the db.
+	pub fn with_optional_cache<'cache: 'db>(
+		mut self,
+		cache: Option<&'cache mut dyn TrieCache<L::Codec>>,
+	) -> Self {
+		// Make the compiler happy by "converting" the lifetime
+		self.cache = cache.map(|c| c as _);
+		self
+	}
+
+	/// Use the given `recorder` to record trie accesses.
+	pub fn with_recorder(mut self, recorder: &'db mut dyn TrieRecorder<TrieHash<L>>) -> Self {
+		self.recorder = Some(recorder);
+		self
+	}
+
+	/// Use the given optional `recorder` to record trie accesses.
+	pub fn with_optional_recorder<'recorder: 'db>(
+		mut self,
+		recorder: Option<&'recorder mut dyn TrieRecorder<TrieHash<L>>>,
+	) -> Self {
+		// Make the compiler happy by "converting" the lifetime
+		self.recorder = recorder.map(|r| r as _);
+		self
+	}
+
+	/// Build the [`AppendOnlyTrieDBMut`].
+	pub fn build(self) -> AppendOnlyTrieDBMut<'db, L> {
+		let DetachedTrieDBMut { storage, root_handle } = self.detached;
+		AppendOnlyTrieDBMut {
+			core: TrieDBMutCore {
+				db: self.db,
+				cache: self.cache,
+				recorder: self.recorder.map(core::cell::RefCell::new),
+				storage,
+				root_handle,
+			},
 		}
 	}
 }
@@ -2185,6 +2474,99 @@ where
 		if self.commit_on_drop {
 			self.commit();
 		}
+	}
+}
+
+/// A mutable trie whose changes can be rolled back.
+///
+/// [`Self::snapshot`] marks the current state and [`Self::rollback_to`] returns to it; snapshots
+/// nest, so they can follow transactions. [`Self::detach`] gives up the borrows of the database,
+/// cache and recorder and keeps the in-memory state as a [`DetachedTrieDBMut`], which
+/// [`AppendOnlyTrieDBMutBuilder::from_detached`] attaches again later.
+///
+/// The trie is never committed: it reads the backing database but never writes to it, and it
+/// never writes a root. Nodes replaced by later changes are reused, except those a snapshot may
+/// still need, which stay allocated until a rollback discards them or the trie is dropped.
+pub struct AppendOnlyTrieDBMut<'a, L>
+where
+	L: TrieLayout,
+{
+	core: TrieDBMutCore<'a, L, AppendOnlyNodeStorage<L>, &'a dyn HashDBRef<L::Hash, DBValue>>,
+}
+
+impl<'a, L> AppendOnlyTrieDBMut<'a, L>
+where
+	L: TrieLayout,
+{
+	/// Is the trie empty?
+	pub fn is_empty(&self) -> bool {
+		self.core.is_empty()
+	}
+
+	/// Does the trie contain a given key?
+	pub fn contains(&self, key: &[u8]) -> Result<bool, TrieHash<L>, CError<L>> {
+		self.get(key).map(|value| value.is_some())
+	}
+
+	/// What is the value of the given key in this trie?
+	pub fn get(&self, key: &[u8]) -> Result<Option<DBValue>, TrieHash<L>, CError<L>> {
+		self.core.get(key)
+	}
+
+	/// Insert a `key`/`value` pair into the trie. An empty value is equivalent to removing
+	/// `key` from the trie. Returns the old value associated with this key, if it existed.
+	pub fn insert(
+		&mut self,
+		key: &[u8],
+		value: &[u8],
+	) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
+		self.core.insert(key, value)
+	}
+
+	/// Remove a `key` from the trie. Equivalent to making it equal to the empty
+	/// value. Returns the old value associated with this key, if it existed.
+	pub fn remove(&mut self, key: &[u8]) -> Result<Option<Value<L>>, TrieHash<L>, CError<L>> {
+		self.core.remove(key)
+	}
+
+	/// Take a snapshot to later roll back to. Cheap: it does not copy the trie.
+	///
+	/// Takes `&mut self` because nodes written before the snapshot are no longer reused in place.
+	pub fn snapshot(&mut self) -> TrieDBMutSnapshot<L> {
+		TrieDBMutSnapshot {
+			root_handle: self.core.root_handle.clone(),
+			storage_mark: self.core.storage.mark(),
+		}
+	}
+
+	/// Roll back all changes made since `snapshot` was taken.
+	///
+	/// Only the trie is restored: what the recorder recorded and the cache cached since the
+	/// snapshot stays.
+	///
+	/// Fails, leaving the trie as it is, if `snapshot` was taken from another trie or the trie was
+	/// rolled back to a point before `snapshot` since it was taken.
+	pub fn rollback_to(
+		&mut self,
+		snapshot: &TrieDBMutSnapshot<L>,
+	) -> core::result::Result<(), InvalidSnapshot> {
+		self.core.storage.rewind(&snapshot.storage_mark)?;
+		self.core.root_handle = snapshot.root_handle.clone();
+		Ok(())
+	}
+
+	/// Number of slots in the in-memory node arena, freed ones included. A diagnostic for tests,
+	/// not part of the stable API.
+	#[doc(hidden)]
+	pub fn arena_len(&self) -> usize {
+		self.core.storage.nodes.len()
+	}
+
+	/// Detach the in-memory state, to continue later with
+	/// [`AppendOnlyTrieDBMutBuilder::from_detached`].
+	pub fn detach(self) -> DetachedTrieDBMut<L> {
+		let TrieDBMutCore { storage, root_handle, .. } = self.core;
+		DetachedTrieDBMut { storage, root_handle }
 	}
 }
 
