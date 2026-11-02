@@ -16,9 +16,12 @@
 //! incrementally: deletes are applied over several sessions (detached in between) and runtime
 //! transactions roll them back, yet the recorded nodes must match one real `storage_root`.
 
-use std::collections::BTreeMap;
+use std::{
+	collections::BTreeMap,
+	panic::{catch_unwind, AssertUnwindSafe},
+};
 
-use hash_db::Hasher;
+use hash_db::{HashDBRef, Hasher, Prefix};
 use memory_db::{MemoryDB, PrefixedKey};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use reference_trie::test_layouts;
@@ -100,34 +103,30 @@ fn real_session<T: TrieLayout, K: AsRef<[u8]>>(
 	(drain(recorder), contents)
 }
 
-fn pristine<T: TrieLayout>(db: &PrefixedMemoryDB<T>, root: TrieHash<T>) -> DetachedTrieDBMut<T> {
-	AppendOnlyTrieDBMutBuilder::<T>::from_existing(db, root).build().detach()
-}
-
 /// One append-only session over `detached`, with a fresh recorder like the PoV estimator takes
-/// on every size estimation call. Returns the detached state and the nodes recorded in it.
+/// on every size estimation call. Returns the nodes recorded in it.
 fn session<T: TrieLayout>(
-	detached: DetachedTrieDBMut<T>,
-	db: &PrefixedMemoryDB<T>,
+	detached: &mut DetachedTrieDBMut<T>,
+	db: &dyn HashDBRef<T::Hash, DBValue>,
 	operations: impl FnOnce(&mut AppendOnlyTrieDBMut<T>),
-) -> (DetachedTrieDBMut<T>, Nodes<T>) {
+) -> Nodes<T> {
 	let mut recorder = Recorder::<T>::new();
 	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(db, detached)
 		.with_recorder(&mut recorder)
 		.build();
 	operations(&mut trie);
-	let detached = trie.detach();
-	(detached, drain(recorder))
+	drop(trie);
+	drain(recorder)
 }
 
 fn contents<T: TrieLayout>(
-	detached: DetachedTrieDBMut<T>,
+	detached: &mut DetachedTrieDBMut<T>,
 	db: &PrefixedMemoryDB<T>,
 	probed: &[Vec<u8>],
-) -> (DetachedTrieDBMut<T>, Vec<Option<DBValue>>) {
+) -> Vec<Option<DBValue>> {
 	let mut values = Vec::new();
-	let (detached, _) = session::<T>(detached, db, |trie| values = read_keys(trie, probed));
-	(detached, values)
+	session::<T>(detached, db, |trie| values = read_keys(trie, probed));
+	values
 }
 
 test_layouts!(joint_collapse_across_sessions_is_recorded, joint_collapse_across_sessions_internal);
@@ -139,14 +138,12 @@ fn joint_collapse_across_sessions_internal<T: TrieLayout>() {
 		let (db, root, _) = block_start_trie::<T>();
 		let (real, _) = real_session::<T, _>(&db, root, &order, &[]);
 
-		let mut detached = pristine::<T>(&db, root);
+		let mut detached = DetachedTrieDBMut::<T>::new(root);
 		let mut recorded = Nodes::<T>::new();
 		for key in order {
-			let (next, nodes) = session::<T>(detached, &db, |trie| {
+			recorded.extend(session::<T>(&mut detached, &db, |trie| {
 				trie.remove(key).unwrap();
-			});
-			detached = next;
-			recorded.extend(nodes);
+			}));
 		}
 
 		assert_eq!(recorded, real);
@@ -161,22 +158,22 @@ fn rollback_then_redo_internal<T: TrieLayout>() {
 	let (real, real_contents) = real_session::<T, _>(&db, root, &[K1, K2], &keys);
 	let (_, only_k1_removed) = real_session::<T, _>(&db, root, &[K1], &keys);
 
-	let (detached, mut recorded) = session::<T>(pristine::<T>(&db, root), &db, |trie| {
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut recorded = session::<T>(&mut detached, &db, |trie| {
 		trie.remove(K1).unwrap();
 		let snapshot = trie.snapshot();
 		trie.remove(K2).unwrap();
 		trie.rollback_to(&snapshot).unwrap();
 	});
-	let (detached, values) = contents::<T>(detached, &db, &keys);
+	let values = contents::<T>(&mut detached, &db, &keys);
 	assert_eq!(values[keys.iter().position(|key| key == K2).unwrap()], Some(vec![2u8; 64]));
 	assert_eq!(values, only_k1_removed);
 
-	let (detached, nodes) = session::<T>(detached, &db, |trie| {
+	recorded.extend(session::<T>(&mut detached, &db, |trie| {
 		trie.remove(K2).unwrap();
-	});
-	recorded.extend(nodes);
+	}));
 	assert_eq!(recorded, real);
-	assert_eq!(contents::<T>(detached, &db, &keys).1, real_contents);
+	assert_eq!(contents::<T>(&mut detached, &db, &keys), real_contents);
 }
 
 test_layouts!(nested_rollbacks_restore_pristine_trie, nested_rollbacks_internal);
@@ -187,7 +184,8 @@ fn nested_rollbacks_internal<T: TrieLayout>() {
 	let (_, pristine_contents) = real_session::<T, &[u8]>(&db, root, &[], &keys);
 	let (real_k1, _) = real_session::<T, _>(&db, root, &[K1], &keys);
 
-	let (detached, _) = session::<T>(pristine::<T>(&db, root), &db, |trie| {
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	session::<T>(&mut detached, &db, |trie| {
 		let outer = trie.snapshot();
 		trie.remove(K1).unwrap();
 		let inner = trie.snapshot();
@@ -195,10 +193,9 @@ fn nested_rollbacks_internal<T: TrieLayout>() {
 		trie.rollback_to(&inner).unwrap();
 		trie.rollback_to(&outer).unwrap();
 	});
-	let (detached, values) = contents::<T>(detached, &db, &keys);
-	assert_eq!(values, pristine_contents);
+	assert_eq!(contents::<T>(&mut detached, &db, &keys), pristine_contents);
 
-	let (_, recorded) = session::<T>(detached, &db, |trie| {
+	let recorded = session::<T>(&mut detached, &db, |trie| {
 		trie.remove(K1).unwrap();
 	});
 	assert_eq!(recorded, real_k1);
@@ -213,23 +210,22 @@ fn rollback_to_initial_snapshot_internal<T: TrieLayout>() {
 	let (_, pristine_contents) = real_session::<T, &[u8]>(&db, root, &[], &keys);
 	let (real_k1, _) = real_session::<T, _>(&db, root, &[K1], &keys);
 
-	let mut never_mutated = pristine::<T>(&db, root);
+	let mut never_mutated = DetachedTrieDBMut::<T>::new(root);
 	let initial = never_mutated.snapshot();
 	never_mutated.rollback_to(&initial).unwrap();
-	assert_eq!(contents::<T>(never_mutated, &db, &keys).1, pristine_contents);
+	assert_eq!(contents::<T>(&mut never_mutated, &db, &keys), pristine_contents);
 
-	let mut start = pristine::<T>(&db, root);
-	let initial = start.snapshot();
-	let (mut emptied, _) = session::<T>(start, &db, |trie| {
+	let mut emptied = DetachedTrieDBMut::<T>::new(root);
+	let initial = emptied.snapshot();
+	session::<T>(&mut emptied, &db, |trie| {
 		for key in &keys {
 			trie.remove(key).unwrap();
 		}
 		assert!(trie.is_empty());
 	});
 	emptied.rollback_to(&initial).unwrap();
-	let (emptied, values) = contents::<T>(emptied, &db, &keys);
-	assert_eq!(values, pristine_contents);
-	let (_, recorded) = session::<T>(emptied, &db, |trie| {
+	assert_eq!(contents::<T>(&mut emptied, &db, &keys), pristine_contents);
+	let recorded = session::<T>(&mut emptied, &db, |trie| {
 		trie.remove(K1).unwrap();
 	});
 	assert_eq!(recorded, real_k1);
@@ -242,22 +238,22 @@ fn detached_snapshot_spans_sessions_internal<T: TrieLayout>() {
 	let (_, only_k1_removed) = real_session::<T, _>(&db, root, &[K1], &keys);
 	let (_, k1_and_k3_removed) = real_session::<T, _>(&db, root, &[K1, K3], &keys);
 
-	let (mut detached, _) = session::<T>(pristine::<T>(&db, root), &db, |trie| {
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	session::<T>(&mut detached, &db, |trie| {
 		trie.remove(K1).unwrap();
 	});
 	let snapshot = detached.snapshot();
-	let (mut detached, _) = session::<T>(detached, &db, |trie| {
+	session::<T>(&mut detached, &db, |trie| {
 		trie.remove(K2).unwrap();
 		trie.remove(K3).unwrap();
 	});
 	detached.rollback_to(&snapshot).unwrap();
-	let (detached, values) = contents::<T>(detached, &db, &keys);
-	assert_eq!(values, only_k1_removed);
+	assert_eq!(contents::<T>(&mut detached, &db, &keys), only_k1_removed);
 
-	let (detached, _) = session::<T>(detached, &db, |trie| {
+	session::<T>(&mut detached, &db, |trie| {
 		trie.remove(K3).unwrap();
 	});
-	assert_eq!(contents::<T>(detached, &db, &keys).1, k1_and_k3_removed);
+	assert_eq!(contents::<T>(&mut detached, &db, &keys), k1_and_k3_removed);
 }
 
 test_layouts!(removing_missing_key_is_harmless, removing_missing_key_internal);
@@ -266,11 +262,12 @@ fn removing_missing_key_internal<T: TrieLayout>() {
 	let (db, root, keys) = block_start_trie::<T>();
 	let (_, pristine_contents) = real_session::<T, &[u8]>(&db, root, &[], &keys);
 
-	let (detached, _) = session::<T>(pristine::<T>(&db, root), &db, |trie| {
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	session::<T>(&mut detached, &db, |trie| {
 		assert!(trie.remove(&[0x50, 0x00, 0xAA, 0xAB]).unwrap().is_none());
 		assert!(trie.remove(&[0x50, 0x20]).unwrap().is_none());
 	});
-	assert_eq!(contents::<T>(detached, &db, &keys).1, pristine_contents);
+	assert_eq!(contents::<T>(&mut detached, &db, &keys), pristine_contents);
 }
 
 /// Checks the append-only state against a real session removing only the deletes that survived
@@ -278,16 +275,14 @@ fn removing_missing_key_internal<T: TrieLayout>() {
 fn assert_matches_real<T: TrieLayout>(
 	db: &PrefixedMemoryDB<T>,
 	root: TrieHash<T>,
-	detached: DetachedTrieDBMut<T>,
+	detached: &mut DetachedTrieDBMut<T>,
 	keys: &[Vec<u8>],
 	surviving_deletes: &[Vec<u8>],
 	recorded: &Nodes<T>,
-) -> DetachedTrieDBMut<T> {
+) {
 	let (real, real_contents) = real_session::<T, _>(db, root, surviving_deletes, keys);
 	assert_eq!(recorded, &real);
-	let (detached, values) = contents::<T>(detached, db, keys);
-	assert_eq!(values, real_contents);
-	detached
+	assert_eq!(contents::<T>(detached, db, keys), real_contents);
 }
 
 test_layouts!(random_deletes_and_rollbacks_match_real_session, random_internal);
@@ -311,7 +306,7 @@ fn random_run<T: TrieLayout>(seed: u64) {
 		.collect();
 	let (db, root, keys) = build_trie::<T>(&entries.into_iter().collect::<Vec<_>>());
 
-	let mut detached = pristine::<T>(&db, root);
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
 	let mut surviving_deletes: Vec<Vec<u8>> = Vec::new();
 	// The production recorder is transactional too, so a rollback also forgets what was recorded.
 	let mut recorded = Nodes::<T>::new();
@@ -327,8 +322,7 @@ fn random_run<T: TrieLayout>(seed: u64) {
 				detached.rollback_to(snapshot).unwrap();
 				surviving_deletes.truncate(*deletes);
 				recorded = nodes.clone();
-				detached =
-					assert_matches_real(&db, root, detached, &keys, &surviving_deletes, &recorded);
+				assert_matches_real(&db, root, &mut detached, &keys, &surviving_deletes, &recorded);
 			},
 			_ => {
 				let live: Vec<_> =
@@ -336,18 +330,16 @@ fn random_run<T: TrieLayout>(seed: u64) {
 				let batch: Vec<_> = (0..rng.gen_range(1..=3))
 					.filter_map(|_| live.get(rng.gen_range(0..live.len().max(1))).cloned())
 					.collect();
-				let (next, nodes) = session::<T>(detached, &db, |trie| {
+				recorded.extend(session::<T>(&mut detached, &db, |trie| {
 					for key in &batch {
 						trie.remove(key).unwrap();
 					}
-				});
-				detached = next;
-				recorded.extend(nodes);
+				}));
 				surviving_deletes.extend(batch);
 			},
 		}
 	}
-	assert_matches_real(&db, root, detached, &keys, &surviving_deletes, &recorded);
+	assert_matches_real(&db, root, &mut detached, &keys, &surviving_deletes, &recorded);
 }
 
 test_layouts!(
@@ -359,7 +351,8 @@ test_layouts!(
 fn rollback_last_delete_preserves_external_root_internal<T: TrieLayout>() {
 	let value = vec![1u8; 64];
 	let (db, root, _) = build_trie::<T>(&[(K1.to_vec(), value.clone())]);
-	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_existing(&db, root).build();
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(&db, &mut detached).build();
 	let snapshot = trie.snapshot();
 	trie.remove(K1).unwrap();
 	assert!(trie.is_empty());
@@ -373,7 +366,8 @@ test_layouts!(rollback_below_a_snapshot_invalidates_it, rollback_below_a_snapsho
 /// be refused. Rolling back to the same snapshot again is fine.
 fn rollback_below_a_snapshot_internal<T: TrieLayout>() {
 	let (db, root, keys) = block_start_trie::<T>();
-	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_existing(&db, root).build();
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(&db, &mut detached).build();
 
 	let outer = trie.snapshot();
 	trie.remove(K1).unwrap();
@@ -396,7 +390,8 @@ fn inserts_internal<T: TrieLayout>() {
 	const NEW_SIBLING: &[u8] = &[0x50, 0x20, 0xDD, 0xDD];
 	const NEW_BRANCH: &[u8] = &[0x60, 0x00, 0xEE, 0xEE];
 	let (db, root, keys) = block_start_trie::<T>();
-	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_existing(&db, root).build();
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(&db, &mut detached).build();
 	let before = read_keys(&trie, &keys);
 
 	assert_eq!(trie.insert(NEW_SIBLING, &[1; 40]).unwrap(), None);
@@ -436,7 +431,8 @@ test_layouts!(absent_key_removals_keep_arena_bounded, absent_key_removals_intern
 /// reuse their slots: an arena growing by a path copy per removal exhausts the runtime's memory.
 fn absent_key_removals_internal<T: TrieLayout>() {
 	let (db, root, _) = block_start_trie::<T>();
-	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_existing(&db, root).build();
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(&db, &mut detached).build();
 	assert_absent_removals_reuse_slots(&mut trie, &absent_keys_under_k1());
 }
 
@@ -449,23 +445,22 @@ fn rollback_after_slot_reuse_internal<T: TrieLayout>() {
 	let (_, k3_removed) = real_session::<T, _>(&db, root, &[K3], &keys);
 	let (real, all_removed) = real_session::<T, _>(&db, root, &[K3, K1, K2], &keys);
 
-	let (detached, mut recorded) = session::<T>(pristine::<T>(&db, root), &db, |trie| {
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut recorded = session::<T>(&mut detached, &db, |trie| {
 		trie.remove(K3).unwrap();
 		let snapshot = trie.snapshot();
 		trie.remove(K1).unwrap();
 		trie.remove(K2).unwrap();
 		trie.rollback_to(&snapshot).unwrap();
 	});
-	let (detached, values) = contents::<T>(detached, &db, &keys);
-	assert_eq!(values, k3_removed);
+	assert_eq!(contents::<T>(&mut detached, &db, &keys), k3_removed);
 
-	let (detached, nodes) = session::<T>(detached, &db, |trie| {
+	recorded.extend(session::<T>(&mut detached, &db, |trie| {
 		trie.remove(K1).unwrap();
 		trie.remove(K2).unwrap();
-	});
-	recorded.extend(nodes);
+	}));
 	assert_eq!(recorded, real);
-	assert_eq!(contents::<T>(detached, &db, &keys).1, all_removed);
+	assert_eq!(contents::<T>(&mut detached, &db, &keys), all_removed);
 }
 
 test_layouts!(nested_rollbacks_after_slot_reuse, nested_rollbacks_after_slot_reuse_internal);
@@ -480,7 +475,8 @@ fn nested_rollbacks_after_slot_reuse_internal<T: TrieLayout>() {
 	// Enough nodes that the inner snapshot protects more slots than the absent-key removals at
 	// the end use, so those would not be reused if the protection stayed at the inner snapshot.
 	let inserted: Vec<Vec<u8>> = (0..32u8).map(|byte| vec![0xE0, byte, 0x55]).collect();
-	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_existing(&db, root).build();
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(&db, &mut detached).build();
 
 	let outer = trie.snapshot();
 	for key in &inserted {
@@ -511,16 +507,17 @@ fn reused_arena_indices_do_not_revive_snapshots_internal<T: TrieLayout>() {
 	const NEW_KEY: &[u8] = &[0x60, 0x00, 0xEE, 0xEE];
 	const LATER_KEY: &[u8] = &[0x70, 0x00, 0xFF, 0xFF];
 	let (db, root, keys) = block_start_trie::<T>();
-	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_existing(&db, root).build();
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(&db, &mut detached).build();
 	let original_values = read_keys(&trie, &keys);
 	let initial = trie.snapshot();
 
 	trie.insert(NEW_KEY, &[1; 40]).unwrap();
 	let stale = trie.snapshot();
-	let mut detached = trie.detach();
+	drop(trie);
 	detached.rollback_to(&initial).unwrap();
 
-	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(&db, detached).build();
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(&db, &mut detached).build();
 	// The same insertion allocates the same number of nodes at the same indices.
 	trie.insert(NEW_KEY, &[2; 40]).unwrap();
 	let current = trie.snapshot();
@@ -548,7 +545,8 @@ test_layouts!(snapshot_of_another_trie_is_refused, snapshot_of_another_trie_inte
 fn snapshot_of_another_trie_internal<T: TrieLayout>() {
 	let (db, root, keys) = block_start_trie::<T>();
 	let foreign = DetachedTrieDBMut::<T>::new(Default::default()).snapshot();
-	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_existing(&db, root).build();
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(&db, &mut detached).build();
 	let before = read_keys(&trie, &keys);
 	let initial = trie.snapshot();
 
@@ -558,4 +556,83 @@ fn snapshot_of_another_trie_internal<T: TrieLayout>() {
 
 	trie.rollback_to(&initial).unwrap();
 	assert_eq!(read_keys(&trie, &keys), before);
+}
+
+/// A database that lost some nodes, so that a removal fails half way with a trie error.
+struct MissingNodes<'a, T: TrieLayout> {
+	db: &'a PrefixedMemoryDB<T>,
+	missing: Vec<TrieHash<T>>,
+}
+
+impl<T: TrieLayout> HashDBRef<T::Hash, DBValue> for MissingNodes<'_, T> {
+	fn get(&self, key: &TrieHash<T>, prefix: Prefix) -> Option<DBValue> {
+		if self.missing.contains(key) {
+			return None
+		}
+		HashDBRef::get(self.db, key, prefix)
+	}
+
+	fn contains(&self, key: &TrieHash<T>, prefix: Prefix) -> bool {
+		self.get(key, prefix).is_some()
+	}
+}
+
+test_layouts!(failed_removal_keeps_trie_in_slot, failed_removal_keeps_trie_in_slot_internal);
+/// The PoV estimator keeps the trie in a slot across transactions. A removal failing half way
+/// must leave the trie in that slot, so that rolling the transaction back restores it and later
+/// estimations load and record what they would have without the failed one.
+fn failed_removal_keeps_trie_in_slot_internal<T: TrieLayout>() {
+	let (db, root, keys) = block_start_trie::<T>();
+	let (real_k3, k3_removed) = real_session::<T, _>(&db, root, &[K3], &keys);
+	let (real_k1, _) = real_session::<T, _>(&db, root, &[K1], &keys);
+	let (real_k3_k1, k3_and_k1_removed) = real_session::<T, _>(&db, root, &[K3, K1], &keys);
+	let missing_on_k1_path: Vec<_> =
+		real_k1.keys().filter(|hash| !real_k3.contains_key(*hash)).copied().collect();
+	assert!(!missing_on_k1_path.is_empty());
+	let corrupt = MissingNodes::<T> { db: &db, missing: missing_on_k1_path };
+
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut recorded = session::<T>(&mut detached, &db, |trie| {
+		trie.remove(K3).unwrap();
+	});
+	let before_failure = detached.snapshot();
+	session::<T>(&mut detached, &corrupt, |trie| {
+		assert!(trie.remove(K1).is_err());
+	});
+
+	detached.rollback_to(&before_failure).unwrap();
+	assert_eq!(contents::<T>(&mut detached, &db, &keys), k3_removed);
+	recorded.extend(session::<T>(&mut detached, &db, |trie| {
+		trie.remove(K1).unwrap();
+	}));
+	assert_eq!(recorded, real_k3_k1);
+	assert_eq!(contents::<T>(&mut detached, &db, &keys), k3_and_k1_removed);
+}
+
+test_layouts!(panicking_session_keeps_trie_in_slot, panicking_session_keeps_trie_in_slot_internal);
+/// A panic unwinding through a session must leave the trie in its slot as the panic found it,
+/// changes made before the panic included, so that a rollback can restore it.
+fn panicking_session_keeps_trie_in_slot_internal<T: TrieLayout>() {
+	let (db, root, keys) = block_start_trie::<T>();
+	let (_, k3_removed) = real_session::<T, _>(&db, root, &[K3], &keys);
+	let (_, k3_and_k1_removed) = real_session::<T, _>(&db, root, &[K3, K1], &keys);
+
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	session::<T>(&mut detached, &db, |trie| {
+		trie.remove(K3).unwrap();
+	});
+	assert_eq!(contents::<T>(&mut detached, &db, &keys), k3_removed);
+
+	let snapshot = detached.snapshot();
+	let unwound = catch_unwind(AssertUnwindSafe(|| {
+		session::<T>(&mut detached, &db, |trie| {
+			trie.remove(K1).unwrap();
+			panic!("panic after a removal");
+		})
+	}));
+	assert!(unwound.is_err());
+	assert_eq!(contents::<T>(&mut detached, &db, &keys), k3_and_k1_removed);
+
+	detached.rollback_to(&snapshot).unwrap();
+	assert_eq!(contents::<T>(&mut detached, &db, &keys), k3_removed);
 }
