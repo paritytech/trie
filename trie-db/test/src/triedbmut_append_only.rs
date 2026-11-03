@@ -539,6 +539,90 @@ fn reused_arena_indices_do_not_revive_snapshots_internal<T: TrieLayout>() {
 	assert_eq!(read_keys(&trie, &keys), original_values);
 }
 
+/// An empty trie with `K1` inserted in memory, so that removing `K1` empties the trie again.
+fn trie_holding_only_k1<'a, T: TrieLayout>(
+	detached: &'a mut DetachedTrieDBMut<T>,
+	db: &'a PrefixedMemoryDB<T>,
+) -> AppendOnlyTrieDBMut<'a, T> {
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(db, detached).build();
+	trie.insert(K1, &[1; 64]).unwrap();
+	trie
+}
+
+test_layouts!(removing_the_last_key_does_not_revive_snapshots, removing_the_last_key_internal);
+/// Removing the last key empties the trie without writing a node, so the snapshots before and
+/// after it stand at the same arena length. A rollback to the earlier one must still invalidate
+/// the later one, or the trie would lose `K1` again.
+fn removing_the_last_key_internal<T: TrieLayout>() {
+	let (db, root, _) = build_trie::<T>(&[]);
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = trie_holding_only_k1(&mut detached, &db);
+	let before_removal = trie.snapshot();
+	trie.remove(K1).unwrap();
+	let emptied = trie.snapshot();
+
+	trie.rollback_to(&before_removal).unwrap();
+	assert_eq!(trie.rollback_to(&emptied), Err(InvalidSnapshot));
+	assert_eq!(trie.get(K1).unwrap(), Some(vec![1; 64]));
+}
+
+test_layouts!(
+	stale_snapshots_at_a_shared_length_are_refused,
+	stale_snapshots_at_a_shared_length_internal
+);
+/// Once one stale snapshot at a shared arena length were accepted, every snapshot at that length
+/// would look valid too. Each must be judged on its own: a refused rollback keeps later snapshots
+/// valid, and a rollback below a snapshot invalidates it even when it holds the current trie.
+fn stale_snapshots_at_a_shared_length_internal<T: TrieLayout>() {
+	let (db, root, _) = build_trie::<T>(&[]);
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = trie_holding_only_k1(&mut detached, &db);
+	let holding_k1 = trie.snapshot();
+	trie.remove(K1).unwrap();
+	let emptied = trie.snapshot();
+	trie.rollback_to(&holding_k1).unwrap();
+	let after_rollback = trie.snapshot();
+
+	assert_eq!(trie.rollback_to(&emptied), Err(InvalidSnapshot));
+	assert_eq!(trie.get(K1).unwrap(), Some(vec![1; 64]));
+	trie.remove(K1).unwrap();
+	trie.rollback_to(&after_rollback).unwrap();
+	assert_eq!(trie.get(K1).unwrap(), Some(vec![1; 64]));
+
+	trie.rollback_to(&holding_k1).unwrap();
+	trie.remove(K1).unwrap();
+	assert_eq!(trie.rollback_to(&after_rollback), Err(InvalidSnapshot));
+	assert!(trie.is_empty());
+}
+
+test_layouts!(
+	snapshot_after_rollback_does_not_revive_older_ones,
+	snapshot_after_rollback_does_not_revive_older_ones_internal
+);
+/// Snapshots follow nested transactions, so the valid ones are not a contiguous range: after
+/// `s1`, `s2`, a rollback to `s1` and `s3`, only `s1` and `s3` are valid. Taking `s3` must not
+/// make `s2` valid again.
+fn snapshot_after_rollback_does_not_revive_older_ones_internal<T: TrieLayout>() {
+	let (db, root, _) = build_trie::<T>(&[]);
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = trie_holding_only_k1(&mut detached, &db);
+	let s1 = trie.snapshot();
+	trie.insert(K2, &[2; 64]).unwrap();
+	let s2 = trie.snapshot();
+	trie.rollback_to(&s1).unwrap();
+	trie.insert(K3, &[3; 64]).unwrap();
+	let s3 = trie.snapshot();
+	let holding =
+		|trie: &AppendOnlyTrieDBMut<T>| [K1, K2, K3].map(|key| trie.get(key).unwrap().is_some());
+
+	assert_eq!(trie.rollback_to(&s2), Err(InvalidSnapshot));
+	assert_eq!(holding(&trie), [true, false, true]);
+	trie.rollback_to(&s3).unwrap();
+	assert_eq!(holding(&trie), [true, false, true]);
+	trie.rollback_to(&s1).unwrap();
+	assert_eq!(holding(&trie), [true, false, false]);
+}
+
 test_layouts!(snapshot_of_another_trie_is_refused, snapshot_of_another_trie_internal);
 /// A snapshot only describes the trie it was taken from. Used on another trie it would install
 /// that trie's root over unrelated nodes, so it must be refused and leave the trie as it is.
