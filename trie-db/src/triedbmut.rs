@@ -732,8 +732,8 @@ struct AppendOnlyNodeStorage<L: TrieLayout> {
 	/// keep their node because a live mark may still use it. A discard that drops every such mark
 	/// moves them to `free_indices`.
 	dead_slots: Vec<usize>,
-	/// Free slots below `frozen_below` that were handed out again, in order. A rewind frees again
-	/// those below its mark.
+	/// Free slots below `frozen_below` that were handed out again and still keep their node, in
+	/// order. A rewind frees again those logged after its mark.
 	reused_slots: Vec<usize>,
 }
 
@@ -808,6 +808,15 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 			.extend(reused_since_top.into_iter().filter(|index| *index < frozen_below));
 		Ok(())
 	}
+
+	/// Position of `idx` in the reuse log, if the slot was reused after the newest mark.
+	fn reuse_after_newest_mark(&self, idx: usize) -> Option<usize> {
+		let since_mark = self.live_marks.last().map_or(0, |mark| mark.reused_slots);
+		self.reused_slots[since_mark..]
+			.iter()
+			.position(|slot| *slot == idx)
+			.map(|offset| since_mark + offset)
+	}
 }
 
 /// The snapshot does not describe the trie: it was taken from another trie, the trie was rolled
@@ -859,8 +868,15 @@ impl<L: TrieLayout> NodeStorage<L> for AppendOnlyNodeStorage<L> {
 	fn destroy(&mut self, handle: StorageHandle) -> Stored<L> {
 		let idx = handle.0;
 		if idx < self.frozen_below {
-			self.dead_slots.push(idx);
-			return self.nodes[idx].clone()
+			match self.reuse_after_newest_mark(idx) {
+				Some(position) => {
+					self.reused_slots.swap_remove(position);
+				},
+				None => {
+					self.dead_slots.push(idx);
+					return self.nodes[idx].clone()
+				},
+			}
 		}
 		self.free_indices.push(idx);
 		mem::replace(&mut self.nodes[idx], Stored::New(Node::Empty))

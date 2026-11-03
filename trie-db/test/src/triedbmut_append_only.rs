@@ -721,6 +721,73 @@ fn ended_blocks_keep_arena_flat_internal<T: TrieLayout>() {
 	assert_stays_flat(&arena_per_block);
 }
 
+/// A trie as `block_start_trie` whose arena has free slots: leaves inserted under empty nibbles of
+/// the root and removed again.
+fn trie_with_free_slots<'a, T: TrieLayout>(
+	detached: &'a mut DetachedTrieDBMut<T>,
+	db: &'a PrefixedMemoryDB<T>,
+) -> AppendOnlyTrieDBMut<'a, T> {
+	let leaves = [0x60u8, 0x70, 0x80, 0x90].map(|byte| vec![byte, 0x77]);
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(db, detached).build();
+	let mut insert_and_remove = |trie: &mut AppendOnlyTrieDBMut<T>| {
+		for leaf in &leaves {
+			trie.insert(leaf, &[5; 40]).unwrap();
+		}
+		let holding_leaves = trie.arena_len();
+		for leaf in &leaves {
+			trie.remove(leaf).unwrap();
+		}
+		holding_leaves
+	};
+	let first = insert_and_remove(&mut trie);
+	// The trie holds the leaves again without a larger arena, so they went to freed slots.
+	assert_eq!(insert_and_remove(&mut trie), first);
+	trie
+}
+
+test_layouts!(free_slot_under_the_freeze_is_reused_again, free_slot_under_the_freeze_internal);
+/// A slot that was free when the newest snapshot was taken is in no snapshot. A change after the
+/// snapshot may write it, and once a later change empties it again it must be reused, or every
+/// snapshot costs the arena each free slot under it.
+fn free_slot_under_the_freeze_internal<T: TrieLayout>() {
+	let (db, root, _) = block_start_trie::<T>();
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = trie_with_free_slots(&mut detached, &db);
+	let _snapshot = trie.snapshot();
+	assert_absent_removals_reuse_slots(&mut trie, &absent_keys_under_k1());
+}
+
+test_layouts!(
+	rollback_after_repeated_reuse_frees_each_slot_once,
+	rollback_after_repeated_reuse_frees_each_slot_once_internal
+);
+/// Every change after the snapshot writes and empties the same free slots again. A rollback must
+/// free each of them once: a slot freed twice is handed to two nodes, which then overwrite each
+/// other.
+fn rollback_after_repeated_reuse_frees_each_slot_once_internal<T: TrieLayout>() {
+	let (db, root, keys) = block_start_trie::<T>();
+	// More nodes than the rollback frees, so that every freed slot is written again.
+	let inserted: Vec<Vec<u8>> = (0..8u8).map(|byte| vec![0xE0, byte, 0x55]).collect();
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = trie_with_free_slots(&mut detached, &db);
+	let before = read_keys(&trie, &keys);
+	let snapshot = trie.snapshot();
+	for key in &absent_keys_under_k1()[..5] {
+		assert!(trie.remove(key).unwrap().is_none());
+	}
+
+	trie.rollback_to(&snapshot).unwrap();
+	for key in &inserted {
+		trie.insert(key, &[4; 40]).unwrap();
+	}
+	assert_eq!(read_keys(&trie, &keys), before);
+	assert!(read_keys(&trie, &inserted).iter().all(|value| *value == Some(vec![4; 40])));
+	for key in keys.iter().chain(&inserted) {
+		trie.remove(key).unwrap();
+	}
+	assert!(trie.is_empty());
+}
+
 test_layouts!(discard_keeps_the_parent_snapshot, discard_keeps_the_parent_snapshot_internal);
 /// Committing a nested transaction discards its snapshot while the outer one may still roll
 /// back. The discard must keep the nodes the outer snapshot needs, even once later changes reuse
