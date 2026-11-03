@@ -708,7 +708,8 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for CommittingNodeStorage<L> {
 /// references nodes that existed when the mark was taken.
 ///
 /// Nodes written since the newest mark are not seen by any snapshot, so their slots are reused.
-/// Slots still free when a mark is taken stay empty until a rollback discards them.
+/// Free slots stay free across a mark. A discard drops a mark and every later one, and the slots
+/// only those marks kept alive are reused.
 ///
 /// Retired database nodes are forgotten: this storage is never committed, and a rollback could
 /// not undo a death row.
@@ -721,12 +722,19 @@ struct AppendOnlyNodeStorage<L: TrieLayout> {
 	nodes: Vec<Stored<L>>,
 	/// Sequence number of the next mark.
 	next_mark: u64,
-	/// Sequence numbers of the marks that can still be rewound to, in ascending order.
-	live_marks: Vec<u64>,
-	/// Length of the arena at the newest mark or rewind; slots below it are never overwritten.
+	/// The marks that can still be rewound to, oldest first.
+	live_marks: Vec<StorageMark>,
+	/// Length of the arena at the newest live mark; nodes below it are never overwritten.
 	frozen_below: usize,
-	/// Emptied slots at or above `frozen_below`.
+	/// Slots that neither the trie nor any mark still on the stack uses.
 	free_indices: Vec<usize>,
+	/// Slots below `frozen_below` that the trie no longer uses, in the order they left it. They
+	/// keep their node because a live mark may still use it. A discard that drops every such mark
+	/// moves them to `free_indices`.
+	dead_slots: Vec<usize>,
+	/// Free slots below `frozen_below` that were handed out again, in order. A rewind frees again
+	/// those below its mark.
+	reused_slots: Vec<usize>,
 }
 
 impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
@@ -738,45 +746,79 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 			live_marks: Vec::new(),
 			frozen_below: 0,
 			free_indices: Vec::new(),
+			dead_slots: Vec::new(),
+			reused_slots: Vec::new(),
 		}
 	}
 
 	fn mark(&mut self) -> StorageMark {
 		self.frozen_below = self.nodes.len();
-		self.free_indices.clear();
 		let sequence = self.next_mark;
 		self.next_mark = sequence.checked_add(1).expect("Append-only mark sequence exhausted");
-		self.live_marks.push(sequence);
-		StorageMark { storage_id: self.id, nodes: self.nodes.len(), sequence }
+		let mark = StorageMark {
+			storage_id: self.id,
+			nodes: self.nodes.len(),
+			sequence,
+			dead_slots: self.dead_slots.len(),
+			reused_slots: self.reused_slots.len(),
+		};
+		self.live_marks.push(mark);
+		mark
+	}
+
+	/// Position of `mark` in the live marks, if it can still be rewound to.
+	fn live_position(&self, mark: &StorageMark) -> core::result::Result<usize, InvalidSnapshot> {
+		if mark.storage_id != self.id {
+			return Err(InvalidSnapshot)
+		}
+		self.live_marks
+			.binary_search_by_key(&mark.sequence, |live| live.sequence)
+			.map_err(|_| InvalidSnapshot)
 	}
 
 	/// Cut the arena back to `mark`.
 	///
 	/// Fails, without touching the arena, if `mark` was taken from another storage or was dropped
-	/// from the live marks by a rewind below it.
+	/// from the live marks by a rewind below it or by a discard.
 	fn rewind(&mut self, mark: &StorageMark) -> core::result::Result<(), InvalidSnapshot> {
-		if mark.storage_id != self.id {
-			return Err(InvalidSnapshot)
-		}
-		let position =
-			self.live_marks.binary_search(&mark.sequence).map_err(|_| InvalidSnapshot)?;
+		let position = self.live_position(mark)?;
 		self.live_marks.truncate(position + 1);
 		self.nodes.truncate(mark.nodes);
 		self.frozen_below = mark.nodes;
-		self.free_indices.clear();
+		self.dead_slots.truncate(mark.dead_slots);
+		self.free_indices.extend(self.reused_slots.drain(mark.reused_slots..));
+		self.free_indices.retain(|index| *index < mark.nodes);
+		Ok(())
+	}
+
+	/// Drop `mark` and every later mark, and reuse the slots only they kept alive.
+	///
+	/// Fails, without touching the arena, under the same conditions as [`Self::rewind`].
+	fn discard_from(&mut self, mark: &StorageMark) -> core::result::Result<(), InvalidSnapshot> {
+		let position = self.live_position(mark)?;
+		self.live_marks.truncate(position);
+		let (frozen_below, reused_before_top) =
+			self.live_marks.last().map_or((0, 0), |top| (top.nodes, top.reused_slots));
+		self.frozen_below = frozen_below;
+		self.free_indices
+			.extend(self.dead_slots.iter().filter(|index| **index >= frozen_below));
+		self.dead_slots.retain(|index| *index < frozen_below);
+		let reused_since_top = self.reused_slots.split_off(reused_before_top);
+		self.reused_slots
+			.extend(reused_since_top.into_iter().filter(|index| *index < frozen_below));
 		Ok(())
 	}
 }
 
-/// The snapshot does not describe the trie: it was taken from another trie, or the trie was
-/// rolled back to a point before it since it was taken.
+/// The snapshot does not describe the trie: it was taken from another trie, the trie was rolled
+/// back to a point before it, or it was discarded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvalidSnapshot;
 
 #[cfg(feature = "std")]
 impl fmt::Display for InvalidSnapshot {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		write!(f, "The snapshot was taken from another trie or the trie was rolled back past it")
+		write!(f, "The snapshot was taken from another trie or dropped by a rollback or a discard")
 	}
 }
 
@@ -786,14 +828,26 @@ impl std::error::Error for InvalidSnapshot {}
 /// Where an [`AppendOnlyNodeStorage`] stood when a snapshot was taken.
 #[derive(Clone, Copy)]
 struct StorageMark {
+	/// The storage the mark was taken from; a mark from another storage is refused.
 	storage_id: u64,
+	/// Arena length at the mark. A rewind cuts the arena back to it, and the freeze line returns
+	/// to it after a rewind or a discard.
 	nodes: usize,
+	/// Identifies the mark on the stack. Later marks have higher sequences.
 	sequence: u64,
+	/// Length of `dead_slots` at the mark. A rewind cuts the list back to it: slots that died
+	/// later are in the trie again.
+	dead_slots: usize,
+	/// Length of `reused_slots` at the mark. A rewind frees again the slots handed out later.
+	reused_slots: usize,
 }
 
 impl<L: TrieLayout> NodeStorage<L> for AppendOnlyNodeStorage<L> {
 	fn alloc(&mut self, stored: Stored<L>) -> StorageHandle {
 		if let Some(idx) = self.free_indices.pop() {
+			if idx < self.frozen_below {
+				self.reused_slots.push(idx);
+			}
 			self.nodes[idx] = stored;
 			StorageHandle(idx)
 		} else {
@@ -805,6 +859,7 @@ impl<L: TrieLayout> NodeStorage<L> for AppendOnlyNodeStorage<L> {
 	fn destroy(&mut self, handle: StorageHandle) -> Stored<L> {
 		let idx = handle.0;
 		if idx < self.frozen_below {
+			self.dead_slots.push(idx);
 			return self.nodes[idx].clone()
 		}
 		self.free_indices.push(idx);
@@ -875,6 +930,13 @@ impl<L: TrieLayout> RootedNodeStorage<L, AppendOnlyNodeStorage<L>> {
 		self.root_handle = snapshot.root_handle.clone();
 		Ok(())
 	}
+
+	fn discard_from(
+		&mut self,
+		snapshot: &TrieDBMutSnapshot<L>,
+	) -> core::result::Result<(), InvalidSnapshot> {
+		self.nodes.discard_from(&snapshot.storage_mark)
+	}
 }
 
 /// In-memory state of an [`AppendOnlyTrieDBMut`], detached from its borrows.
@@ -905,20 +967,30 @@ impl<L: TrieLayout> DetachedTrieDBMut<L> {
 
 	/// Roll back to `snapshot`, see [`AppendOnlyTrieDBMut::rollback_to`].
 	///
-	/// Fails, leaving the state as it is, if `snapshot` was taken from another trie or the state
-	/// was rolled back to a point before `snapshot` since the snapshot was taken.
+	/// Fails, leaving the state as it is, if `snapshot` was taken from another trie, the state was
+	/// rolled back to a point before it, or it was discarded.
 	pub fn rollback_to(
 		&mut self,
 		snapshot: &TrieDBMutSnapshot<L>,
 	) -> core::result::Result<(), InvalidSnapshot> {
 		self.storage.rollback_to(snapshot)
 	}
+
+	/// Discard `snapshot` and every later one, see [`AppendOnlyTrieDBMut::discard_from`].
+	///
+	/// Fails, leaving the state as it is, under the same conditions as [`Self::rollback_to`].
+	pub fn discard_from(
+		&mut self,
+		snapshot: &TrieDBMutSnapshot<L>,
+	) -> core::result::Result<(), InvalidSnapshot> {
+		self.storage.discard_from(snapshot)
+	}
 }
 
 /// A point an [`AppendOnlyTrieDBMut`] can be rolled back to.
 ///
-/// A snapshot becomes invalid once the trie is rolled back to a point before it; rolling back to
-/// an invalid snapshot fails with [`InvalidSnapshot`].
+/// A snapshot becomes invalid once the trie is rolled back to a point before it or it is
+/// discarded. Rolling back to an invalid snapshot fails with [`InvalidSnapshot`].
 pub struct TrieDBMutSnapshot<L: TrieLayout> {
 	root_handle: NodeHandle<TrieHash<L>>,
 	storage_mark: StorageMark,
@@ -2549,8 +2621,8 @@ where
 ///
 /// The trie is never committed: it reads the backing database but never writes to it, and it
 /// never writes a root. Nodes replaced by later changes are reused, except those a snapshot may
-/// still need, which stay allocated until a rollback discards them or the detached storage is
-/// dropped.
+/// still need, which stay allocated until a rollback or a discard frees them, or the detached
+/// storage is dropped.
 pub struct AppendOnlyTrieDBMut<'a, L>
 where
 	L: TrieLayout,
@@ -2610,13 +2682,24 @@ where
 	/// Only the trie is restored: what the recorder recorded and the cache cached since the
 	/// snapshot stays.
 	///
-	/// Fails, leaving the trie as it is, if `snapshot` was taken from another trie or the trie was
-	/// rolled back to a point before `snapshot` since it was taken.
+	/// Fails, leaving the trie as it is, if `snapshot` was taken from another trie, the trie was
+	/// rolled back to a point before it, or it was discarded.
 	pub fn rollback_to(
 		&mut self,
 		snapshot: &TrieDBMutSnapshot<L>,
 	) -> core::result::Result<(), InvalidSnapshot> {
 		self.core.storage.rollback_to(snapshot)
+	}
+
+	/// Discards `snapshot` and every snapshot taken after it: none of them can be rolled back
+	/// to any more, and the nodes only they kept alive are reused. The trie is not changed.
+	///
+	/// Fails, leaving the trie as it is, under the same conditions as [`Self::rollback_to`].
+	pub fn discard_from(
+		&mut self,
+		snapshot: &TrieDBMutSnapshot<L>,
+	) -> core::result::Result<(), InvalidSnapshot> {
+		self.core.storage.discard_from(snapshot)
 	}
 
 	/// Number of slots in the in-memory node arena, freed ones included. A diagnostic for tests,

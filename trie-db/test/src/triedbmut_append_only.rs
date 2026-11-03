@@ -642,6 +642,225 @@ fn snapshot_of_another_trie_internal<T: TrieLayout>() {
 	assert_eq!(read_keys(&trie, &keys), before);
 }
 
+/// Arena length after each of 50 extrinsics. Each removes an absent key under a snapshot of its
+/// own, then `end` gets the trie, that snapshot and the extrinsic's number.
+fn arena_per_extrinsic<T: TrieLayout>(
+	trie: &mut AppendOnlyTrieDBMut<T>,
+	mut end: impl FnMut(&mut AppendOnlyTrieDBMut<T>, &TrieDBMutSnapshot<T>, usize),
+) -> Vec<usize> {
+	absent_keys_under_k1()
+		.iter()
+		.enumerate()
+		.map(|(number, key)| {
+			let extrinsic = trie.snapshot();
+			assert!(trie.remove(key).unwrap().is_none());
+			end(trie, &extrinsic, number);
+			trie.arena_len()
+		})
+		.collect()
+}
+
+/// The first two extrinsics may load the path and copy it; after that the arena must not grow.
+fn assert_stays_flat(lengths: &[usize]) {
+	assert!(lengths[2..].iter().all(|len| *len == lengths[1]), "{:?}", lengths);
+}
+
+test_layouts!(discarded_snapshots_keep_arena_flat, discarded_snapshots_keep_arena_flat_internal);
+/// A block takes a snapshot per extrinsic. It discards the snapshot when the extrinsic commits,
+/// and rolls back to it and then discards it when the extrinsic fails. The nodes only that
+/// snapshot kept alive must then be reused, or the arena grows by a path copy per extrinsic for
+/// the whole block.
+fn discarded_snapshots_keep_arena_flat_internal<T: TrieLayout>() {
+	let (db, root, _) = block_start_trie::<T>();
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(&db, &mut detached).build();
+	let block = trie.snapshot();
+	let commit =
+		|trie: &mut AppendOnlyTrieDBMut<T>, extrinsic: &_, _| trie.discard_from(extrinsic).unwrap();
+	assert_stays_flat(&arena_per_extrinsic(&mut trie, commit));
+	assert_absent_removals_reuse_slots(&mut trie, &absent_keys_under_k1());
+	assert_stays_flat(&arena_per_extrinsic(&mut trie, |trie, extrinsic, number| {
+		if number % 2 == 1 {
+			trie.rollback_to(extrinsic).unwrap();
+		}
+		trie.discard_from(extrinsic).unwrap()
+	}));
+	trie.discard_from(&block).unwrap();
+	assert_stays_flat(&arena_per_extrinsic(&mut trie, commit));
+
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(&db, &mut detached).build();
+	let kept = arena_per_extrinsic(&mut trie, |_, _, _| {});
+	assert!(kept.windows(2).all(|pair| pair[1] > pair[0]), "{:?}", kept);
+}
+
+test_layouts!(ended_blocks_keep_arena_flat, ended_blocks_keep_arena_flat_internal);
+/// An extrinsic commits inside a block snapshot, then the block commits or fails. Once the block
+/// ends, the nodes only its snapshot kept alive must be reused, or the arena grows by a path copy
+/// per block.
+fn ended_blocks_keep_arena_flat_internal<T: TrieLayout>() {
+	let (db, root, _) = block_start_trie::<T>();
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(&db, &mut detached).build();
+	let arena_per_block: Vec<usize> = absent_keys_under_k1()
+		.iter()
+		.enumerate()
+		.map(|(number, key)| {
+			let block = trie.snapshot();
+			let extrinsic = trie.snapshot();
+			assert!(trie.remove(key).unwrap().is_none());
+			trie.discard_from(&extrinsic).unwrap();
+			let arena_len = trie.arena_len();
+			if number % 2 == 1 {
+				trie.rollback_to(&block).unwrap();
+			}
+			trie.discard_from(&block).unwrap();
+			arena_len
+		})
+		.collect();
+	assert_stays_flat(&arena_per_block);
+}
+
+test_layouts!(discard_keeps_the_parent_snapshot, discard_keeps_the_parent_snapshot_internal);
+/// Committing a nested transaction discards its snapshot while the outer one may still roll
+/// back. The discard must keep the nodes the outer snapshot needs, even once later changes reuse
+/// the freed slots.
+fn discard_keeps_the_parent_snapshot_internal<T: TrieLayout>() {
+	let (db, root, keys) = block_start_trie::<T>();
+	let (_, k3_removed) = real_session::<T, _>(&db, root, &[K3], &keys);
+	let (_, k3_and_k1_removed) = real_session::<T, _>(&db, root, &[K3, K1], &keys);
+	// More nodes than the discard frees, so that every freed slot is written again.
+	let inserted: Vec<Vec<u8>> = (0..8u8).map(|byte| vec![0xE0, byte, 0x55]).collect();
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(&db, &mut detached).build();
+	trie.remove(K3).unwrap();
+	let parent = trie.snapshot();
+	let child = trie.snapshot();
+	trie.remove(K1).unwrap();
+
+	trie.discard_from(&child).unwrap();
+	assert_eq!(read_keys(&trie, &keys), k3_and_k1_removed);
+	for key in &inserted {
+		trie.insert(key, &[4; 40]).unwrap();
+	}
+	assert_eq!(trie.rollback_to(&child), Err(InvalidSnapshot));
+	trie.rollback_to(&parent).unwrap();
+	assert_eq!(read_keys(&trie, &keys), k3_removed);
+	assert!(read_keys(&trie, &inserted).iter().all(Option::is_none));
+}
+
+test_layouts!(discard_after_a_rollback_keeps_the_trie, discard_after_a_rollback_internal);
+/// A failed nested transaction rolls back and discards its snapshot, then the outer one commits.
+/// The nodes the rolled back changes took out are part of the trie again, so the discards must
+/// not reuse their slots.
+fn discard_after_a_rollback_internal<T: TrieLayout>() {
+	let (db, root, keys) = block_start_trie::<T>();
+	let (_, k3_removed) = real_session::<T, _>(&db, root, &[K3], &keys);
+	let inserted: Vec<Vec<u8>> = (0..8u8).map(|byte| vec![0xE0, byte, 0x55]).collect();
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(&db, &mut detached).build();
+	let outer = trie.snapshot();
+	trie.remove(K3).unwrap();
+	let nested = trie.snapshot();
+	trie.remove(K1).unwrap();
+	trie.rollback_to(&nested).unwrap();
+
+	trie.discard_from(&nested).unwrap();
+	trie.discard_from(&outer).unwrap();
+	for key in &inserted {
+		trie.insert(key, &[4; 40]).unwrap();
+	}
+	assert_eq!(read_keys(&trie, &keys), k3_removed);
+	assert!(read_keys(&trie, &inserted).iter().all(|value| *value == Some(vec![4; 40])));
+}
+
+test_layouts!(
+	discard_after_a_rollback_restores_the_nesting,
+	discard_after_a_rollback_restores_the_nesting_internal
+);
+/// A rollback keeps its snapshot, so a failed extrinsic rolls back and then discards it. That
+/// must leave only the enclosing snapshots: the extrinsic's snapshot is refused, the block's
+/// still rolls back, and failed extrinsics do not grow the arena.
+fn discard_after_a_rollback_restores_the_nesting_internal<T: TrieLayout>() {
+	let (db, root, keys) = block_start_trie::<T>();
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(&db, &mut detached).build();
+	let before = read_keys(&trie, &keys);
+	let block = trie.snapshot();
+	trie.remove(K1).unwrap();
+
+	assert_stays_flat(&arena_per_extrinsic(&mut trie, |trie, extrinsic, _| {
+		trie.rollback_to(extrinsic).unwrap();
+		trie.discard_from(extrinsic).unwrap();
+		assert_eq!(trie.rollback_to(extrinsic), Err(InvalidSnapshot));
+	}));
+	trie.rollback_to(&block).unwrap();
+	assert_eq!(read_keys(&trie, &keys), before);
+}
+
+test_layouts!(
+	discard_from_the_oldest_drops_every_snapshot,
+	discard_from_the_oldest_drops_every_snapshot_internal
+);
+/// Between transactions nothing can be rolled back, so every snapshot is discarded. The trie
+/// must stay as it is, refuse the discarded snapshots and support new ones.
+fn discard_from_the_oldest_drops_every_snapshot_internal<T: TrieLayout>() {
+	let (db, root, keys) = block_start_trie::<T>();
+	let (_, k3_and_k1_removed) = real_session::<T, _>(&db, root, &[K3, K1], &keys);
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let initial = detached.snapshot();
+	session::<T>(&mut detached, &db, |trie| {
+		trie.remove(K3).unwrap();
+	});
+	let after_k3 = detached.snapshot();
+	session::<T>(&mut detached, &db, |trie| {
+		trie.remove(K1).unwrap();
+	});
+
+	detached.discard_from(&initial).unwrap();
+	assert_eq!(contents::<T>(&mut detached, &db, &keys), k3_and_k1_removed);
+	assert_eq!(detached.rollback_to(&initial), Err(InvalidSnapshot));
+	assert_eq!(detached.rollback_to(&after_k3), Err(InvalidSnapshot));
+	assert_eq!(detached.discard_from(&after_k3), Err(InvalidSnapshot));
+	assert_eq!(contents::<T>(&mut detached, &db, &keys), k3_and_k1_removed);
+
+	let fresh = detached.snapshot();
+	session::<T>(&mut detached, &db, |trie| {
+		trie.remove(K2).unwrap();
+	});
+	detached.rollback_to(&fresh).unwrap();
+	assert_eq!(contents::<T>(&mut detached, &db, &keys), k3_and_k1_removed);
+}
+
+test_layouts!(discard_of_an_invalid_snapshot_is_refused, discard_of_an_invalid_snapshot_internal);
+/// Discarding a snapshot that is already dropped, or one of another trie, must be refused
+/// without discarding anything: the live snapshots must still restore their own trie.
+fn discard_of_an_invalid_snapshot_internal<T: TrieLayout>() {
+	let (db, root, keys) = block_start_trie::<T>();
+	let (_, k2_removed) = real_session::<T, _>(&db, root, &[K2], &keys);
+	let (_, k2_and_k3_removed) = real_session::<T, _>(&db, root, &[K2, K3], &keys);
+	let foreign = DetachedTrieDBMut::<T>::new(Default::default()).snapshot();
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(&db, &mut detached).build();
+	let outer = trie.snapshot();
+	trie.remove(K1).unwrap();
+	let rolled_back = trie.snapshot();
+	trie.rollback_to(&outer).unwrap();
+	trie.remove(K2).unwrap();
+	let inner = trie.snapshot();
+	trie.remove(K3).unwrap();
+	let discarded = trie.snapshot();
+	trie.discard_from(&discarded).unwrap();
+
+	assert_eq!(trie.discard_from(&rolled_back), Err(InvalidSnapshot));
+	assert_eq!(trie.discard_from(&discarded), Err(InvalidSnapshot));
+	assert_eq!(trie.discard_from(&foreign), Err(InvalidSnapshot));
+	assert_eq!(read_keys(&trie, &keys), k2_and_k3_removed);
+	trie.remove(K1).unwrap();
+	trie.rollback_to(&inner).unwrap();
+	assert_eq!(read_keys(&trie, &keys), k2_removed);
+}
+
 /// A database that lost some nodes, so that a removal fails half way with a trie error.
 struct MissingNodes<'a, T: TrieLayout> {
 	db: &'a PrefixedMemoryDB<T>,

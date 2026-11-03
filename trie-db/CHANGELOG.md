@@ -16,7 +16,9 @@ The format is based on [Keep a Changelog].
   `DetachedTrieDBMut::new` is the trie at a root without in-memory nodes. The database is only
   read, so the builder takes it as `&dyn HashDBRef`. Rolling back to a snapshot of another trie
   fails with `InvalidSnapshot`. So does rolling back to a snapshot after a rollback to a point
-  before it. A failed rollback leaves the trie as it is.
+  before it. A failed rollback leaves the trie as it is. `discard_from` drops a snapshot and every
+  snapshot taken after it, without changing the trie. The nodes only the dropped snapshots kept
+  alive are reused.
 - `TrieDBMut` writes the caller's root only in `commit`: removing the last key no longer writes
   the empty root before the trie is committed.
 
