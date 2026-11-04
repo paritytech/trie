@@ -735,6 +735,8 @@ struct AppendOnlyNodeStorage<L: TrieLayout> {
 	/// Free slots below `frozen_below` that were handed out again and still keep their node, in
 	/// order. A rewind frees again those logged after its mark.
 	reused_slots: Vec<usize>,
+	/// Position of each slot in `reused_slots`, one entry per slot in `nodes`.
+	reuse_positions: Vec<Option<usize>>,
 }
 
 impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
@@ -748,6 +750,7 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 			free_indices: Vec::new(),
 			dead_slots: Vec::new(),
 			reused_slots: Vec::new(),
+			reuse_positions: Vec::new(),
 		}
 	}
 
@@ -786,8 +789,13 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 		self.nodes.truncate(mark.nodes);
 		self.frozen_below = mark.nodes;
 		self.dead_slots.truncate(mark.dead_slots);
-		self.free_indices.extend(self.reused_slots.drain(mark.reused_slots..));
+		for slot in self.reused_slots.drain(mark.reused_slots..) {
+			self.reuse_positions[slot] = None;
+			self.free_indices.push(slot);
+		}
 		self.free_indices.retain(|index| *index < mark.nodes);
+		self.reuse_positions.truncate(mark.nodes);
+		debug_assert_eq!(self.reuse_positions.len(), self.nodes.len());
 		Ok(())
 	}
 
@@ -803,19 +811,33 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 		self.free_indices
 			.extend(self.dead_slots.iter().filter(|index| **index >= frozen_below));
 		self.dead_slots.retain(|index| *index < frozen_below);
-		let reused_since_top = self.reused_slots.split_off(reused_before_top);
-		self.reused_slots
-			.extend(reused_since_top.into_iter().filter(|index| *index < frozen_below));
+		for slot in self.reused_slots.split_off(reused_before_top) {
+			if slot < frozen_below {
+				self.log_reuse(slot);
+			} else {
+				self.reuse_positions[slot] = None;
+			}
+		}
 		Ok(())
 	}
 
 	/// Position of `idx` in the reuse log, if the slot was reused after the newest mark.
 	fn reuse_after_newest_mark(&self, idx: usize) -> Option<usize> {
 		let since_mark = self.live_marks.last().map_or(0, |mark| mark.reused_slots);
-		self.reused_slots[since_mark..]
-			.iter()
-			.position(|slot| *slot == idx)
-			.map(|offset| since_mark + offset)
+		self.reuse_positions[idx].filter(|position| *position >= since_mark)
+	}
+
+	fn log_reuse(&mut self, idx: usize) {
+		self.reuse_positions[idx] = Some(self.reused_slots.len());
+		self.reused_slots.push(idx);
+	}
+
+	fn unlog_reuse(&mut self, position: usize) {
+		let removed = self.reused_slots.swap_remove(position);
+		self.reuse_positions[removed] = None;
+		if let Some(moved) = self.reused_slots.get(position) {
+			self.reuse_positions[*moved] = Some(position);
+		}
 	}
 }
 
@@ -855,12 +877,14 @@ impl<L: TrieLayout> NodeStorage<L> for AppendOnlyNodeStorage<L> {
 	fn alloc(&mut self, stored: Stored<L>) -> StorageHandle {
 		if let Some(idx) = self.free_indices.pop() {
 			if idx < self.frozen_below {
-				self.reused_slots.push(idx);
+				self.log_reuse(idx);
 			}
 			self.nodes[idx] = stored;
 			StorageHandle(idx)
 		} else {
 			self.nodes.push(stored);
+			self.reuse_positions.push(None);
+			debug_assert_eq!(self.reuse_positions.len(), self.nodes.len());
 			StorageHandle(self.nodes.len() - 1)
 		}
 	}
@@ -869,9 +893,7 @@ impl<L: TrieLayout> NodeStorage<L> for AppendOnlyNodeStorage<L> {
 		let idx = handle.0;
 		if idx < self.frozen_below {
 			match self.reuse_after_newest_mark(idx) {
-				Some(position) => {
-					self.reused_slots.swap_remove(position);
-				},
+				Some(position) => self.unlog_reuse(position),
 				None => {
 					self.dead_slots.push(idx);
 					return self.nodes[idx].clone()

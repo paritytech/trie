@@ -788,6 +788,39 @@ fn rollback_after_repeated_reuse_frees_each_slot_once_internal<T: TrieLayout>() 
 	assert!(trie.is_empty());
 }
 
+test_layouts!(
+	reused_slots_emptied_out_of_order_are_freed,
+	reused_slots_emptied_out_of_order_are_freed_internal
+);
+/// Changes after a snapshot write free slots and empty them again in any order, not only the
+/// newest first. Each emptied slot must be freed once, so that the arena does not grow and no
+/// slot is handed to two nodes, and the rollback must restore the trie of the snapshot.
+fn reused_slots_emptied_out_of_order_are_freed_internal<T: TrieLayout>() {
+	let (db, root, keys) = block_start_trie::<T>();
+	let leaves = [0x60u8, 0x70, 0x80].map(|byte| vec![byte, 0x77]);
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = trie_with_free_slots(&mut detached, &db);
+	let before = read_keys(&trie, &keys);
+	let snapshot = trie.snapshot();
+	for leaf in &leaves {
+		trie.insert(leaf, &[6; 40]).unwrap();
+	}
+	let holding_leaves = trie.arena_len();
+	for leaf in [&leaves[1], &leaves[2], &leaves[0]] {
+		trie.remove(leaf).unwrap();
+	}
+
+	for leaf in &leaves {
+		trie.insert(leaf, &[7; 40]).unwrap();
+	}
+	assert_eq!(trie.arena_len(), holding_leaves);
+	assert_eq!(read_keys(&trie, &keys), before);
+	assert!(read_keys(&trie, &leaves).iter().all(|value| *value == Some(vec![7; 40])));
+	trie.rollback_to(&snapshot).unwrap();
+	assert_eq!(read_keys(&trie, &keys), before);
+	assert!(read_keys(&trie, &leaves).iter().all(Option::is_none));
+}
+
 test_layouts!(discard_keeps_the_parent_snapshot, discard_keeps_the_parent_snapshot_internal);
 /// Committing a nested transaction discards its snapshot while the outer one may still roll
 /// back. The discard must keep the nodes the outer snapshot needs, even once later changes reuse
@@ -926,6 +959,87 @@ fn discard_of_an_invalid_snapshot_internal<T: TrieLayout>() {
 	trie.remove(K1).unwrap();
 	trie.rollback_to(&inner).unwrap();
 	assert_eq!(read_keys(&trie, &keys), k2_removed);
+}
+
+const FIRST: &[u8] = &[0xF0, 0x33];
+const SECOND: &[u8] = &[0x40, 0x33];
+
+/// A trie with a block snapshot and an extrinsic snapshot, and free slots between their freeze
+/// lines. Returns the trie and the extrinsic snapshot.
+fn extrinsic_over_free_slots<'a, T: TrieLayout>(
+	detached: &'a mut DetachedTrieDBMut<T>,
+	db: &'a PrefixedMemoryDB<T>,
+) -> (AppendOnlyTrieDBMut<'a, T>, TrieDBMutSnapshot<T>) {
+	session::<T>(detached, db, |trie| {
+		trie.remove(K3).unwrap();
+	});
+	let _block = detached.snapshot();
+	let mut trie = trie_with_free_slots(detached, db);
+	let extrinsic = trie.snapshot();
+	(trie, extrinsic)
+}
+
+/// Takes a snapshot, inserts new keys, removes `FIRST` and inserts `SECOND` into the freed slots.
+/// The trie must hold exactly these changes, and a rollback must restore the trie of the snapshot.
+fn assert_removal_of_first_rolls_back<T: TrieLayout>(
+	trie: &mut AppendOnlyTrieDBMut<T>,
+	keys: &[Vec<u8>],
+) {
+	let inserted: Vec<Vec<u8>> = (0..8u8).map(|byte| vec![0xE0, byte, 0x55]).collect();
+	let before = read_keys(trie, keys);
+	let snapshot = trie.snapshot();
+	for key in &inserted {
+		trie.insert(key, &[4; 40]).unwrap();
+	}
+	trie.remove(FIRST).unwrap();
+	trie.insert(SECOND, &[2; 40]).unwrap();
+	assert_eq!(read_keys(trie, keys), before);
+	assert!(read_keys(trie, &inserted).iter().all(|value| *value == Some(vec![4; 40])));
+	assert_eq!(trie.get(FIRST).unwrap(), None);
+	assert_eq!(trie.get(SECOND).unwrap(), Some(vec![2; 40]));
+
+	trie.rollback_to(&snapshot).unwrap();
+	assert_eq!(read_keys(trie, keys), before);
+	assert!(read_keys(trie, &inserted).iter().all(Option::is_none));
+	assert_eq!(trie.get(FIRST).unwrap(), Some(vec![1; 40]));
+	assert_eq!(trie.get(SECOND).unwrap(), None);
+}
+
+test_layouts!(
+	discarded_reuse_does_not_free_a_protected_slot,
+	discarded_reuse_does_not_free_a_protected_slot_internal
+);
+/// An extrinsic writes `FIRST` to free slots between the block's freeze line and its own, then
+/// commits. The block's snapshot never saw those slots, so the discard forgets that they were
+/// reused, but `FIRST` stays in the trie. The next snapshot needs its nodes: removing `FIRST`
+/// after it must keep them, or their slots are handed out again and the rollback loses `FIRST`.
+fn discarded_reuse_does_not_free_a_protected_slot_internal<T: TrieLayout>() {
+	let (db, root, keys) = block_start_trie::<T>();
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let (mut trie, extrinsic) = extrinsic_over_free_slots(&mut detached, &db);
+	trie.insert(FIRST, &[1; 40]).unwrap();
+	trie.discard_from(&extrinsic).unwrap();
+	assert_removal_of_first_rolls_back(&mut trie, &keys);
+}
+
+test_layouts!(
+	rolled_back_reuse_does_not_free_a_protected_slot,
+	rolled_back_reuse_does_not_free_a_protected_slot_internal
+);
+/// A failed extrinsic writes `FIRST` to free slots between the block's freeze line and its own,
+/// then rolls back and discards its snapshot. The rollback frees those slots and forgets that
+/// they were reused. Above the block's freeze line, writing `FIRST` again takes them without a
+/// record. The next snapshot needs its nodes: removing `FIRST` after it must keep them, or their
+/// slots are handed out again and the rollback loses `FIRST`.
+fn rolled_back_reuse_does_not_free_a_protected_slot_internal<T: TrieLayout>() {
+	let (db, root, keys) = block_start_trie::<T>();
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let (mut trie, extrinsic) = extrinsic_over_free_slots(&mut detached, &db);
+	trie.insert(FIRST, &[1; 40]).unwrap();
+	trie.rollback_to(&extrinsic).unwrap();
+	trie.discard_from(&extrinsic).unwrap();
+	trie.insert(FIRST, &[1; 40]).unwrap();
+	assert_removal_of_first_rolls_back(&mut trie, &keys);
 }
 
 /// A database that lost some nodes, so that a removal fails half way with a trie error.
