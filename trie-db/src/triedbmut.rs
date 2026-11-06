@@ -703,6 +703,9 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for CommittingNodeStorage<L> {
 	}
 }
 
+/// Source of [`AppendOnlyNodeStorage::id`]; never reset, so no two storages share an id.
+static NEXT_STORAGE_ID: AtomicU64 = AtomicU64::new(1);
+
 /// Storage whose nodes below the newest mark are never overwritten, so truncating `nodes` back to
 /// the length of a mark restores the trie as it was then: a node written before a mark only
 /// references nodes that existed when the mark was taken.
@@ -713,9 +716,6 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for CommittingNodeStorage<L> {
 ///
 /// Retired database nodes are forgotten: this storage is never committed, and a rollback could
 /// not undo a death row.
-/// Source of [`AppendOnlyNodeStorage::id`]; never reset, so no two storages share an id.
-static NEXT_STORAGE_ID: AtomicU64 = AtomicU64::new(1);
-
 struct AppendOnlyNodeStorage<L: TrieLayout> {
 	/// Unique to this storage, so a mark taken from another storage is recognised.
 	id: u64,
