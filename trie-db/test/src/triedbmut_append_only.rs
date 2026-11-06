@@ -911,6 +911,35 @@ fn rollback_after_a_commit_frees_the_snapshot_slots_internal<T: TrieLayout>() {
 	});
 }
 
+test_layouts!(
+	nested_commits_free_the_snapshot_slots,
+	nested_commits_free_the_snapshot_slots_internal
+);
+/// A transaction writes slots that were free at its snapshot, then a nested transaction empties
+/// them and commits. No live snapshot holds those nodes, so the commit must free the slots, or
+/// every nested transaction grows the arena until the outer one ends. The rollback must then
+/// still free each slot once.
+fn nested_commits_free_the_snapshot_slots_internal<T: TrieLayout>() {
+	assert_rollback_frees_the_snapshot_slots::<T>(|trie, inserted| {
+		let arena_per_round: Vec<usize> = (0..6)
+			.map(|_| {
+				insert_all(trie, &inserted[..2]);
+				let nested = trie.snapshot();
+				remove_all(trie, &inserted[..2]);
+				trie.discard_from(&nested).unwrap();
+				trie.arena_len()
+			})
+			.collect();
+		assert!(
+			arena_per_round.iter().all(|len| *len == arena_per_round[0]),
+			"{:?}",
+			arena_per_round
+		);
+		insert_all(trie, inserted);
+		trie.arena_len()
+	});
+}
+
 test_layouts!(discard_keeps_the_parent_snapshot, discard_keeps_the_parent_snapshot_internal);
 /// Committing a nested transaction discards its snapshot while the outer one may still roll
 /// back. The discard must keep the nodes the outer snapshot needs, even once later changes reuse
