@@ -843,6 +843,74 @@ fn reused_slots_emptied_out_of_order_are_freed_internal<T: TrieLayout>() {
 	assert!(read_keys(&trie, &leaves).iter().all(Option::is_none));
 }
 
+fn insert_all<T: TrieLayout>(trie: &mut AppendOnlyTrieDBMut<T>, keys: &[Vec<u8>]) {
+	for key in keys {
+		trie.insert(key, &[4; 40]).unwrap();
+	}
+}
+
+fn remove_all<T: TrieLayout>(trie: &mut AppendOnlyTrieDBMut<T>, keys: &[Vec<u8>]) {
+	for key in keys {
+		trie.remove(key).unwrap();
+	}
+}
+
+/// Takes a snapshot of a trie with free slots, runs `transaction` and rolls back. `transaction`
+/// inserts and removes the keys it gets, and returns the arena length while it held them. After
+/// the rollback exactly the slots free at the snapshot must be free: inserting the same keys
+/// again must reach the same arena length and overwrite no node of the trie.
+fn assert_rollback_frees_the_snapshot_slots<T: TrieLayout>(
+	transaction: impl FnOnce(&mut AppendOnlyTrieDBMut<T>, &[Vec<u8>]) -> usize,
+) {
+	let (db, root, keys) = block_start_trie::<T>();
+	// More nodes than there are free slots, so that the transaction takes all of them.
+	let inserted: Vec<Vec<u8>> = (0..8u8).map(|byte| vec![0xE0, byte, 0x55]).collect();
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = trie_with_free_slots(&mut detached, &db);
+	let before = read_keys(&trie, &keys);
+	let snapshot = trie.snapshot();
+	let holding_inserted = transaction(&mut trie, &inserted);
+
+	trie.rollback_to(&snapshot).unwrap();
+	assert_eq!(read_keys(&trie, &keys), before);
+	assert!(read_keys(&trie, &inserted).iter().all(Option::is_none));
+	insert_all(&mut trie, &inserted);
+	assert_eq!(trie.arena_len(), holding_inserted);
+	assert_eq!(read_keys(&trie, &keys), before);
+	assert!(read_keys(&trie, &inserted).iter().all(|value| *value == Some(vec![4; 40])));
+}
+
+test_layouts!(rollback_frees_the_snapshot_slots, rollback_frees_the_snapshot_slots_internal);
+/// A transaction takes the free slots, then frees slots it wrote above the freeze line. A
+/// rollback drops those slots with the nodes above the line, so keeping one free hands out a slot
+/// the arena no longer has. The slots it took must be free again, or the arena grows.
+fn rollback_frees_the_snapshot_slots_internal<T: TrieLayout>() {
+	assert_rollback_frees_the_snapshot_slots::<T>(|trie, inserted| {
+		insert_all(trie, inserted);
+		let holding_inserted = trie.arena_len();
+		remove_all(trie, inserted);
+		holding_inserted
+	});
+}
+
+test_layouts!(
+	rollback_after_a_commit_frees_the_snapshot_slots,
+	rollback_after_a_commit_frees_the_snapshot_slots_internal
+);
+/// A nested transaction takes the free slots and commits, then the outer one frees slots it wrote
+/// above its freeze line and rolls back. The rollback must see that the nested transaction took
+/// the free slots, and leave free exactly the slots free at the outer snapshot.
+fn rollback_after_a_commit_frees_the_snapshot_slots_internal<T: TrieLayout>() {
+	assert_rollback_frees_the_snapshot_slots::<T>(|trie, inserted| {
+		let nested = trie.snapshot();
+		insert_all(trie, inserted);
+		let holding_inserted = trie.arena_len();
+		trie.discard_from(&nested).unwrap();
+		remove_all(trie, inserted);
+		holding_inserted
+	});
+}
+
 test_layouts!(discard_keeps_the_parent_snapshot, discard_keeps_the_parent_snapshot_internal);
 /// Committing a nested transaction discards its snapshot while the outer one may still roll
 /// back. The discard must keep the nodes the outer snapshot needs, even once later changes reuse
