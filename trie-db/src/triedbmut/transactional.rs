@@ -151,8 +151,7 @@ impl<L: TrieLayout> TransactionalNodeStorage<L> {
 	/// Whether a live mark still needs the node in `slot`: the slot is below the freeze line and
 	/// was not written after the newest mark.
 	fn needed_by_a_live_mark(&self, slot: usize) -> bool {
-		slot < self.frozen_below &&
-			!self.reuse_log.logged_since(slot, self.reused_at_newest_mark())
+		slot < self.frozen_below && !self.reuse_log.logged_since(slot, self.reused_at_newest_mark())
 	}
 
 	/// Makes `slot` free, forgetting its reuse if it was logged.
