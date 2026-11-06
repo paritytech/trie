@@ -7,11 +7,12 @@ The format is based on [Keep a Changelog].
 ## [Unreleased]
 - Fix `TrieDBMut::remove` of a key that does not exist but is a strict prefix of a stored key:
   it no longer panics or deletes the stored key's value.
-- Add `AppendOnlyTrieDBMut`, a trie that lives in memory only. It reads the backing database but
-  never writes to it and never commits a root. Its in-memory nodes are never overwritten, so
-  `snapshot` takes a `TrieDBMutSnapshot` in constant time and `rollback_to` restores it without
-  copying the trie. The in-memory state is a `DetachedTrieDBMut`. It supports the same snapshots
-  and rollbacks. `AppendOnlyTrieDBMutBuilder::from_detached` borrows it, together with a database,
+- Add `TransactionalTrieDBMut`, a trie that lives in memory only and supports transactions. It
+  reads the backing database but never writes to it and never commits a root. The nodes a
+  snapshot uses are never overwritten, so `snapshot` takes a `TrieDBMutSnapshot` in constant
+  time and `rollback_to` restores it without copying the trie. The in-memory state is a
+  `DetachedTrieDBMut`. It supports the same snapshots and rollbacks.
+  `TransactionalTrieDBMutBuilder::from_detached` borrows it, together with a database,
   a cache and a recorder. The trie writes every change into the borrowed state directly.
   `DetachedTrieDBMut::new` is the trie at a root without in-memory nodes. The database is only
   read, so the builder takes it as `&dyn HashDBRef`. Rolling back to a snapshot of another trie

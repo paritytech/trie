@@ -707,9 +707,10 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for CommittingNodeStorage<L> {
 /// storage is never live in this one.
 static NEXT_MARK: AtomicU64 = AtomicU64::new(0);
 
-/// Storage whose nodes below the newest mark are never overwritten, so truncating `nodes` back to
-/// the length of a mark restores the trie as it was then: a node written before a mark only
-/// references nodes that existed when the mark was taken.
+/// Storage whose nodes in use at a live mark are never overwritten. A rewind cuts `nodes` back to
+/// the length of the mark and frees again the slots reused since, which restores the trie as it
+/// was then: a node written before a mark only references nodes that existed when the mark was
+/// taken.
 ///
 /// Nodes written since the newest mark are not seen by any snapshot, so their slots are reused.
 /// Free slots stay free across a mark. A discard drops a mark and every later one, and the slots
@@ -717,7 +718,7 @@ static NEXT_MARK: AtomicU64 = AtomicU64::new(0);
 ///
 /// Retired database nodes are forgotten: this storage is never committed, and a rollback could
 /// not undo a death row.
-struct AppendOnlyNodeStorage<L: TrieLayout> {
+struct TransactionalNodeStorage<L: TrieLayout> {
 	nodes: Vec<Stored<L>>,
 	/// The marks that can still be rewound to, oldest first.
 	live_marks: Vec<LiveMark>,
@@ -733,7 +734,7 @@ struct AppendOnlyNodeStorage<L: TrieLayout> {
 	reuse_log: ReuseLog,
 }
 
-impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
+impl<L: TrieLayout> TransactionalNodeStorage<L> {
 	fn empty() -> Self {
 		Self {
 			nodes: Vec::new(),
@@ -914,7 +915,7 @@ impl fmt::Display for InvalidSnapshot {
 #[cfg(feature = "std")]
 impl std::error::Error for InvalidSnapshot {}
 
-/// Where an [`AppendOnlyNodeStorage`] stood when a snapshot was taken.
+/// Where a [`TransactionalNodeStorage`] stood when a snapshot was taken.
 #[derive(Clone, Copy)]
 struct StorageMark {
 	/// Arena length at the mark. A rewind cuts the arena back to it, and the freeze line returns
@@ -938,7 +939,7 @@ struct LiveMark {
 	untouched_free_slots: usize,
 }
 
-impl<L: TrieLayout> NodeStorage<L> for AppendOnlyNodeStorage<L> {
+impl<L: TrieLayout> NodeStorage<L> for TransactionalNodeStorage<L> {
 	fn alloc(&mut self, stored: Stored<L>) -> StorageHandle {
 		if let Some(idx) = self.free_indices.pop() {
 			if let Some(newest) = self.live_marks.last_mut() {
@@ -971,7 +972,7 @@ impl<L: TrieLayout> NodeStorage<L> for AppendOnlyNodeStorage<L> {
 	fn retire(&mut self, _hash: TrieHash<L>, _prefix: (BackingByteVec, Option<u8>)) {}
 }
 
-impl<'a, L: TrieLayout> Index<&'a StorageHandle> for AppendOnlyNodeStorage<L> {
+impl<'a, L: TrieLayout> Index<&'a StorageHandle> for TransactionalNodeStorage<L> {
 	type Output = Node<L>;
 
 	fn index(&self, handle: &'a StorageHandle) -> &Node<L> {
@@ -1019,7 +1020,7 @@ impl<'a, L: TrieLayout, S: NodeStorage<L>> RootedNodeStorageHolder<L>
 	}
 }
 
-impl<L: TrieLayout> RootedNodeStorage<L, AppendOnlyNodeStorage<L>> {
+impl<L: TrieLayout> RootedNodeStorage<L, TransactionalNodeStorage<L>> {
 	fn snapshot(&mut self) -> TrieDBMutSnapshot<L> {
 		TrieDBMutSnapshot { root_handle: self.root_handle.clone(), storage_mark: self.nodes.mark() }
 	}
@@ -1041,14 +1042,14 @@ impl<L: TrieLayout> RootedNodeStorage<L, AppendOnlyNodeStorage<L>> {
 	}
 }
 
-/// In-memory state of an [`AppendOnlyTrieDBMut`], detached from its borrows.
+/// In-memory state of a [`TransactionalTrieDBMut`], detached from its borrows.
 ///
-/// Created with [`Self::new`] and borrowed by [`AppendOnlyTrieDBMutBuilder::from_detached`]. The
+/// Created with [`Self::new`] and borrowed by [`TransactionalTrieDBMutBuilder::from_detached`]. The
 /// trie writes its changes here as it makes them. An insert or remove that fails can leave the
 /// trie inconsistent: the nodes it took apart are gone, but the root still points at them.
 /// Rolling back to a snapshot taken before the operation restores the trie.
 pub struct DetachedTrieDBMut<L: TrieLayout> {
-	storage: RootedNodeStorage<L, AppendOnlyNodeStorage<L>>,
+	storage: RootedNodeStorage<L, TransactionalNodeStorage<L>>,
 }
 
 impl<L: TrieLayout> DetachedTrieDBMut<L> {
@@ -1056,18 +1057,18 @@ impl<L: TrieLayout> DetachedTrieDBMut<L> {
 	pub fn new(root: TrieHash<L>) -> Self {
 		Self {
 			storage: RootedNodeStorage {
-				nodes: AppendOnlyNodeStorage::empty(),
+				nodes: TransactionalNodeStorage::empty(),
 				root_handle: NodeHandle::Hash(root),
 			},
 		}
 	}
 
-	/// Take a snapshot to roll back to, see [`AppendOnlyTrieDBMut::snapshot`].
+	/// Take a snapshot to roll back to, see [`TransactionalTrieDBMut::snapshot`].
 	pub fn snapshot(&mut self) -> TrieDBMutSnapshot<L> {
 		self.storage.snapshot()
 	}
 
-	/// Roll back to `snapshot`, see [`AppendOnlyTrieDBMut::rollback_to`].
+	/// Roll back to `snapshot`, see [`TransactionalTrieDBMut::rollback_to`].
 	///
 	/// Fails, leaving the state as it is, if `snapshot` was taken from another trie, the state was
 	/// rolled back to a point before it, or it was discarded.
@@ -1078,7 +1079,7 @@ impl<L: TrieLayout> DetachedTrieDBMut<L> {
 		self.storage.rollback_to(snapshot)
 	}
 
-	/// Discard `snapshot` and every later one, see [`AppendOnlyTrieDBMut::discard_from`].
+	/// Discard `snapshot` and every later one, see [`TransactionalTrieDBMut::discard_from`].
 	///
 	/// Fails, leaving the state as it is, under the same conditions as [`Self::rollback_to`].
 	pub fn discard_from(
@@ -1089,7 +1090,7 @@ impl<L: TrieLayout> DetachedTrieDBMut<L> {
 	}
 }
 
-/// A point an [`AppendOnlyTrieDBMut`] can be rolled back to.
+/// A point a [`TransactionalTrieDBMut`] can be rolled back to.
 ///
 /// A snapshot becomes invalid once the trie is rolled back to a point before it or it is
 /// discarded. Rolling back to an invalid snapshot fails with [`InvalidSnapshot`].
@@ -1201,15 +1202,15 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 	}
 }
 
-/// A builder for creating an [`AppendOnlyTrieDBMut`].
-pub struct AppendOnlyTrieDBMutBuilder<'db, L: TrieLayout> {
+/// A builder for creating a [`TransactionalTrieDBMut`].
+pub struct TransactionalTrieDBMutBuilder<'db, L: TrieLayout> {
 	db: &'db dyn HashDBRef<L::Hash, DBValue>,
 	cache: Option<&'db mut dyn TrieCache<L::Codec>>,
 	recorder: Option<&'db mut dyn TrieRecorder<TrieHash<L>>>,
 	detached: &'db mut DetachedTrieDBMut<L>,
 }
 
-impl<'db, L: TrieLayout> AppendOnlyTrieDBMutBuilder<'db, L> {
+impl<'db, L: TrieLayout> TransactionalTrieDBMutBuilder<'db, L> {
 	/// Create a builder that continues a trie from its `detached` state, with the backing
 	/// database `db`.
 	///
@@ -1254,9 +1255,9 @@ impl<'db, L: TrieLayout> AppendOnlyTrieDBMutBuilder<'db, L> {
 		self
 	}
 
-	/// Build the [`AppendOnlyTrieDBMut`].
-	pub fn build(self) -> AppendOnlyTrieDBMut<'db, L> {
-		AppendOnlyTrieDBMut {
+	/// Build the [`TransactionalTrieDBMut`].
+	pub fn build(self) -> TransactionalTrieDBMut<'db, L> {
+		TransactionalTrieDBMut {
 			core: TrieDBMutCore {
 				db: self.db,
 				cache: self.cache,
@@ -2716,28 +2717,31 @@ where
 
 /// A mutable trie whose changes can be rolled back.
 ///
-/// [`Self::snapshot`] marks the current state and [`Self::rollback_to`] returns to it; snapshots
-/// nest, so they can follow transactions. The in-memory state lives in the [`DetachedTrieDBMut`]
-/// borrowed by [`AppendOnlyTrieDBMutBuilder::from_detached`], and every change is written there
-/// directly, so a rollback can undo a failed operation.
+/// A transaction is a snapshot taken at its start, see [`Self::snapshot`]. If the transaction
+/// fails, roll back to it with [`Self::rollback_to`]. If it commits, discard it with
+/// [`Self::discard_from`]. Discarding a snapshot also discards every snapshot taken after it.
+///
+/// The in-memory state lives in the [`DetachedTrieDBMut`] borrowed by
+/// [`TransactionalTrieDBMutBuilder::from_detached`], and every change is written there directly,
+/// so a rollback can undo a failed operation.
 ///
 /// The trie is never committed: it reads the backing database but never writes to it, and it
 /// never writes a root. Nodes replaced by later changes are reused, except those a snapshot may
 /// still need, which stay allocated until a rollback or a discard frees them, or the detached
 /// storage is dropped.
-pub struct AppendOnlyTrieDBMut<'a, L>
+pub struct TransactionalTrieDBMut<'a, L>
 where
 	L: TrieLayout,
 {
 	core: TrieDBMutCore<
 		'a,
 		L,
-		&'a mut RootedNodeStorage<L, AppendOnlyNodeStorage<L>>,
+		&'a mut RootedNodeStorage<L, TransactionalNodeStorage<L>>,
 		&'a dyn HashDBRef<L::Hash, DBValue>,
 	>,
 }
 
-impl<'a, L> AppendOnlyTrieDBMut<'a, L>
+impl<'a, L> TransactionalTrieDBMut<'a, L>
 where
 	L: TrieLayout,
 {

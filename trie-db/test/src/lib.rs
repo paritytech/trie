@@ -39,4 +39,4 @@ mod triedb;
 #[cfg(test)]
 mod triedbmut;
 #[cfg(test)]
-mod triedbmut_append_only;
+mod triedbmut_transactional;

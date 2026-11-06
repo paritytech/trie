@@ -76,8 +76,8 @@ pub use self::{
 	sectriedbmut::SecTrieDBMut,
 	triedb::{TrieDB, TrieDBBuilder, TrieDBIterator, TrieDBKeyIterator},
 	triedbmut::{
-		AppendOnlyTrieDBMut, AppendOnlyTrieDBMutBuilder, ChildReference, DetachedTrieDBMut,
-		InvalidSnapshot, TrieDBMut, TrieDBMutBuilder, TrieDBMutSnapshot, Value,
+		ChildReference, DetachedTrieDBMut, InvalidSnapshot, TransactionalTrieDBMut,
+		TransactionalTrieDBMutBuilder, TrieDBMut, TrieDBMutBuilder, TrieDBMutSnapshot, Value,
 	},
 };
 pub use crate::{
