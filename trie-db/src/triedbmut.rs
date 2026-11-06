@@ -720,10 +720,7 @@ static NEXT_MARK: AtomicU64 = AtomicU64::new(0);
 struct AppendOnlyNodeStorage<L: TrieLayout> {
 	nodes: Vec<Stored<L>>,
 	/// The marks that can still be rewound to, oldest first.
-	live_marks: Vec<StorageMark>,
-	/// Lowest length of `free_indices` while each live mark was the newest, same order. A rewind to
-	/// a mark starts its count again.
-	free_slots_low: Vec<usize>,
+	live_marks: Vec<LiveMark>,
 	/// Length of the arena at the newest live mark; nodes below it are never overwritten.
 	frozen_below: usize,
 	/// Slots that neither the trie nor any mark still on the stack uses.
@@ -744,7 +741,6 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 		Self {
 			nodes: Vec::new(),
 			live_marks: Vec::new(),
-			free_slots_low: Vec::new(),
 			frozen_below: 0,
 			free_indices: Vec::new(),
 			dead_slots: Vec::new(),
@@ -761,16 +757,15 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 			dead_slots: self.dead_slots.len(),
 			reused_slots: self.reused_slots.len(),
 		};
-		self.live_marks.push(mark);
-		self.free_slots_low.push(self.free_indices.len());
-		debug_assert_eq!(self.free_slots_low.len(), self.live_marks.len());
+		self.live_marks
+			.push(LiveMark { mark, untouched_free_slots: self.free_indices.len() });
 		mark
 	}
 
 	/// Position of `mark` in the live marks, if it can still be rewound to.
 	fn live_position(&self, mark: &StorageMark) -> core::result::Result<usize, InvalidSnapshot> {
 		self.live_marks
-			.binary_search_by_key(&mark.sequence, |live| live.sequence)
+			.binary_search_by_key(&mark.sequence, |live| live.mark.sequence)
 			.map_err(|_| InvalidSnapshot)
 	}
 
@@ -780,13 +775,12 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 	/// from the live marks by a rewind below it or by a discard.
 	fn rewind(&mut self, mark: &StorageMark) -> core::result::Result<(), InvalidSnapshot> {
 		let position = self.live_position(mark)?;
-		self.live_marks.truncate(position + 1);
-		let low = self.free_slots_low[position..]
+		let untouched_free_slots = self.live_marks[position..]
 			.iter()
-			.copied()
+			.map(|live| live.untouched_free_slots)
 			.min()
 			.expect("position is live; qed");
-		self.free_slots_low.truncate(position + 1);
+		self.live_marks.truncate(position + 1);
 		self.nodes.truncate(mark.nodes);
 		self.frozen_below = mark.nodes;
 		self.dead_slots.truncate(mark.dead_slots);
@@ -794,13 +788,12 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 			self.reuse_positions[slot] = None;
 			self.free_indices.push(slot);
 		}
-		let pushed_since_mark = self.free_indices.split_off(low);
+		let pushed_since_mark = self.free_indices.split_off(untouched_free_slots);
 		self.free_indices
 			.extend(pushed_since_mark.into_iter().filter(|slot| *slot < mark.nodes));
-		self.free_slots_low[position] = self.free_indices.len();
+		self.live_marks[position].untouched_free_slots = self.free_indices.len();
 		self.reuse_positions.truncate(mark.nodes);
 		debug_assert_eq!(self.reuse_positions.len(), self.nodes.len());
-		debug_assert_eq!(self.free_slots_low.len(), self.live_marks.len());
 		Ok(())
 	}
 
@@ -809,13 +802,16 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 	/// Fails, without touching the arena, under the same conditions as [`Self::rewind`].
 	fn discard_from(&mut self, mark: &StorageMark) -> core::result::Result<(), InvalidSnapshot> {
 		let position = self.live_position(mark)?;
-		self.live_marks.truncate(position);
-		let dropped_low = self.free_slots_low.split_off(position).into_iter().min();
-		if let (Some(low), Some(dropped_low)) = (self.free_slots_low.last_mut(), dropped_low) {
-			*low = (*low).min(dropped_low);
+		let dropped_untouched = self
+			.live_marks
+			.drain(position..)
+			.map(|live| live.untouched_free_slots)
+			.min()
+			.expect("position is live; qed");
+		if let Some(newest) = self.live_marks.last_mut() {
+			newest.untouched_free_slots = newest.untouched_free_slots.min(dropped_untouched);
 		}
-		debug_assert_eq!(self.free_slots_low.len(), self.live_marks.len());
-		let frozen_below = self.live_marks.last().map_or(0, |top| top.nodes);
+		let frozen_below = self.live_marks.last().map_or(0, |newest| newest.mark.nodes);
 		self.frozen_below = frozen_below;
 		for slot in self.dead_slots.split_off(mark.dead_slots) {
 			if slot < frozen_below {
@@ -836,7 +832,7 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 
 	/// Position of `idx` in the reuse log, if the slot was reused after the newest mark.
 	fn reuse_after_newest_mark(&self, idx: usize) -> Option<usize> {
-		let since_mark = self.live_marks.last().map_or(0, |mark| mark.reused_slots);
+		let since_mark = self.live_marks.last().map_or(0, |live| live.mark.reused_slots);
 		self.reuse_positions[idx].filter(|position| *position >= since_mark)
 	}
 
@@ -885,11 +881,20 @@ struct StorageMark {
 	reused_slots: usize,
 }
 
+/// A mark that can still be rewound to.
+struct LiveMark {
+	mark: StorageMark,
+	/// Lowest length of `free_indices` while the mark was the newest, so that much of its start
+	/// did not change in that time. A rewind to the mark starts the count again.
+	untouched_free_slots: usize,
+}
+
 impl<L: TrieLayout> NodeStorage<L> for AppendOnlyNodeStorage<L> {
 	fn alloc(&mut self, stored: Stored<L>) -> StorageHandle {
 		if let Some(idx) = self.free_indices.pop() {
-			if let Some(low) = self.free_slots_low.last_mut() {
-				*low = (*low).min(self.free_indices.len());
+			if let Some(newest) = self.live_marks.last_mut() {
+				newest.untouched_free_slots =
+					newest.untouched_free_slots.min(self.free_indices.len());
 			}
 			if idx < self.frozen_below {
 				self.log_reuse(idx);
