@@ -805,13 +805,16 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 	fn discard_from(&mut self, mark: &StorageMark) -> core::result::Result<(), InvalidSnapshot> {
 		let position = self.live_position(mark)?;
 		self.live_marks.truncate(position);
-		let (frozen_below, reused_before_top) =
-			self.live_marks.last().map_or((0, 0), |top| (top.nodes, top.reused_slots));
+		let frozen_below = self.live_marks.last().map_or(0, |top| top.nodes);
 		self.frozen_below = frozen_below;
-		self.free_indices
-			.extend(self.dead_slots.iter().filter(|index| **index >= frozen_below));
-		self.dead_slots.retain(|index| *index < frozen_below);
-		for slot in self.reused_slots.split_off(reused_before_top) {
+		for slot in self.dead_slots.split_off(mark.dead_slots) {
+			if slot < frozen_below {
+				self.dead_slots.push(slot);
+			} else {
+				self.free_indices.push(slot);
+			}
+		}
+		for slot in self.reused_slots.split_off(mark.reused_slots) {
 			if slot < frozen_below {
 				self.log_reuse(slot);
 			} else {
@@ -867,9 +870,10 @@ struct StorageMark {
 	/// Identifies the mark on the stack. Later marks have higher sequences.
 	sequence: u64,
 	/// Length of `dead_slots` at the mark. A rewind cuts the list back to it: slots that died
-	/// later are in the trie again.
+	/// later are in the trie again. A discard only looks at the slots that died later.
 	dead_slots: usize,
-	/// Length of `reused_slots` at the mark. A rewind frees again the slots handed out later.
+	/// Length of `reused_slots` at the mark. A rewind frees again the slots handed out later. A
+	/// discard only looks at those.
 	reused_slots: usize,
 }
 

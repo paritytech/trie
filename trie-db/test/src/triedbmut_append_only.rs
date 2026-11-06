@@ -721,6 +721,28 @@ fn ended_blocks_keep_arena_flat_internal<T: TrieLayout>() {
 	assert_stays_flat(&arena_per_block);
 }
 
+test_layouts!(commits_under_a_block_snapshot_keep_arena_flat, commits_under_a_block_internal);
+/// Extrinsics commit one after another under a block snapshot that already kept nodes alive. Each
+/// commit must free exactly the slots its extrinsic emptied above the block's freeze line, or the
+/// arena grows per extrinsic. The nodes the block keeps must stay, or its rollback loses them.
+fn commits_under_a_block_internal<T: TrieLayout>() {
+	let (db, root, keys) = block_start_trie::<T>();
+	let (_, k3_removed) = real_session::<T, _>(&db, root, &[K3], &keys);
+	let (_, k3_and_k2_removed) = real_session::<T, _>(&db, root, &[K3, K2], &keys);
+	let mut detached = DetachedTrieDBMut::<T>::new(root);
+	let mut trie = AppendOnlyTrieDBMutBuilder::<T>::from_detached(&db, &mut detached).build();
+	trie.remove(K3).unwrap();
+	let block = trie.snapshot();
+	trie.remove(K2).unwrap();
+
+	let commit =
+		|trie: &mut AppendOnlyTrieDBMut<T>, extrinsic: &_, _| trie.discard_from(extrinsic).unwrap();
+	assert_stays_flat(&arena_per_extrinsic(&mut trie, commit));
+	assert_eq!(read_keys(&trie, &keys), k3_and_k2_removed);
+	trie.rollback_to(&block).unwrap();
+	assert_eq!(read_keys(&trie, &keys), k3_removed);
+}
+
 /// A trie as `block_start_trie` whose arena has free slots: leaves inserted under empty nibbles of
 /// the root and removed again.
 fn trie_with_free_slots<'a, T: TrieLayout>(
