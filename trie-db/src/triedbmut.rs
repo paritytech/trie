@@ -41,6 +41,12 @@ use log::trace;
 #[cfg(feature = "std")]
 use crate::rstd::fmt::{self, Debug};
 
+mod transactional;
+pub use transactional::{
+	DetachedTrieDBMut, InvalidSnapshot, TransactionalTrieDBMut, TransactionalTrieDBMutBuilder,
+	TrieDBMutSnapshot,
+};
+
 // For lookups into the Node storage buffer.
 // Cloneable, but deliberately not `Copy`: duplicating a handle is explicit.
 #[derive(Clone)]
@@ -75,7 +81,7 @@ fn empty_children<H>() -> Box<[Option<NodeHandle<H>>; nibble_ops::NIBBLE_LENGTH]
 type NibbleFullKey<'key> = NibbleSlice<'key>;
 
 /// Value representation for Node.
-#[derive(Clone, Eq)]
+#[derive(Eq)]
 pub enum Value<L: TrieLayout> {
 	/// Value bytes inlined in a trie node.
 	Inline(Bytes),
@@ -85,6 +91,17 @@ pub enum Value<L: TrieLayout> {
 	/// The hash may be undefined until it node is added
 	/// to the db.
 	NewNode(Option<TrieHash<L>>, Bytes),
+}
+
+// Not derived, as that would require `L: Clone`.
+impl<L: TrieLayout> Clone for Value<L> {
+	fn clone(&self) -> Self {
+		match self {
+			Value::Inline(value) => Value::Inline(value.clone()),
+			Value::Node(hash) => Value::Node(*hash),
+			Value::NewNode(hash, value) => Value::NewNode(*hash, value.clone()),
+		}
+	}
 }
 
 impl<L: TrieLayout> PartialEq<Self> for Value<L> {
@@ -230,6 +247,20 @@ enum Node<L: TrieLayout> {
 		Box<[Option<NodeHandle<TrieHash<L>>>; nibble_ops::NIBBLE_LENGTH]>,
 		Option<Value<L>>,
 	),
+}
+
+// Not derived, as that would require `L: Clone`.
+impl<L: TrieLayout> Clone for Node<L> {
+	fn clone(&self) -> Self {
+		match self {
+			Node::Empty => Node::Empty,
+			Node::Leaf(key, value) => Node::Leaf(key.clone(), value.clone()),
+			Node::Extension(key, child) => Node::Extension(key.clone(), child.clone()),
+			Node::Branch(children, value) => Node::Branch(children.clone(), value.clone()),
+			Node::NibbledBranch(key, children, value) =>
+				Node::NibbledBranch(key.clone(), children.clone(), value.clone()),
+		}
+	}
 }
 
 #[cfg(feature = "std")]
@@ -569,6 +600,16 @@ impl<L: TrieLayout> Stored<L> {
 	}
 }
 
+// Not derived, as that would require `L: Clone`.
+impl<L: TrieLayout> Clone for Stored<L> {
+	fn clone(&self) -> Self {
+		match self {
+			Stored::New(node) => Stored::New(node.clone()),
+			Stored::Cached(node, hash) => Stored::Cached(node.clone(), *hash),
+		}
+	}
+}
+
 /// Used to build a collection of child nodes from a collection of `NodeHandle`s
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -667,6 +708,46 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for CommittingNodeStorage<L> {
 	}
 }
 
+/// The in-memory nodes of a mutable trie and the handle of its root.
+struct RootedNodeStorage<L: TrieLayout, S> {
+	nodes: S,
+	root_handle: NodeHandle<TrieHash<L>>,
+}
+
+/// A [`RootedNodeStorage`] that a [`TrieDBMutCore`] either owns or borrows.
+trait RootedNodeStorageHolder<L: TrieLayout> {
+	type Nodes: NodeStorage<L>;
+
+	fn get(&self) -> &RootedNodeStorage<L, Self::Nodes>;
+	fn get_mut(&mut self) -> &mut RootedNodeStorage<L, Self::Nodes>;
+}
+
+impl<L: TrieLayout, S: NodeStorage<L>> RootedNodeStorageHolder<L> for RootedNodeStorage<L, S> {
+	type Nodes = S;
+
+	fn get(&self) -> &RootedNodeStorage<L, S> {
+		self
+	}
+
+	fn get_mut(&mut self) -> &mut RootedNodeStorage<L, S> {
+		self
+	}
+}
+
+impl<'a, L: TrieLayout, S: NodeStorage<L>> RootedNodeStorageHolder<L>
+	for &'a mut RootedNodeStorage<L, S>
+{
+	type Nodes = S;
+
+	fn get(&self) -> &RootedNodeStorage<L, S> {
+		self
+	}
+
+	fn get_mut(&mut self) -> &mut RootedNodeStorage<L, S> {
+		self
+	}
+}
+
 /// A builder for creating a [`TrieDBMut`].
 pub struct TrieDBMutBuilder<'db, L: TrieLayout> {
 	db: &'db mut dyn HashDB<L::Hash, DBValue>,
@@ -752,8 +833,10 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 				db: self.db,
 				cache: self.cache,
 				recorder: self.recorder.map(core::cell::RefCell::new),
-				storage: CommittingNodeStorage::empty(),
-				root_handle: NodeHandle::Hash(*self.root),
+				storage: RootedNodeStorage {
+					nodes: CommittingNodeStorage::empty(),
+					root_handle: NodeHandle::Hash(*self.root),
+				},
 			},
 			root: self.root,
 			commit_on_drop: self.commit_on_drop,
@@ -764,15 +847,14 @@ impl<'db, L: TrieLayout> TrieDBMutBuilder<'db, L> {
 /// The trie algorithms over an in-memory node storage.
 ///
 /// What becomes of the modified nodes, a commit or a rollback, is up to the type wrapping it.
-struct TrieDBMutCore<'a, L, S, DB>
+struct TrieDBMutCore<'a, L, St, DB>
 where
 	L: TrieLayout,
-	S: NodeStorage<L>,
+	St: RootedNodeStorageHolder<L>,
 	DB: HashDBRef<L::Hash, DBValue>,
 {
-	storage: S,
+	storage: St,
 	db: DB,
-	root_handle: NodeHandle<TrieHash<L>>,
 	/// Optional cache for speeding up the lookup of nodes.
 	cache: Option<&'a mut dyn TrieCache<L::Codec>>,
 	/// Optional trie recorder for recording trie accesses.
@@ -811,16 +893,21 @@ pub struct TrieDBMut<'a, L>
 where
 	L: TrieLayout,
 {
-	core: TrieDBMutCore<'a, L, CommittingNodeStorage<L>, &'a mut dyn HashDB<L::Hash, DBValue>>,
+	core: TrieDBMutCore<
+		'a,
+		L,
+		RootedNodeStorage<L, CommittingNodeStorage<L>>,
+		&'a mut dyn HashDB<L::Hash, DBValue>,
+	>,
 	root: &'a mut TrieHash<L>,
 	/// Whether to commit on drop.
 	commit_on_drop: bool,
 }
 
-impl<'a, L, S, DB> TrieDBMutCore<'a, L, S, DB>
+impl<'a, L, St, DB> TrieDBMutCore<'a, L, St, DB>
 where
 	L: TrieLayout,
-	S: NodeStorage<L>,
+	St: RootedNodeStorageHolder<L>,
 	DB: HashDBRef<L::Hash, DBValue>,
 {
 	// Cache a node by hash.
@@ -839,7 +926,7 @@ where
 					recorder.borrow_mut().record(TrieAccess::NodeOwned { hash, node_owned: &node });
 				}
 
-				Node::from_node_owned(&node, &mut self.storage)
+				Node::from_node_owned(&node, &mut self.storage.get_mut().nodes)
 			},
 			None => {
 				let node_encoded = self
@@ -854,11 +941,11 @@ where
 					});
 				}
 
-				Node::from_encoded(hash, &node_encoded, &mut self.storage)?
+				Node::from_encoded(hash, &node_encoded, &mut self.storage.get_mut().nodes)?
 			},
 		};
 
-		Ok(self.storage.alloc(Stored::Cached(node, hash)))
+		Ok(self.storage.get_mut().nodes.alloc(Stored::Cached(node, hash)))
 	}
 
 	// Inspect a node, choosing either to replace, restore, or delete it.
@@ -886,11 +973,11 @@ where
 			Stored::Cached(node, hash) => match inspector(self, node, key)? {
 				Action::Restore(node) => Some((Stored::Cached(node, hash), false)),
 				Action::Replace(node) => {
-					self.storage.retire(hash, current_key.left_owned());
+					self.storage.get_mut().nodes.retire(hash, current_key.left_owned());
 					Some((Stored::New(node), true))
 				},
 				Action::Delete => {
-					self.storage.retire(hash, current_key.left_owned());
+					self.storage.get_mut().nodes.retire(hash, current_key.left_owned());
 					None
 				},
 			},
@@ -923,7 +1010,7 @@ where
 					}
 					.look_up(full_key, partial)
 				},
-				NodeHandle::InMemory(handle) => match &self.storage[handle] {
+				NodeHandle::InMemory(handle) => match &self.storage.get().nodes[handle] {
 					Node::Empty => return Ok(None),
 					Node::Leaf(slice, value) =>
 						if NibbleSlice::from_stored(slice) == partial {
@@ -1007,14 +1094,14 @@ where
 			NodeHandle::Hash(h) => self.cache(h, key.left())?,
 		};
 		// cache then destroy for hash handle (handle being root in most case)
-		let stored = self.storage.destroy(h);
+		let stored = self.storage.get_mut().nodes.destroy(h);
 		let (new_stored, changed) = self
 			.inspect(stored, key, move |trie, stored, key| {
 				trie.insert_inspector(stored, key, value, old_val).map(|a| a.into_action())
 			})?
 			.expect("Insertion never deletes.");
 
-		Ok((self.storage.alloc(new_stored), changed))
+		Ok((self.storage.get_mut().nodes.alloc(new_stored), changed))
 	}
 
 	fn replace_old_value(
@@ -1026,7 +1113,7 @@ where
 		match &stored_value {
 			Some(Value::NewNode(Some(hash), _)) // also removing new node in case commit is called multiple times
 			| Some(Value::Node(hash)) => {
-				self.storage.retire(hash.clone(), (prefix.0.into(), prefix.1));
+				self.storage.get_mut().nodes.retire(hash.clone(), (prefix.0.into(), prefix.1));
 			},
 			_ => (),
 		}
@@ -1085,8 +1172,11 @@ where
 					} else {
 						// Original had nothing there. compose a leaf.
 						let value = Value::new(value, L::MAX_INLINE_VALUE);
-						let leaf =
-							self.storage.alloc(Stored::New(Node::Leaf(key.to_stored(), value)));
+						let leaf = self
+							.storage
+							.get_mut()
+							.nodes
+							.alloc(Stored::New(Node::Leaf(key.to_stored(), value)));
 						children[idx] = Some(leaf.into());
 					}
 
@@ -1129,7 +1219,7 @@ where
 					let low = Node::NibbledBranch(nbranch_partial, children, stored_value);
 					let ix = existing_key.at(common);
 					let mut children = empty_children();
-					let alloc_storage = self.storage.alloc(Stored::New(low));
+					let alloc_storage = self.storage.get_mut().nodes.alloc(Stored::New(low));
 
 					children[ix as usize] = Some(alloc_storage.into());
 
@@ -1144,7 +1234,7 @@ where
 						let ix = partial.at(common);
 						let stored_leaf = Node::Leaf(partial.mid(common + 1).to_stored(), value);
 
-						let leaf = self.storage.alloc(Stored::New(stored_leaf));
+						let leaf = self.storage.get_mut().nodes.alloc(Stored::New(stored_leaf));
 
 						children[ix as usize] = Some(leaf.into());
 						InsertAction::Replace(Node::NibbledBranch(
@@ -1176,8 +1266,11 @@ where
 					} else {
 						// Original had nothing there. compose a leaf.
 						let value = Value::new(value, L::MAX_INLINE_VALUE);
-						let leaf =
-							self.storage.alloc(Stored::New(Node::Leaf(key.to_stored(), value)));
+						let leaf = self
+							.storage
+							.get_mut()
+							.nodes
+							.alloc(Stored::New(Node::Leaf(key.to_stored(), value)));
 
 						children[idx] = Some(leaf.into());
 					}
@@ -1227,7 +1320,8 @@ where
 						let idx = existing_key.at(common) as usize;
 						let new_leaf =
 							Node::Leaf(existing_key.mid(common + 1).to_stored(), stored_value);
-						children[idx] = Some(self.storage.alloc(Stored::New(new_leaf)).into());
+						children[idx] =
+							Some(self.storage.get_mut().nodes.alloc(Stored::New(new_leaf)).into());
 
 						if L::USE_EXTENSION {
 							Node::Branch(children, None)
@@ -1269,7 +1363,7 @@ where
 					let branch = self.insert_inspector(branch, key, value, old_val)?.unwrap_node();
 
 					// always replace since we took a leaf and made an extension.
-					let leaf = self.storage.alloc(Stored::New(branch));
+					let leaf = self.storage.get_mut().nodes.alloc(Stored::New(branch));
 					InsertAction::Replace(Node::Extension(existing_key.to_stored(), leaf.into()))
 				} else {
 					debug_assert!(L::USE_EXTENSION);
@@ -1295,7 +1389,7 @@ where
 					// make an extension using it. this is a replacement.
 					InsertAction::Replace(Node::Extension(
 						existing_key.to_stored_range(common),
-						self.storage.alloc(Stored::New(augmented_low)).into(),
+						self.storage.get_mut().nodes.alloc(Stored::New(augmented_low)).into(),
 					))
 				}
 			},
@@ -1326,7 +1420,7 @@ where
 						// No need to register set branch (was here before).
 						// Note putting a branch in extension requires fix.
 						let ext = Node::Extension(existing_key.mid(1).to_stored(), child_branch);
-						Some(self.storage.alloc(Stored::New(ext)).into())
+						Some(self.storage.get_mut().nodes.alloc(Stored::New(ext)).into())
 					};
 
 					// continue inserting.
@@ -1375,7 +1469,7 @@ where
 					// this is known because the partial key is only the common prefix.
 					InsertAction::Replace(Node::Extension(
 						existing_key.to_stored_range(common),
-						self.storage.alloc(Stored::New(augmented_low)).into(),
+						self.storage.get_mut().nodes.alloc(Stored::New(augmented_low)).into(),
 					))
 				}
 			},
@@ -1390,10 +1484,10 @@ where
 		old_val: &mut Option<Value<L>>,
 	) -> Result<Option<(StorageHandle, bool)>, TrieHash<L>, CError<L>> {
 		let stored = match handle {
-			NodeHandle::InMemory(h) => self.storage.destroy(h),
+			NodeHandle::InMemory(h) => self.storage.get_mut().nodes.destroy(h),
 			NodeHandle::Hash(h) => {
 				let handle = self.cache(h, key.left())?;
-				self.storage.destroy(handle)
+				self.storage.get_mut().nodes.destroy(handle)
 			},
 		};
 
@@ -1401,7 +1495,7 @@ where
 			trie.remove_inspector(node, key, old_val)
 		})?;
 
-		Ok(opt.map(|(new, changed)| (self.storage.alloc(new), changed)))
+		Ok(opt.map(|(new, changed)| (self.storage.get_mut().nodes.alloc(new), changed)))
 	}
 
 	/// The removal inspector.
@@ -1688,16 +1782,18 @@ where
 							prefix_end,
 						);
 						let stored = match child {
-							NodeHandle::InMemory(h) => self.storage.destroy(h),
+							NodeHandle::InMemory(h) => self.storage.get_mut().nodes.destroy(h),
 							NodeHandle::Hash(h) => {
 								let handle = self.cache(h, child_prefix)?;
-								self.storage.destroy(handle)
+								self.storage.get_mut().nodes.destroy(handle)
 							},
 						};
 						let child_node = match stored {
 							Stored::New(node) => node,
 							Stored::Cached(node, hash) => {
 								self.storage
+									.get_mut()
+									.nodes
 									.retire(hash, (child_prefix.0[..].into(), child_prefix.1));
 								node
 							},
@@ -1773,10 +1869,10 @@ where
 					(alloc_start.as_ref().map(|start| &start[..]).unwrap_or(start), prefix_end);
 
 				let stored = match child {
-					NodeHandle::InMemory(h) => self.storage.destroy(h),
+					NodeHandle::InMemory(h) => self.storage.get_mut().nodes.destroy(h),
 					NodeHandle::Hash(h) => {
 						let handle = self.cache(h, child_prefix)?;
-						self.storage.destroy(handle)
+						self.storage.get_mut().nodes.destroy(handle)
 					},
 				};
 
@@ -1790,7 +1886,10 @@ where
 						// combine with node below.
 						if let Some(hash) = maybe_hash {
 							// delete the cached child since we are going to replace it.
-							self.storage.retire(hash, (child_prefix.0[..].into(), child_prefix.1));
+							self.storage
+								.get_mut()
+								.nodes
+								.retire(hash, (child_prefix.0[..].into(), child_prefix.1));
 						}
 						// subpartial
 						let mut partial = partial;
@@ -1808,7 +1907,10 @@ where
 						// combine with node below.
 						if let Some(hash) = maybe_hash {
 							// delete the cached child since we are going to replace it.
-							self.storage.retire(hash, (child_prefix.0[..].into(), child_prefix.1));
+							self.storage
+								.get_mut()
+								.nodes
+								.retire(hash, (child_prefix.0[..].into(), child_prefix.1));
 						}
 						// subpartial oly
 						let mut partial = partial;
@@ -1832,7 +1934,10 @@ where
 							Stored::New(child_node)
 						};
 
-						Ok(Node::Extension(partial, self.storage.alloc(stored).into()))
+						Ok(Node::Extension(
+							partial,
+							self.storage.get_mut().nodes.alloc(stored).into(),
+						))
 					},
 				}
 			},
@@ -1841,9 +1946,9 @@ where
 	}
 
 	fn is_empty(&self) -> bool {
-		match self.root_handle {
+		match self.storage.get().root_handle {
 			NodeHandle::Hash(h) => h == L::Codec::hashed_null_node(),
-			NodeHandle::InMemory(ref h) => match self.storage[h] {
+			NodeHandle::InMemory(ref h) => match self.storage.get().nodes[h] {
 				Node::Empty => true,
 				_ => false,
 			},
@@ -1854,7 +1959,7 @@ where
 	where
 		'x: 'key,
 	{
-		self.lookup(key, NibbleSlice::new(key), &self.root_handle)
+		self.lookup(key, NibbleSlice::new(key), &self.storage.get().root_handle)
 	}
 
 	fn insert(
@@ -1872,13 +1977,13 @@ where
 		trace!(target: "trie", "insert: key={:?}, value={:?}", ToHex(key), ToHex(&value));
 
 		let value = Bytes::from(value);
-		let root_handle = self.root_handle.clone();
+		let root_handle = self.storage.get().root_handle.clone();
 		let (new_handle, _changed) =
 			self.insert_at(root_handle, &mut NibbleSlice::new(key), value, &mut old_val)?;
 
 		#[cfg(feature = "std")]
 		trace!(target: "trie", "insert: altered trie={}", _changed);
-		self.root_handle = NodeHandle::InMemory(new_handle);
+		self.storage.get_mut().root_handle = NodeHandle::InMemory(new_handle);
 
 		Ok(old_val)
 	}
@@ -1887,7 +1992,7 @@ where
 		#[cfg(feature = "std")]
 		trace!(target: "trie", "remove: key={:?}", ToHex(key));
 
-		let root_handle = self.root_handle.clone();
+		let root_handle = self.storage.get().root_handle.clone();
 		let mut key_slice = NibbleSlice::new(key);
 		let mut old_val = None;
 
@@ -1895,12 +2000,12 @@ where
 			Some((handle, _changed)) => {
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "remove: altered trie={}", _changed);
-				self.root_handle = NodeHandle::InMemory(handle);
+				self.storage.get_mut().root_handle = NodeHandle::InMemory(handle);
 			},
 			None => {
 				#[cfg(feature = "std")]
 				trace!(target: "trie", "remove: obliterated trie");
-				self.root_handle = NodeHandle::Hash(L::Codec::hashed_null_node());
+				self.storage.get_mut().root_handle = NodeHandle::Hash(L::Codec::hashed_null_node());
 			},
 		}
 
@@ -1930,19 +2035,19 @@ where
 
 		// always kill all the nodes on death row.
 		#[cfg(feature = "std")]
-		trace!(target: "trie", "{:?} nodes to remove from db", self.core.storage.death_row.len());
+		trace!(target: "trie", "{:?} nodes to remove from db", self.core.storage.nodes.death_row.len());
 
 		#[cfg(feature = "std")]
-		for (hash, prefix) in self.core.storage.death_row.drain() {
+		for (hash, prefix) in self.core.storage.nodes.death_row.drain() {
 			self.core.db.remove(&hash, (&prefix.0[..], prefix.1));
 		}
 
 		#[cfg(not(feature = "std"))]
-		for (hash, prefix) in core::mem::take(&mut self.core.storage.death_row).into_iter() {
+		for (hash, prefix) in core::mem::take(&mut self.core.storage.nodes.death_row).into_iter() {
 			self.core.db.remove(&hash, (&prefix.0[..], prefix.1));
 		}
 
-		let handle = match self.core.root_handle.clone() {
+		let handle = match self.core.storage.root_handle.clone() {
 			NodeHandle::Hash(hash) => {
 				*self.root = hash;
 				return
@@ -1950,7 +2055,7 @@ where
 			NodeHandle::InMemory(h) => h,
 		};
 
-		match self.core.storage.destroy(handle) {
+		match self.core.storage.nodes.destroy(handle) {
 			Stored::New(node) => {
 				// Reconstructs the full key for root node.
 				let full_key = self.core.cache.as_ref().and_then(|_| {
@@ -1982,13 +2087,13 @@ where
 
 				self.cache_node(*self.root, &encoded_root, full_key);
 
-				self.core.root_handle = NodeHandle::Hash(*self.root);
+				self.core.storage.root_handle = NodeHandle::Hash(*self.root);
 			},
 			Stored::Cached(node, hash) => {
 				// probably won't happen, but update the root and move on.
 				*self.root = hash;
-				self.core.root_handle =
-					NodeHandle::InMemory(self.core.storage.alloc(Stored::Cached(node, hash)));
+				self.core.storage.root_handle =
+					NodeHandle::InMemory(self.core.storage.nodes.alloc(Stored::Cached(node, hash)));
 			},
 		}
 	}
@@ -2084,7 +2189,7 @@ where
 		match handle {
 			NodeHandle::Hash(hash) => ChildReference::Hash(hash),
 			NodeHandle::InMemory(storage_handle) => {
-				match self.core.storage.destroy(storage_handle) {
+				match self.core.storage.nodes.destroy(storage_handle) {
 					Stored::Cached(_, hash) => ChildReference::Hash(hash),
 					Stored::New(node) => {
 						// Reconstructs the full key

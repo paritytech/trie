@@ -175,6 +175,15 @@ impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a mut dyn HashDB<H, T> {
 	}
 }
 
+impl<'a, H: Hasher, T> HashDBRef<H, T> for &'a dyn HashDBRef<H, T> {
+	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<T> {
+		HashDBRef::get(*self, key, prefix)
+	}
+	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
+		HashDBRef::contains(*self, key, prefix)
+	}
+}
+
 /// Upcast trait for HashDB.
 pub trait AsHashDB<H: Hasher, T> {
 	/// Perform upcast to HashDB for anything that derives from HashDB.
