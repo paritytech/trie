@@ -729,11 +729,8 @@ struct AppendOnlyNodeStorage<L: TrieLayout> {
 	/// keep their node because a live mark may still use it. A discard that drops every such mark
 	/// moves them to `free_indices`.
 	dead_slots: Vec<usize>,
-	/// Free slots below `frozen_below` that were handed out again and still keep their node, in
-	/// order. A rewind frees again those logged after its mark.
-	reused_slots: Vec<usize>,
-	/// Position of each slot in `reused_slots`, one entry per slot in `nodes`.
-	reuse_positions: Vec<Option<usize>>,
+	/// A rewind frees again the slots logged after its mark.
+	reuse_log: ReuseLog,
 }
 
 impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
@@ -744,8 +741,7 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 			frozen_below: 0,
 			free_indices: Vec::new(),
 			dead_slots: Vec::new(),
-			reused_slots: Vec::new(),
-			reuse_positions: Vec::new(),
+			reuse_log: ReuseLog::default(),
 		}
 	}
 
@@ -755,7 +751,7 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 			nodes: self.nodes.len(),
 			sequence: NEXT_MARK.fetch_add(1, Ordering::Relaxed),
 			dead_slots: self.dead_slots.len(),
-			reused_slots: self.reused_slots.len(),
+			reused_slots: self.reuse_log.len(),
 		};
 		self.live_marks
 			.push(LiveMark { mark, untouched_free_slots: self.free_indices.len() });
@@ -784,16 +780,13 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 		self.nodes.truncate(mark.nodes);
 		self.frozen_below = mark.nodes;
 		self.dead_slots.truncate(mark.dead_slots);
-		for slot in self.reused_slots.drain(mark.reused_slots..) {
-			self.reuse_positions[slot] = None;
-			self.free_indices.push(slot);
-		}
+		self.free_indices.extend(self.reuse_log.drain_from(mark.reused_slots));
 		let pushed_since_mark = self.free_indices.split_off(untouched_free_slots);
 		self.free_indices
 			.extend(pushed_since_mark.into_iter().filter(|slot| *slot < mark.nodes));
 		self.live_marks[position].untouched_free_slots = self.free_indices.len();
-		self.reuse_positions.truncate(mark.nodes);
-		debug_assert_eq!(self.reuse_positions.len(), self.nodes.len());
+		self.reuse_log.truncate_arena(mark.nodes);
+		debug_assert_eq!(self.reuse_log.positions.len(), self.nodes.len());
 		Ok(())
 	}
 
@@ -820,33 +813,75 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 				self.free_indices.push(slot);
 			}
 		}
-		for slot in self.reused_slots.split_off(mark.reused_slots) {
-			if slot < frozen_below {
-				self.log_reuse(slot);
-			} else {
-				self.reuse_positions[slot] = None;
-			}
-		}
+		self.reuse_log.retain_from(mark.reused_slots, |slot| slot < frozen_below);
 		Ok(())
 	}
 
-	/// Position of `idx` in the reuse log, if the slot was reused after the newest mark.
-	fn reuse_after_newest_mark(&self, idx: usize) -> Option<usize> {
-		let since_mark = self.live_marks.last().map_or(0, |live| live.mark.reused_slots);
-		self.reuse_positions[idx].filter(|position| *position >= since_mark)
+	/// Length of the reuse log at the newest mark.
+	fn reused_at_newest_mark(&self) -> usize {
+		self.live_marks.last().map_or(0, |live| live.mark.reused_slots)
+	}
+}
+
+/// Free slots below the freeze line that were reused. Truncating the arena does not free them, so
+/// a rewind frees those logged since its mark.
+///
+/// A watermark is the log's length at a mark: the slots logged since that mark are at or after
+/// it. Each slot can be removed in constant time.
+#[derive(Default)]
+struct ReuseLog {
+	slots: Vec<usize>,
+	/// Position of each slot in `slots`, one entry per slot in the arena.
+	positions: Vec<Option<usize>>,
+}
+
+impl ReuseLog {
+	fn len(&self) -> usize {
+		self.slots.len()
 	}
 
-	fn log_reuse(&mut self, idx: usize) {
-		self.reuse_positions[idx] = Some(self.reused_slots.len());
-		self.reused_slots.push(idx);
+	/// Logs given `slot` as reused.
+	fn push(&mut self, slot: usize) {
+		self.positions[slot] = Some(self.slots.len());
+		self.slots.push(slot);
 	}
 
-	fn unlog_reuse(&mut self, position: usize) {
-		let removed = self.reused_slots.swap_remove(position);
-		self.reuse_positions[removed] = None;
-		if let Some(moved) = self.reused_slots.get(position) {
-			self.reuse_positions[*moved] = Some(position);
+	/// Remove `slot` if it was logged since `watermark`.
+	fn remove_if_logged_since(&mut self, slot: usize, watermark: usize) -> bool {
+		let Some(position) = self.positions[slot].filter(|position| *position >= watermark) else {
+			return false
+		};
+		self.slots.swap_remove(position);
+		self.positions[slot] = None;
+		if let Some(moved) = self.slots.get(position) {
+			self.positions[*moved] = Some(position);
 		}
+		true
+	}
+
+	/// Remove the slots logged since `watermark`.
+	fn drain_from(&mut self, watermark: usize) -> impl Iterator<Item = usize> + '_ {
+		let positions = &mut self.positions;
+		self.slots.drain(watermark..).inspect(move |slot| positions[*slot] = None)
+	}
+
+	/// Of the slots logged since `watermark`, keep only those that pass `keep`.
+	fn retain_from(&mut self, watermark: usize, keep: impl Fn(usize) -> bool) {
+		for slot in self.slots.split_off(watermark) {
+			if keep(slot) {
+				self.push(slot);
+			} else {
+				self.positions[slot] = None;
+			}
+		}
+	}
+
+	fn grow_arena(&mut self) {
+		self.positions.push(None);
+	}
+
+	fn truncate_arena(&mut self, len: usize) {
+		self.positions.truncate(len);
 	}
 }
 
@@ -876,7 +911,7 @@ struct StorageMark {
 	/// Length of `dead_slots` at the mark. A rewind cuts the list back to it: slots that died
 	/// later are in the trie again. A discard only looks at the slots that died later.
 	dead_slots: usize,
-	/// Length of `reused_slots` at the mark. A rewind frees again the slots handed out later. A
+	/// Length of the reuse log at the mark. A rewind frees again the slots handed out later. A
 	/// discard only looks at those.
 	reused_slots: usize,
 }
@@ -897,31 +932,28 @@ impl<L: TrieLayout> NodeStorage<L> for AppendOnlyNodeStorage<L> {
 					newest.untouched_free_slots.min(self.free_indices.len());
 			}
 			if idx < self.frozen_below {
-				self.log_reuse(idx);
+				self.reuse_log.push(idx);
 			}
 			self.nodes[idx] = stored;
 			StorageHandle(idx)
 		} else {
 			self.nodes.push(stored);
-			self.reuse_positions.push(None);
-			debug_assert_eq!(self.reuse_positions.len(), self.nodes.len());
+			self.reuse_log.grow_arena();
+			debug_assert_eq!(self.reuse_log.positions.len(), self.nodes.len());
 			StorageHandle(self.nodes.len() - 1)
 		}
 	}
 
 	fn destroy(&mut self, handle: StorageHandle) -> Stored<L> {
-		let idx = handle.0;
-		if idx < self.frozen_below {
-			match self.reuse_after_newest_mark(idx) {
-				Some(position) => self.unlog_reuse(position),
-				None => {
-					self.dead_slots.push(idx);
-					return self.nodes[idx].clone()
-				},
-			}
+		let index = handle.0;
+		if index < self.frozen_below &&
+			!self.reuse_log.remove_if_logged_since(index, self.reused_at_newest_mark())
+		{
+			self.dead_slots.push(index);
+			return self.nodes[index].clone()
 		}
-		self.free_indices.push(idx);
-		mem::replace(&mut self.nodes[idx], Stored::New(Node::Empty))
+		self.free_indices.push(index);
+		mem::replace(&mut self.nodes[index], Stored::New(Node::Empty))
 	}
 
 	fn retire(&mut self, _hash: TrieHash<L>, _prefix: (BackingByteVec, Option<u8>)) {}
