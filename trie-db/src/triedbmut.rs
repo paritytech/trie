@@ -703,8 +703,9 @@ impl<'a, L: TrieLayout> Index<&'a StorageHandle> for CommittingNodeStorage<L> {
 	}
 }
 
-/// Source of [`AppendOnlyNodeStorage::id`]; never reset, so no two storages share an id.
-static NEXT_STORAGE_ID: AtomicU64 = AtomicU64::new(1);
+/// Sequence of the next [`StorageMark`]. Shared by all storages, so a mark taken from another
+/// storage is never live in this one.
+static NEXT_MARK: AtomicU64 = AtomicU64::new(0);
 
 /// Storage whose nodes below the newest mark are never overwritten, so truncating `nodes` back to
 /// the length of a mark restores the trie as it was then: a node written before a mark only
@@ -717,11 +718,7 @@ static NEXT_STORAGE_ID: AtomicU64 = AtomicU64::new(1);
 /// Retired database nodes are forgotten: this storage is never committed, and a rollback could
 /// not undo a death row.
 struct AppendOnlyNodeStorage<L: TrieLayout> {
-	/// Unique to this storage, so a mark taken from another storage is recognised.
-	id: u64,
 	nodes: Vec<Stored<L>>,
-	/// Sequence number of the next mark.
-	next_mark: u64,
 	/// The marks that can still be rewound to, oldest first.
 	live_marks: Vec<StorageMark>,
 	/// Lowest length of `free_indices` while each live mark was the newest, same order. A rewind to
@@ -745,9 +742,7 @@ struct AppendOnlyNodeStorage<L: TrieLayout> {
 impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 	fn empty() -> Self {
 		Self {
-			id: NEXT_STORAGE_ID.fetch_add(1, Ordering::Relaxed),
 			nodes: Vec::new(),
-			next_mark: 0,
 			live_marks: Vec::new(),
 			free_slots_low: Vec::new(),
 			frozen_below: 0,
@@ -760,12 +755,9 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 
 	fn mark(&mut self) -> StorageMark {
 		self.frozen_below = self.nodes.len();
-		let sequence = self.next_mark;
-		self.next_mark = sequence.checked_add(1).expect("Append-only mark sequence exhausted");
 		let mark = StorageMark {
-			storage_id: self.id,
 			nodes: self.nodes.len(),
-			sequence,
+			sequence: NEXT_MARK.fetch_add(1, Ordering::Relaxed),
 			dead_slots: self.dead_slots.len(),
 			reused_slots: self.reused_slots.len(),
 		};
@@ -777,9 +769,6 @@ impl<L: TrieLayout> AppendOnlyNodeStorage<L> {
 
 	/// Position of `mark` in the live marks, if it can still be rewound to.
 	fn live_position(&self, mark: &StorageMark) -> core::result::Result<usize, InvalidSnapshot> {
-		if mark.storage_id != self.id {
-			return Err(InvalidSnapshot)
-		}
 		self.live_marks
 			.binary_search_by_key(&mark.sequence, |live| live.sequence)
 			.map_err(|_| InvalidSnapshot)
@@ -883,8 +872,6 @@ impl std::error::Error for InvalidSnapshot {}
 /// Where an [`AppendOnlyNodeStorage`] stood when a snapshot was taken.
 #[derive(Clone, Copy)]
 struct StorageMark {
-	/// The storage the mark was taken from; a mark from another storage is refused.
-	storage_id: u64,
 	/// Arena length at the mark. A rewind cuts the arena back to it, and the freeze line returns
 	/// to it after a rewind or a discard.
 	nodes: usize,
