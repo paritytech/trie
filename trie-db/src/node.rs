@@ -252,19 +252,18 @@ pub enum NodeOwned<H> {
 ///
 /// The fields stay private so that every access goes through the nibble-indexed API.
 #[derive(Eq, PartialEq, Clone)]
-#[cfg_attr(feature = "std", derive(Debug))]
 pub struct ChildrenNodesOwned<H> {
 	/// The existing children, by ascending nibble. Every slot is `Some`: the `Option` costs no
 	/// space (niche) and lets [`Self::iter`] hand out `&Option<_>`.
 	///
-	/// A boxed slice rather than a `Vec`: no spare capacity, so [`Self::heap_size`] is exact.
+	/// A boxed slice rather than a `Vec`: no spare capacity, so the buffer is exactly `len` slots.
 	present: Box<[Option<NodeHandleOwned<H>>]>,
 	/// Four bits per nibble: the position in `present` of that nibble's child, [`NO_CHILD`] if
 	/// it has none.
 	///
-	/// `NO_CHILD` needs no flag of its own: it is only stored when a child is missing, and
-	/// `present` is then too short for it to be a position. A lookup is thus a shift and a
-	/// bounds-checked read, with no population count (slow on baseline x86-64).
+	/// `NO_CHILD` needs no flag of its own: 0xf is also position 15, which only a full branch
+	/// has. Whenever a child is missing `present` holds at most 15 entries, so reading position
+	/// 15 misses. A lookup is thus a shift, a mask and a bounds-checked read - no bitmap rank.
 	slots: u64,
 }
 
@@ -291,7 +290,7 @@ impl<H> ChildrenNodesOwned<H> {
 		let mut present = Vec::with_capacity(childs.iter().flatten().count());
 		for (nibble, child) in childs.iter().enumerate() {
 			if let Some(child) = child {
-				// Clears the bits `NO_CHILD` and `position` differ in.
+				// The entry is still `NO_CHILD`; XOR with the difference turns it into `position`.
 				slots ^= (NO_CHILD ^ position) << (nibble * SLOT_BITS);
 				position += 1;
 				present.push(Some(child.to_owned_handle::<L>()?));
@@ -331,8 +330,10 @@ impl<H> ChildrenNodesOwned<H> {
 	}
 
 	/// Returns the existing children with their nibble, by ascending nibble.
-	fn existing(&self) -> impl Iterator<Item = (u8, &NodeHandleOwned<H>)> {
-		(0u8..).zip(self.iter()).filter_map(|(i, child)| Some((i, child.as_ref()?)))
+	fn existing(&self) -> impl Iterator<Item = (Option<u8>, &NodeHandleOwned<H>)> {
+		(0u8..)
+			.zip(self.iter())
+			.filter_map(|(i, child)| Some((Some(i), child.as_ref()?)))
 	}
 
 	/// Returns the bytes this holds on the heap, inline child nodes included.
@@ -340,6 +341,14 @@ impl<H> ChildrenNodesOwned<H> {
 		// A child that isn't an inline node lives entirely in its slot.
 		let inline = self.present.iter().flatten().filter_map(NodeHandleOwned::as_inline);
 		mem::size_of_val(&*self.present) + inline.map(NodeOwned::size_in_bytes).sum::<usize>()
+	}
+}
+
+#[cfg(feature = "std")]
+impl<H: core::fmt::Debug> core::fmt::Debug for ChildrenNodesOwned<H> {
+	/// Lists all nibbles, so that each child reads at its own.
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		f.debug_list().entries(self.iter()).finish()
 	}
 }
 
@@ -384,8 +393,7 @@ where
 				(None, Some(children)),
 		};
 		let single = single.into_iter().map(|child| (None, child));
-		let children = children.into_iter().flat_map(ChildrenNodesOwned::existing);
-		single.chain(children.map(|(nibble, child)| (Some(nibble), child)))
+		single.chain(children.into_iter().flat_map(ChildrenNodesOwned::existing))
 	}
 
 	/// Returns the hash of the data attached to this node.

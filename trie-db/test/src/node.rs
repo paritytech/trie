@@ -17,7 +17,7 @@ use std::mem::size_of;
 use trie_db::{
 	nibble_ops::NIBBLE_LENGTH,
 	node::{Node, NodeHandle, NodeHandleOwned, NodeOwned, Value},
-	NibbleSlice, NodeCodec, TrieHash, TrieLayout,
+	ChildReference, NibbleSlice, NodeCodec, TrieHash, TrieLayout,
 };
 
 type Hash = TrieHash<ExtensionLayout>;
@@ -43,6 +43,15 @@ fn branch(hashes: &[usize], inlines: &[usize], leaf: &[u8]) -> Owned {
 
 fn all() -> Vec<usize> {
 	(0..NIBBLE_LENGTH).collect()
+}
+
+/// A different hash for each nibble, so a child can be told from its siblings.
+fn distinct_hashes() -> Vec<Hash> {
+	(0u8..16).map(|nibble| [nibble; 32]).collect()
+}
+
+fn owned(node: Node) -> Owned {
+	node.to_owned_node::<ExtensionLayout>().unwrap()
 }
 
 #[test]
@@ -98,8 +107,9 @@ fn children_keep_their_nibble() {
 	for i in all() {
 		let expect_hash = hashes.contains(&i);
 		let expect_inline = inlines.contains(&i);
-		assert_eq!(children.get(i), slots[i].as_ref(), "nibble {i}");
-		match children.get(i) {
+		let child = children.get(i);
+		assert_eq!(child, slots[i].as_ref(), "nibble {i}");
+		match child {
 			Some(NodeHandleOwned::Hash(h)) => assert!(expect_hash && h == &HASH, "nibble {}", i),
 			Some(NodeHandleOwned::Inline(_)) => assert!(expect_inline, "nibble {}", i),
 			None => assert!(!expect_hash && !expect_inline, "nibble {}", i),
@@ -107,8 +117,6 @@ fn children_keep_their_nibble() {
 	}
 	assert!(children.get(NIBBLE_LENGTH).is_none());
 	assert!(children.get(usize::MAX).is_none());
-	// One past the last existing child.
-	assert_eq!(children.allocated_len(), 16);
 
 	let nibbles: Vec<_> = node.child_iter().map(|(nibble, _)| nibble.unwrap()).collect();
 	assert_eq!(nibbles, [0, 1, 4, 9, 15]);
@@ -123,13 +131,63 @@ fn allocated_len_is_one_past_the_last_child() {
 }
 
 #[test]
-fn owned_branch_encodes_like_the_borrowed_one() {
-	let leaf = inline_leaf();
-	for (hashes, inlines) in [(&[][..], &[][..]), (&[0, 15], &[]), (&[3], &[2, 8]), (&all(), &[])] {
-		let node = branch(hashes, inlines, &leaf);
-		let encoded = node.to_encoded::<Codec>();
-		let decoded = Codec::decode(&encoded).unwrap().to_owned_node::<ExtensionLayout>().unwrap();
-		assert!(decoded == node, "children at {:?} / {:?}", hashes, inlines);
-		assert_eq!(decoded.child_iter().count(), hashes.len() + inlines.len());
+fn every_child_keeps_its_nibble_for_every_presence_pattern() {
+	let hashes = distinct_hashes();
+	for mask in 0..=u16::MAX {
+		let exists = |i: &usize| mask & (1 << i) != 0;
+		let mut children = [None; NIBBLE_LENGTH];
+		for i in all().into_iter().filter(exists) {
+			children[i] = Some(NodeHandle::Hash(&hashes[i]));
+		}
+		let node = owned(Node::Branch(children, None));
+		let NodeOwned::Branch(children, None) = &node else { panic!("expected a branch") };
+
+		let expected: Vec<_> = all()
+			.iter()
+			.map(|i| exists(i).then(|| NodeHandleOwned::Hash(hashes[*i])))
+			.collect();
+		for i in all() {
+			assert_eq!(children.get(i), expected[i].as_ref(), "mask {:#06x}, nibble {}", mask, i);
+		}
+		assert!(children.iter().eq(expected.iter()), "mask {:#06x}", mask);
+		let existing: Vec<_> = node.child_iter().map(|(nibble, _)| nibble.unwrap()).collect();
+		let nibbles: Vec<_> = (0u8..16).zip(&expected).filter(|(_, c)| c.is_some()).collect();
+		assert!(existing.iter().eq(nibbles.iter().map(|(n, _)| n)), "mask {:#06x}", mask);
+		let last = all().into_iter().filter(exists).last();
+		assert_eq!(children.allocated_len(), last.map_or(0, |i| i + 1), "mask {:#06x}", mask);
+		assert_eq!(node.size_in_bytes(), size_of::<Owned>() + existing.len() * SLOT);
 	}
+}
+
+#[test]
+fn owned_branch_encodes_like_the_borrowed_one() {
+	let hashes = distinct_hashes();
+	for mask in [0u16, 0x0001, 0x8001, 0x0105, 0x7fff, 0xfffe, u16::MAX] {
+		let children = all().into_iter().map(|i| {
+			let exists = mask & (1 << i) != 0;
+			exists.then(|| ChildReference::Hash(hashes[i]))
+		});
+		let borrowed = Codec::branch_node(children, None);
+		let node = owned(Codec::decode(&borrowed).unwrap());
+		assert_eq!(node.to_encoded::<Codec>(), borrowed, "mask {:#06x}", mask);
+	}
+}
+
+#[test]
+fn owned_branch_with_inline_children_survives_its_encoding() {
+	let leaf = inline_leaf();
+	let node = branch(&[3], &[2, 8], &leaf);
+	let decoded = owned(Codec::decode(&node.to_encoded::<Codec>()).unwrap());
+	assert_eq!(decoded, node);
+	assert_eq!(decoded.child_iter().count(), 3);
+}
+
+#[test]
+fn debug_shows_each_child_at_its_nibble() {
+	let NodeOwned::Branch(children, _) = branch(&[1], &[], &[]) else {
+		panic!("expected a branch")
+	};
+	let debug = format!("{:?}", children);
+	assert!(debug.starts_with("[None, Some(Hash("), "{}", debug);
+	assert_eq!(debug.matches("None").count(), NIBBLE_LENGTH - 1, "{}", debug);
 }
