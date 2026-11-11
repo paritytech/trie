@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog].
   it no longer panics or deletes the stored key's value.
 - `TrieDBMut` writes the caller's root only in `commit`: removing the last key no longer writes
   the empty root before the trie is committed.
+- Fix `NodeOwned::size_in_bytes` not counting the heap buffer holding a branch's children, so a
+  `TrieCache` sized with it held more memory than its budget.
+  [#251](https://github.com/paritytech/trie/issues/251)
+- `ChildrenNodesOwned` stores only the existing children plus a nibble-to-child index, instead
+  of every slot up to the last existing child: a branch with children at nibbles 0 and 15 holds 2
+  slots rather than 16. `allocated_len` still returns one past the last existing child.
 
 ## [0.32.0] - 2026-08-19
 - Fix the item count returned by `decode_compact`/`decode_compact_from_iter` when the last

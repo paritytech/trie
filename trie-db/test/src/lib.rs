@@ -25,6 +25,8 @@ mod iter_build;
 #[cfg(test)]
 mod iterator;
 #[cfg(test)]
+mod node;
+#[cfg(test)]
 mod proof;
 #[cfg(test)]
 mod recorder;
