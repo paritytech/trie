@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use core::iter;
-
 use crate::{
 	nibble::{self, nibble_ops, NibbleSlice, NibbleVec},
 	node_codec::NodeCodec,
@@ -211,63 +209,15 @@ impl Node<'_> {
 			Self::Leaf(n, d) => Ok(NodeOwned::Leaf((*n).into(), d.to_owned_value::<L>())),
 			Self::Extension(n, h) =>
 				Ok(NodeOwned::Extension((*n).into(), h.to_owned_handle::<L>()?)),
-			Self::Branch(childs, data) => {
-				let childs_owned = if let Some(last_existing_child_index) =
-					childs.iter().rposition(Option::is_some)
-				{
-					let mut childs_owned = Vec::with_capacity(last_existing_child_index + 1);
-
-					childs
-						.iter()
-						.enumerate()
-						.map(|(i, c)| {
-							if i <= last_existing_child_index {
-								childs_owned.push(
-									c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?,
-								);
-							}
-							Ok(())
-						})
-						.collect::<Result<Vec<()>, _, _>>()?;
-					childs_owned
-				} else {
-					Vec::with_capacity(0)
-				};
-
-				Ok(NodeOwned::Branch(
-					ChildrenNodesOwned(childs_owned),
-					data.as_ref().map(|d| d.to_owned_value::<L>()),
-				))
-			},
-			Self::NibbledBranch(n, childs, data) => {
-				let childs_owned = if let Some(last_existing_child_index) =
-					childs.iter().rposition(Option::is_some)
-				{
-					let mut childs_owned = Vec::with_capacity(last_existing_child_index + 1);
-
-					childs
-						.iter()
-						.enumerate()
-						.map(|(i, c)| {
-							if i <= last_existing_child_index {
-								childs_owned.push(
-									c.as_ref().map(|c| c.to_owned_handle::<L>()).transpose()?,
-								);
-							}
-							Ok(())
-						})
-						.collect::<Result<Vec<()>, _, _>>()?;
-					childs_owned
-				} else {
-					Vec::with_capacity(0)
-				};
-
-				Ok(NodeOwned::NibbledBranch(
-					(*n).into(),
-					ChildrenNodesOwned(childs_owned),
-					data.as_ref().map(|d| d.to_owned_value::<L>()),
-				))
-			},
+			Self::Branch(childs, data) => Ok(NodeOwned::Branch(
+				ChildrenNodesOwned::from_handles::<L>(childs)?,
+				data.as_ref().map(|d| d.to_owned_value::<L>()),
+			)),
+			Self::NibbledBranch(n, childs, data) => Ok(NodeOwned::NibbledBranch(
+				(*n).into(),
+				ChildrenNodesOwned::from_handles::<L>(childs)?,
+				data.as_ref().map(|d| d.to_owned_value::<L>()),
+			)),
 		}
 	}
 }
@@ -296,24 +246,73 @@ pub enum NodeOwned<H> {
 
 /// Owned children of a node.
 ///
-/// The maximum size of the children is `nibble_ops::NIBBLE_LENGTH`, in order to save memory we
-/// represent only the children until the last missing one. For example, if the children are
-/// `[Some(_), None, Some(_), None, None, None, None, None None, None, None, None, None, None, None,
-/// None]` we will only store in the vector `[Some(_), None, Some(_)]`.
+/// Only the existing children are stored, in nibble order; `slots` maps a nibble to its child.
+/// A branch with children at nibbles 0 and 15 pays for two slots, not sixteen, which is what
+/// keeps sparse branches cheap in the `TrieCache`.
 ///
-/// This is useful to save space in the TrieCache when the children are not fully populated.
-///
-/// Before this struct was introduced, the children were stored in a fixed size array of length
-/// `nibble_ops::NIBBLE_LENGTH`, to make sure there aren't any direct accesses to the array that
-/// we've missed, wrap it in its own struct, rather than directly use the `Vec`.
+/// The fields stay private so that every access goes through the nibble-indexed API.
 #[derive(Eq, PartialEq, Clone)]
 #[cfg_attr(feature = "std", derive(Debug))]
-pub struct ChildrenNodesOwned<H>(Vec<Option<NodeHandleOwned<H>>>);
+pub struct ChildrenNodesOwned<H> {
+	/// The existing children, by ascending nibble. Every slot is `Some`: the `Option` costs no
+	/// space (niche) and lets [`Self::iter`] hand out `&Option<_>`.
+	///
+	/// A boxed slice rather than a `Vec`: no spare capacity, so [`Self::heap_size`] is exact.
+	present: Box<[Option<NodeHandleOwned<H>>]>,
+	/// Four bits per nibble: the position in `present` of that nibble's child, [`NO_CHILD`] if
+	/// it has none.
+	///
+	/// `NO_CHILD` needs no flag of its own: it is only stored when a child is missing, and
+	/// `present` is then too short for it to be a position. A lookup is thus a shift and a
+	/// bounds-checked read, with no population count (slow on baseline x86-64).
+	slots: u64,
+}
+
+/// The [`ChildrenNodesOwned::slots`] entry of a nibble without a child.
+const NO_CHILD: u64 = 0xf;
+/// Width in bits of a [`ChildrenNodesOwned::slots`] entry.
+const SLOT_BITS: usize = 4;
+
+// `slots` holds one entry per nibble, and `NO_CHILD` is the last position of a full branch.
+const _: () = assert!(nibble_ops::NIBBLE_LENGTH * SLOT_BITS == u64::BITS as usize);
+const _: () = assert!(NO_CHILD as usize == nibble_ops::NIBBLE_LENGTH - 1);
 
 impl<H> ChildrenNodesOwned<H> {
+	/// Converts the children of a [`Node`] into their owned version.
+	fn from_handles<L>(
+		childs: &[Option<NodeHandle<'_>>; nibble_ops::NIBBLE_LENGTH],
+	) -> Result<Self, H, CError<L>>
+	where
+		L: TrieLayout,
+		L::Hash: Hasher<Out = H>,
+	{
+		let mut slots = u64::MAX;
+		let mut position = 0;
+		let mut present = Vec::with_capacity(childs.iter().flatten().count());
+		for (nibble, child) in childs.iter().enumerate() {
+			if let Some(child) = child {
+				// Clears the bits `NO_CHILD` and `position` differ in.
+				slots ^= (NO_CHILD ^ position) << (nibble * SLOT_BITS);
+				position += 1;
+				present.push(Some(child.to_owned_handle::<L>()?));
+			}
+		}
+		Ok(Self { present: present.into_boxed_slice(), slots })
+	}
+
+	/// The slot of the child at nibble `index`, if it exists.
+	fn slot(&self, index: usize) -> Option<&Option<NodeHandleOwned<H>>> {
+		if index >= nibble_ops::NIBBLE_LENGTH {
+			return None
+		}
+		// At most 15: lossless.
+		let position = ((self.slots >> (index * SLOT_BITS)) & NO_CHILD) as usize;
+		self.present.get(position)
+	}
+
 	/// Returns the child at the given index.
 	pub fn get(&self, index: usize) -> Option<&NodeHandleOwned<H>> {
-		self.0.get(index).and_then(|node| node.as_ref())
+		self.slot(index).and_then(Option::as_ref)
 	}
 
 	/// Returns an iterator over all children.
@@ -321,12 +320,26 @@ impl<H> ChildrenNodesOwned<H> {
 	/// The size of the iterator is always constant goes up to `nibble_ops::NIBBLE_LENGTH`, with
 	/// None representing the missing children.
 	pub fn iter(&self) -> impl Iterator<Item = &Option<NodeHandleOwned<H>>> {
-		self.0.iter().chain(iter::repeat(&None)).take(nibble_ops::NIBBLE_LENGTH)
+		(0..nibble_ops::NIBBLE_LENGTH).map(move |index| self.slot(index).unwrap_or(&None))
 	}
 
-	/// Returns the number of allocated children.
+	/// Returns one past the index of the last existing child: [`Self::get`] is `None` from here
+	/// on.
 	pub fn allocated_len(&self) -> usize {
-		self.0.len()
+		let last = (0..nibble_ops::NIBBLE_LENGTH).rev().find(|i| self.slot(*i).is_some());
+		last.map_or(0, |i| i + 1)
+	}
+
+	/// Returns the existing children with their nibble, by ascending nibble.
+	fn existing(&self) -> impl Iterator<Item = (u8, &NodeHandleOwned<H>)> {
+		(0u8..).zip(self.iter()).filter_map(|(i, child)| Some((i, child.as_ref()?)))
+	}
+
+	/// Returns the bytes this holds on the heap, inline child nodes included.
+	fn heap_size(&self) -> usize {
+		// A child that isn't an inline node lives entirely in its slot.
+		let inline = self.present.iter().flatten().filter_map(NodeHandleOwned::as_inline);
+		mem::size_of_val(&*self.present) + inline.map(NodeOwned::size_in_bytes).sum::<usize>()
 	}
 }
 
@@ -364,48 +377,15 @@ where
 
 	/// Returns an iterator over all existing children with their optional nibble.
 	pub fn child_iter(&self) -> impl Iterator<Item = (Option<u8>, &NodeHandleOwned<H>)> {
-		enum ChildIter<'a, H> {
-			Empty,
-			Single(&'a NodeHandleOwned<H>, bool),
-			Array(&'a ChildrenNodesOwned<H>, usize),
-		}
-
-		impl<'a, H> Iterator for ChildIter<'a, H> {
-			type Item = (Option<u8>, &'a NodeHandleOwned<H>);
-
-			fn next(&mut self) -> Option<Self::Item> {
-				loop {
-					match self {
-						Self::Empty => break None,
-						Self::Single(child, returned) =>
-							break if *returned {
-								None
-							} else {
-								*returned = true;
-								Some((None, child))
-							},
-						Self::Array(childs, index) =>
-							if *index >= childs.allocated_len() {
-								break None
-							} else {
-								*index += 1;
-
-								// Ignore non-existing childs.
-								if let Some(ref child) = childs.get(*index - 1) {
-									break Some((Some(*index as u8 - 1), child))
-								}
-							},
-					}
-				}
-			}
-		}
-
-		match self {
-			Self::Leaf(_, _) | Self::Empty | Self::Value(_, _) => ChildIter::Empty,
-			Self::Extension(_, child) => ChildIter::Single(child, false),
+		let (single, children) = match self {
+			Self::Leaf(_, _) | Self::Empty | Self::Value(_, _) => (None, None),
+			Self::Extension(_, child) => (Some(child), None),
 			Self::Branch(children, _) | Self::NibbledBranch(_, children, _) =>
-				ChildIter::Array(children, 0),
-		}
+				(None, Some(children)),
+		};
+		let single = single.into_iter().map(|child| (None, child));
+		let children = children.into_iter().flat_map(ChildrenNodesOwned::existing);
+		single.chain(children.map(|(nibble, child)| (Some(nibble), child)))
 	}
 
 	/// Returns the hash of the data attached to this node.
@@ -450,17 +430,6 @@ impl<H> NodeOwned<H> {
 	pub fn size_in_bytes(&self) -> usize {
 		let self_size = mem::size_of::<Self>();
 
-		fn childs_size<'a, H: 'a>(
-			childs: impl Iterator<Item = &'a Option<NodeHandleOwned<H>>>,
-		) -> usize {
-			// If a `child` isn't an inline node, its size is already taken account for by
-			// `self_size`.
-			childs
-				.filter_map(|c| c.as_ref())
-				.map(|c| c.as_inline().map_or(0, |n| n.size_in_bytes()))
-				.sum()
-		}
-
 		// As `self_size` only represents the static size of `Self`, we also need
 		// to add the size of any dynamically allocated data.
 		let dynamic_size = match self {
@@ -474,11 +443,10 @@ impl<H> NodeOwned<H> {
 				nibbles.inner().len() + child.as_inline().map_or(0, |n| n.size_in_bytes())
 			},
 			Self::Branch(childs, value) =>
-				childs_size(childs.iter()) +
-					value.as_ref().and_then(|v| v.data()).map_or(0, |b| b.len()),
+				childs.heap_size() + value.as_ref().and_then(|v| v.data()).map_or(0, |b| b.len()),
 			Self::NibbledBranch(nibbles, childs, value) =>
 				nibbles.inner().len() +
-					childs_size(childs.iter()) +
+					childs.heap_size() +
 					value.as_ref().and_then(|v| v.data()).map_or(0, |b| b.len()),
 		};
 
