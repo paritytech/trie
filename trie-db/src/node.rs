@@ -323,8 +323,8 @@ impl<H> ChildrenNodesOwned<H> {
 		(0..nibble_ops::NIBBLE_LENGTH).map(move |index| self.slot(index).unwrap_or(&None))
 	}
 
-	/// Returns one past the index of the last existing child: [`Self::get`] is `None` from here
-	/// on.
+	/// Returns one past the index of the last existing child:
+	/// [`Self::get`] is `None` from here on.
 	pub fn allocated_len(&self) -> usize {
 		let last = (0..nibble_ops::NIBBLE_LENGTH).rev().find(|i| self.slot(*i).is_some());
 		last.map_or(0, |i| i + 1)
