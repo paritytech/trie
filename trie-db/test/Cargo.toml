@@ -15,7 +15,7 @@ harness = false
 trie-db = { path = "..", version = "0.32.0"}
 hash-db = { path = "../../hash-db", version = "0.16.0"}
 memory-db = { path = "../../memory-db", version = "0.34.0" }
-rand = { version = "0.8", default-features = false, features = ["small_rng"] }
+rand = { version = "0.10", default-features = false, features = ["small_rng"] }
 trie-standardmap = { path = "../../test-support/trie-standardmap", version = "0.16.0" }
 reference-trie = { path = "../../test-support/reference-trie", version = "0.29.0" }
 hex-literal = "0.4"
