@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use hash_db::Hasher;
 use memory_db::{HashKey, MemoryDB};
 use reference_trie::{RefFatDB, RefFatDBMut, RefHasher};
 use trie_db::{DBValue, Trie, TrieMut};
@@ -34,4 +35,17 @@ fn fatdb_to_trie() {
 		t.key_iter().unwrap().map(Result::unwrap).collect::<Vec<_>>(),
 		vec![vec![0x01u8, 0x23]]
 	);
+}
+
+#[test]
+fn fatdb_get_hash_uses_logical_key() {
+	let mut memdb = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
+	let mut root = Default::default();
+	{
+		let mut t = RefFatDBMut::new(&mut memdb, &mut root);
+		t.insert(b"key", b"value").unwrap();
+	}
+
+	let t = RefFatDB::new(&memdb, &root);
+	assert_eq!(t.get_hash(b"key").unwrap(), Some(RefHasher::hash(b"value")));
 }
