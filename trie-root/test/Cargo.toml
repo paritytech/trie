@@ -7,6 +7,7 @@ repository = "https://github.com/paritytech/trie"
 license = "Apache-2.0"
 categories = [ ]
 edition = "2018"
+publish = false
 
 [dependencies]
 trie-root = { path = "..", version = "0.18.0" }
