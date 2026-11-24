@@ -14,6 +14,4 @@ hash256-std-hasher = { path = "../../hash256-std-hasher", version = "0.15.2" }
 
 [features]
 default = ["std"]
-std = [
-  "hash-db/std",
-]
+std = []
