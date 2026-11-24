@@ -4,7 +4,9 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
-## [Unreleased]
+## [0.30.0] - 2026-11-24
+- Switch to `hash-db` 0.17 and `trie-db` 0.33. [#255](https://github.com/paritytech/trie/pull/255)
+- Update `criterion` to 0.8. [#244](https://github.com/paritytech/trie/pull/244)
 
 ## [0.29.1] - 2023-03-17
 - Add substrate trie layouts [#190](https://github.com/paritytech/trie/pull/190)

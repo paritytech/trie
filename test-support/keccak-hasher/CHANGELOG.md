@@ -4,6 +4,9 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
+## [0.17.0] - 2026-11-24
+- Switch to `hash-db` 0.17. [#255](https://github.com/paritytech/trie/pull/255)
+
 ## [0.16.0] - 2023-03-14
 - Switch to `hash-db` 0.16. [#188](https://github.com/paritytech/trie/pull/188)
 

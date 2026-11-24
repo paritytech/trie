@@ -4,9 +4,9 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
-## [Unreleased]
+## [0.33.0] - 2026-11-24
 - Fix `TrieDBMut::remove` of a key that does not exist but is a strict prefix of a stored key:
-  it no longer panics or deletes the stored key's value.
+  it no longer panics or deletes the stored key's value. [#249](https://github.com/paritytech/trie/pull/249)
 - Add `TransactionalTrieDBMut`, a trie that lives in memory only and supports transactions. It
   reads the backing database but never writes to it and never commits a root. The nodes a
   snapshot uses are never overwritten, so `snapshot` takes a `TrieDBMutSnapshot` in constant
@@ -19,9 +19,9 @@ The format is based on [Keep a Changelog].
   fails with `InvalidSnapshot`. So does rolling back to a snapshot after a rollback to a point
   before it. A failed rollback leaves the trie as it is. `discard_from` drops a snapshot and every
   snapshot taken after it, without changing the trie. The nodes only the dropped snapshots kept
-  alive are reused.
+  alive are reused. [#240](https://github.com/paritytech/trie/pull/240)
 - `TrieDBMut` writes the caller's root only in `commit`: removing the last key no longer writes
-  the empty root before the trie is committed.
+  the empty root before the trie is committed. [#250](https://github.com/paritytech/trie/pull/250)
 
 ## [0.32.0] - 2026-08-19
 - Fix the item count returned by `decode_compact`/`decode_compact_from_iter` when the last
