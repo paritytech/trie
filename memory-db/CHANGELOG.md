@@ -4,6 +4,10 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
+## [0.35.0] - 2026-11-24
+- Switch to `hash-db` 0.17. [#255](https://github.com/paritytech/trie/pull/255)
+- Update `foldhash` to 0.2. [#245](https://github.com/paritytech/trie/pull/245)
+
 ## [0.32.0] - 2023-03-14
 - Switch no_std storage to BtreeMap. [#188](https://github.com/paritytech/trie/pull/188)
 

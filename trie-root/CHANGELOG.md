@@ -4,8 +4,8 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
-## [Unreleased]
-
+## [0.19.0] - 2026-11-24
+- Switch to `hash-db` 0.17. [#255](https://github.com/paritytech/trie/pull/255)
 
 ## [0.18.0] - 2023-03-14
 - Update dependencies. [#188](https://github.com/paritytech/trie/pull/188) and [#187](https://github.com/paritytech/trie/pull/187)

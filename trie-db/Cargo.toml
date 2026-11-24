@@ -10,7 +10,7 @@ edition = "2018"
 [dependencies]
 log = "0.4"
 smallvec = { version = "1.0.0", features = ["union", "const_new"] }
-hash-db = { path = "../hash-db", default-features = false, version = "0.16.1"}
+hash-db = { path = "../hash-db", default-features = false, version = "0.17.0"}
 rustc-hex = { version = "2.1.0", default-features = false, optional = true }
 
 [features]
