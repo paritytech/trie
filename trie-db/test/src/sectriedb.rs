@@ -14,7 +14,7 @@
 
 use hash_db::Hasher;
 use memory_db::{HashKey, MemoryDB};
-use reference_trie::{RefHasher, RefSecTrieDB, RefTrieDBMutBuilder};
+use reference_trie::{RefHasher, RefSecTrieDB, RefSecTrieDBMut, RefTrieDBMutBuilder};
 use trie_db::{DBValue, Trie, TrieMut};
 
 #[test]
@@ -27,4 +27,17 @@ fn trie_to_sectrie() {
 	}
 	let t = RefSecTrieDB::new(&db, &root);
 	assert_eq!(t.get(&[0x01u8, 0x23]).unwrap().unwrap(), vec![0x01u8, 0x23]);
+}
+
+#[test]
+fn sectriedb_get_hash_uses_logical_key() {
+	let mut db = MemoryDB::<RefHasher, HashKey<_>, DBValue>::default();
+	let mut root = Default::default();
+	{
+		let mut t = RefSecTrieDBMut::new(&mut db, &mut root);
+		t.insert(b"key", b"value").unwrap();
+	}
+
+	let t = RefSecTrieDB::new(&db, &root);
+	assert_eq!(t.get_hash(b"key").unwrap(), Some(RefHasher::hash(b"value")));
 }
