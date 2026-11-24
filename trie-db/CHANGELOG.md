@@ -4,7 +4,7 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
-## [0.32.1] - 2026-11-24
+## [0.33.0] - 2026-11-24
 - Fix `TrieDBMut::remove` of a key that does not exist but is a strict prefix of a stored key:
   it no longer panics or deletes the stored key's value. [#249](https://github.com/paritytech/trie/pull/249)
 - Add `TransactionalTrieDBMut`, a trie that lives in memory only and supports transactions. It
